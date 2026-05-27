@@ -199,10 +199,13 @@
             {
                 <a href="@TabUrl(pack.Id)" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass(pack.Id)">@pack.TabName</a>
             }
+            @* Configuration tab is now read-only for every dashboard user (sections + per-detector
+               YAML/JSON viewer + full-config download). The commercial control-plane editor still
+               loads in-place when the operator is licensed - the gating happens inside the partial. *@
+            <a href="@TabUrl("configuration")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("configuration")">Configuration</a>
             @if (Model.IsCommercial)
             {
                 <a href="@TabUrl("compliance")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("compliance")">Compliance</a>
-                <a href="@TabUrl("configuration")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("configuration")">Configuration</a>
                 <a href="@TabUrl("investigate")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("investigate")">Investigate</a>
             }
         </div>

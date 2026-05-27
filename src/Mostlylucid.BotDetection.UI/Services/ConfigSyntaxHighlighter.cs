@@ -23,12 +23,14 @@ public static class ConfigSyntaxHighlighter
 {
     // YAML token regexes. Compiled once; YAML grammar is intentionally narrow here -
     // we only highlight the subset that appears in detector manifests + appsettings.
-    private static readonly Regex CommentRx = new(@"#.*$", RegexOptions.Compiled);
+    // `~` (YAML null) isn't in the bool/null regex because \b only matches between
+    // \w and \W and `~` is itself \W; if we ever need to highlight tilde-null we
+    // would need a separate pattern without word boundaries.
     private static readonly Regex KeyRx = new(@"^(\s*)([\w\.\-/]+)(\s*:)", RegexOptions.Compiled);
     private static readonly Regex ListItemRx = new(@"^(\s*)(-)(\s|$)", RegexOptions.Compiled);
     private static readonly Regex StringRx = new("\"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\"|'[^'\\\\]*(\\\\.[^'\\\\]*)*'", RegexOptions.Compiled);
     private static readonly Regex NumberRx = new(@"(?<![\w.])-?\d+(\.\d+)?([eE][+-]?\d+)?(?![\w.])", RegexOptions.Compiled);
-    private static readonly Regex BoolNullRx = new(@"\b(true|false|null|~|yes|no|on|off)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex BoolNullRx = new(@"\b(true|false|null|yes|no|on|off)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>
     ///     Highlight a YAML document. Output is HTML-escaped and wrapped in
@@ -61,7 +63,6 @@ public static class ConfigSyntaxHighlighter
         var comment = commentStart < 0 ? null : line[commentStart..];
 
         var remaining = code;
-        var emittedKey = false;
 
         // Key: prefix
         var keyMatch = KeyRx.Match(remaining);
@@ -71,7 +72,6 @@ public static class ConfigSyntaxHighlighter
             sb.Append("<span class=\"tok-key\">").Append(HtmlEncoder.Default.Encode(keyMatch.Groups[2].Value)).Append("</span>");
             sb.Append("<span class=\"tok-punct\">").Append(HtmlEncoder.Default.Encode(keyMatch.Groups[3].Value)).Append("</span>");
             remaining = remaining[keyMatch.Length..];
-            emittedKey = true;
         }
         else
         {
@@ -87,7 +87,7 @@ public static class ConfigSyntaxHighlighter
         }
 
         // After the key/dash leader, highlight the value portion.
-        HighlightYamlValue(remaining, sb, emittedKey);
+        HighlightYamlValue(remaining, sb);
 
         if (comment is not null)
             sb.Append("<span class=\"tok-comment\">").Append(HtmlEncoder.Default.Encode(comment)).Append("</span>");
@@ -112,12 +112,14 @@ public static class ConfigSyntaxHighlighter
         return -1;
     }
 
-    private static void HighlightYamlValue(string value, StringBuilder sb, bool keyEmitted)
+    private static void HighlightYamlValue(string value, StringBuilder sb)
     {
         if (value.Length == 0) return;
 
         // Tokenize: strings → numbers → bool/null → plain text.
-        // Track byte positions so we can interleave correctly.
+        // Order matters: strings have the strongest claim (bool words inside a
+        // quoted string must not be coloured), so they go in first, then numbers
+        // and bool/null skip any range that overlaps a previously-claimed span.
         var spans = new List<(int Start, int Len, string Class)>();
         foreach (Match m in StringRx.Matches(value)) spans.Add((m.Index, m.Length, "tok-str"));
         foreach (Match m in NumberRx.Matches(value))
@@ -140,8 +142,6 @@ public static class ConfigSyntaxHighlighter
             cursor = start + len;
         }
         if (cursor < value.Length) sb.Append(HtmlEncoder.Default.Encode(value[cursor..]));
-
-        _ = keyEmitted; // reserved for future per-key dimming
     }
 
     private static bool Overlaps(List<(int Start, int Len, string Class)> spans, int start, int len)
@@ -180,9 +180,7 @@ public static class ConfigSyntaxHighlighter
                 AppendJsonPunct(sb, between);
             }
 
-            var (tokenLen, cls) = EmitJsonToken(reader, bytes, sb);
-            lastTokenEnd = tokenStart + tokenLen;
-            _ = cls;
+            lastTokenEnd = tokenStart + EmitJsonToken(reader, bytes, sb);
         }
 
         // Trailing whitespace/punctuation after the last token.
@@ -195,7 +193,13 @@ public static class ConfigSyntaxHighlighter
         return sb.ToString();
     }
 
-    private static (int TokenLen, string Cls) EmitJsonToken(Utf8JsonReader reader, byte[] bytes, StringBuilder sb)
+    /// <summary>
+    ///     Emit the highlight markup for one JSON token and return the number of
+    ///     source bytes the token occupied (so the caller can advance the cursor).
+    ///     We always read from a complete single-segment byte[] so the reader's
+    ///     value span is always contiguous - no need to fall back to HasValueSequence.
+    /// </summary>
+    private static int EmitJsonToken(Utf8JsonReader reader, byte[] bytes, StringBuilder sb)
     {
         var start = (int)reader.TokenStartIndex;
         switch (reader.TokenType)
@@ -204,46 +208,50 @@ public static class ConfigSyntaxHighlighter
             case JsonTokenType.EndObject:
             case JsonTokenType.StartArray:
             case JsonTokenType.EndArray:
-            {
-                var ch = (char)bytes[start];
-                sb.Append("<span class=\"tok-punct\">").Append(ch).Append("</span>");
-                return (1, "tok-punct");
-            }
+                sb.Append("<span class=\"tok-punct\">").Append((char)bytes[start]).Append("</span>");
+                return 1;
+
             case JsonTokenType.PropertyName:
-            {
-                // ValueSpan excludes the surrounding quotes; include them in the highlight.
-                var len = reader.HasValueSequence ? (int)reader.ValueSequence.Length : reader.ValueSpan.Length;
-                var raw = Encoding.UTF8.GetString(bytes, start, len + 2); // include quotes
-                sb.Append("<span class=\"tok-key\">").Append(HtmlEncoder.Default.Encode(raw)).Append("</span>");
-                return (len + 2, "tok-key");
-            }
+                return EmitJsonQuoted(reader, bytes, start, sb, "tok-key");
+
             case JsonTokenType.String:
-            {
-                var len = reader.HasValueSequence ? (int)reader.ValueSequence.Length : reader.ValueSpan.Length;
-                var raw = Encoding.UTF8.GetString(bytes, start, len + 2);
-                sb.Append("<span class=\"tok-str\">").Append(HtmlEncoder.Default.Encode(raw)).Append("</span>");
-                return (len + 2, "tok-str");
-            }
+                return EmitJsonQuoted(reader, bytes, start, sb, "tok-str");
+
             case JsonTokenType.Number:
-            {
-                var len = reader.HasValueSequence ? (int)reader.ValueSequence.Length : reader.ValueSpan.Length;
-                var raw = Encoding.UTF8.GetString(bytes, start, len);
-                sb.Append("<span class=\"tok-num\">").Append(HtmlEncoder.Default.Encode(raw)).Append("</span>");
-                return (len, "tok-num");
-            }
+                {
+                    var len = reader.ValueSpan.Length;
+                    sb.Append("<span class=\"tok-num\">")
+                      .Append(HtmlEncoder.Default.Encode(Encoding.UTF8.GetString(bytes, start, len)))
+                      .Append("</span>");
+                    return len;
+                }
+
             case JsonTokenType.True:
+                sb.Append("<span class=\"tok-bool\">true</span>");
+                return 4;
             case JsonTokenType.False:
-            {
-                var len = reader.TokenType == JsonTokenType.True ? 4 : 5;
-                sb.Append("<span class=\"tok-bool\">").Append(reader.TokenType == JsonTokenType.True ? "true" : "false").Append("</span>");
-                return (len, "tok-bool");
-            }
+                sb.Append("<span class=\"tok-bool\">false</span>");
+                return 5;
             case JsonTokenType.Null:
                 sb.Append("<span class=\"tok-bool\">null</span>");
-                return (4, "tok-bool");
+                return 4;
+
             default:
-                return (0, "");
+                return 0;
         }
+    }
+
+    /// <summary>
+    ///     Emit a quoted JSON token (PropertyName or String). <c>ValueSpan</c>
+    ///     excludes the surrounding quotes, so we add 2 to include both.
+    /// </summary>
+    private static int EmitJsonQuoted(Utf8JsonReader reader, byte[] bytes, int start, StringBuilder sb, string cls)
+    {
+        var raw = Encoding.UTF8.GetString(bytes, start, reader.ValueSpan.Length + 2);
+        sb.Append("<span class=\"").Append(cls).Append("\">")
+          .Append(HtmlEncoder.Default.Encode(raw))
+          .Append("</span>");
+        return reader.ValueSpan.Length + 2;
     }
 
     private static void AppendJsonPunct(StringBuilder sb, string text)

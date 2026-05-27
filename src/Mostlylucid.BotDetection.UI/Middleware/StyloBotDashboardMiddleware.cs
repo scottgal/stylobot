@@ -105,7 +105,6 @@ public class StyloBotDashboardMiddleware
         "api/ua/search",
         "api/license",
         "api/config/manifests",
-        "api/config/schema",
         "api/config/sections",
         "api/config/effective",
         "api/endpoint-pins",
@@ -326,10 +325,6 @@ public class StyloBotDashboardMiddleware
 
             case "api/config/manifests":
                 await ServeConfigManifestsListAsync(context);
-                break;
-
-            case "api/config/schema":
-                await ServeConfigSchemaAsync(context);
                 break;
 
             case var p when p.StartsWith("api/config/manifests/", StringComparison.OrdinalIgnoreCase):
@@ -2914,16 +2909,6 @@ public class StyloBotDashboardMiddleware
             new { detectors = await editor.ListManifestsAsync(context.RequestAborted) }, CamelCaseJson);
     }
 
-    /// <summary><c>GET /api/config/schema</c> - JSON Schema for Monaco's YAML model binding.</summary>
-    private async Task ServeConfigSchemaAsync(HttpContext context)
-    {
-        context.Response.ContentType = "application/json";
-        // Hand-written schema covering the high-traffic 80% of manifest fields. Monaco
-        // will mark unknown keys as warnings, not errors - fine for the long tail
-        // (Triggers / Emits / Listens). Full schema is a follow-up.
-        await context.Response.WriteAsync(DetectorManifestJsonSchema);
-    }
-
     /// <summary>
     ///     Method-dispatched route for <c>/api/config/manifests/{slug}</c>:
     ///     GET = read, PUT = save override, DELETE = revert to embedded.
@@ -3027,8 +3012,7 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private async Task ServeConfigSectionAsync(HttpContext context, string sectionId)
     {
-        var opts = context.RequestServices
-            .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()?.Value;
+        var opts = ResolveBotDetectionOptions(context);
         if (opts is null) { context.Response.StatusCode = 503; return; }
 
         var json = EffectiveConfigSerializer.SerializeSection(opts, sectionId);
@@ -3060,8 +3044,7 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private async Task ServeConfigEffectiveAsync(HttpContext context)
     {
-        var opts = context.RequestServices
-            .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()?.Value;
+        var opts = ResolveBotDetectionOptions(context);
         if (opts is null) { context.Response.StatusCode = 503; return; }
 
         var json = EffectiveConfigSerializer.SerializeFull(opts);
@@ -3087,6 +3070,16 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsync(json);
     }
+
+    /// <summary>
+    ///     Resolve <see cref="BotDetectionOptions"/> from the request services. The
+    ///     three /api/config endpoints all need this; centralised so the null-handling
+    ///     story is the same in each one (503 when options aren't registered, which
+    ///     should only happen in a trimmed dashboard-only host).
+    /// </summary>
+    private static BotDetectionOptions? ResolveBotDetectionOptions(HttpContext context) =>
+        context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>()?.Value;
 
     /// <summary>
     ///     Wraps highlighted content in the markup the Configuration tab expects:
@@ -3209,93 +3202,6 @@ public class StyloBotDashboardMiddleware
         SaveOutcome.IoError => StatusCodes.Status500InternalServerError,
         _ => StatusCodes.Status500InternalServerError
     };
-
-    /// <summary>
-    ///     Hand-written JSON Schema covering the high-traffic 80% of manifest fields. Monaco's
-    ///     YAML language service binds this via <c>monaco-yaml</c> and offers completion +
-    ///     squiggly underlines. Unknown keys (Triggers/Emits/Listens/Escalation) are accepted
-    ///     because <c>additionalProperties</c> defaults to true.
-    /// </summary>
-    private const string DetectorManifestJsonSchema = """
-    {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "$id": "https://stylobot.net/schema/detector-manifest.json",
-      "title": "StyloBot Detector Manifest",
-      "type": "object",
-      "required": ["name"],
-      "properties": {
-        "name": { "type": "string", "description": "Detector class name (matches the C# IContributingDetector implementation)." },
-        "priority": { "type": "integer", "description": "Lower runs earlier. Wave-0 detectors use ≤20.", "minimum": 0 },
-        "enabled": { "type": "boolean", "description": "Disable a detector entirely without removing it." },
-        "description": { "type": "string" },
-        "scope": {
-          "type": "object",
-          "properties": {
-            "sink": { "type": "string" },
-            "coordinator": { "type": "string" },
-            "atom": { "type": "string" }
-          }
-        },
-        "taxonomy": {
-          "type": "object",
-          "properties": {
-            "kind": { "type": "string", "enum": ["sensor", "extractor", "proposer", "constrainer", "ranker"] },
-            "determinism": { "type": "string", "enum": ["deterministic", "probabilistic"] },
-            "persistence": { "type": "string", "enum": ["ephemeral", "escalatable", "direct_write"] }
-          }
-        },
-        "tags": { "type": "array", "items": { "type": "string" } },
-        "defaults": {
-          "type": "object",
-          "description": "All tunable values live here - no magic numbers in C#.",
-          "properties": {
-            "weights": {
-              "type": "object",
-              "properties": {
-                "base": { "type": "number" },
-                "bot_signal": { "type": "number" },
-                "human_signal": { "type": "number" },
-                "verified": { "type": "number" },
-                "early_exit": { "type": "number" }
-              }
-            },
-            "confidence": {
-              "type": "object",
-              "properties": {
-                "neutral": { "type": "number", "minimum": -1, "maximum": 1 },
-                "bot_detected": { "type": "number", "minimum": -1, "maximum": 1 },
-                "human_indicated": { "type": "number", "minimum": -1, "maximum": 1 },
-                "strong_signal": { "type": "number", "minimum": -1, "maximum": 1 },
-                "high_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
-                "low_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
-                "escalation_threshold": { "type": "number", "minimum": 0, "maximum": 1 }
-              }
-            },
-            "timing": {
-              "type": "object",
-              "properties": {
-                "timeout_ms": { "type": "integer", "minimum": 0 },
-                "cache_refresh_sec": { "type": "integer", "minimum": 0 }
-              }
-            },
-            "features": {
-              "type": "object",
-              "properties": {
-                "detailed_logging": { "type": "boolean" },
-                "enable_cache": { "type": "boolean" },
-                "can_early_exit": { "type": "boolean" },
-                "can_escalate": { "type": "boolean" }
-              }
-            },
-            "parameters": {
-              "type": "object",
-              "description": "Detector-specific knobs. See each manifest for the exact set."
-            }
-          }
-        }
-      }
-    }
-    """;
 
     /// <summary>Render the countries list partial with server-side sort and pagination.</summary>
     private async Task ServeCountriesPartialAsync(HttpContext context)

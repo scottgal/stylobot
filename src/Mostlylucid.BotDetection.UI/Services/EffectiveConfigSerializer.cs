@@ -18,10 +18,11 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     wall of JSON), leaf properties (scalars, enums, primitive collections) all live
 ///     under the synthetic "root" section.
 ///     <para>
-///         Secrets — anything whose property name matches
-///         <c>(?i)(secret|password|api[_-]?key|license[_-]?key|token|hash[_-]?key)</c>
-///         — are masked to <c>"***"</c> via a contract resolver modifier so a new
-///         sensitive field can't ship without redaction.
+///         Secrets are masked to <c>"***"</c> via two mechanisms: a contract-resolver
+///         modifier handles strongly-typed sections (so a new sensitive field can't
+///         ship without redaction), and a value-time guard inside <c>BuildRootBucket</c>
+///         catches the synthetic root dictionary (where the modifier can't see the
+///         original property names). See <see cref="SecretNameRegex"/> for the rule.
 ///     </para>
 /// </summary>
 public static class EffectiveConfigSerializer
@@ -56,24 +57,23 @@ public static class EffectiveConfigSerializer
     /// </summary>
     public static IReadOnlyList<ConfigSectionInfo> DiscoverSections()
     {
-        var list = new List<ConfigSectionInfo>
-        {
-            new(RootSectionId, "Root settings", null)
-        };
-
+        var complex = new List<ConfigSectionInfo>();
         foreach (var prop in typeof(BotDetectionOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (!prop.CanRead || prop.GetIndexParameters().Length > 0) continue;
             if (IsLeafType(prop.PropertyType)) continue;
             if (prop.GetCustomAttribute<ObsoleteAttribute>() is not null) continue;
 
-            list.Add(new ConfigSectionInfo(prop.Name, prop.Name, FormatTypeName(prop.PropertyType)));
+            complex.Add(new ConfigSectionInfo(prop.Name, prop.Name, FormatTypeName(prop.PropertyType)));
         }
+        complex.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase));
 
-        return list
-            .Take(1)
-            .Concat(list.Skip(1).OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase))
-            .ToList();
+        var result = new List<ConfigSectionInfo>(complex.Count + 1)
+        {
+            new(RootSectionId, "Root settings", null)
+        };
+        result.AddRange(complex);
+        return result;
     }
 
     /// <summary>Serialize a single section by id. Returns null for an unknown id.</summary>
@@ -101,8 +101,8 @@ public static class EffectiveConfigSerializer
     /// <summary>
     ///     Build a dictionary holding just the leaf-typed properties of
     ///     <see cref="BotDetectionOptions"/>. Used as the "root" section payload so
-    ///     the user can see top-level posture (BlockDetectedBots, BotThreshold, etc.)
-    ///     without scrolling past 30 nested objects.
+    ///     the user can see top-level posture (EnableTestMode, NonAiMaxProbability,
+    ///     allow flags, etc.) without scrolling past 30 nested objects.
     /// </summary>
     private static IDictionary<string, object?> BuildRootBucket(BotDetectionOptions options)
     {

@@ -58,16 +58,16 @@ public class EffectiveConfigSerializerTests
         var opts = new BotDetectionOptions
         {
             SignatureHashKey = "should-be-masked",
-            EnableUserAgentDetection = false,
-            BotThreshold = 0.42,
+            EnableTestMode = true,
+            NonAiMinProbability = 0.42,
         };
 
         var doc = ParseJson(EffectiveConfigSerializer.SerializeSection(opts, EffectiveConfigSerializer.RootSectionId)!);
         var root = doc.RootElement;
 
         root.GetProperty("signatureHashKey").GetString().Should().Be("***");
-        root.GetProperty("enableUserAgentDetection").GetBoolean().Should().BeFalse();
-        root.GetProperty("botThreshold").GetDouble().Should().BeApproximately(0.42, 1e-9);
+        root.GetProperty("enableTestMode").GetBoolean().Should().BeTrue();
+        root.GetProperty("nonAiMinProbability").GetDouble().Should().BeApproximately(0.42, 1e-9);
     }
 
     [Fact]
