@@ -63,23 +63,34 @@ public sealed class SignatureAggregateCache : Mostlylucid.BotDetection.Data.ISig
     {
         if (string.IsNullOrEmpty(primarySignature)) return;
         var now = DateTime.UtcNow;
-        _entries.TryAdd(primarySignature, new SignatureAggregate
+        var added = _entries.TryAdd(primarySignature, new SignatureAggregate
         {
             HitCount = 0,
             FirstSeen = now,
             LastSeen = now,
         });
+        if (added)
+            System.Console.WriteLine($"[ENSURE-ROW-NEW] sig={primarySignature[..Math.Min(8, primarySignature.Length)]}");
     }
 
     /// <inheritdoc />
     public void RecordLatestVector(string primarySignature, float[] vector)
     {
-        if (string.IsNullOrEmpty(primarySignature) || vector is not { Length: >= 118 }) return;
-        if (!_entries.TryGetValue(primarySignature, out var agg)) return;
+        if (string.IsNullOrEmpty(primarySignature) || vector is not { Length: >= 118 })
+        {
+            System.Console.WriteLine($"[VECTOR-SINK-SKIP] sig={primarySignature?[..Math.Min(8, primarySignature.Length)] ?? "<null>"} vecLen={vector?.Length ?? -1}");
+            return;
+        }
+        if (!_entries.TryGetValue(primarySignature, out var agg))
+        {
+            System.Console.WriteLine($"[VECTOR-SINK-NOROW] sig={primarySignature[..Math.Min(8, primarySignature.Length)]} vecLen={vector.Length}");
+            return;
+        }
         lock (agg.SyncRoot)
         {
             agg.LatestSessionVector = vector;
         }
+        System.Console.WriteLine($"[VECTOR-SINK-OK] sig={primarySignature[..Math.Min(8, primarySignature.Length)]} vecLen={vector.Length}");
     }
 
     /// <summary>
