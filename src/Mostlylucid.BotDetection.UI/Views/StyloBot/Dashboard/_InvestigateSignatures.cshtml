@@ -27,7 +27,7 @@
         var maxVal = double.MinValue;
         foreach (var v in values) { if (v < minVal) minVal = v; if (v > maxVal) maxVal = v; }
         var range = maxVal - minVal;
-        if (range <= 0) range = 1; // flat line — keep it centred
+        if (range <= 0) range = 1; // flat line - keep it centred
         var step = values.Count == 1 ? 0d : (double)width / (values.Count - 1);
         var pts = new System.Text.StringBuilder();
         for (var i = 0; i < values.Count; i++)

@@ -99,11 +99,11 @@
                             @if (p.Mode == ThreatIntelMode.Live && p.DailyQuota > 0)
                             { @($"{p.QuotaUsed}/{p.DailyQuota}") }
                             else
-                            { <span class="text-base-content/30">—</span> }
+                            { <span class="text-base-content/30">-</span> }
                         </td>
                         <td class="px-3 py-2">
                             @if (p.Mode != ThreatIntelMode.Live)
-                            { <span class="text-base-content/30">—</span> }
+                            { <span class="text-base-content/30">-</span> }
                             else if (p.BreakerOpenUntilUtc is { } o && o > DateTime.UtcNow)
                             { <span class="text-[10px] px-1 py-0.5 rounded bg-error/20 text-error">OPEN @Ago(o)</span> }
                             else
@@ -118,6 +118,6 @@
     <div class="text-[10px] text-base-content/40">
         Per-provider URLs, refresh cadence and quotas are configured under
         <code class="px-1 py-0.5 rounded bg-base-300/50">BotDetection:ThreatIntel:Providers:&lt;name&gt;</code>.
-        FOSS default: every provider disabled, master switch off — operator opts in per-provider.
+        FOSS default: every provider disabled, master switch off - operator opts in per-provider.
     </div>
 </div>

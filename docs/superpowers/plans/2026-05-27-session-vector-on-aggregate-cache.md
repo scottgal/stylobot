@@ -1,8 +1,8 @@
-# Session-vector on the aggregate cache — implementation plan
+# Session-vector on the aggregate cache - implementation plan
 
 **Goal:** Eliminate the radar polygon divergence between the home-card `<bot-detection-details>` and the dashboard signature-detail page by routing every reader through the existing `SignatureAggregateCache`. One signature → one cached vector → one polygon.
 
-**Architecture:** Add ONE new field (`LatestSessionVector`) to the existing `SignatureAggregate` class. The cache that already exists (`SignatureAggregateCache`, LFU + behaviour-based `EvictLfuBatch`) becomes the single source of truth for the per-signature vector. Existing writers that already produce a vector (`SessionVectorContributor` on orchestrator wave-30, `SessionAtomizerService` on session finalisation) update the field via the same `CreateNew` / `Update` paths they already use for other aggregate fields. Existing persistence (`SessionPersistenceService` writing on `SessionStore.SessionFinalized`) is unchanged — durability stays a side-effect, not a read path. Existing warmup (`SignatureAggregateCacheWarmupService` → `WarmFromDetections`) populates the field at startup from `latest.Vector` so the placeholder window is restart-only.
+**Architecture:** Add ONE new field (`LatestSessionVector`) to the existing `SignatureAggregate` class. The cache that already exists (`SignatureAggregateCache`, LFU + behaviour-based `EvictLfuBatch`) becomes the single source of truth for the per-signature vector. Existing writers that already produce a vector (`SessionVectorContributor` on orchestrator wave-30, `SessionAtomizerService` on session finalisation) update the field via the same `CreateNew` / `Update` paths they already use for other aggregate fields. Existing persistence (`SessionPersistenceService` writing on `SessionStore.SessionFinalized`) is unchanged - durability stays a side-effect, not a read path. Existing warmup (`SignatureAggregateCacheWarmupService` → `WarmFromDetections`) populates the field at startup from `latest.Vector` so the placeholder window is restart-only.
 
 **Tech stack:** .NET 10, `SignatureAggregateCache` (existing in `Mostlylucid.BotDetection.UI/Services/`), `SessionStore` + `ISessionStore` + `SessionPersistenceService` (existing in `Mostlylucid.BotDetection/Data/` + `Services/`).
 
@@ -20,15 +20,15 @@
 ## File structure
 
 **Modify:**
-- `src/Mostlylucid.BotDetection.UI/Services/SignatureAggregateCache.cs` — add field + write API + warmup wiring + thin `EnsureRow` for pre-orchestrator seed.
-- `src/Mostlylucid.BotDetection.UI/Middleware/DetectionBroadcastMiddleware.cs` — call `EnsureRow(primarySignature)` BEFORE invoking the inner orchestrator so the aggregate exists by wave-30. `UpdateFromDetection` continues to overlay the full event after orchestrator returns.
-- `src/Mostlylucid.BotDetection.UI/Models/DashboardTopBotEntry.cs` — expose field on the read DTO.
-- `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/SessionVectorContributor.cs` — write-through to cache when the contributor encodes a vector.
-- `src/Mostlylucid.BotDetection/Services/SessionAtomizerService.cs` — write-through to cache when atomisation produces the finalised vector.
-- `src/Mostlylucid.BotDetection.UI/ViewComponents/BotDetectionDetailsViewComponent.cs` — drop the `SessionStore` / `ISessionStore` ladder, read from cache only.
-- `src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs` (the `/api/sessions/signature/{sig}` endpoint, lines ~1880–1970) — read the focused `visible[0]` clockAxes from the cache; `live` row inserted from accumulator stays as a separate ghost overlay but is **not** the focused polygon.
+- `src/Mostlylucid.BotDetection.UI/Services/SignatureAggregateCache.cs` - add field + write API + warmup wiring + thin `EnsureRow` for pre-orchestrator seed.
+- `src/Mostlylucid.BotDetection.UI/Middleware/DetectionBroadcastMiddleware.cs` - call `EnsureRow(primarySignature)` BEFORE invoking the inner orchestrator so the aggregate exists by wave-30. `UpdateFromDetection` continues to overlay the full event after orchestrator returns.
+- `src/Mostlylucid.BotDetection.UI/Models/DashboardTopBotEntry.cs` - expose field on the read DTO.
+- `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/SessionVectorContributor.cs` - write-through to cache when the contributor encodes a vector.
+- `src/Mostlylucid.BotDetection/Services/SessionAtomizerService.cs` - write-through to cache when atomisation produces the finalised vector.
+- `src/Mostlylucid.BotDetection.UI/ViewComponents/BotDetectionDetailsViewComponent.cs` - drop the `SessionStore` / `ISessionStore` ladder, read from cache only.
+- `src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs` (the `/api/sessions/signature/{sig}` endpoint, lines ~1880–1970) - read the focused `visible[0]` clockAxes from the cache; `live` row inserted from accumulator stays as a separate ghost overlay but is **not** the focused polygon.
 
-**Ordering correction (added 2026-05-27):** the original plan assumed wave-30 `SessionVectorContributor` would find an aggregate row already in the cache. It doesn't — the cache's only write call site (`UpdateFromDetection` in `DetectionBroadcastMiddleware`) fires AFTER the orchestrator completes. First-visit signatures had their vector dropped by `TryGetValue`. Fix: seed a thin aggregate via `EnsureRow` BEFORE the orchestrator runs. The aggregate now exists by the time any wave needs to write to it, no first-visit drop, no `GetOrAdd` stub inside the sink.
+**Ordering correction (added 2026-05-27):** the original plan assumed wave-30 `SessionVectorContributor` would find an aggregate row already in the cache. It doesn't - the cache's only write call site (`UpdateFromDetection` in `DetectionBroadcastMiddleware`) fires AFTER the orchestrator completes. First-visit signatures had their vector dropped by `TryGetValue`. Fix: seed a thin aggregate via `EnsureRow` BEFORE the orchestrator runs. The aggregate now exists by the time any wave needs to write to it, no first-visit drop, no `GetOrAdd` stub inside the sink.
 
 **No files created. No files deleted.** All wiring is via existing types.
 
@@ -57,7 +57,7 @@ void RecordLatestVector(string primarySignature, float[] vector);
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/SignatureAggregateCache.cs`
 - Modify: `src/Mostlylucid.BotDetection.UI/Models/DashboardTopBotEntry.cs`
 
-**Step 1.1 — interface:**
+**Step 1.1 - interface:**
 
 ```csharp
 // src/Mostlylucid.BotDetection/Data/ISignatureVectorSink.cs
@@ -78,7 +78,7 @@ public interface ISignatureVectorSink
 }
 ```
 
-**Step 1.2 — `SignatureAggregate` field (in `SignatureAggregateCache.cs`, the inner `public sealed class SignatureAggregate`):**
+**Step 1.2 - `SignatureAggregate` field (in `SignatureAggregateCache.cs`, the inner `public sealed class SignatureAggregate`):**
 
 Add:
 ```csharp
@@ -95,7 +95,7 @@ Add:
 public float[]? LatestSessionVector;
 ```
 
-**Step 1.3 — implement `ISignatureVectorSink` on `SignatureAggregateCache`:**
+**Step 1.3 - implement `ISignatureVectorSink` on `SignatureAggregateCache`:**
 
 ```csharp
 public sealed class SignatureAggregateCache : ISignatureVectorSink
@@ -116,13 +116,13 @@ public sealed class SignatureAggregateCache : ISignatureVectorSink
 
 Rationale for `TryGetValue` (not `GetOrAdd`): we only update if the cache already holds the signature. The aggregate is created by the existing live-detection write path (`CreateNew`/`Update` from `RecordDetection`). Vectors arrive AFTER that path runs. Adding an entry just for a vector with no detection context creates an orphan row that the dashboard can't display. If we miss because the aggregate hasn't been seeded yet, the next request for that signature creates it via the normal path and the next vector lands cleanly.
 
-**Step 1.4 — propagate the field through `CreateNew`, `WarmFromDetections`, `ToEntry`:**
+**Step 1.4 - propagate the field through `CreateNew`, `WarmFromDetections`, `ToEntry`:**
 
 - `CreateNew` already takes a `DashboardDetectionEvent`. The event has no `LatestSessionVector` field. Leave `agg.LatestSessionVector = null` here.
 - `WarmFromDetections` (startup hydration): when `latest.Vector` is non-empty, decode via `SqliteSessionStore.DeserializeVector` and set `LatestSessionVector = vector`. This is the warm-start path that prevents the calibration placeholder lasting beyond the restart window. Wrap in `try { ... } catch { /* ignore malformed */ }` matching the pattern of the existing JSON deserialisation calls in `ToEntry`.
 - `ToEntry`: add `LatestSessionVector = agg.LatestSessionVector` so downstream readers can pull from `DashboardTopBotEntry`.
 
-**Step 1.5 — `DashboardTopBotEntry` field:**
+**Step 1.5 - `DashboardTopBotEntry` field:**
 
 ```csharp
 /// <summary>
@@ -136,7 +136,7 @@ Rationale for `TryGetValue` (not `GetOrAdd`): we only update if the cache alread
 public float[]? LatestSessionVector { get; init; }
 ```
 
-**Step 1.6 — DI registration:**
+**Step 1.6 - DI registration:**
 
 In `StyloBotDashboardServiceExtensions.AddStyloBotDashboard(...)`, find the existing `services.AddSingleton<SignatureAggregateCache>(...)` registration and add:
 
@@ -146,7 +146,7 @@ services.AddSingleton<ISignatureVectorSink>(sp => sp.GetRequiredService<Signatur
 
 so the two writers can resolve the same instance as a sink.
 
-**Step 1.7 — `EnsureRow` thin-seed API on `SignatureAggregateCache`:**
+**Step 1.7 - `EnsureRow` thin-seed API on `SignatureAggregateCache`:**
 
 ```csharp
 /// <summary>
@@ -178,7 +178,7 @@ public void EnsureRow(string primarySignature)
 
 `TryAdd` is a no-op when the row already exists, so the call is cheap on every request.
 
-**Step 1.8 — wire `EnsureRow` into `DetectionBroadcastMiddleware`:**
+**Step 1.8 - wire `EnsureRow` into `DetectionBroadcastMiddleware`:**
 
 The middleware already resolves the primary signature before invoking the orchestrator (the signature is needed to deduplicate detections per-request via `HttpContext.Items`). Right after the signature is computed and BEFORE the call to the orchestrator, add:
 
@@ -188,7 +188,7 @@ _signatureCache.EnsureRow(primarySignature);
 
 Inject `SignatureAggregateCache` into the middleware's constructor alongside the existing dependencies.
 
-**Step 1.9 — commit:**
+**Step 1.9 - commit:**
 
 ```bash
 git add src/Mostlylucid.BotDetection/Data/ISignatureVectorSink.cs \
@@ -206,7 +206,7 @@ git commit -m "feat(cache): add LatestSessionVector field to SignatureAggregate 
 - Modify: `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/SessionVectorContributor.cs`
 - Modify: `src/Mostlylucid.BotDetection/Services/SessionAtomizerService.cs`
 
-**Step 2.1 — `SessionVectorContributor`:**
+**Step 2.1 - `SessionVectorContributor`:**
 
 The contributor already encodes a vector on every wave-30 invocation (line ~177 and ~201). It calls `SessionVectorizer.Encode(currentSession, fpContext)` and assigns to `currentVector`. Right after that variable is set, push to the sink:
 
@@ -216,7 +216,7 @@ _vectorSink?.RecordLatestVector(signature, currentVector);
 
 Add `ISignatureVectorSink? vectorSink = null` to the constructor and store as `_vectorSink`. Two write sites because the contributor encodes a vector in two branches (one for the search-projection path, one without). Both branches push the same way.
 
-**Step 2.2 — `SessionAtomizerService`:**
+**Step 2.2 - `SessionAtomizerService`:**
 
 The atomizer service builds a finalised `vector` inside the per-`sigGroup` loop (line ~103, where `SerializeVector(vector)` already runs). Immediately after `var vector = ...` is computed, push:
 
@@ -226,9 +226,9 @@ _vectorSink?.RecordLatestVector(sigGroup.Key, vector);
 
 Add `ISignatureVectorSink? vectorSink = null` to the constructor and store.
 
-**Step 2.3 — DI:** both classes are already registered. Both will pick up the optional sink dependency automatically once Task 1's registration lands.
+**Step 2.3 - DI:** both classes are already registered. Both will pick up the optional sink dependency automatically once Task 1's registration lands.
 
-**Step 2.4 — commit:**
+**Step 2.4 - commit:**
 
 ```bash
 git add src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/SessionVectorContributor.cs \
@@ -243,7 +243,7 @@ git commit -m "feat(detection): write-through session vectors to aggregate cache
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/ViewComponents/BotDetectionDetailsViewComponent.cs`
 
-**Step 3.1 — collapse the resolver to one call:**
+**Step 3.1 - collapse the resolver to one call:**
 
 Replace the entire `ResolveClockAxesAsync` body with a synchronous cache read. Drop `SessionStore` and `ISessionStore` from the constructor. The view component becomes:
 
@@ -282,9 +282,9 @@ public class BotDetectionDetailsViewComponent : ViewComponent
 
 Note: signature changes from `Task<IViewComponentResult> InvokeAsync` to `IViewComponentResult Invoke` because there is no longer any async work. Razor handles both signatures.
 
-**Step 3.2 — view template stays as it is.** The "Calibrating fingerprint" placeholder already in `Default.cshtml` (from commit `4da8fd3`) handles the `ClockAxes is null` case. No change.
+**Step 3.2 - view template stays as it is.** The "Calibrating fingerprint" placeholder already in `Default.cshtml` (from commit `4da8fd3`) handles the `ClockAxes is null` case. No change.
 
-**Step 3.3 — commit:**
+**Step 3.3 - commit:**
 
 ```bash
 git add src/Mostlylucid.BotDetection.UI/ViewComponents/BotDetectionDetailsViewComponent.cs
@@ -296,9 +296,9 @@ git commit -m "fix(your-detection): read polygon from aggregate cache, drop fall
 ### Task 4: Read swap on the dashboard signature-detail API
 
 **Files:**
-- Modify: `src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs` (the `/api/sessions/signature/{sig}` handler — around lines 1880–1970)
+- Modify: `src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs` (the `/api/sessions/signature/{sig}` handler - around lines 1880–1970)
 
-**Step 4.1 — the focused polygon (visible[0]):**
+**Step 4.1 - the focused polygon (visible[0]):**
 
 The endpoint currently returns sessions newest-first, with a synthetic `live` row inserted at index 0 when the in-memory accumulator is warm (line ~1949 `result.Insert(0, ...)`). The chart's `focused = visible[0]` then defaults to the live row.
 
@@ -311,15 +311,15 @@ Replace the live-row insertion with a single "current" row sourced from the cach
   - All other fields set to the same defaults the old `live` insertion used (`avgBotProbability = 0.0`, `transitionCounts = null`, etc.).
 - Drop the existing block that reads `BotDetection.Analysis.SessionStore` and re-encodes a vector inline.
 
-**Step 4.2 — the per-session ghost overlay (sessions list):**
+**Step 4.2 - the per-session ghost overlay (sessions list):**
 
-The newest-first persisted session list (lines ~1881–1931) stays as-is — those are HISTORICAL sessions for the ghost overlay, each correctly projected via `ClockAxesResolver.FromSessionVector` on its own persisted vector. No change.
+The newest-first persisted session list (lines ~1881–1931) stays as-is - those are HISTORICAL sessions for the ghost overlay, each correctly projected via `ClockAxesResolver.FromSessionVector` on its own persisted vector. No change.
 
-**Step 4.3 — detection-fallback block (lines ~1972 onwards):**
+**Step 4.3 - detection-fallback block (lines ~1972 onwards):**
 
-This synthesises a session from detection events when both the live accumulator and persisted store are empty. It's redundant once the cache is the source — if the cache has `LatestSessionVector`, the current row is built from it; if not, the user sees the "no sessions yet" empty state honestly. Delete the block.
+This synthesises a session from detection events when both the live accumulator and persisted store are empty. It's redundant once the cache is the source - if the cache has `LatestSessionVector`, the current row is built from it; if not, the user sees the "no sessions yet" empty state honestly. Delete the block.
 
-**Step 4.4 — commit:**
+**Step 4.4 - commit:**
 
 ```bash
 git add src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs
@@ -330,7 +330,7 @@ git commit -m "fix(api): signature-sessions current row reads from aggregate cac
 
 ### Task 5: Verify
 
-**Step 5.1 — build:**
+**Step 5.1 - build:**
 
 ```bash
 dotnet build src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Debug
@@ -339,19 +339,19 @@ dotnet build src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj -c Deb
 
 Expected: 0 errors.
 
-**Step 5.2 — interaction-test on staging (HARD GATE):**
+**Step 5.2 - interaction-test on staging (HARD GATE):**
 
 Per the user's UI rule: real chrome-devtools / playwright drive, not DOM-existence check.
 
-1. Navigate to `https://staging.stylobot.net/` — capture home-card polygon points.
-2. Click through to `/dashboard/signature/<the visitor's primary sig>` — wait for the ApexCharts radar to render the focused polygon.
+1. Navigate to `https://staging.stylobot.net/` - capture home-card polygon points.
+2. Click through to `/dashboard/signature/<the visitor's primary sig>` - wait for the ApexCharts radar to render the focused polygon.
 3. Read the SVG points of the focused polygon AND the `clockAxes` from the API response.
 4. Project the home card's `polygon@points` back to magnitudes via the inverse of `x = 50 + cos(angle) * 35 * m`, compare against the API's `clockAxes`.
 5. Magnitudes match within ε=0.001 → pass. Any axis differs → fail.
 
-**Step 5.3 — restart resilience:**
+**Step 5.3 - restart resilience:**
 
-`docker restart stylobot-test-website`, wait 30s for warmup, reload `/` — the home card polygon must reappear with magnitudes close to (but not necessarily identical to) the pre-restart values, projected from the latest persisted session that `SignatureAggregateCacheWarmupService` hydrated. "Calibrating" placeholder may flash briefly during the warmup gap.
+`docker restart stylobot-test-website`, wait 30s for warmup, reload `/` - the home card polygon must reappear with magnitudes close to (but not necessarily identical to) the pre-restart values, projected from the latest persisted session that `SignatureAggregateCacheWarmupService` hydrated. "Calibrating" placeholder may flash briefly during the warmup gap.
 
 ---
 
@@ -363,9 +363,9 @@ None. Every threshold this plan touches (vector minimum dim = 118, warmup window
 
 ## Self-review checklist
 
-1. **Spec coverage:** every surface that read a session vector before this plan (home card, signature-detail API focused polygon) now reads from `SignatureAggregateCache`. The persisted ghost-overlay sessions list stays unchanged because it is the historical ghost overlay, not the "current shape" surface — the user's "single source" rule applies to the canonical headline polygon, which is now exactly one source.
+1. **Spec coverage:** every surface that read a session vector before this plan (home card, signature-detail API focused polygon) now reads from `SignatureAggregateCache`. The persisted ghost-overlay sessions list stays unchanged because it is the historical ghost overlay, not the "current shape" surface - the user's "single source" rule applies to the canonical headline polygon, which is now exactly one source.
 2. **Placeholder scan:** no TBDs, no "implement later". Every step shows the exact code.
-3. **Type consistency:** `LatestSessionVector` is `float[]?` everywhere — on `SignatureAggregate` (mutable field), on `DashboardTopBotEntry` (init-only), and as the `RecordLatestVector` parameter. `ClockAxesResolver.FromSessionVector` accepts `float[]?` (returns null on null/short input), so no nullable-handling drift.
+3. **Type consistency:** `LatestSessionVector` is `float[]?` everywhere - on `SignatureAggregate` (mutable field), on `DashboardTopBotEntry` (init-only), and as the `RecordLatestVector` parameter. `ClockAxesResolver.FromSessionVector` accepts `float[]?` (returns null on null/short input), so no nullable-handling drift.
 4. **Anti-goals honoured:** no new cache class, no new channel, no new background service, no new fallback ladder.
 
 ---

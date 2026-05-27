@@ -336,7 +336,7 @@ else
                                         var bg = count == 0
                                             ? "var(--sb-card-bg)"
                                             : $"color-mix(in oklab, var(--sb-accent) {(int)(intensity * 90 + 10)}%, transparent)";
-                                        var title = $"{dayLabels[d]} {h:00}:00 UTC — {count} hits";
+                                        var title = $"{dayLabels[d]} {h:00}:00 UTC - {count} hits";
                                         <td class="border" style="width: 14px; height: 14px; background: @bg; border-color: var(--sb-card-divider);" title="@title"></td>
                                     }
                                 </tr>

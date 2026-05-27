@@ -64,7 +64,7 @@ Dashboard effect: a Mastodon signature without `friendly.*_verified` wired flips
 
 ### Fixed: home YourDetection radar empty for quorum-exit visitors (`852c972`)
 
-The home YourDetection radar was empty for every visitor whose orchestrator quorum-exits before wave-30 `SessionVectorContributor` runs — i.e. every clearly-human visitor on first paint. The live `SessionStore` cache stays empty in that case, and the persisted fallback was broken (loaded the persisted session row but never projected from its stored vector). Restored the fallback: project directly from `SqliteSessionStore.DeserializeVector(latest.Vector)` into the 12-axis clock when no live session is in cache. Steady state for the home card becomes "2-min-stale at worst" via `SessionAtomizerService`.
+The home YourDetection radar was empty for every visitor whose orchestrator quorum-exits before wave-30 `SessionVectorContributor` runs - i.e. every clearly-human visitor on first paint. The live `SessionStore` cache stays empty in that case, and the persisted fallback was broken (loaded the persisted session row but never projected from its stored vector). Restored the fallback: project directly from `SqliteSessionStore.DeserializeVector(latest.Vector)` into the 12-axis clock when no live session is in cache. Steady state for the home card becomes "2-min-stale at worst" via `SessionAtomizerService`.
 
 ### Fixed: red palette overload on dashboard (`852c972`)
 
