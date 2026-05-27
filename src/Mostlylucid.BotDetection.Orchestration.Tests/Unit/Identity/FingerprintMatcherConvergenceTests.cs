@@ -11,17 +11,7 @@ using Xunit;
 
 namespace Mostlylucid.BotDetection.Orchestration.Tests.Unit.Identity;
 
-/// <summary>
-///     Pins the squish-to-centroid contract: rotated bot identities (different
-///     primary signatures, same survivor-dim profile) MUST collapse onto a single
-///     fingerprint; NAT-shared humans (shared network dims, distinct identity dims)
-///     MUST stay separate; L1->Pass2 corrections MUST repoint fingerprint_keys to
-///     the Pass 2 winner; verified bots MUST converge on the canonical id even when
-///     source IPs rotate; rotation-band matches MUST raise the rotation-candidate
-///     signal.
-///
-///     See docs/architecture/fingerprint-match.md.
-/// </summary>
+// See docs/architecture/fingerprint-match.md.
 public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
 {
     private string _tempDir = string.Empty;
@@ -30,8 +20,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
     private CancellationTokenSource _coordCts = null!;
     private FingerprintMatchContributor _matcher = null!;
     private IdentityVectorLayout _layout = null!;
-    private IdentityArchetypeRegistry _archetypes = null!;
-    private IdentityGlobalWeightsCache _globalWeights = null!;
 
     public async Task InitializeAsync()
     {
@@ -65,29 +53,29 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         await _store.EnsureInitialisedAsync();
 
         var index = new BruteForceIdentityAnchorIndex(_store);
-        _archetypes = new IdentityArchetypeRegistry(
+        // Empty registry: FindNearest returns null and the matcher seeds new
+        // centroids from the input vector unblended, so cosine math stays
+        // predictable across these fixtures.
+        var archetypes = new IdentityArchetypeRegistry(
             NullLogger<IdentityArchetypeRegistry>.Instance,
             new IdentityVectorEncoder(_layout));
-        // Deliberately leave the registry empty. FindNearest returns null and
-        // the matcher seeds new centroids from the input vector unblended,
-        // which keeps cosine math predictable across the test fixtures.
 
-        _globalWeights = new IdentityGlobalWeightsCache(
+        // Not started: Current stays null and Compose returns per-fp weights
+        // unchanged, so assertions reason about uniform seed weights only.
+        var globalWeights = new IdentityGlobalWeightsCache(
             NullLogger<IdentityGlobalWeightsCache>.Instance, _store, options);
-        // No StartAsync: Current stays null and Compose returns per-fp weights
-        // unchanged. Tests assert on cosine math driven by per-fp seed weights only.
 
         _coordinator = new IdentityProcessingCoordinator(
             NullLogger<IdentityProcessingCoordinator>.Instance, options);
         _coordCts = new CancellationTokenSource();
-        _ = _coordinator.StartAsync(_coordCts.Token);
+        await _coordinator.StartAsync(_coordCts.Token);
 
         _matcher = new FingerprintMatchContributor(
             NullLogger<FingerprintMatchContributor>.Instance,
             _store,
             index,
-            _archetypes,
-            _globalWeights,
+            archetypes,
+            globalWeights,
             _coordinator,
             new IdentityVectorEncoder(_layout),
             options);
@@ -105,9 +93,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
     [Fact]
     public async Task RotatedBot_DifferentPrimarySigsSameVector_CollapsesToSingleFingerprint()
     {
-        // The bot-stitch contract. Five rotated primary signatures, one shared
-        // identity-vector shape. The matcher should allocate on the first call
-        // and Pass-2-match every subsequent rotation back onto the same centroid.
         var vector = MakeUnitVector(_layout.Dimension, seed: 7);
         var fingerprintIds = new List<string>();
 
@@ -136,11 +121,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
     [Fact]
     public async Task NattedHumans_SharedNetworkDimsDifferentIdentityDims_StayDistinct()
     {
-        // The human-non-collapse contract. Three vectors that share the network.*
-        // bucket (so a NAT-style overlap is encoded) but project orthogonally on
-        // the locale + header + tool buckets. Each must allocate its own
-        // fingerprint -- cosine across the orthogonal identity slots dominates
-        // the small shared-network contribution and drops below LooseThreshold.
         var fingerprintIds = new List<string>();
         for (var actor = 0; actor < 3; actor++)
         {
@@ -158,15 +138,10 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
     [Fact]
     public async Task L1FailedConfirm_Pass2WinnerRepointsKey()
     {
-        // The correction contract. Pre-seed two fingerprints with orthogonal
-        // centroids and a fingerprint_keys row that maps a primary signature to
-        // the WRONG one. Drive the matcher with a vector close to the right one;
-        // L1 confirm against the wrong candidate fails, Pass 2 KNN finds the
-        // right one above MergeThreshold, UpsertKeyAsync repoints the key.
+        // The default v1 layout has ~98 dims; both windows must sit within
+        // the dimension or the second vector collapses to zero (out-of-range
+        // loop never enters) and the test exercises a no-op.
         var vectorA = MakeOrthogonalVector(_layout.Dimension, hotSlotStart: 0, hotSlotCount: 8, seed: 11);
-        // The default v1 layout has ~98 dims; keep both windows comfortably within
-        // the dimension so we get genuine orthogonal supports rather than an
-        // out-of-range no-op zero vector.
         var vectorB = MakeOrthogonalVector(_layout.Dimension, hotSlotStart: 40, hotSlotCount: 8, seed: 13);
 
         var fpA = MakeMatureFingerprint("fp-A", vectorA);
@@ -188,10 +163,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
     [Fact]
     public async Task VerifiedBot_SameUaNameDifferentPrimarySigs_ConvergesToCanonicalId()
     {
-        // Pass 0 deterministic-id convergence. Five requests carrying the
-        // GPTBot identity from different rotated signatures all collapse to a
-        // single canonical fingerprint -- no centroid search, no threshold;
-        // the canonical id is SHA256(verifiedbot:gptbot::ok)[..16].
         var vector = MakeUnitVector(_layout.Dimension, seed: 23);
         var fingerprintIds = new List<string>();
 
@@ -216,19 +187,13 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
     [Fact]
     public async Task RotationCandidateBand_VectorBetweenLooseAndMerge_SignalsCandidate()
     {
-        // The rotation-band contract. Pre-seed a fingerprint with centroid V;
-        // drive the matcher with a vector that mixes V with an orthogonal
-        // direction so cosine lands strictly in [LooseThreshold=0.75,
-        // MergeThreshold=0.92). The matcher should attach to the existing
-        // fingerprint, record the observation, and emit IdentityRotationCandidate=true.
         var vectorBase = MakeOrthogonalVector(_layout.Dimension, hotSlotStart: 0, hotSlotCount: 8, seed: 31);
         var fp = MakeMatureFingerprint("fp-base", vectorBase);
         await _store.InsertFingerprintAsync(fp, primarySignature: "seed-base");
 
-        // Blend base with an orthogonal direction so cosine ≈ 0.85, which sits
-        // squarely in the rotation band. Hot windows must be within the layout
-        // dimension (~98 dims for v1) or the second vector collapses to zero and
-        // the blend becomes a scaled copy of the base (cosine = 1.0).
+        // alpha = 0.85 puts cosine inside [LooseThreshold=0.75, MergeThreshold=0.92).
+        // Hot windows must sit within the layout dimension (~98 for v1) or the
+        // orthogonal vector collapses to zero and the blend reduces to vectorBase.
         var orthogonal = MakeOrthogonalVector(_layout.Dimension, hotSlotStart: 40, hotSlotCount: 8, seed: 37);
         var drift = BlendUnit(vectorBase, orthogonal, alpha: 0.85);
 
@@ -242,13 +207,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
             $"identity.rotation_candidate should be true; was {flagObj}.");
     }
 
-    // ===== Helpers =====
-
-    /// <summary>
-    ///     Drives the matcher's ContributeAsync end-to-end with a single vector
-    ///     and primary signature. Returns the identity.fingerprint_id signal
-    ///     written to the blackboard.
-    /// </summary>
     private async Task<string> RunMatcherAsync(
         float[] vector,
         string primarySig,
@@ -280,11 +238,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         return (string)fpObj!;
     }
 
-    /// <summary>
-    ///     Builds a unit-norm vector deterministic in <paramref name="seed"/>.
-    ///     Brute-force cosine assumes L2-normalised inputs; the matcher's seed
-    ///     centroid is the input vector itself when no archetype matched.
-    /// </summary>
     private static float[] MakeUnitVector(int dim, int seed)
     {
         var rng = new Random(seed);
@@ -294,32 +247,20 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         return v;
     }
 
-    /// <summary>
-    ///     Vector with one shared chunk and one actor-specific orthogonal chunk.
-    ///     Models a NAT scenario: every actor shares <c>network.*</c> values but
-    ///     their identity dims project on disjoint hash buckets.
-    /// </summary>
-    private static float[] MakeNatVector(int actorIndex)
+    private float[] MakeNatVector(int actorIndex)
     {
-        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        var dim = _layout.Dimension;
         var v = new float[dim];
-        // Shared network.* footprint -- first 12 dims (network slot block).
+        // Shared network.* footprint (first 12 dims = network slot block) plus
+        // an actor-specific disjoint 8-dim window outside it, so the identity
+        // contribution to cosine across actors is zero.
         for (var i = 0; i < 12; i++) v[i] = 0.5f;
-        // Actor-specific identity-dim footprint -- a disjoint 8-dim window per
-        // actor, well outside the network block. Different actors hit different
-        // windows so the dot product across identity slots is zero.
         var hot = 20 + actorIndex * 16;
         for (var i = hot; i < hot + 8 && i < dim; i++) v[i] = 1.0f;
         Normalize(v);
         return v;
     }
 
-    /// <summary>
-    ///     Unit vector whose mass is concentrated on a single disjoint window of
-    ///     <paramref name="hotSlotCount"/> dimensions starting at
-    ///     <paramref name="hotSlotStart"/>. Two such vectors built on disjoint
-    ///     windows are orthogonal (cosine = 0).
-    /// </summary>
     private static float[] MakeOrthogonalVector(int dim, int hotSlotStart, int hotSlotCount, int seed)
     {
         var rng = new Random(seed);
@@ -330,12 +271,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         return v;
     }
 
-    /// <summary>
-    ///     Returns a unit vector that is a convex blend of <paramref name="a"/>
-    ///     and <paramref name="b"/> such that cosine(result, a) ≈ alpha when a
-    ///     and b are unit-orthogonal. Used to land cosine inside the rotation
-    ///     band ([LooseThreshold, MergeThreshold)).
-    /// </summary>
     private static float[] BlendUnit(float[] a, float[] b, double alpha)
     {
         if (a.Length != b.Length) throw new ArgumentException("Length mismatch");
@@ -356,11 +291,6 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         for (var i = 0; i < v.Length; i++) v[i] /= norm;
     }
 
-    /// <summary>
-    ///     A fingerprint pre-seeded with a centroid, maturity > 1, uniform
-    ///     weights, and a non-null cached verdict — enough for the matcher's
-    ///     L1 confirm and Pass 2 candidate-load paths to operate against it.
-    /// </summary>
     private static Fingerprint MakeMatureFingerprint(string id, float[] centroid)
     {
         var weights = new float[centroid.Length];
@@ -369,7 +299,7 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         return new Fingerprint
         {
             FingerprintId = id,
-            Centroid = (float[])centroid.Clone(),
+            Centroid = centroid,
             CentroidMaturity = 5,
             Weights = weights,
             MemberCount = 1,
