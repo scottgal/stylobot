@@ -147,18 +147,22 @@ public partial class DetectionBroadcastMiddleware
         // was set by the inner middleware before this point.
         try
         {
-            var sigForVector = context.Items.TryGetValue("BotDetection.Signatures", out var sigObj)
+            var hasSigItem = context.Items.TryGetValue("BotDetection.Signatures", out var sigObj);
+            var sigForVector = hasSigItem
                 && sigObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs
                 ? mfs.PrimarySignature
                 : null;
+            System.Console.WriteLine($"[BCAST-ENCODE] hasSigItem={hasSigItem} sigObjType={sigObj?.GetType().Name ?? "null"} sigForVector={sigForVector?[..Math.Min(8, sigForVector.Length)] ?? "<null>"}");
             if (!string.IsNullOrEmpty(sigForVector))
             {
                 var liveSessionStore = context.RequestServices
                     .GetService<Mostlylucid.BotDetection.Analysis.SessionStore>();
                 var liveSession = liveSessionStore?.GetCurrentSession(sigForVector);
+                System.Console.WriteLine($"[BCAST-ENCODE-LIVE] storeNull={liveSessionStore == null} sessionCount={liveSession?.Count ?? -1}");
                 if (liveSession is { Count: >= 1 })
                 {
                     var vector = Mostlylucid.BotDetection.Analysis.SessionVectorizer.Encode(liveSession);
+                    System.Console.WriteLine($"[BCAST-ENCODE-VEC] vecLen={vector.Length}");
                     if (vector.Length >= 118)
                     {
                         signatureAggregateCache.RecordLatestVector(sigForVector, vector);
@@ -166,11 +170,9 @@ public partial class DetectionBroadcastMiddleware
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Vector encode is best-effort enrichment for the dashboard. A failure
-            // here must never block the broadcast / event-store / SignalR work
-            // that follows -- those carry the actual detection result.
+            System.Console.WriteLine($"[BCAST-ENCODE-EX] {ex.GetType().Name}: {ex.Message}");
         }
 
         // After response, broadcast detection result if available
