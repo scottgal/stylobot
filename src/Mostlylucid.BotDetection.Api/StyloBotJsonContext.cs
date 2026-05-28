@@ -142,9 +142,12 @@ namespace Mostlylucid.BotDetection.Api;
 [JsonSerializable(typeof(Fingerprint))]
 [JsonSerializable(typeof(PaginatedResponse<Fingerprint>))]
 [JsonSerializable(typeof(SingleResponse<Fingerprint>))]
+[JsonSerializable(typeof(NearestFingerprint))]
+[JsonSerializable(typeof(PaginatedResponse<NearestFingerprint>))]
 [JsonSerializable(typeof(IReadOnlyDictionary<string, int>))]
 [JsonSerializable(typeof(SingleResponse<IReadOnlyDictionary<string, int>>))]
 [JsonSerializable(typeof(SingleResponse<int>))]
+[JsonSerializable(typeof(SingleResponse<string>))]
 public partial class StyloBotJsonContext : JsonSerializerContext
 {
 }

@@ -19,11 +19,9 @@ internal sealed class RemoteFingerprintReader : IFingerprintReader
         => await _api.GetEnvelopeAsync<Fingerprint>(
             $"/api/v1/fingerprints/{Uri.EscapeDataString(fingerprintId)}", ct);
 
-    // No control-plane endpoint exposes the L1 key map yet, so remote-mode
-    // dashboards skip the upstream-trust fallback and render the calibrating
-    // placeholder instead of the centroid. Safe degradation, no broken section.
-    public Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default)
-        => Task.FromResult<string?>(null);
+    public async Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default)
+        => await _api.GetEnvelopeAsync<string>(
+            $"/api/v1/fingerprints/lookup/{Uri.EscapeDataString(primarySignature)}", ct);
 
     public async Task<IReadOnlyDictionary<string, int>> GetUnabsorbedObservationCountsAsync(CancellationToken ct = default)
     {
@@ -36,11 +34,8 @@ internal sealed class RemoteFingerprintReader : IFingerprintReader
         => await _api.GetEnvelopeAsync<int>(
             $"/api/v1/fingerprints/{Uri.EscapeDataString(fingerprintId)}/unabsorbed-count", ct);
 
-    public Task<IReadOnlyList<NearestFingerprint>> GetNearestForSignatureAsync(
+    public async Task<IReadOnlyList<NearestFingerprint>> GetNearestForSignatureAsync(
         string primarySignature, int k, CancellationToken ct = default)
-        // The remote control-plane API does not yet expose a centroid-KNN endpoint;
-        // when it does, this becomes another GetEnvelopeListAsync call. Returning
-        // empty keeps the "Looks like" panel a no-op rather than a broken section
-        // when the dashboard is pointed at a remote gateway.
-        => Task.FromResult<IReadOnlyList<NearestFingerprint>>(Array.Empty<NearestFingerprint>());
+        => await _api.GetEnvelopeListAsync<NearestFingerprint>(
+            $"/api/v1/fingerprints/nearest/{Uri.EscapeDataString(primarySignature)}?k={k}", ct);
 }

@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
 using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
@@ -19,8 +21,10 @@ public static class IdentityEndpoints
             .WithApiBotPolicy();
 
         group.MapGet("", HandleList).WithName("GetFingerprints");
-        group.MapGet("/{fingerprintId}", HandleGet).WithName("GetFingerprint");
+        group.MapGet("/lookup/{primarySignature}", HandleLookup).WithName("LookupFingerprintId");
+        group.MapGet("/nearest/{primarySignature}", HandleNearest).WithName("GetFingerprintNearest");
         group.MapGet("/unabsorbed-counts", HandleUnabsorbedCounts).WithName("GetFingerprintUnabsorbedCounts");
+        group.MapGet("/{fingerprintId}", HandleGet).WithName("GetFingerprint");
         group.MapGet("/{fingerprintId}/unabsorbed-count", HandleUnabsorbedCount).WithName("GetFingerprintUnabsorbedCount");
 
         return endpoints;
@@ -61,5 +65,33 @@ public static class IdentityEndpoints
     {
         if (store is null) return ApiEndpointHelpers.StoreUnavailable("Identity layer");
         return ApiEndpointHelpers.Single(await store.GetUnabsorbedObservationCountAsync(fingerprintId, ct));
+    }
+
+    private static async Task<Results<Ok<SingleResponse<string>>, NotFound, ProblemHttpResult>> HandleLookup(
+        string primarySignature,
+        [FromServices] IFingerprintReader? store,
+        CancellationToken ct = default)
+    {
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Identity layer");
+        var fpId = await store.LookupFingerprintIdAsync(primarySignature, ct);
+        if (string.IsNullOrEmpty(fpId)) return TypedResults.NotFound();
+        return ApiEndpointHelpers.Single(fpId);
+    }
+
+    private static async Task<Results<Ok<PaginatedResponse<NearestFingerprint>>, ProblemHttpResult>> HandleNearest(
+        string primarySignature,
+        [FromServices] IFingerprintReader? store,
+        [FromServices] IOptions<BotDetectionOptions> opts,
+        [FromQuery] int? k = null,
+        CancellationToken ct = default)
+    {
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Identity layer");
+        // Operator-configured NeighbourCount is both the default (when caller omits
+        // ?k) and the ceiling (when caller passes a larger k). No magic numbers --
+        // the cap is whatever the operator set in IdentityOptions.LooksLike.
+        var cfg = opts.Value.Identity?.LooksLike ?? new IdentityLooksLikeOptions();
+        var effectiveK = Math.Clamp(k ?? cfg.NeighbourCount, 1, cfg.NeighbourCount);
+        var hits = await store.GetNearestForSignatureAsync(primarySignature, effectiveK, ct);
+        return ApiEndpointHelpers.Paginated(hits, hits.Count);
     }
 }
