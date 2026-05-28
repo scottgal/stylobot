@@ -101,19 +101,6 @@ public sealed class StyloBotDashboardOptions
     public int SummaryBroadcastIntervalSeconds { get; set; } = 5;
 
     /// <summary>
-    ///     Idle-skip window for <see cref="Services.DashboardSummaryBroadcaster"/>'s
-    ///     aggregate precompute. When no <c>/api/v1</c> endpoint has been hit
-    ///     for longer than this many seconds, the broadcaster parks the
-    ///     heavy DB fan-out until traffic resumes. Catches the
-    ///     dashboard-not-open case where running the precompute every
-    ///     <see cref="SummaryBroadcastIntervalSeconds"/> burns CPU and DB I/O
-    ///     for a snapshot nobody reads. Set to 0 to always precompute.
-    ///     Default: 120 seconds (two minutes of no consumers parks the
-    ///     ticker until the next hit lands).
-    /// </summary>
-    public int AggregateCacheIdleSkipSeconds { get; set; } = 120;
-
-    /// <summary>
     ///     How long after a user-driven HTMX swap (filter click, sort header, page nav)
     ///     a widget stays "user-active" -- during this window any incoming SignalR-driven
     ///     OOB refresh whose response arrives late is refused so it can't clobber the

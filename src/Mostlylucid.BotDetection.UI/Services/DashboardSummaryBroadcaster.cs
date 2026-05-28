@@ -17,34 +17,6 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// </summary>
 public class DashboardSummaryBroadcaster : BackgroundService
 {
-    /// <summary>
-    ///     Row count cached for the default-view detections endpoint. Matches
-    ///     the upstream <c>HandleDetections</c> per-call ceiling so callers
-    ///     asking for any limit at or below this read straight from cache.
-    /// </summary>
-    private const int DefaultCachedDetectionLimit = 200;
-
-    /// <summary>
-    ///     Time-series window cached for the default-view endpoint --
-    ///     trailing-24 h at 5-minute buckets covers the dashboard's
-    ///     "Traffic over time" chart out of the box.
-    /// </summary>
-    private const int DefaultCachedTimeSeriesWindowHours = 24;
-    private const int DefaultCachedTimeSeriesBucketMinutes = 5;
-
-    /// <summary>
-    ///     Top-bots ranking depth cached on each tick. Sized to cover
-    ///     the dashboard's "All / Bots / Humans" Live Activity table
-    ///     without a tail of cache misses on pagination.
-    /// </summary>
-    private const int DefaultCachedTopBotsLimit = 100;
-
-    /// <summary>
-    ///     Threat ranking depth cached on each tick (the dashboard's
-    ///     threats card surfaces the top handful).
-    /// </summary>
-    private const int DefaultCachedThreatsLimit = 20;
-
     private readonly IDashboardEventStore _eventStore;
     private readonly DashboardAggregateCache _cache;
     private readonly SignatureAggregateCache _signatureCache;
@@ -114,66 +86,20 @@ public class DashboardSummaryBroadcaster : BackgroundService
                     }
                 }
 
-                // Idle-skip: if no one has consumed the /api/v1 surface for
-                // longer than the configured window, the precompute would be
-                // burning CPU and DB I/O for an empty cache. Park the tick
-                // until the next request lands. The first endpoint hit after
-                // a quiet period serves a slightly stale snapshot (the next
-                // tick refreshes it within SummaryBroadcastIntervalSeconds);
-                // dashboards that are open continuously stamp MarkHit every
-                // few seconds via the running SSR + broadcaster polling and
-                // never trip this path.
-                if (_options.AggregateCacheIdleSkipSeconds > 0)
-                {
-                    var lastHit = _cache.LastHitAtUtc;
-                    if (lastHit != DateTime.MinValue
-                        && DateTime.UtcNow - lastHit
-                            > TimeSpan.FromSeconds(_options.AggregateCacheIdleSkipSeconds))
-                    {
-                        await Task.Delay(
-                            TimeSpan.FromSeconds(_options.SummaryBroadcastIntervalSeconds),
-                            stoppingToken);
-                        continue;
-                    }
-                }
-
-                // Compute aggregates from DB in parallel. Every aggregate the
-                // /api/v1 read surface exposes for the default-view dashboard
-                // is precomputed here so the endpoint handlers can return
-                // straight from the snapshot. Filtered / windowed queries
-                // (custom since/until, non-default limits) still fall through
-                // to the store, but the home dashboard's hot path no longer
-                // pays per-request store latency.
+                // Compute aggregates from DB in parallel (no TopBots - handled by write-through cache)
                 var summaryTask = _eventStore.GetSummaryAsync();
                 var countriesTask = _eventStore.GetCountryStatsAsync(50);
                 var endpointsTask = _eventStore.GetEndpointStatsAsync(50);
                 var userAgentsTask = ComputeUserAgentsAsync();
-                var detectionsTask = _eventStore.GetDetectionsAsync(new DashboardFilter
-                {
-                    Limit = DefaultCachedDetectionLimit
-                }, stoppingToken);
-                var timeSeriesStart = DateTime.UtcNow.AddHours(-DefaultCachedTimeSeriesWindowHours);
-                var timeSeriesTask = _eventStore.GetTimeSeriesAsync(
-                    timeSeriesStart, DateTime.UtcNow,
-                    TimeSpan.FromMinutes(DefaultCachedTimeSeriesBucketMinutes));
-                var topBotsTask = _eventStore.GetTopBotsAsync(DefaultCachedTopBotsLimit);
-                var threatsTask = _eventStore.GetThreatsAsync(DefaultCachedThreatsLimit);
 
-                await Task.WhenAll(
-                    summaryTask, countriesTask, endpointsTask, userAgentsTask,
-                    detectionsTask, timeSeriesTask, topBotsTask, threatsTask);
+                await Task.WhenAll(summaryTask, countriesTask, endpointsTask, userAgentsTask);
 
                 // Update cache atomically
                 _cache.Update(new DashboardAggregateCache.AggregateSnapshot
                 {
                     Countries = await countriesTask,
                     Endpoints = await endpointsTask,
-                    UserAgents = await userAgentsTask,
-                    Summary = await summaryTask,
-                    Detections = await detectionsTask,
-                    TimeSeries = await timeSeriesTask,
-                    TopBots = (await topBotsTask).ToList(),
-                    Threats = (await threatsTask).ToList()
+                    UserAgents = await userAgentsTask
                 });
 
                 // Send lightweight invalidation signals through the constrainer
