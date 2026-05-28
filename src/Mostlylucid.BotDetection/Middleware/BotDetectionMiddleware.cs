@@ -594,6 +594,31 @@ public class BotDetectionMiddleware(
             context.Items[AggregatedEvidenceKey] = aggregatedResult;
         }
 
+        // Internal-network override: when a request arrives from inside the
+        // local network AND presents a valid API key, swap the BotType-mapped
+        // policy for the InternalNetworkBotTypeActionPolicies entry (default:
+        // Tool/Scraper/Bot/AiBot -> logonly). Catches the service-to-service
+        // case where the orchestrator pre-fills "throttle-tools" for the
+        // website's HttpClient (which looks like a generic Tool to the UA
+        // detector) and the throttle policy holds every API call for ~15 s,
+        // starving the dashboard. Detection still ran in full -- only the
+        // action choice is turned down. Detect-then-down, never detect-then-skip.
+        if (apiKeyContext != null
+            && aggregatedResult.PrimaryBotType is not null and not BotType.Unknown
+            && aggregatedResult.Signals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalSig)
+            && ipLocalSig is bool isLocalTrusted
+            && isLocalTrusted
+            && _options.InternalNetworkBotTypeActionPolicies.TryGetValue(
+                    aggregatedResult.PrimaryBotType.Value.ToString(), out var internalPolicyName)
+            && !string.IsNullOrEmpty(internalPolicyName))
+        {
+            aggregatedResult = aggregatedResult with
+            {
+                TriggeredActionPolicyName = internalPolicyName
+            };
+            context.Items[AggregatedEvidenceKey] = aggregatedResult;
+        }
+
         // License log-only override: when license is expired past grace period,
         // force log-only regardless of any configured action policy.
         if (_licenseState.LogOnly)
@@ -674,14 +699,9 @@ public class BotDetectionMiddleware(
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
 #pragma warning restore CS0618
         {
-            // Step 1: try the per-BotType map.
-            string? resolvedPolicyName = null;
-            if (aggregatedResult.PrimaryBotType is not null and not BotType.Unknown
-                && _options.BotTypeActionPolicies.Count > 0)
-            {
-                var botTypeName = aggregatedResult.PrimaryBotType.Value.ToString();
-                _options.BotTypeActionPolicies.TryGetValue(botTypeName, out resolvedPolicyName);
-            }
+            // Step 1: try the per-BotType map (internal-network bucket wins
+            // first when ip.is_local AND a valid API key are both present).
+            var resolvedPolicyName = ResolveBotTypeActionPolicy(aggregatedResult, apiKeyContext);
             // Step 2: fall back to DefaultActionPolicyName if no per-type match.
             resolvedPolicyName ??= _options.DefaultActionPolicyName;
 
@@ -1192,6 +1212,44 @@ public class BotDetectionMiddleware(
         }
 
         return false;
+    }
+
+    /// <summary>
+    ///     Resolve the per-bot-type action policy name for a detected bot, applying
+    ///     the internal-network bucket first when the request satisfies BOTH
+    ///     <c>ip.is_local=true</c> AND has a valid API key context. Either signal
+    ///     alone falls through to <see cref="BotDetectionOptions.BotTypeActionPolicies"/>.
+    ///     Returns null when no matching entry exists in either map (caller falls
+    ///     through to <see cref="BotDetectionOptions.DefaultActionPolicyName"/>).
+    /// </summary>
+    private string? ResolveBotTypeActionPolicy(
+        AggregatedEvidence evidence,
+        ApiKeyContext? apiKeyContext)
+    {
+        if (evidence.PrimaryBotType is null || evidence.PrimaryBotType == BotType.Unknown)
+            return null;
+
+        var botTypeName = evidence.PrimaryBotType.Value.ToString();
+
+        if (apiKeyContext is not null
+            && _options.InternalNetworkBotTypeActionPolicies.Count > 0
+            && evidence.Signals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalObj)
+            && ipLocalObj is bool isLocal
+            && isLocal
+            && _options.InternalNetworkBotTypeActionPolicies.TryGetValue(botTypeName, out var internalPolicy)
+            && !string.IsNullOrEmpty(internalPolicy))
+        {
+            return internalPolicy;
+        }
+
+        if (_options.BotTypeActionPolicies.Count > 0
+            && _options.BotTypeActionPolicies.TryGetValue(botTypeName, out var normalPolicy)
+            && !string.IsNullOrEmpty(normalPolicy))
+        {
+            return normalPolicy;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1823,14 +1881,14 @@ public class BotDetectionMiddleware(
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
 #pragma warning restore CS0618
         {
-            // Try bot-type-specific policy first (e.g., Tool → throttle-tools)
-            string? resolvedPolicyName = null;
-            if (_options.BotTypeActionPolicies.Count > 0
-                && aggregatedResult.PrimaryBotType is not null and not BotType.Unknown)
-            {
-                var botTypeName = aggregatedResult.PrimaryBotType.Value.ToString();
-                _options.BotTypeActionPolicies.TryGetValue(botTypeName, out resolvedPolicyName);
-            }
+            // Try bot-type-specific policy first (internal-network bucket
+            // wins when both ip.is_local AND a valid API key are present).
+            // apiKeyContext is stashed on Items by InvokeAsync after validation;
+            // this method runs further down the same pipeline so the cast is safe.
+            var apiKeyCtx = context.Items.TryGetValue("BotDetection.ApiKeyContext", out var ctxObj)
+                ? ctxObj as ApiKeyContext
+                : null;
+            var resolvedPolicyName = ResolveBotTypeActionPolicy(aggregatedResult, apiKeyCtx);
 
             // Fall back to default
             resolvedPolicyName ??= _options.DefaultActionPolicyName;

@@ -1099,6 +1099,55 @@ public class BotDetectionOptions
     };
 
     /// <summary>
+    ///     Per-<see cref="BotType"/> action policy override for traffic that
+    ///     arrives from inside the local network <em>and</em> presents a valid
+    ///     API key. The classic case is an internal service-to-service call
+    ///     from a stylobot dashboard host to the gateway's REST API: the
+    ///     HttpClient looks like a generic "Tool" to the UA detector and the
+    ///     normal <see cref="BotTypeActionPolicies"/> would route it to
+    ///     <c>throttle-tools</c>, holding every request for ~15 s and
+    ///     starving the dashboard. The internal-network bucket keeps
+    ///     detection running unchanged but turns the action down to something
+    ///     observational so the operator still sees the verdict in the
+    ///     dashboard without the throttle delay killing latency.
+    ///     <para>
+    ///     Trust is additive: the lookup only applies when the request
+    ///     satisfies <em>both</em> <c>ip.is_local=true</c> (RFC1918 / docker
+    ///     network / loopback) <em>and</em> a valid <see cref="ApiBypassHeaderName"/>
+    ///     header. Either signal alone keeps the normal policy -- a rogue
+    ///     process on the docker network without a key still gets the
+    ///     normal throttle, and a leaked key arriving from outside the
+    ///     network still gets the normal throttle.
+    ///     </para>
+    ///     <para>
+    ///     Empty (or no entry for the matched bot type) falls through to
+    ///     <see cref="BotTypeActionPolicies"/> -- so flipping the feature
+    ///     off is just clearing the dictionary in config.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     "InternalNetworkBotTypeActionPolicies": {
+    ///         "Tool": "logonly",
+    ///         "Scraper": "logonly",
+    ///         "Bot": "logonly"
+    ///     }
+    ///     </code>
+    /// </example>
+    public Dictionary<string, string> InternalNetworkBotTypeActionPolicies { get; set; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Tool"]           = "logonly",
+        ["Scraper"]        = "logonly",
+        ["Bot"]            = "logonly",
+        ["AiBot"]          = "logonly",
+        ["SearchEngine"]   = "logonly",
+        ["GoodBot"]        = "logonly",
+        ["VerifiedBot"]    = "logonly",
+        ["SocialMediaBot"] = "logonly",
+        ["MonitoringBot"]  = "logonly",
+    };
+
+    /// <summary>
     ///     Calibration / shadow-mode switch. When <c>true</c>, every action
     ///     policy that would have fired is shadowed through <c>logonly</c>
     ///     instead -- the dashboard still records *which* policy would have
