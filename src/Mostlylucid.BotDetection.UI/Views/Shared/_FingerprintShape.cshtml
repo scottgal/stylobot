@@ -1,0 +1,91 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@model FingerprintShapeViewModel
+@{
+    // Render source: a FingerprintRadarShape projected by FingerprintRadarProjection
+    // (Network / Locale / Headers / Tool / Transport / Session / Quality). Solid
+    // polygon = current centroid; dotted polygon (when known) = archetype origin.
+    // The gap between them is the visitor's drift since allocation. Calibrating
+    // placeholder runs when the matcher has not yet produced a fingerprint.
+    var shape         = Model.Shape;
+    var hasRadar      = shape is not null && shape.CurrentBuckets.Length > 0;
+    var bucketLabels  = shape?.BucketLabels ?? FingerprintRadarProjection.BucketLabels;
+    var size          = Model.Size;
+    var radarFill     = Model.IsBot ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)";
+    var accent        = Model.IsBot ? "#ef4444" : "#22c55e";
+
+    var radarCurrent   = new System.Text.StringBuilder();
+    var radarOrigin    = new System.Text.StringBuilder();
+    var radarAxisLines = new System.Text.StringBuilder();
+    var radarLabelSvg  = new System.Text.StringBuilder();
+
+    var axisCount = bucketLabels.Length;
+    for (var i = 0; i < axisCount; i++)
+    {
+        var angle = (2 * Math.PI * i / axisCount) - (Math.PI / 2); // 12 o'clock at top
+
+        if (hasRadar)
+        {
+            var magnitude = Math.Clamp(shape!.CurrentBuckets[i], 0, 1);
+            var x = 50 + Math.Cos(angle) * 35 * magnitude;
+            var y = 50 + Math.Sin(angle) * 35 * magnitude;
+            radarCurrent.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
+
+            if (shape.OriginBuckets is { } origin && origin.Length == axisCount)
+            {
+                var om = Math.Clamp(origin[i], 0, 1);
+                var ox = 50 + Math.Cos(angle) * 35 * om;
+                var oy = 50 + Math.Sin(angle) * 35 * om;
+                radarOrigin.Append($"{ox.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{oy.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
+            }
+        }
+
+        var ax = 50 + Math.Cos(angle) * 35;
+        var ay = 50 + Math.Sin(angle) * 35;
+        radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
+
+        var lx = 50 + Math.Cos(angle) * 44;
+        var ly = 50 + Math.Sin(angle) * 44 + 1.2;
+        radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{bucketLabels[i]}</text>");
+    }
+
+    var hasOrigin = hasRadar && shape!.OriginBuckets is { Length: > 0 };
+}
+@if (hasRadar)
+{
+    <svg viewBox="0 0 100 100" width="@size" height="@size" xmlns="http://www.w3.org/2000/svg"
+         aria-label="Behavioural fingerprint -- @bucketLabels.Length-bucket centroid projection">
+        <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.16" />
+        <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
+        <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
+        @Html.Raw(radarAxisLines.ToString())
+        @if (hasOrigin)
+        {
+            @* Archetype-origin overlay: dotted, lower opacity, drawn BEHIND the
+               current polygon so the current shape reads as the focused element. *@
+            <polygon points="@radarOrigin.ToString().TrimEnd()"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="0.8"
+                     stroke-dasharray="1.5 1.2"
+                     opacity="0.45" />
+        }
+        <polygon points="@radarCurrent.ToString().TrimEnd()"
+                 fill="@radarFill"
+                 stroke="@accent"
+                 stroke-width="1.2" />
+        @Html.Raw(radarLabelSvg.ToString())
+    </svg>
+}
+else
+{
+    <div class="flex flex-col items-center justify-center gap-2 text-base-content/40"
+         style="width: @(size)px; height: @(size)px;"
+         aria-live="polite"
+         aria-label="Behavioural fingerprint calibrating">
+        <span class="loading loading-ring loading-md" style="color: currentColor;"></span>
+        <div class="text-[10px] uppercase tracking-wider text-center leading-tight">
+            Calibrating<br/>fingerprint
+        </div>
+    </div>
+}

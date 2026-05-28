@@ -176,25 +176,18 @@ else
         </div>
     </div>
 
-    <!-- Behavioral Evolution: unified Behavioral History + Behavioral Sessions + Behavioral Shape.
-         Replaces the three former panels with one 12-axis clock radar that overlays sessions as
-         opacity-faded ghosts, with the session list as a clickable right column. -->
-    var evoOptions = (Context.RequestServices.GetService(typeof(Microsoft.Extensions.Options.IOptions<Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions>))
-                      as Microsoft.Extensions.Options.IOptions<Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions>)?.Value.BehavioralEvolution
-                     ?? new Mostlylucid.BotDetection.UI.Configuration.BehavioralEvolutionOptions();
-    var evoModel = new Mostlylucid.BotDetection.UI.Models.BehavioralEvolutionModel
-    {
-        SignatureId = Model.SignatureId,
-        BasePath    = Model.BasePath,
-        CspNonce    = Model.CspNonce,
-        Options     = evoOptions
-    };
-    @* Full tilde-path -- RazorViewRenderer (used by the FOSS dashboard middleware to
-       render this view outside an MVC controller) does not inject /Views/StyloBot/
-       Dashboard/ into the partial-name search list, so a name-only Html.PartialAsync
-       call 404s with InvalidOperationException at render time. Matches the pattern
-       _HelpIcon and other dashboard partials already use. *@
-    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_BehavioralEvolution.cshtml", evoModel)
+    @* Behavioural fingerprint shape: 7-bucket centroid radar (Network / Locale /
+       Headers / Tool / Transport / Session / Quality). Same FingerprintRadarProjection
+       the home card uses, so the polygons read identically on both surfaces for the
+       same signature. Null FingerprintShape => calibrating placeholder (the matcher
+       has not yet mapped this signature to a fingerprint).
+       Full tilde-path -- RazorViewRenderer does not inject /Views/StyloBot/Dashboard/
+       into the partial search list; same pattern other dashboard partials use. *@
+    <div class="rounded-xl border p-4 mb-4 flex items-center justify-center"
+         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        @await Html.PartialAsync("~/Views/Shared/_FingerprintShape.cshtml",
+            new FingerprintShapeViewModel(Model.FingerprintShape, Model.IsBot, 240))
+    </div>
 
     <!-- Fingerprint Profile -->
     <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">

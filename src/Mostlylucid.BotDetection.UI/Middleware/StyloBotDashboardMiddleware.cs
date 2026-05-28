@@ -4227,6 +4227,14 @@ public class StyloBotDashboardMiddleware
         // here so both model branches receive the same result.
         var looksLike = await ResolveLooksLikeAsync(context, decodedSignature);
 
+        // 7-bucket fingerprint centroid radar shape -- same projection the home
+        // card uses, so the visitor's polygon reads identically on both
+        // surfaces. Returns null when the matcher has not yet mapped this
+        // signature to a fingerprint; the shared partial then renders its
+        // calibrating placeholder. Computed once here so both model branches
+        // receive the same shape.
+        var fingerprintShape = await ResolveFingerprintShapeAsync(context, decodedSignature);
+
         if (_signatureCache.TryGet(decodedSignature, out var agg) && agg != null)
         {
             List<double>? sparkline;
@@ -4364,7 +4372,8 @@ public class StyloBotDashboardMiddleware
                 SignalCategories = signalCategories,
                 TunerEnabled = _options.EnableTuner,
                 PeriodicityHeatmap = heatmap,
-                LooksLike = looksLike
+                LooksLike = looksLike,
+                FingerprintShape = fingerprintShape
             };
         }
         else
@@ -4477,7 +4486,8 @@ public class StyloBotDashboardMiddleware
                         SignalCategories = signalCategories,
                         TunerEnabled = _options.EnableTuner,
                         PeriodicityHeatmap = heatmap,
-                        LooksLike = looksLike
+                        LooksLike = looksLike,
+                        FingerprintShape = fingerprintShape
                     };
                 }
                 else
@@ -4537,6 +4547,55 @@ public class StyloBotDashboardMiddleware
                 "Looks-like KNN failed for {Signature}; rendering signature detail without it",
                 decodedSignature);
             return Array.Empty<BotDetection.Identity.NearestFingerprint>();
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the 7-bucket fingerprint centroid radar shape for the
+    ///     signature-detail page. Mirrors what the home card's
+    ///     <see cref="BotDetection.UI.ViewComponents.BotDetectionDetailsViewComponent"/>
+    ///     does at request time, so both surfaces render through the same
+    ///     <see cref="FingerprintRadarProjection"/> and produce identical
+    ///     polygons for the same signature. Returns <c>null</c> when identity
+    ///     is off, the reader is absent (remote-mode dashboard), the
+    ///     signature has no fingerprint mapped yet, the registry/layout DI is
+    ///     missing, or the lookup throws (vec0 unavailable, layout-version
+    ///     mismatch). The shared partial handles null by rendering its
+    ///     calibrating placeholder, so the page never goes blank.
+    /// </summary>
+    private async Task<FingerprintRadarShape?> ResolveFingerprintShapeAsync(
+        HttpContext context, string decodedSignature)
+    {
+        var reader = context.RequestServices.GetService<IFingerprintReader>();
+        if (reader is null) return null;
+
+        var archetypes = context.RequestServices.GetService<IdentityArchetypeRegistry>();
+        var layout = context.RequestServices.GetService<IdentityVectorLayout>();
+        if (archetypes is null || layout is null) return null;
+
+        // Optional in dashboard-viewer hosts that don't run detection. When
+        // absent the per-fp weights stand in unchanged -- the global
+        // multiplier is a refinement, not a prerequisite.
+        var globalWeights = context.RequestServices.GetService<IdentityGlobalWeightsCache>();
+
+        try
+        {
+            var fpId = await reader.LookupFingerprintIdAsync(decodedSignature, context.RequestAborted);
+            if (string.IsNullOrEmpty(fpId)) return null;
+
+            var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
+            if (fp is null) return null;
+
+            var archetype = archetypes.TryGetById(fp.ArchetypeOrigin);
+            var effectiveWeights = globalWeights?.Compose(fp.Weights) ?? fp.Weights;
+            return FingerprintRadarProjection.Project(fp, archetype, layout, effectiveWeights);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "Fingerprint shape resolution failed for {Signature}; signature detail will render calibrating placeholder",
+                decodedSignature);
+            return null;
         }
     }
 

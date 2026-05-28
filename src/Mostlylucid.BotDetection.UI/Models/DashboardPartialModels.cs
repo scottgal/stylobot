@@ -332,6 +332,14 @@ public sealed class SignatureDetailModel
     // From DB detections (recent per-request records)
     public List<SignatureDetectionRow> RecentDetections { get; init; } = [];
 
+    // 7-bucket fingerprint centroid projection used by the radar partial on
+    // both the home card and the signature-detail page. Null when the matcher
+    // hasn't produced a fingerprint for this signature yet (the partial then
+    // renders its calibrating placeholder). Projected once at model
+    // construction; same FingerprintRadarProjection the home card uses, so
+    // the polygons read identically on both surfaces.
+    public FingerprintRadarShape? FingerprintShape { get; init; }
+
     // Latest detection's detector contributions
     public List<SignatureDetectorEntry> DetectorContributions { get; init; } = [];
 
