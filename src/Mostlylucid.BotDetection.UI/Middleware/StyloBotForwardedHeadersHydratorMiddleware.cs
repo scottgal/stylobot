@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
@@ -17,10 +18,14 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 public sealed class StyloBotForwardedHeadersHydratorMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly ILogger<StyloBotForwardedHeadersHydratorMiddleware> _logger;
 
-    public StyloBotForwardedHeadersHydratorMiddleware(RequestDelegate next)
+    public StyloBotForwardedHeadersHydratorMiddleware(
+        RequestDelegate next,
+        ILogger<StyloBotForwardedHeadersHydratorMiddleware> logger)
     {
         _next = next;
+        _logger = logger;
     }
 
     public Task InvokeAsync(HttpContext context)
@@ -31,6 +36,19 @@ public sealed class StyloBotForwardedHeadersHydratorMiddleware
         var ipHeader       = TryGet(headers, StyloBotEdgeHeaderNames.IpSignature);
         var uaHeader       = TryGet(headers, StyloBotEdgeHeaderNames.UaSignature);
         var entityIdHeader = TryGet(headers, StyloBotEdgeHeaderNames.EntityId);
+
+        // TEMPORARY DIAGNOSTIC — verifying which edge headers actually arrive.
+        // Pull this out once the verification round confirms behaviour.
+        if (context.Request.Path.HasValue && context.Request.Path.Value == "/")
+        {
+            _logger.LogInformation(
+                "HYDRATOR / fp={Fp} primary={Primary} ip={Ip} ua={Ua} entityId={EntityId}",
+                fpHeader ?? "<absent>",
+                primaryHeader ?? "<absent>",
+                ipHeader ?? "<absent>",
+                uaHeader ?? "<absent>",
+                entityIdHeader ?? "<absent>");
+        }
 
         if (!string.IsNullOrEmpty(fpHeader))
             context.Items[SignalKeys.IdentityFingerprintId] = fpHeader;
