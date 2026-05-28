@@ -15,7 +15,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///     truth. Restart restores the full snapshot — including LLM-derived labels and
 ///     descriptions — instead of starting from an empty <see cref="ClusterSnapshot.Empty"/>.
 /// </summary>
-public sealed class SqliteClusterStore
+public sealed class SqliteClusterStore : IClusterStore
 {
     private readonly string _connectionString;
     private readonly ILogger<SqliteClusterStore> _logger;

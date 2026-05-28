@@ -890,6 +890,9 @@ public static class ServiceCollectionExtensions
             var connStr = $"Data Source={Path.Combine(basePath, "clusters.db")};Cache=Shared";
             return new SqliteClusterStore(connStr, logger);
         });
+        // Default IClusterStore binding forwards to the Sqlite concrete; commercial
+        // plugin Replace()s this with PostgreSQLClusterStore at gateway startup.
+        services.TryAddSingleton<IClusterStore>(sp => sp.GetRequiredService<SqliteClusterStore>());
         // KNN graph builder: feeds the Leiden cluster service a sparse K-NN
         // graph (O(N log N) via sqlite-vec when the extension is loadable,
         // O(N^2) brute-force fallback). Replaces the historic inline N^2

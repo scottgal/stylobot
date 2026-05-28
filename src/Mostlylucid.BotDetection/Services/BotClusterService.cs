@@ -46,7 +46,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
     private readonly MarkovTracker? _markovTracker;
     private readonly AdaptiveSimilarityWeighter? _adaptiveWeighter;
     private readonly UaProfileStore? _uaProfileStore;
-    private readonly SqliteClusterStore? _clusterStore;
+    private readonly IClusterStore? _clusterStore;
     private int _hydrated;
 
     private bool BehaviouralAxisActive => _options.EnableBehaviouralVectorAxis && _fingerprintStore is not null;
@@ -75,7 +75,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         AdaptiveSimilarityWeighter? adaptiveWeighter = null,
         UaProfileStore? uaProfileStore = null,
         PipelineLoadSensor? loadSensor = null,
-        SqliteClusterStore? clusterStore = null,
+        IClusterStore? clusterStore = null,
         Clustering.Knn.IKnnGraphBuilder? knnGraphBuilder = null)
     {
         _logger = logger;
