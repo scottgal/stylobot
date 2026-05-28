@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 
@@ -87,9 +88,9 @@ public sealed class StyloBotForwardedHeadersMiddleware
         _logger = logger;
     }
 
-    public Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context)
     {
-        if (!_enabled) return _next(context);
+        if (!_enabled) { await _next(context); return; }
 
         // Identity fingerprint id: the load-bearing value -- the downstream view
         // component renders the radar around it.
@@ -125,6 +126,30 @@ public sealed class StyloBotForwardedHeadersMiddleware
         if (!string.IsNullOrEmpty(primarySig))
             context.Request.Headers[StyloBotEdgeHeaderNames.PrimarySignature] = primarySig;
 
+        // Verdict-cache skip paths never write IdentityFingerprintId to Items
+        // because the orchestrator (and therefore the FingerprintMatchContributor)
+        // never ran for the request. Fall back to a direct L1 lookup against
+        // fingerprint_keys[primarySig] -- a cheap single-row SELECT on the
+        // gateway's local store. Without this, every verdict-cached visitor
+        // arrives at the downstream dashboard with no identity.
+        if (string.IsNullOrEmpty(fpId) && !string.IsNullOrEmpty(primarySig))
+        {
+            var reader = context.RequestServices.GetService<IFingerprintReader>();
+            if (reader is not null)
+            {
+                try
+                {
+                    fpId = await reader.LookupFingerprintIdAsync(primarySig, context.RequestAborted);
+                    if (!string.IsNullOrEmpty(fpId))
+                        context.Request.Headers[StyloBotEdgeHeaderNames.IdentityFingerprint] = fpId;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "L1 fingerprint lookup failed for primarySig={Sig}", primarySig);
+                }
+            }
+        }
+
         // Verdict shape: probability / risk band / bot name -- everything the
         // home card's verdict badge + reason strip want.
         if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var ev3)
@@ -143,7 +168,7 @@ public sealed class StyloBotForwardedHeadersMiddleware
 
         context.Request.Headers[StyloBotEdgeHeaderNames.RequestId] = context.TraceIdentifier;
 
-        return _next(context);
+        await _next(context);
     }
 }
 
