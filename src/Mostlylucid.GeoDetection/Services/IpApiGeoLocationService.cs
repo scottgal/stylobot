@@ -145,6 +145,23 @@ public class IpApiGeoLocationService(
     private static bool IsPrivateOrReserved(IPAddress ip)
     {
         if (IPAddress.IsLoopback(ip)) return true;
+        if (ip.IsIPv6LinkLocal) return true;
+        if (ip.IsIPv6SiteLocal) return true;
+
+        // IPv6 unique local address (fc00::/7 -- RFC 4193, equivalent to the
+        // IPv4 RFC 1918 ranges). Docker's default IPv6 bridge hands these out
+        // (e.g. fd00:.../8), so the previous "bytes.Length != 4 => return false"
+        // shortcut sent every internal IPv6 service-to-service call out to
+        // ip-api.com, paying a ~130ms round-trip just to learn "private range".
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            var v6 = ip.GetAddressBytes();
+            if ((v6[0] & 0xFE) == 0xFC) return true;
+        }
+
+        // IPv4-mapped IPv6 (::ffff:10.x.x.x etc.)
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
 
         var bytes = ip.GetAddressBytes();
         if (bytes.Length != 4) return false;
