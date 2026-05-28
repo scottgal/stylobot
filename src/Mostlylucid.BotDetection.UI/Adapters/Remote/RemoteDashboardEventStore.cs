@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -13,32 +14,85 @@ namespace Mostlylucid.BotDetection.UI.Adapters.Remote;
 ///     The dashboard middleware and view components consume <c>IDashboardEventStore</c>
 ///     directly; substituting this impl gives the remote viewer every JSON endpoint and
 ///     every Razor partial that hangs off it - which is most of the dashboard.
+///
+///     <para>
+///     Every read path is wrapped in a short-TTL in-memory cache. A dashboard
+///     render fans 8-10 SSR partials + the background broadcaster + lazy HTMX
+///     loads at the gateway nearly simultaneously, and many request the same
+///     endpoint with the same parameters within a few hundred milliseconds.
+///     The cache key is the encoded query path, the TTL is 2 seconds, and the
+///     value is the deserialised payload -- so the second through Nth duplicate
+///     within a render burst is a single dictionary lookup instead of another
+///     ~2 s gateway call. Writes (none here) and per-request data freshness
+///     beyond the 2 s window are unaffected.
+///     </para>
 /// </summary>
 internal sealed class RemoteDashboardEventStore : IDashboardEventStore
 {
+    /// <summary>
+    ///     Short-TTL dedupe window for the duplicated SSR + broadcaster +
+    ///     lazy-load fan-out a single dashboard render produces. Long enough
+    ///     to catch the burst (typically &lt; 500 ms), short enough that the
+    ///     next render still sees fresh data.
+    /// </summary>
+    private static readonly TimeSpan RenderBurstDedupeTtl = TimeSpan.FromSeconds(2);
+
     private readonly GatewayApiClient _api;
+    private readonly IMemoryCache _cache;
 
-    public RemoteDashboardEventStore(GatewayApiClient api) => _api = api;
+    public RemoteDashboardEventStore(GatewayApiClient api, IMemoryCache cache)
+    {
+        _api = api;
+        _cache = cache;
+    }
 
-    public async Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null, CancellationToken ct = default)
+    /// <summary>
+    ///     Cache wrapper around the gateway-call delegate. Keys are scoped to
+    ///     the remote-event-store namespace so they cannot collide with any
+    ///     other consumer of the shared IMemoryCache.
+    /// </summary>
+    private Task<T> GetOrFetchAsync<T>(string cacheKey, Func<Task<T>> fetch)
+    {
+        var scopedKey = "rdes:" + cacheKey;
+        if (_cache.TryGetValue<T>(scopedKey, out var cached) && cached is not null)
+            return Task.FromResult(cached);
+
+        return FetchAndCacheAsync();
+
+        async Task<T> FetchAndCacheAsync()
+        {
+            var value = await fetch().ConfigureAwait(false);
+            if (value is not null)
+                _cache.Set(scopedKey, value, RenderBurstDedupeTtl);
+            return value!;
+        }
+    }
+
+    public Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null, CancellationToken ct = default)
     {
         var f = filter ?? new DashboardFilter();
         var query = $"/api/v1/detections?limit={f.Limit}&offset={f.Offset}"
             + (f.IsBot.HasValue ? $"&isBot={f.IsBot.Value.ToString().ToLowerInvariant()}" : "")
             + (f.StartTime.HasValue ? $"&since={Uri.EscapeDataString(f.StartTime.Value.ToString("o"))}" : "");
-        var list = await _api.GetEnvelopeAsync<List<DashboardDetectionEvent>>(query, ct);
-        return list ?? new List<DashboardDetectionEvent>();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardDetectionEvent>>(query, ct);
+            return list ?? new List<DashboardDetectionEvent>();
+        });
     }
 
-    public async Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0, bool? isBot = null)
+    public Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0, bool? isBot = null)
     {
         var query = $"/api/v1/signatures?limit={limit}&offset={offset}"
             + (isBot.HasValue ? $"&isBot={isBot.Value.ToString().ToLowerInvariant()}" : "");
-        var list = await _api.GetEnvelopeAsync<List<DashboardSignatureEvent>>(query);
-        return list ?? new List<DashboardSignatureEvent>();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardSignatureEvent>>(query);
+            return list ?? new List<DashboardSignatureEvent>();
+        });
     }
 
-    public async Task<DashboardSummary> GetSummaryAsync(
+    public Task<DashboardSummary> GetSummaryAsync(
         DateTime? startTime = null,
         DateTime? endTime = null,
         string? audienceFilter = null)
@@ -58,8 +112,11 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         if (!string.IsNullOrEmpty(audienceFilter))
             query += $"{sep}audience={Uri.EscapeDataString(audienceFilter)}";
 
-        var summary = await _api.GetEnvelopeAsync<DashboardSummary>(query);
-        return summary ?? EmptySummary();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var summary = await _api.GetEnvelopeAsync<DashboardSummary>(query);
+            return summary ?? EmptySummary();
+        });
     }
 
     private static DashboardSummary EmptySummary() => new()
@@ -75,7 +132,7 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         UniqueSignatures = 0
     };
 
-    public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
+    public Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
         DateTime startTime,
         DateTime endTime,
         TimeSpan bucketSize,
@@ -93,56 +150,71 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
             + $"&until={Uri.EscapeDataString(endTime.ToString("o"))}";
         if (!string.IsNullOrEmpty(audienceFilter))
             query += $"&audience={Uri.EscapeDataString(audienceFilter)}";
-        var list = await _api.GetEnvelopeAsync<List<DashboardTimeSeriesPoint>>(query);
-        return list ?? new List<DashboardTimeSeriesPoint>();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardTimeSeriesPoint>>(query);
+            return list ?? new List<DashboardTimeSeriesPoint>();
+        });
     }
 
-    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         var query = BuildRangedQuery("/api/v1/topbots", count, startTime, endTime);
         if (!string.IsNullOrEmpty(audienceFilter))
             query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
-        var list = await _api.GetEnvelopeAsync<List<DashboardTopBotEntry>>(query);
-        return list ?? new List<DashboardTopBotEntry>();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardTopBotEntry>>(query);
+            return list ?? new List<DashboardTopBotEntry>();
+        });
     }
 
-    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         var query = BuildRangedQuery("/api/v1/countries", count, startTime, endTime);
         if (!string.IsNullOrEmpty(audienceFilter))
             query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
-        var list = await _api.GetEnvelopeAsync<List<DashboardCountryStats>>(query);
-        return list ?? new List<DashboardCountryStats>();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardCountryStats>>(query);
+            return list ?? new List<DashboardCountryStats>();
+        });
     }
 
-    public async Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null)
+    public Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null)
     {
         var query = $"/api/v1/countries/{Uri.EscapeDataString(countryCode)}"
             + BuildSinceUntil(startTime, endTime, prefix: "?");
-        return await _api.GetEnvelopeAsync<DashboardCountryDetail>(query);
+        return GetOrFetchAsync(query, () => _api.GetEnvelopeAsync<DashboardCountryDetail>(query)!);
     }
 
-    public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         var query = BuildRangedQuery("/api/v1/endpoints", count, startTime, endTime);
         if (!string.IsNullOrEmpty(audienceFilter))
             query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
-        var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);
-        return list ?? new List<DashboardEndpointStats>();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);
+            return list ?? new List<DashboardEndpointStats>();
+        });
     }
 
-    public async Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
+    public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
     {
         var query = $"/api/v1/endpoints/{Uri.EscapeDataString(method)}/{path.TrimStart('/')}"
             + BuildSinceUntil(startTime, endTime, prefix: "?");
-        return await _api.GetEnvelopeAsync<DashboardEndpointDetail>(query);
+        return GetOrFetchAsync(query, () => _api.GetEnvelopeAsync<DashboardEndpointDetail>(query)!);
     }
 
-    public async Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+    public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
     {
         var query = BuildRangedQuery("/api/v1/threats", count, startTime, endTime);
-        var list = await _api.GetEnvelopeAsync<List<ThreatEntry>>(query);
-        return list ?? new List<ThreatEntry>();
+        return GetOrFetchAsync(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<ThreatEntry>>(query);
+            return list ?? new List<ThreatEntry>();
+        });
     }
 
     public async Task<List<HoneypotHitRow>> GetHoneypotHitsAsync(
@@ -155,19 +227,25 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return new List<HoneypotHitRow>();
     }
 
-    public async Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20)
+    public Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20)
     {
         var path = $"/api/v1/useragents/search?query={Uri.EscapeDataString(query ?? string.Empty)}&limit={limit}";
-        var list = await _api.GetEnvelopeAsync<List<UserAgentSearchResult>>(path);
-        return list ?? new List<UserAgentSearchResult>();
+        return GetOrFetchAsync(path, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<UserAgentSearchResult>>(path);
+            return list ?? new List<UserAgentSearchResult>();
+        });
     }
 
-    public async Task<List<UserAgentVersionBucket>> GetUserAgentVersionHistoryAsync(
+    public Task<List<UserAgentVersionBucket>> GetUserAgentVersionHistoryAsync(
         string family, int hours = 168, CancellationToken ct = default)
     {
         var path = $"/api/v1/useragents/versions?family={Uri.EscapeDataString(family ?? string.Empty)}&hours={hours}";
-        var list = await _api.GetEnvelopeAsync<List<UserAgentVersionBucket>>(path);
-        return list ?? new List<UserAgentVersionBucket>();
+        return GetOrFetchAsync(path, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<UserAgentVersionBucket>>(path);
+            return list ?? new List<UserAgentVersionBucket>();
+        });
     }
 
     public async Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default)
