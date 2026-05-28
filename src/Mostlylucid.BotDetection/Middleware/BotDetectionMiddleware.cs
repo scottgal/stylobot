@@ -394,7 +394,14 @@ public class BotDetectionMiddleware(
                     context.Response.Headers["X-StyloBot-VerdictSource"] =
                         v.FromIdentityCache ? "identity-cache" : "cache";
                     if (v.IdentityFingerprintId is not null)
+                    {
                         context.Response.Headers["X-StyloBot-IdentityFingerprint"] = v.IdentityFingerprintId;
+                        // Also surface to downstream middleware / forwarded headers.
+                        // Without this, the YARP-forwarded request carries no
+                        // identity for verdict-cache hits and the downstream
+                        // dashboard renders "Calibrating" forever.
+                        context.Items[SignalKeys.IdentityFingerprintId] = v.IdentityFingerprintId;
+                    }
 
                     var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "";
                     var pathStr = context.Request.Path.Value ?? "/";
