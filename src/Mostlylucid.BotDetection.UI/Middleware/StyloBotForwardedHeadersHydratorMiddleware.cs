@@ -60,16 +60,19 @@ public sealed class StyloBotForwardedHeadersHydratorMiddleware
     private static string? TryGet(IHeaderDictionary headers, string name)
     {
         if (!headers.TryGetValue(name, out var values)) return null;
-        // StringValues.ToString() comma-joins multiple values when the same header
-        // arrives more than once. Some gateway/YARP/middleware combinations attach
-        // X-Bot-Detection-* twice; without this guard the joined "VALUE, VALUE"
-        // string ends up in HttpContext.Items and downstream as a primarySig,
-        // breaking /dashboard/signature/{sig} URLs and the fingerprint lookup.
-        // Take the first non-empty value; subsequent duplicates are harmless.
+        // Some gateway/YARP/middleware combinations attach X-Bot-Detection-* twice,
+        // either as two distinct header lines (StringValues with Count > 1) or as
+        // a single line with the value comma-joined per RFC 7230 ("A, A"). Both
+        // paths break downstream consumers -- a doubled primarySig produces an
+        // unresolvable /dashboard/signature/{sig} URL and the fingerprint lookup
+        // returns 404 forever. Take the first non-empty entry; split off the
+        // tail after the first ", " to handle the RFC-7230 single-line case.
         for (var i = 0; i < values.Count; i++)
         {
             var v = values[i];
-            if (!string.IsNullOrWhiteSpace(v)) return v;
+            if (string.IsNullOrWhiteSpace(v)) continue;
+            var commaIdx = v.IndexOf(", ", StringComparison.Ordinal);
+            return commaIdx > 0 ? v[..commaIdx] : v;
         }
         return null;
     }

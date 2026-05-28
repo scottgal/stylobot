@@ -406,8 +406,25 @@ public class DetectionDataExtractor
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
-    private static string? GetHeaderValue(IHeaderDictionary headers, string key) =>
-        headers.TryGetValue(key, out var value) ? value.ToString() : null;
+    private static string? GetHeaderValue(IHeaderDictionary headers, string key)
+    {
+        if (!headers.TryGetValue(key, out var value)) return null;
+        // StringValues.ToString() comma-joins multiple values when the same
+        // header arrives more than once OR when a single header line is comma-
+        // joined per RFC 7230. Some gateway/YARP/middleware combinations attach
+        // X-Bot-Detection-* twice; without this guard the joined "VALUE, VALUE"
+        // breaks every consumer (RiskBand chrome, primarySig URLs, fingerprint
+        // lookups). Take the first non-empty entry; further dedup the comma-
+        // joined single-line case by splitting on the first ", ".
+        for (var i = 0; i < value.Count; i++)
+        {
+            var v = value[i];
+            if (string.IsNullOrWhiteSpace(v)) continue;
+            var commaIdx = v.IndexOf(", ", StringComparison.Ordinal);
+            return commaIdx > 0 ? v[..commaIdx] : v;
+        }
+        return null;
+    }
 
     private static bool ParseBoolHeader(IHeaderDictionary headers, string key) =>
         bool.TryParse(GetHeaderValue(headers, key), out var result) && result;

@@ -26,21 +26,27 @@ public static class DemoModeTransform
         {
             var httpContext = transformContext.HttpContext;
 
+            // Idempotent attach: HttpHeaders.TryAddWithoutValidation appends to
+            // any existing values rather than replacing, so re-running the same
+            // name produces "VALUE, VALUE" on the wire. When the commercial
+            // gateway's StyloBotForwardedHeadersMiddleware (or any prior writer)
+            // has already attached the header, skip here -- the existing value
+            // is canonical.
+            void AddIfMissing(string name, string value)
+            {
+                if (transformContext.ProxyRequest.Headers.Contains(name)) return;
+                transformContext.ProxyRequest.Headers.TryAddWithoutValidation(name, value);
+            }
+
             if (demoModeEnabled)
             {
                 // DEMO MODE: Pass ALL headers (comprehensive detection info for UI display)
-                httpContext.AddBotDetectionHeadersFull((name, value) =>
-                {
-                    transformContext.ProxyRequest.Headers.TryAddWithoutValidation(name, value);
-                });
+                httpContext.AddBotDetectionHeadersFull(AddIfMissing);
             }
             else
             {
                 // PRODUCTION MODE: Pass only basic headers
-                httpContext.AddBotDetectionHeaders((name, value) =>
-                {
-                    transformContext.ProxyRequest.Headers.TryAddWithoutValidation(name, value);
-                });
+                httpContext.AddBotDetectionHeaders(AddIfMissing);
             }
 
             return ValueTask.CompletedTask;
