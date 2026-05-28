@@ -763,6 +763,14 @@ public class BotDetectionOptions
     /// </summary>
     public ResponseHeadersOptions ResponseHeaders { get; set; } = new();
 
+    /// <summary>
+    ///     Edge-mode header forwarding: strip <c>X-Bot-Detection-*</c> from inbound
+    ///     visitor requests (anti-spoofing) and emit them on the outbound
+    ///     proxied request so a downstream dashboard host can render identity
+    ///     without running detection.
+    /// </summary>
+    public ForwardedHeadersOptions ForwardedHeaders { get; set; } = new();
+
     // ==========================================
     // YARP Learning Mode Configuration
     // ==========================================
@@ -4221,4 +4229,32 @@ public enum UrlRewriteScope
 {
     All,
     Patterns,
+}
+
+/// <summary>
+///     Edge-mode forwarded-headers contract. Used by stylobot reverse-proxy gateways
+///     that sit in front of a downstream dashboard host (Stylobot.Website,
+///     Stylobot.Ui in remote mode, anything mounting the FOSS dashboard library with
+///     no detection of its own). The downstream consumer reads <c>X-Bot-Detection-*</c>
+///     headers on the inbound request and hydrates HttpContext.Items so view
+///     components render identity without running detection locally.
+/// </summary>
+public class ForwardedHeadersOptions
+{
+    /// <summary>
+    ///     Remove <c>X-Bot-Detection-*</c> headers from inbound visitor requests at
+    ///     the public edge before any detection logic reads them. Without this a
+    ///     visitor could attach those headers and claim to be a different
+    ///     fingerprint or verdict. Default on. Disable only when the gateway is
+    ///     itself behind a trusted upstream that already strips.
+    /// </summary>
+    public bool StripInboundFromClient { get; set; } = true;
+
+    /// <summary>
+    ///     Emit <c>X-Bot-Detection-*</c> on the YARP-forwarded request so a
+    ///     downstream dashboard host renders identity from headers alone. Default
+    ///     on; turn off for plain reverse-proxy deployments where the upstream
+    ///     never needs to see detection state.
+    /// </summary>
+    public bool EmitOnForwardedRequest { get; set; } = true;
 }
