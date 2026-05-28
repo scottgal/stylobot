@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 
@@ -16,21 +17,35 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 public sealed class StyloBotForwardedHeadersHydratorMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly ILogger<StyloBotForwardedHeadersHydratorMiddleware> _logger;
 
-    public StyloBotForwardedHeadersHydratorMiddleware(RequestDelegate next)
+    public StyloBotForwardedHeadersHydratorMiddleware(
+        RequestDelegate next,
+        ILogger<StyloBotForwardedHeadersHydratorMiddleware> logger)
     {
         _next = next;
+        _logger = logger;
     }
 
     public Task InvokeAsync(HttpContext context)
     {
         var headers = context.Request.Headers;
+        var fpHeader = TryGet(headers, StyloBotEdgeHeaderNames.IdentityFingerprint);
+        var primaryHeader = TryGet(headers, StyloBotEdgeHeaderNames.PrimarySignature);
 
-        if (TryGet(headers, StyloBotEdgeHeaderNames.IdentityFingerprint) is { } fpId)
-            context.Items[SignalKeys.IdentityFingerprintId] = fpId;
+        // Diagnostic: log what the gateway actually attached. Trace-level
+        // would be cleaner but staging defaults to Information.
+        _logger.LogInformation(
+            "StyloBot forwarded-headers hydrator: path={Path} fp={Fp} primary={Primary}",
+            context.Request.Path.Value,
+            fpHeader ?? "<absent>",
+            primaryHeader ?? "<absent>");
 
-        if (TryGet(headers, StyloBotEdgeHeaderNames.PrimarySignature) is { } primary)
-            context.Items[SignalKeys.PrimarySignature] = primary;
+        if (!string.IsNullOrEmpty(fpHeader))
+            context.Items[SignalKeys.IdentityFingerprintId] = fpHeader;
+
+        if (!string.IsNullOrEmpty(primaryHeader))
+            context.Items[SignalKeys.PrimarySignature] = primaryHeader;
 
         return _next(context);
     }
