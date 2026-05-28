@@ -26,16 +26,24 @@ public sealed class StyloBotForwardedHeadersHydratorMiddleware
     public Task InvokeAsync(HttpContext context)
     {
         var headers = context.Request.Headers;
-        var fpHeader      = TryGet(headers, StyloBotEdgeHeaderNames.IdentityFingerprint);
-        var primaryHeader = TryGet(headers, StyloBotEdgeHeaderNames.PrimarySignature);
-        var ipHeader      = TryGet(headers, StyloBotEdgeHeaderNames.IpSignature);
-        var uaHeader      = TryGet(headers, StyloBotEdgeHeaderNames.UaSignature);
+        var fpHeader       = TryGet(headers, StyloBotEdgeHeaderNames.IdentityFingerprint);
+        var primaryHeader  = TryGet(headers, StyloBotEdgeHeaderNames.PrimarySignature);
+        var ipHeader       = TryGet(headers, StyloBotEdgeHeaderNames.IpSignature);
+        var uaHeader       = TryGet(headers, StyloBotEdgeHeaderNames.UaSignature);
+        var entityIdHeader = TryGet(headers, StyloBotEdgeHeaderNames.EntityId);
 
         if (!string.IsNullOrEmpty(fpHeader))
             context.Items[SignalKeys.IdentityFingerprintId] = fpHeader;
 
         if (!string.IsNullOrEmpty(primaryHeader))
             context.Items[SignalKeys.PrimarySignature] = primaryHeader;
+
+        // Entity id: the durable visitor handle. Drives /dashboard/entity/{id}
+        // and the EntityAggregateCache key. PrimarySignature stays as a
+        // detection signal (the matcher's input) but the URL/cache surface
+        // switches to entity id over follow-up PRs.
+        if (!string.IsNullOrEmpty(entityIdHeader))
+            context.Items[SignalKeys.EntityId] = entityIdHeader;
 
         // Reconstruct MultiFactorSignatures so DetectionDataExtractor's
         // canonical-signature branch finds the FULL per-factor set the

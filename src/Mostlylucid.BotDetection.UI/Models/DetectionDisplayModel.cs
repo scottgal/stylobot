@@ -82,6 +82,19 @@ public sealed record DetectionDisplayModel
     /// </summary>
     public Services.FingerprintRadarShape? FingerprintShape { get; init; }
 
+    /// <summary>
+    ///     Opaque 16-hex durable handle for the visitor. Unlike
+    ///     <see cref="MultiFactorSignatureDisplay.PrimarySignature"/> (a computed
+    ///     hash that rotates as the actor's inputs shift), the entity id is
+    ///     allocated once and survives rotation; behavioural-similarity merges
+    ///     unify multiple ids retroactively. This is the durable URL key for
+    ///     <c>/dashboard/entity/{id}</c>. Populated from
+    ///     <c>HttpContext.Items[SignalKeys.EntityId]</c>, written either by the
+    ///     in-process detection middleware (gateway-side) or by the forwarded-
+    ///     headers hydrator (remote-mode dashboard).
+    /// </summary>
+    public string? EntityId { get; init; }
+
     /// <summary>Resolved UA family (Chrome, Firefox, curl, etc.) when available.</summary>
     public string? UaFamily { get; init; }
 

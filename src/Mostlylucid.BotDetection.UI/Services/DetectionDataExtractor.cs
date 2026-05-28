@@ -152,7 +152,8 @@ public class DetectionDataExtractor
                 YarpDestination = context.Items.TryGetValue("Yarp.Destination", out var dest) && dest != null
                     ? dest.ToString()
                     : null,
-                Signatures = ExtractSignatures(context)
+                Signatures = ExtractSignatures(context),
+                EntityId = GetEntityId(context)
             };
 
         // Fallback: upstream trust sets lightweight BotDetectionResult (no AggregatedEvidence)
@@ -183,7 +184,8 @@ public class DetectionDataExtractor
                 DetectorContributions = [],
                 RequestId = context.TraceIdentifier,
                 Timestamp = DateTime.UtcNow,
-                Signatures = ExtractSignatures(context)
+                Signatures = ExtractSignatures(context),
+                EntityId = GetEntityId(context)
             };
         }
 
@@ -244,7 +246,8 @@ public class DetectionDataExtractor
                 Timestamp = DateTime.UtcNow,
                 YarpCluster = GetHeaderValue(headers, "X-Bot-Detection-Cluster"),
                 YarpDestination = GetHeaderValue(headers, "X-Bot-Detection-Destination"),
-                Signatures = ExtractSignatures(context)
+                Signatures = ExtractSignatures(context),
+                EntityId = GetEntityId(context)
             };
 
             var reasonsJson = GetHeaderValue(headers, "X-Bot-Detection-Reasons");
@@ -405,6 +408,10 @@ public class DetectionDataExtractor
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
+
+    private static string? GetEntityId(HttpContext context) =>
+        context.Items.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.EntityId, out var obj) && obj is string s
+            ? s : null;
 
     private static string? GetHeaderValue(IHeaderDictionary headers, string key)
     {
