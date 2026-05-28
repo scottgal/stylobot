@@ -769,7 +769,7 @@ public class BotDetectionOptions
     ///     proxied request so a downstream dashboard host can render identity
     ///     without running detection.
     /// </summary>
-    public ForwardedHeadersOptions ForwardedHeaders { get; set; } = new();
+    public EdgeForwardedHeadersOptions ForwardedHeaders { get; set; } = new();
 
     // ==========================================
     // YARP Learning Mode Configuration
@@ -4239,7 +4239,7 @@ public enum UrlRewriteScope
 ///     headers on the inbound request and hydrates HttpContext.Items so view
 ///     components render identity without running detection locally.
 /// </summary>
-public class ForwardedHeadersOptions
+public class EdgeForwardedHeadersOptions
 {
     /// <summary>
     ///     Remove <c>X-Bot-Detection-*</c> headers from inbound visitor requests at
