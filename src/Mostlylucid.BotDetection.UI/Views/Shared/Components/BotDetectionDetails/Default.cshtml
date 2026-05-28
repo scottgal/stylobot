@@ -29,9 +29,16 @@
 }
 
 @{
-    var cardHref = !string.IsNullOrEmpty(primarySig)
-        ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
-        : null;
+    // EntityId is the durable URL key -- it survives primary-signature rotation
+    // and entity merges retroactively unify aliases (the redirect target updates
+    // without breaking the URL). PrimarySig fallback covers requests where the
+    // edge-headers hydrator hasn't populated EntityId yet (older gateways, or
+    // a brand-new actor whose entity allocation is still flushing).
+    var cardHref = !string.IsNullOrEmpty(Model.EntityId)
+        ? $"/dashboard/entity/{Uri.EscapeDataString(Model.EntityId)}"
+        : !string.IsNullOrEmpty(primarySig)
+            ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
+            : null;
 }
 <div class="bot-detection-container" data-sb-widget="your-detection">
     @* Whole upper card is one anchor to /dashboard/signature/<primary> -- visitor

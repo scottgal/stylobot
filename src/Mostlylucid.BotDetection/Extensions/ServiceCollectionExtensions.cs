@@ -689,6 +689,10 @@ public static class ServiceCollectionExtensions
         // impl in remote-mode dashboard hosts.
         services.TryAddSingleton<Identity.IFingerprintReader>(
             sp => sp.GetRequiredService<Identity.SqliteFingerprintStore>());
+        // Read-only entity-resolution surface. Local impl wraps the session store
+        // (which owns the writes); remote-mode dashboards swap this for
+        // RemoteEntityReader proxying /api/v1/entities/*.
+        services.TryAddSingleton<Data.IEntityReader, Data.LocalEntityReader>();
         // Anchor index: vec0 wrapper that dispatches to brute force when sqlite-vec didn't
         // load. Both impls registered as concrete types so the wrapper can fall back per-call.
         services.TryAddSingleton<Identity.BruteForceIdentityAnchorIndex>();

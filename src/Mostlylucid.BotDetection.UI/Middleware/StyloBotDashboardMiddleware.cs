@@ -516,6 +516,19 @@ public class StyloBotDashboardMiddleware
                 }
                 break;
 
+            case var p when p.StartsWith("entity/", StringComparison.OrdinalIgnoreCase):
+                if (_options.RenderPage)
+                {
+                    // Use original relativePath (not lowercased) to preserve entity-id case
+                    await ServeEntityDetailAsync(context, relativePath.Substring("entity/".Length));
+                }
+                else
+                {
+                    // Host MVC owns entity-detail rendering.
+                    await _next(context);
+                }
+                break;
+
             case "endpoint":
                 if (_options.RenderPage)
                 {
@@ -4597,6 +4610,78 @@ public class StyloBotDashboardMiddleware
                 decodedSignature);
             return null;
         }
+    }
+
+    /// <summary>
+    ///     Resolve an entity-id URL to its current canonical signature-detail
+    ///     page via 302. Entity ids are the durable URL key -- they survive
+    ///     primary-signature rotation, and merges retroactively update where
+    ///     the id resolves to without breaking the URL. The redirect target
+    ///     is whichever primary signature is currently the most-recent active
+    ///     edge on this entity; subsequent merges that re-key the edge update
+    ///     the redirect target on the next visit without invalidating any
+    ///     shared link.
+    /// </summary>
+    private async Task ServeEntityDetailAsync(HttpContext context, string entityId)
+    {
+        var basePath = _options.BasePath.TrimEnd('/');
+        var decodedEntityId = Uri.UnescapeDataString(entityId).TrimEnd('/');
+        if (string.IsNullOrEmpty(decodedEntityId))
+        {
+            await WriteEntityNotFoundAsync(context, decodedEntityId, basePath);
+            return;
+        }
+
+        var reader = context.RequestServices.GetService<BotDetection.Data.IEntityReader>();
+        if (reader is null)
+        {
+            await WriteEntityNotFoundAsync(context, decodedEntityId, basePath);
+            return;
+        }
+
+        try
+        {
+            var edges = await reader.GetEntityEdgesAsync(decodedEntityId, context.RequestAborted);
+            var activeEdge = edges
+                .Where(e => e.IsActive)
+                .OrderByDescending(e => e.CreatedAt)
+                .FirstOrDefault();
+
+            if (activeEdge is null)
+            {
+                await WriteEntityNotFoundAsync(context, decodedEntityId, basePath);
+                return;
+            }
+
+            var target = $"{basePath}/signature/{Uri.EscapeDataString(activeEdge.Signature)}";
+            context.Response.Redirect(target, permanent: false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Entity-detail redirect failed for entity {EntityId}", decodedEntityId);
+            await WriteEntityNotFoundAsync(context, decodedEntityId, basePath);
+        }
+    }
+
+    private static async Task WriteEntityNotFoundAsync(HttpContext context, string entityId, string basePath)
+    {
+        context.Response.StatusCode = 404;
+        context.Response.ContentType = "text/html; charset=utf-8";
+        var safeId = string.IsNullOrEmpty(entityId)
+            ? string.Empty
+            : System.Web.HttpUtility.HtmlEncode(entityId[..Math.Min(24, entityId.Length)]);
+        await context.Response.WriteAsync($"""
+            <!DOCTYPE html><html lang="en" data-theme="dark">
+            <head><meta charset="utf-8"><title>Entity Not Found - StyloBot</title>
+            <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" /></head>
+            <body class="min-h-screen flex items-center justify-center bg-base-100">
+            <div class="text-center">
+                <p class="text-4xl font-black text-base-content/20 mb-2">404</p>
+                <p class="text-sm text-base-content/60">Entity not found</p>
+                <p class="text-xs text-base-content/40 mt-1 font-mono">{safeId}&hellip;</p>
+                <a href="{basePath}" class="btn btn-sm btn-ghost mt-4">Back to dashboard</a>
+            </div></body></html>
+            """);
     }
 
     private static async Task WriteSignatureNotFoundAsync(HttpContext context, string signature, string basePath)
