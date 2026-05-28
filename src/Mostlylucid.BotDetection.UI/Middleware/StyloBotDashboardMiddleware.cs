@@ -112,6 +112,16 @@ public class StyloBotDashboardMiddleware
 
     private const string CountryDetailPrefix = "api/countries/";
     private const string EndpointDetailPrefix = "api/endpoints/";
+
+    /// <summary>
+    ///     Per-slot baseline magnitude written into the synthetic centroid used
+    ///     by <see cref="ResolveFingerprintShapeAsync"/>'s defensive fallback
+    ///     (no fingerprint_keys binding). Layout-encoded slot values land in
+    ///     [-1, 1]; 0.30 sits in the middle of the typical-magnitude band so
+    ///     every radar bucket renders with a visible vertex while the
+    ///     archetype's defined slots still show as bumps above it.
+    /// </summary>
+    private const float InferredBaselineMagnitude = 0.30f;
     private const string BdfExportPrefix = "api/bdf/";
 
     private static int _cleanupRunning;
@@ -4630,21 +4640,30 @@ public class StyloBotDashboardMiddleware
                     && inferredArchetype.Centroid.Length == layout.Dimension
                     && inferredArchetype.DimensionMask.Length == layout.Dimension)
                 {
-                    // Weight the projection by the archetype's DimensionMask --
-                    // confidence in [0, 1] per slot, zero where the archetype
-                    // is silent. A uniform 1.0 weight vector collapses the
-                    // polygon because sparse YAMLs leave most slots at 0,
-                    // and the projection averages |slot|*1.0 across all
-                    // slots in a bucket, swamping the few defined slots with
-                    // the many undefined ones. Mask-as-weight emphasises the
-                    // slots the archetype actually asserts so the polygon
-                    // has visible magnitude per bucket.
+                    // Single archetypes paint only the buckets whose slots
+                    // they explicitly assert (chrome-desktop only sets hdr.*
+                    // slots, so naive mask-weighting collapses every bucket
+                    // except Headers). Build a synthetic centroid that
+                    // overlays the archetype's defined slot values on top of
+                    // a uniform low-magnitude baseline so every bucket gets
+                    // a visible polygon vertex. Pair it with uniform 1.0
+                    // weights so the baseline survives the weighted average
+                    // and the archetype's defined slots show as bumps above it.
+                    var inferredCentroid = new float[layout.Dimension];
+                    Array.Fill(inferredCentroid, InferredBaselineMagnitude);
+                    for (var i = 0; i < layout.Dimension; i++)
+                    {
+                        if (inferredArchetype.DimensionMask[i] > 0)
+                            inferredCentroid[i] = inferredArchetype.Centroid[i];
+                    }
+                    var inferredWeights = new float[layout.Dimension];
+                    Array.Fill(inferredWeights, 1f);
                     var syntheticFp = new Fingerprint
                     {
                         FingerprintId = "inferred",
-                        Centroid = inferredArchetype.Centroid,
+                        Centroid = inferredCentroid,
                         CentroidMaturity = 0,
-                        Weights = inferredArchetype.DimensionMask,
+                        Weights = inferredWeights,
                         MemberCount = 0,
                         ObservationCount = 0,
                         CorrectionCount = 0,
@@ -4656,9 +4675,8 @@ public class StyloBotDashboardMiddleware
                         InferredTypeConfidence = 0,
                         InferredTypeChangedAt = DateTime.UtcNow,
                     };
-                    var inferredWeights = globalWeights?.Compose(inferredArchetype.DimensionMask)
-                                          ?? inferredArchetype.DimensionMask;
-                    return FingerprintRadarProjection.Project(syntheticFp, inferredArchetype, layout, inferredWeights);
+                    var composedWeights = globalWeights?.Compose(inferredWeights) ?? inferredWeights;
+                    return FingerprintRadarProjection.Project(syntheticFp, inferredArchetype, layout, composedWeights);
                 }
             }
 
