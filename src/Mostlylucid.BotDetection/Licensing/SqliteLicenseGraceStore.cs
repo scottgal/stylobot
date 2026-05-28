@@ -8,7 +8,7 @@ namespace Mostlylucid.BotDetection.Licensing;
 ///     Persists grace period start time to SQLite so it survives restarts.
 ///     Table: license_state (id=1, grace_started_at INTEGER ms, updated_at INTEGER ms)
 /// </summary>
-internal sealed class SqliteLicenseGraceStore
+internal sealed class SqliteLicenseGraceStore : ILicenseGraceStore
 {
     private readonly string _connectionString;
     private readonly string _dbPath;

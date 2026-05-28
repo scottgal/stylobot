@@ -368,6 +368,9 @@ public static class ServiceCollectionExtensions
 
         // License state: FossLicenseState when no token, real enforcement when token present
         services.AddSingleton<SqliteLicenseGraceStore>();
+        // Default ILicenseGraceStore forwards to the Sqlite concrete; commercial
+        // plugin Replace()s this with PostgreSQLLicenseGraceStore at startup.
+        services.TryAddSingleton<ILicenseGraceStore>(sp => sp.GetRequiredService<SqliteLicenseGraceStore>());
         services.AddSingleton<LicenseState>();
         services.AddSingleton<ILicenseState>(sp =>
         {
@@ -380,7 +383,7 @@ public static class ServiceCollectionExtensions
             new LicenseStateRefreshService(
                 sp.GetRequiredService<LicenseState>(),
                 sp.GetRequiredService<IOptionsMonitor<BotDetectionOptions>>(),
-                sp.GetRequiredService<SqliteLicenseGraceStore>(),
+                sp.GetRequiredService<ILicenseGraceStore>(),
                 sp.GetRequiredService<ILogger<LicenseStateRefreshService>>()));
 
         // Register bot list update background service

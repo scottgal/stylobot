@@ -14,13 +14,13 @@ internal sealed class LicenseStateRefreshService : BackgroundService
 {
     private readonly LicenseState _licenseState;
     private readonly IOptionsMonitor<BotDetectionOptions> _options;
-    private readonly SqliteLicenseGraceStore _graceStore;
+    private readonly ILicenseGraceStore _graceStore;
     private readonly ILogger<LicenseStateRefreshService> _logger;
 
     public LicenseStateRefreshService(
         LicenseState licenseState,
         IOptionsMonitor<BotDetectionOptions> options,
-        SqliteLicenseGraceStore graceStore,
+        ILicenseGraceStore graceStore,
         ILogger<LicenseStateRefreshService> logger)
     {
         _licenseState = licenseState;
