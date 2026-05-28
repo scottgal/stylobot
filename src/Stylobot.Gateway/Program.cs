@@ -94,8 +94,22 @@ try
                 Log.Warning("TrustAllForwardedProxies is enabled outside Development. " +
                             "This allows IP spoofing via X-Forwarded-For. " +
                             "Configure Network:KnownNetworks/KnownProxies for production.");
+            // Trusting "all" proxies in ASP.NET requires explicit any-network
+            // entries -- the default behaviour when KnownProxies / KnownIPNetworks
+            // are both empty is to IGNORE X-Forwarded-For entirely, so the
+            // pipeline sees the docker bridge IP for every external request.
+            // That misclassifies tunnel-exit traffic as a single internal client,
+            // collapses every visitor onto the same fingerprint, and trips the
+            // generic-Tool throttle on the home dashboard. Add the IPv4 and IPv6
+            // "any" networks so every upstream proxy is trusted; uncap
+            // ForwardLimit so a request behind multiple hops (e.g. browser ->
+            // Cloudflare -> cloudflared -> reverse-proxy -> gateway) still
+            // walks the chain to the first untrusted client.
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
+            options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Any, 0));
+            options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.IPv6Any, 0));
+            options.ForwardLimit = null;
             return;
         }
 
