@@ -293,7 +293,7 @@
                     }
                     @if (activeBotCount > 0)
                     {
-                        <a href="@TabUrl("visitors")?filter=bots" class="hover:underline"><span class="font-bold">@activeBotCount</span> bot signature@(activeBotCount != 1 ? "s" : "") active</a>
+                        <a href="@TabUrl("visitors")&filter=bots" class="hover:underline"><span class="font-bold">@activeBotCount</span> bot signature@(activeBotCount != 1 ? "s" : "") active</a>
                     }
                     @if (botPct > 10)
                     {
