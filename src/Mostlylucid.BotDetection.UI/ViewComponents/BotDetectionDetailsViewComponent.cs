@@ -41,14 +41,17 @@ public class BotDetectionDetailsViewComponent : ViewComponent
     private readonly IFingerprintReader _fingerprintReader;
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityVectorLayout _layout;
-    private readonly IdentityGlobalWeightsCache _globalWeights;
+    // Optional: detection-side cache. Absent in pure dashboard-viewer hosts
+    // (header-driven, no DB). When null, fall back to per-fp weights unchanged --
+    // the global multiplier is a refinement, not a prerequisite.
+    private readonly IdentityGlobalWeightsCache? _globalWeights;
 
     public BotDetectionDetailsViewComponent(
         DetectionDataExtractor extractor,
         IFingerprintReader fingerprintReader,
         IdentityArchetypeRegistry archetypes,
         IdentityVectorLayout layout,
-        IdentityGlobalWeightsCache globalWeights)
+        IdentityGlobalWeightsCache? globalWeights = null)
     {
         _extractor = extractor;
         _fingerprintReader = fingerprintReader;
@@ -92,7 +95,10 @@ public class BotDetectionDetailsViewComponent : ViewComponent
                 if (fp is not null)
                 {
                     var archetype = _archetypes.TryGetById(fp.ArchetypeOrigin);
-                    var effectiveWeights = _globalWeights.Compose(fp.Weights);
+                    // _globalWeights is optional in dashboard-viewer hosts that don't run
+                    // detection. When absent the per-fp weights stand in unchanged --
+                    // the global multiplier is a refinement, not a prerequisite.
+                    var effectiveWeights = _globalWeights?.Compose(fp.Weights) ?? fp.Weights;
                     var shape = FingerprintRadarProjection.Project(fp, archetype, _layout, effectiveWeights);
                     model = model with { FingerprintShape = shape };
                 }

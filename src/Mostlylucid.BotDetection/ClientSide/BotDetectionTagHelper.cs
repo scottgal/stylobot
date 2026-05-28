@@ -21,12 +21,17 @@ public class BotDetectionTagHelper : TagHelper
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly BotDetectionOptions _options;
-    private readonly IBrowserTokenService _tokenService;
+    // Optional: token service is registered by AddBotDetection. In pure
+    // dashboard-viewer hosts (no detection pipeline) it is absent -- the
+    // tag helper suppresses output so the page renders nothing for the
+    // client-side fingerprint script. That matches the architecture
+    // contract: viewers don't collect or issue tokens.
+    private readonly IBrowserTokenService? _tokenService;
 
     public BotDetectionTagHelper(
         IOptions<BotDetectionOptions> options,
         IHttpContextAccessor httpContextAccessor,
-        IBrowserTokenService tokenService)
+        IBrowserTokenService? tokenService = null)
     {
         _options = options.Value;
         _httpContextAccessor = httpContextAccessor;
@@ -63,7 +68,10 @@ public class BotDetectionTagHelper : TagHelper
 
     public override void Process(TagHelperContext context, TagHelperOutput output)
     {
-        if (!_options.ClientSide.Enabled)
+        // Suppress in three cases: client-side detection disabled in config, no
+        // active HttpContext, or no token service registered (dashboard-viewer
+        // hosts don't run detection so they can't sign tokens).
+        if (!_options.ClientSide.Enabled || _tokenService is null)
         {
             output.SuppressOutput();
             return;

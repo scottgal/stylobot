@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.MonitoringPacks;
@@ -201,6 +203,25 @@ public static class StyloBotDashboardServiceExtensions
 
         // Dashboard help system (Markdig-rendered markdown)
         services.AddSingleton<DashboardHelpService>();
+
+        // Static detection-side data the dashboard renders need. Registered as
+        // TryAddSingleton so that hosts which also call AddBotDetection get
+        // those richer registrations instead. Pure dashboard-viewer hosts
+        // (header-driven, no detection pipeline, no DB) get just these stubs:
+        //
+        //   - IdentityVectorLayout: the slot map (static, embedded resources).
+        //   - IdentityVectorEncoder: stateless wrapper around the layout.
+        //   - IdentityArchetypeRegistry: archetype dictionary loaded from
+        //     YAML embedded in Mostlylucid.BotDetection.
+        //   - DomainEntitlementValidator: license-domain warn-only host check,
+        //     not part of detection -- registered idempotently here so the
+        //     UseDomainEntitlement middleware works in viewer hosts too.
+        //
+        // None of these touch a database or run the detection pipeline.
+        services.TryAddSingleton(sp => IdentityVectorLayout.DefaultV1());
+        services.TryAddSingleton<IdentityVectorEncoder>();
+        services.TryAddSingleton<IdentityArchetypeRegistry>();
+        services.AddDomainEntitlement();
 
         // Dashboard event store: SQLite for FOSS (persists across restarts).
         // Commercial PostgreSQL package overrides via TryAddSingleton.
