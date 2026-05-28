@@ -4594,14 +4594,65 @@ public class StyloBotDashboardMiddleware
         try
         {
             var fpId = await reader.LookupFingerprintIdAsync(decodedSignature, context.RequestAborted);
-            if (string.IsNullOrEmpty(fpId)) return null;
+            if (!string.IsNullOrEmpty(fpId))
+            {
+                var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
+                if (fp is not null)
+                {
+                    var archetype = archetypes.TryGetById(fp.ArchetypeOrigin);
+                    var effectiveWeights = globalWeights?.Compose(fp.Weights) ?? fp.Weights;
+                    return FingerprintRadarProjection.Project(fp, archetype, layout, effectiveWeights);
+                }
+            }
 
-            var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
-            if (fp is null) return null;
+            // Defensive fallback: the signature has dashboard aggregate data
+            // (this code path runs because the URL resolved to a known row)
+            // but no fingerprint_keys binding. Cases: signatures created
+            // before the matcher's Priority=1 wiring, requests that
+            // quorum-exited before FingerprintMatchContributor allocated,
+            // local fingerprint store wiped while the dashboard kept its
+            // aggregate cache. The signature detail page must show a
+            // polygon -- "calibrating" is reserved for first-encounter
+            // home-card requests where no aggregate exists yet, not for
+            // known historical signatures with hit counts and detector
+            // contributions on the same page.
+            //
+            // Pick the archetype that best matches the aggregate's known
+            // bot-name / bot-type labelling and render its centroid as the
+            // inferred shape. The view component picks up ArchetypeName !=
+            // null to mark the polygon as a baseline rather than a
+            // per-actor observation.
+            var aggCache = context.RequestServices.GetService<SignatureAggregateCache>();
+            if (aggCache is not null && aggCache.TryGet(decodedSignature, out var agg) && agg is not null)
+            {
+                var inferredArchetype = FindInferredArchetype(archetypes, agg);
+                if (inferredArchetype is not null && inferredArchetype.Centroid.Length == layout.Dimension)
+                {
+                    var neutralWeights = new float[layout.Dimension];
+                    Array.Fill(neutralWeights, 1f);
+                    var syntheticFp = new Fingerprint
+                    {
+                        FingerprintId = "inferred",
+                        Centroid = inferredArchetype.Centroid,
+                        CentroidMaturity = 0,
+                        Weights = neutralWeights,
+                        MemberCount = 0,
+                        ObservationCount = 0,
+                        CorrectionCount = 0,
+                        FirstSeen = agg.FirstSeen,
+                        LastSeen = agg.LastSeen,
+                        Quality = 0,
+                        ArchetypeOrigin = inferredArchetype.ArchetypeId,
+                        InferredClientType = inferredArchetype.ArchetypeKind,
+                        InferredTypeConfidence = 0,
+                        InferredTypeChangedAt = DateTime.UtcNow,
+                    };
+                    var inferredWeights = globalWeights?.Compose(neutralWeights) ?? neutralWeights;
+                    return FingerprintRadarProjection.Project(syntheticFp, inferredArchetype, layout, inferredWeights);
+                }
+            }
 
-            var archetype = archetypes.TryGetById(fp.ArchetypeOrigin);
-            var effectiveWeights = globalWeights?.Compose(fp.Weights) ?? fp.Weights;
-            return FingerprintRadarProjection.Project(fp, archetype, layout, effectiveWeights);
+            return null;
         }
         catch (Exception ex)
         {
@@ -4610,6 +4661,42 @@ public class StyloBotDashboardMiddleware
                 decodedSignature);
             return null;
         }
+    }
+
+    /// <summary>
+    ///     Map a <see cref="SignatureAggregate"/> with no bound fingerprint
+    ///     to the archetype whose label best fits its known bot-name /
+    ///     bot-type signal. Prefer exact name match (e.g. "bingbot" agg →
+    ///     "bingbot" archetype), fall back to bot-type kind match
+    ///     (Scraper/Crawler/Tool/User), fall back to the human-baseline
+    ///     archetype. Used by <see cref="ResolveFingerprintShapeAsync"/>'s
+    ///     defensive fallback so signatures without a fingerprint_keys row
+    ///     still render an inferred polygon rather than the
+    ///     home-card-only "calibrating" placeholder.
+    /// </summary>
+    private static IdentityArchetype? FindInferredArchetype(
+        IdentityArchetypeRegistry registry, SignatureAggregate aggregate)
+    {
+        var all = registry.All;
+        if (all.Count == 0) return null;
+
+        if (!string.IsNullOrEmpty(aggregate.BotName))
+        {
+            foreach (var a in all)
+                if (string.Equals(a.Name, aggregate.BotName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(a.ArchetypeId, aggregate.BotName, StringComparison.OrdinalIgnoreCase))
+                    return a;
+        }
+        if (!string.IsNullOrEmpty(aggregate.BotType))
+        {
+            foreach (var a in all)
+                if (string.Equals(a.ArchetypeKind, aggregate.BotType, StringComparison.OrdinalIgnoreCase))
+                    return a;
+        }
+        foreach (var a in all)
+            if (string.Equals(a.ArchetypeKind, "user", StringComparison.OrdinalIgnoreCase))
+                return a;
+        return all[0];
     }
 
     /// <summary>
