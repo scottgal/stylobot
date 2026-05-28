@@ -124,6 +124,29 @@ public sealed class StyloBotForwardedHeadersMiddleware
             primarySig = psStr;
         }
 
+        // Verdict-cache-skip paths never run the orchestrator, so neither Items
+        // nor AggregatedEvidence carry PrimarySignature. Fall back to a direct
+        // compute via MultiFactorSignatureService. The downstream dashboard
+        // would otherwise see primary=<absent>, fall through to the
+        // SHA256(ip:ua)[..16] fallback in DetectionDataExtractor, and produce
+        // /dashboard/signature/<fallback-hex> URLs that can never resolve
+        // against fingerprint_keys.
+        if (string.IsNullOrEmpty(primarySig))
+        {
+            var sigService = context.RequestServices.GetService<Dashboard.MultiFactorSignatureService>();
+            if (sigService is not null)
+            {
+                try
+                {
+                    primarySig = sigService.GenerateSignatures(context).PrimarySignature;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "PrimarySig compute fallback failed");
+                }
+            }
+        }
+
         if (!string.IsNullOrEmpty(primarySig))
             context.Request.Headers[StyloBotEdgeHeaderNames.PrimarySignature] = primarySig;
 
