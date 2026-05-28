@@ -53,7 +53,15 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     }
 
     public override string Name => "FingerprintMatch";
-    public override int Priority => 6; // After IdentityVector (5)
+    // Priority 1 ensures the matcher runs in the earliest wave, ahead of any
+    // quorum-exit gate (e.g. FastPathReputation at 3). The matcher self-computes
+    // the identity vector when IdentityVectorContributor (5) hasn't run yet
+    // (see ContributeCoreAsync line ~96), so it has no real ordering dependency
+    // on a higher-priority contributor. Without this, verdict-cached visitors
+    // (any IP/UA the orchestrator quorum-exits on) never get a fingerprint
+    // allocated -- and any downstream dashboard host renders "Calibrating"
+    // forever for them.
+    public override int Priority => 1;
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
     public override bool IsEnabled => _enabled;
 
