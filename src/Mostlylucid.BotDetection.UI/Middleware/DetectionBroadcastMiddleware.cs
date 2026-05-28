@@ -374,6 +374,7 @@ public partial class DetectionBroadcastMiddleware
             StatusCode = context.Response.StatusCode,
             ProcessingTimeMs = evidence.TotalProcessingTimeMs,
             PrimarySignature = sigValue,
+            EntityId = ResolveEntityId(context),
             CountryCode = countryCode,
             UserAgent = evidence.BotProbability > 0.5 ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
             UserAgentRaw = Mostlylucid.BotDetection.Privacy.UaPiiStripper.Strip(context.Request.Headers.UserAgent.ToString()),
@@ -479,6 +480,7 @@ public partial class DetectionBroadcastMiddleware
             StatusCode = context.Response.StatusCode,
             ProcessingTimeMs = upstreamProcessingMs,
             PrimarySignature = sigValue,
+            EntityId = ResolveEntityId(context),
             CountryCode = upstreamCountry,
             UserAgent = result.IsBot ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
             UserAgentRaw = Mostlylucid.BotDetection.Privacy.UaPiiStripper.Strip(context.Request.Headers.UserAgent.ToString()),
@@ -548,6 +550,23 @@ public partial class DetectionBroadcastMiddleware
         }
 
         return GenerateFallbackSignature(context);
+    }
+
+    /// <summary>
+    ///     Resolve the durable entity id from HttpContext. Set by
+    ///     <c>StyloBotForwardedHeadersMiddleware</c> (in-process gateway) or by
+    ///     <c>StyloBotForwardedHeadersHydratorMiddleware</c> from the
+    ///     <c>X-Bot-Detection-EntityId</c> edge header (remote-mode dashboard).
+    ///     Null when the gateway couldn't resolve an entity for this request --
+    ///     SbTopBots rows fall back to the signature URL in that case.
+    /// </summary>
+    private static string? ResolveEntityId(HttpContext context)
+    {
+        if (context.Items.TryGetValue(SignalKeys.EntityId, out var entityObj)
+            && entityObj is string entityId
+            && !string.IsNullOrEmpty(entityId))
+            return entityId;
+        return null;
     }
 
     /// <summary>

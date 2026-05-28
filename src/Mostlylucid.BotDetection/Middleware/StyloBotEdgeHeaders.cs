@@ -93,25 +93,9 @@ public sealed class StyloBotForwardedHeadersMiddleware
     {
         if (!_enabled) { await _next(context); return; }
 
-        // Identity fingerprint id: the load-bearing value -- the downstream view
-        // component renders the radar around it.
-        var fpId = context.Items.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpObj)
-            ? fpObj as string
-            : null;
-        if (string.IsNullOrEmpty(fpId)
-            && context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
-            && evObj is AggregatedEvidence evidence
-            && evidence.Signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var sigObj)
-            && sigObj is string sigFp)
-        {
-            fpId = sigFp;
-        }
-
-        if (!string.IsNullOrEmpty(fpId))
-            context.Request.Headers[StyloBotEdgeHeaderNames.IdentityFingerprint] = fpId;
-
         // Primary signature: powers the signature-detail drill-through and the
-        // SignaturePeriodicityHeatmap / signature card chrome.
+        // SignaturePeriodicityHeatmap / signature card chrome. Compute first
+        // so it can drive entity-id resolution and the L1 fingerprint lookup.
         var primarySig = context.Items.TryGetValue(SignalKeys.PrimarySignature, out var psObj)
             ? psObj as string
             : null;
@@ -179,13 +163,18 @@ public sealed class StyloBotForwardedHeadersMiddleware
             }
         }
 
-        // Verdict-cache skip paths never write IdentityFingerprintId to Items
-        // because the orchestrator (and therefore the FingerprintMatchContributor)
-        // never ran for the request. Fall back to a direct L1 lookup against
-        // fingerprint_keys[primarySig] -- a cheap single-row SELECT on the
-        // gateway's local store. Without this, every verdict-cached visitor
-        // arrives at the downstream dashboard with no identity.
-        if (string.IsNullOrEmpty(fpId) && !string.IsNullOrEmpty(primarySig))
+        // Identity fingerprint id: the load-bearing value -- the downstream view
+        // component renders the radar around it. The L1 lookup against
+        // fingerprint_keys is the authoritative persisted value (same store
+        // the dashboard reads from); Items[IdentityFingerprintId] can be the
+        // matcher's in-flight allocation that hasn't yet flushed to the store,
+        // and emitting that produces a 404 at the downstream dashboard
+        // (it queries fingerprints by id and gets nothing). Prefer the
+        // persisted id; fall back to Items only when L1 returns nothing
+        // (cold-start cases where the matcher just allocated but the row
+        // hasn't yet committed -- the next request will resolve cleanly).
+        string? fpId = null;
+        if (!string.IsNullOrEmpty(primarySig))
         {
             var reader = context.RequestServices.GetService<IFingerprintReader>();
             if (reader is not null)
@@ -193,8 +182,6 @@ public sealed class StyloBotForwardedHeadersMiddleware
                 try
                 {
                     fpId = await reader.LookupFingerprintIdAsync(primarySig, context.RequestAborted);
-                    if (!string.IsNullOrEmpty(fpId))
-                        context.Request.Headers[StyloBotEdgeHeaderNames.IdentityFingerprint] = fpId;
                 }
                 catch (Exception ex)
                 {
@@ -202,6 +189,24 @@ public sealed class StyloBotForwardedHeadersMiddleware
                 }
             }
         }
+
+        if (string.IsNullOrEmpty(fpId))
+        {
+            fpId = context.Items.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpObj)
+                ? fpObj as string
+                : null;
+            if (string.IsNullOrEmpty(fpId)
+                && context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+                && evObj is AggregatedEvidence evidence
+                && evidence.Signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var sigObj)
+                && sigObj is string sigFp)
+            {
+                fpId = sigFp;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(fpId))
+            context.Request.Headers[StyloBotEdgeHeaderNames.IdentityFingerprint] = fpId;
 
         // Verdict shape: probability / risk band / bot name -- everything the
         // home card's verdict badge + reason strip want.

@@ -247,6 +247,7 @@ public sealed class SignatureAggregateCache
                 // "GB Chrome User" until a new live-traffic detection refreshes
                 // the aggregate.
                 UaFamily = bot.UaFamily,
+                EntityId = bot.EntityId,
             });
         }
 
@@ -312,7 +313,10 @@ public sealed class SignatureAggregateCache
             UaFamily = detections
                 .Select(ExtractUaFamilySignal)
                 .FirstOrDefault(f => !string.IsNullOrEmpty(f))
-                ?? VisitorListCache.DeriveUaFamily(latest.UserAgentRaw ?? latest.UserAgent)
+                ?? VisitorListCache.DeriveUaFamily(latest.UserAgentRaw ?? latest.UserAgent),
+            EntityId = detections
+                .Select(d => d.EntityId)
+                .FirstOrDefault(e => !string.IsNullOrEmpty(e)),
         };
 
         // Score history walks oldest-to-newest so the sparkline reads left-to-right.
@@ -382,6 +386,7 @@ public sealed class SignatureAggregateCache
             ThreatBand = detection.ThreatBand,
             IsVerifiedBot = detection.IsVerifiedBot,
             UaFamily = ExtractUaFamilySignal(detection),
+            EntityId = detection.EntityId,
         };
 
         // No lock needed - object is not yet visible to other threads
@@ -462,6 +467,13 @@ public sealed class SignatureAggregateCache
                 var fam = ExtractUaFamilySignal(detection);
                 if (!string.IsNullOrEmpty(fam)) existing.UaFamily = fam;
             }
+            // EntityId latches sticky on the first non-null value. Verdict-cache
+            // skip paths sometimes carry no entity id (the gateway didn't resolve
+            // one for that request); a missing id MUST NOT erase a previously
+            // resolved one or SbTopBots rows would flicker between entity and
+            // signature URLs across consecutive detections for the same actor.
+            if (string.IsNullOrEmpty(existing.EntityId) && !string.IsNullOrEmpty(detection.EntityId))
+                existing.EntityId = detection.EntityId;
             // RiskJustification is the rendered "why this band" string -- it must track
             // the CURRENT band (which we always overwrite on detection at line 363),
             // not the first one we ever saw. Previously this coalesced with `??`, so
@@ -532,6 +544,7 @@ public sealed class SignatureAggregateCache
                 ThreatBand = agg.ThreatBand,
                 IsVerifiedBot = agg.IsVerifiedBot,
                 UaFamily = agg.UaFamily,
+                EntityId = agg.EntityId,
                 HitTrend = agg.ReadHitTrend(),
             };
         }
@@ -625,6 +638,18 @@ public sealed class SignatureAggregate
     ///     dashboard rows degrade to "GB User" instead of "GB Chrome User".
     /// </summary>
     public string? UaFamily;
+
+    /// <summary>
+    ///     Durable visitor handle resolved by the gateway via
+    ///     <c>ISessionStore.ResolveEntityAsync</c> and carried on the
+    ///     <c>DashboardDetectionEvent</c>. Latched on the first non-null we
+    ///     see and never overwritten with null -- entity ids do not
+    ///     "un-allocate" on a subsequent detection that quorum-exited before
+    ///     the gateway resolved one. Flows to <see cref="DashboardTopBotEntry.EntityId"/>
+    ///     so SbTopBots rows emit the entity-keyed URL instead of falling
+    ///     through to the signature URL.
+    /// </summary>
+    public string? EntityId;
 
     /// <summary>LFU access counter - incremented on read, periodically aged.</summary>
     public long AccessCount;

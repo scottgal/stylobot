@@ -27,6 +27,15 @@ public sealed record DashboardDetectionEvent
     public string? PrimarySignature { get; init; }
 
     /// <summary>
+    ///     Durable visitor handle resolved via <c>ISessionStore.ResolveEntityAsync</c>
+    ///     against <c>entity_edges</c>. PrimarySignature can rotate as IP / UA shift;
+    ///     the entity id is allocated once per actor and persists across rotations.
+    ///     Drives the entity-keyed dashboard URL (<c>/dashboard/entity/{id}</c>) on
+    ///     SbTopBots rows; falls back to the signature URL when null.
+    /// </summary>
+    public string? EntityId { get; init; }
+
+    /// <summary>
     ///     ISO 3166-1 alpha-2 country code from geo enrichment (e.g., "US", "DE", "CN").
     /// </summary>
     public string? CountryCode { get; init; }
