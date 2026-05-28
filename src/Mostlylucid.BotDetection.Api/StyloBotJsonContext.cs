@@ -148,6 +148,12 @@ namespace Mostlylucid.BotDetection.Api;
 [JsonSerializable(typeof(SingleResponse<IReadOnlyDictionary<string, int>>))]
 [JsonSerializable(typeof(SingleResponse<int>))]
 [JsonSerializable(typeof(SingleResponse<string>))]
+
+// Entity surface (durable visitor handle; /dashboard/entity/{id} URL key)
+[JsonSerializable(typeof(ResolvedEntity))]
+[JsonSerializable(typeof(SingleResponse<ResolvedEntity>))]
+[JsonSerializable(typeof(EntityEdge))]
+[JsonSerializable(typeof(PaginatedResponse<EntityEdge>))]
 public partial class StyloBotJsonContext : JsonSerializerContext
 {
 }

@@ -69,6 +69,7 @@ public static class StyloBotApiExtensions
         endpoints.MapBdfEndpoints();
         endpoints.MapConfigEndpoints();
         endpoints.MapIdentityEndpoints();
+        endpoints.MapEntityEndpoints();
 
         if (options.EnableOpenApi)
         {
