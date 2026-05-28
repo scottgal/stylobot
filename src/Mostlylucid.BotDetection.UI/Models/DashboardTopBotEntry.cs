@@ -6,6 +6,18 @@ namespace Mostlylucid.BotDetection.UI.Models;
 public sealed record DashboardTopBotEntry
 {
     public required string PrimarySignature { get; init; }
+
+    /// <summary>
+    ///     Durable entity id currently bound to this row's primary signature, or
+    ///     null when no active edge exists. Lets the dashboard URL the row at
+    ///     <c>/dashboard/entity/{id}</c> instead of the rotation-fragile
+    ///     <c>/dashboard/signature/{PrimarySignature}</c>. Populated server-side
+    ///     by the dashboard event store via a correlated subquery against
+    ///     <c>entity_edges</c>; absent entries fall back to the signature URL in
+    ///     the view.
+    /// </summary>
+    public string? EntityId { get; init; }
+
     public int HitCount { get; init; }
     public string? BotName { get; init; }
     public string? CustomBotName { get; init; }

@@ -270,7 +270,7 @@
                                data actually shifted. *@
                             <tr id="sb-row-@(Model.WidgetId)-@bot.PrimarySignature" class="hover:bg-base-300/50 cursor-pointer transition-colors">
                                 <td class="py-1 px-1 w-6">
-                                    <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)" class="block">
+                                    <a href="@(string.IsNullOrEmpty(bot.EntityId) ? $"{navBp}/signature/{Uri.EscapeDataString(bot.PrimarySignature)}" : $"{navBp}/entity/{Uri.EscapeDataString(bot.EntityId)}")" class="block">
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_CountryFlag.cshtml", flag)
                                     </a>
                                 </td>
@@ -289,7 +289,7 @@
                                         <span class="shrink-0">
                                             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_IntentIcon.cshtml", intentIcon)
                                         </span>
-                                        <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
+                                        <a href="@(string.IsNullOrEmpty(bot.EntityId) ? $"{navBp}/signature/{Uri.EscapeDataString(bot.PrimarySignature)}" : $"{navBp}/entity/{Uri.EscapeDataString(bot.EntityId)}")"
                                            class="hover:underline truncate @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_VerificationBadge.cshtml", verificationBadge)
                                         @if (isCustomNamed) {<span class="text-[9px] text-base-content/60" title="Custom label">&#9632;</span>}
