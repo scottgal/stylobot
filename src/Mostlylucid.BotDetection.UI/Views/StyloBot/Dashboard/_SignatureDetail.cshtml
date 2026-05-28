@@ -155,7 +155,7 @@ else
             <div class="text-lg font-bold text-base-content">@($"{Model.Confidence:P0}")</div>
         </div>
         <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Risk</div>
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Risk Profile</div>
             <div class="text-lg font-bold @RiskColor(Model.RiskBand)">@(Model.RiskBand ?? "Unknown")</div>
             @if (!string.IsNullOrEmpty(Model.RiskJustification))
             {
@@ -404,7 +404,7 @@ else
                                 <th class="py-1 text-center">Status</th>
                                 <th class="py-1 text-right">Prob</th>
                                 <th class="py-1 text-right">Conf</th>
-                                <th class="py-1">Risk</th>
+                                <th class="py-1">Risk Profile</th>
                                 <th class="py-1">Action</th>
                                 <th class="py-1 text-right">Time</th>
                             </tr>

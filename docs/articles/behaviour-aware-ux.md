@@ -429,7 +429,7 @@ Ten tag helpers, what they do, and what they accept:
 | `<sb-honeypot>` | Invisible trap fields | `prefix`, `fields` (1-3; default: 2) |
 | `<sb-badge>` | Detection status chip | `variant` ("full"/"compact"/"icon") |
 | `<sb-confidence>` | Bot probability bar | `display` ("bar"/"text"/"both"), `width` |
-| `<sb-risk-pill>` | Risk band label | none |
+| `<sb-risk-pill>` | Risk Profile band label | none |
 | `<sb-summary>` | Compact detection card | `variant` ("inline"/"card") |
 | `<bot-detection-details>` | Full detection breakdown | `collapsed` (bool), `view` ("default"/"compact") |
 
@@ -446,7 +446,7 @@ Ten tag helpers, what they do, and what they accept:
 <sb-gate max-risk="Low" fallback="hide">...</sb-gate>
 ```
 
-Risk bands in order: `VeryLow`, `Low`, `Elevated`, `Medium`, `High`, `VeryHigh`, `Critical`.
+Risk Profile bands in order: `VeryLow`, `Low`, `Elevated`, `Medium`, `High`, `VeryHigh`, `Critical`.
 
 `<sb-signal>` gates on raw blackboard signals. The `condition` attribute accepts: `exists`, `not-exists`, `true`, `false`, `equals`, `not-equals`, `gt`, `lt`, `gte`, `lte`, `contains`, `any-true`, `all-true`.
 

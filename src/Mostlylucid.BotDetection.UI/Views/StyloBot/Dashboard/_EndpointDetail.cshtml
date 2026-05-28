@@ -271,7 +271,7 @@
                 @if (Model.RiskBands.Any())
                 {
                     <div>
-                        <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Risk bands</div>
+                        <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Risk Profile bands</div>
                         @foreach (var kvp in Model.RiskBands.OrderByDescending(x => x.Value).Take(5))
                         {
                             var pct = 100.0 * kvp.Value / totalForBars;

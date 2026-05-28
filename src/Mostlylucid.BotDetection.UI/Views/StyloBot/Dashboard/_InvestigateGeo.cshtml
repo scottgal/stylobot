@@ -46,7 +46,7 @@
                 <!-- ROW 3: risk severity (only when we have a band) -->
                 @if (!string.IsNullOrEmpty(c.DominantRiskBand))
                 {
-                    <div class="flex items-center gap-0.5" title="Risk: @c.DominantRiskBand">
+                    <div class="flex items-center gap-0.5" title="Risk Profile: @c.DominantRiskBand">
                         @for (var i = 0; i < 5; i++)
                         {
                             var filled = i < riskBars;

@@ -48,7 +48,7 @@ interface Verdict {
 
 A checkout endpoint can throttle `Medium` risk instead of blocking it. An API can exclude `AiBot` traffic from rate-limit quotas without counting it against real users. A login form can add proof-of-work for `Elevated` risk without touching the experience for `Low` risk visitors. None of this is possible if the detection result is a boolean at the network layer.
 
-Risk bands in order: `VeryLow`, `Low`, `Elevated`, `Medium`, `High`, `VeryHigh`, `Verified`.
+Risk Profile bands in order: `VeryLow`, `Low`, `Elevated`, `Medium`, `High`, `VeryHigh`, `Verified`.
 
 # Installation
 
