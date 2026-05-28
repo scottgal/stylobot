@@ -287,6 +287,25 @@ public class DetectionDataExtractor
             }
         }
 
+        // Remote-mode path: the orchestrator ran on the gateway and attached the
+        // computed signatures as X-Bot-Detection-* headers; StyloBotForwardedHeaders
+        // HydratorMiddleware turned those headers into Items entries. Read here so
+        // dashboard URLs use the SAME primarySig the matcher wrote to
+        // fingerprint_keys -- without this branch we fall through to the SHA256
+        // fallback below and the visitor-detail radar can never resolve.
+        if (context.Items.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.SignatureMultifactor, out var hydratedMultiObj)
+            && hydratedMultiObj is MultiFactorSignatures hydratedMulti
+            && !string.IsNullOrEmpty(hydratedMulti.PrimarySignature))
+        {
+            return BuildSignatureDisplay(MultiFactorToDict(hydratedMulti), context);
+        }
+
+        if (context.Items.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.PrimarySignature, out var hydratedPrimaryObj)
+            && hydratedPrimaryObj is string hydratedPrimary && !string.IsNullOrEmpty(hydratedPrimary))
+        {
+            return BuildSignatureDisplay(new Dictionary<string, string> { ["primary"] = hydratedPrimary }, context);
+        }
+
         // Gateway-trust path: signatures forwarded as a JSON header by an upstream gateway.
         var signatureHeader = GetHeaderValue(context.Request.Headers, "X-Bot-Detection-Signatures");
         if (!string.IsNullOrEmpty(signatureHeader))
