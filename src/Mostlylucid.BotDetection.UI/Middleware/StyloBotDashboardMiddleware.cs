@@ -4626,16 +4626,25 @@ public class StyloBotDashboardMiddleware
             if (aggCache is not null && aggCache.TryGet(decodedSignature, out var agg) && agg is not null)
             {
                 var inferredArchetype = FindInferredArchetype(archetypes, agg);
-                if (inferredArchetype is not null && inferredArchetype.Centroid.Length == layout.Dimension)
+                if (inferredArchetype is not null
+                    && inferredArchetype.Centroid.Length == layout.Dimension
+                    && inferredArchetype.DimensionMask.Length == layout.Dimension)
                 {
-                    var neutralWeights = new float[layout.Dimension];
-                    Array.Fill(neutralWeights, 1f);
+                    // Weight the projection by the archetype's DimensionMask --
+                    // confidence in [0, 1] per slot, zero where the archetype
+                    // is silent. A uniform 1.0 weight vector collapses the
+                    // polygon because sparse YAMLs leave most slots at 0,
+                    // and the projection averages |slot|*1.0 across all
+                    // slots in a bucket, swamping the few defined slots with
+                    // the many undefined ones. Mask-as-weight emphasises the
+                    // slots the archetype actually asserts so the polygon
+                    // has visible magnitude per bucket.
                     var syntheticFp = new Fingerprint
                     {
                         FingerprintId = "inferred",
                         Centroid = inferredArchetype.Centroid,
                         CentroidMaturity = 0,
-                        Weights = neutralWeights,
+                        Weights = inferredArchetype.DimensionMask,
                         MemberCount = 0,
                         ObservationCount = 0,
                         CorrectionCount = 0,
@@ -4647,7 +4656,8 @@ public class StyloBotDashboardMiddleware
                         InferredTypeConfidence = 0,
                         InferredTypeChangedAt = DateTime.UtcNow,
                     };
-                    var inferredWeights = globalWeights?.Compose(neutralWeights) ?? neutralWeights;
+                    var inferredWeights = globalWeights?.Compose(inferredArchetype.DimensionMask)
+                                          ?? inferredArchetype.DimensionMask;
                     return FingerprintRadarProjection.Project(syntheticFp, inferredArchetype, layout, inferredWeights);
                 }
             }
