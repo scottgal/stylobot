@@ -496,6 +496,16 @@ public static class SignalKeys
     /// <summary>String (UUID): the matched (or newly allocated) fingerprint shape. Written by FingerprintMatchContributor.</summary>
     public const string IdentityFingerprintId = "identity.fingerprint_id";
 
+    /// <summary>
+    ///     String (opaque 16-hex from <c>Guid.NewGuid().ToString("N")[..16]</c>):
+    ///     the durable entity handle. Multiple primary signatures rotate behind
+    ///     one entity id; behavioural-similarity merges retroactively unify ids.
+    ///     This is the identifier the dashboard URL surface uses. Computed by
+    ///     <c>ISessionStore.ResolveEntityAsync(primarySignature)</c> -- exact-key
+    ///     lookup wins fast; first-encounter allocates a fresh entity.
+    /// </summary>
+    public const string EntityId = "entity.id";
+
     /// <summary>String (UUID): Pass 1's L1 candidate (may differ from final fingerprint_id).</summary>
     public const string IdentityFingerprintL1 = "identity.fingerprint_l1";
 

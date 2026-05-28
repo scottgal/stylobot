@@ -21,6 +21,7 @@ public static class StyloBotEdgeHeaderNames
     public const string PrimarySignature = "X-Bot-Detection-PrimarySignature";
     public const string IpSignature = "X-Bot-Detection-IpSignature";
     public const string UaSignature = "X-Bot-Detection-UaSignature";
+    public const string EntityId = "X-Bot-Detection-EntityId";
     public const string Probability = "X-Bot-Detection-Probability";
     public const string Confidence = "X-Bot-Detection-Confidence";
     public const string RiskBand = "X-Bot-Detection-RiskBand";
@@ -30,7 +31,7 @@ public static class StyloBotEdgeHeaderNames
 
     public static readonly string[] All =
     [
-        IdentityFingerprint, PrimarySignature, IpSignature, UaSignature,
+        IdentityFingerprint, PrimarySignature, IpSignature, UaSignature, EntityId,
         Probability, Confidence, RiskBand, BotName, RequestId, Result
     ];
 }
@@ -125,6 +126,35 @@ public sealed class StyloBotForwardedHeadersMiddleware
 
         if (!string.IsNullOrEmpty(primarySig))
             context.Request.Headers[StyloBotEdgeHeaderNames.PrimarySignature] = primarySig;
+
+        // Entity id: the durable handle the downstream dashboard URLs against.
+        // PrimarySignature can rotate (UA / IP shift), the fingerprint id can
+        // re-bind, but the entity id is allocated once per actor and persists
+        // across both. ResolveEntityAsync is exact-key-fast on the warm path
+        // (single SELECT on entity_edges.signature) and allocates on the cold
+        // path; cosine-similarity merging is moot here because session vectors
+        // for first-encounter requests don't exist yet -- that merge runs
+        // later via EntityResolutionService against persisted session data.
+        if (!string.IsNullOrEmpty(primarySig))
+        {
+            var sessionStore = context.RequestServices.GetService<Data.ISessionStore>();
+            if (sessionStore is not null)
+            {
+                try
+                {
+                    var entityId = await sessionStore.ResolveEntityAsync(primarySig, context.RequestAborted);
+                    if (!string.IsNullOrEmpty(entityId))
+                    {
+                        context.Items[SignalKeys.EntityId] = entityId;
+                        context.Request.Headers[StyloBotEdgeHeaderNames.EntityId] = entityId;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Entity-id resolution failed for primarySig={Sig}", primarySig);
+                }
+            }
+        }
 
         // Verdict-cache skip paths never write IdentityFingerprintId to Items
         // because the orchestrator (and therefore the FingerprintMatchContributor)
