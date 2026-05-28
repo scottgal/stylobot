@@ -18,7 +18,10 @@ public static class ClusterEndpoints
             .WithTags("Clusters")
             .WithApiBotPolicy();
 
-        group.MapGet("", HandleList).WithName("GetClusters");
+        // Distinct from the Stylobot.Gateway admin endpoint named "GetClusters"
+        // (/admin/clusters) -- both shared the same name and tripped the routing
+        // matcher's globally-unique-names check when both surfaces were mounted.
+        group.MapGet("", HandleList).WithName("GetApiClusters");
         group.MapGet("/diagnostics", HandleDiagnostics).WithName("GetClusterDiagnostics");
 
         return endpoints;
