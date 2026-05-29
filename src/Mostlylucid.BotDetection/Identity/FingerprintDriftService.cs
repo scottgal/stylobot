@@ -26,7 +26,7 @@ namespace Mostlylucid.BotDetection.Identity;
 public sealed class FingerprintDriftService : BackgroundService
 {
     private readonly ILogger<FingerprintDriftService> _logger;
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
     private readonly IdentityGlobalWeightsCache _globalWeights;
     private readonly IdentityProcessingCoordinator _coordinator;
     private readonly IdentityOptions _options;
@@ -34,7 +34,7 @@ public sealed class FingerprintDriftService : BackgroundService
 
     public FingerprintDriftService(
         ILogger<FingerprintDriftService> logger,
-        SqliteFingerprintStore store,
+        IFingerprintStore store,
         IdentityGlobalWeightsCache globalWeights,
         IdentityProcessingCoordinator coordinator,
         IOptions<BotDetectionOptions> options)

@@ -26,12 +26,12 @@ public sealed record IdentityCachedVerdict(
 public sealed class IdentityVerdictLookup
 {
     private readonly ILogger<IdentityVerdictLookup> _logger;
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
     private readonly bool _enabled;
 
     public IdentityVerdictLookup(
         ILogger<IdentityVerdictLookup> logger,
-        SqliteFingerprintStore store,
+        IFingerprintStore store,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;

@@ -80,6 +80,7 @@ public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, 
     private readonly string _connectionString;
     private readonly ILogger<SqliteFingerprintApprovalStore> _logger;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly TimeSpan _tokenTtl;
     private bool _initialized;
 
     // Read-through cache: avoids SQLite round-trip on every request (approvals rarely change)
@@ -90,6 +91,7 @@ public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, 
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
+        _tokenTtl = options.Value.ApprovalTokenTtl;
         var basePath = Path.GetDirectoryName(
             options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
             ?? AppContext.BaseDirectory;
@@ -275,7 +277,7 @@ public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, 
             cmd.Parameters.AddWithValue("@token", token);
             cmd.Parameters.AddWithValue("@sig", signature);
             cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
-            cmd.Parameters.AddWithValue("@expires", DateTimeOffset.UtcNow.AddHours(24).ToString("O"));
+            cmd.Parameters.AddWithValue("@expires", DateTimeOffset.UtcNow.Add(_tokenTtl).ToString("O"));
             await cmd.ExecuteNonQueryAsync(ct);
 
             return token;

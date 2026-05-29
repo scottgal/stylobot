@@ -22,7 +22,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFoundationContributor
 {
     private readonly ILogger<FingerprintMatchContributor> _logger;
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
     private readonly IIdentityAnchorIndex _index;
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityGlobalWeightsCache _globalWeights;
@@ -33,7 +33,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
     public FingerprintMatchContributor(
         ILogger<FingerprintMatchContributor> logger,
-        SqliteFingerprintStore store,
+        IFingerprintStore store,
         IIdentityAnchorIndex index,
         IdentityArchetypeRegistry archetypes,
         IdentityGlobalWeightsCache globalWeights,

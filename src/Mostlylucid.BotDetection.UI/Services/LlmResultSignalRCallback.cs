@@ -12,7 +12,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     Broadcasts background LLM classification results via SignalR
 ///     and writes names/descriptions back to the server-side caches
 ///     so HTMX partial re-renders pick up the new data.
-///     Also propagates the LLM-derived name to <see cref="SqliteFingerprintStore"/>
+///     Also propagates the LLM-derived name to <see cref="IFingerprintStore"/>
 ///     so the matcher's persisted display name (and therefore the CLI / response
 ///     header surface) picks up the better name on subsequent requests.
 /// </summary>
@@ -22,7 +22,7 @@ public class LlmResultSignalRCallback : ILlmResultCallback
     private readonly SignatureAggregateCache _signatureCache;
     private readonly VisitorListCache _visitorCache;
     private readonly IDashboardEventStore _eventStore;
-    private readonly SqliteFingerprintStore? _fingerprintStore;
+    private readonly IFingerprintStore? _fingerprintStore;
     private readonly StyloBotDashboardOptions _dashboardOptions;
     private readonly ILogger<LlmResultSignalRCallback> _logger;
 
@@ -32,7 +32,7 @@ public class LlmResultSignalRCallback : ILlmResultCallback
         SignatureAggregateCache signatureCache,
         VisitorListCache visitorCache,
         IDashboardEventStore eventStore,
-        SqliteFingerprintStore? fingerprintStore = null,
+        IFingerprintStore? fingerprintStore = null,
         IOptions<StyloBotDashboardOptions>? dashboardOptions = null)
     {
         _logger = logger;

@@ -7,9 +7,9 @@ namespace Mostlylucid.BotDetection.Identity;
 /// </summary>
 public sealed class BruteForceIdentityAnchorIndex : IIdentityAnchorIndex
 {
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
 
-    public BruteForceIdentityAnchorIndex(SqliteFingerprintStore store) => _store = store;
+    public BruteForceIdentityAnchorIndex(IFingerprintStore store) => _store = store;
 
     public async Task<IReadOnlyList<FingerprintCandidate>> SearchAsync(
         float[] vector,

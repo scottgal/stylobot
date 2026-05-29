@@ -21,14 +21,14 @@ namespace Mostlylucid.BotDetection.Identity;
 public sealed class FingerprintAbsorptionService : BackgroundService
 {
     private readonly ILogger<FingerprintAbsorptionService> _logger;
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
     public FingerprintAbsorptionService(
         ILogger<FingerprintAbsorptionService> logger,
-        SqliteFingerprintStore store,
+        IFingerprintStore store,
         IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options)
     {

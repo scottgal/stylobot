@@ -140,7 +140,7 @@ public static class BdfReplayEndpoints
     ///     identity tables are tiny in tests; only suitable for test/dev use.
     /// </summary>
     private static async Task<IResult> ResetIdentityStore(
-        Identity.SqliteFingerprintStore store,
+        Identity.IFingerprintStore store,
         Identity.IdentityProcessingCoordinator coordinator,
         Orchestration.ContributingDetectors.FingerprintDimSnapshotCache snapshotCache,
         CancellationToken ct)

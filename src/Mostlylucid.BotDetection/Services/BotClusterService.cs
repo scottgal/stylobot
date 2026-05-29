@@ -42,7 +42,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
     private readonly ILicenseState _licenseState;
     private readonly ClusterOptions _options;
     private readonly SignatureCoordinator _signatureCoordinator;
-    private readonly Identity.SqliteFingerprintStore? _fingerprintStore;
+    private readonly Identity.IFingerprintStore? _fingerprintStore;
     private readonly MarkovTracker? _markovTracker;
     private readonly AdaptiveSimilarityWeighter? _adaptiveWeighter;
     private readonly UaProfileStore? _uaProfileStore;
@@ -70,7 +70,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         IOptions<BotDetectionOptions> options,
         SignatureCoordinator signatureCoordinator,
         ILicenseState licenseState,
-        Identity.SqliteFingerprintStore? fingerprintStore = null,
+        Identity.IFingerprintStore? fingerprintStore = null,
         MarkovTracker? markovTracker = null,
         AdaptiveSimilarityWeighter? adaptiveWeighter = null,
         UaProfileStore? uaProfileStore = null,

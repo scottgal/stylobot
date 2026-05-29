@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Identity;
 // Not sealed: remote-mode dashboards register a HTTP-backed IFingerprintReader instead
 // of this concrete type. Base class continues to own the write path (centroid updates,
 // observation absorption, score caching) which remote viewers never call.
-public class SqliteFingerprintStore : IFingerprintReader
+public class SqliteFingerprintStore : IFingerprintStore
 {
     private readonly ILogger<SqliteFingerprintStore> _logger;
     private readonly string _connectionString;

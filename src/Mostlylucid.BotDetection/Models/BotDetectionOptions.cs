@@ -515,6 +515,12 @@ public class BotDetectionOptions
     public string? DatabasePath { get; set; }
 
     /// <summary>
+    ///     Lifetime of a one-time fingerprint approval token before it expires.
+    ///     Default: 24 hours.
+    /// </summary>
+    public TimeSpan ApprovalTokenTtl { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>
     ///     EWMA weight for the newest observation when updating a signature's persisted
     ///     bot_probability. Smaller values mean stronger memory: 0.10 retains roughly 90 percent
     ///     of prior state, 0.30 reacts more quickly to changes. Default 0.15.

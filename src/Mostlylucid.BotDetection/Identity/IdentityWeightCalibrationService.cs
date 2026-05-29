@@ -18,7 +18,7 @@ namespace Mostlylucid.BotDetection.Identity;
 ///        fingerprints (descendants = fps whose nearest archetype is this one). Capped α
 ///        prevents an archetype from drifting away from its seeded shape in any single cycle,
 ///        and the YAML-defined <c>dimension_mask</c> stays untouched — only the centroid
-///        learns. Persisted via <see cref="SqliteFingerprintStore.UpsertArchetypeAsync"/> and
+///        learns. Persisted via <see cref="IFingerprintStore.UpsertArchetypeAsync"/> and
 ///        pushed back into the in-memory registry via <see cref="IdentityArchetypeRegistry.Replace"/>.
 ///
 ///     Dormant when <c>BotDetectionOptions.Identity.Enabled</c> is false.
@@ -26,14 +26,14 @@ namespace Mostlylucid.BotDetection.Identity;
 public sealed class IdentityWeightCalibrationService : BackgroundService
 {
     private readonly ILogger<IdentityWeightCalibrationService> _logger;
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
     public IdentityWeightCalibrationService(
         ILogger<IdentityWeightCalibrationService> logger,
-        SqliteFingerprintStore store,
+        IFingerprintStore store,
         IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options)
     {

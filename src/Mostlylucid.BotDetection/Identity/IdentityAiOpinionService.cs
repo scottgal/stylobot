@@ -64,13 +64,13 @@ public static class IdentityAiOpinionStatusExtensions
 public sealed class IdentityAiOpinionService
 {
     private readonly ILogger<IdentityAiOpinionService> _logger;
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
     private readonly IServiceProvider _serviceProvider;
     private readonly bool _enabled;
 
     public IdentityAiOpinionService(
         ILogger<IdentityAiOpinionService> logger,
-        SqliteFingerprintStore store,
+        IFingerprintStore store,
         IServiceProvider serviceProvider,
         IOptions<BotDetectionOptions> options)
     {

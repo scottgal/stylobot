@@ -9,7 +9,7 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     In-process cache for the calibrated global per-dimension weight vector. The matcher reads
 ///     it on every request to compose with the per-fingerprint weights at confirm + Pass 2 time;
 ///     a background refresh on the cadence configured by <see cref="IdentityWeightsOptions.GlobalRefreshSeconds"/>
-///     pulls the latest row from <see cref="SqliteFingerprintStore.GetGlobalWeightsAsync"/>.
+///     pulls the latest row from <see cref="IFingerprintStore.GetGlobalWeightsAsync"/>.
 ///
 ///     Until calibration has run, <see cref="Current"/> returns null and
 ///     <see cref="Compose"/> returns the per-fingerprint vector unchanged — global weights are
@@ -20,7 +20,7 @@ namespace Mostlylucid.BotDetection.Identity;
 public sealed class IdentityGlobalWeightsCache : BackgroundService
 {
     private readonly ILogger<IdentityGlobalWeightsCache> _logger;
-    private readonly SqliteFingerprintStore _store;
+    private readonly IFingerprintStore _store;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
     private float[]? _current;
@@ -28,7 +28,7 @@ public sealed class IdentityGlobalWeightsCache : BackgroundService
 
     public IdentityGlobalWeightsCache(
         ILogger<IdentityGlobalWeightsCache> logger,
-        SqliteFingerprintStore store,
+        IFingerprintStore store,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
