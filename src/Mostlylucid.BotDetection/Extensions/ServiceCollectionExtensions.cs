@@ -692,6 +692,11 @@ public static class ServiceCollectionExtensions
         // impl in remote-mode dashboard hosts.
         services.TryAddSingleton<Identity.IFingerprintReader>(
             sp => sp.GetRequiredService<Identity.SqliteFingerprintStore>());
+        // Full read+write fingerprint surface for the detection pipeline. Consumers
+        // depend on this interface (not the concrete store) so commercial gateways
+        // can swap in a Postgres-backed implementation. Defaults to the Sqlite store.
+        services.TryAddSingleton<Identity.IFingerprintStore>(
+            sp => sp.GetRequiredService<Identity.SqliteFingerprintStore>());
         // Read-only entity-resolution surface. Local impl wraps the session store
         // (which owns the writes); remote-mode dashboards swap this for
         // RemoteEntityReader proxying /api/v1/entities/*.
