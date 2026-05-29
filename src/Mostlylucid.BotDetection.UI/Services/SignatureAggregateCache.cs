@@ -426,6 +426,7 @@ public sealed class SignatureAggregateCache
         lock (existing.SyncRoot)
         {
             existing.HitCount++;
+            var classificationFlipped = existing.IsBot != detection.IsBot;
             existing.IsBot = detection.IsBot;
             // Name + type are owned by the canonical naming pipeline (UpdateSignatureBotNameAsync
             // calling ApplyBotName, write-through to the dashboard_signatures table). Per-detection
@@ -435,6 +436,16 @@ public sealed class SignatureAggregateCache
             // The only mutation allowed here is the first-time seed when the cache has no name yet.
             if (string.IsNullOrEmpty(existing.BotName) && !string.IsNullOrEmpty(detection.BotName))
             {
+                existing.BotName = detection.BotName;
+                existing.BotType = detection.BotType;
+            }
+            else if (classificationFlipped && !string.IsNullOrEmpty(detection.BotName)
+                     && !string.Equals(detection.BotName, existing.BotName, StringComparison.Ordinal))
+            {
+                // Bot<->human flip: the source already re-derived the name (absorption cleared the
+                // stale name -> matcher recomposed from the new archetype). This is an authoritative
+                // rename, not heuristic churn, so accept it -- never show e.g. "Googlebot" on a row
+                // that has flipped to human.
                 existing.BotName = detection.BotName;
                 existing.BotType = detection.BotType;
             }
