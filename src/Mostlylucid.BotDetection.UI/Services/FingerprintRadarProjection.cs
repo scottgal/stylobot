@@ -62,17 +62,17 @@ public static class FingerprintRadarProjection
         }
 
         var current = ProjectVector(fingerprint.Centroid, layout, effectiveWeights);
-        double[]? origin = null;
-        if (archetype is not null && archetype.Centroid.Length == layout.Dimension)
-        {
-            origin = ProjectVector(archetype.Centroid, layout, effectiveWeights);
-        }
 
-        ScaleToRim(current, origin);
+        // No archetype-origin overlay. A sparse archetype (a human browser's Network / Tool /
+        // Transport slots are genuinely 0) projects to mostly-zero buckets, which after
+        // ScaleToRim draw as spikes radiating from the centre -- the "clock hand" artifact --
+        // rather than a meaningful comparison polygon. The radar shows only the current
+        // fingerprint shape until there is a non-degenerate overlay design worth rendering.
+        ScaleToRim(current);
 
         return new FingerprintRadarShape(
             CurrentBuckets: current,
-            OriginBuckets: origin,
+            OriginBuckets: null,
             BucketLabels: BucketLabels,
             ArchetypeName: archetype?.Name);
     }
@@ -95,17 +95,14 @@ public static class FingerprintRadarProjection
     ///     A genuinely empty shape (all buckets ~0) is left at zero so the partial's
     ///     calibrating placeholder can take over instead of dividing by ~0.
     /// </summary>
-    private static void ScaleToRim(double[] current, double[]? origin)
+    private static void ScaleToRim(double[] buckets)
     {
         var max = 0.0;
-        foreach (var v in current) if (v > max) max = v;
-        if (origin is not null) foreach (var v in origin) if (v > max) max = v;
+        foreach (var v in buckets) if (v > max) max = v;
         if (max <= 1e-6) return;
 
         var scale = RimTarget / max;
-        for (var i = 0; i < current.Length; i++) current[i] = Math.Min(1.0, current[i] * scale);
-        if (origin is not null)
-            for (var i = 0; i < origin.Length; i++) origin[i] = Math.Min(1.0, origin[i] * scale);
+        for (var i = 0; i < buckets.Length; i++) buckets[i] = Math.Min(1.0, buckets[i] * scale);
     }
 
     private static double[] ProjectVector(
