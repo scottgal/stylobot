@@ -204,4 +204,40 @@ internal static class WidgetRenderHelpers
         }
         return result;
     }
+
+    /// <summary>
+    ///     Apply the dashboard's top-bots sort rules to an arbitrary list. Mirrors the
+    ///     switch in <see cref="Services.SignatureAggregateCache.GetTopBots"/> so the
+    ///     cache-bypass read path (BuildTopBotsModel calling IDashboardEventStore in
+    ///     remote-mode hosts) renders rows in the same order operators see when the
+    ///     cache is hot.
+    /// </summary>
+    public static IEnumerable<DashboardTopBotEntry> SortTopBots(
+        IEnumerable<DashboardTopBotEntry> source, string? sortBy, string? sortDir)
+    {
+        var asc = string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+        return (sortBy?.ToLowerInvariant()) switch
+        {
+            "name" => asc
+                ? source.OrderBy(b => b.BotName ?? b.PrimarySignature)
+                : source.OrderByDescending(b => b.BotName ?? b.PrimarySignature),
+            "lastseen" => asc
+                ? source.OrderBy(b => b.LastSeen)
+                : source.OrderByDescending(b => b.LastSeen),
+            "country" => asc
+                ? source.OrderBy(b => b.CountryCode ?? "ZZ")
+                : source.OrderByDescending(b => b.CountryCode ?? "ZZ"),
+            "probability" => asc
+                ? source.OrderBy(b => b.BotProbability)
+                : source.OrderByDescending(b => b.BotProbability),
+            "threat" => asc
+                ? source.OrderBy(b => b.ThreatScore ?? 0)
+                : source.OrderByDescending(b => b.ThreatScore ?? 0),
+            "hits" => asc
+                ? source.OrderBy(b => b.HitCount)
+                : source.OrderByDescending(b => b.HitCount),
+            _ => source.OrderByDescending(b =>
+                (b.ThreatScore ?? 0) * 0.4 + Math.Log10(Math.Max(b.HitCount, 1)) * 0.6)
+        };
+    }
 }

@@ -251,7 +251,7 @@ public sealed class SbWidgetBatchMiddleware
         var filter = q["filter"].FirstOrDefault() ?? "bots";
         var widgetId = q["widgetId"].FirstOrDefault() ?? routeWidgetId;
         var searchQuery = q["q"].FirstOrDefault();
-        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
+        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbTopBots/Default.cshtml", model, context);
     }
@@ -285,12 +285,23 @@ public sealed class SbWidgetBatchMiddleware
     // Model builders (mirrors private methods in StyloBotDashboardMiddleware)
     // -------------------------------------------------------------------------
 
-    private TopBotsListModel BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir, string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
+    private async Task<TopBotsListModel> BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir, string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
     {
-        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
-        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        // Same read-through-event-store pattern as StyloBotDashboardMiddleware.BuildTopBotsModel
+        // (see notes there). Cache stayed as a write-through hot path on the gateway; the
+        // remote-mode dashboard would otherwise pin to startup-warm values forever.
+        var raw = await _eventStore.GetTopBotsAsync(
+            count: _signatureCache.MaxEntries,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: filter);
+        var sorted = WidgetRenderHelpers.SortTopBots(raw, sortBy, sortDir).ToList();
+        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
         grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, searchQuery);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var bots = sorted.Count(b => b.IsKnownBot);
+        var humans = sorted.Count - bots;
         return new TopBotsListModel
         {
             Bots = pagedBots,
@@ -302,7 +313,7 @@ public sealed class SbWidgetBatchMiddleware
             BasePath = _options.BasePath.TrimEnd('/'),
             Filter = filter,
             WidgetId = widgetId,
-            Counts = _signatureCache.GetCounts(),
+            Counts = new TopBotsCounts(All: sorted.Count, Bots: bots, Humans: humans),
             Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
         };
     }

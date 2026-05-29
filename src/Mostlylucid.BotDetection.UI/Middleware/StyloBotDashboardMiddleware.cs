@@ -961,7 +961,7 @@ public class StyloBotDashboardMiddleware
             Endpoints = BuildEndpointsModel(context, "total", "desc", 1, 20, endpointsData),
             Clusters = await BuildClustersModelAsync(context),
             UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
-            TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
+            TopBots = await BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
             Sessions = await BuildSessionsModel(context),
             Threats = await BuildThreatsModelAsync(),
             License = BuildLicenseCardModel(context),
@@ -3177,7 +3177,7 @@ public class StyloBotDashboardMiddleware
         var widgetId = context.Request.Query["widgetId"].FirstOrDefault() ?? "topbots";
         var searchQuery = context.Request.Query["q"].FirstOrDefault();
 
-        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
+        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -4087,7 +4087,7 @@ public class StyloBotDashboardMiddleware
                 "endpoints" => await RenderEndpointPartialAsync(context, q),
                 "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", await BuildClustersModelAsync(context)),
                 "useragents" => await RenderUaPartialAsync(context, q),
-                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModelFromQuery(widgetId, q)),
+                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", await BuildTopBotsModelFromQuery(widgetId, q)),
                 "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml",
                     await BuildSessionsModel(context,
                         page: WidgetRenderHelpers.QueryPage(q),
@@ -5223,20 +5223,33 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         }
     }
 
-    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
+    private async Task<TopBotsListModel> BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
     {
-        // Pull every matching entry from the cache, then collapse groupable identities
-        // (verified-bot UAs converged to one canonical fingerprint) into single rows BEFORE
-        // paging. Without this, page counts referenced the pre-grouped signature count --
-        // a Live Activity widget showing 3 visual rows but claiming "page 1/4" because 40
-        // raw sigs collapsed into 10 grouped rows. TotalCount must match what the view
-        // actually renders, so the grouping moves here and the view consumes the result
-        // as-is. Search filter follows the same collapse so paging counts match the
-        // visible row set.
-        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
-        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        // Read through the event store so the data path is the same whether we're on
+        // a gateway host (SqliteDashboardEventStore / PostgreSQLDashboardEventStore
+        // hitting local Postgres) or a remote-mode dashboard host (RemoteDashboardEventStore
+        // hitting the gateway's REST API). The previous local SignatureAggregateCache
+        // read returned empty/stale data in remote mode because no in-process
+        // DetectionBroadcastMiddleware fed it -- the cache is only a write-through
+        // hot path on the gateway, never the source of truth. The cache remains live
+        // on gateway hosts; it just isn't this widget's read source.
+        //
+        // The event store's GetTopBotsAsync supports "audienceFilter" for bots/humans/all;
+        // it returns hit-count DESC, so we re-sort client-side to honour the user's
+        // sortBy choice. Collapse-then-search-then-page mirrors the prior in-cache
+        // pipeline so TotalCount still matches the row set the view renders.
+        var raw = await _eventStore.GetTopBotsAsync(
+            count: _signatureCache.MaxEntries,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: filter);
+        var sorted = WidgetRenderHelpers.SortTopBots(raw, sortBy, sortDir).ToList();
+        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
         grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, searchQuery);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var bots = sorted.Count(b => b.IsKnownBot);
+        var humans = sorted.Count - bots;
         return new TopBotsListModel
         {
             Bots = pagedBots,
@@ -5248,13 +5261,13 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             BasePath = _options.BasePath.TrimEnd('/'),
             Filter = filter,
             WidgetId = widgetId,
-            Counts = _signatureCache.GetCounts(),
+            Counts = new TopBotsCounts(All: sorted.Count, Bots: bots, Humans: humans),
             Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
         };
     }
 
 
-    private TopBotsListModel BuildTopBotsModelFromQuery(string widgetId, IQueryCollection q)
+    private Task<TopBotsListModel> BuildTopBotsModelFromQuery(string widgetId, IQueryCollection q)
     {
         var sortBy = q["sort"].FirstOrDefault() ?? "default";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
