@@ -42,12 +42,15 @@ public static class ReadEndpoints
     private static async Task<Ok<PaginatedResponse<DashboardDetectionEvent>>> HandleDetections(
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
-        int limit = 50, int offset = 0, bool? isBot = null, DateTime? since = null)
+        int limit = 50, int offset = 0, bool? isBot = null, DateTime? since = null, string? signature = null)
     {
         aggregateCache.MarkHit();
         var cappedLimit = Math.Min(limit, 200);
         var snapshot = aggregateCache.Current;
-        if (offset == 0 && isBot is null && since is null
+        // The precomputed snapshot holds the most recent detections across ALL
+        // signatures, so it can only short-circuit the unfiltered default view.
+        // A signature-scoped query (the signature-detail page) must hit the store.
+        if (offset == 0 && isBot is null && since is null && string.IsNullOrEmpty(signature)
             && snapshot.Detections.Count >= cappedLimit
             && snapshot.ComputedAt != DateTime.MinValue)
         {
@@ -62,7 +65,8 @@ public static class ReadEndpoints
 
         var filter = new DashboardFilter
         {
-            Limit = cappedLimit, Offset = offset, IsBot = isBot, StartTime = since
+            Limit = cappedLimit, Offset = offset, IsBot = isBot, StartTime = since,
+            SignatureId = string.IsNullOrEmpty(signature) ? null : signature
         };
         var detections = await store.GetDetectionsAsync(filter);
         return TypedResults.Ok(new PaginatedResponse<DashboardDetectionEvent>

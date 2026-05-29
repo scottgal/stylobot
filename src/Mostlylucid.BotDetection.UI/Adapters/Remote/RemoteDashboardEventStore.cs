@@ -73,7 +73,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         var f = filter ?? new DashboardFilter();
         var query = $"/api/v1/detections?limit={f.Limit}&offset={f.Offset}"
             + (f.IsBot.HasValue ? $"&isBot={f.IsBot.Value.ToString().ToLowerInvariant()}" : "")
-            + (f.StartTime.HasValue ? $"&since={Uri.EscapeDataString(f.StartTime.Value.ToString("o"))}" : "");
+            + (f.StartTime.HasValue ? $"&since={Uri.EscapeDataString(f.StartTime.Value.ToString("o"))}" : "")
+            + (!string.IsNullOrEmpty(f.SignatureId) ? $"&signature={Uri.EscapeDataString(f.SignatureId)}" : "");
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardDetectionEvent>>(query, ct);
