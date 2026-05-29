@@ -834,6 +834,13 @@ public class StyloBotDashboardMiddleware
     {
         context.Response.ContentType = "text/html";
 
+        // Stamp the dashboard-viewed signal so the broadcaster keeps the aggregate
+        // cache warm while someone is looking and parks when they stop (see the
+        // idle-skip in DashboardSummaryBroadcaster). The HTML dashboard never hits
+        // the /api/v1 surface, so without this the broadcaster's idle-skip can't tell
+        // the dashboard is being viewed.
+        _aggregateCache.MarkHit();
+
         // Allow same-origin iframing (e.g., LiveDemo page embedding the dashboard)
         context.Response.Headers.Remove("X-Frame-Options");
         context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
@@ -870,7 +877,9 @@ public class StyloBotDashboardMiddleware
         var (visitors, visitorTotal, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 24);
 
         DashboardSummary summary;
-        try { summary = await _eventStore.GetSummaryAsync(); }
+        // Serve the broadcaster-precomputed summary; only fall through to the
+        // (unbounded full-table) store query when the cache is cold.
+        try { summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync(); }
         catch { summary = new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
 
         List<DashboardCountryStats> countriesData;
@@ -1431,7 +1440,8 @@ public class StyloBotDashboardMiddleware
 
     private async Task ServeSummaryApiAsync(HttpContext context)
     {
-        var summary = await _eventStore.GetSummaryAsync();
+        _aggregateCache.MarkHit();
+        var summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, summary, CamelCaseJson);
@@ -1439,6 +1449,7 @@ public class StyloBotDashboardMiddleware
 
     private async Task ServeTimeSeriesApiAsync(HttpContext context)
     {
+        _aggregateCache.MarkHit();
         try
         {
             var startTimeStr = context.Request.Query["start"].FirstOrDefault();
@@ -2614,7 +2625,7 @@ public class StyloBotDashboardMiddleware
     /// <summary>Build the SummaryStatsModel including session analytics from the visitor cache.</summary>
     private async Task<SummaryStatsModel> BuildSummaryStatsModelAsync(HttpContext context)
     {
-        var summary = await _eventStore.GetSummaryAsync();
+        var summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
         var basePath = _options.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
@@ -3449,7 +3460,9 @@ public class StyloBotDashboardMiddleware
     private async Task<ThreatsListModel> BuildThreatsModelAsync()
     {
         List<ThreatEntry> threats;
-        try { threats = await _eventStore.GetThreatsAsync(20); }
+        // Serve the broadcaster-precomputed threats; fall through only when cold.
+        var cachedThreats = _aggregateCache.Current.Threats;
+        try { threats = cachedThreats.Count > 0 ? cachedThreats : await _eventStore.GetThreatsAsync(20); }
         catch { threats = []; }
 
         return new ThreatsListModel
@@ -4030,6 +4043,9 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private async Task ServeOobUpdateAsync(HttpContext context)
     {
+        // Live OOB refresh = the dashboard is open and consuming; keep the aggregate
+        // cache warm so the broadcaster idle-skip doesn't park while someone's watching.
+        _aggregateCache.MarkHit();
         var widgetList = context.Request.Query["widgets"].FirstOrDefault() ?? "summary,visitors";
         var widgets = widgetList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 

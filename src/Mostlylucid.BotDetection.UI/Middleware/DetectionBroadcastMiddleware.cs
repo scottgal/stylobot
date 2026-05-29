@@ -89,6 +89,24 @@ public partial class DetectionBroadcastMiddleware
     private readonly ILogger<DetectionBroadcastMiddleware> _logger;
     private readonly RequestDelegate _next;
 
+    // Caps the world-map attack-arc firehose to at most one arc per
+    // AttackArcMinIntervalMs across the whole process. The arc is decorative;
+    // every detection is still stored and counted regardless of whether its arc
+    // is emitted. Unlike invalidation beacons it carries a payload, so it can't
+    // go through the name-coalescing SignalRBroadcastConstrainer.
+    private static long _lastArcTicks;
+
+    private static bool TryReserveArcSlot(int minIntervalMs)
+    {
+        if (minIntervalMs <= 0) return true;
+        var minTicks = TimeSpan.FromMilliseconds(minIntervalMs).Ticks;
+        var now = DateTime.UtcNow.Ticks;
+        var last = System.Threading.Interlocked.Read(ref _lastArcTicks);
+        if (now - last < minTicks) return false;
+        // Claim the slot; if another thread beat us to it, skip this arc.
+        return System.Threading.Interlocked.CompareExchange(ref _lastArcTicks, now, last) == last;
+    }
+
     public DetectionBroadcastMiddleware(
         RequestDelegate next,
         ILogger<DetectionBroadcastMiddleware> logger)
@@ -151,7 +169,8 @@ public partial class DetectionBroadcastMiddleware
 
                 // Lightweight attack arc for world map visualization (only data payload we send)
                 if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
-                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL")
+                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL"
+                                    && TryReserveArcSlot(dashboardOptionsAccessor.Value.AttackArcMinIntervalMs))
                     await hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
 
                 _logger.LogDebug(
@@ -201,7 +220,8 @@ public partial class DetectionBroadcastMiddleware
 
                 // Lightweight attack arc for world map visualization
                 if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
-                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL")
+                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL"
+                                    && TryReserveArcSlot(dashboardOptionsAccessor.Value.AttackArcMinIntervalMs))
                     await hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
 
                 // Feed signature to SignatureDescriptionService for name/description synthesis.

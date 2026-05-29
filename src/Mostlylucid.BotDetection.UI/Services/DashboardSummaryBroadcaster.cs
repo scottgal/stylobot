@@ -55,6 +55,14 @@ public class DashboardSummaryBroadcaster : BackgroundService
     private readonly DashboardUserAgentAggregator _uaAggregator;
     private bool _seeded;
 
+    /// <summary>
+    ///     Retention pruning is hourly, not per-tick: a 7-day-cutoff DELETE every
+    ///     5s churns the table and contends with the detection write path for no
+    ///     benefit. Tracks when the last prune ran.
+    /// </summary>
+    private DateTime _lastPruneUtc = DateTime.MinValue;
+    private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
+
     public DashboardSummaryBroadcaster(
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         IDashboardEventStore eventStore,
@@ -114,21 +122,58 @@ public class DashboardSummaryBroadcaster : BackgroundService
                     }
                 }
 
-                // Idle-skip: if no one has consumed the /api/v1 surface for
+                // Bound storage on its own cadence (hourly), BEFORE the idle-skip
+                // below -- detections accumulate from traffic whether or not anyone
+                // is viewing the dashboard, so pruning must not depend on viewers.
+                if (DateTime.UtcNow - _lastPruneUtc >= PruneInterval)
+                {
+                    _lastPruneUtc = DateTime.UtcNow;
+                    try
+                    {
+                        var pruned = await _eventStore.PruneOldDetectionsAsync(
+                            DateTime.UtcNow.AddDays(-7), stoppingToken);
+                        if (pruned > 0)
+                            _logger.LogDebug("Pruned {Count} old dashboard detections", pruned);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to prune old detections");
+                    }
+
+                    try
+                    {
+                        var snapshotStore = _serviceProvider.GetService<IMetricSnapshotStore>();
+                        if (snapshotStore != null)
+                        {
+                            var pruned = await snapshotStore.PruneOldSnapshotsAsync(
+                                DateTime.UtcNow.AddDays(-7), stoppingToken);
+                            if (pruned > 0)
+                                _logger.LogDebug("Pruned {Count} old metric snapshots", pruned);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to prune old metric snapshots");
+                    }
+                }
+
+                // Idle-skip: if nobody has consumed the dashboard surface for
                 // longer than the configured window, the precompute would be
-                // burning CPU and DB I/O for an empty cache. Park the tick
-                // until the next request lands. The first endpoint hit after
-                // a quiet period serves a slightly stale snapshot (the next
-                // tick refreshes it within SummaryBroadcastIntervalSeconds);
-                // dashboards that are open continuously stamp MarkHit every
-                // few seconds via the running SSR + broadcaster polling and
-                // never trip this path.
+                // burning CPU and DB I/O (a full-table summary scan + 7 more
+                // aggregates) for a snapshot no one reads. Park the tick until
+                // the next request lands. "Consumed" is stamped by MarkHit from
+                // the SSR page render, the OOB refresh endpoint, and the /api/v1
+                // read endpoints (see DashboardAggregateCache.MarkHit). A server
+                // that has NEVER been viewed (LastHitAtUtc == MinValue) is idle
+                // by definition and parks too -- otherwise an unviewed gateway
+                // would run every aggregate every tick forever.
                 if (_options.AggregateCacheIdleSkipSeconds > 0)
                 {
                     var lastHit = _cache.LastHitAtUtc;
-                    if (lastHit != DateTime.MinValue
-                        && DateTime.UtcNow - lastHit
-                            > TimeSpan.FromSeconds(_options.AggregateCacheIdleSkipSeconds))
+                    var idle = lastHit == DateTime.MinValue
+                        || DateTime.UtcNow - lastHit
+                            > TimeSpan.FromSeconds(_options.AggregateCacheIdleSkipSeconds);
+                    if (idle)
                     {
                         await Task.Delay(
                             TimeSpan.FromSeconds(_options.SummaryBroadcastIntervalSeconds),
@@ -187,36 +232,6 @@ public class DashboardSummaryBroadcaster : BackgroundService
                 SignalRBroadcastConstrainer.Queue(_hubContext, "signature",  _options.BroadcastMinIntervalMs);
                 SignalRBroadcastConstrainer.Queue(_hubContext, "useragents", _options.BroadcastMinIntervalMs);
                 SignalRBroadcastConstrainer.Queue(_hubContext, "metrics",    _options.BroadcastMinIntervalMs);
-
-                // Prune detections older than 7 days on each tick so storage stays bounded
-                // without requiring a process restart.
-                try
-                {
-                    var pruned = await _eventStore.PruneOldDetectionsAsync(
-                        DateTime.UtcNow.AddDays(-7), stoppingToken);
-                    if (pruned > 0)
-                        _logger.LogDebug("Pruned {Count} old dashboard detections", pruned);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to prune old detections");
-                }
-
-                try
-                {
-                    var snapshotStore = _serviceProvider.GetService<IMetricSnapshotStore>();
-                    if (snapshotStore != null)
-                    {
-                        var pruned = await snapshotStore.PruneOldSnapshotsAsync(
-                            DateTime.UtcNow.AddDays(-7), stoppingToken);
-                        if (pruned > 0)
-                            _logger.LogDebug("Pruned {Count} old metric snapshots", pruned);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to prune old metric snapshots");
-                }
 
                 await Task.Delay(
                     TimeSpan.FromSeconds(_options.SummaryBroadcastIntervalSeconds),

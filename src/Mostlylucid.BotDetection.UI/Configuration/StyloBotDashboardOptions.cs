@@ -149,6 +149,18 @@ public sealed class StyloBotDashboardOptions
     public int BroadcastMinIntervalMs { get; set; } = 10000;
 
     /// <summary>
+    ///     Minimum interval between outbound world-map "attack arc" pushes, in
+    ///     milliseconds. Unlike the invalidation beacons, the attack arc carries a
+    ///     payload (country + risk band) and is sent to every client per bot hit,
+    ///     so it can't be coalesced through the constrainer. This caps the rate so a
+    ///     bot flood can't firehose every dashboard with a SignalR message per
+    ///     request. The underlying detections are still all stored and counted; only
+    ///     the decorative arc is sampled. Default 100ms (≤10 arcs/sec). Set to 0 to
+    ///     emit an arc for every qualifying detection.
+    /// </summary>
+    public int AttackArcMinIntervalMs { get; set; } = 100;
+
+    /// <summary>
     ///     Custom authorization filter (evaluated before policy).
     ///     Signature: Func&lt;HttpContext, Task&lt;bool&gt;&gt;
     ///     Return true to allow access, false to deny.
