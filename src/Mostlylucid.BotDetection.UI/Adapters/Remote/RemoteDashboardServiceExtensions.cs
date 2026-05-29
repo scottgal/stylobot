@@ -68,6 +68,10 @@ public static class RemoteDashboardServiceExtensions
         services.AddSingleton<IEntityReader, RemoteEntityReader>();
         services.AddSingleton<IConfigEditorService, RemoteConfigEditorService>();
         services.AddSingleton<IBotClusterReader, RemoteBotClusterReader>();
+        // Route names: read-only over the gateway catalog. No local SQLite store, no live
+        // writes -- naming is config-driven on the gateway. This wins over the dashboard's
+        // SqliteRouteNameStore (TryAdd) so the viewer never creates dashboard.db.
+        services.AddSingleton<Services.Routes.IRouteNameStore, RemoteRouteNameStore>();
 
         return services;
     }
