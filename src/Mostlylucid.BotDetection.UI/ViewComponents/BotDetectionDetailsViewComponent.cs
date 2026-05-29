@@ -126,14 +126,14 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         // never a 0% default. Same path the signature-detail page uses; the home
         // hero must agree with it.
         if (_eventStore is not null && context is not null
-            && model.Signatures?.PrimarySignature is { } primarySig
-            && !string.IsNullOrEmpty(primarySig)
+            && model.Signatures?.PrimarySignature is { } hydrateSig
+            && !string.IsNullOrEmpty(hydrateSig)
             && model.ProcessingTimeMs == 0)
         {
             try
             {
                 var detections = await _eventStore.GetDetectionsAsync(
-                    new DashboardFilter { SignatureId = primarySig, Limit = 1 },
+                    new DashboardFilter { SignatureId = hydrateSig, Limit = 1 },
                     context.RequestAborted);
                 if (detections.Count > 0)
                 {
