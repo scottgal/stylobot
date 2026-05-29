@@ -24,6 +24,15 @@ public class IpApiGeoLocationService(
     private readonly GeoLocationStatistics _stats = new();
     private bool _rateLimiterStarted;
 
+    // Negative-cache failures/timeouts for a short window so a cold or unreachable
+    // provider can't re-block every request for the same IP. Without this, an
+    // unreachable ip-api.com makes every request pay the full HTTP timeout forever.
+    private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromMinutes(5);
+
+    private void CacheNegative(string cacheKey) =>
+        cache.Set(cacheKey, (GeoLocation?)null,
+            new MemoryCacheEntryOptions().SetAbsoluteExpiration(NegativeCacheTtl).SetSize(1));
+
     public async Task<GeoLocation?> GetLocationAsync(string ipAddress, CancellationToken cancellationToken = default)
     {
         EnsureRateLimiterStarted();
@@ -47,9 +56,10 @@ public class IpApiGeoLocationService(
             };
 
         // Wait for rate limit permit
-        if (!await _rateLimiter.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken))
+        if (!await _rateLimiter.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken))
         {
-            logger.LogWarning("ip-api.com rate limit reached, request dropped");
+            logger.LogDebug("ip-api.com rate limit reached, request dropped");
+            CacheNegative(cacheKey);
             return null;
         }
 
@@ -63,7 +73,8 @@ public class IpApiGeoLocationService(
 
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogWarning("ip-api.com returned {StatusCode} for {IP}", response.StatusCode, ipAddress);
+                logger.LogDebug("ip-api.com returned {StatusCode} for {IP}", response.StatusCode, ipAddress);
+                CacheNegative(cacheKey);
                 return null;
             }
 
@@ -72,7 +83,8 @@ public class IpApiGeoLocationService(
 
             if (result == null || result.Status != "success")
             {
-                logger.LogWarning("ip-api.com lookup failed for {IP}: {Message}", ipAddress, result?.Message);
+                logger.LogDebug("ip-api.com lookup failed for {IP}: {Message}", ipAddress, result?.Message);
+                CacheNegative(cacheKey);
                 return null;
             }
 

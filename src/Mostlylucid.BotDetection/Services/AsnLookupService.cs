@@ -116,6 +116,12 @@ public class AsnLookupService : IAsnLookupService
     // Cache: ASN → OrgName (TTL 24 hours, ASN names rarely change, max 5K entries)
     private static readonly BoundedCache<int, string?> OrgCache = new(maxSize: 5_000, defaultTtl: TimeSpan.FromHours(24));
 
+    // Hard overall budget for a single IP lookup. The lookup fans out to several Cymru
+    // DNS queries (origin + org + peer); this caps the TOTAL so an unreachable resolver
+    // can never stall the request thread. A reachable resolver answers well within this;
+    // on timeout the result is negative-cached and the caller falls back gracefully.
+    private const int LookupBudgetMs = 2000;
+
     private readonly ILogger<AsnLookupService> _logger;
 
     public AsnLookupService(ILogger<AsnLookupService> logger)
@@ -133,13 +139,15 @@ public class AsnLookupService : IAsnLookupService
 
         try
         {
-            var info = await LookupCoreAsync(ipAddress, ct);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromMilliseconds(LookupBudgetMs));
+            var info = await LookupCoreAsync(ipAddress, cts.Token);
             Cache.Set(ipAddress, info);
             return info;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "ASN lookup failed for {IP}", ipAddress);
+            _logger.LogDebug(ex, "ASN lookup failed/timed out for {IP}", ipAddress);
             Cache.Set(ipAddress, null, TimeSpan.FromMinutes(5));
             return null;
         }
@@ -235,14 +243,11 @@ public class AsnLookupService : IAsnLookupService
     {
         try
         {
-            // Use system DNS resolver for TXT record lookup
-            var entries = await Dns.GetHostEntryAsync(hostname, ct);
-
-            // GetHostEntryAsync doesn't directly return TXT records.
-            // We need to use a raw DNS query approach instead.
-            // Fallback: use the aliases field which sometimes contains TXT data
-            // Actually, .NET doesn't have built-in TXT record support.
-            // Use a manual UDP DNS query.
+            // Team Cymru returns the answer as a TXT record, which System.Net.Dns cannot
+            // read, so we issue a raw UDP DNS query directly. We deliberately do NOT call
+            // Dns.GetHostEntryAsync first: it blocks on the system resolver with no
+            // effective timeout when the name is unresolvable (the bulk of the historical
+            // cold-IP stall) and its result was discarded here anyway.
             return await QueryDnsTxtRaw(hostname, ct);
         }
         catch

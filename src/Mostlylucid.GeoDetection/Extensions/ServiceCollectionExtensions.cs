@@ -58,7 +58,10 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient("IpApi", client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(10);
+            // Tight timeout: geo runs synchronously in the request path, so an
+            // unreachable/slow ip-api.com must fail fast (and is negative-cached) rather
+            // than stalling every cold-IP request. Reachable lookups answer in <500ms.
+            client.Timeout = TimeSpan.FromSeconds(2);
             client.DefaultRequestHeaders.Add("User-Agent", "Mostlylucid.GeoDetection/1.0");
         });
 
