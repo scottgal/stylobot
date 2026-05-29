@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
+using System.Data.Common;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Analysis;
 
@@ -34,7 +34,7 @@ public sealed class CentroidSequenceStore
     public delegate Task<List<SessionTransitionData>> ClusterSessionLoader(
         IReadOnlyList<string> memberSignatures, int perSignature, CancellationToken ct);
 
-    private readonly string _connectionString;
+    private readonly Func<DbConnection> _connectionFactory;
     private readonly ILogger<CentroidSequenceStore> _logger;
     private readonly ClusterSessionLoader? _sessionLoader;
 
@@ -79,13 +79,21 @@ public sealed class CentroidSequenceStore
     private static readonly double[] DefaultBotTolerancesMs = [100, 100, 100, 100, 100];
 
     public CentroidSequenceStore(
-        string connectionString,
+        Func<DbConnection> connectionFactory,
         ILogger<CentroidSequenceStore> logger,
         ClusterSessionLoader? sessionLoader = null)
     {
-        _connectionString = connectionString;
+        _connectionFactory = connectionFactory;
         _logger = logger;
         _sessionLoader = sessionLoader;
+    }
+
+    private static void AddParam(DbCommand cmd, string name, object? value)
+    {
+        var p = cmd.CreateParameter();
+        p.ParameterName = name;
+        p.Value = value ?? DBNull.Value;
+        cmd.Parameters.Add(p);
     }
 
     public CentroidSequence GlobalChain => _globalChain;
@@ -183,7 +191,7 @@ public sealed class CentroidSequenceStore
     /// </summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        await using var conn = new SqliteConnection(_connectionString);
+        await using var conn = _connectionFactory();
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -268,7 +276,7 @@ public sealed class CentroidSequenceStore
 
     private async Task PersistAsync(IEnumerable<CentroidSequence> chains, CancellationToken ct)
     {
-        await using var conn = new SqliteConnection(_connectionString);
+        await using var conn = _connectionFactory();
         await conn.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         try
@@ -277,7 +285,7 @@ public sealed class CentroidSequenceStore
             {
                 var json = JsonSerializer.Serialize(chain, Data.BotDetectionJsonSerializerContext.Default.CentroidSequence);
                 await using var cmd = conn.CreateCommand();
-                cmd.Transaction = (SqliteTransaction)tx;
+                cmd.Transaction = tx;
                 cmd.CommandText = """
                     INSERT INTO centroid_sequences (centroid_id, centroid_type, sequence_json, sample_size, computed_at)
                     VALUES (@id, @type, @json, @size, @at)
@@ -287,11 +295,11 @@ public sealed class CentroidSequenceStore
                         sample_size   = excluded.sample_size,
                         computed_at   = excluded.computed_at;
                     """;
-                cmd.Parameters.AddWithValue("@id", chain.CentroidId);
-                cmd.Parameters.AddWithValue("@type", (int)chain.Type);
-                cmd.Parameters.AddWithValue("@json", json);
-                cmd.Parameters.AddWithValue("@size", chain.SampleSize);
-                cmd.Parameters.AddWithValue("@at", DateTime.UtcNow.ToString("O"));
+                AddParam(cmd, "@id", chain.CentroidId);
+                AddParam(cmd, "@type", (int)chain.Type);
+                AddParam(cmd, "@json", json);
+                AddParam(cmd, "@size", chain.SampleSize);
+                AddParam(cmd, "@at", DateTime.UtcNow.ToString("O"));
                 await cmd.ExecuteNonQueryAsync(ct);
             }
             await tx.CommitAsync(ct);
@@ -303,7 +311,7 @@ public sealed class CentroidSequenceStore
         }
     }
 
-    private async Task LoadFromDatabaseAsync(SqliteConnection conn, CancellationToken ct)
+    private async Task LoadFromDatabaseAsync(DbConnection conn, CancellationToken ct)
     {
         var chains = new Dictionary<string, CentroidSequence>();
         await using var cmd = conn.CreateCommand();

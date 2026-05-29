@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -969,7 +970,7 @@ public static class ServiceCollectionExtensions
                 };
             }
 
-            return new CentroidSequenceStore(connStr, logger, loader);
+            return new CentroidSequenceStore(() => new SqliteConnection(connStr), logger, loader);
         });
         services.TryAddSingleton<EndpointDivergenceTracker>();
         services.AddSingleton(sp =>
@@ -977,7 +978,7 @@ public static class ServiceCollectionExtensions
             var connStr = CentroidConnStr(sp);
             var centroidStore = sp.GetRequiredService<CentroidSequenceStore>();
             var logger = sp.GetRequiredService<ILogger<AssetHashStore>>();
-            return new AssetHashStore(connStr, centroidStore, logger);
+            return new AssetHashStore(() => new SqliteConnection(connStr), centroidStore, logger);
         });
         services.AddSingleton<IContributingDetector, ContentSequenceContributor>();
         services.AddHostedService<CentroidSequenceRebuildHostedService>();

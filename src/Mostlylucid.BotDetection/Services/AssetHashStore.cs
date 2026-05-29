@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Microsoft.Data.Sqlite;
+using System.Data.Common;
 using Microsoft.Extensions.Logging;
 
 namespace Mostlylucid.BotDetection.Services;
@@ -12,13 +12,13 @@ namespace Mostlylucid.BotDetection.Services;
 /// </summary>
 public sealed class AssetHashStore : IAsyncDisposable
 {
-    private readonly string _connectionString;
+    private readonly Func<DbConnection> _connectionFactory;
     private readonly CentroidSequenceStore _centroidStore;
     private readonly ILogger<AssetHashStore> _logger;
 
     // Persistent connection kept open so that shared in-memory SQLite databases survive
     // between individual operation connections.
-    private SqliteConnection? _anchor;
+    private DbConnection? _anchor;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     // In-memory index: path → time of last detected change.
@@ -28,15 +28,23 @@ public sealed class AssetHashStore : IAsyncDisposable
     private readonly Timer _evictionTimer;
 
     public AssetHashStore(
-        string connectionString,
+        Func<DbConnection> connectionFactory,
         CentroidSequenceStore centroidStore,
         ILogger<AssetHashStore> logger)
     {
-        _connectionString = connectionString;
+        _connectionFactory = connectionFactory;
         _centroidStore = centroidStore;
         _logger = logger;
         _evictionTimer = new Timer(_ => EvictExpiredChanges(), null,
             TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+    }
+
+    private static void AddParam(DbCommand cmd, string name, object? value)
+    {
+        var p = cmd.CreateParameter();
+        p.ParameterName = name;
+        p.Value = value ?? DBNull.Value;
+        cmd.Parameters.Add(p);
     }
 
     /// <summary>Create the asset_hashes table and load recent change timestamps into memory.</summary>
@@ -44,7 +52,7 @@ public sealed class AssetHashStore : IAsyncDisposable
     {
         // Keep one connection open for the lifetime of the store so shared in-memory
         // databases are not destroyed when individual operation connections close.
-        _anchor = new SqliteConnection(_connectionString);
+        _anchor = _connectionFactory();
         await _anchor.OpenAsync(ct);
 
         await using var cmd = _anchor.CreateCommand();
@@ -70,7 +78,7 @@ public sealed class AssetHashStore : IAsyncDisposable
         await _writeLock.WaitAsync(ct);
         try
         {
-            await using var conn = new SqliteConnection(_connectionString);
+            await using var conn = _connectionFactory();
             await conn.OpenAsync(ct);
 
             // Read existing hash
@@ -78,7 +86,7 @@ public sealed class AssetHashStore : IAsyncDisposable
             await using (var readCmd = conn.CreateCommand())
             {
                 readCmd.CommandText = "SELECT hash FROM asset_hashes WHERE path = @path;";
-                readCmd.Parameters.AddWithValue("@path", path);
+                AddParam(readCmd, "@path", path);
                 var result = await readCmd.ExecuteScalarAsync(ct);
                 if (result is string s) existingHash = s;
             }
@@ -96,11 +104,11 @@ public sealed class AssetHashStore : IAsyncDisposable
                     changed_at = COALESCE(excluded.changed_at, asset_hashes.changed_at),
                     last_seen  = excluded.last_seen;
                 """;
-            upsertCmd.Parameters.AddWithValue("@path", path);
-            upsertCmd.Parameters.AddWithValue("@hash", hash);
-            upsertCmd.Parameters.AddWithValue("@changedAt",
-                changed ? now.ToString("O") : (object)DBNull.Value);
-            upsertCmd.Parameters.AddWithValue("@lastSeen", now.ToString("O"));
+            AddParam(upsertCmd, "@path", path);
+            AddParam(upsertCmd, "@hash", hash);
+            AddParam(upsertCmd, "@changedAt",
+                changed ? now.ToString("O") : (object?)null);
+            AddParam(upsertCmd, "@lastSeen", now.ToString("O"));
             await upsertCmd.ExecuteNonQueryAsync(ct);
 
             if (changed)
@@ -131,7 +139,7 @@ public sealed class AssetHashStore : IAsyncDisposable
         return DateTimeOffset.UtcNow - changedAt < RecentChangeWindow;
     }
 
-    private async Task LoadRecentChangesAsync(SqliteConnection conn, CancellationToken ct)
+    private async Task LoadRecentChangesAsync(DbConnection conn, CancellationToken ct)
     {
         var cutoff = DateTimeOffset.UtcNow - RecentChangeWindow;
         await using var cmd = conn.CreateCommand();
