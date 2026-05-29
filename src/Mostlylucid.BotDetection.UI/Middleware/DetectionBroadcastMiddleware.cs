@@ -140,16 +140,14 @@ public partial class DetectionBroadcastMiddleware
             {
                 var detection = BuildDetectionFromUpstream(context, upstreamResult);
 
-                // The dashboard's own surface (SSR page, /partials OOB swaps, /api/timeseries,
-                // SignalR hub, setup/auth -- all under BasePath) plus health/liveness probes are
-                // proxied through the gateway by YARP like any other request, but they are operator
-                // UI / infra traffic, not visitors. Exclude ONLY those endpoints from the event
-                // store and broadcast so they never pollute dashboard counts -- while real visitor
-                // page-views (the local network included) ARE recorded and shown.
+                // When configured, local-network traffic (loopback, RFC1918, link-local) is excluded
+                // from BOTH the event store and the live broadcast: local pings like /admin/alive,
+                // docker-internal health checks, and same-host curl probes should never count as
+                // observed bot/human traffic in dashboards or aggregates.
                 var options = optionsAccessor.Value;
-                if (options.ExcludeLocalIpFromBroadcast
-                    && IsInternalEndpoint(context.Request.Path, dashboardOptionsAccessor.Value))
-                    return;
+                var excludeLocal = options.ExcludeLocalIpFromBroadcast
+                                   && IsLocalIp(context.Connection.RemoteIpAddress);
+                if (excludeLocal) return;
 
                 var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
                 signatureAggregateCache.UpdateFromDetection(detection);
@@ -197,14 +195,14 @@ public partial class DetectionBroadcastMiddleware
 
                 var detection = BuildDetectionFromEvidence(context, evidence, recordOptionsAccessor?.Value);
 
-                // Same internal-endpoint exclusion as the upstream-result path above: drop the
-                // entire detection (no event-store write, no cache update, no broadcast) when the
-                // request targets the dashboard's own surface or a health probe. Real visitor
-                // page-views -- the local network included -- fall through and are recorded.
+                // Same local-IP exclusion as the upstream-result path above: drop the entire
+                // detection (no event-store write, no cache update, no broadcast) when the source
+                // is on a private/loopback network. Prevents /admin/alive style health-check
+                // pings from polluting dashboard counts.
                 var options = optionsAccessor.Value;
-                if (options.ExcludeLocalIpFromBroadcast
-                    && IsInternalEndpoint(context.Request.Path, dashboardOptionsAccessor.Value))
-                    return;
+                var excludeLocal = options.ExcludeLocalIpFromBroadcast
+                                   && IsLocalIp(context.Connection.RemoteIpAddress);
+                if (excludeLocal) return;
 
                 var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
                 signatureAggregateCache.UpdateFromDetection(detection);
@@ -686,20 +684,7 @@ public partial class DetectionBroadcastMiddleware
 
     // ─── Static utilities ────────────────────────────────────────────────
 
-    // Requests to the dashboard's own surface (everything under BasePath: SSR page, /partials
-    // OOB swaps, /api/timeseries, SignalR hub, setup/auth) and to health/liveness probes are
-    // operator-UI / infra traffic, not visitors. YARP proxies them through the gateway like any
-    // other request, so they must be filtered by PATH here -- excluding the whole local network
-    // (the old behaviour) would also hide real LAN visitors, which we want to see.
-    internal static bool IsInternalEndpoint(PathString path, StyloBotDashboardOptions dashboard)
-    {
-        if (!string.IsNullOrEmpty(dashboard.BasePath) &&
-            path.StartsWithSegments(dashboard.BasePath, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase)
-               || path.StartsWithSegments("/admin/alive", StringComparison.OrdinalIgnoreCase);
-    }
+    internal static bool IsLocalIp(IPAddress? ip) => Mostlylucid.BotDetection.Helpers.NetworkHelper.IsLocalIp(ip);
 
     private static string? ResolveCountryFromHeaders(HttpContext context)
     {
