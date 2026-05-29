@@ -246,8 +246,9 @@ public static class StyloBotDashboardServiceExtensions
         // Server-side visitor cache for HTMX rendering
         services.AddSingleton<VisitorListCache>();
 
-        // BDF export service for generating BDF v2 documents from detection data
-        services.AddSingleton<BdfExportService>();
+        // BDF export service. Also registered in AddStyloBotApi for hosts that call
+        // AddStyloBotApi but not AddStyloBotDashboard (the gateway); TryAdd is safe.
+        services.TryAddSingleton<BdfExportService>();
 
         // BDF harvest debug surface: when BotDetection:Debug:BdfHarvest:Enabled = true,
         // /api/v1/bdf/harvest streams persisted BDFs as NDJSON for offline archetype-YAML

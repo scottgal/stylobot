@@ -45,6 +45,15 @@ public static class StyloBotApiExtensions
 
         services.TryAddSingleton<ILlmNodeRegistry, InMemoryLlmNodeRegistry>();
 
+        // BDF endpoint dependencies: the per-signature export + debug-gated harvest
+        // surface both live under /api/v1/bdf, so their services belong here next to
+        // MapBdfEndpoints, not in AddStyloBotDashboard (which the gateway never calls).
+        // TryAdd is idempotent if AddStyloBotDashboard also registers (dashboard hosts).
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.BdfExportService>();
+        services.AddOptions<Mostlylucid.BotDetection.UI.Configuration.BdfHarvestOptions>()
+            .BindConfiguration("BotDetection:Debug:BdfHarvest");
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.BdfHarvestService>();
+
         return services;
     }
 
