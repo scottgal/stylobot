@@ -161,9 +161,12 @@ public class BotDetectionOptions
     public Proxy.TunnelEnvironmentOptions TunnelEnvironment { get; set; } = new();
 
     /// <summary>
-    ///     When true, detections from local/private IPs are excluded from SignalR broadcasts
-    ///     and the live feed. Prevents self-detection from contaminating production data.
-    ///     Default: true (set to false for local development/testing).
+    ///     When true, the dashboard's own surface (everything under the dashboard BasePath plus
+    ///     health/liveness probes) is excluded from the event store and SignalR broadcasts.
+    ///     Because YARP proxies these through the gateway like any other request, they would
+    ///     otherwise be counted as visitor traffic and pollute dashboard stats. Real visitor
+    ///     page-views -- the local network included -- are always recorded. Set to false to
+    ///     record the dashboard's own requests too (local development/testing). Default: true.
     /// </summary>
     public bool ExcludeLocalIpFromBroadcast { get; set; } = true;
 
