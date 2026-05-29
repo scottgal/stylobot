@@ -68,11 +68,44 @@ public static class FingerprintRadarProjection
             origin = ProjectVector(archetype.Centroid, layout, effectiveWeights);
         }
 
+        ScaleToRim(current, origin);
+
         return new FingerprintRadarShape(
             CurrentBuckets: current,
             OriginBuckets: origin,
             BucketLabels: BucketLabels,
             ArchetypeName: archetype?.Name);
+    }
+
+    /// <summary>
+    ///     Target radius (fraction of the outer ring) the strongest bucket should
+    ///     reach after scaling. Leaves a sliver of headroom so the polygon never
+    ///     sits exactly on the ring.
+    /// </summary>
+    private const double RimTarget = 0.92;
+
+    /// <summary>
+    ///     The encoder L2-normalises the identity vector across all ~98 dimensions,
+    ///     so a fingerprint's per-bucket weighted-average magnitude lands around
+    ///     0.1 -- which the radar (radius x35) would draw as a 3-4px sliver at the
+    ///     centre. Rescale so the strongest bucket reaches the rim, using one shared
+    ///     divisor across current AND origin so the archetype-drift gap between the
+    ///     two polygons stays proportional. This makes the radar a shape/drift
+    ///     comparison (its actual purpose) rather than an unreadable absolute plot.
+    ///     A genuinely empty shape (all buckets ~0) is left at zero so the partial's
+    ///     calibrating placeholder can take over instead of dividing by ~0.
+    /// </summary>
+    private static void ScaleToRim(double[] current, double[]? origin)
+    {
+        var max = 0.0;
+        foreach (var v in current) if (v > max) max = v;
+        if (origin is not null) foreach (var v in origin) if (v > max) max = v;
+        if (max <= 1e-6) return;
+
+        var scale = RimTarget / max;
+        for (var i = 0; i < current.Length; i++) current[i] = Math.Min(1.0, current[i] * scale);
+        if (origin is not null)
+            for (var i = 0; i < origin.Length; i++) origin[i] = Math.Min(1.0, origin[i] * scale);
     }
 
     private static double[] ProjectVector(

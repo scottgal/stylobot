@@ -116,12 +116,15 @@ public class StyloBotDashboardMiddleware
     /// <summary>
     ///     Per-slot baseline magnitude written into the synthetic centroid used
     ///     by <see cref="ResolveFingerprintShapeAsync"/>'s defensive fallback
-    ///     (no fingerprint_keys binding). Layout-encoded slot values land in
-    ///     [-1, 1]; 0.30 sits in the middle of the typical-magnitude band so
-    ///     every radar bucket renders with a visible vertex while the
-    ///     archetype's defined slots still show as bumps above it.
+    ///     (no fingerprint_keys binding). The identity vector is L2-normalised, so
+    ///     an archetype's asserted slot values cluster around ~0.1; the baseline
+    ///     must sit BELOW that band so archetype-defined buckets rise above the
+    ///     floor (a higher baseline inverts the shape -- unasserted buckets end up
+    ///     larger than asserted ones). FingerprintRadarProjection.ScaleToRim then
+    ///     stretches the strongest bucket to the rim, so the floor only needs to
+    ///     keep otherwise-empty buckets faintly visible.
     /// </summary>
-    private const float InferredBaselineMagnitude = 0.30f;
+    private const float InferredBaselineMagnitude = 0.06f;
     private const string BdfExportPrefix = "api/bdf/";
 
     private static int _cleanupRunning;
