@@ -221,9 +221,18 @@ public sealed class SignatureAggregateCache
     /// </summary>
     public void SeedFromTopBots(IEnumerable<DashboardTopBotEntry> topBots)
     {
+        // Upsert (indexer-write, not TryAdd): on periodic re-warm the cache must
+        // pick up fresh HitCount / LastSeen / BotName from the event store. In
+        // remote-mode dashboards (no DetectionBroadcastMiddleware in-process to
+        // call UpdateFromDetection) the event-store re-pull IS the refresh path,
+        // so a TryAdd here freezes the cache at first-warm values and the Live
+        // Activity widget shows stale names + hit counts indefinitely. Existing
+        // sparkline ring buffers on the SignatureAggregate are scoped per entry;
+        // overwriting an entry resets them, which is acceptable because
+        // SeedHitTrendsFromDetections rebuilds them from the same re-pull.
         foreach (var bot in topBots)
         {
-            _entries.TryAdd(bot.PrimarySignature, new SignatureAggregate
+            _entries[bot.PrimarySignature] = new SignatureAggregate
             {
                 HitCount = bot.HitCount,
                 BotName = bot.BotName,
@@ -241,14 +250,9 @@ public sealed class SignatureAggregateCache
                 IsBot = bot.IsKnownBot,
                 ThreatScore = bot.ThreatScore,
                 ThreatBand = bot.ThreatBand,
-                // Carry the UA family the event store derived for us at warmup
-                // time. Without this, every seeded row starts with UaFamily=null
-                // and the Live Activity rows read "GB User" instead of
-                // "GB Chrome User" until a new live-traffic detection refreshes
-                // the aggregate.
                 UaFamily = bot.UaFamily,
                 EntityId = bot.EntityId,
-            });
+            };
         }
 
         _sortDirty = true;
