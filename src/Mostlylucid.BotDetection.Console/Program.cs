@@ -73,6 +73,8 @@ switch (firstArg)
         return 0;
     case "clear":
         return await ClearLearnedPatternsAsync(cmdArgs);
+    case "archetype-from-bdf":
+        return await Mostlylucid.BotDetection.Console.ArchetypeFromBdfCommand.RunAsync(cmdArgs);
     case "man":
         ShowManPage();
         return 0;

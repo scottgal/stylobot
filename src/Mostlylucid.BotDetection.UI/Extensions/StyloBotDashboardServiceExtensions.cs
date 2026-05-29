@@ -249,6 +249,12 @@ public static class StyloBotDashboardServiceExtensions
         // BDF export service for generating BDF v2 documents from detection data
         services.AddSingleton<BdfExportService>();
 
+        // BDF harvest debug surface: when BotDetection:Debug:BdfHarvest:Enabled = true,
+        // /api/v1/bdf/harvest streams persisted BDFs as NDJSON for offline archetype-YAML
+        // authoring via the `stylobot archetype-from-bdf` console command. Off by default.
+        services.AddOptions<BdfHarvestOptions>().BindConfiguration("BotDetection:Debug:BdfHarvest");
+        services.TryAddSingleton<BdfHarvestService>();
+
         // Periodicity heatmap aggregator - per-signature 7x24 day/hour grid for the
         // signature detail page, aggregated on-demand from the requests table
         // (no new schema). Renders "when does this actor hit me" at a glance.
