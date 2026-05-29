@@ -104,9 +104,18 @@ internal static class FingerprintNameComposer
             return composed;
         }
 
-        // Priority 2: matched archetype name + variance term.
+        // Priority 2: matched archetype name + variance term -- but ONLY when the matched
+        // archetype is human-browser-shaped. Naming invariant: if Priority 1 didn't fire,
+        // the UA is not a self-declared bot. Matching a bot-shaped archetype (verified-bot
+        // / tool / headless / anything not human-browser) in that case is a fingerprint
+        // coincidence -- typically header drift on a real browser that happens to overlap
+        // a bot family's centroid. Naming a real visitor "Mastodon Family (header drift)"
+        // or "Googlebot (header drift)" is exactly the false labelling we forbid. Bot-shaped
+        // archetypes fall through to Priority 3 (UA family + OS) which produces the right
+        // label for the actual UA. Self-declared bot UAs are already handled at Priority 1.
         var archetypeName = GetString(signals, SignalKeys.IdentityArchetypeName);
-        if (!string.IsNullOrEmpty(archetypeName))
+        var archetypeKind = GetString(signals, SignalKeys.IdentityArchetypeKind);
+        if (!string.IsNullOrEmpty(archetypeName) && archetypeKind == "human-browser")
         {
             var variance = GetVarianceTerm(signals);
             return string.IsNullOrEmpty(variance) ? archetypeName : $"{archetypeName} ({variance})";

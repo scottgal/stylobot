@@ -563,6 +563,9 @@ public static class SignalKeys
     /// <summary>string: human-readable display name of the matched archetype (e.g. "Chrome on Windows", "python-requests"). Written by FingerprintMatchContributor whenever a match resolves to an archetype.</summary>
     public const string IdentityArchetypeName = "identity.archetype_name";
 
+    /// <summary>string: YAML <c>archetype_kind</c> of the matched archetype (e.g. "human-browser", "verified-bot", "tool", "headless"). Written by FingerprintMatchContributor alongside <see cref="IdentityArchetypeName"/>. The composer requires <c>human-browser</c> to use the archetype name as the visitor's display name -- bot-shaped kinds matching by signal coincidence don't get to override the UA family label.</summary>
+    public const string IdentityArchetypeKind = "identity.archetype_kind";
+
     /// <summary>string?: optional descriptive text for the matched archetype. Written by FingerprintMatchContributor when present on the archetype.</summary>
     public const string IdentityArchetypeDescription = "identity.archetype_description";
 

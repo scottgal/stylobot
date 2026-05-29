@@ -27,6 +27,7 @@ public class FingerprintNameComposerTests
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["identity.archetype_name"] = "Chrome Desktop",
+            ["identity.archetype_kind"] = "human-browser",
             ["ua.family"] = "Chrome"
         });
 
@@ -39,6 +40,7 @@ public class FingerprintNameComposerTests
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["identity.archetype_name"] = "Chrome Desktop",
+            ["identity.archetype_kind"] = "human-browser",
             ["identity.drift_top_slot"] = "network.country",
             ["identity.drift_top_category"] = "network",
             ["geo.country_code"] = "JP"
@@ -46,6 +48,62 @@ public class FingerprintNameComposerTests
 
         Assert.Contains("Chrome Desktop", name);
         Assert.Contains("from JP", name);
+    }
+
+    [Fact]
+    public void Compose_Priority2_BotArchetypeKind_DoesNotName_WhenUaIsNotBot()
+    {
+        // Naming invariant: a visitor whose UA is a real browser (Priority 1 -- ua.bot_name --
+        // did NOT fire) must never be labelled with a bot-shaped archetype name even when the
+        // matcher's nearest centroid happens to be a verified-bot family. The bug this guards
+        // against: a UK Chrome visitor whose header pattern partially overlaps the Mastodon
+        // Family centroid was rendered as "Mastodon Family (header drift)" + Human verdict,
+        // which is an impossible combination.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["identity.archetype_name"] = "Mastodon Family",
+            ["identity.archetype_kind"] = "verified-bot",
+            ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "Mac OS X"
+        });
+
+        Assert.DoesNotContain("Mastodon", name ?? string.Empty);
+        Assert.Equal("Chrome on Mac OS X", name);
+    }
+
+    [Fact]
+    public void Compose_Priority2_ToolArchetypeKind_DoesNotName_WhenUaIsNotBot()
+    {
+        // Same invariant for tool-shaped archetypes (curl, python-requests). A real Firefox
+        // visitor must not be labelled "python-requests" because their fingerprint vector
+        // grazed that centroid.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["identity.archetype_name"] = "python-requests",
+            ["identity.archetype_kind"] = "tool",
+            ["ua.family"] = "Firefox",
+            ["user_agent.os"] = "Linux"
+        });
+
+        Assert.DoesNotContain("python", name ?? string.Empty);
+        Assert.Equal("Firefox on Linux", name);
+    }
+
+    [Fact]
+    public void Compose_Priority1_SelfDeclaredBot_StillUsesBotName_RegardlessOfArchetypeKind()
+    {
+        // Self-declared bots (UA carries "Mastodon/4.x" etc.) keep Priority 1 -- the
+        // archetype kind gate only applies at Priority 2, after Priority 1 has already
+        // returned. A genuine Mastodon instance still renders as "Mastodon ...".
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.bot_name"] = "Mastodon",
+            ["ua.family"] = "Mastodon",
+            ["identity.archetype_name"] = "Mastodon Family",
+            ["identity.archetype_kind"] = "verified-bot"
+        });
+
+        Assert.StartsWith("Mastodon", name);
     }
 
     [Fact]

@@ -589,6 +589,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (matchScore < _options.Match.MinArchetypeMatchScore) return null;
 
         state.WriteSignal(SignalKeys.IdentityArchetypeName, archetype.Name);
+        state.WriteSignal(SignalKeys.IdentityArchetypeKind, archetype.ArchetypeKind);
         if (!string.IsNullOrEmpty(archetype.Description))
             state.WriteSignal(SignalKeys.IdentityArchetypeDescription, archetype.Description);
 
