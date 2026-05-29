@@ -101,18 +101,6 @@ public sealed class StyloBotDashboardOptions
     public int SummaryBroadcastIntervalSeconds { get; set; } = 5;
 
     /// <summary>
-    ///     How often (in seconds) <see cref="Services.SignatureAggregateCacheWarmupService"/>
-    ///     re-pulls top-bots + recent detections from the event store and re-seeds the
-    ///     <see cref="Services.SignatureAggregateCache"/>. Default: 0 = warm once at startup
-    ///     only (correct for gateway-mode hosts where DetectionBroadcastMiddleware updates
-    ///     the cache on every detection). Remote-mode dashboard hosts must set this to a
-    ///     small positive value (5-10s) because they don't run the broadcast middleware --
-    ///     without a periodic refresh, their cache freezes at startup-warm values and Live
-    ///     Activity / Top Bots never reflect new gateway detections.
-    /// </summary>
-    public int SignatureAggregateRefreshIntervalSeconds { get; set; } = 0;
-
-    /// <summary>
     ///     Idle-skip window for <see cref="Services.DashboardSummaryBroadcaster"/>'s
     ///     aggregate precompute. When no <c>/api/v1</c> endpoint has been hit
     ///     for longer than this many seconds, the broadcaster parks the
