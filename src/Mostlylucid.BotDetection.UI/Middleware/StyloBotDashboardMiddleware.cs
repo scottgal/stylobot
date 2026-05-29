@@ -956,7 +956,7 @@ public class StyloBotDashboardMiddleware
                 Filter = "all", SortField = "lastSeen", SortDir = "desc",
                 Page = 1, PageSize = 24, TotalCount = visitorTotal, BasePath = basePath
             },
-            YourDetection = BuildYourDetectionPartialModel(context),
+            YourDetection = await BuildYourDetectionPartialModel(context),
             Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData),
             Endpoints = BuildEndpointsModel(context, "total", "desc", 1, 20, endpointsData),
             Clusters = await BuildClustersModelAsync(context),
@@ -996,7 +996,7 @@ public class StyloBotDashboardMiddleware
     ///     Since /_stylobot is excluded from detection, we compute the visitor's signature
     ///     using MultiFactorSignatureService and look them up in VisitorListCache.
     /// </summary>
-    private string BuildYourDetectionJson(HttpContext context)
+    private async Task<string> BuildYourDetectionJson(HttpContext context)
     {
         try
         {
@@ -1021,43 +1021,80 @@ public class StyloBotDashboardMiddleware
             sigs ??= sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 
-            if (visitor == null)
-                return JsonSerializer.Serialize(new { signature = sigs.PrimarySignature }, CamelCaseJson);
-
-            var narrativeEvent = new DashboardDetectionEvent
+            if (visitor != null)
             {
-                RequestId = "self",
-                Timestamp = visitor.LastSeen,
-                IsBot = visitor.IsBot,
-                BotProbability = visitor.BotProbability,
-                Confidence = visitor.Confidence,
-                RiskBand = visitor.RiskBand,
-                BotType = visitor.BotType,
-                BotName = visitor.BotName,
-                Action = visitor.Action,
-                Method = "GET",
-                Path = visitor.LastPath ?? "/",
-                TopReasons = visitor.TopReasons
-            };
-            var narrative = DetectionNarrativeBuilder.Build(narrativeEvent);
+                var narrativeEvent = new DashboardDetectionEvent
+                {
+                    RequestId = "self",
+                    Timestamp = visitor.LastSeen,
+                    IsBot = visitor.IsBot,
+                    BotProbability = visitor.BotProbability,
+                    Confidence = visitor.Confidence,
+                    RiskBand = visitor.RiskBand,
+                    BotType = visitor.BotType,
+                    BotName = visitor.BotName,
+                    Action = visitor.Action,
+                    Method = "GET",
+                    Path = visitor.LastPath ?? "/",
+                    TopReasons = visitor.TopReasons
+                };
+                var narrative = DetectionNarrativeBuilder.Build(narrativeEvent);
 
-            var yourDetection = new
+                var yourDetection = new
+                {
+                    isBot = visitor.IsBot,
+                    botProbability = Math.Round(visitor.BotProbability, 4),
+                    confidence = Math.Round(visitor.Confidence, 4),
+                    riskBand = visitor.RiskBand,
+                    processingTimeMs = visitor.ProcessingTimeMs,
+                    detectorCount = visitor.TopReasons.Count,
+                    narrative = visitor.Narrative ?? narrative,
+                    topReasons = visitor.TopReasons,
+                    signature = sigs.PrimarySignature,
+                    threatScore = visitor.ThreatScore.HasValue ? Math.Round(visitor.ThreatScore.Value, 3) : (double?)null,
+                    threatBand = visitor.ThreatBand
+                };
+
+                return JsonSerializer.Serialize(yourDetection, CamelCaseJson);
+            }
+
+            // Visitor cache miss -- fall through to the event store so remote-mode hosts
+            // (no in-process DetectionBroadcastMiddleware to write the cache) get back a
+            // populated /api/me JSON instead of a signature-only stub. Same hydration
+            // pattern BuildYourDetectionPartialModel uses for the dashboard pill.
+            try
             {
-                isBot = visitor.IsBot,
-                botProbability = Math.Round(visitor.BotProbability, 4),
-                confidence = Math.Round(visitor.Confidence, 4),
-                riskBand = visitor.RiskBand,
-                processingTimeMs = visitor.ProcessingTimeMs,
-                detectorCount = visitor.TopReasons.Count,
-                narrative = visitor.Narrative ?? narrative,
-                topReasons = visitor.TopReasons,
-                signature = sigs.PrimarySignature,
-                threatScore = visitor.ThreatScore.HasValue ? Math.Round(visitor.ThreatScore.Value, 3) : (double?)null,
-                threatBand = visitor.ThreatBand
-            };
+                var detections = await _eventStore.GetDetectionsAsync(
+                    new DashboardFilter { SignatureId = sigs.PrimarySignature, Limit = 1 },
+                    context.RequestAborted);
+                if (detections.Count > 0)
+                {
+                    var d = detections[0];
+                    var narrative = DetectionNarrativeBuilder.Build(d);
+                    var hydrated = new
+                    {
+                        isBot = d.IsBot,
+                        botProbability = Math.Round(d.BotProbability, 4),
+                        confidence = Math.Round(d.Confidence, 4),
+                        riskBand = d.RiskBand ?? "Unknown",
+                        processingTimeMs = d.ProcessingTimeMs,
+                        detectorCount = d.TopReasons?.Count ?? 0,
+                        narrative,
+                        topReasons = d.TopReasons ?? new List<string>(),
+                        signature = sigs.PrimarySignature,
+                        threatScore = (double?)null,
+                        threatBand = (string?)null
+                    };
+                    return JsonSerializer.Serialize(hydrated, CamelCaseJson);
+                }
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Dashboard: /api/me event-store hydration failed");
+            }
 
-            return JsonSerializer.Serialize(yourDetection,
-                CamelCaseJson);
+            return JsonSerializer.Serialize(new { signature = sigs.PrimarySignature }, CamelCaseJson);
         }
         catch (Exception ex)
         {
@@ -1073,7 +1110,7 @@ public class StyloBotDashboardMiddleware
     private async Task ServeMeApiAsync(HttpContext context)
     {
         context.Response.ContentType = "application/json";
-        var json = BuildYourDetectionJson(context);
+        var json = await BuildYourDetectionJson(context);
         await context.Response.WriteAsync(json);
     }
 
@@ -2642,7 +2679,7 @@ public class StyloBotDashboardMiddleware
     /// <summary>Render the "Your Detection" partial.</summary>
     private async Task ServeYourDetectionPartialAsync(HttpContext context)
     {
-        var model = BuildYourDetectionPartialModel(context);
+        var model = await BuildYourDetectionPartialModel(context);
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/_YourDetection.cshtml", model, context);
@@ -4093,7 +4130,7 @@ public class StyloBotDashboardMiddleware
                         page: WidgetRenderHelpers.QueryPage(q),
                         pageSize: WidgetRenderHelpers.QueryPageSize(q, 25),
                         filter: q["filter"].FirstOrDefault())),
-                "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
+                "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", await BuildYourDetectionPartialModel(context)),
                 _ => ""
             };
 
@@ -5158,7 +5195,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 
     // ─── Shared model builders ───────────────────────────────────────────
 
-    private YourDetectionModel BuildYourDetectionPartialModel(HttpContext context)
+    private async Task<YourDetectionModel> BuildYourDetectionPartialModel(HttpContext context)
     {
         try
         {
@@ -5181,39 +5218,79 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             sigs ??= sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 
-            if (visitor == null)
+            if (visitor != null)
+            {
+                // 12-axis clock for the Your Detection mini-radar -- single source via
+                // ClockAxesResolver so the marketing-site card and this dashboard
+                // surface render the same vector for the same visitor.
+                var clockAxes = Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromRadarShape(visitor.RadarShape);
+
                 return new YourDetectionModel
                 {
-                    HasData = false, Signature = sigs.PrimarySignature,
-                    BasePath = _options.BasePath.TrimEnd('/')
+                    HasData = true,
+                    IsBot = visitor.IsBot,
+                    BotProbability = visitor.BotProbability,
+                    Confidence = visitor.Confidence,
+                    RiskBand = visitor.RiskBand,
+                    ProcessingTimeMs = visitor.ProcessingTimeMs,
+                    DetectorCount = visitor.TopReasons.Count,
+                    Narrative = visitor.Narrative,
+                    TopReasons = visitor.TopReasons,
+                    Signature = sigs.PrimarySignature,
+                    ThreatScore = visitor.ThreatScore,
+                    ThreatBand = visitor.ThreatBand,
+                    BasePath = _options.BasePath.TrimEnd('/'),
+                    CountryCode = visitor.CountryCode,
+                    UaFamily = visitor.UaFamily,
+                    UserAgent = visitor.UserAgent,
+                    BotName = visitor.BotName,
+                    BotType = visitor.BotType,
+                    ClockAxes = clockAxes
                 };
+            }
 
-            // 12-axis clock for the Your Detection mini-radar -- single source via
-            // ClockAxesResolver so the marketing-site card and this dashboard
-            // surface render the same vector for the same visitor.
-            var clockAxes = Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromRadarShape(visitor.RadarShape);
+            // Visitor cache miss -- fall through to the event store so the "You:" pill
+            // and Your-Detection card don't read "Detection pending..." forever on remote-mode
+            // dashboard hosts where the cache is never written to. Hydrates the headline
+            // fields from the latest persisted detection for this visitor's primary
+            // signature; the richer per-visitor fields (RadarShape -> ClockAxes, Narrative,
+            // TopReasons) stay default because the detection row alone doesn't carry them.
+            // Same pattern as BotDetectionDetailsViewComponent's event-store hydration.
+            try
+            {
+                var detections = await _eventStore.GetDetectionsAsync(
+                    new DashboardFilter { SignatureId = sigs.PrimarySignature, Limit = 1 },
+                    context.RequestAborted);
+                if (detections.Count > 0)
+                {
+                    var d = detections[0];
+                    return new YourDetectionModel
+                    {
+                        HasData = true,
+                        IsBot = d.IsBot,
+                        BotProbability = d.BotProbability,
+                        Confidence = d.Confidence,
+                        RiskBand = d.RiskBand ?? "Unknown",
+                        ProcessingTimeMs = d.ProcessingTimeMs,
+                        Signature = sigs.PrimarySignature,
+                        BasePath = _options.BasePath.TrimEnd('/'),
+                        CountryCode = d.CountryCode,
+                        UserAgent = d.UserAgent,
+                        BotName = d.BotName,
+                        BotType = d.BotType,
+                    };
+                }
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Your-detection event-store hydration failed -- falling back to HasData=false");
+            }
 
             return new YourDetectionModel
             {
-                HasData = true,
-                IsBot = visitor.IsBot,
-                BotProbability = visitor.BotProbability,
-                Confidence = visitor.Confidence,
-                RiskBand = visitor.RiskBand,
-                ProcessingTimeMs = visitor.ProcessingTimeMs,
-                DetectorCount = visitor.TopReasons.Count,
-                Narrative = visitor.Narrative,
-                TopReasons = visitor.TopReasons,
-                Signature = sigs.PrimarySignature,
-                ThreatScore = visitor.ThreatScore,
-                ThreatBand = visitor.ThreatBand,
-                BasePath = _options.BasePath.TrimEnd('/'),
-                CountryCode = visitor.CountryCode,
-                UaFamily = visitor.UaFamily,
-                UserAgent = visitor.UserAgent,
-                BotName = visitor.BotName,
-                BotType = visitor.BotType,
-                ClockAxes = clockAxes
+                HasData = false, Signature = sigs.PrimarySignature,
+                BasePath = _options.BasePath.TrimEnd('/')
             };
         }
         catch (Exception ex)
@@ -5234,22 +5311,30 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // hot path on the gateway, never the source of truth. The cache remains live
         // on gateway hosts; it just isn't this widget's read source.
         //
-        // The event store's GetTopBotsAsync supports "audienceFilter" for bots/humans/all;
-        // it returns hit-count DESC, so we re-sort client-side to honour the user's
-        // sortBy choice. Collapse-then-search-then-page mirrors the prior in-cache
-        // pipeline so TotalCount still matches the row set the view renders.
+        // Always pull the unfiltered top-N. Counts header must show the WHOLE distribution
+        // (All / Bots / Humans) -- if we passed audienceFilter to the event store it would
+        // pre-restrict the rows and the headline counts would collapse to "Bots == All,
+        // Humans = 0" when the user has the Bots filter selected. Apply the bots/humans/all
+        // filter client-side instead so counts stay honest and the audience switcher does
+        // what it says. GetTopBotsAsync returns hit-count DESC; sort client-side after the
+        // filter to honour the user's sortBy.
         var raw = await _eventStore.GetTopBotsAsync(
             count: _signatureCache.MaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow,
-            audienceFilter: filter);
-        var sorted = WidgetRenderHelpers.SortTopBots(raw, sortBy, sortDir).ToList();
+            endTime: DateTime.UtcNow);
+        var bots = raw.Count(b => b.IsKnownBot);
+        var humans = raw.Count - bots;
+        IEnumerable<DashboardTopBotEntry> filtered = filter switch
+        {
+            "bots" => raw.Where(b => b.IsKnownBot),
+            "humans" => raw.Where(b => !b.IsKnownBot),
+            _ => raw
+        };
+        var sorted = WidgetRenderHelpers.SortTopBots(filtered, sortBy, sortDir).ToList();
         var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
         grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, searchQuery);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
-        var bots = sorted.Count(b => b.IsKnownBot);
-        var humans = sorted.Count - bots;
         return new TopBotsListModel
         {
             Bots = pagedBots,
@@ -5261,7 +5346,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             BasePath = _options.BasePath.TrimEnd('/'),
             Filter = filter,
             WidgetId = widgetId,
-            Counts = new TopBotsCounts(All: sorted.Count, Bots: bots, Humans: humans),
+            Counts = new TopBotsCounts(All: raw.Count, Bots: bots, Humans: humans),
             Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
         };
     }

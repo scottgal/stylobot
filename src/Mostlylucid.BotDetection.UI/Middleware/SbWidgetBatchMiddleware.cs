@@ -290,18 +290,25 @@ public sealed class SbWidgetBatchMiddleware
         // Same read-through-event-store pattern as StyloBotDashboardMiddleware.BuildTopBotsModel
         // (see notes there). Cache stayed as a write-through hot path on the gateway; the
         // remote-mode dashboard would otherwise pin to startup-warm values forever.
+        // Unfiltered fetch so the All/Bots/Humans header counts reflect the full distribution
+        // -- audience switch is applied client-side.
         var raw = await _eventStore.GetTopBotsAsync(
             count: _signatureCache.MaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow,
-            audienceFilter: filter);
-        var sorted = WidgetRenderHelpers.SortTopBots(raw, sortBy, sortDir).ToList();
+            endTime: DateTime.UtcNow);
+        var bots = raw.Count(b => b.IsKnownBot);
+        var humans = raw.Count - bots;
+        IEnumerable<DashboardTopBotEntry> filtered = filter switch
+        {
+            "bots" => raw.Where(b => b.IsKnownBot),
+            "humans" => raw.Where(b => !b.IsKnownBot),
+            _ => raw
+        };
+        var sorted = WidgetRenderHelpers.SortTopBots(filtered, sortBy, sortDir).ToList();
         var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
         grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, searchQuery);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
-        var bots = sorted.Count(b => b.IsKnownBot);
-        var humans = sorted.Count - bots;
         return new TopBotsListModel
         {
             Bots = pagedBots,
@@ -313,7 +320,7 @@ public sealed class SbWidgetBatchMiddleware
             BasePath = _options.BasePath.TrimEnd('/'),
             Filter = filter,
             WidgetId = widgetId,
-            Counts = new TopBotsCounts(All: sorted.Count, Bots: bots, Humans: humans),
+            Counts = new TopBotsCounts(All: raw.Count, Bots: bots, Humans: humans),
             Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
         };
     }
