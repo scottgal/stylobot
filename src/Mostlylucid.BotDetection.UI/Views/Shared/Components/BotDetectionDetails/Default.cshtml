@@ -18,6 +18,11 @@
         _      => ("Allow",     "Low bot probability - normal access")
     };
     var probPct  = (int)Math.Round(Model.BotProbability * 100);
+    // No-plausible-defaults rule: render the percentage ONLY when there is real
+    // detection data behind it. A live detection always has non-zero processing
+    // time; a model still holding init-defaults (BotProbability=0, ProcessingTimeMs=0)
+    // is unhydrated -- show "--" instead of pretending the bot probability is 0%.
+    var hasLiveData = Model.ProcessingTimeMs > 0;
     var verdictClass = Model.IsBot ? "is-bot" : "is-human";
     var verdictLabel = Model.IsBot ? "Bot" : "Human";
     var accent       = Model.IsBot ? "#ef4444" : "#22c55e";
@@ -86,7 +91,7 @@
         <div class="flex flex-col gap-2 min-w-0">
             <div class="flex items-baseline gap-3">
                 <div>
-                    <span class="text-2xl font-black" style="color: @accent;">@(probPct)%</span>
+                    <span class="text-2xl font-black" style="color: @accent;">@(hasLiveData ? probPct + "%" : "--")</span>
                     <span class="text-[10px] text-base-content/50 ml-1">bot probability</span>
                 </div>
                 <span class="badge badge-xs sb-risk-@(Model.RiskBand.ToLowerInvariant())">@Model.RiskBand</span>

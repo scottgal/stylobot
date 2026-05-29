@@ -45,19 +45,28 @@ public class BotDetectionDetailsViewComponent : ViewComponent
     // (header-driven, no DB). When null, fall back to per-fp weights unchanged --
     // the global multiplier is a refinement, not a prerequisite.
     private readonly IdentityGlobalWeightsCache? _globalWeights;
+    // Optional: signature-keyed detection lookup. Used in remote-mode dashboard
+    // hosts where HttpContext.Items doesn't carry the gateway's detection result
+    // (YARP boundary). Without it the hero would default to BotProbability=0 /
+    // ProcessingTimeMs=0 -- the "0% bot probability" plausible-default bug.
+    // The single lookup by primary signature is the same path the detail page
+    // uses, kept consistent so home + detail never disagree.
+    private readonly Services.IDashboardEventStore? _eventStore;
 
     public BotDetectionDetailsViewComponent(
         DetectionDataExtractor extractor,
         IFingerprintReader fingerprintReader,
         IdentityArchetypeRegistry archetypes,
         IdentityVectorLayout layout,
-        IdentityGlobalWeightsCache? globalWeights = null)
+        IdentityGlobalWeightsCache? globalWeights = null,
+        Services.IDashboardEventStore? eventStore = null)
     {
         _extractor = extractor;
         _fingerprintReader = fingerprintReader;
         _archetypes = archetypes;
         _layout = layout;
         _globalWeights = globalWeights;
+        _eventStore = eventStore;
     }
 
     public async Task<IViewComponentResult> InvokeAsync(string viewName = "Default")
@@ -107,6 +116,43 @@ public class BotDetectionDetailsViewComponent : ViewComponent
             {
                 // Read failure is best-effort -- the view falls through to
                 // calibrating. Logging happens inside the reader.
+            }
+        }
+
+        // Remote-mode hydration: HttpContext.Items doesn't cross the YARP boundary,
+        // so on a viewer host the live BotProbability + ProcessingTimeMs aren't in
+        // context. Look up the latest persisted detection for this signature and
+        // overwrite the model's headline numbers so the hero shows the real value,
+        // never a 0% default. Same path the signature-detail page uses; the home
+        // hero must agree with it.
+        if (_eventStore is not null && context is not null
+            && model.Signatures?.PrimarySignature is { } primarySig
+            && !string.IsNullOrEmpty(primarySig)
+            && model.ProcessingTimeMs == 0)
+        {
+            try
+            {
+                var detections = await _eventStore.GetDetectionsAsync(
+                    new DashboardFilter { SignatureId = primarySig, Limit = 1 },
+                    context.RequestAborted);
+                if (detections.Count > 0)
+                {
+                    var latest = detections[0];
+                    model = model with
+                    {
+                        BotProbability = latest.BotProbability,
+                        Confidence = latest.Confidence,
+                        ProcessingTimeMs = latest.ProcessingTimeMs,
+                        IsBot = latest.IsBot,
+                        RiskBand = latest.RiskBand ?? model.RiskBand,
+                        Action = latest.Action ?? model.Action
+                    };
+                }
+            }
+            catch
+            {
+                // Lookup is best-effort. The view template renders "--" instead of
+                // a default 0% when ProcessingTimeMs stays zero (no live data).
             }
         }
 
