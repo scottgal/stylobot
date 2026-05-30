@@ -1022,7 +1022,10 @@ public class StyloBotDashboardMiddleware
                 return "null";
 
             // Read the signature set the orchestrator's foundation wave wrote; fall back to
-            // a fresh compute when no detection ran on this request.
+            // a fresh compute when no detection ran on this request. Same dual-path lookup
+            // as BuildYourDetectionPartialModel -- the forwarded-headers hydrator path is
+            // what remote-mode hosts use, the AggregatedEvidence path is the in-process
+            // detection path.
             MultiFactorSignatures? sigs = null;
             if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
                 && evObj is AggregatedEvidence ev
@@ -1030,6 +1033,12 @@ public class StyloBotDashboardMiddleware
                 && multiObj is MultiFactorSignatures m)
             {
                 sigs = m;
+            }
+            if (sigs is null
+                && context.Items.TryGetValue(SignalKeys.SignatureMultifactor, out var hydMulti)
+                && hydMulti is MultiFactorSignatures hm)
+            {
+                sigs = hm;
             }
             sigs ??= sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
@@ -5242,12 +5251,27 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
 
             MultiFactorSignatures? sigs = null;
+            // In-process orchestrator path (gateway / single-binary host): MultiFactorSignatures
+            // hangs off the AggregatedEvidence Signals dictionary the broadcast middleware reads.
             if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
                 && evObj is AggregatedEvidence ev
                 && ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj)
                 && multiObj is MultiFactorSignatures m)
             {
                 sigs = m;
+            }
+            // Forwarded-headers hydrator path (remote-mode website): the gateway computed the
+            // signature set and attached X-Bot-Detection-* on the YARP-forwarded request;
+            // StyloBotForwardedHeadersHydratorMiddleware copies it to context.Items directly
+            // (NOT under AggregatedEvidenceKey -- there's no in-process orchestrator to wrap
+            // it). Without this the local GenerateSignatures fallback runs and produces a
+            // different primarySig than what the gateway recorded, so the event-store hydration
+            // never finds the visitor and the pill stays at "Detection pending..." forever.
+            if (sigs is null
+                && context.Items.TryGetValue(SignalKeys.SignatureMultifactor, out var hydMulti)
+                && hydMulti is MultiFactorSignatures hm)
+            {
+                sigs = hm;
             }
             sigs ??= sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
