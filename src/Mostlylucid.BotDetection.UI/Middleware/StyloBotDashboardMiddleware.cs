@@ -1018,8 +1018,10 @@ public class StyloBotDashboardMiddleware
             var visitorCache = context.RequestServices.GetService(typeof(VisitorListCache))
                 as VisitorListCache;
 
-            if (sigService == null || visitorCache == null)
-                return "null";
+            // sigService and visitorCache are OPTIONAL on remote-mode dashboard
+            // viewer hosts. Hydrator-populated Items + the event-store fallback
+            // below are sufficient; only short-circuit when we have NO source of
+            // signatures at all (resolved below after the lookup chain).
 
             // Read the signature set the orchestrator's foundation wave wrote; fall back to
             // a fresh compute when no detection ran on this request. Same dual-path lookup
@@ -1040,8 +1042,16 @@ public class StyloBotDashboardMiddleware
             {
                 sigs = hm;
             }
-            sigs ??= sigService.GenerateSignatures(context);
-            var visitor = visitorCache.Get(sigs.PrimarySignature);
+            // Local fallback only when the detection-pipeline service is present
+            // (single-binary gateway hosts). Pure dashboard-viewer hosts have no
+            // sigService; if neither AggregatedEvidence nor the hydrator populated
+            // sigs by this point, the gateway never tagged the request and there
+            // is nothing useful to show.
+            if (sigs is null && sigService is not null)
+                sigs = sigService.GenerateSignatures(context);
+            if (sigs is null)
+                return "null";
+            var visitor = visitorCache?.Get(sigs.PrimarySignature);
 
             if (visitor != null)
             {
@@ -5192,8 +5202,13 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             var visitorCache = context.RequestServices.GetService(typeof(VisitorListCache))
                 as VisitorListCache;
 
-            if (sigService == null || visitorCache == null)
-                return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
+            // sigService and visitorCache are OPTIONAL: pure dashboard-viewer hosts
+            // (no AddBotDetection / detection pipeline) don't register them. The
+            // hydrator middleware still populates the same Items keys from the
+            // gateway's X-Bot-Detection-* headers, and the event-store fallback below
+            // reads the verdict from the gateway's REST endpoint. Bailing out here
+            // when sigService is null was the "Detection pending..." root cause on
+            // remote-mode dashboards.
 
             MultiFactorSignatures? sigs = null;
             // In-process orchestrator path (gateway / single-binary host): MultiFactorSignatures
@@ -5218,8 +5233,19 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             {
                 sigs = hm;
             }
-            sigs ??= sigService.GenerateSignatures(context);
-            var visitor = visitorCache.Get(sigs.PrimarySignature);
+            // Local fallback only when the detection-pipeline service is present
+            // (single-binary gateway hosts). Pure dashboard-viewer hosts have no
+            // sigService; if neither AggregatedEvidence nor the hydrator populated
+            // sigs by this point, the gateway never tagged the request and there
+            // is nothing useful to show.
+            if (sigs is null && sigService is not null)
+                sigs = sigService.GenerateSignatures(context);
+            if (sigs is null)
+                return new YourDetectionModel
+                {
+                    HasData = false, BasePath = _options.BasePath.TrimEnd('/')
+                };
+            var visitor = visitorCache?.Get(sigs.PrimarySignature);
 
             if (visitor != null)
             {
