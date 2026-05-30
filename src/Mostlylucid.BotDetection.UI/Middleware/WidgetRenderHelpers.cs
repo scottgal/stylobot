@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Middleware;
 
@@ -240,4 +241,109 @@ internal static class WidgetRenderHelpers
                 (b.ThreatScore ?? 0) * 0.4 + Math.Log10(Math.Max(b.HitCount, 1)) * 0.6)
         };
     }
+
+    /// <summary>
+    ///     Project a top-bots fetch (read-through path via IDashboardEventStore) into the
+    ///     CachedVisitor shape the Visitors-tab view consumes, applying the same audience
+    ///     filter / sort / page rules <see cref="Services.VisitorListCache.GetFiltered"/>
+    ///     does. Counts header is computed from the full unfiltered projection so the
+    ///     All / Humans / Bots header stays honest when an audience switch is active.
+    ///     <para>
+    ///     This is the visitor-list parallel to <see cref="SortTopBots"/>: in remote-mode
+    ///     hosts the local VisitorListCache freezes at startup-warm values because no
+    ///     DetectionBroadcastMiddleware runs in-process to call Upsert on new detections.
+    ///     Calling this on the result of <c>eventStore.GetTopBotsAsync(audience: "all")</c>
+    ///     gives the Visitors tab fresh data on every render.
+    ///     </para>
+    /// </summary>
+    public static (IReadOnlyList<CachedVisitor> Items, int TotalCount, FilterCounts Counts) ProjectAsVisitors(
+        IEnumerable<DashboardTopBotEntry> source,
+        string? filter,
+        string sortField,
+        string sortDir,
+        int page,
+        int pageSize)
+    {
+        var snapshot = source.Select(e => new CachedVisitor
+        {
+            PrimarySignature = e.PrimarySignature,
+            Hits = e.HitCount,
+            FirstSeen = e.FirstSeen,
+            LastSeen = e.LastSeen,
+            IsBot = e.IsKnownBot,
+            BotProbability = e.BotProbability,
+            Confidence = e.Confidence,
+            RiskBand = e.RiskBand ?? "Unknown",
+            LastPath = e.LastPath,
+            Action = e.Action ?? "Allow",
+            BotName = e.BotName,
+            BotType = e.BotType,
+            CountryCode = e.CountryCode,
+            UaFamily = e.UaFamily,
+            ThreatScore = e.ThreatScore,
+            ThreatBand = e.ThreatBand,
+            Narrative = e.Narrative,
+            Description = e.Description,
+            ProcessingTimeMs = e.ProcessingTimeMs,
+            TopReasons = e.TopReasons ?? new List<string>(),
+        }).ToList();
+
+        // Counts are derived from the full unfiltered projection. AI / Search / Tools
+        // sub-classifications rely on per-visitor helpers that live on VisitorListCache
+        // (IsAiBot / IsSearchBot / IsToolBot). They peek at bot_type substring matches; we
+        // fold the same heuristic here so the badges work off the event-store data. Leaving
+        // them at 0 would still be correct for All/Humans/Bots but the sub-buckets would
+        // mis-report on remote-mode hosts.
+        var counts = new FilterCounts
+        {
+            All = snapshot.Count,
+            Humans = snapshot.Count(v => !v.IsBot),
+            Bots = snapshot.Count(v => v.IsBot),
+            Ai = snapshot.Count(v => v.IsBot && IsAiBotByType(v.BotType)),
+            Search = snapshot.Count(v => v.IsBot && IsSearchBotByType(v.BotType)),
+            Tools = snapshot.Count(v => v.IsBot && IsToolBotByType(v.BotType)),
+        };
+
+        IEnumerable<CachedVisitor> items = filter switch
+        {
+            "humans" => snapshot.Where(v => !v.IsBot),
+            "bots"   => snapshot.Where(v => v.IsBot),
+            "ai"     => snapshot.Where(v => v.IsBot && IsAiBotByType(v.BotType)),
+            "search" => snapshot.Where(v => v.IsBot && IsSearchBotByType(v.BotType)),
+            "tools"  => snapshot.Where(v => v.IsBot && IsToolBotByType(v.BotType)),
+            _        => snapshot
+        };
+
+        items = (sortField, sortDir) switch
+        {
+            ("name", "asc") => items.OrderBy(v => v.BotName ?? v.PrimarySignature),
+            ("name", _)     => items.OrderByDescending(v => v.BotName ?? v.PrimarySignature),
+            ("hits", "asc") => items.OrderBy(v => v.Hits),
+            ("hits", _)     => items.OrderByDescending(v => v.Hits),
+            ("risk", "asc") => items.OrderBy(v => RiskOrder(v.RiskBand)),
+            ("risk", _)     => items.OrderByDescending(v => RiskOrder(v.RiskBand)),
+            (_, "asc")      => items.OrderBy(v => v.LastSeen),
+            _               => items.OrderByDescending(v => v.LastSeen)
+        };
+
+        var materialized = items.ToList();
+        var paged = materialized.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return (paged, materialized.Count, counts);
+    }
+
+    private static int RiskOrder(string? band) => band switch
+    {
+        "VeryHigh" => 5,
+        "High" => 4,
+        "Medium" or "Elevated" => 3,
+        "Low" => 2,
+        "VeryLow" => 1,
+        _ => 0
+    };
+
+    // Same BotType predicates VisitorListCache uses (kept inline rather than exposing the
+    // private methods so the helper has no dependency on the cache itself).
+    private static bool IsAiBotByType(string? botType)     => botType is "AiBot";
+    private static bool IsSearchBotByType(string? botType) => botType is "SearchEngine" or "VerifiedBot" or "GoodBot";
+    private static bool IsToolBotByType(string? botType)   => botType is "Scraper" or "MonitoringBot" or "SocialMediaBot" or "Tool";
 }

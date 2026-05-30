@@ -875,9 +875,22 @@ public class StyloBotDashboardMiddleware
         // "metrics" was the hardcoded tab name before pack-driven tabs; redirect old bookmarks.
         if (tab == "metrics") tab = _packTabs.Count > 0 ? _packTabs[0].Id : "overview";
 
-        // Build all partial models server-side - fully rendered, no JSON serialization needed
+        // Build all partial models server-side - fully rendered, no JSON serialization needed.
+        // Visitor list reads through the event store (audience=all) instead of the local
+        // VisitorListCache so remote-mode hosts get fresh data; the cache stays as a
+        // write-through hot path on the gateway but is no longer this widget's read source.
+        // visitorCache is still resolved for Session Analytics on the Summary stats card
+        // (PopulateSessionAnalytics reads per-visitor session aggregates from it -- a
+        // separate concern from the visitor list rendering and a separate follow-up to
+        // route through the event store later).
         var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
-        var (visitors, visitorTotal, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 24);
+        var visitorRaw = await _eventStore.GetTopBotsAsync(
+            count: _visitorListMaxEntries,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: "all");
+        var (visitors, visitorTotal, visitorCounts) = WidgetRenderHelpers.ProjectAsVisitors(
+            visitorRaw, filter: "all", sortField: "lastSeen", sortDir: "desc", page: 1, pageSize: 24);
 
         DashboardSummary summary;
         // Serve the broadcaster-precomputed summary; only fall through to the
@@ -952,7 +965,7 @@ public class StyloBotDashboardMiddleware
             Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, visitorCache),
             Visitors = new VisitorListModel
             {
-                Visitors = visitors, Counts = visitorCache.GetCounts(),
+                Visitors = visitors, Counts = visitorCounts,
                 Filter = "all", SortField = "lastSeen", SortDir = "desc",
                 Page = 1, PageSize = 24, TotalCount = visitorTotal, BasePath = basePath
             },
@@ -2582,15 +2595,25 @@ public class StyloBotDashboardMiddleware
     /// <summary>Render the visitor list partial. Supports filter, sort, pagination via query params.</summary>
     private async Task ServeVisitorListPartialAsync(HttpContext context)
     {
-        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
         var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
         var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "lastSeen";
         var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 24;
 
-        var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, pageSize);
-        var counts = visitorCache.GetCounts();
+        // Read through the event store -- same antipattern + same fix as Top Bots: the
+        // local VisitorListCache freezes at startup-warm values on remote-mode hosts
+        // because no DetectionBroadcastMiddleware runs in-process to Upsert it. Fetching
+        // audience=all here gives the Visitors tab a fresh cross-cutting top-N every
+        // partial render; ProjectAsVisitors mirrors VisitorListCache.GetFiltered's
+        // filter/sort/page semantics so the view consumes the same shape.
+        var raw = await _eventStore.GetTopBotsAsync(
+            count: _visitorListMaxEntries,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: "all");
+        var (items, totalCount, counts) = WidgetRenderHelpers.ProjectAsVisitors(
+            raw, filter, sortField, sortDir, page, pageSize);
 
         var model = new VisitorListModel
         {
@@ -2610,6 +2633,9 @@ public class StyloBotDashboardMiddleware
             "/Views/Shared/Components/SbVisitorList/Default.cshtml", model, context);
         await context.Response.WriteAsync(html);
     }
+
+    // 500 mirrors VisitorListCache's default cap, keeps the event-store fetch bounded.
+    private const int _visitorListMaxEntries = 500;
 
     /// <summary>Render the summary stats partial.</summary>
     private async Task ServeSummaryPartialAsync(HttpContext context)
@@ -4170,15 +4196,23 @@ public class StyloBotDashboardMiddleware
     private async Task<string> RenderVisitorPartialAsync(HttpContext context, IQueryCollection? q = null)
     {
         q ??= context.Request.Query;
-        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
         var filter = q["filter"].FirstOrDefault() ?? "all";
         var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
-        var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, 24);
+        // Same event-store read-through pattern as ServeVisitorListPartialAsync. The
+        // local visitor cache is no longer the source of truth for the widget render
+        // path -- the event store is.
+        var raw = await _eventStore.GetTopBotsAsync(
+            count: _visitorListMaxEntries,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: "all");
+        var (items, totalCount, counts) = WidgetRenderHelpers.ProjectAsVisitors(
+            raw, filter, sortField, sortDir, page, 24);
         var model = new VisitorListModel
         {
-            Visitors = items, Counts = visitorCache.GetCounts(),
+            Visitors = items, Counts = counts,
             Filter = filter, SortField = sortField, SortDir = sortDir,
             Page = page, PageSize = 24, TotalCount = totalCount,
             BasePath = _options.BasePath.TrimEnd('/')
