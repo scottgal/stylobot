@@ -42,6 +42,7 @@ public static class ReadEndpoints
     private static async Task<Ok<PaginatedResponse<DashboardDetectionEvent>>> HandleDetections(
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
+        [FromServices] SignatureAggregateCache signatureCache,
         int limit = 50, int offset = 0, bool? isBot = null, DateTime? since = null, string? signature = null)
     {
         aggregateCache.MarkHit();
@@ -63,6 +64,32 @@ public static class ReadEndpoints
             });
         }
 
+        // Signature-scoped, latest-only query (limit=1): the "You: Bot/Human X%" pill
+        // path. DetectionBroadcastMiddleware updates the in-memory SignatureAggregateCache
+        // SYNCHRONOUSLY before the request proxies downstream (per
+        // [[feedback_write_behind_lfu_facade]]: dict is truth, DB is durability), so this
+        // cache read sees the CURRENT request's verdict -- the DB row is still being
+        // written behind by the fire-and-forget drainer. Synthesise a one-row
+        // DashboardDetectionEvent from the aggregate so the remote caller (the dashboard
+        // host's BuildYourDetectionPartialModel) gets a single source of truth for the
+        // headline fields without a parallel header / second source.
+        if (!string.IsNullOrEmpty(signature) && cappedLimit == 1 && offset == 0
+            && isBot is null && since is null)
+        {
+            var agg = signatureCache.TryGet(signature, out var a) ? a : null;
+            if (agg is not null)
+            {
+                var det = SynthesizeDetectionFromAggregate(signature, agg);
+                return TypedResults.Ok(new PaginatedResponse<DashboardDetectionEvent>
+                {
+                    Data = new List<DashboardDetectionEvent> { det },
+                    Pagination = new PaginationInfo { Offset = 0, Limit = 1, Total = 1 },
+                    Meta = new ResponseMeta()
+                });
+            }
+            // Cache miss falls through to store -- cold sig (evicted or never warmed).
+        }
+
         var filter = new DashboardFilter
         {
             Limit = cappedLimit, Offset = offset, IsBot = isBot, StartTime = since,
@@ -76,6 +103,43 @@ public static class ReadEndpoints
             Meta = new ResponseMeta()
         });
     }
+
+    /// <summary>
+    ///     Build a DashboardDetectionEvent from a SignatureAggregate so the cache-fast-path
+    ///     in HandleDetections can return one shape for one request without going to SQL.
+    ///     The aggregate is the rolling per-signature view (updated synchronously by
+    ///     DetectionBroadcastMiddleware on every detection); the synthesised event reflects
+    ///     the LATEST verdict for the signature. Per-request-only fields (RequestId, Path,
+    ///     Method, StatusCode, etc.) are stamped to placeholder/zero values since the cache
+    ///     doesn't track per-request rows.
+    /// </summary>
+    private static DashboardDetectionEvent SynthesizeDetectionFromAggregate(
+        string signature, SignatureAggregate agg) => new()
+    {
+        RequestId = "cache",
+        Timestamp = agg.LastSeen == default ? DateTime.UtcNow : agg.LastSeen,
+        IsBot = agg.IsBot,
+        BotProbability = agg.BotProbability,
+        Confidence = agg.Confidence,
+        RiskBand = agg.RiskBand ?? "Unknown",
+        BotType = agg.BotType,
+        BotName = agg.BotName,
+        Action = agg.Action,
+        Method = "GET",
+        Path = "/",
+        StatusCode = 0,
+        ProcessingTimeMs = agg.ProcessingTimeMs,
+        TopReasons = agg.TopReasons ?? new List<string>(),
+        PrimarySignature = signature,
+        EntityId = agg.EntityId,
+        CountryCode = agg.CountryCode,
+        Description = agg.Description,
+        Narrative = agg.Narrative,
+        ThreatScore = agg.ThreatScore,
+        ThreatBand = agg.ThreatBand,
+        RiskJustification = agg.RiskJustification,
+        IsVerifiedBot = agg.IsVerifiedBot,
+    };
 
     private static async Task<Ok<PaginatedResponse<DashboardSignatureEvent>>> HandleSignatures(
         [FromServices] IDashboardEventStore store,
