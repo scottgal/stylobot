@@ -26,13 +26,18 @@ public static class StyloBotEdgeHeaderNames
     public const string Confidence = "X-Bot-Detection-Confidence";
     public const string RiskBand = "X-Bot-Detection-RiskBand";
     public const string BotName = "X-Bot-Detection-BotName";
+    public const string BotType = "X-Bot-Detection-BotType";
+    public const string Action = "X-Bot-Detection-Action";
+    public const string Policy = "X-Bot-Detection-Policy";
+    public const string ProcessingMs = "X-Bot-Detection-ProcessingMs";
     public const string RequestId = "X-Bot-Detection-RequestId";
     public const string Result = "X-Bot-Detection-Result";
 
     public static readonly string[] All =
     [
         IdentityFingerprint, PrimarySignature, IpSignature, UaSignature, EntityId,
-        Probability, Confidence, RiskBand, BotName, RequestId, Result
+        Probability, Confidence, RiskBand, BotName, BotType, Action, Policy, ProcessingMs,
+        RequestId, Result
     ];
 }
 
@@ -208,20 +213,44 @@ public sealed class StyloBotForwardedHeadersMiddleware
         if (!string.IsNullOrEmpty(fpId))
             context.Request.Headers[StyloBotEdgeHeaderNames.IdentityFingerprint] = fpId;
 
-        // Verdict shape: probability / risk band / bot name -- everything the
-        // home card's verdict badge + reason strip want.
+        // Verdict shape: probability / risk band / bot name / type / policy / action /
+        // processing time -- everything the home card's verdict badge + reason strip
+        // want. ProcessingMs is REQUIRED downstream: the website's "Your Detection"
+        // card uses it as the "has real verdict" sentinel; missing it makes the card
+        // render "-- bot probability" even when Probability+Confidence are real
+        // values. BotType / Action / Policy fill out the badge row; the YARP-stack
+        // gateway path (Extensions/YarpExtensions.cs) emits Probability + RiskBand +
+        // ProcessingMs the same way, so the two paths now agree on the header set.
         if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var ev3)
             && ev3 is AggregatedEvidence aggregated)
         {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
             context.Request.Headers[StyloBotEdgeHeaderNames.Probability] =
-                aggregated.BotProbability.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                aggregated.BotProbability.ToString("F3", inv);
             context.Request.Headers[StyloBotEdgeHeaderNames.Confidence] =
-                aggregated.Confidence.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                aggregated.Confidence.ToString("F3", inv);
             context.Request.Headers[StyloBotEdgeHeaderNames.RiskBand] = aggregated.RiskBand.ToString();
             context.Request.Headers[StyloBotEdgeHeaderNames.Result] =
                 (aggregated.BotProbability > 0.5).ToString().ToLowerInvariant();
+            // ProcessingMs: the wall-clock time the gateway spent producing this
+            // verdict. Cache-hit short-circuits write 0.0 to TotalProcessingTimeMs
+            // because the orchestrator never ran; emit at least 0.01 ms so the
+            // downstream "has real data" sentinel reads truthfully. A cache lookup
+            // IS work, just very little.
+            var procMs = aggregated.TotalProcessingTimeMs > 0
+                ? aggregated.TotalProcessingTimeMs
+                : 0.01;
+            context.Request.Headers[StyloBotEdgeHeaderNames.ProcessingMs] =
+                procMs.ToString("F2", inv);
             if (!string.IsNullOrEmpty(aggregated.PrimaryBotName))
                 context.Request.Headers[StyloBotEdgeHeaderNames.BotName] = aggregated.PrimaryBotName;
+            if (aggregated.PrimaryBotType is { } botType)
+                context.Request.Headers[StyloBotEdgeHeaderNames.BotType] = botType.ToString();
+            if (!string.IsNullOrEmpty(aggregated.PolicyName))
+                context.Request.Headers[StyloBotEdgeHeaderNames.Policy] = aggregated.PolicyName;
+            var action = aggregated.PolicyAction?.ToString() ?? aggregated.TriggeredActionPolicyName;
+            if (!string.IsNullOrEmpty(action))
+                context.Request.Headers[StyloBotEdgeHeaderNames.Action] = action;
         }
 
         context.Request.Headers[StyloBotEdgeHeaderNames.RequestId] = context.TraceIdentifier;
