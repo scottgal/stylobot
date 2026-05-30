@@ -376,6 +376,21 @@ public class BotDetectionMiddleware(
                 }
                 else
                 {
+                    // precomputedSig is the real MultiFactorSignatures.PrimarySignature.
+                    // Without seeding it into Signals + Items, downstream consumers
+                    // (DetectionBroadcastMiddleware.ResolvePrimarySignature,
+                    // StyloBotForwardedHeadersMiddleware) fall back to sha256(ip:ua)[..16]
+                    // and key the SignatureAggregateCache under that fallback hash —
+                    // while the forwarded-headers middleware emits the real hash to the
+                    // proxied request, so website-side lookups miss the cache forever
+                    // and the "You:" pill stays "Detection pending…" on every
+                    // verdict-cache hit.
+                    var cachedSignals = new Dictionary<string, object>(StringComparer.Ordinal);
+                    if (!string.IsNullOrEmpty(precomputedSig))
+                    {
+                        cachedSignals[SignalKeys.PrimarySignature] = precomputedSig;
+                        context.Items[SignalKeys.PrimarySignature] = precomputedSig;
+                    }
                     var cachedEvidence = new AggregatedEvidence
                     {
                         BotProbability = v.BotProbability,
@@ -385,6 +400,7 @@ public class BotDetectionMiddleware(
                         RiskBand = v.RiskBand,
                         ThreatBand = ThreatBand.Low,
                         TotalProcessingTimeMs = 0.0,
+                        Signals = cachedSignals,
                     };
                     context.Items[AggregatedEvidenceKey] = cachedEvidence;
                     // "identity-cache" when the metastable fingerprint cache was the fresher
