@@ -27,30 +27,32 @@ public class SbTopBotsViewComponent(
     {
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
-        List<DashboardTopBotEntry> allBots;
-        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
-        {
-            // Parameter-driven: bypass the signature cache, query the store directly.
-            allBots = await eventStore.GetTopBotsAsync(
-                count: signatureCache.MaxEntries,
-                startTime: startTime,
-                endTime: endTime,
-                audienceFilter: audience);
-        }
-        else
-        {
-            // Legacy: cache-first — the write-through SignatureAggregateCache is the source of
-            // truth for the live top-bots widget. Same collapse the OOB refresh path applies
-            // (BuildTopBotsModel in both StyloBotDashboardMiddleware + SbWidgetBatchMiddleware).
-            // Without the collapse, SSR paints a raw 100-row Amazonbot list and the very next
-            // OOB swap drops to one row, producing the "loads long, instantly shortens" flicker.
-            allBots = signatureCache.GetTopBots(
-                page: 1, pageSize: signatureCache.MaxEntries,
-                sortBy: sortBy, sortDir: sortDir, filter: filter);
-        }
+        // Always read through the event store -- the in-process SignatureAggregateCache
+        // is fresh only on a gateway host (write-through via DetectionBroadcastMiddleware);
+        // on a remote-mode dashboard host it pins to startup-warm values and the widget
+        // shows stale rows forever. Same approach taken in StyloBotDashboardMiddleware.BuildTopBotsModel
+        // and SbWidgetBatchMiddleware.BuildTopBotsModel. Fetching audience=all here gives us
+        // a cross-cutting top-N so the widget header (All / Bots / Humans) reflects reality
+        // and the audience switcher can filter client-side.
+        var rangeStart = startTime ?? DateTime.UtcNow.AddHours(-24);
+        var rangeEnd   = endTime   ?? DateTime.UtcNow;
+        var fetchAudience = string.IsNullOrEmpty(audience) ? "all" : audience;
+        var raw = await eventStore.GetTopBotsAsync(
+            count: signatureCache.MaxEntries,
+            startTime: rangeStart,
+            endTime: rangeEnd,
+            audienceFilter: fetchAudience);
+        var bots = raw.Count(b => b.IsKnownBot);
+        var humans = raw.Count - bots;
 
-        // Collapse groupable identities and apply search filter on both paths.
-        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        IEnumerable<DashboardTopBotEntry> filtered = filter switch
+        {
+            "bots"   => raw.Where(b => b.IsKnownBot),
+            "humans" => raw.Where(b => !b.IsKnownBot),
+            _        => raw
+        };
+        var sorted = WidgetRenderHelpers.SortTopBots(filtered, sortBy, sortDir).ToList();
+        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
         grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, q);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return View(new TopBotsListModel
@@ -64,7 +66,7 @@ public class SbTopBotsViewComponent(
             BasePath = options.Value.BasePath.TrimEnd('/'),
             Filter = filter,
             WidgetId = widgetId,
-            Counts = signatureCache.GetCounts(),
+            Counts = new TopBotsCounts(All: raw.Count, Bots: bots, Humans: humans),
             Query = string.IsNullOrWhiteSpace(q) ? null : q.Trim(),
         });
     }
