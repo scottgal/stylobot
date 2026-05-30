@@ -32,6 +32,21 @@ public sealed class StyloBotForwardedHeadersHydratorMiddleware
         var uaHeader       = TryGet(headers, StyloBotEdgeHeaderNames.UaSignature);
         var entityIdHeader = TryGet(headers, StyloBotEdgeHeaderNames.EntityId);
 
+        // Diagnostic: surface what the hydrator saw on the inbound request so curl
+        // can verify the gateway -> website handoff without rebuild cycles. Set as
+        // a response header (no body / no PII). Remove once the YourDetection pill
+        // verifies green on staging.
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers["X-Sb-Hydrator-Saw"] =
+                $"fp={(string.IsNullOrEmpty(fpHeader) ? "-" : "y")};" +
+                $"primary={(string.IsNullOrEmpty(primaryHeader) ? "-" : primaryHeader)};" +
+                $"ip={(string.IsNullOrEmpty(ipHeader) ? "-" : "y")};" +
+                $"ua={(string.IsNullOrEmpty(uaHeader) ? "-" : "y")};" +
+                $"entity={(string.IsNullOrEmpty(entityIdHeader) ? "-" : entityIdHeader)}";
+            return Task.CompletedTask;
+        });
+
         if (!string.IsNullOrEmpty(fpHeader))
             context.Items[SignalKeys.IdentityFingerprintId] = fpHeader;
 
