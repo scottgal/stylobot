@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -26,19 +27,34 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
     private readonly IDashboardEventStore _eventStore;
     private readonly SignatureAggregateCache _cache;
     private readonly ILogger<SignatureAggregateCacheWarmupService> _logger;
+    private readonly bool _isRemoteMode;
 
     public SignatureAggregateCacheWarmupService(
         IDashboardEventStore eventStore,
         SignatureAggregateCache cache,
-        ILogger<SignatureAggregateCacheWarmupService> logger)
+        ILogger<SignatureAggregateCacheWarmupService> logger,
+        DashboardSourceOptions? sourceOptions = null)
     {
         _eventStore = eventStore;
         _cache = cache;
         _logger = logger;
+        // Presence of DashboardSourceOptions (registered by AddStyloBotDashboardRemote)
+        // means this host is a remote-mode dashboard viewer. Dashboard state lives on
+        // the gateway in that case ([[project_gateway_data_locality]]); seeding a local
+        // cache that nothing writes to just freezes it at startup-warm and produces
+        // drift between this surface and the home card. Skip the warmup entirely.
+        _isRemoteMode = sourceOptions?.Pull?.Type == DashboardSourceType.Rest;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (_isRemoteMode)
+        {
+            _logger.LogInformation(
+                "SignatureAggregateCacheWarmup: skipped (remote-mode host -- gateway owns the cache, dashboard reads via REST)");
+            return;
+        }
+
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);

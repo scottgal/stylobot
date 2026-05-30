@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.MonitoringPacks;
+using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
@@ -63,6 +64,8 @@ public class DashboardSummaryBroadcaster : BackgroundService
     private DateTime _lastPruneUtc = DateTime.MinValue;
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
 
+    private readonly bool _isRemoteMode;
+
     public DashboardSummaryBroadcaster(
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         IDashboardEventStore eventStore,
@@ -71,7 +74,8 @@ public class DashboardSummaryBroadcaster : BackgroundService
         StyloBotDashboardOptions options,
         IServiceProvider serviceProvider,
         ILogger<DashboardSummaryBroadcaster> logger,
-        DashboardUserAgentAggregator uaAggregator)
+        DashboardUserAgentAggregator uaAggregator,
+        DashboardSourceOptions? sourceOptions = null)
     {
         _hubContext = hubContext;
         _eventStore = eventStore;
@@ -81,10 +85,22 @@ public class DashboardSummaryBroadcaster : BackgroundService
         _serviceProvider = serviceProvider;
         _logger = logger;
         _uaAggregator = uaAggregator;
+        // Remote-mode dashboards consume the gateway's already-broadcast aggregates
+        // over REST / SignalR; running the broadcaster here would push stale, locally-
+        // computed snapshots onto the same hub and fight with the gateway's truth.
+        // Gateway owns aggregation + broadcast; this host just renders.
+        _isRemoteMode = sourceOptions?.Pull?.Type == DashboardSourceType.Rest;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (_isRemoteMode)
+        {
+            _logger.LogInformation(
+                "Dashboard broadcaster skipped (remote-mode host -- gateway owns aggregation + SignalR)");
+            return;
+        }
+
         _logger.LogInformation(
             "Dashboard broadcaster started (interval: {Interval}s)",
             _options.SummaryBroadcastIntervalSeconds);

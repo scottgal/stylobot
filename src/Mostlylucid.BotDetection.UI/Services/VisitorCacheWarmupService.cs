@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -13,19 +14,32 @@ public class VisitorCacheWarmupService : BackgroundService
     private readonly IDashboardEventStore _eventStore;
     private readonly VisitorListCache _cache;
     private readonly ILogger<VisitorCacheWarmupService> _logger;
+    private readonly bool _isRemoteMode;
 
     public VisitorCacheWarmupService(
         IDashboardEventStore eventStore,
         VisitorListCache cache,
-        ILogger<VisitorCacheWarmupService> logger)
+        ILogger<VisitorCacheWarmupService> logger,
+        DashboardSourceOptions? sourceOptions = null)
     {
         _eventStore = eventStore;
         _cache = cache;
         _logger = logger;
+        // Same remote-mode skip pattern as SignatureAggregateCacheWarmupService:
+        // dashboard state lives on the gateway, this host reads via REST. Local
+        // warmup would freeze at startup-warm and drift from the gateway truth.
+        _isRemoteMode = sourceOptions?.Pull?.Type == DashboardSourceType.Rest;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (_isRemoteMode)
+        {
+            _logger.LogInformation(
+                "VisitorCacheWarmup: skipped (remote-mode host -- gateway owns the cache, dashboard reads via REST)");
+            return;
+        }
+
         try
         {
             // Small delay to let the DB connection pool initialize

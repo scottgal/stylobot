@@ -206,6 +206,7 @@ public static class ReadEndpoints
     private static async Task<Ok<PaginatedResponse<DashboardTopBotEntry>>> HandleTopBots(
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
+        [FromServices] SignatureAggregateCache signatureCache,
         int limit = 10, DateTime? since = null, DateTime? until = null,
         string? audience = null)
     {
@@ -225,6 +226,32 @@ public static class ReadEndpoints
                 Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = slice.Count },
                 Meta = new ResponseMeta()
             });
+        }
+
+        // No time window: serve straight from the gateway's in-memory write-through
+        // SignatureAggregateCache. The cache is updated on every detection by
+        // DetectionBroadcastMiddleware, so this is the canonical fresh view -- and
+        // it's microseconds-vs-milliseconds compared to the SQL path. Remote-mode
+        // dashboard hosts pay a sub-ms LAN round-trip for fresh, consistent data
+        // instead of duplicating the cache locally. Time-windowed queries still
+        // need the event store because the cache only holds the rolling top-N.
+        if (since is null && until is null)
+        {
+            var cached = signatureCache.GetTopBots(
+                page: 1,
+                pageSize: limit,
+                sortBy: "default",
+                sortDir: "desc",
+                filter: string.IsNullOrEmpty(audience) ? "bots" : audience);
+            if (cached.Count > 0)
+            {
+                return TypedResults.Ok(new PaginatedResponse<DashboardTopBotEntry>
+                {
+                    Data = cached,
+                    Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = cached.Count },
+                    Meta = new ResponseMeta()
+                });
+            }
         }
 
         var bots = await store.GetTopBotsAsync(limit, since, until, audience);

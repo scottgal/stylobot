@@ -4357,274 +4357,175 @@ public class StyloBotDashboardMiddleware
         // receive the same shape.
         var fingerprintShape = await ResolveFingerprintShapeAsync(context, decodedSignature);
 
-        if (_signatureCache.TryGet(decodedSignature, out var agg) && agg != null)
+        // Source of truth is the event store. The SignatureAggregateCache is a write-through
+        // hot path on the gateway (where DetectionBroadcastMiddleware updates it on every
+        // detection), but on a remote-mode dashboard host it freezes at startup-warm values
+        // and stale-reads here would disagree with the home card (which already hydrates
+        // from the event store). Read the latest detection for headline values; treat the
+        // cache as optional sparkline / hit-count enrichment only -- never headline.
+        List<DashboardDetectionEvent> detections;
+        try
         {
-            List<double>? sparkline;
+            detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
+            {
+                SignatureId = decodedSignature,
+                Limit = 50
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch detections for signature {Sig}", decodedSignature);
+            detections = new List<DashboardDetectionEvent>();
+        }
+
+        if (detections.Count == 0)
+        {
+            await WriteSignatureNotFoundAsync(context, decodedSignature, basePath);
+            return;
+        }
+
+        var latest = detections[0]; // GetDetectionsAsync returns DESC by timestamp.
+
+        // HitCount: when the local SignatureAggregateCache has an entry, prefer its full
+        // count (write-through on gateway, startup-warmed on remote-mode). Otherwise
+        // fall back to the detections we fetched (capped at the query limit -- it's a
+        // lower bound, not a full count). A dedicated GetSignatureAggregateAsync method
+        // on IDashboardEventStore would remove this fallback; tracked separately.
+        int hitCount = detections.Count;
+        List<double>? sparkline = null;
+        SignatureAggregate? agg = _signatureCache.TryGet(decodedSignature, out var a) ? a : null;
+        if (agg != null)
+        {
+            if (agg.HitCount > hitCount) hitCount = agg.HitCount;
             lock (agg.SyncRoot)
             {
                 sparkline = agg.ScoreHistory.Count > 0 ? agg.ScoreHistory.ToList() : null;
             }
-
-            // Enrich from CachedVisitor (paths, histories, UA, protocol)
-            var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
-            var visitor = visitorCache.Get(decodedSignature);
-            List<string> paths = [];
-            string? userAgent = null;
-            string? protocol = null;
-            DateTime firstSeen = default;
-            List<double> botProbHistory = [];
-            List<double> confHistory = [];
-            List<double> procTimeHistory = [];
-
-            if (visitor != null)
-            {
-                lock (visitor.SyncRoot)
-                {
-                    paths = visitor.Paths.ToList();
-                    userAgent = visitor.UserAgent;
-                    protocol = visitor.Protocol;
-                    firstSeen = visitor.FirstSeen;
-                    botProbHistory = visitor.BotProbabilityHistory.ToList();
-                    confHistory = visitor.ConfidenceHistory.ToList();
-                    procTimeHistory = visitor.ProcessingTimeHistory.ToList();
-                }
-            }
-
-            // Enrich from DB detections (recent per-request records)
-            List<SignatureDetectionRow> recentDetections = [];
-            List<SignatureDetectorEntry> detectorContributions = [];
-            Dictionary<string, Dictionary<string, string>> signalCategories = new();
-
-            try
-            {
-                var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
-                {
-                    SignatureId = decodedSignature,
-                    Limit = 50
-                });
-
-                recentDetections = detections.Select(d => new SignatureDetectionRow
-                {
-                    Timestamp = d.Timestamp,
-                    IsBot = d.IsBot,
-                    BotProbability = d.BotProbability,
-                    Confidence = d.Confidence,
-                    RiskBand = d.RiskBand,
-                    StatusCode = d.StatusCode,
-                    Path = d.Path,
-                    Method = d.Method,
-                    ProcessingTimeMs = d.ProcessingTimeMs,
-                    Action = d.Action
-                }).ToList();
-
-                // Extract detector contributions from most recent detection
-                var latest = detections.FirstOrDefault();
-                if (latest?.DetectorContributions != null)
-                {
-                    detectorContributions = latest.DetectorContributions
-                        .Select(kv => new SignatureDetectorEntry
-                        {
-                            Name = kv.Key,
-                            ConfidenceDelta = kv.Value.ConfidenceDelta,
-                            Contribution = kv.Value.Contribution,
-                            Reason = kv.Value.Reason,
-                            ExecutionTimeMs = kv.Value.ExecutionTimeMs
-                        })
-                        .OrderByDescending(e => Math.Abs(e.Contribution))
-                        .ToList();
-                }
-
-                // Group ImportantSignals by key prefix into categories
-                if (latest?.ImportantSignals != null)
-                {
-                    foreach (var kv in latest.ImportantSignals)
-                    {
-                        var dotIndex = kv.Key.IndexOf('.');
-                        var category = dotIndex > 0 ? kv.Key[..dotIndex] : "general";
-                        var key = dotIndex > 0 ? kv.Key[(dotIndex + 1)..] : kv.Key;
-                        if (!signalCategories.TryGetValue(category, out var cat))
-                        {
-                            cat = new Dictionary<string, string>();
-                            signalCategories[category] = cat;
-                        }
-                        cat[key] = kv.Value?.ToString() ?? "";
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to enrich signature detail from DB for {Signature}", decodedSignature);
-            }
-
-            model = new SignatureDetailModel
-            {
-                SignatureId = decodedSignature,
-                BasePath = basePath,
-                NavBasePath = navBasePath,
-                CspNonce = cspNonce,
-                HubPath = _options.HubPath,
-                Found = true,
-                BotName = agg.BotName,
-                BotType = agg.BotType,
-                RiskBand = agg.RiskBand,
-                BotProbability = agg.BotProbability,
-                Confidence = agg.Confidence,
-                HitCount = agg.HitCount,
-                Action = agg.Action,
-                CountryCode = agg.CountryCode,
-                ProcessingTimeMs = agg.ProcessingTimeMs,
-                TopReasons = agg.TopReasons,
-                LastSeen = agg.LastSeen,
-                Narrative = agg.Narrative,
-                Description = agg.Description,
-                IsBot = agg.IsBot,
-                ThreatScore = agg.ThreatScore,
-                ThreatBand = agg.ThreatBand,
-                RiskJustification = agg.RiskJustification,
-                SparklineData = sparkline,
-                Paths = paths,
-                UserAgent = userAgent,
-                Protocol = protocol,
-                FirstSeen = firstSeen,
-                BotProbabilityHistory = botProbHistory,
-                ConfidenceHistory = confHistory,
-                ProcessingTimeHistory = procTimeHistory,
-                RecentDetections = recentDetections,
-                DetectorContributions = detectorContributions,
-                SignalCategories = signalCategories,
-                TunerEnabled = _options.EnableTuner,
-                PeriodicityHeatmap = heatmap,
-                LooksLike = looksLike,
-                FingerprintShape = fingerprintShape
-            };
         }
-        else
+
+        // Optional enrichment from VisitorListCache (paths / UA / protocol / per-request
+        // ring buffers). On remote-mode hosts the visitor cache is also frozen at startup
+        // so these are best-effort; the event-store recent-detections list above is the
+        // fallback for the history charts.
+        var visitorCache = context.RequestServices.GetService<VisitorListCache>();
+        var visitor = visitorCache?.Get(decodedSignature);
+        List<string> paths = [];
+        string? userAgent = null;
+        string? protocol = null;
+        DateTime firstSeen = detections[^1].Timestamp;
+        // Reverse detections (DESC -> ASC) so the history chart renders oldest -> newest,
+        // matching the visitor cache's ring-buffer ordering.
+        List<double> botProbHistory = detections.AsEnumerable().Reverse().Select(d => d.BotProbability).ToList();
+        List<double> confHistory = detections.AsEnumerable().Reverse().Select(d => d.Confidence).ToList();
+        List<double> procTimeHistory = detections.AsEnumerable().Reverse().Select(d => (double)d.ProcessingTimeMs).ToList();
+        if (visitor != null)
         {
-            // Cache miss - reconstruct from persistent event store.
-            // This handles signatures that have been evicted from SignatureAggregateCache
-            // but still exist in the database (common when recent activity shows old signatures).
-            try
+            lock (visitor.SyncRoot)
             {
-                var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
-                {
-                    SignatureId = decodedSignature,
-                    Limit = 50
-                });
-
-                if (detections.Count > 0)
-                {
-                    // Write-through cache: warm SignatureAggregateCache from the DB rows
-                    // and then read EVERY headline field (RiskBand, ThreatBand, BotName,
-                    // BotType, BotProbability, etc.) from the warmed aggregate. The cache
-                    // is the single source for every dashboard surface; on a miss we
-                    // populate it from the persistent store, never bypass it. RiskBand
-                    // and ThreatBand are folded by majority-vote inside WarmFromDetections
-                    // so the headline value cannot disagree with what the overview
-                    // widgets render once this signature is hot again.
-                    var warmedAgg = _signatureCache.WarmFromDetections(decodedSignature, detections);
-                    var latest = detections[0]; // freshest row (for fields not folded)
-                    var recentDetections = detections.Select(d => new SignatureDetectionRow
-                    {
-                        Timestamp = d.Timestamp,
-                        IsBot = d.IsBot,
-                        BotProbability = d.BotProbability,
-                        Confidence = d.Confidence,
-                        RiskBand = d.RiskBand,
-                        Action = d.Action,
-                        Method = d.Method,
-                        Path = d.Path,
-                        StatusCode = d.StatusCode,
-                        ProcessingTimeMs = d.ProcessingTimeMs
-                    }).ToList();
-
-                    // Extract detector contributions from the latest detection
-                    var latestContributions = latest.DetectorContributions?
-                        .Select(dc => new SignatureDetectorEntry
-                        {
-                            Name = dc.Key,
-                            ConfidenceDelta = dc.Value.ConfidenceDelta,
-                            Contribution = dc.Value.Contribution,
-                            Reason = dc.Value.Reason,
-                            ExecutionTimeMs = dc.Value.ExecutionTimeMs
-                        }).ToList() ?? [];
-
-                    // Build signal categories from latest detection
-                    var signalCategories = new Dictionary<string, Dictionary<string, string>>();
-                    if (latest.ImportantSignals != null)
-                    {
-                        foreach (var kv in latest.ImportantSignals)
-                        {
-                            var dotIndex = kv.Key.IndexOf('.');
-                            var category = dotIndex > 0 ? kv.Key[..dotIndex] : "general";
-                            var key = dotIndex > 0 ? kv.Key[(dotIndex + 1)..] : kv.Key;
-                            if (!signalCategories.TryGetValue(category, out var cat))
-                            {
-                                cat = new Dictionary<string, string>();
-                                signalCategories[category] = cat;
-                            }
-                            cat[key] = kv.Value?.ToString() ?? "";
-                        }
-                    }
-
-                    // Headline fields come from the warmed aggregate -- not detections[0] --
-                    // so the detail page and the overview widgets agree byte-for-byte on
-                    // RiskBand, ThreatBand, BotName, BotType, BotProbability. detections[0]
-                    // remains the source for per-request fields (Action, ProcessingTimeMs,
-                    // Country, Top reasons) where the freshest single-row value is intended.
-                    model = new SignatureDetailModel
-                    {
-                        SignatureId = decodedSignature,
-                        BasePath = basePath,
-                        CspNonce = cspNonce,
-                        HubPath = _options.HubPath,
-                        Found = true,
-                        BotName = warmedAgg.BotName ?? latest.BotName,
-                        BotType = warmedAgg.BotType ?? latest.BotType,
-                        RiskBand = warmedAgg.RiskBand ?? latest.RiskBand,
-                        BotProbability = warmedAgg.BotProbability,
-                        Confidence = warmedAgg.Confidence,
-                        HitCount = warmedAgg.HitCount,
-                        Action = latest.Action,
-                        CountryCode = latest.CountryCode,
-                        ProcessingTimeMs = latest.ProcessingTimeMs,
-                        TopReasons = latest.TopReasons?.ToList() ?? [],
-                        LastSeen = warmedAgg.LastSeen,
-                        Narrative = warmedAgg.Narrative ?? latest.Narrative,
-                        Description = warmedAgg.Description ?? latest.Description,
-                        IsBot = warmedAgg.IsBot,
-                        ThreatScore = warmedAgg.ThreatScore ?? latest.ThreatScore,
-                        ThreatBand = warmedAgg.ThreatBand ?? latest.ThreatBand,
-                        RiskJustification = warmedAgg.RiskJustification ?? latest.RiskJustification,
-                        SparklineData = detections.Select(d => d.BotProbability).ToList(),
-                        Paths = detections.Where(d => d.Path != null).Select(d => d.Path!).Distinct().ToList(),
-                        UserAgent = null, // Not available from event store (PII-hashed)
-                        Protocol = null,
-                        FirstSeen = detections[^1].Timestamp, // outer if already proved detections.Count > 0
-                        BotProbabilityHistory = detections.Select(d => d.BotProbability).ToList(),
-                        ConfidenceHistory = detections.Select(d => d.Confidence).ToList(),
-                        ProcessingTimeHistory = detections.Select(d => (double)d.ProcessingTimeMs).ToList(),
-                        RecentDetections = recentDetections,
-                        DetectorContributions = latestContributions,
-                        SignalCategories = signalCategories,
-                        TunerEnabled = _options.EnableTuner,
-                        PeriodicityHeatmap = heatmap,
-                        LooksLike = looksLike,
-                        FingerprintShape = fingerprintShape
-                    };
-                }
-                else
-                {
-                    await WriteSignatureNotFoundAsync(context, decodedSignature, basePath);
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to reconstruct signature from event store for {Signature}", decodedSignature);
-                await WriteSignatureNotFoundAsync(context, decodedSignature, basePath);
-                return;
+                if (visitor.Paths.Count > 0) paths = visitor.Paths.ToList();
+                if (!string.IsNullOrEmpty(visitor.UserAgent)) userAgent = visitor.UserAgent;
+                if (!string.IsNullOrEmpty(visitor.Protocol)) protocol = visitor.Protocol;
+                if (visitor.FirstSeen != default && visitor.FirstSeen < firstSeen) firstSeen = visitor.FirstSeen;
+                if (visitor.BotProbabilityHistory.Count > 0) botProbHistory = visitor.BotProbabilityHistory.ToList();
+                if (visitor.ConfidenceHistory.Count > 0) confHistory = visitor.ConfidenceHistory.ToList();
+                if (visitor.ProcessingTimeHistory.Count > 0) procTimeHistory = visitor.ProcessingTimeHistory.ToList();
             }
         }
+        if (paths.Count == 0)
+        {
+            paths = detections.Where(d => d.Path != null).Select(d => d.Path!).Distinct().ToList();
+        }
+
+        // Recent detections table + detector contributions + signal categories all source
+        // from the same event-store fetch.
+        var recentDetections = detections.Select(d => new SignatureDetectionRow
+        {
+            Timestamp = d.Timestamp,
+            IsBot = d.IsBot,
+            BotProbability = d.BotProbability,
+            Confidence = d.Confidence,
+            RiskBand = d.RiskBand,
+            StatusCode = d.StatusCode,
+            Path = d.Path,
+            Method = d.Method,
+            ProcessingTimeMs = d.ProcessingTimeMs,
+            Action = d.Action
+        }).ToList();
+
+        var detectorContributions = latest.DetectorContributions?
+            .Select(kv => new SignatureDetectorEntry
+            {
+                Name = kv.Key,
+                ConfidenceDelta = kv.Value.ConfidenceDelta,
+                Contribution = kv.Value.Contribution,
+                Reason = kv.Value.Reason,
+                ExecutionTimeMs = kv.Value.ExecutionTimeMs
+            })
+            .OrderByDescending(e => Math.Abs(e.Contribution))
+            .ToList() ?? new List<SignatureDetectorEntry>();
+
+        var signalCategories = new Dictionary<string, Dictionary<string, string>>();
+        if (latest.ImportantSignals != null)
+        {
+            foreach (var kv in latest.ImportantSignals)
+            {
+                var dotIndex = kv.Key.IndexOf('.');
+                var category = dotIndex > 0 ? kv.Key[..dotIndex] : "general";
+                var key = dotIndex > 0 ? kv.Key[(dotIndex + 1)..] : kv.Key;
+                if (!signalCategories.TryGetValue(category, out var cat))
+                {
+                    cat = new Dictionary<string, string>();
+                    signalCategories[category] = cat;
+                }
+                cat[key] = kv.Value?.ToString() ?? "";
+            }
+        }
+
+        // Headline fields ALL come from the latest detection, never from the cache. This
+        // is what keeps the signature-detail page in agreement with the home "Your
+        // Detection" card and the Top Bots row -- all three surfaces now read the same
+        // most-recent persisted row for the same signature.
+        model = new SignatureDetailModel
+        {
+            SignatureId = decodedSignature,
+            BasePath = basePath,
+            NavBasePath = navBasePath,
+            CspNonce = cspNonce,
+            HubPath = _options.HubPath,
+            Found = true,
+            BotName = latest.BotName,
+            BotType = latest.BotType,
+            RiskBand = latest.RiskBand,
+            BotProbability = latest.BotProbability,
+            Confidence = latest.Confidence,
+            HitCount = hitCount,
+            Action = latest.Action,
+            CountryCode = latest.CountryCode,
+            ProcessingTimeMs = latest.ProcessingTimeMs,
+            TopReasons = latest.TopReasons?.ToList() ?? [],
+            LastSeen = latest.Timestamp,
+            Narrative = latest.Narrative,
+            Description = latest.Description,
+            IsBot = latest.IsBot,
+            ThreatScore = latest.ThreatScore,
+            ThreatBand = latest.ThreatBand,
+            RiskJustification = latest.RiskJustification,
+            SparklineData = sparkline,
+            Paths = paths,
+            UserAgent = userAgent,
+            Protocol = protocol,
+            FirstSeen = firstSeen,
+            BotProbabilityHistory = botProbHistory,
+            ConfidenceHistory = confHistory,
+            ProcessingTimeHistory = procTimeHistory,
+            RecentDetections = recentDetections,
+            DetectorContributions = detectorContributions,
+            SignalCategories = signalCategories,
+            TunerEnabled = _options.EnableTuner,
+            PeriodicityHeatmap = heatmap,
+            LooksLike = looksLike,
+            FingerprintShape = fingerprintShape
+        };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
