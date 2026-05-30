@@ -4349,14 +4349,6 @@ public class StyloBotDashboardMiddleware
         // here so both model branches receive the same result.
         var looksLike = await ResolveLooksLikeAsync(context, decodedSignature);
 
-        // 7-bucket fingerprint centroid radar shape -- same projection the home
-        // card uses, so the visitor's polygon reads identically on both
-        // surfaces. Returns null when the matcher has not yet mapped this
-        // signature to a fingerprint; the shared partial then renders its
-        // calibrating placeholder. Computed once here so both model branches
-        // receive the same shape.
-        var fingerprintShape = await ResolveFingerprintShapeAsync(context, decodedSignature);
-
         // Source of truth is the event store. The SignatureAggregateCache is a write-through
         // hot path on the gateway (where DetectionBroadcastMiddleware updates it on every
         // detection), but on a remote-mode dashboard host it freezes at startup-warm values
@@ -4385,6 +4377,17 @@ public class StyloBotDashboardMiddleware
         }
 
         var latest = detections[0]; // GetDetectionsAsync returns DESC by timestamp.
+
+        // 7-bucket fingerprint centroid radar shape -- same projection the home
+        // card uses, so the visitor's polygon reads identically on both
+        // surfaces. Resolved AFTER detections are fetched so the fallback chain
+        // can use `latest`'s bot-name / bot-type to infer an archetype baseline
+        // when no fingerprint binding exists (remote-mode hosts have no
+        // SignatureAggregateCache, but always have a detection row). The
+        // signature-detail page is reached because detections.Count > 0, so an
+        // archetype-driven inferred polygon is always available -- the radar
+        // never renders "Calibrating fingerprint" here.
+        var fingerprintShape = await ResolveFingerprintShapeAsync(context, decodedSignature, latest);
 
         // HitCount: when the local SignatureAggregateCache has an entry, prefer its full
         // count (write-through on gateway, startup-warmed on remote-mode). Otherwise
@@ -4587,7 +4590,7 @@ public class StyloBotDashboardMiddleware
     ///     calibrating placeholder, so the page never goes blank.
     /// </summary>
     private async Task<FingerprintRadarShape?> ResolveFingerprintShapeAsync(
-        HttpContext context, string decodedSignature)
+        HttpContext context, string decodedSignature, DashboardDetectionEvent? latest = null)
     {
         var reader = context.RequestServices.GetService<IFingerprintReader>();
         if (reader is null) return null;
@@ -4633,9 +4636,38 @@ public class StyloBotDashboardMiddleware
             // null to mark the polygon as a baseline rather than a
             // per-actor observation.
             var aggCache = context.RequestServices.GetService<SignatureAggregateCache>();
+            string? inferBotName = null;
+            string? inferBotType = null;
+            DateTime inferFirstSeen = DateTime.UtcNow;
+            DateTime inferLastSeen = DateTime.UtcNow;
             if (aggCache is not null && aggCache.TryGet(decodedSignature, out var agg) && agg is not null)
             {
-                var inferredArchetype = FindInferredArchetype(archetypes, agg);
+                inferBotName = agg.BotName;
+                inferBotType = agg.BotType;
+                inferFirstSeen = agg.FirstSeen;
+                inferLastSeen = agg.LastSeen;
+            }
+            else if (latest is not null)
+            {
+                // Remote-mode dashboard hosts have no SignatureAggregateCache --
+                // it freezes at startup-warm values (write-through is gateway-local).
+                // The detection row from the event store carries the same
+                // bot-name / bot-type identity signal the matcher used, so the
+                // inferred-archetype shape resolves from `latest` exactly as it
+                // would from the aggregate. Without this branch, every signature
+                // detail page on a viewer host renders the "Calibrating
+                // fingerprint" placeholder -- a forbidden state per the identity
+                // invariant: detections.Count > 0 here, so SOMETHING is always
+                // shaped.
+                inferBotName = latest.BotName;
+                inferBotType = latest.BotType;
+                inferFirstSeen = latest.Timestamp;
+                inferLastSeen = latest.Timestamp;
+            }
+
+            if (inferBotName is not null || inferBotType is not null || latest is not null)
+            {
+                var inferredArchetype = FindInferredArchetypeFor(archetypes, inferBotName, inferBotType);
                 if (inferredArchetype is not null
                     && inferredArchetype.Centroid.Length == layout.Dimension
                     && inferredArchetype.DimensionMask.Length == layout.Dimension)
@@ -4667,8 +4699,8 @@ public class StyloBotDashboardMiddleware
                         MemberCount = 0,
                         ObservationCount = 0,
                         CorrectionCount = 0,
-                        FirstSeen = agg.FirstSeen,
-                        LastSeen = agg.LastSeen,
+                        FirstSeen = inferFirstSeen,
+                        LastSeen = inferLastSeen,
                         Quality = 0,
                         ArchetypeOrigin = inferredArchetype.ArchetypeId,
                         InferredClientType = inferredArchetype.ArchetypeKind,
@@ -4704,21 +4736,33 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private static IdentityArchetype? FindInferredArchetype(
         IdentityArchetypeRegistry registry, SignatureAggregate aggregate)
+        => FindInferredArchetypeFor(registry, aggregate.BotName, aggregate.BotType);
+
+    /// <summary>
+    ///     Field-driven sibling of <see cref="FindInferredArchetype"/>. Drives
+    ///     archetype inference directly from the bot-name / bot-type signal
+    ///     without needing a full <see cref="SignatureAggregate"/>; lets the
+    ///     remote-mode signature-detail page resolve a polygon from the
+    ///     latest <see cref="DashboardDetectionEvent"/> on viewer hosts that
+    ///     have no aggregate cache.
+    /// </summary>
+    private static IdentityArchetype? FindInferredArchetypeFor(
+        IdentityArchetypeRegistry registry, string? botName, string? botType)
     {
         var all = registry.All;
         if (all.Count == 0) return null;
 
-        if (!string.IsNullOrEmpty(aggregate.BotName))
+        if (!string.IsNullOrEmpty(botName))
         {
             foreach (var a in all)
-                if (string.Equals(a.Name, aggregate.BotName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(a.ArchetypeId, aggregate.BotName, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(a.Name, botName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(a.ArchetypeId, botName, StringComparison.OrdinalIgnoreCase))
                     return a;
         }
-        if (!string.IsNullOrEmpty(aggregate.BotType))
+        if (!string.IsNullOrEmpty(botType))
         {
             foreach (var a in all)
-                if (string.Equals(a.ArchetypeKind, aggregate.BotType, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(a.ArchetypeKind, botType, StringComparison.OrdinalIgnoreCase))
                     return a;
         }
         foreach (var a in all)
