@@ -761,15 +761,23 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     //   country_code(11), last_path(12), bytes_out(13)
     public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
-        // Top-bots is inherently a bot aggregate (reads signatures.is_bot = 1).
-        // When the caller explicitly asks for humans, return empty -- there are no human entries.
-        if (string.Equals(audienceFilter, "humans", StringComparison.OrdinalIgnoreCase))
-            return new List<DashboardTopBotEntry>();
+        // Audience semantics:
+        //   null / "bots" -- bots only (back-compat: this was the original hardcoded behaviour
+        //                    when the only caller was the "Top Bots" widget)
+        //   "humans"      -- humans only (signature.is_bot = 0)
+        //   "all"         -- bots + humans, no is_bot predicate (used by callers that need a
+        //                    cross-cutting top-N for accurate audience counts)
+        var isBotPredicate = audienceFilter?.ToLowerInvariant() switch
+        {
+            "all"    => string.Empty,
+            "humans" => "WHERE s.is_bot = 0",
+            _        => "WHERE s.is_bot = 1"
+        };
 
         // When a time window is specified, aggregate directly from detections so the
         // hit counts honour the window boundary instead of returning all-time totals.
         if (startTime.HasValue || endTime.HasValue)
-            return await GetTopBotsWindowedAsync(count, startTime, endTime);
+            return await GetTopBotsWindowedAsync(count, startTime, endTime, audienceFilter);
 
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -778,17 +786,18 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var cmd = conn.CreateCommand();
         // bytes_out is computed over ALL detections for this signature (no time filter).
         // This is the all-time / cache-seed path — windowed calls go to GetTopBotsWindowedAsync.
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT s.signature, s.bot_name, s.bot_type, s.bot_probability, s.hit_count, s.last_seen,
                    s.threat_score, s.threat_band, s.action, s.narrative, s.top_reasons_json, s.country_code,
                    (SELECT json_extract(ses.paths_json, '$[0]')
                     FROM sessions ses
-                    WHERE ses.signature = s.signature AND ses.paths_json IS NOT NULL AND ses.is_bot = 1
+                    WHERE ses.signature = s.signature AND ses.paths_json IS NOT NULL
                     ORDER BY ses.ended_at DESC
                     LIMIT 1) AS last_path,
-                   COALESCE((SELECT SUM(d.response_bytes) FROM detections d WHERE d.signature = s.signature), 0) AS bytes_out
+                   COALESCE((SELECT SUM(d.response_bytes) FROM detections d WHERE d.signature = s.signature), 0) AS bytes_out,
+                   s.is_bot AS is_bot
             FROM signatures s
-            WHERE s.is_bot = 1
+            {isBotPredicate}
             ORDER BY s.hit_count DESC
             LIMIT @count
             """;
@@ -820,6 +829,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 CountryCode = reader.IsDBNull(11) ? null : reader.GetString(11),
                 LastPath = reader.IsDBNull(12) ? null : reader.GetString(12),
                 BytesOut = reader.IsDBNull(13) ? 0L : Convert.ToInt64(reader.GetValue(13)),
+                IsKnownBot = reader.GetInt32(14) == 1,
             });
         }
         return results;
@@ -832,21 +842,28 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     ///     is set. The all-time (no-window) path continues to use the signatures table.
     /// </summary>
     private async Task<List<DashboardTopBotEntry>> GetTopBotsWindowedAsync(
-        int count, DateTime? startTime, DateTime? endTime)
+        int count, DateTime? startTime, DateTime? endTime, string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
-        // Build the time-window predicate. Audience is already handled by the caller
-        // (humans → empty list; bots/null → no extra predicate since is_bot = 1 is fixed).
+        // Audience predicate (mirrors GetTopBotsAsync): null/"bots" -> is_bot=1 (legacy),
+        // "humans" -> is_bot=0, "all" -> no predicate.
+        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
+        {
+            "all"    => string.Empty,
+            "humans" => " AND is_bot = 0",
+            _        => " AND is_bot = 1"
+        };
+
         var timeWhere = new System.Text.StringBuilder();
         if (startTime.HasValue) timeWhere.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   timeWhere.Append(" AND timestamp <= @end");
 
         await using var cmd = conn.CreateCommand();
         // Column order: signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
-        //   last_seen(5), threat_score(6), action(7), threat_band(8), country_code(9), bytes_out(10)
+        //   last_seen(5), threat_score(6), action(7), threat_band(8), country_code(9), bytes_out(10), is_bot(11)
         // narrative/top_reasons are not stored per-detection row; they default to null for windowed results.
         cmd.CommandText = $"""
             SELECT signature,
@@ -859,9 +876,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    MAX(action)           AS action,
                    MAX(threat_band)      AS threat_band,
                    MAX(country_code)     AS country_code,
-                   COALESCE(SUM(response_bytes), 0) AS bytes_out
+                   COALESCE(SUM(response_bytes), 0) AS bytes_out,
+                   MAX(is_bot)           AS is_bot
             FROM detections
-            WHERE is_bot = 1{timeWhere}
+            WHERE 1=1{audiencePredicate}{timeWhere}
             GROUP BY signature
             ORDER BY hit_count DESC
             LIMIT @count
@@ -888,6 +906,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ThreatBand       = reader.IsDBNull(8)  ? null : reader.GetString(8),
                 CountryCode      = reader.IsDBNull(9)  ? null : reader.GetString(9),
                 BytesOut         = reader.IsDBNull(10) ? 0L   : Convert.ToInt64(reader.GetValue(10)),
+                IsKnownBot       = reader.GetInt32(11) == 1,
                 // narrative and top_reasons_json live on the signatures table, not detections;
                 // they are not available in the windowed path.
                 Narrative        = null,

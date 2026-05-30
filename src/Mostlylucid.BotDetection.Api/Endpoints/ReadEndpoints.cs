@@ -206,11 +206,15 @@ public static class ReadEndpoints
     private static async Task<Ok<PaginatedResponse<DashboardTopBotEntry>>> HandleTopBots(
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
-        int limit = 10, DateTime? since = null, DateTime? until = null)
+        int limit = 10, DateTime? since = null, DateTime? until = null,
+        string? audience = null)
     {
         aggregateCache.MarkHit();
         var snapshot = aggregateCache.Current;
-        if (since is null && until is null
+        // Aggregate-cache fast path only applies to the legacy bots-only call (no window,
+        // no audience). When the caller asks for "all" or "humans" we go direct to the
+        // event store -- the cache only holds the precomputed top bots.
+        if (since is null && until is null && string.IsNullOrEmpty(audience)
             && snapshot.TopBots.Count >= limit
             && snapshot.ComputedAt != DateTime.MinValue)
         {
@@ -223,7 +227,7 @@ public static class ReadEndpoints
             });
         }
 
-        var bots = await store.GetTopBotsAsync(limit, since, until);
+        var bots = await store.GetTopBotsAsync(limit, since, until, audience);
         return TypedResults.Ok(new PaginatedResponse<DashboardTopBotEntry>
         {
             Data = bots,

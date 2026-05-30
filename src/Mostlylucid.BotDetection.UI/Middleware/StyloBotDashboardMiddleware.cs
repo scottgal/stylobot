@@ -5321,7 +5321,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var raw = await _eventStore.GetTopBotsAsync(
             count: _signatureCache.MaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow);
+            endTime: DateTime.UtcNow,
+            audienceFilter: "all");
         var bots = raw.Count(b => b.IsKnownBot);
         var humans = raw.Count - bots;
         IEnumerable<DashboardTopBotEntry> filtered = filter switch
