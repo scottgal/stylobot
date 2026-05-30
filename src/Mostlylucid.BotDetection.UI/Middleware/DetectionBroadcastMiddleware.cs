@@ -127,173 +127,158 @@ public partial class DetectionBroadcastMiddleware
         IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
         SignatureDescriptionService? signatureDescriptionService = null)
     {
-        // Call next middleware first (so detection runs)
-        await _next(context);
+        // Build the detection from context.Items (populated by UseBotDetection earlier in
+        // the pipeline) BEFORE proxying downstream. The in-memory cache update has to
+        // land before _next so the downstream render -- which may turn around and hit
+        // this same gateway's REST endpoints to read the cache -- sees the verdict for
+        // the CURRENT request, not the previous one. DB persistence is fire-and-forget
+        // AFTER _next: SQLite/Postgres can't take per-request synchronous writes on the
+        // hot path. Per [[feedback_write_behind_lfu_facade]]: dict is truth, DB is
+        // durability. The flush task captures detection by value (struct/record), so
+        // post-response context disposal can't race it.
+        DashboardDetectionEvent? detection = null;
+        AggregatedEvidence? evidenceCapture = null;
+        bool isUpstreamPath = false;
+        var dashOpts = dashboardOptionsAccessor.Value;
+        var detOpts = optionsAccessor.Value;
 
-        // After response, broadcast detection result if available
         try
         {
-            // Fast path: upstream-trusted lightweight result (no AggregatedEvidence)
+            // Upstream-trusted fast path (no AggregatedEvidence, e.g. edge-headers hydration).
             if (!context.Items.ContainsKey(BotDetectionMiddleware.AggregatedEvidenceKey) &&
                 context.Items.TryGetValue(BotDetectionMiddleware.BotDetectionResultKey, out var upstreamObj) &&
                 upstreamObj is BotDetectionResult upstreamResult)
             {
-                var detection = BuildDetectionFromUpstream(context, upstreamResult);
-
-                // When configured, local-network traffic (loopback, RFC1918, link-local) is excluded
-                // from BOTH the event store and the live broadcast: local pings like /admin/alive,
-                // docker-internal health checks, and same-host curl probes should never count as
-                // observed bot/human traffic in dashboards or aggregates.
-                var options = optionsAccessor.Value;
-                var excludeLocal = options.ExcludeLocalIpFromBroadcast
-                                   && IsLocalIp(context.Connection.RemoteIpAddress);
-                if (excludeLocal) return;
-
-                var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
-                signatureAggregateCache.UpdateFromDetection(detection);
-                visitorListCache.Upsert(detection);
-
-                // Beacon-only: signal which widgets need refreshing, never send full payloads.
-                // Constrainer-throttled: at most one outbound batch per dashboardOptionsAccessor.Value.BroadcastMinIntervalMs
-                // (default 10 s) regardless of detection rate.
-                SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
-                SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
-
-                // Invalidate threats widget for high-threat or honeypot detections
-                if (detection.ThreatScore is > 0.3 || detection.Action == "simulation-pack")
-                    SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
-
-                // Fan out to any out-of-process event publisher (commercial Redis → separate
-                // UI container). No-op in FOSS. Fire-and-forget: must not block the response.
-                _ = PublishEventAsync(detectionEventPublisher, detection, context);
-
-                // Lightweight attack arc for world map visualization (only data payload we send)
-                if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
-                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL"
-                                    && TryReserveArcSlot(dashboardOptionsAccessor.Value.AttackArcMinIntervalMs))
-                    await hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
-
-                _logger.LogDebug(
-                    "Broadcast upstream detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",
-                    detection.Path,
-                    detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature.Length)],
-                    detection.BotProbability,
-                    updatedSignature.HitCount);
-                return;
+                detection = BuildDetectionFromUpstream(context, upstreamResult);
+                isUpstreamPath = true;
             }
-
-            if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
-                evidenceObj is AggregatedEvidence evidence)
+            else if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+                     && evObj is AggregatedEvidence evidence)
             {
-                // Skip static assets with zero confidence - these are served by static file
-                // middleware with no meaningful detection and pollute reputation history
+                // Static asset short-circuit: zero-confidence sub-millisecond rows would pollute reputation history.
                 if (evidence.Confidence == 0 && evidence.TotalProcessingTimeMs < 0.5)
                 {
                     _logger.LogDebug("Skipping broadcast for zero-confidence static asset: {Path}", context.Request.Path);
+                }
+                else
+                {
+                    detection = BuildDetectionFromEvidence(context, evidence, recordOptionsAccessor?.Value);
+                    evidenceCapture = evidence;
+                }
+            }
+
+            if (detection is not null)
+            {
+                // Local-IP infrastructure traffic exclusion (docker bridge / loopback). Visitor
+                // traffic on local LANs still records because IsLocalIp matches only RFC1918 /
+                // loopback / link-local; the public-edge visitor IP is preserved by
+                // UseForwardedHeaders earlier in the pipeline.
+                var excludeLocal = detOpts.ExcludeLocalIpFromBroadcast
+                                   && IsLocalIp(context.Connection.RemoteIpAddress);
+                if (excludeLocal)
+                {
+                    await _next(context);
                     return;
                 }
 
-                var detection = BuildDetectionFromEvidence(context, evidence, recordOptionsAccessor?.Value);
-
-                // Same local-IP exclusion as the upstream-result path above: drop the entire
-                // detection (no event-store write, no cache update, no broadcast) when the source
-                // is on a private/loopback network. Prevents /admin/alive style health-check
-                // pings from polluting dashboard counts.
-                var options = optionsAccessor.Value;
-                var excludeLocal = options.ExcludeLocalIpFromBroadcast
-                                   && IsLocalIp(context.Connection.RemoteIpAddress);
-                if (excludeLocal) return;
-
-                var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
+                // === SYNCHRONOUS CACHE UPDATE (microseconds; the write-through hot tier) ===
                 signatureAggregateCache.UpdateFromDetection(detection);
                 visitorListCache.Upsert(detection);
-                SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
-                SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
 
-                // Invalidate threats widget for high-threat or honeypot detections
+                // === SIGNALR BEACONS (throttled by SignalRBroadcastConstrainer) ===
+                SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashOpts.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashOpts.BroadcastMinIntervalMs);
                 if (detection.ThreatScore is > 0.3 || detection.Action == "simulation-pack")
-                    SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
+                    SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashOpts.BroadcastMinIntervalMs);
 
-                // Fan out to any out-of-process event publisher (commercial Redis → separate
-                // UI container). No-op in FOSS. Fire-and-forget: must not block the response.
-                _ = PublishEventAsync(detectionEventPublisher, detection, context, evidence);
-
-                // Lightweight attack arc for world map visualization
+                // === ATTACK ARC (best-effort, throttled) ===
                 if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
                                     && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL"
-                                    && TryReserveArcSlot(dashboardOptionsAccessor.Value.AttackArcMinIntervalMs))
-                    await hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
-
-                // Feed signature to SignatureDescriptionService for name/description synthesis.
-                // Humans flow through the same pipeline — naming is no longer a bot-only concern.
-                if (signatureDescriptionService != null &&
-                    !string.IsNullOrEmpty(detection.PrimarySignature) && evidence.Signals is { Count: > 0 })
-                {
-                    var nullableSignals = evidence.Signals.ToDictionary(
-                        s => s.Key, s => (object?)s.Value);
-                    signatureDescriptionService.TrackSignature(detection.PrimarySignature, nullableSignals);
-                }
-
-                _logger.LogDebug(
-                    "Broadcast detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",
-                    detection.Path,
-                    detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature.Length)],
-                    detection.BotProbability,
-                    updatedSignature.HitCount);
+                                    && TryReserveArcSlot(dashOpts.AttackArcMinIntervalMs))
+                    _ = hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to broadcast detection");
+            _logger.LogWarning(ex, "Pre-proxy broadcast prep failed");
         }
-    }
 
-    // ─── Shared storage: ONE path for detection + signature ───────────────
+        // === PROXY DOWNSTREAM ===
+        // The website's render fires here. It sees the cache update we just made above.
+        await _next(context);
 
-    /// <summary>Marker key on <see cref="HttpContext.Items"/> set the first time a
-    /// detection has been persisted for the current request. Guards against the
-    /// dashboard event store ever receiving two rows for one logical request --
-    /// e.g. if a host accidentally wires <see cref="DetectionBroadcastMiddleware"/>
-    /// twice via both <c>UseStyloBot</c> and <c>UseStyloBotDashboard</c>, or if an
-    /// internal-render trick re-enters the pipeline for the same context. The
-    /// Raw Requests panel previously showed every detection twice on the demo
-    /// signature page; that was the symptom that motivated this guard.</summary>
-    internal const string DetectionStoredFlag = "StyloBot.DetectionBroadcast.Stored";
+        // === WRITE-BEHIND PERSIST (fire-and-forget; never blocks the request) ===
+        // The dict is already correct via the synchronous update above; this batch
+        // brings the DB up to date for durability and cold restore. Failures are
+        // logged and swallowed -- the cache remains authoritative for in-memory state.
+        if (detection is null) return;
 
-    /// <summary>
-    ///     Single method that stores both detection and signature to the event store.
-    ///     Idempotent per HttpContext: a second call on the same context is a no-op
-    ///     (returns a synthesized "already-stored" signature event so the caller's
-    ///     cache-update + SignalR-queue logic still runs against consistent data).
-    /// </summary>
-    private async Task<DashboardSignatureEvent> StoreDetectionAndSignatureAsync(
-        HttpContext context,
-        DashboardDetectionEvent detection,
-        IDashboardEventStore eventStore)
-    {
-        if (context.Items.ContainsKey(DetectionStoredFlag))
-        {
-            _logger.LogDebug(
-                "Skipping duplicate detection store for {Path} sig={Signature} -- already persisted in this request",
-                detection.Path,
-                detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature.Length)]);
-            // Returning a non-null shell keeps the caller's reference to
-            // updatedSignature.HitCount valid; the cache updates are no-ops on
-            // identical data anyway.
-            return new DashboardSignatureEvent
-            {
-                SignatureId = string.Empty,
-                Timestamp = detection.Timestamp,
-                PrimarySignature = detection.PrimarySignature ?? detection.RequestId,
-                RiskBand = detection.RiskBand ?? "Unknown",
-                HitCount = 0
-            };
-        }
+        // Capture everything we need by value BEFORE spawning the task; context may
+        // be disposed before the task runs.
+        var detectionCapture = detection;
+        var publisherCapture = detectionEventPublisher;
+        var sigDescService = signatureDescriptionService;
+        var signalsCapture = evidenceCapture?.Signals;
+        var pathLog = isUpstreamPath ? "upstream" : "evidence";
+
+        // Guard against double-persist when this middleware is wired into the pipeline
+        // twice (host accidentally calls both UseStyloBot and UseStyloBotDashboard).
+        if (context.Items.ContainsKey(DetectionStoredFlag)) return;
         context.Items[DetectionStoredFlag] = true;
 
+        // Factors must be parsed BEFORE the fire-and-forget task because they read
+        // HttpContext.Items, which the framework disposes after the request completes.
+        var factorsCapture = ParseSignatureFactors(context);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await PersistDetectionAndSignatureAsync(detectionCapture, factorsCapture, eventStore);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Detection persist (write-behind) failed: {Path} sig={Sig} -- cache stays authoritative",
+                    detectionCapture.Path,
+                    detectionCapture.PrimarySignature?[..Math.Min(8, detectionCapture.PrimarySignature.Length)]);
+            }
+            try { await PublishEventAsync(publisherCapture, detectionCapture, context: null, evidence: null); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Detection event publish failed"); }
+
+            // Description service: feeds humans + bots into the name/description synthesizer.
+            if (sigDescService is not null
+                && !string.IsNullOrEmpty(detectionCapture.PrimarySignature)
+                && signalsCapture is { Count: > 0 })
+            {
+                try
+                {
+                    var nullableSignals = signalsCapture.ToDictionary(s => s.Key, s => (object?)s.Value);
+                    sigDescService.TrackSignature(detectionCapture.PrimarySignature, nullableSignals);
+                }
+                catch (Exception ex) { _logger.LogDebug(ex, "TrackSignature failed"); }
+            }
+        });
+
+        _logger.LogDebug(
+            "Broadcast detection ({Path}): sig={Sig} prob={Prob:F2}",
+            pathLog,
+            detectionCapture.PrimarySignature?[..Math.Min(8, detectionCapture.PrimarySignature.Length)],
+            detectionCapture.BotProbability);
+    }
+
+    /// <summary>
+    ///     Persist detection + signature rows. Called from the write-behind fire-and-forget
+    ///     path -- never on the request hot path. Idempotent: callers guard against
+    ///     double-persist via <see cref="DetectionStoredFlag"/>; this method just writes.
+    /// </summary>
+    private async Task PersistDetectionAndSignatureAsync(
+        DashboardDetectionEvent detection,
+        SignatureFactors factors,
+        IDashboardEventStore eventStore)
+    {
         await eventStore.AddDetectionAsync(detection);
 
-        var factors = ParseSignatureFactors(context);
         var signature = new DashboardSignatureEvent
         {
             SignatureId = Guid.NewGuid().ToString("N")[..12],
@@ -321,8 +306,25 @@ public partial class DetectionBroadcastMiddleware
             RiskJustification = detection.RiskJustification,
         };
 
-        return await eventStore.AddSignatureAsync(signature);
+        await eventStore.AddSignatureAsync(signature);
     }
+
+    // ─── Shared storage: ONE path for detection + signature ───────────────
+
+    /// <summary>Marker key on <see cref="HttpContext.Items"/> set the first time a
+    /// detection has been persisted for the current request. Guards against the
+    /// dashboard event store ever receiving two rows for one logical request --
+    /// e.g. if a host accidentally wires <see cref="DetectionBroadcastMiddleware"/>
+    /// twice via both <c>UseStyloBot</c> and <c>UseStyloBotDashboard</c>, or if an
+    /// internal-render trick re-enters the pipeline for the same context. The
+    /// Raw Requests panel previously showed every detection twice on the demo
+    /// signature page; that was the symptom that motivated this guard.</summary>
+    internal const string DetectionStoredFlag = "StyloBot.DetectionBroadcast.Stored";
+
+    // (legacy StoreDetectionAndSignatureAsync removed -- the dedupe guard +
+    // signature-event construction now live in InvokeAsync (synchronous flag set
+    // before the fire-and-forget task is spawned) and PersistDetectionAndSignatureAsync
+    // (the actual DB writes, called from the write-behind path).)
 
     // ─── Detection builders ──────────────────────────────────────────────
 
@@ -857,7 +859,7 @@ public partial class DetectionBroadcastMiddleware
     private async Task PublishEventAsync(
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher publisher,
         DashboardDetectionEvent detection,
-        HttpContext context,
+        HttpContext? context,
         AggregatedEvidence? evidence = null)
     {
         try
@@ -877,7 +879,7 @@ public partial class DetectionBroadcastMiddleware
             var evt = new Mostlylucid.BotDetection.Orchestration.Telemetry.DetectionEvent
             {
                 Timestamp = detection.Timestamp,
-                RequestId = context.TraceIdentifier,
+                RequestId = context?.TraceIdentifier ?? detection.RequestId ?? string.Empty,
                 Signature = detection.PrimarySignature ?? "",
                 Path = detection.Path,
                 Method = detection.Method,
