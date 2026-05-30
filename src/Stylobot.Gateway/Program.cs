@@ -265,6 +265,16 @@ try
     // Downstream dashboard clients (on the website) can connect to this hub
     app.UseBotDetectionPersistence();
 
+    // Attach X-Bot-Detection-* headers to the proxied request so the downstream
+    // dashboard host's StyloBotForwardedHeadersHydratorMiddleware can populate
+    // HttpContext.Items[SignalKeys.SignatureMultifactor] etc. without doing its own
+    // detection. Required for the website's "You: Bot/Human X%" pill to find the
+    // visitor's persisted detection -- otherwise the website regenerates a fresh
+    // local signature that doesn't match the gateway's recorded one and the pill
+    // sticks on "Detection pending..." forever. Must run AFTER UseBotDetection
+    // and BEFORE MapReverseProxy.
+    app.UseStyloBotForwardedHeaders();
+
     // Admin API endpoints
     app.MapAdminEndpoints();
 
