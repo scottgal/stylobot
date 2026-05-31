@@ -210,10 +210,15 @@ public class BotDetectionOptions
 
     /// <summary>
     ///     Minimum bot probability when AI/LLM detectors have not run.
-    ///     Set to 0.0 to allow scores to reach zero when human evidence is strong.
-    ///     Valid range: 0.0 to 0.5
+    ///     Floored at 0.01 so the heuristic-only pipeline never claims literal
+    ///     certainty ("0% bot probability" is not a valid classifier output --
+    ///     it implies infinite confidence in a finite-evidence decision). The
+    ///     0.90 ceiling at <see cref="NonAiMaxProbability"/> mirrors this on the
+    ///     bot side: no LLM, no perfect certainty either direction.
+    ///     Operators can override to 0.0 to opt back into the old "saturate to
+    ///     zero on strong human evidence" behaviour. Valid range: 0.0 to 0.5.
     /// </summary>
-    public double NonAiMinProbability { get; set; } = 0.0;
+    public double NonAiMinProbability { get; set; } = 0.01;
 
     /// <summary>
     ///     Maximum bot probability when AI/LLM detectors have not run.

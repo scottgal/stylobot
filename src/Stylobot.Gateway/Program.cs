@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
+using Mostlylucid.BotDetection.Llm.Ollama.Extensions;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
@@ -157,9 +158,23 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
-    // Add LlamaSharp in-process CPU LLM provider for background classification,
-    // bot naming, and score change narratives. Config from BotDetection:AiDetection:LlamaSharp.
-    builder.Services.AddStylobotLlamaSharp();
+    // LLM provider for background classification, bot naming, and score-change
+    // narratives. When BotDetection:AiDetection:Provider=ollama (or the env var
+    // BOTDETECTION__AIDETECTION__PROVIDER=ollama), register the HTTP Ollama
+    // client pointing at the configured endpoint. Otherwise fall back to the
+    // in-process LlamaSharp CPU provider. Both bind their own config sections
+    // (BotDetection:AiDetection:Ollama / :LlamaSharp), so swapping is a single
+    // env var on the staging / prod compose files.
+    var llmProvider = (builder.Configuration["BotDetection:AiDetection:Provider"] ?? "llamasharp")
+        .Trim().ToLowerInvariant();
+    if (llmProvider == "ollama")
+    {
+        builder.Services.AddStylobotOllama();
+    }
+    else
+    {
+        builder.Services.AddStylobotLlamaSharp();
+    }
 
     // Add OpenTelemetry instrumentation for bot detection signals
     builder.Services.AddBotDetectionTelemetry();

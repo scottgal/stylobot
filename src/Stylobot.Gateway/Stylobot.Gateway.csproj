@@ -35,6 +35,8 @@
         <ProjectReference Include="..\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj" />
         <!-- LLM plugin: in-process CPU LlamaSharp provider -->
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.LlamaSharp\Mostlylucid.BotDetection.Llm.LlamaSharp.csproj" />
+        <!-- LLM plugin: HTTP Ollama provider (selected via BotDetection:AiDetection:Provider=ollama) -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Ollama\Mostlylucid.BotDetection.Llm.Ollama.csproj" />
         <!-- Dashboard persistence (event store, SignalR broadcast, visitor cache) -->
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
         <!-- Geo Detection for country code enrichment -->
