@@ -834,6 +834,17 @@ try
         app.MapStyloBotApi();
     }
 
+    // Attach X-Bot-Detection-* headers to the proxied request so any downstream
+    // dashboard host's StyloBotForwardedHeadersHydratorMiddleware can populate
+    // HttpContext.Items[SignalKeys.SignatureMultifactor] etc. without doing its
+    // own detection. Required for a remote-mode website's "You: Bot/Human X%"
+    // pill and signature-detail radar to resolve -- without this, the website
+    // regenerates a fresh local signature that doesn't match what the gateway
+    // recorded and the pill sticks on "Detection pending..." forever. Must run
+    // AFTER UseBotDetection and BEFORE MapReverseProxy. Mirrors the wiring in
+    // Stylobot.Gateway/Program.cs.
+    app.UseStyloBotForwardedHeaders();
+
     app.MapPrometheusScrapingEndpoint("/metrics");
 
     // Demo-only local surfaces must be mapped BEFORE YARP to avoid being proxied.

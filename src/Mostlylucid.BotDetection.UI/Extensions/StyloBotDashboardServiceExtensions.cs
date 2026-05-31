@@ -434,6 +434,14 @@ public static class StyloBotDashboardServiceExtensions
         // query string. See UrlRewriteSignalsMiddleware for the security model.
         app.UseBotDetectionUrlRewrite();
 
+        // X-Bot-Detection-* edge headers on the proxied request. Required for any
+        // downstream dashboard host (or YARP upstream that wants the verdict) to
+        // resolve identity via StyloBotForwardedHeadersHydratorMiddleware. No-op
+        // when BotDetection:ForwardedHeaders:EmitOnForwardedRequest = false.
+        // Mirrors the wiring in Stylobot.Gateway / Console hosts so the all-in-one
+        // (Stylobot.All) and any host using UseStyloBot() never miss this step.
+        app.UseStyloBotForwardedHeaders();
+
         if (options?.Enabled == true)
         {
             // Admin endpoints (POST /stylobot/admin/{reload,restart}). The middleware
