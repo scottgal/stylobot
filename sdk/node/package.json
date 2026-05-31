@@ -3,7 +3,8 @@
   "workspaces": [
     "packages/core",
     "packages/node",
-    "packages/elements"
+    "packages/elements",
+    "samples/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
