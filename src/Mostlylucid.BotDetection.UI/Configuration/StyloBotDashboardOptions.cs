@@ -186,6 +186,15 @@ public sealed class StyloBotDashboardOptions
     public bool EnableConfigEditing { get; set; }
 
     /// <summary>
+    ///     When non-empty, the "Your Detection" card renders a small "Flag as
+    ///     wrong" link that POSTs to this URL. Hosts use it to capture the
+    ///     fingerprint id + signature + timestamp of detections the visitor
+    ///     disagrees with so a debug pipeline can replay them. No-op when
+    ///     unset (the link does not render). Default: null.
+    /// </summary>
+    public string? FeedbackFlagWrongUrl { get; set; }
+
+    /// <summary>
     ///     When true, extract basic browser, protocol, and country info from HTTP headers
     ///     for ALL detections (including human traffic). This enables browser/protocol/country
     ///     dashboard stats even when the detection pipeline doesn't write signals for humans.

@@ -1,5 +1,8 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Configuration
+@using Microsoft.Extensions.Options
 @using System.Text.Json
+@inject IOptions<StyloBotDashboardOptions> DashboardOptions
 @model YourDetectionModel
 @{
     // Quadrant labels match the Behavioral Evolution clock used elsewhere on the
@@ -39,8 +42,25 @@
             </h3>
             @if (Model.HasData && !string.IsNullOrEmpty(Model.Signature))
             {
-                <a href="@Model.BasePath/signature/@Uri.EscapeDataString(Model.Signature)"
-                   class="text-[10px] text-base-content/40 hover:text-base-content/70">Signature &rarr;</a>
+                <div class="flex items-center gap-2 ml-auto">
+                    @{
+                        var flagWrongUrl = DashboardOptions.Value.FeedbackFlagWrongUrl;
+                    }
+                    @if (!string.IsNullOrEmpty(flagWrongUrl))
+                    {
+                        <button type="button"
+                                hx-post="@flagWrongUrl"
+                                hx-vals='@($"{{\"signature\":\"{Model.Signature}\"}}")'
+                                hx-swap="outerHTML"
+                                hx-disabled-elt="this"
+                                class="text-[10px] text-base-content/40 hover:text-warning"
+                                title="Tell us this verdict looks wrong; we will log it for debug.">
+                            ⚑ Flag as wrong
+                        </button>
+                    }
+                    <a href="@Model.BasePath/signature/@Uri.EscapeDataString(Model.Signature)"
+                       class="text-[10px] text-base-content/40 hover:text-base-content/70">Signature &rarr;</a>
+                </div>
             }
         </div>
 
