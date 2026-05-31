@@ -75,6 +75,9 @@ cmd=${1:-help}
 case "$cmd" in
 
 build)
+    echo "=== Stop gateway first so its loaded DLLs (e_sqlite3.dll etc.) release ==="
+    PSH "if (Test-Path '$PID_FILE') { Get-Content '$PID_FILE' | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }; Remove-Item '$PID_FILE' -ErrorAction SilentlyContinue }; Get-Process stylobot -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500"
+
     echo "=== Update C:\\build\\stylobot to origin/main ==="
     PSH "git -C $REPO fetch origin main 2>&1 | Out-String; git -C $REPO reset --hard origin/main; git -C $REPO log --oneline -1"
 

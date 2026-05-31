@@ -48,9 +48,14 @@ The gateway logs the chosen profile at startup:
 | `MinRequestBody/ResponseDataRate` | 100 B/s | 200 B/s | 100 B/s | **1000 B/s** |
 | `Http2.MaxStreamsPerConnection` | 200 | 400 | 400 | **100** |
 | `Http2.InitialConnectionWindowSize` | 1 MB | 1 MB | 2 MB | 64 KB |
-| Startup RSS (Win x64) | ~300 MB | ~400 MB | ~600 MB | ~250 MB |
+| Startup RSS (Win x64, estimate) | ~300 MB | ~400 MB | ~600 MB | ~250 MB |
 
 Bold cells are the *defining* knobs for that profile.
+
+> **RSS values are estimates** based on `min_threads × ~2 MB stack` on
+> Windows. Only `balanced` and `site` have been measured directly
+> (≈300 MB and ≈600 MB respectively). Memory reclaims when traffic
+> drops; the gateway is happy at these baselines.
 
 ## What each profile is optimising for
 
