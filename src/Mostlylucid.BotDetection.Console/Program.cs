@@ -685,36 +685,54 @@ try
             await responseTransform.TransformAsync(transformContext));
     });
 
-    // Kestrel limits and ThreadPool warm-up. Without these, default Kestrel limits +
-    // a cold ThreadPool produce two failure modes under burst load:
-    //   1. Cold-start "unexpected EOF" floods (~250 errors in the first 5s of a 50 RPS
-    //      ramp, observed in the 2026-05-31 soak) -- the first wave of requests races
-    //      ThreadPool growth, some get dropped before a handler thread is available.
-    //   2. Indefinite queueing under sustained overload instead of fast refusal --
-    //      latency climbs to seconds while everyone waits for a worker.
-    // Set explicit ceilings so the failure mode becomes "fast refuse with TCP RST"
-    // instead of "queue, time out, EOF". MinThreads pre-warms the worker pool so the
-    // first 200 concurrent requests don't pay thread-creation latency. See
-    // docs/perf-pass-2026-05-31.md for the analysis.
-    System.Threading.ThreadPool.SetMinThreads(workerThreads: 200, completionPortThreads: 200);
+    // Kestrel + ThreadPool tuning by profile. Profiles are chosen via the
+    // STYLOBOT_PROFILE env var (or --profile CLI flag) and trade memory for
+    // latency / concurrency headroom. See docs/perf-profiles.md.
+    //
+    // Default: "balanced" (50/50 threads, 10k connections, slowloris-safe).
+    //   api       -- low-concurrency, high-RPS JSON endpoints; tighter timeouts
+    //   site      -- popular public site (mixed browsers + SignalR); more streams,
+    //                generous keep-alive, more upgraded connections for WebSockets
+    //   highrisk  -- under attack; aggressive timeouts, low connection cap,
+    //                tight slowloris caps, fast-refuse posture
+    //   balanced  -- default; safe middle ground for unknown workload
+    var profile = (Environment.GetEnvironmentVariable("STYLOBOT_PROFILE")
+                   ?? args.SkipWhile(a => a != "--profile").Skip(1).FirstOrDefault()
+                   ?? "balanced").ToLowerInvariant();
+
+    var (minWorker, minIocp, maxConn, maxUpgraded, maxBody, keepAlive, headerTimeout,
+         minDataRate, h2Streams, h2Window) = profile switch
+    {
+        // API: many short JSON calls, tight CPU budget per request, no websockets.
+        "api"      => (100, 100, 20_000,    100, 64 * 1024,           15,  5, 200,  400, 1 * 1024 * 1024),
+        // Popular site: browsers + SignalR; lots of long-lived TCP. Generous KA.
+        "site"     => (200, 200, 10_000, 10_000, 1 * 1024 * 1024,    120, 15, 100,  400, 2 * 1024 * 1024),
+        // Under attack: shed fast, no patience for slow clients.
+        "highrisk" => ( 50,  50,  2_000,    100, 32 * 1024,             5,  3,1000,  100, 64 * 1024),
+        // Balanced default: same as what the 2026-05-31 soak validated.
+        _          => ( 50,  50, 10_000,  1_000, 256 * 1024,            30, 10, 100,  200, 1 * 1024 * 1024),
+    };
+
+    System.Threading.ThreadPool.SetMinThreads(minWorker, minIocp);
     builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(opts =>
     {
-        opts.Limits.MaxConcurrentConnections          = 10_000;
-        opts.Limits.MaxConcurrentUpgradedConnections  = 1_000;   // WebSocket / SignalR
-        opts.Limits.MaxRequestBodySize                = 256 * 1024;  // gateway proxies; tight cap
-        opts.Limits.KeepAliveTimeout                  = TimeSpan.FromSeconds(30);
-        opts.Limits.RequestHeadersTimeout             = TimeSpan.FromSeconds(10);
-        // Slow-rate caps relaxed (not disabled): default 240 B/s with 5 s grace is
-        // tight for proxied uploads from slow mobile clients. 100 B/s with 10 s grace
-        // still kills slowloris (the attack rate is bytes/min, not bytes/s) without
-        // dropping legitimate slow-connection users.
+        opts.Limits.MaxConcurrentConnections          = maxConn;
+        opts.Limits.MaxConcurrentUpgradedConnections  = maxUpgraded;   // WebSocket / SignalR
+        opts.Limits.MaxRequestBodySize                = maxBody;
+        opts.Limits.KeepAliveTimeout                  = TimeSpan.FromSeconds(keepAlive);
+        opts.Limits.RequestHeadersTimeout             = TimeSpan.FromSeconds(headerTimeout);
+        // Slowloris cap stays on across all profiles. Rate is bytes/min for the
+        // attack class, so even our most permissive setting (100 B/s) is safe.
         opts.Limits.MinRequestBodyDataRate            = new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
-            bytesPerSecond: 100, gracePeriod: TimeSpan.FromSeconds(10));
+            bytesPerSecond: minDataRate, gracePeriod: TimeSpan.FromSeconds(10));
         opts.Limits.MinResponseDataRate               = new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
-            bytesPerSecond: 100, gracePeriod: TimeSpan.FromSeconds(10));
-        opts.Limits.Http2.MaxStreamsPerConnection     = 200;     // up from 100 default
-        opts.Limits.Http2.InitialConnectionWindowSize = 1024 * 1024;  // 1 MB up from 64 KB
+            bytesPerSecond: minDataRate, gracePeriod: TimeSpan.FromSeconds(10));
+        opts.Limits.Http2.MaxStreamsPerConnection     = h2Streams;
+        opts.Limits.Http2.InitialConnectionWindowSize = h2Window;
     });
+    Log.Information(
+        "Kestrel profile '{Profile}': threads={Worker}/{Iocp} maxConn={MaxConn} h2Streams={H2}",
+        profile, minWorker, minIocp, maxConn, h2Streams);
 
     // Configure Kestrel for TLS if certificate provided (must be before Build)
     // When tunnel is active without TLS, enable h2c so cloudflared --http2-origin can use HTTP/2
