@@ -403,6 +403,24 @@ public class BotDetectionMiddleware(
                         Signals = cachedSignals,
                     };
                     context.Items[AggregatedEvidenceKey] = cachedEvidence;
+                    // Behaviour-aware tag helpers already read from AggregatedEvidence,
+                    // but HttpContext.IsBot() / GetBotDetectionResult() / IsVerifiedBot()
+                    // (the controller-side API documented in the behaviour-aware-ux post)
+                    // read from BotDetectionResultKey + IsBotKey instead. Without seeding
+                    // those on the verdict-cache short-circuit, every cache-hit visitor
+                    // is treated as "not a bot" by controller code -- silently breaking
+                    // `if (HttpContext.IsBot()) return RedirectToAction("LoginDenied");`
+                    // for returning bot visitors.
+                    var cachedIsBot = v.BotProbability > 0.5;
+                    context.Items[IsBotKey] = cachedIsBot;
+                    context.Items[BotProbabilityKey] = v.BotProbability;
+                    context.Items[BotDetectionResultKey] = new BotDetectionResult
+                    {
+                        IsBot = cachedIsBot,
+                        BotType = cachedIsBot ? BotType.Unknown : (BotType?)null,
+                        ConfidenceScore = v.Confidence,
+                        ProcessingTimeMs = 0.0,
+                    };
                     // "identity-cache" when the metastable fingerprint cache was the fresher
                     // source; "cache" when the per-signature aggregate was. Lets operators see
                     // when a rotated visitor reused their identity verdict instead of paying
