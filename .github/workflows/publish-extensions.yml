@@ -84,16 +84,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # linux-arm64 cross-compiles from ubuntu-latest (x64) because the
-        # linux_arm64 protoc bundled in Grpc.Tools 2.80.0 segfaults (exit 139)
-        # on the ubuntu-22.04-arm runner. dotnet publish cross-compiles fine;
-        # the protoc that runs is the linux_x64 one (works), and the AOT
-        # output targets linux-arm64. Mirrors what build-ui / build-all do.
-        # Native arm64 runners can come back when Grpc.Tools ships a working
-        # linux_arm64 protoc again.
+        # linux-arm64 runs on the native arm runner. The arm64 protoc bundled
+        # in Grpc.Tools 2.80.0 segfaults (exit 139) on Ubuntu 22.04 arm so we
+        # install the OS protobuf-compiler and point Grpc.Tools at it via
+        # -p:Protobuf_ProtocFullPath=/usr/bin/protoc in the publish step.
+        # Cross-compile from x64 would dodge protoc but needs a second toolchain
+        # (binutils-aarch64-linux-gnu) for the AOT linker; native + system
+        # protoc is cleaner.
         include:
           - { os: ubuntu-latest,    runtime: linux-x64,   file-ext: ''     }
-          - { os: ubuntu-latest,    runtime: linux-arm64, file-ext: ''     }
+          - { os: ubuntu-22.04-arm, runtime: linux-arm64, file-ext: ''     }
           - { os: windows-latest,   runtime: win-x64,     file-ext: '.exe' }
           - { os: windows-11-arm,   runtime: win-arm64,   file-ext: '.exe' }
           - { os: macos-15-intel,   runtime: osx-x64,     file-ext: ''     }
@@ -109,26 +109,40 @@ jobs:
 
       # Linux AOT needs clang + zlib for ILCompiler's platform linker.
       # macOS Xcode + Windows MSVC are preinstalled on GH runners.
+      # protobuf-compiler is added on linux-arm64 specifically because the
+      # arm64 protoc bundled in Grpc.Tools 2.80.0 segfaults on this runner
+      # (exit 139). The publish step points Grpc.Tools at the OS protoc.
       - name: Install AOT prerequisites (Linux)
         if: runner.os == 'Linux'
         shell: bash
+        env:
+          RUNTIME: ${{ matrix.runtime }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+          PACKAGES="clang zlib1g-dev"
+          if [ "$RUNTIME" = "linux-arm64" ]; then
+            PACKAGES="$PACKAGES protobuf-compiler"
+          fi
+          sudo apt-get install -y --no-install-recommends $PACKAGES
 
       # Native AOT publish - csproj's PublishAot=true wins. Ships the 36MB
-      # native binary, same shape as the Docker image.
+      # native binary. linux-arm64 uses system protoc (see above).
       - name: Publish sidecar
         shell: bash
         env:
           VERSION: ${{ needs.version.outputs.version }}
           RUNTIME: ${{ matrix.runtime }}
         run: |
+          EXTRA_PROPS=""
+          if [ "$RUNTIME" = "linux-arm64" ] && [ "$RUNNER_OS" = "Linux" ]; then
+            EXTRA_PROPS="-p:Protobuf_ProtocFullPath=/usr/bin/protoc"
+          fi
           dotnet publish src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj \
             --configuration Release \
             --runtime "$RUNTIME" \
             --self-contained true \
             -p:Version="$VERSION" \
+            $EXTRA_PROPS \
             --output "./publish/$RUNTIME"
 
       - name: Package
