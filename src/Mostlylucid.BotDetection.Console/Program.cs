@@ -685,6 +685,31 @@ try
             await responseTransform.TransformAsync(transformContext));
     });
 
+    // Kestrel limits and ThreadPool warm-up. Without these, default Kestrel limits +
+    // a cold ThreadPool produce two failure modes under burst load:
+    //   1. Cold-start "unexpected EOF" floods (~250 errors in the first 5s of a 50 RPS
+    //      ramp, observed in the 2026-05-31 soak) -- the first wave of requests races
+    //      ThreadPool growth, some get dropped before a handler thread is available.
+    //   2. Indefinite queueing under sustained overload instead of fast refusal --
+    //      latency climbs to seconds while everyone waits for a worker.
+    // Set explicit ceilings so the failure mode becomes "fast refuse with TCP RST"
+    // instead of "queue, time out, EOF". MinThreads pre-warms the worker pool so the
+    // first 200 concurrent requests don't pay thread-creation latency. See
+    // docs/perf-pass-2026-05-31.md for the analysis.
+    System.Threading.ThreadPool.SetMinThreads(workerThreads: 200, completionPortThreads: 200);
+    builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(opts =>
+    {
+        opts.Limits.MaxConcurrentConnections          = 10_000;
+        opts.Limits.MaxConcurrentUpgradedConnections  = 1_000;   // WebSocket / SignalR
+        opts.Limits.MaxRequestBodySize                = 256 * 1024;  // gateway proxies; tight cap
+        opts.Limits.KeepAliveTimeout                  = TimeSpan.FromSeconds(30);
+        opts.Limits.RequestHeadersTimeout             = TimeSpan.FromSeconds(10);
+        opts.Limits.MinRequestBodyDataRate            = null;    // gateways often see slow uploads
+        opts.Limits.MinResponseDataRate               = null;
+        opts.Limits.Http2.MaxStreamsPerConnection     = 200;     // up from 100 default
+        opts.Limits.Http2.InitialConnectionWindowSize = 1024 * 1024;  // 1 MB up from 64 KB
+    });
+
     // Configure Kestrel for TLS if certificate provided (must be before Build)
     // When tunnel is active without TLS, enable h2c so cloudflared --http2-origin can use HTTP/2
     // to localhost — preventing the Http2FingerprintContributor from penalising proxied browser requests.
