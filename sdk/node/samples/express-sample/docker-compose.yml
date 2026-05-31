@@ -1,0 +1,46 @@
+# Live demo for the @stylobot/node Express middleware.
+#
+# Pattern for multi-site hosting under x.stylo.bot subdomains: each sample
+# runs in its own container on its own port. A front-end proxy (Caddy or
+# the stylobot website's Caddy) maps subdomain → port.
+#
+# This file runs the express-sample on port 3001 against a stylobot gateway
+# at port 5080. For the live deployment, replace the `gateway` service with
+# whatever stylobot instance the multi-site infrastructure points at, or
+# leave only the `express-sample` service and set STYLOBOT_URL to an
+# external endpoint.
+#
+#   docker compose -f sdk/node/samples/express-sample/docker-compose.yml up --build
+
+services:
+
+  # Pinned gateway so the sample has something to call. In prod this will
+  # be the shared gateway behind x.stylo.bot — drop this service and point
+  # STYLOBOT_URL at it instead.
+  gateway:
+    image: scottgal/stylobot-gateway:latest
+    ports:
+      - "5080:5080"
+    environment:
+      STYLOBOT_MODE: "production"
+      # Bypass key so the sample's per-request /api/v1/detect calls aren't
+      # throttled. Replace with a real per-site key in prod.
+      BotDetection__ApiKeys__sample-express-key__Name: "sample-express"
+      BotDetection__ApiKeys__sample-express-key__Description: "Express sample demo"
+      BotDetection__ApiKeys__sample-express-key__Enabled: "true"
+      BotDetection__AllowFullDetectorBypassApiKeys: "true"
+
+  # Express sample. Subdomain mapping (e.g. express.stylo.bot) lives at the
+  # outer proxy; the container just listens on $PORT.
+  express-sample:
+    build:
+      context: ../../        # sdk/node (workspaces root)
+      dockerfile: samples/express-sample/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      STYLOBOT_URL: "http://gateway:5080"
+      STYLOBOT_API_KEY: "sample-express-key"
+    depends_on:
+      - gateway
