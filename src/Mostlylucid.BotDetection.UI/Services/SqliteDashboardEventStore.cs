@@ -865,19 +865,28 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // Column order: signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
         //   last_seen(5), threat_score(6), action(7), threat_band(8), country_code(9), bytes_out(10), is_bot(11)
         // narrative/top_reasons are not stored per-detection row; they default to null for windowed results.
+        // SQLite "bare column" rule (>= 3.7.11): when a query uses MAX() or MIN()
+        // in the SELECT, every bare (un-aggregated) column comes from the SAME row
+        // that produced the MAX/MIN. Picking MAX(timestamp) here means bot_name /
+        // bot_type / bot_probability / is_bot / action / threat_band / country_code
+        // all reflect the LATEST detection for the signature -- mirroring the
+        // Postgres `(array_agg ORDER BY timestamp DESC))[1]` pattern. The previous
+        // MAX(field) per column was alphabetical max for strings + "ever-bot" max
+        // for the boolean, so a single past misclassification kept a re-classified
+        // human stuck in the Bots filter forever at 0% bot probability.
         cmd.CommandText = $"""
             SELECT signature,
-                   MAX(bot_name)         AS bot_name,
-                   MAX(bot_type)         AS bot_type,
-                   MAX(bot_probability)  AS bot_probability,
+                   bot_name,
+                   bot_type,
+                   bot_probability,
                    COUNT(*)              AS hit_count,
                    MAX(timestamp)        AS last_seen,
                    AVG(threat_score)     AS threat_score,
-                   MAX(action)           AS action,
-                   MAX(threat_band)      AS threat_band,
-                   MAX(country_code)     AS country_code,
+                   action,
+                   threat_band,
+                   country_code,
                    COALESCE(SUM(response_bytes), 0) AS bytes_out,
-                   MAX(is_bot)           AS is_bot
+                   is_bot
             FROM detections
             WHERE 1=1{audiencePredicate}{timeWhere}
             GROUP BY signature
