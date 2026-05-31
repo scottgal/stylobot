@@ -1,5 +1,5 @@
 # The Tunnel Trade-off: What StyloBot Can (and Can't) See Behind a Reverse Proxy
-
+Ok 
 *StyloBot still works behind Cloudflare Tunnel, Caddy, nginx, or any reverse proxy. It just sees less. This is which signals survive the tunnel hop, which die at the edge, and what to do about it.*
 
 <!--category-- Architecture, Operations, StyloBot, TLS -->
