@@ -1210,14 +1210,24 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);
 
+            // EntityResolutionService writes convergence metadata through this same method
+            // with a "converge:" prefix in the signature column. Stamp the row with the
+            // matching EdgeType so the alreadyFlagged dedupe check in that service works,
+            // and so dashboard read paths can filter convergence edges out of signature
+            // lookups instead of generating a /dashboard/signature/converge:... URL.
+            var edgeType = signature.StartsWith("converge:", StringComparison.Ordinal)
+                ? "Converge"
+                : "Merge";
+
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO entity_edges (edge_id, entity_id, signature, edge_type, confidence, created_at, reason)
-                VALUES (@eid, @entity, @sig, 'Merge', @conf, @now, @reason)
+                VALUES (@eid, @entity, @sig, @type, @conf, @now, @reason)
             """;
             cmd.Parameters.AddWithValue("@eid", Guid.NewGuid().ToString("N")[..16]);
             cmd.Parameters.AddWithValue("@entity", entityId);
             cmd.Parameters.AddWithValue("@sig", signature);
+            cmd.Parameters.AddWithValue("@type", edgeType);
             cmd.Parameters.AddWithValue("@conf", confidence);
             cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
             cmd.Parameters.AddWithValue("@reason", reason);

@@ -4811,8 +4811,14 @@ public class StyloBotDashboardMiddleware
         try
         {
             var edges = await reader.GetEntityEdgesAsync(decodedEntityId, context.RequestAborted);
+            // Convergence edges store the OTHER entity's id in the signature column with a
+            // "converge:" prefix; they're operator-review metadata, not navigable signatures.
+            // Skip them here so /dashboard/entity/<id> never redirects to a bogus
+            // /dashboard/signature/converge:<id> target.
             var activeEdge = edges
                 .Where(e => e.IsActive)
+                .Where(e => !string.IsNullOrEmpty(e.Signature)
+                         && !e.Signature.StartsWith("converge:", StringComparison.Ordinal))
                 .OrderByDescending(e => e.CreatedAt)
                 .FirstOrDefault();
 
