@@ -188,6 +188,26 @@ render the same numbers the gateway sees:
 - **`docs(perf): match doc snippet to actual MinDataRate values`** (`6f9e4908`)
 - **`chore: stop-before-build in test-aot driver + clarify perf-profiles RSS estimates`** (`e9cde18f`)
 
+### FOSS sizing
+
+Ceiling soak (50 → 100 → 200 → 400 → 800 RPS in 10-min plateaus) on the
+standalone win-x64 AOT gateway with default `balanced` profile, detection
+ON. **246,403 requests served, 99.3% success, 660 k k6 iterations dropped
+at the upper plateaus** because the gateway refused the excess at TCP.
+Full table + per-deployment sizing in `docs/foss-sizing-2026-05-31.md`.
+
+| Target | Effective | Memory | Per-deployment fit |
+|---|---|---|---|
+| up to 20 RPS | ~20 | ~150 MB | Pi 4 (2 GB), nano VPS |
+| 20-50 RPS | ~50 | 200-260 MB | Pi 4 (4 GB), $5-10/mo VPS |
+| 50-100 RPS | ~100 | 500-600 MB | 2 vCPU / 2 GB VPS |
+| 100+ RPS | **~100 (per-process ceiling)** | 700-800 MB | scale horizontally, profile up to `site`, or commercial Postgres |
+
+Above ~100 RPS the gateway absorbs the extra at Kestrel without crashing,
+running out of memory, or queueing badly. The cap is single-writer SQLite
+sessions.db + ThreadPool growth-rate equilibrium at ~807 in-flight
+handlers.
+
 ### Known issues carried into 7.0.0
 
 - **`Publish Stylobot Binaries → Linux .deb to Cloudsmith`** returns
