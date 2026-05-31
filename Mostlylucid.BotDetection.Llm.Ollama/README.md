@@ -18,4 +18,4 @@ builder.Services.AddAdvancedBotDetection("http://localhost:11434", "qwen3:0.6b")
 
 ## License
 
-[Unlicense](https://unlicense.org/)
+[GNU AGPLv3](https://www.gnu.org/licenses/agpl-3.0)

@@ -76,4 +76,4 @@ Open an issue on [GitHub](https://github.com/scottgal/stylobot/issues). Include:
 
 ## License
 
-By contributing, you agree that your contributions will be released under [The Unlicense](LICENSE).
+By contributing, you agree that your contributions will be released under the [GNU AGPLv3](LICENSE).

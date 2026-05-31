@@ -239,4 +239,4 @@ services:
 
 ## License
 
-[Unlicense](https://unlicense.org/) - Public Domain
+[GNU AGPLv3](https://www.gnu.org/licenses/agpl-3.0)

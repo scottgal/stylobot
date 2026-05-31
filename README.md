@@ -34,7 +34,7 @@ And NUMEROUS others in the coming weeks covering all of StyloBot's features at r
 Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone YARP gateway proxy, or sidecar detection API. 49 detectors, <150µs per request, no PII leaves your server.
 
 [![NuGet](https://img.shields.io/nuget/v/mostlylucid.botdetection)](https://www.nuget.org/packages/mostlylucid.botdetection)
-[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://unlicense.org/)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 > **This repo is the FOSS product.** Full detection engine, dashboard, entity resolution, simulation packs. The [commercial product](https://stylobot.net) uses the same engine with enterprise add-ons (see [FOSS vs Commercial](#foss-vs-commercial)).
 
@@ -524,7 +524,7 @@ scripts/                                Load tests, Docker compose, build toolin
 
 ## License
 
-[The Unlicense](https://unlicense.org/) FOSS core is public domain. Commercial features licensed separately.
+[GNU AGPLv3](https://www.gnu.org/licenses/agpl-3.0) — FOSS core. Commercial features licensed separately.
 
 ## Third-party dependencies
 

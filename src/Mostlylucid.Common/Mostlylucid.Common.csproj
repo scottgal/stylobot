@@ -11,7 +11,7 @@
         <Title>Mostlylucid Common</Title>
         <Description>Shared abstractions, base classes, and utilities for Mostlylucid NuGet packages</Description>
         <Authors>Scott Galloway</Authors>
-        <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+        <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
         <PackageProjectUrl>https://github.com/scottgal/stylobot</PackageProjectUrl>
         <RepositoryUrl>https://github.com/scottgal/stylobot</RepositoryUrl>
         <PackageTags>common;utilities;caching;middleware;aspnetcore</PackageTags>

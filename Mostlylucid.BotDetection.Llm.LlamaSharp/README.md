@@ -12,4 +12,4 @@ dotnet add package Mostlylucid.BotDetection.Llm.LlamaSharp
 
 ## License
 
-[Unlicense](https://unlicense.org/)
+[GNU AGPLv3](https://www.gnu.org/licenses/agpl-3.0)

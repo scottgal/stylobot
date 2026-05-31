@@ -181,4 +181,4 @@ dotnet add package Mostlylucid.Common
 
 ## License
 
-Unlicense (Public Domain)
+GNU AGPLv3

@@ -221,7 +221,7 @@ var stats = geoService.GetStatistics();
 
 ## License
 
-Unlicense - Public Domain
+GNU AGPLv3
 
 ## Links
 

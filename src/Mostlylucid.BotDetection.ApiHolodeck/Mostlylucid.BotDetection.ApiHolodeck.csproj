@@ -15,7 +15,7 @@
         <PackageTags>bot-detection;honeypot;holodeck;api-mocking;llm;security;anti-scraping</PackageTags>
         <PackageProjectUrl>https://github.com/scottgal/mostlylucid.nugetpackages</PackageProjectUrl>
         <RepositoryUrl>https://github.com/scottgal/mostlylucid.nugetpackages</RepositoryUrl>
-        <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+        <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageReleaseNotes>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/ReleaseNotes.txt'))</PackageReleaseNotes>
     </PropertyGroup>

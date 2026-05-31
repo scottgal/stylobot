@@ -13,6 +13,30 @@ and a sweep of fingerprint-matching corrections lands. 54 commits across the
 release. **FOSS detection is unchanged — every Sqlite store stays the
 default; the new interfaces only give the commercial layer a swap point.**
 
+### ⚠️ License change
+
+**StyloBot FOSS flips from `Unlicense` (public domain) to
+`GNU AGPL-3.0-only`** in 7.0.0. The `LICENSE` file at the repo root is
+now the canonical AGPLv3 text; every published NuGet package
+(`Mostlylucid.BotDetection`, `Mostlylucid.BotDetection.ApiHolodeck`,
+`Mostlylucid.Common`, `Mostlylucid.GeoDetection`) advertises
+`PackageLicenseExpression = AGPL-3.0-only`. Practical impact for
+existing users:
+
+- Code you wrote on top of stylobot is unaffected if you don't
+  distribute it as a service or redistribute the binary. Internal
+  use is fine.
+- Public-facing services that incorporate stylobot's source must
+  offer their users the corresponding source code (this is the "A"
+  in AGPL). Static linking, dynamic linking, and the SDK helpers
+  all count as incorporation.
+- The dual-licensed `Mostlylucid.GeoDetection.Contributor` (`MIT`)
+  is unchanged.
+- The commercial layer in `stylobot-commercial` retains its
+  separate licence and is unaffected.
+
+CONTRIBUTING.md was updated so new contributions are also AGPLv3.
+
 ### Headline
 
 - **Identity store is pluggable.** `IFingerprintStore`, `IClusterStore`,

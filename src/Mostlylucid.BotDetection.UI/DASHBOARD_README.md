@@ -432,4 +432,4 @@ Cluster detection requires minimum traffic volume before Leiden clustering trigg
 
 ## License
 
-Part of the Mostlylucid.BotDetection suite. [The Unlicense](https://unlicense.org/)
+Part of the Mostlylucid.BotDetection suite. [GNU AGPLv3](https://www.gnu.org/licenses/agpl-3.0)

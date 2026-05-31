@@ -10,4 +10,4 @@ dotnet add package Mostlylucid.StyloSpam.Core
 
 ## License
 
-[Unlicense](https://unlicense.org/)
+[GNU AGPLv3](https://www.gnu.org/licenses/agpl-3.0)

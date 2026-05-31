@@ -4,7 +4,7 @@
   <PropertyGroup>
     <Authors>Scott Galloway</Authors>
     <Company>Mostlylucid</Company>
-    <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+    <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/scottgal/stylobot</PackageProjectUrl>
     <RepositoryUrl>https://github.com/scottgal/stylobot</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

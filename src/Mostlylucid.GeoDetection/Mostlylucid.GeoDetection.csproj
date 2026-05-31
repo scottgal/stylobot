@@ -10,7 +10,7 @@
         <Authors>Scott Galloway</Authors>
         <PackageIcon>icon.png</PackageIcon>
         <RepositoryUrl>https://github.com/scottgal/stylobot</RepositoryUrl>
-        <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+        <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
         <PackageTags>geolocation;geo-routing;middleware;aspnetcore;ip-location;country</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Description>
