@@ -84,9 +84,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # linux-arm64 cross-compiles from ubuntu-latest (x64) because the
+        # linux_arm64 protoc bundled in Grpc.Tools 2.80.0 segfaults (exit 139)
+        # on the ubuntu-22.04-arm runner. dotnet publish cross-compiles fine;
+        # the protoc that runs is the linux_x64 one (works), and the AOT
+        # output targets linux-arm64. Mirrors what build-ui / build-all do.
+        # Native arm64 runners can come back when Grpc.Tools ships a working
+        # linux_arm64 protoc again.
         include:
           - { os: ubuntu-latest,    runtime: linux-x64,   file-ext: ''     }
-          - { os: ubuntu-22.04-arm, runtime: linux-arm64, file-ext: ''     }
+          - { os: ubuntu-latest,    runtime: linux-arm64, file-ext: ''     }
           - { os: windows-latest,   runtime: win-x64,     file-ext: '.exe' }
           - { os: windows-11-arm,   runtime: win-arm64,   file-ext: '.exe' }
           - { os: macos-15-intel,   runtime: osx-x64,     file-ext: ''     }

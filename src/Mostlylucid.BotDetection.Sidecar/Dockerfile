@@ -17,14 +17,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG VERSION=0.0.0
 WORKDIR /src
+# protobuf-compiler is the workaround for Grpc.Tools 2.80.0's bundled linux_arm64
+# protoc segfaulting under QEMU. -p:Protobuf_ProtocFullPath= tells Grpc.Tools to
+# use the system protoc instead of its (broken under QEMU) bundled one.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends clang zlib1g-dev \
+ && apt-get install -y --no-install-recommends clang zlib1g-dev protobuf-compiler \
  && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN dotnet publish src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj \
       --configuration Release \
       --self-contained true \
       -p:Version="$VERSION" \
+      -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
       --output /app
 
 # --- runtime -----------------------------------------------------------------
