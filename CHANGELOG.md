@@ -5,6 +5,200 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.0.0] - 2026-05-31
+
+The identity layer becomes pluggable, the standalone AOT gateway gets perf
+profiles, the sidecar release pipeline ships its first-ever GitHub Release,
+and a sweep of fingerprint-matching corrections lands. 54 commits across the
+release. **FOSS detection is unchanged — every Sqlite store stays the
+default; the new interfaces only give the commercial layer a swap point.**
+
+### Headline
+
+- **Identity store is pluggable.** `IFingerprintStore`, `IClusterStore`,
+  `ILicenseGraceStore`, plus a `Func<DbConnection>` factory rewrite of
+  `AssetHashStore` and `CentroidSequenceStore`, mean the commercial Postgres
+  build can swap the matcher write path without spawning stylobot's own
+  `.db` files. The FOSS package keeps the SQLite implementations as the
+  default bindings.
+- **Matcher bisect: keep verdict signals at Wave-6.** The Priority-1
+  experiment (allocate fingerprint earlier so the dashboard renders for
+  verdict-cached visitors) had the side effect of letting the matcher's
+  archetype-kind signals dominate the aggregate for borderline-but-bot
+  scenarios, scoring `missing-browser-headers` Chrome traffic at **0.05**
+  instead of the scenario-expected 0.6. Reverted to Priority 6. Track the
+  follow-up under `project_bdf_replay_regression`.
+- **Archetype-kind gate.** The composer now uses an archetype name as the
+  visitor display name only when its `archetype_kind == "human-browser"`.
+  Bot-shaped archetypes that match by header-coincidence (Mastodon
+  matching real Chrome traffic, python-on-Firefox) fall through to UA
+  family + OS instead.
+- **AOT gateway perf profiles.** `STYLOBOT_PROFILE=api|site|highrisk|balanced`
+  picks Kestrel limits, ThreadPool min-thread counts, and HTTP/2 window
+  sizes tuned for a specific traffic shape. Default `balanced` matches
+  what the 2026-05-31 1-hour soak validated (p50 11 ms, memory plateau
+  150-220 MB across 150 K requests).
+- **Sidecar release pipeline finally green.** `Publish StyloBot Extensions`
+  has been failing on every push since at least `allbot-v6.8.3` (May 25)
+  -- the bundled `linux_arm64` `protoc` in `Grpc.Tools 2.80.0` segfaults on
+  the `ubuntu-22.04-arm` runner, taking the release-attach step down. Fix
+  installs system `protobuf-compiler` and points `Grpc.Tools` at it via
+  `-p:Protobuf_ProtocFullPath=/usr/bin/protoc`. The first-ever
+  `extensions-v*` GitHub Release shipped at `extensions-v7.0.0-alpha2`
+  with all 7 sidecar binaries.
+
+### Added
+
+- **`feat(perf): Kestrel profiles for API / site / high-risk / balanced`** (`110fb92a`)
+  -- `STYLOBOT_PROFILE` env var (or `--profile` CLI flag) picks one of four
+  presets. Each tunes ThreadPool min, MaxConcurrentConnections, KeepAlive,
+  body size, slowloris caps, and HTTP/2 window. Logged at startup. See
+  `docs/perf-profiles.md` for parameter table + recommended pairings with
+  detection action-policies.
+- **`perf(console): explicit Kestrel limits + ThreadPool warm-up`** (`8023555e`)
+  -- cold-start "unexpected EOF" floods cut from 252 → 7 over the first 5 s of
+  a 50 RPS ramp; failure mode under sustained overload becomes "fast refuse
+  with TCP RST" instead of "queue, time out, EOF". See
+  `docs/perf-pass-2026-05-31.md` for the full fast-path analysis.
+- **`feat(bdf): harvest endpoint + archetype-from-bdf converter`** (`a7c24300`)
+  -- closes the loop for empirically-derived archetype YAMLs. Debug-gated
+  `/api/v1/bdf/harvest` streams persisted BDFs as NDJSON, tagged with
+  verdict + self-declared-bot. Console subcommand `archetype-from-bdf` groups
+  by label and writes IdentityArchetypeYaml files (frequency-as-confidence
+  mask). Deploy with the flag on, real visitors hit the site, curl the
+  endpoint, run the converter, the YAMLs go into
+  `Definitions/IdentityArchetypes/` and get embedded into the next build.
+- **`feat(identity): register IFingerprintStore FOSS default binding`** (`171fe088`)
+- **`feat(data): NullSignatureCentroidStore so commercial hosts keep Sqlite out`** (`95c425f3`)
+- **`feat(data): Null implementations for 7 more FOSS Sqlite-backed stores`** (`fffbe9f8`)
+- **`arch: WriteBehindLfuStore<TKey,TValue,TWriteOp> base + revert diag header`** (`0ade0ee1`)
+- **`arch(dashboard): gateway owns the cache, remote hosts read via REST`** (`1b064e4c`)
+- **`tools: scripts/test-aot-on-maxo.sh for SQLite-AOT soak/load on a Win test box`** (`32d4b181`)
+
+### Changed -- identity / fingerprint matching
+
+- **`fix(matcher): revert to Priority 6 -- P1 biased aggregate toward human`** (`af54fbe0`)
+  -- `0301a5de` had moved the matcher to Wave 0 so the dashboard could render
+  a fingerprint shape for verdict-cached visitors instead of the
+  "Calibrating" spinner. The unintended side effect: the matcher's verdict
+  signals (archetype kind, cached score, client type) landed in Wave 0
+  before the bot-flagging detectors did. For Chrome-with-missing-headers
+  scenarios the early human-leaning match dragged the aggregate to 0.05
+  against the scenario-expected 0.6. Reverted. The proper fix splits early
+  fingerprint allocation from late verdict-signal emission and is tracked
+  separately.
+- **`fix(naming): only use archetype name when archetype is human-browser`** (`664b2600`)
+  -- adds `SignalKeys.IdentityArchetypeKind` alongside the existing name
+  signal. The composer requires `kind == "human-browser"` before using the
+  archetype as the visitor's display name. Real Chrome visitors previously
+  rendered as e.g. "Mastodon Family (header drift)" because the
+  nearest-archetype matcher picked up a bot-family centroid by header
+  coincidence.
+- **`fix(identity): re-derive fingerprint name when the centroid flips its classification`** (`7e2fc388`)
+  -- a fingerprint's display name was assigned once and never re-derived,
+  while `IsBot` is recomputed every detection. A fingerprint that drifted
+  human kept its "Googlebot" name and rendered as a human row.
+  `FingerprintAbsorptionService` now clears the persisted display name on
+  type-change; `SignatureAggregateCache` accepts a changed name on a
+  bot↔human flip (authoritative rename).
+- **`refactor(identity): extract IFingerprintStore so commercial can swap the matcher write path`** (`3c48448e`)
+  -- 11 consumers (matcher contributor, absorption/drift/calibration
+  services, brute-force anchor, cluster service, AI-opinion, BDF replay,
+  LlmResultSignalRCallback) now depend on `IFingerprintStore` instead of
+  the concrete `SqliteFingerprintStore`. Approval token TTL is now
+  configurable (default 24h).
+- **`refactor(identity): make CentroidSequenceStore + AssetHashStore backend-agnostic`** (`4390d43a`)
+  -- both took a SQLite connection string and hardcoded `SqliteConnection`.
+  They now take a `Func<DbConnection>` factory and use provider-agnostic
+  ADO. FOSS injects a SQLite factory; commercial points them at PostgreSQL.
+  No SQL or logic change.
+- **`fix(dashboard): kill 'Calibrating fingerprint' on signature-detail page`** (`064ff530`)
+- **`fix(dashboard): drop the degenerate archetype-origin overlay from the radar`** (`0b2f423c`)
+- **`fix(dashboard): make the fingerprint radar readable for L2-normalized centroids`** (`61d58523`)
+
+### Changed -- persistence / SQLite ↔ Postgres decoupling
+
+- **`refactor(cluster-store): extract IClusterStore for commercial Postgres swap`** (`d9e829ba`)
+- **`refactor(licensing): extract ILicenseGraceStore for commercial swap`** (`23848029`)
+- **`fix(dashboard-remote): read-only RemoteRouteNameStore so the viewer has zero persistence`** (`cf2c2d5b`)
+  -- remote viewer dashboards no longer create `dashboard.db`. Friendly
+  route names are config-driven on the gateway and surfaced via
+  `GET /api/v1/routes`.
+- **`fix(broadcast): cache update + beacon BEFORE _next, DB persist fire-and-forget`** (`6230db2b`)
+
+### Changed -- performance
+
+- **`perf(detection): stop synchronous IP-enrichment stalling cold-IP requests`** (`2f8ac8b6`)
+  -- every request from a fresh external IP was blocking ~18-25 s on
+  synchronous IP enrichment. `AsnLookupService.QueryDnsTxt` called
+  `Dns.GetHostEntryAsync` on the unresolvable `*.cymru.com` name (blocks
+  the system resolver with no effective timeout) and then discarded the
+  result and did a raw UDP query anyway. Removed the dead blocking call,
+  added a 2 s overall lookup budget. `IpApiGeoLocationService` now
+  negative-caches failures (5 min) and drops HTTP timeout 10 s → 2 s.
+- **`perf(dashboard): stop the broadcaster hammering Postgres; serve SSR from cache`** (`054e8cde`)
+- **`perf(dashboard): gateway-side cache for Summary/Detections/TimeSeries/TopBots/Threats with idle-skip`** (`5badca1c` -- reapplied after `02f5247b` revert)
+- **`fix(api): /api/v1/detections cache fast-path for signature-scoped limit=1`** (`fe7848aa`)
+
+### Changed -- gateway / verdict headers
+
+- **`fix(gateway): TrustAllForwardedProxies actually trusts the proxy (any-network entries)`** (`39e42d08`)
+- **`fix(gateway): emit X-Bot-Detection-* on the proxied request`** (`4892e817`)
+- **`fix(gateway): emit full verdict header set on proxied request`** (`5913fb6a`)
+- **`fix(bot-detection): seed PrimarySignature on verdict-cache short-circuit`** (`da9b7f4a`)
+- **`fix(bdf): register Bdf services in AddStyloBotApi so gateway-hosted endpoint resolves`** (`6c9dd26b`)
+
+### Changed -- dashboard (event-store-source-of-truth)
+
+A series of fixes routes dashboard view components through the event store
+instead of the volatile aggregate cache, so remote-mode viewer dashboards
+render the same numbers the gateway sees:
+
+- **`fix(dashboard): Top Bots / Live Activity reads through event store`** (`e35378c9`)
+- **`fix(dashboard): SbTopBotsViewComponent reads through event store too`** (`b1be651a`)
+- **`fix(dashboard): SbVisitorListViewComponent also reads through event store`** (`4cbbf986`)
+- **`fix(dashboard): Visitors tab reads through event store`** (`c5a7cb77`)
+- **`fix(dashboard): YourDetection looks up signature via hydrator path too`** (`b58e5626`)
+- **`fix(dashboard): audienceFilter=all extends GetTopBotsAsync past is_bot`** (`b6e4f935`)
+- **`fix(dashboard): correct Top Bots counts + Your-Detection event-store fallback`** (`69f2f35e`)
+- **`fix(dashboard): periodic SignatureAggregateCache refresh for remote-mode hosts`** (`2ff0fc4d`, after `7709371c` revert)
+- **`fix(dashboard): stop bailing when MultiFactorSignatureService is absent`** (`3806fff9`)
+- **`fix(dashboard-remote): pass signature filter through /api/v1/detections`** (`efdfb070`)
+- **`fix(dashboard): "active bot signatures" link uses & not ? to join filter param`** (`66186663`)
+- **`fix(home-hero): never render 0% from a default; hydrate from event store in remote mode`** (`94aace71`)
+- **`fix(home-hero): rename shadowed primarySig variable (build fix)`** (`4ac14787`)
+- **`fix(dashboard): exclude dashboard endpoints by path, not the whole local network`** (`ff9eb859`, reverted in `ed51e6ea`)
+
+### Fixed -- CI / release
+
+- **`fix(ci): work around Grpc.Tools 2.80.0 linux_arm64 protoc segfault`** (`7aad0755`)
+- **`fix(ci): revert to native arm64 runner + system protoc instead of x64 cross-compile`** (`5d3da21e`)
+- **`fix(tests): align with SQLite-decoupling + archetype-kind name gate`** (`a5c39e94`)
+  -- 14 compile errors and 6 runtime failures across `BotDetection.Test`
+  fixed: SQLite-connection-factory migration in
+  `AssetHashStoreTests` / `CentroidSequenceStoreTests` /
+  `AssetHashMiddlewareTests` / `ContentSequenceContributorTests`, and the
+  archetype-kind signal additions in the Priority-2
+  `DeterministicBotNameTests`.
+
+### Misc
+
+- **`fix(perf): keep MinRequestBody/ResponseDataRate caps (relaxed, not disabled)`** (`4b791328`)
+- **`diag(hydrator): X-Sb-Hydrator-Saw response header`** (`b91c97e2`)
+- **`docs(perf): match doc snippet to actual MinDataRate values`** (`6f9e4908`)
+- **`chore: stop-before-build in test-aot driver + clarify perf-profiles RSS estimates`** (`e9cde18f`)
+
+### Known issues carried into 7.0.0
+
+- **`Publish Stylobot Binaries → Linux .deb to Cloudsmith`** returns
+  `403 Forbidden`. Credential / namespace issue, not a code fix.
+  `CLOUDSMITH_API_KEY` needs rotating. Main GitHub Release attachment
+  still succeeds.
+- **9 Puppeteer integration tests** in `Mostlylucid.BotDetection.Orchestration.Tests`
+  reference `/bot-test` which no longer exists in the Demo. Pre-existing
+  rot (since the `cd550610` src-reorg, 2+ weeks before 7.0). Run the suite
+  with `--filter "Category!=Puppeteer"` to skip them.
+
 ## [6.8.8] - 2026-05-26
 
 Edge-injected TLS fingerprint forwarding through Caddy. When stylobot sits behind a TLS-terminating reverse proxy, the proxy-to-origin hop's TLS context is not the client's -- 6.8.8 wires the canonical forwarding header set end-to-end so the contributor sees the *client's* TLS shape, not Kestrel's.
