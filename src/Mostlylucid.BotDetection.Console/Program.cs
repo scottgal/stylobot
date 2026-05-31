@@ -704,8 +704,14 @@ try
         opts.Limits.MaxRequestBodySize                = 256 * 1024;  // gateway proxies; tight cap
         opts.Limits.KeepAliveTimeout                  = TimeSpan.FromSeconds(30);
         opts.Limits.RequestHeadersTimeout             = TimeSpan.FromSeconds(10);
-        opts.Limits.MinRequestBodyDataRate            = null;    // gateways often see slow uploads
-        opts.Limits.MinResponseDataRate               = null;
+        // Slow-rate caps relaxed (not disabled): default 240 B/s with 5 s grace is
+        // tight for proxied uploads from slow mobile clients. 100 B/s with 10 s grace
+        // still kills slowloris (the attack rate is bytes/min, not bytes/s) without
+        // dropping legitimate slow-connection users.
+        opts.Limits.MinRequestBodyDataRate            = new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
+            bytesPerSecond: 100, gracePeriod: TimeSpan.FromSeconds(10));
+        opts.Limits.MinResponseDataRate               = new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
+            bytesPerSecond: 100, gracePeriod: TimeSpan.FromSeconds(10));
         opts.Limits.Http2.MaxStreamsPerConnection     = 200;     // up from 100 default
         opts.Limits.Http2.InitialConnectionWindowSize = 1024 * 1024;  // 1 MB up from 64 KB
     });
