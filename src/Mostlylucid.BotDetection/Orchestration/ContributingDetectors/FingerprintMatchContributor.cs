@@ -53,15 +53,17 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     }
 
     public override string Name => "FingerprintMatch";
-    // Priority 1 ensures the matcher runs in the earliest wave, ahead of any
-    // quorum-exit gate (e.g. FastPathReputation at 3). The matcher self-computes
-    // the identity vector when IdentityVectorContributor (5) hasn't run yet
-    // (see ContributeCoreAsync line ~96), so it has no real ordering dependency
-    // on a higher-priority contributor. Without this, verdict-cached visitors
-    // (any IP/UA the orchestrator quorum-exits on) never get a fingerprint
-    // allocated -- and any downstream dashboard host renders "Calibrating"
-    // forever for them.
-    public override int Priority => 1;
+    // Priority 6 (after IdentityVector at 5). Earlier work moved this to
+    // Priority 1 to fix the dashboard's "Calibrating" render for verdict-cached
+    // visitors -- but doing so let the matcher's verdict signals (archetype kind,
+    // cached score, client type) land before the bot-flagging detectors, which
+    // for borderline-but-bot scenarios (e.g. "Chrome with missing browser
+    // headers") biased the aggregate hard toward human (score 0.05 vs the
+    // scenario-expected 0.6, see test-suites/bots/07-missing-browser-headers).
+    // The dashboard issue needs to be fixed by splitting "allocate a fingerprint
+    // early" from "emit verdict signals late" -- not by moving the whole
+    // contributor. Tracked in MEMORY: project_bdf_replay_regression.
+    public override int Priority => 6;
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
     public override bool IsEnabled => _enabled;
 
