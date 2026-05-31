@@ -9,8 +9,12 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
 public class SbSummaryStatsViewComponent(
     IDashboardEventStore eventStore,
-    VisitorListCache visitorCache,
-    IOptions<StyloBotDashboardOptions> options)
+    IOptions<StyloBotDashboardOptions> options,
+    // visitorCache is optional: remote-mode dashboard viewer hosts don't
+    // register it. Per [[feedback_remote_mode_optional_di]]. When null, the
+    // session-derived enrichment fields fall back to the headline summary
+    // values from the event store rather than 500-ing the whole tab.
+    VisitorListCache? visitorCache = null)
     : ViewComponent
 {
     public async Task<IViewComponentResult> InvokeAsync(string? audience = null, string? range = null)
@@ -19,6 +23,9 @@ public class SbSummaryStatsViewComponent(
         var summary = await eventStore.GetSummaryAsync(startTime, endTime, audience);
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
+
+        if (visitorCache is null)
+            return View(model);
 
         // Fetch all cached visitors for summary totals. The cache is bounded (default 100 entries);
         // this constant must be >= VisitorListCache._maxVisitors to ensure we get the full snapshot.

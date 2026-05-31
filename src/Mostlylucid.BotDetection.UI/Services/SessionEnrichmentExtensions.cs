@@ -44,12 +44,12 @@ public static class SessionEnrichmentExtensions
     /// </summary>
     public static string? ResolveBotName(
         this Dictionary<string, string?> signatureLookup,
-        SignatureAggregateCache cache,
+        SignatureAggregateCache? cache,
         string signature,
         string? storedName)
     {
         if (!string.IsNullOrEmpty(storedName)) return storedName;
-        if (cache.TryGet(signature, out var agg) && !string.IsNullOrEmpty(agg?.BotName))
+        if (cache is not null && cache.TryGet(signature, out var agg) && !string.IsNullOrEmpty(agg?.BotName))
             return agg.BotName;
         return signatureLookup.TryGetValue(signature, out var name) ? name : null;
     }

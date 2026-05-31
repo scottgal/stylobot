@@ -9,9 +9,13 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
 public class SbSessionsListViewComponent(
     ISessionStore sessionStore,
-    SignatureAggregateCache signatureCache,
+    // signatureCache is optional: remote-mode dashboard viewer hosts don't
+    // register it (detection runs on the gateway; the viewer reads via REST).
+    // Hard-required ctor injection would 500 the whole Sessions tab on the
+    // website. Per [[feedback_remote_mode_optional_di]].
     IDashboardEventStore eventStore,
-    IOptions<StyloBotDashboardOptions> options)
+    IOptions<StyloBotDashboardOptions> options,
+    SignatureAggregateCache? signatureCache = null)
     : ViewComponent
 {
     public async Task<IViewComponentResult> InvokeAsync(

@@ -9,11 +9,15 @@ using Mostlylucid.BotDetection.UI.Services;
 namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
 public class SbTopBotsViewComponent(
-    SignatureAggregateCache signatureCache,
     IDashboardEventStore eventStore,
-    IOptions<StyloBotDashboardOptions> options)
+    IOptions<StyloBotDashboardOptions> options,
+    // signatureCache is optional: remote-mode dashboard viewer hosts don't
+    // register it. Per [[feedback_remote_mode_optional_di]]. Used only to
+    // size the fetch -- falls back to a sensible default when absent.
+    SignatureAggregateCache? signatureCache = null)
     : ViewComponent
 {
+    private const int FallbackFetchCount = 200;
     public async Task<IViewComponentResult> InvokeAsync(
         int page = 1,
         int pageSize = 10,
@@ -38,7 +42,7 @@ public class SbTopBotsViewComponent(
         var rangeEnd   = endTime   ?? DateTime.UtcNow;
         var fetchAudience = string.IsNullOrEmpty(audience) ? "all" : audience;
         var raw = await eventStore.GetTopBotsAsync(
-            count: signatureCache.MaxEntries,
+            count: signatureCache?.MaxEntries ?? FallbackFetchCount,
             startTime: rangeStart,
             endTime: rangeEnd,
             audienceFilter: fetchAudience);
