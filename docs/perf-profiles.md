@@ -132,26 +132,15 @@ detection does. Pair with detection profiles via `DefaultPolicyName`:
 
 ## Verifying
 
-After changing profiles, the startup log line confirms which one
-loaded. The gateway also exposes the chosen profile via the metrics
-endpoint:
+The startup log line confirms which profile loaded:
 
 ```
-GET /metrics  # look for stylobot_gateway_profile{profile="api"} 1
+[Info] Kestrel profile 'api': threads=100/100 maxConn=20000 h2Streams=400
 ```
 
-For end-to-end verification, run the soak script that produced the
-2026-05-31 numbers:
-
-```bash
-HOST=192.168.0.15 SSH_USER=claude SSH_PASS=...  # see scripts/test-aot-on-maxo.sh
-scripts/test-aot-on-maxo.sh build
-STYLOBOT_PROFILE=site sshpass -p ... ssh ... 'powershell ... start'
-k6 run /tmp/k6-sustain-100.js --env TARGET=http://your-box:5080 --env API_KEY=...
-```
-
-Compare the numbers to `docs/perf-pass-2026-05-31.md` (which used the
-balanced profile).
+For end-to-end verification, set the env var, restart the gateway, and
+run a load test against it. Compare numbers to
+`docs/perf-pass-2026-05-31.md` (which used the balanced profile).
 
 ## What profiles do NOT fix
 
