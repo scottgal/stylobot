@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Services;
 
@@ -12,8 +13,8 @@ public class AssetHashStoreTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _centroidStore = new CentroidSequenceStore(Cs, NullLogger<CentroidSequenceStore>.Instance);
-        _store = new AssetHashStore(Cs, _centroidStore, NullLogger<AssetHashStore>.Instance);
+        _centroidStore = new CentroidSequenceStore(() => new SqliteConnection(Cs), NullLogger<CentroidSequenceStore>.Instance);
+        _store = new AssetHashStore(() => new SqliteConnection(Cs), _centroidStore, NullLogger<AssetHashStore>.Instance);
         await _centroidStore.InitializeAsync();
         await _store.InitializeAsync();
     }

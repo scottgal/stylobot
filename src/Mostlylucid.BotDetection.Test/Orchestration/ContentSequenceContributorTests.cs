@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
@@ -65,7 +66,7 @@ public class ContentSequenceContributorTests : IDisposable
     public ContentSequenceContributorTests()
     {
         _centroidStore = new CentroidSequenceStore(
-            "Data Source=:memory:",
+            () => new SqliteConnection("Data Source=:memory:"),
             NullLogger<CentroidSequenceStore>.Instance);
         // Mark the global baseline as ready so existing divergence tests continue to
         // exercise scoring. Tests that need the warming-up path construct their own store.
@@ -864,7 +865,7 @@ public class ContentSequenceContributorTests : IDisposable
         // loader, no SetGlobalChain). A continuation request that would normally trip
         // divergence must be suppressed while the site-learned global baseline warms up.
         var warmingStore = new CentroidSequenceStore(
-            "Data Source=:memory:",
+            () => new SqliteConnection("Data Source=:memory:"),
             NullLogger<CentroidSequenceStore>.Instance);
         var contextStore = new SequenceContextStore();
         var contributor = new ContentSequenceContributor(

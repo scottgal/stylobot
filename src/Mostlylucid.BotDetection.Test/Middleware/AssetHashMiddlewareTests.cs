@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Services;
@@ -13,8 +14,8 @@ public class AssetHashMiddlewareTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var cs = $"Data Source=asset_middleware_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
-        _centroidStore = new CentroidSequenceStore(cs, NullLogger<CentroidSequenceStore>.Instance);
-        _store = new AssetHashStore(cs, _centroidStore, NullLogger<AssetHashStore>.Instance);
+        _centroidStore = new CentroidSequenceStore(() => new SqliteConnection(cs), NullLogger<CentroidSequenceStore>.Instance);
+        _store = new AssetHashStore(() => new SqliteConnection(cs), _centroidStore, NullLogger<AssetHashStore>.Instance);
         await _centroidStore.InitializeAsync();
         await _store.InitializeAsync();
     }

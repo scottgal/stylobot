@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Analysis;
@@ -18,11 +19,12 @@ public class CentroidSequenceStoreTests : IDisposable
             { (RequestState.ApiCall, RequestState.SignalR), 5 }
         });
 
-    private string CreateTempDbConnStr()
+    private Func<DbConnection> CreateTempDbFactory()
     {
         var path = Path.Combine(Path.GetTempPath(), $"centroid-test-{Guid.NewGuid():N}.db");
         _tempDbPaths.Add(path);
-        return $"Data Source={path}";
+        var connStr = $"Data Source={path}";
+        return () => new SqliteConnection(connStr);
     }
 
     [Fact]
@@ -32,7 +34,7 @@ public class CentroidSequenceStoreTests : IDisposable
             Task.FromResult(Enumerable.Repeat(TypicalHumanSession(), 5).ToList()));
 
         var store = new CentroidSequenceStore(
-            CreateTempDbConnStr(),
+            CreateTempDbFactory(),
             NullLogger<CentroidSequenceStore>.Instance,
             loader);
         await store.InitializeAsync();
@@ -60,7 +62,7 @@ public class CentroidSequenceStoreTests : IDisposable
         var loader = new CentroidSequenceStore.ClusterSessionLoader((_, _, _) =>
             Task.FromResult(new List<SessionTransitionData>()));
         var store = new CentroidSequenceStore(
-            CreateTempDbConnStr(),
+            CreateTempDbFactory(),
             NullLogger<CentroidSequenceStore>.Instance,
             loader);
         await store.InitializeAsync();
@@ -84,7 +86,7 @@ public class CentroidSequenceStoreTests : IDisposable
     public async Task RebuildAsync_NoLoader_UsesTemplate()
     {
         var store = new CentroidSequenceStore(
-            CreateTempDbConnStr(),
+            CreateTempDbFactory(),
             NullLogger<CentroidSequenceStore>.Instance);
         await store.InitializeAsync();
 
@@ -106,7 +108,7 @@ public class CentroidSequenceStoreTests : IDisposable
     public async Task LearnedGlobal_BelowMinSessions_NotReady()
     {
         var store = new CentroidSequenceStore(
-            CreateTempDbConnStr(),
+            CreateTempDbFactory(),
             NullLogger<CentroidSequenceStore>.Instance);
         await store.InitializeAsync();
         Assert.False(store.IsGlobalReady, "Fresh store with no sessions must not be ready");
@@ -128,7 +130,7 @@ public class CentroidSequenceStoreTests : IDisposable
             Task.FromResult(sessions));
 
         var store = new CentroidSequenceStore(
-            CreateTempDbConnStr(),
+            CreateTempDbFactory(),
             NullLogger<CentroidSequenceStore>.Instance,
             loader);
         await store.InitializeAsync();
@@ -153,7 +155,7 @@ public class CentroidSequenceStoreTests : IDisposable
             Task.FromResult(sessions));
 
         var store = new CentroidSequenceStore(
-            CreateTempDbConnStr(),
+            CreateTempDbFactory(),
             NullLogger<CentroidSequenceStore>.Instance,
             loader);
         await store.InitializeAsync();
@@ -176,9 +178,9 @@ public class CentroidSequenceStoreTests : IDisposable
         var loader = new CentroidSequenceStore.ClusterSessionLoader((_, _, _) =>
             Task.FromResult(sessions));
 
-        var connStr = CreateTempDbConnStr();
+        var factory = CreateTempDbFactory();
         var store1 = new CentroidSequenceStore(
-            connStr,
+            factory,
             NullLogger<CentroidSequenceStore>.Instance,
             loader);
         await store1.InitializeAsync();
@@ -186,7 +188,7 @@ public class CentroidSequenceStoreTests : IDisposable
 
         // Reopen the same DB without a loader; the persisted global should be restored.
         var store2 = new CentroidSequenceStore(
-            connStr,
+            factory,
             NullLogger<CentroidSequenceStore>.Instance);
         await store2.InitializeAsync();
         Assert.True(store2.IsGlobalReady, "Reopened store must restore IsGlobalReady from persisted row");

@@ -61,6 +61,7 @@ public class DeterministicBotNameTests
         var signals = new Dictionary<string, object?>
         {
             ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.archetype_kind"] = "human-browser",
             ["ua.family"] = "Chrome",
             ["geo.country_code"] = "US"
         };
@@ -79,6 +80,7 @@ public class DeterministicBotNameTests
         var signals = new Dictionary<string, object?>
         {
             ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.archetype_kind"] = "human-browser",
             ["identity.drift_top_slot"] = "network.country",
             ["identity.drift_top_category"] = "network",
             ["geo.country_code"] = "JP"
@@ -96,6 +98,7 @@ public class DeterministicBotNameTests
         var signals = new Dictionary<string, object?>
         {
             ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.archetype_kind"] = "human-browser",
             ["identity.drift_top_slot"] = "tool.x_requested_with",
             ["identity.drift_top_category"] = "tool"
         };
@@ -112,6 +115,7 @@ public class DeterministicBotNameTests
         var signals = new Dictionary<string, object?>
         {
             ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.archetype_kind"] = "human-browser",
             ["identity.drift_top_slot"] = "hdr.sec_ch_ua_brands_ordered",
             ["identity.drift_top_category"] = "hdr"
         };
@@ -127,6 +131,7 @@ public class DeterministicBotNameTests
         var signals = new Dictionary<string, object?>
         {
             ["identity.archetype_name"] = "Safari on iOS",
+            ["identity.archetype_kind"] = "human-browser",
             ["identity.drift_top_slot"] = "network.some_future_dim",
             ["identity.drift_top_category"] = "network"
         };
@@ -141,7 +146,8 @@ public class DeterministicBotNameTests
     {
         var signals = new Dictionary<string, object?>
         {
-            ["identity.archetype_name"] = "Chrome on Windows"
+            ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.archetype_kind"] = "human-browser"
         };
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
