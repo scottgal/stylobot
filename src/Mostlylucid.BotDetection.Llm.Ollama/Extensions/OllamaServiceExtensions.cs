@@ -23,8 +23,14 @@ public static class OllamaServiceExtensions
             .BindConfiguration("BotDetection:AiDetection:Ollama")
             .Configure(opts =>
             {
-                opts.Endpoint = endpoint;
-                opts.Model = model;
+                // Only fall back to the method-parameter defaults when the bound
+                // configuration left the property empty. The previous shape
+                // overwrote config-supplied values (BotDetection__AiDetection__
+                // Ollama__Endpoint etc.) with the parameter defaults, so the
+                // provider always pointed at http://localhost:11434 regardless of
+                // what the operator set.
+                if (string.IsNullOrWhiteSpace(opts.Endpoint)) opts.Endpoint = endpoint;
+                if (string.IsNullOrWhiteSpace(opts.Model)) opts.Model = model;
                 configure?.Invoke(opts);
             });
 
