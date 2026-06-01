@@ -120,8 +120,20 @@ public sealed class SignatureVerdictGate
     private static SignatureVerdict SynthesiseFromIdentity(string signatureId, IdentityCachedVerdict id)
     {
         var confidence = Math.Min(1.0, id.ObservationCount / 10.0);
-        var band = Enum.TryParse<RiskBand>(id.RiskBand, ignoreCase: true, out var parsed)
-            ? parsed : RiskBand.Unknown;
+        // cached_risk_band is only written by IdentityAiOpinionService (slow-path L2). For
+        // the >90% of fingerprints that never trigger L2 the column is NULL, which used to
+        // fall through to RiskBand.Unknown and consume the whole risk-band histogram on
+        // the dashboard. Derive the band from the cached bot_probability instead -- a
+        // 10+-observation fingerprint at prob=0 is structurally VeryLow, not Unknown.
+        RiskBand band;
+        if (Enum.TryParse<RiskBand>(id.RiskBand, ignoreCase: true, out var parsed) && parsed != RiskBand.Unknown)
+        {
+            band = parsed;
+        }
+        else
+        {
+            band = Risk.SignatureRiskVerdictComposer.BucketRisk(id.BotProbability, confidence);
+        }
         return new SignatureVerdict
         {
             SignatureId = signatureId,
