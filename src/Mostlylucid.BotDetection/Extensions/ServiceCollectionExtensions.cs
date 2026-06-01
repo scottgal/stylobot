@@ -922,6 +922,10 @@ public static class ServiceCollectionExtensions
         // Expose the read-only slice so the dashboard / REST endpoints resolve via interface
         // (remote-mode hosts substitute a HTTP-backed impl).
         services.TryAddSingleton<IBotClusterReader>(sp => sp.GetRequiredService<BotClusterService>());
+        // Fast reverse lookup (signature -> cluster) consumed by the unified
+        // SignatureRiskVerdictComposer so threat-band / risk-profile derivation
+        // doesn't have to walk all clusters per signature.
+        services.TryAddSingleton<IClusterMembershipLookup>(sp => sp.GetRequiredService<BotClusterService>());
         // Signature convergence - merges/splits related signatures (same IP, rotating UAs)
         services.TryAddSingleton<SignatureConvergenceService>();
         services.AddHostedService(sp => sp.GetRequiredService<SignatureConvergenceService>());
