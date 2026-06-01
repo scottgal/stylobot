@@ -223,7 +223,7 @@ public sealed class SignatureAggregateCache
     {
         foreach (var bot in topBots)
         {
-            _entries.TryAdd(bot.PrimarySignature, new SignatureAggregate
+            var agg = new SignatureAggregate
             {
                 HitCount = bot.HitCount,
                 BotName = bot.BotName,
@@ -248,7 +248,18 @@ public sealed class SignatureAggregateCache
                 // the aggregate.
                 UaFamily = bot.UaFamily,
                 EntityId = bot.EntityId,
-            });
+            };
+
+            // Seed the per-minute ring buffer from the source's HitTrend (if any).
+            // Remote-mode dashboard hosts get HitTrend already filled in by the
+            // gateway's REST envelope; without this, the website rendered the
+            // sparkline column as a flat baseline for every row because the local
+            // ring buffer was never populated and the live-traffic write path
+            // (DetectionBroadcastMiddleware) doesn't run on the website host.
+            if (bot.HitTrend is { Length: > 0 } trend)
+                agg.SeedHitTrend(trend);
+
+            _entries.TryAdd(bot.PrimarySignature, agg);
         }
 
         _sortDirty = true;
@@ -732,6 +743,26 @@ public sealed class SignatureAggregate
         var trend = new int[60];
         for (int i = 0; i < 60; i++) trend[i] = _hitsPerMinute[59 - i];
         return trend;
+    }
+
+    /// <summary>
+    ///     Seed the per-minute ring buffer from an oldest-first 60-element trend
+    ///     produced by <see cref="ReadHitTrend"/> on the source (typically the
+    ///     gateway's REST envelope). Used by <see cref="SignatureAggregateCache.SeedFromTopBots"/>
+    ///     so a remote-mode dashboard host can render the sparkline column from
+    ///     the gateway's live ring buffer without having to replay individual
+    ///     detection events. Caller must run before the aggregate is published.
+    /// </summary>
+    internal void SeedHitTrend(int[] oldestFirst)
+    {
+        if (oldestFirst is null || oldestFirst.Length == 0) return;
+        var n = Math.Min(60, oldestFirst.Length);
+        for (int i = 0; i < n; i++) _hitsPerMinute[i] = oldestFirst[n - 1 - i];
+        // Stamp the bucket to the current UTC minute so ReadHitTrend doesn't
+        // bail out on the MinValue sentinel, and so subsequent live RecordHit
+        // calls advance the array correctly relative to this seed.
+        var now = DateTime.UtcNow;
+        _hitsBucketMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, DateTimeKind.Utc);
     }
 
     /// <summary>Sync root for all field mutations.</summary>
