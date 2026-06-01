@@ -73,6 +73,16 @@ public class HeuristicContributor : ConfiguredContributorBase
                     new(SignalKeys.HeuristicEarlyCompleted, true) // Signal for late heuristic
                 ]);
 
+                // BotType=Unknown means HeuristicEarly couldn't infer a positive type
+                // from features. Don't assert "Unknown" on the contribution - the ledger
+                // BotType column is last-writer-wins, and an assertive "Unknown" overwrites
+                // upstream contributors' authoritative types (UserAgentContributor's
+                // SearchEngine for googlebot/bingbot, SocialMediaBot for Mastodon, etc.)
+                // and forces them downstream into null because ParseBotType("Unknown") is
+                // not falsy. Omit the field so UA-pattern types survive.
+                var resolvedBotType = result.BotType is { } bt and not BotType.Unknown
+                    ? bt.ToString()
+                    : null;
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
@@ -80,7 +90,7 @@ public class HeuristicContributor : ConfiguredContributorBase
                     ConfidenceDelta = reason.ConfidenceImpact,
                     Weight = HeuristicWeight, // Heuristic predictions are weighted heavily
                     Reason = reason.Detail,
-                    BotType = result.BotType?.ToString(),
+                    BotType = resolvedBotType,
                     BotName = result.BotName
                 });
             }
