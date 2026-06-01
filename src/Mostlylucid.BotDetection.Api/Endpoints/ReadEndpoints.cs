@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Risk;
@@ -380,8 +381,20 @@ public static class ReadEndpoints
         {
             var entry = bots[i];
             var cluster = clusterLookup?.TryGetClusterForSignature(entry.PrimarySignature);
-            var botType = ParseBotType(entry.BotType);
+            var ledgerBotType = ParseBotType(entry.BotType);
             var rawThreatBand = ParseThreatBand(entry.ThreatBand);
+
+            // BotType propagation upstream can silently overwrite a YAML-matched
+            // "SearchEngine" with HeuristicEarly's generic "Scraper" guess (see
+            // DetectionLedgerExtensions:88). The dashboard already shows bingbot /
+            // googlebot / Mastodon rows with BotType=Scraper despite their BotName
+            // resolving to a known friendly pattern. Mirror DetermineRiskBand's
+            // YAML-name fallback so the friendly pin fires for THOSE rows too;
+            // without it the composer only catches the ledger-friendly cases and
+            // the operator-visible bingbot-VeryHigh problem persists.
+            var yamlBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(entry.BotName));
+            var isFriendlyType = BotTypeClassification.IsFriendly(ledgerBotType)
+                                 || BotTypeClassification.IsFriendly(yamlBotType);
 
             var inputs = new SignatureRiskInputs
             {
@@ -395,7 +408,7 @@ public static class ReadEndpoints
                 DeclaredBot = entry.IsKnownBot || !string.IsNullOrEmpty(entry.BotName),
                 BotName = entry.BotName,
                 BotType = entry.BotType,
-                IsFriendlyBotType = BotTypeClassification.IsFriendly(botType),
+                IsFriendlyBotType = isFriendlyType,
                 ClusterType = cluster?.Type,
                 ClusterId = cluster?.ClusterId,
                 ClusterLabel = cluster?.Label,
