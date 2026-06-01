@@ -53,29 +53,44 @@
 }
 @if (hasRadar)
 {
-    <svg viewBox="0 0 100 100" width="@size" height="@size" xmlns="http://www.w3.org/2000/svg"
-         aria-label="Behavioural fingerprint -- @bucketLabels.Length-bucket centroid projection">
-        <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.16" />
-        <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
-        <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
-        @Html.Raw(radarAxisLines.ToString())
-        @if (hasOrigin)
+    <div class="flex flex-col items-center">
+        <svg viewBox="0 0 100 100" width="@size" height="@size" xmlns="http://www.w3.org/2000/svg"
+             aria-label="Behavioural fingerprint -- @bucketLabels.Length-bucket centroid projection">
+            <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.16" />
+            <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
+            <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
+            @Html.Raw(radarAxisLines.ToString())
+            @if (hasOrigin)
+            {
+                @* Archetype-origin overlay: dotted, lower opacity, drawn BEHIND the
+                   current polygon so the current shape reads as the focused element. *@
+                <polygon points="@radarOrigin.ToString().TrimEnd()"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="0.8"
+                         stroke-dasharray="1.5 1.2"
+                         opacity="0.45" />
+            }
+            <polygon points="@radarCurrent.ToString().TrimEnd()"
+                     fill="@radarFill"
+                     stroke="@accent"
+                     stroke-width="1.2" />
+            @Html.Raw(radarLabelSvg.ToString())
+        </svg>
+        @if (!string.IsNullOrEmpty(shape!.ArchetypeName))
         {
-            @* Archetype-origin overlay: dotted, lower opacity, drawn BEHIND the
-               current polygon so the current shape reads as the focused element. *@
-            <polygon points="@radarOrigin.ToString().TrimEnd()"
-                     fill="none"
-                     stroke="currentColor"
-                     stroke-width="0.8"
-                     stroke-dasharray="1.5 1.2"
-                     opacity="0.45" />
+            @* Surface the matched archetype so operators see what the system thinks the
+               fingerprint is closest to. The matcher anchors thin signatures at their
+               nearest archetype and lets behaviour drift the centroid from there;
+               without this label the dashboard hides which prior it started from. *@
+            <div class="mt-2 text-[10px] uppercase tracking-wider text-base-content/50 text-center leading-tight">
+                Closest to
+            </div>
+            <div class="text-xs font-medium text-base-content/80 text-center">
+                @shape.ArchetypeName
+            </div>
         }
-        <polygon points="@radarCurrent.ToString().TrimEnd()"
-                 fill="@radarFill"
-                 stroke="@accent"
-                 stroke-width="1.2" />
-        @Html.Raw(radarLabelSvg.ToString())
-    </svg>
+    </div>
 }
 else
 {
