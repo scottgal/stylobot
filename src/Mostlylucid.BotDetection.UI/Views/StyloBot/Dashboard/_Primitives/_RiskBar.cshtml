@@ -27,7 +27,7 @@
     var pctText = (p * 100).ToString("F0") + "%";
     var title = $"{pctText} bot probability -- {band} threat band";
 }
-<span class="tooltip tooltip-left" data-tip="@title" title="@title">
+<span class="tooltip tooltip-left" data-tip="@title">
     @* Match the ConfidenceMeter footprint (8x8 dots, 2px gap = ~48px total)
        instead of the previous 5x14x10 segment bar (~78px) -- the Activity /
        Visitors tables were clipping at 100% zoom because BOT% + CONF + TYPE +
