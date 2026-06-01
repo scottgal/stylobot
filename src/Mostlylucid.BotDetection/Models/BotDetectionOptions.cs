@@ -3377,6 +3377,27 @@ public class ClusterOptions
     /// <summary>Minimum avg bot probability for a signature to enter clustering. Default: 0.5</summary>
     public double MinBotProbabilityForClustering { get; set; } = 0.5;
 
+    /// <summary>
+    ///     Fraction of cluster members that must be verified-friendly
+    ///     (FriendlyDomainVerified or FriendlyIpVerified) for the cluster to be
+    ///     classified as <c>Safe</c>. Safe-cluster recognition fires only when
+    ///     the friendly population is the dominant shape in the community --
+    ///     too low and a hostile attacker mixing one verified Googlebot among
+    ///     spoofers could mask the cluster; too high and a legitimate fediverse
+    ///     fanout with one unverified member is downgraded back to BotProduct.
+    ///     Default: 0.7 (70% of members must be verified-friendly).
+    /// </summary>
+    public double SafeClusterMinFriendlyRatio { get; set; } = 0.7;
+
+    /// <summary>
+    ///     Maximum average request count per cluster member for the cluster to
+    ///     be classified as <c>Safe</c>. Fediverse fanouts, search-engine
+    ///     verification probes, and RSS-reader bursts each take one or two
+    ///     hits per source -- a verified bot hammering the same path
+    ///     repeatedly is suspicious regardless of UA. Default: 3.
+    /// </summary>
+    public double SafeClusterMaxAvgHitsPerMember { get; set; } = 3.0;
+
     /// <summary>Number of new bot detections that trigger an early clustering run. Default: 20</summary>
     public int MinBotDetectionsToTrigger { get; set; } = 20;
 

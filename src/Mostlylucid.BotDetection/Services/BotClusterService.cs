@@ -462,9 +462,10 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         var emergentCount = newClusters.Values.Count(c => c.Type == BotClusterType.Emergent);
         var humanCount = newClusters.Values.Count(c => c.Type == BotClusterType.HumanTraffic);
         var mixedCount = newClusters.Values.Count(c => c.Type == BotClusterType.Mixed);
+        var safeCount = newClusters.Values.Count(c => c.Type == BotClusterType.Safe);
         _logger.LogInformation(
-            "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network, {Emergent} emergent, {Human} human, {Mixed} mixed) from {Signatures} signatures using {Algorithm}",
-            newClusters.Count, productCount, networkCount, emergentCount, humanCount, mixedCount,
+            "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network, {Emergent} emergent, {Human} human, {Mixed} mixed, {Safe} safe) from {Signatures} signatures using {Algorithm}",
+            newClusters.Count, productCount, networkCount, emergentCount, humanCount, mixedCount, safeCount,
             behaviors.Count, useLeiden ? "Leiden" : "LabelPropagation");
 
         _diagnostics = new ClusterDiagnosticsSnapshot
@@ -483,6 +484,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
             EmergentCount = emergentCount,
             HumanCount = humanCount,
             MixedCount = mixedCount,
+            SafeCount = safeCount,
             SimilarityThreshold = _options.SimilarityThreshold,
             MinClusterSize = _options.MinClusterSize,
             TopWeights = (_currentWeights ?? _adaptiveWeighter?.GetDefaultWeights() ?? new Dictionary<string, double>())
@@ -511,6 +513,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         public int EmergentCount { get; init; }
         public int HumanCount { get; init; }
         public int MixedCount { get; init; }
+        public int SafeCount { get; init; }
         public double SimilarityThreshold { get; init; }
         public int MinClusterSize { get; init; }
         public IReadOnlyDictionary<string, double> TopWeights { get; init; } = new Dictionary<string, double>();
@@ -1044,6 +1047,15 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         // Determine cluster type based on average bot probability and behavioral signals
         var uniqueSignatures = new HashSet<string>(members.Select(m => m.Signature));
 
+        // Verified-friendly fraction: members that ran NodeInfo / vendor-IP
+        // verification and came back positive. Computed once up front so the
+        // Safe-cluster branch can short-circuit BotProduct / BotNetwork before
+        // they get a chance to misclassify a fediverse-fanout / search-engine
+        // crawl burst as hostile.
+        var friendlyCount = members.Count(m => m.IsConfirmedFriendly);
+        var friendlyRatio = members.Count > 0 ? (double)friendlyCount / members.Count : 0;
+        var avgRequestCount = members.Average(m => m.RequestCount);
+
         BotClusterType clusterType;
         if (avgBotProb < 0.3)
         {
@@ -1054,6 +1066,21 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         {
             // Mixed - some borderline, some human
             clusterType = BotClusterType.Mixed;
+        }
+        else if (friendlyRatio >= _options.SafeClusterMinFriendlyRatio
+                 && avgRequestCount <= _options.SafeClusterMaxAvgHitsPerMember)
+        {
+            // Safe cluster: the dominant shape in this community is verified-friendly
+            // (NodeInfo-confirmed fediverse instances, vendor-IP-confirmed search
+            // engines, etc.) AND the per-member hit count is low. Fediverse link
+            // fanouts, RSS readers, and search-engine verification probes all share
+            // this shape -- many sources hitting once each from a recognised family.
+            // Must precede BotProduct (same-software shape) because Mastodon
+            // previewers WILL meet the BotProduct similarity threshold -- they're
+            // running the same code from different instances. The verification
+            // signal is the only thing that separates "friendly community fanout"
+            // from "Bot Product (Mastodon-shaped scraper army)".
+            clusterType = BotClusterType.Safe;
         }
         else if (avgSimilarity >= _options.ProductSimilarityThreshold)
         {
@@ -1176,6 +1203,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
             BotClusterType.Emergent when avgInterval < 2.0 => "Emerging-Rapid-Pattern",
             BotClusterType.Emergent when avgBotProb > 0.8 => "High-Confidence-Group",
             BotClusterType.Emergent => "Emerging-Pattern",
+            BotClusterType.Safe => InferSafeLabel(members),
             _ => "Unknown-Cluster"
         };
     }
@@ -1183,6 +1211,43 @@ public class BotClusterService : BackgroundService, IBotClusterReader
     /// <summary>
     ///     Infer a human-readable label for human traffic clusters from UA family, country, and paths.
     /// </summary>
+    /// <summary>
+    ///     Label for a <see cref="BotClusterType.Safe"/> cluster. Picks the
+    ///     dominant friendly UA family (Mastodon / Pleroma / Googlebot / etc.)
+    ///     from the member requests and tags the cluster after it -- a Mastodon
+    ///     link fanout reads as "Fediverse-Fanout (Mastodon)" instead of a
+    ///     generic Bot-Product label. Falls back to a generic "Friendly-Fanout"
+    ///     when no dominant family can be inferred (commercial vendor-IP path
+    ///     where the verification didn't write a UA family signal).
+    /// </summary>
+    private static string InferSafeLabel(List<SignatureBehavior> members)
+    {
+        var uaFamily = members
+            .SelectMany(m => m.Requests)
+            .Select(r => r.Signals.TryGetValue("ua.family", out var f) ? f?.ToString() : null)
+            .Where(f => !string.IsNullOrEmpty(f))
+            .GroupBy(f => f!)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault()?.Key;
+
+        if (!string.IsNullOrEmpty(uaFamily))
+        {
+            if (uaFamily.Contains("Mastodon", StringComparison.OrdinalIgnoreCase)
+                || uaFamily.Contains("Pleroma", StringComparison.OrdinalIgnoreCase)
+                || uaFamily.Contains("Misskey", StringComparison.OrdinalIgnoreCase)
+                || uaFamily.Contains("Akkoma", StringComparison.OrdinalIgnoreCase)
+                || uaFamily.Contains("Friendica", StringComparison.OrdinalIgnoreCase)
+                || uaFamily.Contains("GoToSocial", StringComparison.OrdinalIgnoreCase)
+                || uaFamily.Contains("Sharkey", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"Fediverse-Fanout ({uaFamily})";
+            }
+            return $"Verified-Fanout ({uaFamily})";
+        }
+
+        return "Verified-Fanout";
+    }
+
     private static string InferHumanLabel(List<SignatureBehavior> members)
     {
         // Extract dominant UA family from request signals

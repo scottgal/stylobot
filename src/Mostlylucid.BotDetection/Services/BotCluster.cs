@@ -76,5 +76,18 @@ public enum BotClusterType
     HumanTraffic,
 
     /// <summary>Mixed cluster with both bots and humans - borderline signals.</summary>
-    Mixed
+    Mixed,
+
+    /// <summary>
+    ///     Verified-friendly bot cluster: e.g. a fediverse link-preview fanout
+    ///     (many Mastodon/Pleroma/Misskey instances hitting the same URL),
+    ///     verified search-engine crawl burst, or RSS reader fanout. Recognised
+    ///     by a majority of members carrying FriendlyDomainVerified or
+    ///     FriendlyIpVerified, low average hits per member, and tight
+    ///     same-path coincidence in a short window. Threat-band derivation
+    ///     treats Safe-cluster members as non-hostile regardless of their
+    ///     individual bot_probability -- the cluster is the evidence that
+    ///     the high probability is a verified positive, not a threat.
+    /// </summary>
+    Safe
 }

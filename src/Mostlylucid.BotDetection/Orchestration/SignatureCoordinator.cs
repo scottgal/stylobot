@@ -131,6 +131,18 @@ public record SignatureBehavior
 
     /// <summary>True if a pipeline-running request marked this signature as a confirmed bad actor.</summary>
     public bool IsConfirmedBad { get; init; }
+
+    /// <summary>
+    ///     True if a pipeline-running request marked this signature as a confirmed friendly
+    ///     bot. Carries the result of FediverseDomainContributor's NodeInfo verification or
+    ///     the commercial vendor-IP verifier -- i.e. one of FriendlyDomainVerified or
+    ///     FriendlyIpVerified came back true on at least one request. Used by
+    ///     BotClusterService to recognise Safe clusters (fediverse fanouts, verified
+    ///     search-engine crawl bursts) so they can be classified separately from
+    ///     BotProduct / BotNetwork even when they share behavioural shape with hostile
+    ///     bots.
+    /// </summary>
+    public bool IsConfirmedFriendly { get; init; }
 }
 
 /// <summary>
@@ -908,6 +920,7 @@ internal class SignatureTrackingAtom : IDisposable
     // the most recent full-detection pass.
     private double _latestThreatScore;
     private bool _isConfirmedBad;
+    private bool _isConfirmedFriendly;
 
     // Cached behavior (recomputed on each request)
     private SignatureBehavior? _cachedBehavior;
@@ -988,6 +1001,19 @@ internal class SignatureTrackingAtom : IDisposable
                 {
                     _isConfirmedBad = true;
                 }
+
+                // Latch confirmed-friendly when either verification axis came back true.
+                // FediverseDomainContributor writes FriendlyDomainVerified after the
+                // NodeInfo lookup succeeds; the commercial vendor-IP verifier writes
+                // FriendlyIpVerified after matching a Google / Bing / etc. published
+                // range. A negative result (the bool is false) is NOT a latch -- that
+                // means verification ran but failed, which is a spoof signal that
+                // belongs on the IsConfirmedBad side via the existing reputation path.
+                if ((request.Signals.TryGetValue(SignalKeys.FriendlyDomainVerified, out var fdv) && fdv is true) ||
+                    (request.Signals.TryGetValue(SignalKeys.FriendlyIpVerified, out var fipv) && fipv is true))
+                {
+                    _isConfirmedFriendly = true;
+                }
             }
 
             // Recompute behavior
@@ -1046,7 +1072,8 @@ internal class SignatureTrackingAtom : IDisposable
                 IsAberrant = false,
                 TotalResponseBytes = _totalResponseBytes,
                 LatestThreatScore = _latestThreatScore,
-                IsConfirmedBad = _isConfirmedBad
+                IsConfirmedBad = _isConfirmedBad,
+                IsConfirmedFriendly = _isConfirmedFriendly
             };
 
         var requestList = _requests.ToList();
@@ -1111,7 +1138,8 @@ internal class SignatureTrackingAtom : IDisposable
             IsAberrant = isAberrant,
             TotalResponseBytes = _totalResponseBytes,
             LatestThreatScore = _latestThreatScore,
-            IsConfirmedBad = _isConfirmedBad
+            IsConfirmedBad = _isConfirmedBad,
+            IsConfirmedFriendly = _isConfirmedFriendly
         };
     }
 
