@@ -249,10 +249,21 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
             effectiveWeight *= multiplier;
         }
 
+        // Reputation evidence states the HISTORY of the pattern -- it does NOT
+        // specifically identify "scraper" vs "scanner" vs "vulnerability probe".
+        // Only ConfirmedBad / ManuallyBlocked are operator-asserted classifications
+        // strong enough to claim MaliciousBot on the ledger. Suspect just means
+        // "marginal evidence accumulated"; writing BotType.Scraper from Suspect
+        // overclaims and overwrites authoritative upstream types -- a real
+        // human-browser whose UA pattern got marked Suspect ends up labelled
+        // "Scraper" on the dashboard even when browser attestation downgrades
+        // the threat score and the rest of the pipeline says human. Leave the
+        // type null on Suspect so the UA contributor / matcher's classification
+        // survives. The reputation evidence is already captured in Reason /
+        // ConfidenceDelta / Weight.
         string? botType = reputation.State switch
         {
             ReputationState.ConfirmedBad => BotType.MaliciousBot.ToString(),
-            ReputationState.Suspect => BotType.Scraper.ToString(),
             ReputationState.ManuallyBlocked => BotType.MaliciousBot.ToString(),
             _ => null
         };
