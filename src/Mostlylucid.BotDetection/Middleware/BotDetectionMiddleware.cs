@@ -414,6 +414,16 @@ public class BotDetectionMiddleware(
                             cachedSignals[SignalKeys.UserAgentBotName] = uaBotName;
                     }
 
+                    // ThreatBand is not stored on SignatureVerdict, so it can't be
+                    // restored verbatim. Hardcoding ThreatBand.Low (the original
+                    // behaviour) means a confirmed-hostile fingerprint (honeypot hit,
+                    // .env scanner, haxxor probe) loses its threat classification on
+                    // every Skip until SkipMaxAge elapses. Re-derive from the cached
+                    // bot probability via the shared SignatureRiskVerdictComposer
+                    // bucketing -- not perfect (the original score isn't reconstructable)
+                    // but tracks severity instead of always-Low.
+                    var cachedThreatBand = Risk.SignatureRiskVerdictComposer.BucketThreat(v.BotProbability);
+
                     var cachedEvidence = new AggregatedEvidence
                     {
                         BotProbability = v.BotProbability,
@@ -421,7 +431,7 @@ public class BotDetectionMiddleware(
                         PriorProbability = v.BotProbability,
                         RequestContributionDelta = 0.0,
                         RiskBand = v.RiskBand,
-                        ThreatBand = ThreatBand.Low,
+                        ThreatBand = cachedThreatBand,
                         TotalProcessingTimeMs = 0.0,
                         PrimaryBotType = cachedPrimaryBotType,
                         PrimaryBotName = uaBotName,

@@ -92,6 +92,14 @@ public class HeuristicLateContributor : ConfiguredContributorBase
                 new(SignalKeys.HeuristicLateConfidence, result.Confidence)
             ]);
 
+            // Mirror the HeuristicContributor (early) BotType.Unknown filter (cb5444fc):
+            // late heuristic running last means it would otherwise overwrite the
+            // UA-derived SearchEngine / SocialMediaBot type via last-writer-wins
+            // when InferBotType couldn't positively classify. Suppress Unknown
+            // here for the same reason.
+            var resolvedBotType = result.BotType is { } bt and not BotType.Unknown
+                ? bt.ToString()
+                : null;
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
@@ -99,7 +107,7 @@ public class HeuristicLateContributor : ConfiguredContributorBase
                 ConfidenceDelta = reason.ConfidenceImpact,
                 Weight = GetParam("late_weight", 2.5), // Late heuristic is weighted heavily - it's the final say
                 Reason = reason.Detail.Replace("(early)", "(late)").Replace("(full)", "(late)"),
-                BotType = result.BotType?.ToString(),
+                BotType = resolvedBotType,
                 BotName = result.BotName
             });
 
