@@ -4624,7 +4624,26 @@ public class StyloBotDashboardMiddleware
                 {
                     var archetype = archetypes.TryGetById(fp.ArchetypeOrigin);
                     var effectiveWeights = globalWeights?.Compose(fp.Weights) ?? fp.Weights;
-                    return FingerprintRadarProjection.Project(fp, archetype, layout, effectiveWeights);
+                    var shape = FingerprintRadarProjection.Project(fp, archetype, layout, effectiveWeights);
+
+                    // Drift surface: cosine of the current centroid against (a) the
+                    // origin archetype the matcher anchored at, and (b) the current
+                    // nearest archetype as of right now. When (b) differs from
+                    // ArchetypeOrigin the fingerprint has drifted into a different
+                    // archetype's neighbourhood -- this is the operator-visible
+                    // self-tuning signal that justifies trusting the matcher over
+                    // its initial guess.
+                    var originScore = archetypes.ScoreAgainst(fp.Centroid, archetype);
+                    var nearest = archetypes.FindNearest(fp.Centroid);
+                    string? nearestName = nearest?.Archetype.Name;
+                    double? nearestScore = nearest?.Score;
+                    shape = shape with
+                    {
+                        OriginScore = originScore,
+                        NearestArchetypeName = nearestName,
+                        NearestScore = nearestScore,
+                    };
+                    return shape;
                 }
             }
 

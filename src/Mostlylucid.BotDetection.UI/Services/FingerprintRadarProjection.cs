@@ -159,9 +159,28 @@ public static class FingerprintRadarProjection
 /// <summary>
 ///     Per-bucket projection of a fingerprint's centroid plus its archetype
 ///     origin (if known). Drives the dashboard's behavioural-fingerprint radar.
+///     <para>
+///     <see cref="ArchetypeName"/> is the original assignment from
+///     <c>Fingerprint.ArchetypeOrigin</c> -- the prior the matcher anchored
+///     the signature at when it was first allocated. <see cref="OriginScore"/>
+///     is its cosine against the current centroid (high score = no drift from
+///     the prior; low score = the fingerprint has moved a long way since
+///     allocation).
+///     </para>
+///     <para>
+///     <see cref="NearestArchetypeName"/> + <see cref="NearestScore"/> are the
+///     current-nearest archetype by a fresh <c>FindNearest</c> against the
+///     centroid right now. When this differs from <see cref="ArchetypeName"/>
+///     it means the behaviour has drifted into a different archetype's
+///     neighbourhood -- the operator-visible self-tuning signal. Both can be
+///     null when no archetype was assigned or the registry is empty.
+///     </para>
 /// </summary>
 public sealed record FingerprintRadarShape(
     double[] CurrentBuckets,
     double[]? OriginBuckets,
     string[] BucketLabels,
-    string? ArchetypeName);
+    string? ArchetypeName,
+    double? OriginScore = null,
+    string? NearestArchetypeName = null,
+    double? NearestScore = null);

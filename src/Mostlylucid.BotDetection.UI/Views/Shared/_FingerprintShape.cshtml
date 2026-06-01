@@ -77,18 +77,53 @@
                      stroke-width="1.2" />
             @Html.Raw(radarLabelSvg.ToString())
         </svg>
-        @if (!string.IsNullOrEmpty(shape!.ArchetypeName))
+        @{
+            // Surface the matcher's prior (ArchetypeName from fp.ArchetypeOrigin) and the
+            // current-nearest archetype side by side. When they match the system thinks
+            // the fingerprint is still behaving like its initial anchor; when they
+            // diverge the centroid has drifted into a different archetype's
+            // neighbourhood -- the operator-visible self-tuning signal.
+            var originName    = shape!.ArchetypeName;
+            var originScore   = shape.OriginScore;
+            var nearestName   = shape.NearestArchetypeName;
+            var nearestScore  = shape.NearestScore;
+            var hasDrift      = !string.IsNullOrEmpty(originName)
+                                && !string.IsNullOrEmpty(nearestName)
+                                && !string.Equals(originName, nearestName, System.StringComparison.OrdinalIgnoreCase);
+            string FormatScore(double? s) => s is null ? "" : $"{s.Value:F2}";
+        }
+        @if (!string.IsNullOrEmpty(originName) || !string.IsNullOrEmpty(nearestName))
         {
-            @* Surface the matched archetype so operators see what the system thinks the
-               fingerprint is closest to. The matcher anchors thin signatures at their
-               nearest archetype and lets behaviour drift the centroid from there;
-               without this label the dashboard hides which prior it started from. *@
             <div class="mt-2 text-[10px] uppercase tracking-wider text-base-content/50 text-center leading-tight">
-                Closest to
+                @(hasDrift ? "Drifted" : "Closest to")
             </div>
-            <div class="text-xs font-medium text-base-content/80 text-center">
-                @shape.ArchetypeName
+            <div class="text-xs font-medium text-base-content/80 text-center leading-tight">
+                @if (hasDrift)
+                {
+                    <span>@originName</span>
+                    <span class="text-base-content/40 mx-1">→</span>
+                    <span>@nearestName</span>
+                }
+                else
+                {
+                    <span>@(nearestName ?? originName)</span>
+                }
             </div>
+            @if (originScore.HasValue || nearestScore.HasValue)
+            {
+                <div class="text-[10px] text-base-content/50 font-mono text-center leading-tight">
+                    @if (hasDrift)
+                    {
+                        <span>@FormatScore(originScore)</span>
+                        <span class="mx-1">→</span>
+                        <span>@FormatScore(nearestScore)</span>
+                    }
+                    else
+                    {
+                        <span>@FormatScore(nearestScore ?? originScore)</span>
+                    }
+                </div>
+            }
         }
     </div>
 }

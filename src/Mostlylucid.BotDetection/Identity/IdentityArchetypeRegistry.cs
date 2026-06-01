@@ -81,6 +81,20 @@ public sealed class IdentityArchetypeRegistry
         return best is null ? null : new ArchetypeMatch(best, bestScore);
     }
 
+    /// <summary>
+    ///     Cosine of <paramref name="vector"/> against one specific archetype.
+    ///     Used by the dashboard's drift surface to score the fingerprint
+    ///     against its <c>ArchetypeOrigin</c> (the prior it was anchored at)
+    ///     alongside the current-nearest from <see cref="FindNearest"/>.
+    ///     Returns null when the archetype is null or shapes don't match.
+    /// </summary>
+    public double? ScoreAgainst(float[] vector, IdentityArchetype? archetype)
+    {
+        if (archetype is null || vector is null) return null;
+        if (vector.Length != archetype.Centroid.Length) return null;
+        return BruteForceIdentityAnchorIndex.Cosine(vector, archetype.Centroid);
+    }
+
     private IReadOnlyList<IdentityArchetype> LoadFromEmbeddedResources()
     {
         var assembly = typeof(IdentityArchetypeRegistry).Assembly;
