@@ -947,7 +947,7 @@ Escalate ambiguous cases to an LLM:
       "Provider": "HeuristicWithEscalation",
       "LlmEscalation": {
         "OllamaUrl": "http://ollama:11434",
-        "Model": "gemma3:4b",
+        "Model": "gemma4:e4b",
         "EscalationThreshold": 0.4
       }
     }

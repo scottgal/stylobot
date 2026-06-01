@@ -279,7 +279,7 @@ Uses Ollama for natural language reasoning:
 "AiDetection": {
   "Ollama": {
     "Endpoint": "http://localhost:11434",
-    "Model": "gemma3:4b",
+    "Model": "gemma4:e4b",
     "UseJsonMode": true
   }
 }
@@ -288,7 +288,7 @@ Uses Ollama for natural language reasoning:
 Setup:
 
 ```bash
-ollama pull gemma3:4b
+ollama pull gemma4:e4b
 ollama serve
 ```
 

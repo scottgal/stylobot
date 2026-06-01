@@ -41,7 +41,7 @@ app.UseBotDetection();
 ### Setting Up MockLLMApi
 
 1. Install Ollama: https://ollama.ai/
-2. Pull a model: `ollama pull gemma3:4b`
+2. Pull a model: `ollama pull gemma4:e4b`
 3. Run MockLLMApi (Docker or NuGet package)
 
 ```bash
@@ -57,7 +57,7 @@ dotnet add package mostlylucid.mockllmapi
 builder.Services.AddLLMockApi(config =>
 {
     config.OllamaUrl = "http://localhost:11434";
-    config.DefaultModel = "gemma3:4b";
+    config.DefaultModel = "gemma4:e4b";
 });
 app.MapLLMockApi("/api/mock");
 ```

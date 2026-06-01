@@ -393,7 +393,7 @@ needed in most cases.
 
 #### 4.6.3 Implementation Details
 
-* Use a **fast, small LLM** (e.g. `gemma3:4b` or similar) exposed via existing LLM infra.
+* Use a **fast, small LLM** (e.g. `gemma4:e4b` or similar) exposed via existing LLM infra.
 * Strict JSON mode (with validation and fallback if parsing fails).
 * Timeouts: configurable (e.g. 50–100ms budget per call; fallback to “no inference” on timeout).
 * Only invoked when:
@@ -546,7 +546,7 @@ Example config block:
     "Enabled": true,
     "LLM": {
       "Provider": "Ollama",
-      "Model": "gemma3:4b",
+      "Model": "gemma4:e4b",
       "Endpoint": "http://ollama:11434",
       "TimeoutMs": 100,
       "MaxRequestsPerSecond": 50

@@ -133,7 +133,7 @@ Complete reference with all available options:
       // Ollama Settings (for LLM escalation)
       "Ollama": {
         "Endpoint": "http://localhost:11434",
-        "Model": "gemma3:4b",
+        "Model": "gemma4:e4b",
         "UseJsonMode": true,
         "Temperature": 0.1,
         "MaxTokens": 256
@@ -542,7 +542,7 @@ the system improves over time.
       "MaxConcurrentRequests": 5,
       "Ollama": {
         "Endpoint": "http://localhost:11434",
-        "Model": "gemma3:4b",
+        "Model": "gemma4:e4b",
         "UseJsonMode": true,
         "Temperature": 0.1,
         "MaxTokens": 256
@@ -555,7 +555,7 @@ the system improves over time.
 | Option        | Type   | Default                  | Description                        |
 |---------------|--------|--------------------------|------------------------------------|
 | `Endpoint`    | string | `http://localhost:11434` | Ollama API endpoint                |
-| `Model`       | string | `gemma3:4b`              | Model name (gemma3:4b recommended) |
+| `Model`       | string | `gemma4:e4b`              | Model name (gemma4:e4b recommended) |
 | `UseJsonMode` | bool   | `true`                   | Request JSON output                |
 | `Temperature` | double | `0.1`                    | Randomness (0.0-1.0)               |
 | `MaxTokens`   | int    | `256`                    | Max response tokens                |

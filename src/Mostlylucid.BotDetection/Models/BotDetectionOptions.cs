@@ -2775,7 +2775,7 @@ TYPE:scraper|searchengine|monitor|malicious|social|good|unknown
     /// <summary>
     ///     Ollama model to use for bot detection.
     ///     Default: gemma4 (efficient, thinking-capable).
-    ///     Alternatives: qwen3:0.6b, gemma3:4b, qwen2.5:1.5b, phi3:mini, tinyllama
+    ///     Alternatives: gemma4:e2b, gemma4:e4b, qwen3:0.6b, qwen2.5:1.5b, phi3:mini, tinyllama
     /// </summary>
     public string Model { get; set; } = LlmDefaults.DefaultModel;
 

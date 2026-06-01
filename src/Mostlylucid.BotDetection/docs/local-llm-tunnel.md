@@ -47,7 +47,7 @@ All traffic travels through Cloudflare's encrypted tunnel. The agent only listen
 - **Ollama** must be running on the local machine with at least one model pulled:
   ```bash
   ollama serve
-  ollama pull gemma3:1b
+  ollama pull gemma4:e2b
   ```
 
 - For **named tunnels** (stable key across restarts): a Cloudflare account with a named tunnel configured and its token available.
@@ -66,7 +66,7 @@ Output:
 ```
 Probing local Ollama instance...
 Found 3 model(s):
-  - gemma3:1b
+  - gemma4:e2b
   - llama3.2:1b
   - qwen3.5:4b
 
@@ -75,7 +75,7 @@ Starting Cloudflare tunnel...
 
 Tunnel: active (cloudflare-quick)
 Node:   my-machine (llmn_a1b2c3d4e5f6g7h8)
-Models: gemma3:1b, llama3.2:1b, qwen3.5:4b
+Models: gemma4:e2b, llama3.2:1b, qwen3.5:4b
 
 ╔══════════════════════════════════════════════════════════════════╗
 ║  ANONYMOUS TUNNEL -KEY IS EPHEMERAL                            ║
@@ -177,7 +177,7 @@ stylobot llmtunnel [<cloudflare-named-tunnel-token>]
 stylobot llmtunnel
 
 # Anonymous tunnel, specific models only
-stylobot llmtunnel --models gemma3:1b,qwen3.5:4b
+stylobot llmtunnel --models gemma4:e2b,qwen3.5:4b
 
 # Named tunnel
 stylobot llmtunnel eyJhIjoiMWFiMmM...
@@ -198,7 +198,7 @@ stylobot llmtunnel eyJhIjoiMWFiMmM... --max-concurrency 4 --models llama3.2:1b
     "AiDetection": {
       "LocalTunnel": {
         "ConnectionKey": "sb_llmtunnel_v1_...",
-        "DefaultModel": "gemma3:1b",
+        "DefaultModel": "gemma4:e2b",
         "RequestTimeoutMs": 15000
       }
     }
@@ -222,7 +222,7 @@ builder.Services.AddLocalLlmTunnelClient();
 builder.Services.AddLocalLlmTunnelClient(opts =>
 {
     opts.ConnectionKey = "sb_llmtunnel_v1_...";
-    opts.DefaultModel = "gemma3:1b";
+    opts.DefaultModel = "gemma4:e2b";
     opts.RequestTimeoutMs = 15000;
 });
 ```
@@ -303,7 +303,7 @@ The dashboard status strip shows a **GPU Tunnels** widget:
 - **One or more nodes:** Badge showing `active/total` (green dot when any node active)
 - **Per-node badges:** Name, first model name + overflow count (e.g. `+2`), status dot, tooltip with full model list / tunnel kind / queue depth
 
-Example: a node named `scotts-air` with 3 models shows as `scotts-air (gemma3:1b+2)`.
+Example: a node named `scotts-air` with 3 models shows as `scotts-air (gemma4:e2b+2)`.
 
 ---
 
@@ -346,7 +346,7 @@ Start Ollama and ensure at least one model is pulled:
 
 ```bash
 ollama serve
-ollama pull gemma3:1b
+ollama pull gemma4:e2b
 ```
 
 Check the URL with `--ollama http://127.0.0.1:11434` if Ollama is on a non-default port.
