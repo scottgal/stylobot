@@ -319,6 +319,23 @@ public static class ReadEndpoints
         }
 
         var bots = await store.GetTopBotsAsync(limit, since, until, audience);
+
+        // HitTrend is a runtime ring buffer that lives only in SignatureAggregateCache;
+        // the DB stores raw detections, not per-minute counts. Without this overlay,
+        // remote-mode dashboard hosts (e.g. stylobot.net's website) request a 24h-
+        // windowed top-bots and get DB rows with hitTrend=[] -- so every row's
+        // Live Activity sparkline renders as a flat baseline regardless of how
+        // much fresh traffic the signature is actually getting. Splice in the live
+        // trend from the gateway's in-memory cache for any signature we still hold.
+        for (int i = 0; i < bots.Count; i++)
+        {
+            if ((bots[i].HitTrend is null || bots[i].HitTrend.Length == 0)
+                && signatureCache.TryGetHitTrend(bots[i].PrimarySignature, out var trend))
+            {
+                bots[i] = bots[i] with { HitTrend = trend };
+            }
+        }
+
         return TypedResults.Ok(new PaginatedResponse<DashboardTopBotEntry>
         {
             Data = bots,

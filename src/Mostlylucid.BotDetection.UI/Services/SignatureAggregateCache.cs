@@ -152,6 +152,31 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
+    ///     Surface the live per-minute hit trend for one signature so callers that
+    ///     fetch DashboardTopBotEntry through the event store (which can't carry a
+    ///     ring buffer) can overlay the cache's authoritative trend before rendering.
+    ///     Returns <c>false</c> when the signature isn't in the cache or the ring
+    ///     buffer has never been seeded.
+    /// </summary>
+    public bool TryGetHitTrend(string signature, out int[] trend)
+    {
+        if (!string.IsNullOrEmpty(signature) && _entries.TryGetValue(signature, out var agg))
+        {
+            lock (agg.SyncRoot)
+            {
+                var t = agg.ReadHitTrend();
+                if (t.Length > 0)
+                {
+                    trend = t;
+                    return true;
+                }
+            }
+        }
+        trend = Array.Empty<int>();
+        return false;
+    }
+
+    /// <summary>
     ///     Pre-warm the per-signature hit ring buffers from recent stored detections.
     ///     Walked oldest-first; signatures not in the cache (outside the warm-up top-N)
     ///     are silently skipped. Without this, the sparkline column reads as flat for
