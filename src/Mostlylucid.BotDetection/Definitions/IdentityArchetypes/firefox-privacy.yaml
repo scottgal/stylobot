@@ -1,0 +1,23 @@
+archetype_id: firefox-privacy
+name: Firefox (privacy-aware)
+description: Firefox with privacy extensions (Privacy Badger, uBO advanced) or user-enabled Sec-GPC. Same header shape as vanilla Firefox plus an explicit privacy signal.
+archetype_kind: human-browser
+dimensions:
+  hdr.accept:
+    value: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+    confidence: 0.7
+  hdr.accept_encoding_ordered:
+    value: "gzip, deflate, br, zstd"
+    confidence: 0.85
+  hdr.sec_fetch_pattern:
+    value: 15
+    confidence: 0.85
+  hdr.upgrade_insecure_requests:
+    value: true
+    confidence: 0.9
+  hdr.sec_gpc:
+    value: true
+    confidence: 0.85
+  hdr.dnt:
+    value: true
+    confidence: 0.6

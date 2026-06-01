@@ -97,14 +97,20 @@ public class SignatureVerdictGateIdentityCompositionTests
     }
 
     [Fact]
-    public void Compose_UnparseableRiskBand_FallsBackToUnknown()
+    public void Compose_UnparseableRiskBand_DerivesFromProbability()
     {
         // A persisted band string from a prior version that this build doesn't know.
+        // Per the cached_risk_band fallback (SignatureVerdictGate.SynthesiseFromIdentity):
+        // when the stored band is unparseable OR explicitly "Unknown", derive via
+        // BucketRisk(prob, confidence) instead of letting the dashboard histogram fill
+        // with Unknown for the >90% of fingerprints that never trigger L2.
         var id = MakeIdentityVerdict(prob: 0.5, riskBand: "ExotricBand", obsCount: 10, ageSeconds: 5);
         var result = SignatureVerdictGate.ComposeVerdicts(Sig, sig: null, id);
 
         Assert.NotNull(result);
-        Assert.Equal(RiskBand.Unknown, result!.RiskBand);
+        // prob=0.5 * (0.5 + 0.5*1.0) = 0.5 scaled. Per BucketRisk boundaries (0.20/0.25/0.45/0.60/0.80):
+        // 0.5 falls in [0.45, 0.60] -> Medium.
+        Assert.Equal(RiskBand.Medium, result!.RiskBand);
     }
 
     private static SignatureVerdict MakeSignatureVerdict(double prob, double ageSeconds) => new()
