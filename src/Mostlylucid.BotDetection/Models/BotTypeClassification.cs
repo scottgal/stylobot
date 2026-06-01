@@ -7,7 +7,7 @@ namespace Mostlylucid.BotDetection.Models;
 ///     fallback - and prior to extraction they each carried their own copy of the
 ///     five-way <c>BotType</c> match and the <c>0.55</c> magic number.
 /// </summary>
-internal static class BotTypeClassification
+public static class BotTypeClassification
 {
     /// <summary>
     ///     Threat-score ceiling below which a friendly bot type is still treated as

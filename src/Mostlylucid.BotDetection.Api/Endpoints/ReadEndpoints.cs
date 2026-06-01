@@ -5,6 +5,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
+using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Risk;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -271,6 +275,7 @@ public static class ReadEndpoints
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
         [FromServices] SignatureAggregateCache signatureCache,
+        [FromServices] IClusterMembershipLookup? clusterLookup,
         int limit = 10, DateTime? since = null, DateTime? until = null,
         string? audience = null)
     {
@@ -284,6 +289,7 @@ public static class ReadEndpoints
             && snapshot.ComputedAt != DateTime.MinValue)
         {
             var slice = snapshot.TopBots.Take(limit).ToList();
+            slice = OverlayRiskVerdict(slice, clusterLookup);
             return TypedResults.Ok(new PaginatedResponse<DashboardTopBotEntry>
             {
                 Data = slice,
@@ -309,6 +315,7 @@ public static class ReadEndpoints
                 filter: string.IsNullOrEmpty(audience) ? "bots" : audience);
             if (cached.Count > 0)
             {
+                cached = OverlayRiskVerdict(cached, clusterLookup);
                 return TypedResults.Ok(new PaginatedResponse<DashboardTopBotEntry>
                 {
                     Data = cached,
@@ -336,6 +343,8 @@ public static class ReadEndpoints
             }
         }
 
+        bots = OverlayRiskVerdict(bots, clusterLookup);
+
         return TypedResults.Ok(new PaginatedResponse<DashboardTopBotEntry>
         {
             Data = bots,
@@ -343,6 +352,74 @@ public static class ReadEndpoints
             Meta = new ResponseMeta()
         });
     }
+
+    /// <summary>
+    ///     Compose a unified <see cref="SignatureRiskVerdict"/> per row from the inputs
+    ///     we already have at the API edge (probability, confidence, threat, bot type,
+    ///     cluster membership) and overlay the verdict's clamped ThreatBand back onto
+    ///     the entry. The historical patchiness this fixes: DB-sourced rows carry the
+    ///     raw threat band from the latest detection event, with no friendly-pin gate
+    ///     -- so a verified Googlebot or Mastodon-fanout member can present with
+    ///     ThreatBand=VeryHigh even when the row's own RiskBand was already clamped to
+    ///     Low. The composer applies hostile-pin then friendly-pin to both axes
+    ///     together, so the per-row threat pill now tracks the same friendly/hostile
+    ///     decision the rest of the dashboard already shows.
+    ///     <para>
+    ///     Latches we don't have at this layer yet (FriendlyVerified persisted on the
+    ///     aggregate, archetype anchor) stay defaulted; cluster membership + declared-
+    ///     friendly-bot-type are enough to fix the operator-visible Mastodon / bingbot
+    ///     cases this turn. Future commits add the remaining input wiring without
+    ///     touching this overlay site.
+    ///     </para>
+    /// </summary>
+    private static List<DashboardTopBotEntry> OverlayRiskVerdict(
+        List<DashboardTopBotEntry> bots,
+        IClusterMembershipLookup? clusterLookup)
+    {
+        for (int i = 0; i < bots.Count; i++)
+        {
+            var entry = bots[i];
+            var cluster = clusterLookup?.TryGetClusterForSignature(entry.PrimarySignature);
+            var botType = ParseBotType(entry.BotType);
+            var rawThreatBand = ParseThreatBand(entry.ThreatBand);
+
+            var inputs = new SignatureRiskInputs
+            {
+                PrimarySignature = entry.PrimarySignature,
+                BotProbability = entry.BotProbability,
+                Confidence = entry.Confidence,
+                RawThreatScore = entry.ThreatScore ?? 0,
+                RawThreatBand = rawThreatBand,
+                FriendlyVerified = false,                   // not on aggregate yet
+                ConfirmedBad = false,                       // not on aggregate yet
+                DeclaredBot = entry.IsKnownBot || !string.IsNullOrEmpty(entry.BotName),
+                BotName = entry.BotName,
+                BotType = entry.BotType,
+                IsFriendlyBotType = BotTypeClassification.IsFriendly(botType),
+                ClusterType = cluster?.Type,
+                ClusterId = cluster?.ClusterId,
+                ClusterLabel = cluster?.Label,
+                ClusterAverageThreatScore = cluster?.AverageThreatScore,
+            };
+
+            var verdict = SignatureRiskVerdictComposer.Compose(inputs);
+
+            // Only rewrite when a pin fired; otherwise leave the raw store value
+            // alone so we don't regress the existing default behaviour for rows
+            // the composer has no opinion about.
+            if (verdict.FriendlyPinFired || verdict.HostilePinFired)
+            {
+                bots[i] = entry with { ThreatBand = verdict.ThreatBand.ToString() };
+            }
+        }
+        return bots;
+    }
+
+    private static BotType? ParseBotType(string? raw)
+        => string.IsNullOrEmpty(raw) || !Enum.TryParse<BotType>(raw, true, out var v) ? null : v;
+
+    private static ThreatBand? ParseThreatBand(string? raw)
+        => string.IsNullOrEmpty(raw) || !Enum.TryParse<ThreatBand>(raw, true, out var v) ? null : v;
 
     private static async Task<Ok<PaginatedResponse<ThreatEntry>>> HandleThreats(
         [FromServices] IDashboardEventStore store,
