@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Attributes;
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Filters;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -391,6 +392,28 @@ public class BotDetectionMiddleware(
                         cachedSignals[SignalKeys.PrimarySignature] = precomputedSig;
                         context.Items[SignalKeys.PrimarySignature] = precomputedSig;
                     }
+
+                    // Re-derive BotType / BotName from the live UA every skip-path hit.
+                    // UA pattern matching is microseconds, stateless, and the only signal
+                    // that survives the L1 short-circuit. Without this, the cached
+                    // PrimaryBotType is whatever was first persisted -- if the early
+                    // pipeline ever mis-tagged the row (HeuristicEarly-Scraper-fallback,
+                    // pre-cb5444fc), the wrong tag is sticky for the verdict's whole
+                    // SkipMaxAge window. Re-running the cheap UA matcher means each skip
+                    // hit refreshes the friendly classification (SearchEngine for
+                    // googlebot/bingbot, SocialMediaBot for Mastodon, etc.).
+                    var liveUa = context.Request.Headers.UserAgent.ToString();
+                    var (uaBotTypeStr, uaBotName) = BotPatternLoader.Default.MatchUserAgent(liveUa);
+                    BotType? cachedPrimaryBotType = null;
+                    if (!string.IsNullOrEmpty(uaBotTypeStr)
+                        && Enum.TryParse<BotType>(uaBotTypeStr, ignoreCase: true, out var parsedBotType))
+                    {
+                        cachedPrimaryBotType = parsedBotType;
+                        cachedSignals[SignalKeys.UserAgentBotType] = uaBotTypeStr;
+                        if (!string.IsNullOrEmpty(uaBotName))
+                            cachedSignals[SignalKeys.UserAgentBotName] = uaBotName;
+                    }
+
                     var cachedEvidence = new AggregatedEvidence
                     {
                         BotProbability = v.BotProbability,
@@ -400,6 +423,8 @@ public class BotDetectionMiddleware(
                         RiskBand = v.RiskBand,
                         ThreatBand = ThreatBand.Low,
                         TotalProcessingTimeMs = 0.0,
+                        PrimaryBotType = cachedPrimaryBotType,
+                        PrimaryBotName = uaBotName,
                         Signals = cachedSignals,
                     };
                     context.Items[AggregatedEvidenceKey] = cachedEvidence;
@@ -417,7 +442,9 @@ public class BotDetectionMiddleware(
                     context.Items[BotDetectionResultKey] = new BotDetectionResult
                     {
                         IsBot = cachedIsBot,
-                        BotType = cachedIsBot ? BotType.Unknown : (BotType?)null,
+                        BotType = cachedIsBot
+                            ? (cachedPrimaryBotType ?? BotType.Unknown)
+                            : (BotType?)null,
                         ConfidenceScore = v.Confidence,
                         ProcessingTimeMs = 0.0,
                     };

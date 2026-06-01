@@ -19,6 +19,7 @@ public sealed class BotPatternLoader
 
     private readonly ILogger<BotPatternLoader>? _logger;
     private Dictionary<string, string>? _botNameToTypeIndex;
+    private (string Pattern, string BotType, string BotName)[]? _uaMatchTable;
 
     public BotPatternLoader(ILogger<BotPatternLoader>? logger = null)
     {
@@ -57,6 +58,42 @@ public sealed class BotPatternLoader
         var space = botName.IndexOf(' ');
         if (space > 0 && idx.TryGetValue(botName[..space], out var bt2)) return bt2;
         return null;
+    }
+
+    /// <summary>
+    ///     Scan the loaded patterns for the first substring match against
+    ///     <paramref name="userAgent"/>. Returns the matched pattern's BotType
+    ///     and BotName, or null when nothing matches. Substring match mirrors
+    ///     <c>UserAgentContributor.IsCommonBotPattern</c> — the same source
+    ///     table is used for both sites, so a match here is also what the
+    ///     full pipeline would have produced.
+    ///
+    ///     Used by the verdict-cache short-circuit (SignatureVerdictGate.Skip
+    ///     path in BotDetectionMiddleware) to derive a friendly BotType from
+    ///     the live UA when the cached verdict alone doesn't carry one. UA
+    ///     pattern matching is cheap and stateless, so re-running it on the
+    ///     skip path costs negligible CPU but rescues googlebot / bingbot /
+    ///     Mastodon rows from being labelled with a stale "Scraper" tag
+    ///     persisted before earlier HeuristicEarly fixes landed.
+    /// </summary>
+    public (string? BotType, string? BotName) MatchUserAgent(string? userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return (null, null);
+        var table = _uaMatchTable ??= BuildUaMatchTable();
+        foreach (var (pattern, type, name) in table)
+            if (userAgent.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                return (type, name);
+        return (null, null);
+    }
+
+    private (string Pattern, string BotType, string BotName)[] BuildUaMatchTable()
+    {
+        return AllPatterns
+            .Where(p => !string.IsNullOrEmpty(p.Pattern)
+                        && !string.IsNullOrEmpty(p.BotType)
+                        && !string.IsNullOrEmpty(p.BotName))
+            .Select(p => (p.Pattern!, p.BotType!, p.BotName!))
+            .ToArray();
     }
 
     private Dictionary<string, string> BuildBotNameIndex()
