@@ -418,8 +418,16 @@ public class HeuristicDetector : IDetector, IDisposable
             features.TryGetValue("ua:phantomjs", out var phantomjs) && phantomjs > 0)
             return BotType.Scraper;
 
-        // Default fallback
-        return BotType.Scraper;
+        // No positive evidence of a tool / scraper UA pattern. Returning Scraper
+        // as a fallback used to clobber the UserAgentContributor's authoritative
+        // type (SearchEngine for bingbot/googlebot, SocialMediaBot for Mastodon)
+        // via the ledger's last-writer-wins BotType assignment. Result: every
+        // friendly bot displayed as Scraper on the dashboard, and the friendly-
+        // pin in DetermineRiskBand had to lean on a YAML-name fallback to
+        // recover the right type. Returning Unknown lets the upstream UA-
+        // pattern type survive so the friendly-pin fires off the type the
+        // pipeline already proved.
+        return BotType.Unknown;
     }
 
     /// <summary>
