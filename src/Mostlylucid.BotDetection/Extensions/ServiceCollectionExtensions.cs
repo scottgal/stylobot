@@ -283,6 +283,12 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Singleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>());
         services.Replace(ServiceDescriptor.Singleton<IChallengeStore, InMemoryChallengeStore>());
         services.Replace(ServiceDescriptor.Singleton<IPinnedEndpointStore, NullPinnedEndpointStore>());
+        services.Replace(ServiceDescriptor.Singleton<IFingerprintApprovalStore, NullFingerprintApprovalStore>());
+        // Centroid stores open sessions.db directly via their own connection-string
+        // factory, so a Replace on ISessionStore alone leaves sessions.db being created.
+        services.Replace(ServiceDescriptor.Singleton<ISignatureCentroidStore, NullSignatureCentroidStore>());
+        services.Replace(ServiceDescriptor.Singleton<ISessionCentroidStore, NullSessionCentroidStore>());
+        services.Replace(ServiceDescriptor.Singleton<IIntentCentroidStore, NullIntentCentroidStore>());
 
         return services;
     }
