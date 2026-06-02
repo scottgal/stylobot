@@ -16,8 +16,8 @@ namespace Mostlylucid.BotDetection.Middleware;
 /// </summary>
 public sealed class AssetHashMiddleware(
     RequestDelegate next,
-    AssetHashStore assetHashStore,
-    ILogger<AssetHashMiddleware> logger)
+    ILogger<AssetHashMiddleware> logger,
+    AssetHashStore? assetHashStore = null)
 {
     private static readonly HashSet<string> StaticExtensions =
     [
@@ -28,6 +28,12 @@ public sealed class AssetHashMiddleware(
     public async Task InvokeAsync(HttpContext context)
     {
         await next(context);
+
+        // Ephemeral / economy mode removes AssetHashStore from DI. The middleware
+        // is still wired into the pipeline (UseStyloBot doesn't know about
+        // ephemeral mode) but degrades to a pass-through when the store is
+        // absent. Documented in economy-mode.md.
+        if (assetHashStore is null) return;
 
         var path = context.Request.Path.Value ?? string.Empty;
         var ext = Path.GetExtension(path).ToLowerInvariant();

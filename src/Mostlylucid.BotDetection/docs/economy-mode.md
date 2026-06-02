@@ -62,6 +62,11 @@ visible:
   equally suspicious.
 - **PoW challenges** stay functional within a process (backed by a
   `ConcurrentDictionary`) but evaporate on restart.
+- **Content-sequence detection** is removed entirely. `CentroidSequenceStore`
+  + `AssetHashStore` + `ContentSequenceContributor` + the two init/rebuild
+  hosted services all get pulled from the container, because the stores are
+  concrete-typed and have no interface to swap for a no-op. Document → asset
+  → API page-load ordering anomalies are not detected in this mode.
 
 ## What you keep
 

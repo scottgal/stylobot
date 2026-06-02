@@ -290,7 +290,59 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Singleton<ISessionCentroidStore, NullSessionCentroidStore>());
         services.Replace(ServiceDescriptor.Singleton<IIntentCentroidStore, NullIntentCentroidStore>());
 
+        // CentroidSequenceStore + AssetHashStore are concrete-typed singletons with
+        // no interface to Replace; they open sessions.db directly in their hosted
+        // services' init paths. Pull them out of the container entirely along with
+        // their hosted services, the ContentSequenceContributor that depends on
+        // them, and the AssetHashInitHostedService. ephemeral mode silently
+        // degrades content-sequence detection -- documented in economy-mode.md.
+        services.RemoveAll<Services.CentroidSequenceStore>();
+        services.RemoveAll<Services.AssetHashStore>();
+        services.RemoveAll<Services.EndpointDivergenceTracker>();
+        RemoveHostedService<Services.CentroidSequenceRebuildHostedService>(services);
+        RemoveHostedService<Services.AssetHashInitHostedService>(services);
+        RemoveContributor<Orchestration.ContributingDetectors.ContentSequenceContributor>(services);
+
         return services;
+    }
+
+    /// <summary>
+    ///     Helper: remove an <see cref="Microsoft.Extensions.Hosting.IHostedService"/>
+    ///     registered as <typeparamref name="THosted"/>. <c>RemoveAll&lt;IHostedService&gt;</c>
+    ///     would nuke every hosted service in the container; this only removes the
+    ///     specific implementation type.
+    /// </summary>
+    private static void RemoveHostedService<THosted>(IServiceCollection services)
+        where THosted : Microsoft.Extensions.Hosting.IHostedService
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            var sd = services[i];
+            if (sd.ServiceType != typeof(Microsoft.Extensions.Hosting.IHostedService)) continue;
+            if (sd.ImplementationType == typeof(THosted)
+                || (sd.ImplementationFactory is not null && sd.ImplementationFactory.Method.ReturnType == typeof(THosted)))
+            {
+                services.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Helper: remove an <see cref="IContributingDetector"/> registered as
+    ///     <typeparamref name="TContrib"/>. Contributors are registered as
+    ///     <c>AddSingleton&lt;IContributingDetector, TContrib&gt;()</c> so
+    ///     <c>RemoveAll&lt;IContributingDetector&gt;</c> would nuke the whole pipeline.
+    /// </summary>
+    private static void RemoveContributor<TContrib>(IServiceCollection services)
+        where TContrib : IContributingDetector
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            var sd = services[i];
+            if (sd.ServiceType != typeof(IContributingDetector)) continue;
+            if (sd.ImplementationType == typeof(TContrib))
+                services.RemoveAt(i);
+        }
     }
 
     /// <summary>
