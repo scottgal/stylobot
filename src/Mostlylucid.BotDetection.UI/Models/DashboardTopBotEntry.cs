@@ -66,6 +66,31 @@ public sealed record DashboardTopBotEntry
     /// </summary>
     public int[] HitTrend { get; init; } = Array.Empty<int>();
 
+    /// <summary>
+    ///     SignatureRiskVerdictComposer's RiskProfileLabel as a string -- one of
+    ///     <c>Hostile</c> / <c>VerifiedCommunity</c> / <c>Aligned</c> /
+    ///     <c>Drifting</c> / <c>Unknown</c>. Overlayed onto the row from
+    ///     /api/v1/topbots when a friendly-pin or hostile-pin fires. Null on
+    ///     rows the composer has no opinion about.
+    /// </summary>
+    public string? RiskProfile { get; init; }
+
+    /// <summary>
+    ///     One-line justification for the composed verdict, written by the
+    ///     SignatureRiskVerdictComposer. Operator-facing reason like
+    ///     <c>"Verified-friendly (ip+domain): identity corroborated by non-UA signal"</c>
+    ///     or <c>"Confirmed bad: reputation abort or honeypot hit on this signature"</c>.
+    /// </summary>
+    public string? Justification { get; init; }
+
+    /// <summary>
+    ///     Structured reasons emitted by the composer (e.g.
+    ///     <c>"hostile_pin: confirmed_bad latch true"</c>,
+    ///     <c>"friendly_pin: cluster_type=Safe"</c>). The dashboard renders these
+    ///     as a small "Why" block under the row.
+    /// </summary>
+    public IReadOnlyList<string>? VerdictReasons { get; init; }
+
     public string TimeAgo
     {
         get

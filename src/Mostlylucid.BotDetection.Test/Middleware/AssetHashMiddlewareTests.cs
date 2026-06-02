@@ -31,7 +31,7 @@ public class AssetHashMiddlewareTests : IAsyncLifetime
             if (contentLength.HasValue) ctx.Response.ContentLength = contentLength;
             return Task.CompletedTask;
         };
-        return new AssetHashMiddleware(next, _store, NullLogger<AssetHashMiddleware>.Instance);
+        return new AssetHashMiddleware(next, NullLogger<AssetHashMiddleware>.Instance, _store);
     }
 
     [Fact]

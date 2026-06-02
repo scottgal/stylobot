@@ -429,8 +429,11 @@ public static class ReadEndpoints
             {
                 bots[i] = entry with
                 {
-                    ThreatBand = verdict.ThreatBand.ToString(),
-                    RiskBand   = verdict.RiskBand.ToString(),
+                    ThreatBand     = verdict.ThreatBand.ToString(),
+                    RiskBand       = verdict.RiskBand.ToString(),
+                    RiskProfile    = verdict.RiskProfile.ToString(),
+                    Justification  = verdict.Justification,
+                    VerdictReasons = verdict.Reasons,
                 };
             }
         }
