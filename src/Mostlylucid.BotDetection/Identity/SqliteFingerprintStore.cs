@@ -838,6 +838,43 @@ public class SqliteFingerprintStore : IFingerprintStore
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    public async Task<IReadOnlyList<RootHistoryEntry>> GetRootHistoryAsync(
+        string fingerprintId, int limit = 20, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId))
+            return Array.Empty<RootHistoryEntry>();
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, fingerprint_id, root_centroid, root_source, member_count,
+                   set_at, superseded_at
+              FROM fingerprint_root_history
+             WHERE fingerprint_id = @id
+             ORDER BY set_at DESC
+             LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+        var results = new List<RootHistoryEntry>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new RootHistoryEntry(
+                Id: reader.GetInt64(0),
+                FingerprintId: reader.GetString(1),
+                RootCentroid: BlobToFloats((byte[])reader.GetValue(2)),
+                RootSource: reader.GetString(3),
+                MemberCount: reader.GetInt32(4),
+                SetAt: DateTime.Parse(reader.GetString(5), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                SupersededAt: reader.IsDBNull(6)
+                    ? null
+                    : DateTime.Parse(reader.GetString(6), null, System.Globalization.DateTimeStyles.RoundtripKind)));
+        }
+        return results;
+    }
+
     public async Task ReseatRootCentroidsAsync(
         IReadOnlyCollection<ClusterRootUpdate> updates,
         int minMemberFingerprints = 2,

@@ -4637,11 +4637,46 @@ public class StyloBotDashboardMiddleware
                     var nearest = archetypes.FindNearest(fp.Centroid);
                     string? nearestName = nearest?.Archetype.Name;
                     double? nearestScore = nearest?.Score;
+
+                    // Adaptation-loop drift: cosine of live centroid vs the active
+                    // root_centroid. Runtime contract is "root is never null" --
+                    // the InsertFingerprintAsync seed and the migration backfill
+                    // both enforce that. If we get null here, it's a bug, not a
+                    // "calibrating" state. Fall back to the archetype centroid so
+                    // the score is still meaningful while the bug is fixed.
+                    var rootVec = fp.RootCentroid ?? archetype?.Centroid;
+                    double? selfDrift = rootVec is not null
+                        ? FingerprintDriftMath.Cosine(fp.Centroid, rootVec)
+                        : null;
+
+                    // Root timeline: fetch the recent fingerprint_root_history rows
+                    // and project each against the live centroid so the dashboard
+                    // can render "how far have I drifted from THIS past anchor" for
+                    // each row in the chain.
+                    IReadOnlyList<RootHistoryView>? rootHistory = null;
+                    var hist = await reader.GetRootHistoryAsync(fpId, limit: 12, context.RequestAborted);
+                    if (hist.Count > 0)
+                    {
+                        var projected = new List<RootHistoryView>(hist.Count);
+                        foreach (var h in hist)
+                            projected.Add(new RootHistoryView(
+                                Source: h.RootSource,
+                                MemberCount: h.MemberCount,
+                                SetAt: h.SetAt,
+                                SupersededAt: h.SupersededAt,
+                                RootDistance: FingerprintDriftMath.Distance(fp.Centroid, h.RootCentroid)));
+                        rootHistory = projected;
+                    }
+
                     shape = shape with
                     {
                         OriginScore = originScore,
                         NearestArchetypeName = nearestName,
                         NearestScore = nearestScore,
+                        SelfDriftScore = selfDrift,
+                        SelfDriftLabel = fp.RootSource,
+                        RootCentroidAt = fp.RootCentroidAt,
+                        RootHistory = rootHistory,
                     };
                     return shape;
                 }

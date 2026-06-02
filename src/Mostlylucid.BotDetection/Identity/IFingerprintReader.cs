@@ -53,6 +53,16 @@ public interface IFingerprintReader
     /// </summary>
     Task<IReadOnlyList<NearestFingerprint>> GetNearestForSignatureAsync(
         string primarySignature, int k, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Timeline of the fingerprint's root_centroid evolution: archetype seed,
+    ///     each cluster snapshot that reseated the root, in newest-first order. The
+    ///     dashboard renders this so operators can see how the reference shape
+    ///     shifted as the population's centroids refined themselves -- the
+    ///     visible record of the adaptation loop.
+    /// </summary>
+    Task<IReadOnlyList<RootHistoryEntry>> GetRootHistoryAsync(
+        string fingerprintId, int limit = 20, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -66,3 +76,21 @@ public sealed record NearestFingerprint(
     string DisplayName,
     string InferredClientType,
     double Distance);
+
+/// <summary>
+///     One row of the fingerprint's <c>fingerprint_root_history</c> table.
+///     <see cref="RootCentroid"/> is the snapshot vector that drift was measured
+///     against during the row's active window (between <see cref="SetAt"/> and
+///     <see cref="SupersededAt"/>; null on the latter means this row is the
+///     currently active root). <see cref="RootSource"/> is the lineage marker
+///     (<c>archetype:&lt;id&gt;</c> / <c>cluster:&lt;id&gt;</c> /
+///     <c>verifiedbot:&lt;name&gt;</c> / <c>bootstrap</c>).
+/// </summary>
+public sealed record RootHistoryEntry(
+    long Id,
+    string FingerprintId,
+    float[] RootCentroid,
+    string RootSource,
+    int MemberCount,
+    DateTime SetAt,
+    DateTime? SupersededAt);

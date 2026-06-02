@@ -183,4 +183,65 @@ public sealed record FingerprintRadarShape(
     string? ArchetypeName,
     double? OriginScore = null,
     string? NearestArchetypeName = null,
-    double? NearestScore = null);
+    double? NearestScore = null,
+    // Phase 1 adaptation-loop drift: cosine of the live centroid against the
+    // CURRENT active root_centroid (archetype seed at allocation, replaced by
+    // BotClusterService community means later). SelfDriftScore = 1.0 immediately
+    // after a root reseat, grows toward 0 as the live centroid moves away from
+    // the snapshot. SelfDriftLabel is the lineage marker (archetype:... /
+    // cluster:... / verifiedbot:... / bootstrap) so operators can tell whether
+    // the current root is a cold-start seed or a data-driven community mean.
+    // RootHistory is the timeline of past roots in newest-first order; each
+    // entry's RootDistance is cosine(live, that historical root) so the
+    // dashboard can render "how far have I moved since THAT past anchor" at a
+    // glance. Empty for legacy rows that haven't yet been re-rooted post-backfill.
+    double? SelfDriftScore = null,
+    string? SelfDriftLabel = null,
+    DateTime? RootCentroidAt = null,
+    IReadOnlyList<RootHistoryView>? RootHistory = null);
+
+/// <summary>
+///     One entry in <see cref="FingerprintRadarShape.RootHistory"/>: a past
+///     <c>fingerprint_root_history</c> row collapsed for view-side rendering.
+///     <see cref="RootDistance"/> is <c>1 - cosine(live, historical root)</c> --
+///     0 means the live centroid still matches that past anchor, 1 means it has
+///     drifted completely away.
+/// </summary>
+public sealed record RootHistoryView(
+    string Source,
+    int MemberCount,
+    DateTime SetAt,
+    DateTime? SupersededAt,
+    double RootDistance);
+
+/// <summary>
+///     View-side cosine helper. The Identity layer's BruteForceIdentityAnchorIndex.Cosine
+///     is internal to the BotDetection assembly; this is the public counterpart the
+///     UI project can call without InternalsVisibleTo. Returns 1.0 for parallel
+///     vectors, 0.0 for orthogonal. Tolerates the +1e-12 guard against zero
+///     vectors that the index uses.
+/// </summary>
+public static class FingerprintDriftMath
+{
+    public static double Cosine(float[] a, float[] b)
+    {
+        if (a.Length != b.Length || a.Length == 0) return 0.0;
+        double dot = 0, an = 0, bn = 0;
+        for (var i = 0; i < a.Length; i++)
+        {
+            dot += a[i] * b[i];
+            an  += a[i] * a[i];
+            bn  += b[i] * b[i];
+        }
+        return dot / (Math.Sqrt(an) * Math.Sqrt(bn) + 1e-12);
+    }
+
+    /// <summary>1 - cosine, clamped to [0, 1]; the "drift distance" the dashboard renders.</summary>
+    public static double Distance(float[] live, float[] root)
+    {
+        var c = Cosine(live, root);
+        if (c < 0) return 1.0;
+        if (c > 1) return 0.0;
+        return 1.0 - c;
+    }
+}

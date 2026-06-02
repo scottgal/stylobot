@@ -43,6 +43,10 @@ public sealed class NullFingerprintStore : IFingerprintStore
         string primarySignature, int k, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<NearestFingerprint>>(Array.Empty<NearestFingerprint>());
 
+    public Task<IReadOnlyList<RootHistoryEntry>> GetRootHistoryAsync(
+        string fingerprintId, int limit = 20, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<RootHistoryEntry>>(Array.Empty<RootHistoryEntry>());
+
     // ── Verdict cache ────────────────────────────────────────────────────────
     public Task<IdentityCachedVerdict?> GetCachedVerdictForSignatureAsync(
         string primarySignature, CancellationToken ct = default)

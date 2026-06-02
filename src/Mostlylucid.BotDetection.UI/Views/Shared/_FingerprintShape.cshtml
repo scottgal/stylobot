@@ -78,19 +78,50 @@
             @Html.Raw(radarLabelSvg.ToString())
         </svg>
         @{
-            // Surface the matcher's prior (ArchetypeName from fp.ArchetypeOrigin) and the
-            // current-nearest archetype side by side. When they match the system thinks
-            // the fingerprint is still behaving like its initial anchor; when they
-            // diverge the centroid has drifted into a different archetype's
-            // neighbourhood -- the operator-visible self-tuning signal.
+            // CATEGORICAL drift (archetype-level): origin archetype the matcher
+            // anchored at vs the current-nearest archetype. Honest, qualitative
+            // signal -- "this visitor used to look like Chrome, now looks like
+            // headless-chrome".
             var originName    = shape!.ArchetypeName;
-            var originScore   = shape.OriginScore;
             var nearestName   = shape.NearestArchetypeName;
-            var nearestScore  = shape.NearestScore;
             var hasDrift      = !string.IsNullOrEmpty(originName)
                                 && !string.IsNullOrEmpty(nearestName)
                                 && !string.Equals(originName, nearestName, System.StringComparison.OrdinalIgnoreCase);
-            string FormatScore(double? s) => s is null ? "" : $"{s.Value:F2}";
+
+            // QUANTITATIVE drift (adaptation-loop): cosine of live centroid vs
+            // the current root_centroid. 1.0 = aligned with the reference;
+            // smaller = the live shape has moved. SelfDriftLabel is the lineage
+            // (archetype:... cold-start seed, or cluster:... data-driven mean
+            // from a BotClusterService snapshot).
+            var driftScore = shape.SelfDriftScore;
+            var driftLabel = shape.SelfDriftLabel;
+            var rootHistory = shape.RootHistory;
+
+            static string ShortenSource(string? src)
+            {
+                if (string.IsNullOrEmpty(src)) return "";
+                var colon = src.IndexOf(':');
+                if (colon <= 0 || colon >= src.Length - 1) return src;
+                var kind = src[..colon];
+                var id   = src[(colon + 1)..];
+                return kind switch
+                {
+                    "archetype"   => id,
+                    "cluster"     => "cluster " + (id.Length > 6 ? id[..6] : id),
+                    "verifiedbot" => id,
+                    _             => src
+                };
+            }
+
+            string FormatAge(DateTime? when)
+            {
+                if (when is null) return "";
+                var delta = DateTime.UtcNow - when.Value;
+                if (delta.TotalSeconds < 60) return "just now";
+                if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m";
+                if (delta.TotalHours   < 48) return $"{(int)delta.TotalHours}h";
+                return $"{(int)delta.TotalDays}d";
+            }
         }
         @if (!string.IsNullOrEmpty(originName) || !string.IsNullOrEmpty(nearestName))
         {
@@ -109,21 +140,43 @@
                     <span>@(nearestName ?? originName)</span>
                 }
             </div>
-            @if (originScore.HasValue || nearestScore.HasValue)
-            {
-                <div class="text-[10px] text-base-content/50 font-mono text-center leading-tight">
-                    @if (hasDrift)
+        }
+        @if (driftScore.HasValue)
+        {
+            <div class="mt-2 text-[10px] uppercase tracking-wider text-base-content/50 text-center leading-tight">
+                Drift vs @ShortenSource(driftLabel)
+            </div>
+            <div class="text-xs font-mono text-base-content/80 text-center leading-tight">
+                @($"{(1.0 - driftScore.Value) * 100:F1}%")
+                @if (shape.RootCentroidAt.HasValue)
+                {
+                    <span class="text-base-content/40 ml-1">· @FormatAge(shape.RootCentroidAt)</span>
+                }
+            </div>
+        }
+        @if (rootHistory is { Count: > 1 })
+        {
+            <details class="mt-2 text-[10px] text-base-content/60 leading-tight">
+                <summary class="cursor-pointer text-center uppercase tracking-wider text-base-content/50">
+                    Root timeline (@rootHistory.Count)
+                </summary>
+                <ul class="mt-1 space-y-0.5 font-mono">
+                    @foreach (var entry in rootHistory)
                     {
-                        <span>@FormatScore(originScore)</span>
-                        <span class="mx-1">→</span>
-                        <span>@FormatScore(nearestScore)</span>
+                        var isActive = !entry.SupersededAt.HasValue;
+                        <li class="flex justify-between gap-2 @(isActive ? "text-base-content/90" : "text-base-content/50")">
+                            <span class="truncate">
+                                @(isActive ? "● " : "○ ")@ShortenSource(entry.Source)
+                                @if (entry.MemberCount > 1)
+                                {
+                                    <span class="text-base-content/40">·n=@entry.MemberCount</span>
+                                }
+                            </span>
+                            <span class="shrink-0">@($"{entry.RootDistance * 100:F1}%") · @FormatAge(entry.SetAt)</span>
+                        </li>
                     }
-                    else
-                    {
-                        <span>@FormatScore(nearestScore ?? originScore)</span>
-                    }
-                </div>
-            }
+                </ul>
+            </details>
         }
     </div>
 }

@@ -38,4 +38,9 @@ internal sealed class RemoteFingerprintReader : IFingerprintReader
         string primarySignature, int k, CancellationToken ct = default)
         => await _api.GetEnvelopeListAsync<NearestFingerprint>(
             $"/api/v1/fingerprints/nearest/{Uri.EscapeDataString(primarySignature)}?k={k}", ct);
+
+    public async Task<IReadOnlyList<RootHistoryEntry>> GetRootHistoryAsync(
+        string fingerprintId, int limit = 20, CancellationToken ct = default)
+        => await _api.GetEnvelopeListAsync<RootHistoryEntry>(
+            $"/api/v1/fingerprints/{Uri.EscapeDataString(fingerprintId)}/root-history?limit={limit}", ct);
 }
