@@ -234,6 +234,60 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Add bot detection in <b>ephemeral mode</b>: same detector pipeline,
+    ///     no SQLite. Every store that would normally write to disk is replaced
+    ///     with a no-op or in-process implementation, so detection runs against
+    ///     the in-process LFU / bounded caches only and all state evaporates on
+    ///     restart.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Use this when you need quick protection but cannot have persistence:
+    ///         serverless / scratch containers, demo sandboxes, integration tests
+    ///         that need fresh state per run. Intentionally weaker than the
+    ///         default SQLite-backed mode -- learning, entity resolution, the
+    ///         metastable identity layer and the verdict cache all rebuild from
+    ///         zero every restart.
+    ///     </para>
+    ///     <para>
+    ///         Identity is forced off (it relies on persisted centroids; with no
+    ///         persistence the matcher is purely degraded). Per-request signal
+    ///         detection runs unchanged.
+    ///     </para>
+    /// </remarks>
+    public static IServiceCollection AddBotDetectionInMemory(
+        this IServiceCollection services,
+        Action<BotDetectionOptions>? configure = null)
+    {
+        services.AddBotDetection(options =>
+        {
+            // Identity layer relies on persisted centroids + per-fingerprint
+            // weights. With no persistence it can only degrade -- force off so
+            // the absorption/drift/calibration hosted services stay dormant.
+            options.Identity.Enabled = false;
+            configure?.Invoke(options);
+        });
+
+        // Per-store Null/InMemory bindings. services.Replace() swaps the SQLite
+        // descriptor put in place by AddBotDetection; the concrete SQLite
+        // implementations stay in the container (some are still resolved by
+        // name) but no I/O happens through this binding.
+        services.Replace(ServiceDescriptor.Singleton<Identity.IFingerprintStore, Identity.NullFingerprintStore>());
+        services.Replace(ServiceDescriptor.Singleton<Identity.IFingerprintReader>(
+            sp => (Identity.NullFingerprintStore)sp.GetRequiredService<Identity.IFingerprintStore>()));
+        services.Replace(ServiceDescriptor.Singleton<ISessionStore, NullSessionStore>());
+        services.Replace(ServiceDescriptor.Singleton<IClusterStore, NullClusterStore>());
+        services.Replace(ServiceDescriptor.Singleton<ILearnedPatternStore, NullLearnedPatternStore>());
+        services.Replace(ServiceDescriptor.Singleton<IWeightStore, NullWeightStore>());
+        services.Replace(ServiceDescriptor.Singleton<ILicenseGraceStore, NullLicenseGraceStore>());
+        services.Replace(ServiceDescriptor.Singleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>());
+        services.Replace(ServiceDescriptor.Singleton<IChallengeStore, InMemoryChallengeStore>());
+        services.Replace(ServiceDescriptor.Singleton<IPinnedEndpointStore, NullPinnedEndpointStore>());
+
+        return services;
+    }
+
+    /// <summary>
     ///     Configure bot detection options (for post-registration customization).
     /// </summary>
     /// <param name="services">The service collection</param>

@@ -568,11 +568,26 @@ try
                 }
             });
 
+    // Ephemeral mode: no SQLite, all state lives in-process and evaporates on
+    // restart. Opt-in via STYLOBOT_INMEMORY=1 (or "true"/"yes"). Targeted at
+    // serverless / scratch containers + demo sandboxes; intentionally weaker
+    // than the default persistent mode.
+    var inMemoryEnv = Environment.GetEnvironmentVariable("STYLOBOT_INMEMORY");
+    var inMemory = inMemoryEnv is not null &&
+                   (inMemoryEnv.Equals("1", StringComparison.OrdinalIgnoreCase)
+                    || inMemoryEnv.Equals("true", StringComparison.OrdinalIgnoreCase)
+                    || inMemoryEnv.Equals("yes", StringComparison.OrdinalIgnoreCase));
+
+    void AddDetection() {
+        if (inMemory) builder.Services.AddBotDetectionInMemory();
+        else builder.Services.AddBotDetection();
+    }
+
     // Add Bot Detection + optional LLM provider
     if (llmProvider != null)
     {
         // Always register core detection first
-        builder.Services.AddBotDetection();
+        AddDetection();
 
         if (llmProvider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
         {
@@ -605,7 +620,7 @@ try
     }
     else
     {
-        builder.Services.AddBotDetection();
+        AddDetection();
     }
 
     // Apply CLI overrides
