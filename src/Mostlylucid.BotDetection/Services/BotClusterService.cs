@@ -461,6 +461,27 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
         if (_clusterStore is not null)
             _ = _clusterStore.ReplaceAllAsync(newClusters.Values.ToList(), CancellationToken.None);
 
+        // Adaptation loop: feed the fresh cluster snapshot back to the fingerprint
+        // store so each member's root_centroid is reseated to its cluster's community
+        // mean. Skips Mixed and Unknown clusters where the mean is incoherent (the
+        // cluster spans bot and human shapes simultaneously). Fire-and-forget --
+        // a slow root reseat must not back up the cluster loop.
+        if (_fingerprintStore is not null && newClusters.Count > 0)
+        {
+            var rootUpdates = new List<Identity.ClusterRootUpdate>(newClusters.Count);
+            foreach (var c in newClusters.Values)
+            {
+                if (c.Type == BotClusterType.Mixed || c.Type == BotClusterType.Unknown) continue;
+                if (c.MemberSignatures.Count == 0) continue;
+                rootUpdates.Add(new Identity.ClusterRootUpdate(
+                    ClusterId: c.ClusterId,
+                    MemberSignatures: c.MemberSignatures,
+                    MemberCount: c.MemberCount));
+            }
+            if (rootUpdates.Count > 0)
+                _ = _fingerprintStore.ReseatRootCentroidsAsync(rootUpdates, ct: CancellationToken.None);
+        }
+
         var productCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotProduct);
         var networkCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotNetwork);
         var emergentCount = newClusters.Values.Count(c => c.Type == BotClusterType.Emergent);

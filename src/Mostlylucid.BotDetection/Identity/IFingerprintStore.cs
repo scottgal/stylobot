@@ -100,6 +100,41 @@ public interface IFingerprintStore : IFingerprintReader
     Task<IReadOnlyList<(string FingerprintId, double Distance)>> SearchVecObservationsAsync(
         float[] queryVector, int k, CancellationToken ct = default);
 
+    // ── Cluster-driven root reseat (adaptation loop) ─────────────────────────
+    /// <summary>
+    ///     Apply a fresh <c>BotClusterService</c> snapshot to the fingerprint roots.
+    ///     For each cluster: resolve member signatures → fingerprint ids (via
+    ///     <c>fingerprint_keys</c>), dedupe, load each member's live centroid, take
+    ///     the mean, then in one transaction supersede each member's active
+    ///     <c>fingerprint_root_history</c> row, insert a new active row with
+    ///     <c>root_source = "cluster:&lt;id&gt;"</c>, and update each
+    ///     fingerprint's <c>root_centroid</c> / <c>root_centroid_at</c> /
+    ///     <c>root_source</c> in lockstep. This closes the adaptation loop: a
+    ///     Chrome-142 release that shifts the population's centroids gets
+    ///     reflected in every member fingerprint's reference within one
+    ///     clustering cycle even when the seed archetype YAML is now stale.
+    ///
+    ///     Clusters with fewer than <paramref name="minMemberFingerprints"/>
+    ///     unique fingerprints are skipped -- a 1-member "community" would just
+    ///     replace the fingerprint's root with its own centroid (drift = 0
+    ///     forever). Idempotent: safe to call repeatedly with the same input.
+    /// </summary>
+    Task ReseatRootCentroidsAsync(
+        IReadOnlyCollection<ClusterRootUpdate> updates,
+        int minMemberFingerprints = 2,
+        CancellationToken ct = default);
+
     // ── Test rig ─────────────────────────────────────────────────────────────
     Task<IReadOnlyDictionary<string, int>> TruncateAllAsync(CancellationToken ct = default);
 }
+
+/// <summary>
+///     One cluster's contribution to a root-reseat batch.
+///     <see cref="MemberSignatures"/> is the cluster's signature set as produced by
+///     <c>BotClusterService</c>; the store resolves them to fingerprint ids
+///     internally so callers don't pay an extra round-trip per signature.
+/// </summary>
+public sealed record ClusterRootUpdate(
+    string ClusterId,
+    IReadOnlyCollection<string> MemberSignatures,
+    int MemberCount);

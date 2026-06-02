@@ -135,6 +135,13 @@ public sealed class NullFingerprintStore : IFingerprintStore
         => Task.FromResult<IReadOnlyList<(string FingerprintId, double Distance)>>(
             Array.Empty<(string, double)>());
 
+    // ── Cluster-driven root reseat ───────────────────────────────────────────
+    public Task ReseatRootCentroidsAsync(
+        IReadOnlyCollection<ClusterRootUpdate> updates,
+        int minMemberFingerprints = 2,
+        CancellationToken ct = default)
+        => Task.CompletedTask;
+
     // ── Test rig ─────────────────────────────────────────────────────────────
     public Task<IReadOnlyDictionary<string, int>> TruncateAllAsync(CancellationToken ct = default)
         => Task.FromResult(_emptyCounts);

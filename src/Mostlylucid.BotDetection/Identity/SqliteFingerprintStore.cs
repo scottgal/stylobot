@@ -838,6 +838,158 @@ public class SqliteFingerprintStore : IFingerprintStore
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    public async Task ReseatRootCentroidsAsync(
+        IReadOnlyCollection<ClusterRootUpdate> updates,
+        int minMemberFingerprints = 2,
+        CancellationToken ct = default)
+    {
+        if (updates.Count == 0) return;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        var now = DateTime.UtcNow.ToString("O");
+        var totalClustersApplied = 0;
+        var totalFingerprintsReseated = 0;
+
+        foreach (var update in updates)
+        {
+            if (update.MemberSignatures.Count == 0) continue;
+
+            // Resolve cluster signatures -> unique fingerprint ids in one query.
+            var fingerprintIds = new HashSet<string>(StringComparer.Ordinal);
+            await using (var lookup = conn.CreateCommand())
+            {
+                lookup.Transaction = tx;
+                var paramNames = new List<string>(update.MemberSignatures.Count);
+                var idx = 0;
+                foreach (var sig in update.MemberSignatures)
+                {
+                    var n = "@s" + idx++;
+                    paramNames.Add(n);
+                    lookup.Parameters.AddWithValue(n, sig);
+                }
+                lookup.CommandText =
+                    $"SELECT DISTINCT fingerprint_id FROM fingerprint_keys WHERE primary_signature IN ({string.Join(",", paramNames)})";
+                await using var rd = await lookup.ExecuteReaderAsync(ct);
+                while (await rd.ReadAsync(ct))
+                    fingerprintIds.Add(rd.GetString(0));
+            }
+
+            if (fingerprintIds.Count < minMemberFingerprints) continue;
+
+            // Fetch member centroids -> compute mean.
+            var memberVectors = new List<float[]>(fingerprintIds.Count);
+            await using (var fetch = conn.CreateCommand())
+            {
+                fetch.Transaction = tx;
+                var paramNames = new List<string>(fingerprintIds.Count);
+                var idx = 0;
+                foreach (var id in fingerprintIds)
+                {
+                    var n = "@f" + idx++;
+                    paramNames.Add(n);
+                    fetch.Parameters.AddWithValue(n, id);
+                }
+                fetch.CommandText =
+                    $"SELECT centroid FROM fingerprints WHERE fingerprint_id IN ({string.Join(",", paramNames)})";
+                await using var rd = await fetch.ExecuteReaderAsync(ct);
+                while (await rd.ReadAsync(ct))
+                    memberVectors.Add(BlobToFloats((byte[])rd.GetValue(0)));
+            }
+
+            if (memberVectors.Count < minMemberFingerprints) continue;
+            var mean = MeanVector(memberVectors);
+            var meanBlob = FloatsToBlob(mean);
+            var rootSource = "cluster:" + update.ClusterId;
+
+            // Supersede the active history row for each member.
+            await using (var supersede = conn.CreateCommand())
+            {
+                supersede.Transaction = tx;
+                var paramNames = new List<string>(fingerprintIds.Count);
+                var idx = 0;
+                foreach (var id in fingerprintIds)
+                {
+                    var n = "@f" + idx++;
+                    paramNames.Add(n);
+                    supersede.Parameters.AddWithValue(n, id);
+                }
+                supersede.Parameters.AddWithValue("@now", now);
+                supersede.CommandText = $"""
+                    UPDATE fingerprint_root_history
+                       SET superseded_at = @now
+                     WHERE fingerprint_id IN ({string.Join(",", paramNames)})
+                       AND superseded_at IS NULL
+                    """;
+                await supersede.ExecuteNonQueryAsync(ct);
+            }
+
+            // Insert the new active history row + update the fingerprints row, per member.
+            foreach (var id in fingerprintIds)
+            {
+                await using (var hist = conn.CreateCommand())
+                {
+                    hist.Transaction = tx;
+                    hist.CommandText = """
+                        INSERT INTO fingerprint_root_history
+                            (fingerprint_id, root_centroid, root_source, member_count, set_at)
+                        VALUES (@id, @centroid, @source, @members, @now)
+                        """;
+                    hist.Parameters.AddWithValue("@id", id);
+                    hist.Parameters.AddWithValue("@centroid", meanBlob);
+                    hist.Parameters.AddWithValue("@source", rootSource);
+                    hist.Parameters.AddWithValue("@members", fingerprintIds.Count);
+                    hist.Parameters.AddWithValue("@now", now);
+                    await hist.ExecuteNonQueryAsync(ct);
+                }
+
+                await using (var upd = conn.CreateCommand())
+                {
+                    upd.Transaction = tx;
+                    upd.CommandText = """
+                        UPDATE fingerprints
+                           SET root_centroid    = @centroid,
+                               root_centroid_at = @now,
+                               root_source      = @source
+                         WHERE fingerprint_id = @id
+                        """;
+                    upd.Parameters.AddWithValue("@id", id);
+                    upd.Parameters.AddWithValue("@centroid", meanBlob);
+                    upd.Parameters.AddWithValue("@now", now);
+                    upd.Parameters.AddWithValue("@source", rootSource);
+                    await upd.ExecuteNonQueryAsync(ct);
+                }
+            }
+
+            totalClustersApplied++;
+            totalFingerprintsReseated += fingerprintIds.Count;
+        }
+
+        await tx.CommitAsync(ct);
+
+        if (totalClustersApplied > 0)
+            _logger.LogInformation(
+                "Root reseat applied: {Clusters} clusters / {Fingerprints} fingerprints from {Total} cluster updates",
+                totalClustersApplied, totalFingerprintsReseated, updates.Count);
+    }
+
+    private static float[] MeanVector(IReadOnlyList<float[]> vectors)
+    {
+        var dim = vectors[0].Length;
+        var sum = new double[dim];
+        foreach (var v in vectors)
+        {
+            // Tolerate stray dim mismatches (layout migrations etc.) by skipping the row.
+            if (v.Length != dim) continue;
+            for (var i = 0; i < dim; i++) sum[i] += v[i];
+        }
+        var mean = new float[dim];
+        var n = vectors.Count;
+        for (var i = 0; i < dim; i++) mean[i] = (float)(sum[i] / n);
+        return mean;
+    }
+
     /// <summary>
     ///     Test-only utility: truncates every identity table so a BDF rig can replay
     ///     scenarios against a deterministic clean state. Returns per-table row counts
@@ -855,6 +1007,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             "fingerprint_corrections",
             "fingerprint_observations",
             "fingerprint_keys",
+            "fingerprint_root_history",
             "fingerprints",
             "identity_dimension_weights",
             "identity_archetypes"
