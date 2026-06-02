@@ -45,6 +45,25 @@ if (outputConfigPath is not null)
     return ConfigOutputCommand.WriteConfig(outputConfigPath, cmdArgs);
 }
 
+// -e / --economy: low-memory, in-memory, no-persistence one-shot toggle.
+// Sets STYLOBOT_INMEMORY=1 (Null/InMemory store bindings, no SQLite writes
+// for behavioural state) and STYLOBOT_PROFILE=economy (smallest Kestrel
+// thread pool / connection cap / buffer set). Aimed at scratch containers,
+// Pi-class devices, and serverless cold starts. Strip from args so
+// downstream parsers ignore it.
+if (cmdArgs.Any(a => a.Equals("-e", StringComparison.OrdinalIgnoreCase)
+                  || a.Equals("--economy", StringComparison.OrdinalIgnoreCase)))
+{
+    Environment.SetEnvironmentVariable("STYLOBOT_INMEMORY", "1");
+    Environment.SetEnvironmentVariable("STYLOBOT_PROFILE", "economy");
+    cmdArgs = cmdArgs.Where(a =>
+        !a.Equals("-e", StringComparison.OrdinalIgnoreCase) &&
+        !a.Equals("--economy", StringComparison.OrdinalIgnoreCase)).ToArray();
+    args = args.Where(a =>
+        !a.Equals("-e", StringComparison.OrdinalIgnoreCase) &&
+        !a.Equals("--economy", StringComparison.OrdinalIgnoreCase)).ToArray();
+}
+
 // -d / --daemon: shorthand for the `start` subcommand. Forks to background and exits.
 // Existing `stylobot start` subcommand still works; -d is the common-case ergonomic
 // flag operators expect on a CLI ("run in the background").
@@ -108,6 +127,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("  Commands:");
     Console.WriteLine("    stylobot start <port> <upstream> [opts]     Start as background daemon");
     Console.WriteLine("    stylobot <port> <upstream> -d              Same, shorter (-d / --daemon)");
+    Console.WriteLine("    stylobot <port> <upstream> -e              Economy mode: low memory, no persistence (-e / --economy)");
     Console.WriteLine("    stylobot --output-config <file>            Dump effective config to <file>");
     Console.WriteLine("    stylobot stop                               Stop the running daemon");
     Console.WriteLine("    stylobot status                             Check if daemon is running");
@@ -147,6 +167,12 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    --verbose                   Show all log output (disables live table)");
     Console.WriteLine("    --skip-dependencies-check   Skip first-run downloads (bot list, GeoIP,");
     Console.WriteLine("                                Ollama model pull). Use for CI / automated starts.");
+    Console.WriteLine("    -e, --economy               Economy mode: in-memory only, no SQLite writes for");
+    Console.WriteLine("                                behavioural state, smallest Kestrel profile. For Pi /");
+    Console.WriteLine("                                256MB containers / serverless cold starts. Detection");
+    Console.WriteLine("                                still runs; you lose learning, entity resolution, the");
+    Console.WriteLine("                                metastable identity layer, the verdict cache, and any");
+    Console.WriteLine("                                cross-restart history.");
     Console.WriteLine("    -h, --help                  Show this help");
     Console.WriteLine();
     Console.WriteLine("  Examples:");
@@ -156,6 +182,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot start 5080 http://localhost:3000 --policy block");
     Console.WriteLine("    stylobot 443 https://api.example.com --cert cert.pfx");
     Console.WriteLine("    stylobot 5080 http://localhost:3000 --tunnel");
+    Console.WriteLine("    stylobot 5080 http://localhost:3000 -e        # Pi-class / scratch container");
     Console.WriteLine();
     Console.WriteLine("  Health:     http://localhost:<port>/health");
     Console.WriteLine();
@@ -710,6 +737,11 @@ try
     //                generous keep-alive, more upgraded connections for WebSockets
     //   highrisk  -- under attack; aggressive timeouts, low connection cap,
     //                tight slowloris caps, fast-refuse posture
+    //   economy   -- constrained-resource deployment (Pi-class / 256MB
+    //                container / serverless cold start); smallest thread
+    //                pool + lowest connection cap that still serves traffic.
+    //                Set automatically by `-e / --economy` along with
+    //                STYLOBOT_INMEMORY=1.
     //   balanced  -- default; safe middle ground for unknown workload
     var profile = (Environment.GetEnvironmentVariable("STYLOBOT_PROFILE")
                    ?? args.SkipWhile(a => a != "--profile").Skip(1).FirstOrDefault()
@@ -724,6 +756,10 @@ try
         "site"     => (200, 200, 10_000, 10_000, 1 * 1024 * 1024,    120, 15, 100,  400, 2 * 1024 * 1024),
         // Under attack: shed fast, no patience for slow clients.
         "highrisk" => ( 50,  50,  2_000,    100, 32 * 1024,             5,  3,1000,  100, 64 * 1024),
+        // Economy: Pi-class / 256MB container / serverless cold start.
+        // Half the thread pool of balanced, an order of magnitude fewer
+        // connections, tightest buffers. Pairs with STYLOBOT_INMEMORY=1.
+        "economy"  => ( 25,  25,    500,     50, 32 * 1024,            15,  5, 200,   50, 64 * 1024),
         // Balanced default: same as what the 2026-05-31 soak validated.
         _          => ( 50,  50, 10_000,  1_000, 256 * 1024,            30, 10, 100,  200, 1 * 1024 * 1024),
     };
