@@ -319,14 +319,11 @@ public static class DetectionLedgerExtensions
             threatScore = Math.Max(threatScore, attackScore);
         }
 
-        var band = threatScore switch
-        {
-            >= 0.80 => ThreatBand.Critical,
-            >= 0.55 => ThreatBand.High,
-            >= 0.35 => ThreatBand.Elevated,
-            >= 0.15 => ThreatBand.Low,
-            _ => ThreatBand.None
-        };
+        // Delegate to the single source of truth -- SignatureRiskVerdictComposer.BucketThreat.
+        // Until this commit the same boundaries were encoded twice (here + in the composer)
+        // and the unification refactor only migrated the composer side. Future edits must
+        // touch one place, not two.
+        var band = Risk.SignatureRiskVerdictComposer.BucketThreat(threatScore);
 
         return (threatScore, band);
     }

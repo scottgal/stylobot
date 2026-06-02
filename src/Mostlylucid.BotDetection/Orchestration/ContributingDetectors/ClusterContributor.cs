@@ -152,6 +152,45 @@ public class ClusterContributor : ConfiguredContributorBase
                                 botType: "Scraper"));
                             break;
                         }
+                        case BotClusterType.Safe:
+                        {
+                            // Verified-friendly cluster (fediverse fanout / search-engine
+                            // crawl burst / RSS reader fanout). The cluster itself is
+                            // evidence that the high per-member probability is a verified
+                            // positive, not a threat -- emit a human-positive contribution
+                            // so SignatureRiskVerdictComposer / downstream throttling can
+                            // see the offset. Without this case the switch fell through
+                            // silently and the 644b492c feature was a no-op.
+                            var reason = $"Part of verified-friendly cluster '{cluster.Label}' ({cluster.MemberCount} members)";
+                            if (!string.IsNullOrEmpty(cluster.Description))
+                                reason += $". {cluster.Description}";
+                            contributions.Add(HumanContribution(
+                                "Cluster",
+                                reason));
+                            break;
+                        }
+                        case BotClusterType.HumanTraffic:
+                        {
+                            // Cluster of normal browser/mobile traffic -- low per-member bot
+                            // probability and a tight behavioural neighbourhood. Modest
+                            // human contribution so the cluster itself counts as positive
+                            // evidence (a fingerprint that lands in a healthy human cluster
+                            // is unlikely to be a coordinated bot).
+                            var reason = $"Part of human-traffic cluster '{cluster.Label}' ({cluster.MemberCount} members, similarity={cluster.AverageSimilarity:F2})";
+                            contributions.Add(HumanContribution(
+                                "Cluster",
+                                reason,
+                                weightMultiplier: WeightHumanSignal * 0.7));
+                            break;
+                        }
+                        case BotClusterType.Mixed:
+                        case BotClusterType.Unknown:
+                        default:
+                            // Mixed clusters span bot+human shapes simultaneously --
+                            // a mean is incoherent. Unknown is the unclassified default.
+                            // Either way: emit nothing rather than contribute on shaky
+                            // evidence; downstream detectors decide.
+                            break;
                     }
                 }
             }

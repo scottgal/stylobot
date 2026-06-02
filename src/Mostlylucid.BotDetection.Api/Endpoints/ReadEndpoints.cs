@@ -419,10 +419,19 @@ public static class ReadEndpoints
 
             // Only rewrite when a pin fired; otherwise leave the raw store value
             // alone so we don't regress the existing default behaviour for rows
-            // the composer has no opinion about.
+            // the composer has no opinion about. When a pin DOES fire, overlay
+            // both ThreatBand AND RiskBand -- the two axes move together and the
+            // operator-visible "ThreatBand=None but RiskBand=VeryHigh" inconsistency
+            // (e.g. a verified Googlebot row whose threat is corrected down but
+            // whose risk band kept the stale store value) is exactly the bug the
+            // composer was introduced to prevent.
             if (verdict.FriendlyPinFired || verdict.HostilePinFired)
             {
-                bots[i] = entry with { ThreatBand = verdict.ThreatBand.ToString() };
+                bots[i] = entry with
+                {
+                    ThreatBand = verdict.ThreatBand.ToString(),
+                    RiskBand   = verdict.RiskBand.ToString(),
+                };
             }
         }
         return bots;

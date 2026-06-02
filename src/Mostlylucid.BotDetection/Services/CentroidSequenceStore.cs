@@ -260,7 +260,8 @@ public sealed class CentroidSequenceStore
     ///     Map a <see cref="BotClusterType"/> to the coarser <see cref="CentroidType"/> used
     ///     by the sequence chain selection logic.
     ///     - BotProduct / BotNetwork / Emergent → Bot
-    ///     - HumanTraffic → Human
+    ///     - HumanTraffic / Safe → Human (Safe = verified-friendly fanout; uses
+    ///       the same human chains as normal browser traffic)
     ///     - Mixed / Unknown → Unknown (falls back to human defaults at runtime)
     /// </summary>
     private static CentroidType DetermineClusterType(BotCluster cluster) =>
@@ -270,6 +271,7 @@ public sealed class CentroidSequenceStore
             BotClusterType.BotNetwork => CentroidType.Bot,
             BotClusterType.Emergent => CentroidType.Bot,
             BotClusterType.HumanTraffic => CentroidType.Human,
+            BotClusterType.Safe => CentroidType.Human,
             BotClusterType.Mixed => CentroidType.Unknown,
             _ => CentroidType.Unknown
         };
