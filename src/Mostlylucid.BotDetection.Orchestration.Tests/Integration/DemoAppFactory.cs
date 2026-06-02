@@ -35,15 +35,28 @@ public sealed class DemoAppFactory : IAsyncLifetime
                 Environment =
                 {
                     ["ASPNETCORE_URLS"] = $"http://127.0.0.1:{_port}",
-                    ["ASPNETCORE_ENVIRONMENT"] = "Development"
-                }
-            }
+                    ["ASPNETCORE_ENVIRONMENT"] = "Development",
+                    // Quieten the BotListUpdateService periodic loop in tests.
+                    // The first request still lazy-inits the BotListDatabase
+                    // (and may pull from useragents.me / coreruleset) but
+                    // there's no second refresh while the test suite runs --
+                    // gives consistent behaviour across runs.
+                    ["BotDetection__EnableBackgroundUpdates"] = "false",
+                },
+            },
         };
         _process.Start();
 
-        // Wait for the server to become responsive (may take time for GeoIP download on first run)
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        var deadline = DateTime.UtcNow.AddSeconds(60);
+        // Two-phase wait. First phase: get any non-5xx response from /api --
+        // confirms Kestrel is listening and routes are mapped. Second phase:
+        // pre-warm /api by issuing a successful request and waiting for it to
+        // complete; the FIRST /api hit triggers BotListDatabase lazy init,
+        // which pulls bot patterns + datacenter IP ranges from external CDNs
+        // and can take 5-15s. Doing it here (inside the fixture init) keeps
+        // the actual test methods' GotoAsync(30s default) calls fast.
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        var deadline = DateTime.UtcNow.AddSeconds(120);
+        var sawAlive = false;
         while (DateTime.UtcNow < deadline)
         {
             if (_process.HasExited)
@@ -54,7 +67,20 @@ public sealed class DemoAppFactory : IAsyncLifetime
             {
                 var response = await client.GetAsync($"{BaseUrl}/api");
                 if ((int)response.StatusCode < 500)
-                    return; // Any non-5xx response means the server is up
+                {
+                    if (!sawAlive)
+                    {
+                        // First success -- read the body to force the response
+                        // to fully materialize so the bot-list lazy init runs
+                        // to completion before we hand back to the test.
+                        await response.Content.ReadAsStringAsync();
+                        sawAlive = true;
+                        // One more pre-warm pass to make sure subsequent
+                        // requests find populated caches.
+                        await client.GetStringAsync($"{BaseUrl}/api");
+                    }
+                    return;
+                }
             }
             catch (Exception)
             {
@@ -64,7 +90,7 @@ public sealed class DemoAppFactory : IAsyncLifetime
             await Task.Delay(500);
         }
 
-        throw new TimeoutException($"Demo app did not start within 60 seconds on {BaseUrl}");
+        throw new TimeoutException($"Demo app did not start within 120 seconds on {BaseUrl}");
     }
 
     public Task DisposeAsync()

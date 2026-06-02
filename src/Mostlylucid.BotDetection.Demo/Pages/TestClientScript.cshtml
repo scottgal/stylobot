@@ -1,0 +1,22 @@
+@page "/test/client-script"
+@{
+    Layout = null;
+    ViewData["Title"] = "Client-side detector test page";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>@ViewData["Title"]</title>
+</head>
+<body>
+    @* The detector renders: an inline bootstrap that publishes window.MLBotD,
+       plus <script src="/bot-detection/script.js" defer>. The deferred script
+       runs after parse and POSTs to /bot-detection/fingerprint. *@
+    <h1>Client-side detector test page</h1>
+    <p>This page exists to let Playwright tests verify the BotDetection
+       TagHelper -> script.js -> beacon flow. The page renders nothing
+       else of interest.</p>
+    <bot-detection-script />
+</body>
+</html>
