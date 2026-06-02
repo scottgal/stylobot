@@ -1526,6 +1526,20 @@ public static class SignalKeys
     /// <summary>Double: adaptive bias applied when a document request carries no fingerprint, scaled by population rate</summary>
     public const string ClientSideNoFingerprintBias = "clientside.no_fingerprint_bias";
 
+    /// <summary>
+    ///     Bool: the adblocker probe reported back that the browser blocked a real
+    ///     ad-network resource. Set by <see cref="ClientSide.ClientSideContributor"/>
+    ///     from the stored <see cref="ClientSide.BrowserFingerprintResult.Adblocker"/>
+    ///     flag. Treated as strong evidence that the visitor is human (overwhelmingly
+    ///     bots don't run adblockers) AND suppresses the no-fingerprint penalty
+    ///     because adblock extensions routinely block the fingerprint script too.
+    ///     See docs/adblocker-detection.md.
+    /// </summary>
+    public const string ClientSideAdblockerDetected = "clientside.adblocker_detected";
+
+    /// <summary>String: ad-network provider alias the probe used (e.g. "adsense", "amazon", "medianet", "custom").</summary>
+    public const string ClientSideAdblockerProvider = "clientside.adblocker_provider";
+
 
     // ==========================================
     // Cookie behavior signals

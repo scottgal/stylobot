@@ -109,6 +109,13 @@ defaults:
     penalize_confidence: 0.15       # Max confidence bias for missing fingerprint
     population_min_samples: 20      # Minimum samples before using population rate (below = half-penalty)
     population_rate_threshold: 0.7  # Fingerprint rate above which missing fingerprint is suspicious
+    # Adblocker probe -- see docs/adblocker-detection.md.
+    # When <sb:adblock-probe> reports the configured ad-network resource was
+    # blocked, the contributor (a) writes ClientSideAdblockerDetected, (b)
+    # suppresses the no-fingerprint penalty entirely for that request, (c)
+    # contributes the bias below. Negative = human-affinity (adblocker users
+    # skew strongly human). 0 disables the bias contribution (signal still fires).
+    adblocker_human_bias: -0.05
 
 tags:
   - clientside

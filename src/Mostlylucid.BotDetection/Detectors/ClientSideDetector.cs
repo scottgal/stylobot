@@ -75,6 +75,25 @@ public class ClientSideDetector : IDetector
             // Store fingerprint result on HttpContext for contributor signal writing
             context.Items["__mlbotd_fingerprint"] = fingerprint;
 
+            // Adblocker probe path: the analyzer marks adblocker-only beacons with
+            // FingerprintHash = "adblocker-only" and neutral integrity. Emit a
+            // dedicated reason so ClientSideContributor can write the suppression
+            // signal without scanning the prose Reasons list. The full integrity
+            // analysis below is skipped for adblocker-only payloads (their fields
+            // weren't measured -- analysing them would mark a real human user as
+            // low-integrity).
+            if (fingerprint.Adblocker && fingerprint.FingerprintHash == "adblocker-only")
+            {
+                result.Reasons.Add(new DetectionReason
+                {
+                    Category = "ClientSide",
+                    Detail = ClientSideReasons.AdblockerDetected,
+                    ConfidenceImpact = 0
+                });
+                stopwatch.Stop();
+                return Task.FromResult(result);
+            }
+
             // Use fingerprint data for detection
             var opts = _options.ClientSide;
 

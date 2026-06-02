@@ -88,6 +88,24 @@ public class BrowserFingerprintData
 
     // Error (if collection failed)
     [JsonPropertyName("error")] public string? Error { get; set; }
+
+    // Adblocker probe result -- see docs/adblocker-detection.md.
+    // True when the inlined <sb:adblock-probe> script could not reach the
+    // configured ad-network resource (extension block, Pi-hole, corp proxy).
+    // Sent as its own slim payload from the probe script even when the
+    // fingerprint script itself was blocked, so the field is independent of
+    // the rest of the fingerprint surface above.
+    [JsonPropertyName("adblocker")] public bool Adblocker { get; set; }
+
+    [JsonPropertyName("adblockerProvider")] public string? AdblockerProvider { get; set; }
+
+    /// <summary>
+    ///     Token in the body. The main fingerprint script sends its token via the
+    ///     <c>X-ML-BotD-Token</c> header (it owns a normal fetch). The adblocker
+    ///     probe uses <c>navigator.sendBeacon</c> which can't set headers, so the
+    ///     token rides here instead. Endpoint accepts either source.
+    /// </summary>
+    [JsonPropertyName("t")] public string? BodyToken { get; set; }
 }
 
 /// <summary>
@@ -159,6 +177,19 @@ public class BrowserFingerprintResult
     ///     When this fingerprint was processed.
     /// </summary>
     public DateTimeOffset ProcessedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    ///     True when the adblocker probe (inlined by <c>AdblockerProbeTagHelper</c>)
+    ///     reported that the configured ad-network resource was blocked. Drives the
+    ///     <see cref="Models.SignalKeys.ClientSideAdblockerDetected"/> blackboard
+    ///     signal so <see cref="ContributingDetectors.ClientSideContributor"/> can
+    ///     suppress the no-fingerprint penalty for legitimate users whose adblocker
+    ///     blocked the fingerprint script along with everything else.
+    /// </summary>
+    public bool Adblocker { get; set; }
+
+    /// <summary>Ad-network provider alias the probe used (e.g. "adsense", "amazon").</summary>
+    public string? AdblockerProvider { get; set; }
 }
 
 /// <summary>

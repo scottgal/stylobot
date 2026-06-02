@@ -29,7 +29,14 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
         var result = new BrowserFingerprintResult
         {
             RequestId = requestId,
-            ProcessedAt = DateTimeOffset.UtcNow
+            ProcessedAt = DateTimeOffset.UtcNow,
+            // Adblocker probe payload is independent of the rest of the
+            // fingerprint surface -- a probe-only beacon (when the main
+            // fingerprint script was blocked) carries no other fields, just
+            // adblocker:true + provider. Pass through verbatim; the contributor
+            // translates this into the ClientSideAdblockerDetected signal.
+            Adblocker = data.Adblocker,
+            AdblockerProvider = data.AdblockerProvider,
         };
 
         // Handle error case
@@ -39,6 +46,26 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             result.BrowserIntegrityScore = 0;
             result.HeadlessLikelihood = 0.5; // Unknown
             result.FingerprintHash = "error";
+            return result;
+        }
+
+        // Adblocker-only beacon: the probe TagHelper renders an inlined script
+        // that beacons {adblocker: true, provider: ...} when the configured
+        // ad-network resource was blocked. When the main fingerprint script was
+        // ALSO blocked (no integrity / no plugin / no UA fields populated) we
+        // get an adblocker-only payload. Recognise it by Adblocker=true AND a
+        // zero Timestamp (the main script always stamps Date.now()). Don't run
+        // integrity analysis -- zero-valued fingerprint fields would otherwise
+        // look like a low-integrity bot. Produce a neutral result with the
+        // adblocker flag set; ClientSideContributor reads it and writes the
+        // suppression signal.
+        if (data.Adblocker && data.Timestamp == 0)
+        {
+            result.Reasons.Add($"Adblocker probe blocked: provider={data.AdblockerProvider ?? "unknown"}");
+            result.BrowserIntegrityScore = 50;   // neutral; the field wasn't analysed
+            result.FingerprintConsistencyScore = 50;
+            result.HeadlessLikelihood = 0;
+            result.FingerprintHash = "adblocker-only";
             return result;
         }
 

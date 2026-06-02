@@ -44,18 +44,10 @@ public static class BrowserFingerprintEndpointExtensions
 
         if (!opts.ClientSide.Enabled) return Results.NotFound();
 
-        // Validate token from header
-        var token = context.Request.Headers["X-ML-BotD-Token"].FirstOrDefault();
-        var payload = tokenService.ValidateToken(context, token ?? "");
-
-        if (payload == null)
-        {
-            logger?.LogDebug("Invalid or missing fingerprint token");
-            metrics?.RecordError("ClientSide", "InvalidToken");
-            return Results.BadRequest(new { error = "Invalid token" });
-        }
-
-        // Parse fingerprint data
+        // Parse body FIRST so we can fall back to a body-carried token. The
+        // adblocker probe uses navigator.sendBeacon (no header support); main
+        // fingerprint script uses fetch and sets X-ML-BotD-Token. Either source
+        // works; absence of both is rejected.
         BrowserFingerprintData? data;
         try
         {
@@ -69,6 +61,19 @@ public static class BrowserFingerprintEndpointExtensions
         {
             logger?.LogDebug(ex, "Failed to parse fingerprint data");
             return Results.BadRequest(new { error = "Invalid JSON" });
+        }
+
+        // Validate token: header preferred (existing fingerprint flow); body
+        // field is the adblocker-probe fallback.
+        var token = context.Request.Headers["X-ML-BotD-Token"].FirstOrDefault()
+                    ?? data.BodyToken;
+        var payload = tokenService.ValidateToken(context, token ?? "");
+
+        if (payload == null)
+        {
+            logger?.LogDebug("Invalid or missing fingerprint token");
+            metrics?.RecordError("ClientSide", "InvalidToken");
+            return Results.BadRequest(new { error = "Invalid token" });
         }
 
         // Analyze fingerprint

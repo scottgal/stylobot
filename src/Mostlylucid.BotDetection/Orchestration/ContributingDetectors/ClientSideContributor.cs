@@ -58,6 +58,42 @@ public class ClientSideContributor : ConfiguredContributorBase
             var isNoFingerprint = result.Reasons.Count == 1
                                   && result.Reasons[0].Detail == ClientSideReasons.NoFingerprint;
 
+            // Adblocker probe path: when the analyzer recognised an adblocker-only
+            // beacon, the detector emits a single AdblockerDetected sentinel reason.
+            // Read the suppression signal flag, write the blackboard signal so
+            // downstream consumers (heuristic, archetype matcher) can see it, and
+            // emit a small human-affinity contribution -- adblocker users are
+            // overwhelmingly human. Returns early so the no-fingerprint penalty
+            // does NOT fire on the same request. Magnitude is configurable.
+            var isAdblockerOnly = result.Reasons.Count == 1
+                                  && result.Reasons[0].Detail == ClientSideReasons.AdblockerDetected;
+            if (isAdblockerOnly)
+            {
+                state.WriteSignal(SignalKeys.ClientSideAdblockerDetected, true);
+                if (state.HttpContext.Items["__mlbotd_fingerprint"] is BrowserFingerprintResult fpAd
+                    && !string.IsNullOrEmpty(fpAd.AdblockerProvider))
+                {
+                    state.WriteSignal(SignalKeys.ClientSideAdblockerProvider, fpAd.AdblockerProvider);
+                }
+
+                if (transportClass == TransportClasses.Document)
+                    _population.Record(uaFamily, transportClass, hasFingerprint: true);
+
+                var bias = GetParam("adblocker_human_bias", -0.05);
+                if (Math.Abs(bias) >= 0.001)
+                {
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "ClientSide",
+                        ConfidenceDelta = bias,
+                        Weight = GetParam("fingerprint_weight", 1.8),
+                        Reason = "Adblocker probe blocked — human-affinity bias (adblocker users skew strongly human)"
+                    });
+                }
+                return contributions;
+            }
+
             if (isNoFingerprint)
             {
                 // Only meaningful for document requests — API, static, and WebSocket never run the fingerprint script.

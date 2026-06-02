@@ -52,4 +52,12 @@ internal static class ClientSideReasons
 {
     public const string NoFingerprint = "no_fingerprint";
     public const string FingerprintFoundClean = "fingerprint_found_clean";
+    /// <summary>
+    ///     The adblocker probe (rendered by AdblockerProbeTagHelper) reported back
+    ///     that the configured ad-network resource was blocked. ClientSideContributor
+    ///     reads this and (a) writes the ClientSideAdblockerDetected signal, (b)
+    ///     suppresses the no-fingerprint penalty for the page request, (c) adds a
+    ///     small human-affinity contribution. See docs/adblocker-detection.md.
+    /// </summary>
+    public const string AdblockerDetected = "adblocker_detected";
 }

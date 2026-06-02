@@ -1,4 +1,9 @@
-# Adblocker Detection (Commercial)
+# Adblocker Detection
+
+> **FOSS feature.** The signal, beacon-receive path, contributor logic and
+> `<sb:adblock-probe>` TagHelper all ship in the FOSS build -- detection
+> capability is never gated. The doc previously framed this as commercial; the
+> code ships otherwise.
 
 ## Problem
 
@@ -213,5 +218,7 @@ by a filter list URL pattern match.
 
 ## Licensing
 
-This feature is gated behind the `AdblockerDetection` commercial feature flag.
-FOSS builds: the TagHelper renders nothing and logs a debug-level message.
+FOSS. Detection capability is never gated. The TagHelper renders the script when
+`ClientSide.Enabled = true` AND a `IBrowserTokenService` is registered (it
+isn't in dashboard-viewer hosts that don't run detection); otherwise renders
+nothing.
