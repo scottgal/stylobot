@@ -89,6 +89,36 @@ public sealed record SignatureRiskInputs
     public string? ClusterId { get; init; }
     public string? ClusterLabel { get; init; }
     public double? ClusterAverageThreatScore { get; init; }
+
+    // === pipeline context (added when migrating the legacy DetermineRiskBand
+    //     into this composer; needed to preserve behaviour for the full-pipeline
+    //     path). The /api/v1/topbots overlay leaves these at defaults; only the
+    //     orchestrator detection-end path supplies them. ===
+
+    /// <summary>True when the AI classifier ran for this request. Sharpens the
+    /// probability-band cutoffs (AI verdicts get tighter thresholds because
+    /// they're more reliable than heuristic-only).</summary>
+    public bool AiRan { get; init; }
+
+    /// <summary>Number of requests observed for this signature in the current
+    /// session window. Drives the persistence dimension -- 20+ requests at any
+    /// probability climbs the risk band on its own.</summary>
+    public int SessionRequestCount { get; init; }
+
+    /// <summary>Intent category from the intent classifier (browsing / scanning /
+    /// attacking / ...). When non-"browsing", decorates the threat-score reason.</summary>
+    public string? IntentCategory { get; init; }
+
+    /// <summary>Result of the IP-range verification (vendor publishes ranges:
+    /// Googlebot, Bingbot). bool? = true (matched), false (failed), null (not
+    /// attempted). Friendly-pin REQUIRES at least one verification source to be
+    /// true -- UA strings are spoofable, so identity claims need corroboration.</summary>
+    public bool? FriendlyIpVerified { get; init; }
+
+    /// <summary>Result of the NodeInfo / domain verification (UA carries
+    /// +https://instance/ and the fediverse software-name was confirmed). Same
+    /// bool? semantics as <see cref="FriendlyIpVerified"/>.</summary>
+    public bool? FriendlyDomainVerified { get; init; }
 }
 
 /// <summary>

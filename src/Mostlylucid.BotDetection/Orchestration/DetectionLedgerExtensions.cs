@@ -106,6 +106,13 @@ public static class DetectionLedgerExtensions
         var ledgerBotName = ledger.BotName
                             ?? (preSignals.TryGetValue(SignalKeys.UserAgentBotName, out var uabn) ? uabn as string : null);
 
+        // Compose the risk verdict via the single-source-of-truth composer. The
+        // legacy DetermineRiskBand method is now a thin wrapper that builds the
+        // SignatureRiskInputs and delegates -- behaviour preserved (the composer
+        // subsumes the dimension-max logic, the AI-aware probability bucketing,
+        // and the friendly-pin corroboration check that used to live in
+        // DetermineRiskBand). The same composer is now used by /api/v1/topbots
+        // OverlayRiskVerdict, so the two paths can't desync any more.
         var (riskBand, riskJustification, friendlyPinTrace) = DetermineRiskBand(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
             ledgerBotType, ledgerBotName, friendlyIpVerified, friendlyDomainVerified);
@@ -383,6 +390,17 @@ public static class DetectionLedgerExtensions
     /// VeryHigh without AI requires one of: probability >= 0.85, OR confirmed bad actor, OR
     /// probability >= 0.70 with active threat OR >= 5 requests.
     /// </summary>
+    /// <summary>
+    ///     Thin wrapper that builds <see cref="SignatureRiskInputs"/> from the
+    ///     pipeline-side primitives and delegates to
+    ///     <see cref="Risk.SignatureRiskVerdictComposer.Compose"/>. The body that
+    ///     used to live here -- a parallel implementation of friendly-pin /
+    ///     dimension-max bucketing -- was the duplication the c2708102 refactor
+    ///     was meant to remove; this commit completes that migration. Keeps the
+    ///     YAML BotName -> friendly-type fallback that the legacy method
+    ///     specifically relied on (the composer treats IsFriendlyBotType as
+    ///     pre-resolved).
+    /// </summary>
     internal static (RiskBand Band, string Justification, string FriendlyPinTrace) DetermineRiskBand(
         double botProbability, double confidence, bool aiRan,
         double threatScore, bool isConfirmedBad, int sessionRequestCount,
@@ -392,191 +410,64 @@ public static class DetectionLedgerExtensions
         bool? friendlyIpVerified = null,
         bool? friendlyDomainVerified = null)
     {
-        // Friendly bot types (search engines, fediverse link previewers, monitoring,
-        // explicitly-verified good bots) get pinned to Low even when probability is
-        // near the AI-clamp ceiling. Threat / confirmed-bad still escalate below.
-        // Two ways into this branch:
-        //   1. botType is in the friendly set (BotTypeClassification.IsFriendly).
-        //   2. botType propagation failed upstream and we got "Unknown" / null, but
-        //      botName matches a YAML pattern whose bot_type IS friendly. The YAML
-        //      pattern files are the single source of truth here -- without this
-        //      fallback a wiring bug surfaces as a VeryHigh-risk DuckDuckBot row.
-        //
-        // The FriendlyPinTrace return value records the decision either way so the
-        // dashboard can show "this would have pinned to Low but the threat score
-        // bypassed the gate" rather than the operator having to guess why a known
-        // SEO crawler (MJ12bot, AhrefsBot) ended up VeryHigh. Format is structured
-        // so it can be parsed: "fired:<source>" or "skipped:<reason>" or
-        // "not-applicable:<reason>".
+        // YAML fallback: ledger.BotType is last-writer-wins (HeuristicEarly often
+        // overwrites the authoritative UA pattern's GoodBot with a generic
+        // Scraper guess). Recover by looking up the bot_name in the YAML pattern
+        // index -- if the YAML claims a friendly type, treat as friendly even
+        // when ledger.BotType disagrees.
         var yamlType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(botName));
-        var ledgerFriendly = BotTypeClassification.IsFriendly(botType);
-        var yamlFriendly = BotTypeClassification.IsFriendly(yamlType);
-        var hasFriendlyCandidate = ledgerFriendly || yamlFriendly;
-        // UA is a string -- trivially spoofable. The friendly pin must REQUIRE at least
-        // one corroborating non-UA signal. Two paths in:
-        //   1. friendlyIpVerified == true: client IP matches the vendor's published
-        //      ranges (Googlebot, Bingbot, MJ12bot). Commercial-only today.
-        //   2. friendlyDomainVerified == true: UA carries +https://instance/ and a
-        //      NodeInfo lookup against that instance confirmed real fediverse software
-        //      (Mastodon, Pleroma, Misskey, etc.). This is the ActivityPub-spec
-        //      corroboration for traffic that CANNOT be IP-range verified because
-        //      every instance runs on arbitrary cloud IPs.
-        //
-        // Either path satisfies the gate. Threat score, isConfirmedBad, and an
-        // EXPLICIT false on either signal still block (false means "the check ran
-        // and the UA is spoofed").
-        //
-        // Until the corresponding contributor wires its signal (Commercial GoodBotIp
-        // index, or the FediverseDomainContributor in this repo) both stay null and
-        // friendly UAs get standard treatment. That is the right default -- UA alone
-        // is not enough.
-        var ipVerified = friendlyIpVerified == true;
-        var domainVerified = friendlyDomainVerified == true;
-        var ipExplicitlyFailed = friendlyIpVerified == false;
-        var domainExplicitlyFailed = friendlyDomainVerified == false;
-        var anyVerified = ipVerified || domainVerified;
-        var anyExplicitlyFailed = ipExplicitlyFailed || domainExplicitlyFailed;
+        var resolvedBotType = botType ?? yamlType;
+        var isFriendlyBotType = BotTypeClassification.IsFriendly(botType)
+                                || BotTypeClassification.IsFriendly(yamlType);
 
-        string friendlyTrace;
-        if (!hasFriendlyCandidate)
+        var inputs = new Risk.SignatureRiskInputs
         {
-            friendlyTrace = $"not-applicable:botType={botType?.ToString() ?? "null"},yamlType={yamlType?.ToString() ?? "null"},botName={botName ?? "null"}";
-        }
-        else if (threatScore >= BotTypeClassification.FriendlyThreatGate)
-        {
-            friendlyTrace = $"skipped:threatScore={threatScore:F2} >= gate({BotTypeClassification.FriendlyThreatGate:F2}) (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
-        }
-        else if (isConfirmedBad)
-        {
-            friendlyTrace = $"skipped:isConfirmedBad (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
-        }
-        else if (anyExplicitlyFailed && !anyVerified)
-        {
-            // A check RAN and failed (spoofed UA). Even if the other check was absent,
-            // a failed check overrides -- the UA claimed friendly software but the
-            // corroborating channel said no.
-            var reason = ipExplicitlyFailed ? "ip_check_failed" : "domain_check_failed";
-            friendlyTrace = $"skipped:{reason} (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)}; corroboration failed)";
-        }
-        else if (!anyVerified)
-        {
-            // No corroboration available at all. UA on its own is not enough --
-            // anyone can send "User-Agent: MJ12bot/v1.4.8" or "Mastodon/4.2.0".
-            friendlyTrace = $"skipped:no_corroboration (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)}; UA alone is not sufficient)";
-        }
-        else
-        {
-            // At least one channel confirmed. Build a precise trace describing which.
-            var source = (ipVerified, domainVerified) switch
-            {
-                (true, true)  => "ip+domain",
-                (true, false) => "ip",
-                _             => "domain"
-            };
-            if (ledgerFriendly)
-            {
-                return (RiskBand.Low,
-                    $"identified as {botType} (friendly automation, {source} verified)",
-                    $"fired:ledger+{source}:{botType}");
-            }
-            return (RiskBand.Low,
-                $"identified as {botName} (friendly automation, {source} verified; yaml bot_type {yamlType})",
-                $"fired:yaml+{source}:{botName}:{yamlType}");
-        }
-
-        // Low confidence: not enough data to assess reliably
-        if (confidence < 0.3)
-            return botProbability >= 0.5
-                ? (RiskBand.Medium, $"Low detection confidence ({confidence:F2}); probability {botProbability:F2}", friendlyTrace)
-                : (RiskBand.Unknown, "Insufficient data for reliable risk assessment", friendlyTrace);
-
-        var reasons = new List<string>(4);
-
-        // Dimension 1: bot probability band
-        RiskBand probabilityBand;
-        if (aiRan)
-        {
-            probabilityBand = botProbability switch
-            {
-                >= 0.80 => RiskBand.VeryHigh,
-                >= 0.50 => RiskBand.High,
-                >= 0.20 => RiskBand.Medium,
-                >= 0.05 => RiskBand.Low,
-                _       => RiskBand.VeryLow
-            };
-            if (probabilityBand >= RiskBand.High)
-                reasons.Add($"AI probability {botProbability:F2}");
-        }
-        else
-        {
-            // Without AI, require stronger evidence for VeryHigh:
-            // pure probability alone can reach VeryHigh at 0.85 (matching the middleware threshold).
-            // Below that, persistence or threat must be present to escalate further.
-            probabilityBand = botProbability switch
-            {
-                >= 0.85 => RiskBand.VeryHigh,
-                >= 0.65 => RiskBand.High,
-                >= 0.50 => RiskBand.Medium,
-                >= 0.35 => RiskBand.Elevated,
-                >= 0.15 => RiskBand.Low,
-                _       => RiskBand.VeryLow
-            };
-            if (probabilityBand >= RiskBand.High)
-                reasons.Add($"probability {botProbability:F2}");
-        }
-
-        // Dimension 2: threat score (independent of automation - a human can attack too)
-        var threatBandRisk = threatScore switch
-        {
-            >= 0.80 => RiskBand.VeryHigh,
-            >= 0.55 => RiskBand.High,
-            >= 0.35 => RiskBand.Medium,
-            >= 0.15 => RiskBand.Elevated,
-            _       => RiskBand.VeryLow
+            PrimarySignature = string.Empty, // legacy callers don't carry it here
+            BotProbability = botProbability,
+            Confidence = confidence,
+            RawThreatScore = threatScore,
+            FriendlyVerified = (friendlyIpVerified == true) || (friendlyDomainVerified == true),
+            ConfirmedBad = isConfirmedBad,
+            DeclaredBot = false, // declared-bot already handled upstream (probability=1.0)
+            BotType = resolvedBotType?.ToString(),
+            BotName = botName,
+            IsFriendlyBotType = isFriendlyBotType,
+            AiRan = aiRan,
+            SessionRequestCount = sessionRequestCount,
+            IntentCategory = intentCategory,
+            FriendlyIpVerified = friendlyIpVerified,
+            FriendlyDomainVerified = friendlyDomainVerified,
         };
-        if (threatBandRisk >= RiskBand.Medium)
+
+        var verdict = Risk.SignatureRiskVerdictComposer.Compose(inputs);
+
+        // Reconstruct the legacy FriendlyPinTrace format from the verdict's
+        // reasons list so the dashboard's existing parser keeps working.
+        string trace;
+        if (verdict.FriendlyPinFired)
         {
-            var threatLabel = !string.IsNullOrEmpty(intentCategory) && intentCategory != "browsing"
-                ? $"{intentCategory} activity (threat={threatScore:F2})"
-                : $"threat score {threatScore:F2}";
-            reasons.Add(threatLabel);
+            var reason = verdict.Reasons.FirstOrDefault(r => r.StartsWith("friendly_pin:", StringComparison.Ordinal))
+                         ?? "friendly_pin: verified";
+            trace = "fired:" + reason.Substring("friendly_pin:".Length).Trim();
+        }
+        else if (!isFriendlyBotType)
+        {
+            trace = $"not-applicable:botType={botType?.ToString() ?? "null"},yamlType={yamlType?.ToString() ?? "null"},botName={botName ?? "null"}";
+        }
+        else
+        {
+            var blockedReason = verdict.Reasons.FirstOrDefault(r => r.StartsWith("friendly_pin_blocked:", StringComparison.Ordinal));
+            if (blockedReason is not null)
+                trace = "skipped:" + blockedReason.Substring("friendly_pin_blocked:".Length).Trim();
+            else if (verdict.HostilePinFired)
+                trace = "skipped:hostile_pin_fired";
+            else
+                trace = $"skipped:no_corroboration (UA claims {botName ?? "friendly bot"} as {resolvedBotType?.ToString() ?? "null"})";
         }
 
-        // Dimension 3: persistence (repeated confirmed behavior adds weight regardless of bot probability)
-        var persistenceBand = RiskBand.VeryLow;
-        if (isConfirmedBad)
-        {
-            persistenceBand = RiskBand.VeryHigh;
-            reasons.Add("confirmed bad actor");
-        }
-        else if (botProbability >= 0.70 && sessionRequestCount >= 5)
-        {
-            // Persistent suspected bot: multiple requests + elevated probability = escalate to VeryHigh
-            persistenceBand = RiskBand.VeryHigh;
-            reasons.Add($"{sessionRequestCount} requests");
-        }
-        else if (sessionRequestCount >= 20)
-        {
-            persistenceBand = RiskBand.High;
-            reasons.Add($"{sessionRequestCount} requests");
-        }
-        else if (sessionRequestCount >= 10)
-        {
-            persistenceBand = RiskBand.Medium;
-            reasons.Add($"{sessionRequestCount} requests");
-        }
-
-        // Final band = max across all three dimensions
-        var finalBand = (RiskBand)new[] { (int)probabilityBand, (int)threatBandRisk, (int)persistenceBand }.Max();
-
-        if (reasons.Count == 0)
-        {
-            var lowLabel = finalBand <= RiskBand.Low ? "No significant indicators" : $"probability {botProbability:F2}";
-            return (finalBand, lowLabel, friendlyTrace);
-        }
-
-        return (finalBand, string.Join("; ", reasons), friendlyTrace);
+        return (verdict.RiskBand, verdict.Justification, trace);
     }
+
 
     private static bool TryReadDouble(object? raw, out double value)
     {

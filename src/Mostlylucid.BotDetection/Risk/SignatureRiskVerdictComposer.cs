@@ -94,11 +94,39 @@ public static class SignatureRiskVerdictComposer
                     || (inputs.OriginArchetypeScore.Value - inputs.CurrentArchetypeScore.Value)
                         <= s.FriendlyArchetypeDriftRevokeThreshold);
 
-            if (inputs.FriendlyVerified)
+            // Friendly-pin corroboration: UA strings are trivially spoofable, so
+            // a friendly identity claim only counts when at least one verification
+            // channel says yes. ipVerified / domainVerified come from the IP-range
+            // contributor and the FediverseDomainContributor (NodeInfo lookup).
+            // FriendlyVerified is the convenience latch composed by the caller.
+            var ipVerified = inputs.FriendlyIpVerified == true;
+            var domainVerified = inputs.FriendlyDomainVerified == true;
+            var ipExplicitlyFailed = inputs.FriendlyIpVerified == false;
+            var domainExplicitlyFailed = inputs.FriendlyDomainVerified == false;
+            var anyVerified = ipVerified || domainVerified || inputs.FriendlyVerified;
+            var anyExplicitlyFailed = ipExplicitlyFailed || domainExplicitlyFailed;
+
+            if (anyVerified)
             {
                 friendlyPin = true;
-                friendlyWhy = "Verified-friendly: NodeInfo or vendor-IP verification confirmed identity";
-                reasons.Add("friendly_pin: friendly_verified latch true");
+                var source = (ipVerified, domainVerified) switch
+                {
+                    (true, true)  => "ip+domain",
+                    (true, false) => "ip",
+                    (false, true) => "domain",
+                    _             => "verified_latch"
+                };
+                friendlyWhy = $"Verified-friendly ({source}): identity corroborated by non-UA signal";
+                reasons.Add($"friendly_pin: verified source={source}");
+            }
+            else if (anyExplicitlyFailed)
+            {
+                // A check ran and FAILED (e.g. UA claims Googlebot but the IP
+                // doesn't match Google's published range). Record but don't pin --
+                // the spoofed UA must not benefit from a friendly-archetype match
+                // either. Suppress all friendly paths below.
+                var which = ipExplicitlyFailed ? "ip_check_failed" : "domain_check_failed";
+                reasons.Add($"friendly_pin_blocked: {which}");
             }
             else if (inputs.ClusterType == BotClusterType.Safe)
             {
@@ -132,11 +160,19 @@ public static class SignatureRiskVerdictComposer
                 : (inputs.RawThreatBand ?? BucketThreat(inputs.RawThreatScore));
 
         // === Risk band ===
+        // Hostile / friendly pins still short-circuit. Neutral path runs the full
+        // dimension-max bucketing migrated from the legacy DetermineRiskBand --
+        // probability (AI-aware), threat score, persistence (session request
+        // count), and confidence (low confidence demotes high probability to
+        // Medium). When AiRan / SessionRequestCount / IntentCategory aren't
+        // supplied (e.g. /api/v1/topbots overlay path), the helper falls back to
+        // confidence-scaled BucketRisk -- the original composer behaviour, which
+        // already passed unit tests for the overlay path.
         var riskBand = hostilePin
             ? RiskBand.VeryHigh
             : friendlyPin
                 ? RiskBand.Low
-                : BucketRisk(inputs.BotProbability, inputs.Confidence);
+                : ComputeNeutralRiskBand(inputs, reasons);
 
         // === Risk profile label ===
         var riskProfile = ComposeProfile(inputs, hostilePin, friendlyPin);
@@ -200,9 +236,12 @@ public static class SignatureRiskVerdictComposer
     };
 
     /// <summary>
-    ///     Probability + confidence bucketing for the per-request risk band. Mirrors
-    ///     the curve <c>DetermineRiskBand</c> applies today: confidence scales the
-    ///     band height so a 0.8 probability at 0.3 confidence is Elevated, not High.
+    ///     Probability + confidence bucketing for the per-request risk band when
+    ///     no AI / persistence context is available (e.g. the /api/v1/topbots
+    ///     overlay path). Confidence scales the band height so a 0.8 probability
+    ///     at 0.3 confidence is Elevated, not High. The full-pipeline path uses
+    ///     <see cref="ComputeNeutralRiskBand"/> which subsumes this and adds the
+    ///     AI / persistence / threat dimensions.
     /// </summary>
     public static RiskBand BucketRisk(double probability, double confidence)
     {
@@ -213,5 +252,110 @@ public static class SignatureRiskVerdictComposer
         if (scaled < 0.60) return RiskBand.Medium;
         if (scaled < 0.80) return RiskBand.High;
         return RiskBand.VeryHigh;
+    }
+
+    /// <summary>
+    ///     Full neutral-path risk-band computation. Migrated from the legacy
+    ///     <c>DetectionLedgerExtensions.DetermineRiskBand</c> dimension-max
+    ///     logic so the composer is the single source of truth.
+    ///
+    ///     <list type="number">
+    ///       <item>Low confidence (&lt; 0.30) demotes to Medium / Unknown.</item>
+    ///       <item>Probability band: AI-aware thresholds when <c>AiRan = true</c>,
+    ///             stricter thresholds otherwise (no AI -> need 0.85 prob for VeryHigh).</item>
+    ///       <item>Threat dimension: independent of automation (humans can attack).</item>
+    ///       <item>Persistence dimension: <c>SessionRequestCount</c> drives escalation
+    ///             even at moderate probability (20+ req -> High, 5+ req at 0.70+ -> VeryHigh).</item>
+    ///       <item>Final = max across all three dimensions.</item>
+    ///     </list>
+    ///
+    ///     When AiRan / SessionRequestCount / IntentCategory are unset (the
+    ///     overlay path), the AI thresholds and persistence dimension are
+    ///     suppressed and the result degrades gracefully to <see cref="BucketRisk"/>.
+    /// </summary>
+    public static RiskBand ComputeNeutralRiskBand(
+        SignatureRiskInputs inputs, List<string>? reasons = null)
+    {
+        // Low confidence carve-out
+        if (inputs.Confidence < 0.30)
+        {
+            if (inputs.BotProbability >= 0.5)
+            {
+                reasons?.Add($"low_confidence: confidence={inputs.Confidence:F2}, probability={inputs.BotProbability:F2}");
+                return RiskBand.Medium;
+            }
+            reasons?.Add($"low_confidence: confidence={inputs.Confidence:F2}");
+            return RiskBand.Unknown;
+        }
+
+        // Dimension 1: probability band
+        RiskBand probabilityBand;
+        if (inputs.AiRan)
+        {
+            probabilityBand = inputs.BotProbability switch
+            {
+                >= 0.80 => RiskBand.VeryHigh,
+                >= 0.50 => RiskBand.High,
+                >= 0.20 => RiskBand.Medium,
+                >= 0.05 => RiskBand.Low,
+                _       => RiskBand.VeryLow
+            };
+            if (probabilityBand >= RiskBand.High)
+                reasons?.Add($"ai_probability={inputs.BotProbability:F2}");
+        }
+        else
+        {
+            probabilityBand = inputs.BotProbability switch
+            {
+                >= 0.85 => RiskBand.VeryHigh,
+                >= 0.65 => RiskBand.High,
+                >= 0.50 => RiskBand.Medium,
+                >= 0.35 => RiskBand.Elevated,
+                >= 0.15 => RiskBand.Low,
+                _       => RiskBand.VeryLow
+            };
+            if (probabilityBand >= RiskBand.High)
+                reasons?.Add($"probability={inputs.BotProbability:F2}");
+        }
+
+        // Dimension 2: threat band (independent of automation)
+        var threatBandRisk = inputs.RawThreatScore switch
+        {
+            >= 0.80 => RiskBand.VeryHigh,
+            >= 0.55 => RiskBand.High,
+            >= 0.35 => RiskBand.Medium,
+            >= 0.15 => RiskBand.Elevated,
+            _       => RiskBand.VeryLow
+        };
+        if (threatBandRisk >= RiskBand.Medium)
+        {
+            var threatLabel = !string.IsNullOrEmpty(inputs.IntentCategory)
+                              && !string.Equals(inputs.IntentCategory, "browsing", StringComparison.OrdinalIgnoreCase)
+                ? $"{inputs.IntentCategory} activity (threat={inputs.RawThreatScore:F2})"
+                : $"threat_score={inputs.RawThreatScore:F2}";
+            reasons?.Add(threatLabel);
+        }
+
+        // Dimension 3: persistence
+        var persistenceBand = RiskBand.VeryLow;
+        if (inputs.SessionRequestCount >= 5 && inputs.BotProbability >= 0.70)
+        {
+            persistenceBand = RiskBand.VeryHigh;
+            reasons?.Add($"persistent_bot: requests={inputs.SessionRequestCount}");
+        }
+        else if (inputs.SessionRequestCount >= 20)
+        {
+            persistenceBand = RiskBand.High;
+            reasons?.Add($"persistence: requests={inputs.SessionRequestCount}");
+        }
+        else if (inputs.SessionRequestCount >= 10)
+        {
+            persistenceBand = RiskBand.Medium;
+            reasons?.Add($"persistence: requests={inputs.SessionRequestCount}");
+        }
+
+        // Final = max across dimensions
+        var combined = (RiskBand)new[] { (int)probabilityBand, (int)threatBandRisk, (int)persistenceBand }.Max();
+        return combined;
     }
 }
