@@ -96,14 +96,17 @@ full detector pipeline; every contributor still fires:
 
 ## What ends up on disk
 
-| File | Size | What it holds | Notes |
-|------|------|---------------|-------|
-| `botdetection.db` | ~1MB | Bot pattern catalog, datacenter IP ranges, list-update metadata | Reference data. Re-fetched on update; not user behaviour. |
-| `sessions.db` | ~20KB | Empty schemas from `CentroidSequenceStore` + `AssetHashStore` (concrete classes registered without an interface to swap) | 0 rows in either table; bootstrap only. |
-| `stylobot-config/` | small | YAML/JSON config override directory | Operator-facing, not state. |
+**Nothing.** Economy mode writes zero files in the data directory.
 
-No `fingerprints.db`, `clusters.db`, `challenges.db`, `approvals.db`, or
-`path-lifecycle.db`. No row inserts into `sessions.db`.
+| Component | How it's handled in economy mode |
+|---|---|
+| Bot pattern catalog + datacenter IP ranges | `InMemoryBotListDatabase` holds them in `HashSet`/`List` snapshots; fetched once on init and on each `UpdateListsAsync` tick. |
+| Sessions, fingerprints, clusters, challenges, approvals, path-lifecycle | All Null-bound; no SQLite engagement at all. |
+| Content sequence + asset hash | `CentroidSequenceStore` / `AssetHashStore` and their hosted services are removed from the container entirely; `AssetHashMiddleware` degrades to a pass-through. |
+| `stylobot-config/` (operator YAML overrides) | Stays operator-managed; not state, not written by the gateway. |
+
+If anything appears in the data directory at runtime in economy mode that
+isn't operator-managed config, it's a bug.
 
 ## Kestrel sizing
 
