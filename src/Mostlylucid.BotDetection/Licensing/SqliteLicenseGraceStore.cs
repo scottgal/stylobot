@@ -15,16 +15,20 @@ internal sealed class SqliteLicenseGraceStore : ILicenseGraceStore
 
     public SqliteLicenseGraceStore(IOptions<BotDetectionOptions> options)
     {
-        _dbPath = options.Value.DatabasePath
+        var dbPathOption = options.Value.DatabasePath;
+        _dbPath = dbPathOption
                   ?? System.IO.Path.Combine(AppContext.BaseDirectory, "botdetection.db");
-        _connectionString = $"Data Source={_dbPath}";
+        _connectionString = Data.SqliteConnectionStrings.ForFile(dbPathOption, "botdetection");
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(_dbPath));
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
+        if (!Data.SqliteConnectionStrings.IsInMemory(_dbPath))
+        {
+            var directory = Path.GetDirectoryName(Path.GetFullPath(_dbPath));
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+        }
 
         using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);

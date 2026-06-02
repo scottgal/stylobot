@@ -12,11 +12,15 @@ public sealed class SqlitePinnedEndpointStore : IPinnedEndpointStore
 
     public SqlitePinnedEndpointStore(IOptions<BotDetectionOptions> options)
     {
-        var basePath = Path.GetDirectoryName(
-            options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
-            ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(basePath);
-        _connectionString = $"Data Source={Path.Combine(basePath, "sessions.db")};Cache=Shared";
+        var dbPathOption = options.Value.DatabasePath;
+        if (!SqliteConnectionStrings.IsInMemory(dbPathOption))
+        {
+            var basePath = Path.GetDirectoryName(
+                dbPathOption ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
+                ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(basePath);
+        }
+        _connectionString = SqliteConnectionStrings.ForSibling(dbPathOption, "sessions.db");
         InitSchema();
     }
 

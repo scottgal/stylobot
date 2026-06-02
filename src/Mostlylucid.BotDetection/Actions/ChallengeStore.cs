@@ -84,12 +84,15 @@ public sealed class SqliteChallengeStore : IChallengeStore, IAsyncDisposable
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
-        var basePath = Path.GetDirectoryName(
-            options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
-            ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(basePath);
-        var dbPath = Path.Combine(basePath, "challenges.db");
-        _connectionString = $"Data Source={dbPath};Cache=Shared";
+        var dbPathOption = options.Value.DatabasePath;
+        if (!Data.SqliteConnectionStrings.IsInMemory(dbPathOption))
+        {
+            var basePath = Path.GetDirectoryName(
+                dbPathOption ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
+                ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(basePath);
+        }
+        _connectionString = Data.SqliteConnectionStrings.ForSibling(dbPathOption, "challenges.db");
     }
 
     private void EnsureInitialized()

@@ -212,10 +212,7 @@ public class SqliteWeightStore : IWeightStore, IAsyncDisposable, IDisposable
             CompactionPercentage = 0.25 // Remove 25% when limit reached
         });
 
-        var dbPath = options.Value.DatabasePath
-                     ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
-
-        _connectionString = $"Data Source={dbPath}";
+        _connectionString = SqliteConnectionStrings.ForFile(options.Value.DatabasePath, "botdetection");
 
         // Start background flush timer for write-behind pattern
         _flushTimer = new Timer(FlushPendingWritesCallback, null, _flushInterval, _flushInterval);

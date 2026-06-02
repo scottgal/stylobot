@@ -64,6 +64,32 @@ public static class ServiceCollectionExtensions
     ///     options.EnableLlmDetection = true;
     ///     });
     /// </example>
+    /// <summary>
+    ///     Switch every FOSS SQLite store onto a per-store named shared in-memory
+    ///     database. No .db files are created on disk; state lives in process
+    ///     memory and evaporates on restart. Designed for ephemeral pods,
+    ///     serverless deployments, demos, and integration tests where managing
+    ///     a Docker volume is overkill.
+    ///
+    ///     <para>
+    ///         Equivalent to <c>AddBotDetection(o =&gt; o.DatabasePath = ":memory:")</c>;
+    ///         use this overload to make the intent obvious in <c>Program.cs</c>.
+    ///         Returning visitors pay the cold-start verdict-pipeline cost on
+    ///         every restart -- not appropriate for a long-running production
+    ///         deployment.
+    ///     </para>
+    /// </summary>
+    public static IServiceCollection AddBotDetectionInMemory(
+        this IServiceCollection services,
+        Action<BotDetectionOptions>? configure = null)
+    {
+        return services.AddBotDetection(options =>
+        {
+            options.DatabasePath = Data.SqliteConnectionStrings.MemoryMarker;
+            configure?.Invoke(options);
+        });
+    }
+
     public static IServiceCollection AddBotDetection(
         this IServiceCollection services,
         Action<BotDetectionOptions>? configure = null)
@@ -782,12 +808,24 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Lifecycle.IPathLifecycleStore>(sp =>
         {
             var env = sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>();
-            var dbPath = env != null
-                ? Path.Combine(env.ContentRootPath, "path-lifecycle.db")
-                : "path-lifecycle.db";
+            // path-lifecycle is independent of BotDetectionOptions.DatabasePath -- it sits in
+            // the content root rather than next to botdetection.db. Honor :memory: through
+            // the same helper so ephemeral mode keeps it off disk too.
+            var dbOpt = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.DatabasePath;
+            string connStr;
+            if (Data.SqliteConnectionStrings.IsInMemory(dbOpt))
+            {
+                connStr = Data.SqliteConnectionStrings.ForSibling(dbOpt, "path-lifecycle.db");
+            }
+            else
+            {
+                var dbPath = env != null
+                    ? Path.Combine(env.ContentRootPath, "path-lifecycle.db")
+                    : "path-lifecycle.db";
+                connStr = $"Data Source={dbPath};Cache=Shared";
+            }
             var logger = sp.GetRequiredService<ILogger<Lifecycle.SqlitePathLifecycleStore>>();
-            return new Lifecycle.SqlitePathLifecycleStore(
-                $"Data Source={dbPath};Cache=Shared", logger);
+            return new Lifecycle.SqlitePathLifecycleStore(connStr, logger);
         });
         services.AddSingleton<IContributingDetector, Honeypot.EndpointHistoryContributor>();
         // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
@@ -893,10 +931,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<SqliteClusterStore>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<SqliteClusterStore>>();
-            var dbPath = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.DatabasePath
-                ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
-            var basePath = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
-            var connStr = $"Data Source={Path.Combine(basePath, "clusters.db")};Cache=Shared";
+            var dbOpt = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.DatabasePath;
+            var connStr = Data.SqliteConnectionStrings.ForSibling(dbOpt, "clusters.db");
             return new SqliteClusterStore(connStr, logger);
         });
         // Default IClusterStore binding forwards to the Sqlite concrete; commercial
@@ -1051,10 +1087,8 @@ public static class ServiceCollectionExtensions
         // to avoid a circular dependency: ISessionStore → ISessionVectorSearch → ISessionCentroidStore → ISessionStore.
         static string CentroidConnStr(IServiceProvider sp)
         {
-            var dbPath = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.DatabasePath
-                ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
-            var basePath = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
-            return $"Data Source={Path.Combine(basePath, "sessions.db")};Cache=Shared";
+            var dbOpt = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.DatabasePath;
+            return Data.SqliteConnectionStrings.ForSibling(dbOpt, "sessions.db");
         }
         services.TryAddSingleton<ISignatureCentroidStore>(sp =>
         {
