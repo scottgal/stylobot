@@ -999,8 +999,17 @@ public static class ServiceCollectionExtensions
             var logger = sp.GetRequiredService<ILogger<CentroidSequenceStore>>();
             var sessionStore = sp.GetService<ISessionStore>();
 
+            // Bind the loader to the ISessionStore interface, not the SqliteSessionStore
+            // concrete. The methods used here (GetRecentSessionsAsync, GetSessionsAsync)
+            // are both on the interface; the prior cast meant ephemeral mode -- where
+            // ISessionStore resolves to NullSessionStore -- got loader=null and the
+            // content-sequence contributor silently suppressed divergence scoring for
+            // every fingerprint that fell back to the global chain. Now the lambda runs,
+            // NullSessionStore returns empty lists, RelearnGlobalAsync sees zero
+            // baseline data and the contributor still gracefully no-ops -- without the
+            // "concrete type required" trap.
             CentroidSequenceStore.ClusterSessionLoader? loader = null;
-            if (sessionStore is SqliteSessionStore sqliteSessions)
+            if (sessionStore is not null)
             {
                 loader = async (signatures, perSig, ct) =>
                 {
@@ -1008,7 +1017,7 @@ public static class ServiceCollectionExtensions
                     if (signatures.Count == 0)
                     {
                         // Broad sample for learned-global baseline: recent confirmed-human sessions.
-                        var recent = await sqliteSessions.GetRecentSessionsAsync(limit: perSig, isBot: false, ct: ct);
+                        var recent = await sessionStore.GetRecentSessionsAsync(limit: perSig, isBot: false, ct: ct);
                         foreach (var s in recent)
                         {
                             var transitions = SessionChainAggregator.ParseTransitionCounts(s.TransitionCountsJson ?? "");
@@ -1021,7 +1030,7 @@ public static class ServiceCollectionExtensions
 
                     foreach (var sig in signatures)
                     {
-                        var sessions = await sqliteSessions.GetSessionsAsync(sig, perSig, ct);
+                        var sessions = await sessionStore.GetSessionsAsync(sig, perSig, ct);
                         foreach (var s in sessions)
                         {
                             var transitions = SessionChainAggregator.ParseTransitionCounts(s.TransitionCountsJson ?? "");

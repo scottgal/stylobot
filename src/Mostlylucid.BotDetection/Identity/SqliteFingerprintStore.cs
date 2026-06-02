@@ -24,6 +24,8 @@ public class SqliteFingerprintStore : IFingerprintStore
     private bool _initialised;
     private bool _vecAvailable;
 
+    private readonly string _dataDir;
+
     public SqliteFingerprintStore(
         ILogger<SqliteFingerprintStore> logger,
         IOptions<BotDetectionOptions> options,
@@ -34,9 +36,15 @@ public class SqliteFingerprintStore : IFingerprintStore
         _engineOptions = options.Value.Identity.Engine;
         var dbPath = options.Value.DatabasePath
             ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
-        var dir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(dir);
-        var fpDb = Path.Combine(dir, "fingerprints.db");
+        _dataDir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
+        // Directory.CreateDirectory deferred to EnsureInitialisedAsync: when
+        // Identity.Enabled is false and ephemeral mode swaps the interface
+        // bindings, the DI container still constructs this concrete (it's
+        // injected into SqliteVecIdentityAnchorIndex) but no method on the
+        // null-bound interface ever calls EnsureInitialisedAsync, so the
+        // data directory is never created. Was unconditional in the ctor
+        // before; this is the ephemeral-mode polish from the post-7.1 review.
+        var fpDb = Path.Combine(_dataDir, "fingerprints.db");
         // Private cache + WAL gives proper reader/writer concurrency. Shared cache forces
         // serialisation across all connections in-process, which deadlocks when the brute-force
         // index holds a reader on `fingerprints` while the absorption service tries to UPDATE.
@@ -59,6 +67,13 @@ public class SqliteFingerprintStore : IFingerprintStore
         try
         {
             if (_initialised) return;
+
+            // Create the data directory lazily here, not in the ctor. Means
+            // ephemeral mode (Identity.Enabled = false + NullFingerprintStore
+            // bound to the interface) doesn't leave an empty fingerprint data
+            // directory behind despite the concrete still being in the DI
+            // container.
+            Directory.CreateDirectory(_dataDir);
 
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);
