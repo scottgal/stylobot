@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.Options;
@@ -72,9 +73,13 @@ public class AdblockerProbeTagHelper : TagHelper
     [HtmlAttributeName("probe-url")]
     public string? ProbeUrl { get; set; }
 
-    /// <summary>Timeout in ms before treating the probe as blocked. Default 2000.</summary>
+    /// <summary>
+    ///     Timeout in ms before treating the probe as blocked. Overrides the
+    ///     <c>BotDetection:ClientSide:AdblockerProbeTimeoutMs</c> config default
+    ///     when set as a tag attribute. -1 means "use the config default".
+    /// </summary>
     [HtmlAttributeName("timeout-ms")]
-    public int TimeoutMs { get; set; } = 2000;
+    public int TimeoutMs { get; set; } = -1;
 
     /// <summary>
     ///     Override the beacon endpoint path. Default
@@ -117,7 +122,8 @@ public class AdblockerProbeTagHelper : TagHelper
 
         var token = _tokenService.GenerateToken(httpContext);
         var providerAlias = string.IsNullOrEmpty(Provider) ? "custom" : Provider!.ToLowerInvariant();
-        var timeout = Math.Clamp(TimeoutMs, 250, 30_000);
+        var resolvedTimeoutMs = TimeoutMs > 0 ? TimeoutMs : _options.ClientSide.AdblockerProbeTimeoutMs;
+        var timeout = Math.Clamp(resolvedTimeoutMs, 250, 30_000);
 
         output.TagName = "script";
         output.TagMode = TagMode.StartTagAndEndTag;
@@ -157,16 +163,19 @@ public class AdblockerProbeTagHelper : TagHelper
     /// </summary>
     private static string BuildScript(string probeUrl, string providerAlias, string beaconPath, string token, int timeoutMs)
     {
-        // String-escape the URL + provider + token for the JS literal. Use
-        // JavaScriptEncoder? For these specific surfaces (a controlled ad-network
-        // URL, an enum-like provider alias, a base64-shaped token) a defensive
-        // replacement of single-quotes and backslashes is sufficient and AOT-clean.
-        static string Esc(string s) => s.Replace("\\", "\\\\").Replace("'", "\\'");
-
-        var escUrl = Esc(probeUrl);
-        var escProvider = Esc(providerAlias);
-        var escBeacon = Esc(beaconPath);
-        var escToken = Esc(token);
+        // Use the framework's JavaScriptEncoder for the JS literals. The earlier
+        // hand-rolled Replace("\\","\\\\").Replace("'","\\'") missed </script>
+        // breakout sequences, < > / characters in tokens (could appear in a
+        // base64url-encoded payload), and Unicode line separators (U+2028/9 that
+        // JS treats as line terminators). JavaScriptEncoder.Default handles all
+        // of those, is AOT-clean, and is already the standard tool for this in
+        // ASP.NET Core. The IIFE wrapper expects a JS-literal-safe single-quoted
+        // string for each interpolated value.
+        var enc = JavaScriptEncoder.Default;
+        var escUrl = enc.Encode(probeUrl);
+        var escProvider = enc.Encode(providerAlias);
+        var escBeacon = enc.Encode(beaconPath);
+        var escToken = enc.Encode(token);
 
         // The token rides in the body (field `t`) because sendBeacon can't set
         // headers. The endpoint accepts token from either Authorization-style

@@ -41,6 +41,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
     private readonly ILogger<BotClusterService> _logger;
     private readonly ILicenseState _licenseState;
     private readonly ClusterOptions _options;
+    private readonly Models.IdentityMatchOptions _matchOptions;
     private readonly SignatureCoordinator _signatureCoordinator;
     private readonly Identity.IFingerprintStore? _fingerprintStore;
     private readonly MarkovTracker? _markovTracker;
@@ -80,6 +81,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
     {
         _logger = logger;
         _options = options.Value.Cluster;
+        _matchOptions = options.Value.Identity.Match;
         _signatureCoordinator = signatureCoordinator;
         _licenseState = licenseState;
         _fingerprintStore = fingerprintStore;
@@ -479,7 +481,10 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
                     MemberCount: c.MemberCount));
             }
             if (rootUpdates.Count > 0)
-                _ = _fingerprintStore.ReseatRootCentroidsAsync(rootUpdates, ct: CancellationToken.None);
+                _ = _fingerprintStore.ReseatRootCentroidsAsync(
+                    rootUpdates,
+                    minMemberFingerprints: _matchOptions.RootReseatMinClusterFingerprints,
+                    ct: CancellationToken.None);
         }
 
         var productCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotProduct);

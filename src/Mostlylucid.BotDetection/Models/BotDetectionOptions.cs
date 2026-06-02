@@ -1543,6 +1543,16 @@ public class ClientSideOptions
     ///     Range: 0.0-1.0. Default: 0.5
     /// </summary>
     public double HeadlessThreshold { get; set; } = 0.5;
+
+    /// <summary>
+    ///     Default timeout (ms) for the <c>&lt;sb:adblock-probe&gt;</c> TagHelper's
+    ///     inline JS probe when the operator doesn't specify <c>timeout-ms</c>.
+    ///     Below this and the probe declares the configured ad-network resource
+    ///     blocked (extension / Pi-hole / corp proxy). Range 250-30000. Default
+    ///     2000 -- conservative enough to absorb a 1.5s corp-proxy hop while
+    ///     still firing fast on real blocks.
+    /// </summary>
+    public int AdblockerProbeTimeoutMs { get; set; } = 2000;
 }
 
 // ==========================================

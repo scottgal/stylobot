@@ -4654,7 +4654,10 @@ public class StyloBotDashboardMiddleware
                     // can render "how far have I drifted from THIS past anchor" for
                     // each row in the chain.
                     IReadOnlyList<RootHistoryView>? rootHistory = null;
-                    var hist = await reader.GetRootHistoryAsync(fpId, limit: 12, context.RequestAborted);
+                    var rootHistoryLimit = context.RequestServices
+                        .GetService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>()
+                        ?.Value.Identity.Match.RootHistoryDisplayLimit ?? 12;
+                    var hist = await reader.GetRootHistoryAsync(fpId, rootHistoryLimit, context.RequestAborted);
                     if (hist.Count > 0)
                     {
                         var projected = new List<RootHistoryView>(hist.Count);

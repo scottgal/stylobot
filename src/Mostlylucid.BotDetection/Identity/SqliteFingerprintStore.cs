@@ -890,6 +890,13 @@ public class SqliteFingerprintStore : IFingerprintStore
         return results;
     }
 
+    // SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999. An IN-clause built from
+    // a cluster's member signatures unbounded would throw on a 1000-member
+    // BotNetwork cluster, and the fire-and-forget hook in BotClusterService
+    // swallows the exception silently. Chunk at 500 to stay well clear of the
+    // cap; the round-trip cost on a hot store is negligible.
+    private const int ReseatBatchSize = 500;
+
     public async Task ReseatRootCentroidsAsync(
         IReadOnlyCollection<ClusterRootUpdate> updates,
         int minMemberFingerprints = 2,
@@ -908,18 +915,18 @@ public class SqliteFingerprintStore : IFingerprintStore
         {
             if (update.MemberSignatures.Count == 0) continue;
 
-            // Resolve cluster signatures -> unique fingerprint ids in one query.
+            // Resolve cluster signatures -> unique fingerprint ids in batched queries.
             var fingerprintIds = new HashSet<string>(StringComparer.Ordinal);
-            await using (var lookup = conn.CreateCommand())
+            foreach (var batch in Chunked(update.MemberSignatures, ReseatBatchSize))
             {
+                await using var lookup = conn.CreateCommand();
                 lookup.Transaction = tx;
-                var paramNames = new List<string>(update.MemberSignatures.Count);
-                var idx = 0;
-                foreach (var sig in update.MemberSignatures)
+                var paramNames = new List<string>(batch.Count);
+                for (var i = 0; i < batch.Count; i++)
                 {
-                    var n = "@s" + idx++;
+                    var n = "@s" + i;
                     paramNames.Add(n);
-                    lookup.Parameters.AddWithValue(n, sig);
+                    lookup.Parameters.AddWithValue(n, batch[i]);
                 }
                 lookup.CommandText =
                     $"SELECT DISTINCT fingerprint_id FROM fingerprint_keys WHERE primary_signature IN ({string.Join(",", paramNames)})";
@@ -930,18 +937,19 @@ public class SqliteFingerprintStore : IFingerprintStore
 
             if (fingerprintIds.Count < minMemberFingerprints) continue;
 
-            // Fetch member centroids -> compute mean.
+            // Fetch member centroids -> compute mean (batched).
+            var fingerprintIdList = fingerprintIds.ToList();
             var memberVectors = new List<float[]>(fingerprintIds.Count);
-            await using (var fetch = conn.CreateCommand())
+            foreach (var batch in Chunked(fingerprintIdList, ReseatBatchSize))
             {
+                await using var fetch = conn.CreateCommand();
                 fetch.Transaction = tx;
-                var paramNames = new List<string>(fingerprintIds.Count);
-                var idx = 0;
-                foreach (var id in fingerprintIds)
+                var paramNames = new List<string>(batch.Count);
+                for (var i = 0; i < batch.Count; i++)
                 {
-                    var n = "@f" + idx++;
+                    var n = "@f" + i;
                     paramNames.Add(n);
-                    fetch.Parameters.AddWithValue(n, id);
+                    fetch.Parameters.AddWithValue(n, batch[i]);
                 }
                 fetch.CommandText =
                     $"SELECT centroid FROM fingerprints WHERE fingerprint_id IN ({string.Join(",", paramNames)})";
@@ -952,20 +960,23 @@ public class SqliteFingerprintStore : IFingerprintStore
 
             if (memberVectors.Count < minMemberFingerprints) continue;
             var mean = MeanVector(memberVectors);
+            if (mean is null) continue; // every fetched centroid had a wrong layout dim
             var meanBlob = FloatsToBlob(mean);
             var rootSource = "cluster:" + update.ClusterId;
 
-            // Supersede the active history row for each member.
-            await using (var supersede = conn.CreateCommand())
+            // Supersede the active history row for each member (batched same as
+            // the resolve/fetch above -- single UPDATE with a 1000+ entry IN
+            // clause would hit the SQLite param cap).
+            foreach (var batch in Chunked(fingerprintIdList, ReseatBatchSize))
             {
+                await using var supersede = conn.CreateCommand();
                 supersede.Transaction = tx;
-                var paramNames = new List<string>(fingerprintIds.Count);
-                var idx = 0;
-                foreach (var id in fingerprintIds)
+                var paramNames = new List<string>(batch.Count);
+                for (var i = 0; i < batch.Count; i++)
                 {
-                    var n = "@f" + idx++;
+                    var n = "@f" + i;
                     paramNames.Add(n);
-                    supersede.Parameters.AddWithValue(n, id);
+                    supersede.Parameters.AddWithValue(n, batch[i]);
                 }
                 supersede.Parameters.AddWithValue("@now", now);
                 supersede.CommandText = $"""
@@ -1026,18 +1037,46 @@ public class SqliteFingerprintStore : IFingerprintStore
                 totalClustersApplied, totalFingerprintsReseated, updates.Count);
     }
 
-    private static float[] MeanVector(IReadOnlyList<float[]> vectors)
+    /// <summary>
+    ///     Yields <paramref name="source"/> in slices of up to <paramref name="size"/>.
+    ///     Used to keep parameterised IN-clauses under SQLite's 999-parameter cap.
+    ///     Materialises each chunk so the caller can index the same items twice
+    ///     (parameter name + value) without iterating the source enumerable twice.
+    /// </summary>
+    private static IEnumerable<IReadOnlyList<T>> Chunked<T>(IReadOnlyCollection<T> source, int size)
+    {
+        if (source.Count == 0) yield break;
+        if (source.Count <= size) { yield return source as IReadOnlyList<T> ?? source.ToList(); yield break; }
+        var buffer = new List<T>(size);
+        foreach (var item in source)
+        {
+            buffer.Add(item);
+            if (buffer.Count == size)
+            {
+                yield return buffer;
+                buffer = new List<T>(size);
+            }
+        }
+        if (buffer.Count > 0) yield return buffer;
+    }
+
+    private static float[]? MeanVector(IReadOnlyList<float[]> vectors)
     {
         var dim = vectors[0].Length;
         var sum = new double[dim];
+        var n = 0;
         foreach (var v in vectors)
         {
             // Tolerate stray dim mismatches (layout migrations etc.) by skipping the row.
+            // Divisor counts CONFORMING vectors only -- counting all of them dilutes the
+            // mean toward zero whenever any are skipped, which silently writes a
+            // near-zero root centroid to every member fingerprint.
             if (v.Length != dim) continue;
             for (var i = 0; i < dim; i++) sum[i] += v[i];
+            n++;
         }
+        if (n == 0) return null;
         var mean = new float[dim];
-        var n = vectors.Count;
         for (var i = 0; i < dim; i++) mean[i] = (float)(sum[i] / n);
         return mean;
     }

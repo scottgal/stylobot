@@ -215,11 +215,17 @@ public sealed record RootHistoryView(
     double RootDistance);
 
 /// <summary>
-///     View-side cosine helper. The Identity layer's BruteForceIdentityAnchorIndex.Cosine
-///     is internal to the BotDetection assembly; this is the public counterpart the
-///     UI project can call without InternalsVisibleTo. Returns 1.0 for parallel
-///     vectors, 0.0 for orthogonal. Tolerates the +1e-12 guard against zero
-///     vectors that the index uses.
+///     View-side cosine helper. Distinct from <c>BruteForceIdentityAnchorIndex.Cosine</c>
+///     (internal to the BotDetection assembly) for a real reason, not just visibility
+///     -- the BruteForce variant assumes both inputs are L2-normalised and collapses to
+///     a plain dot product; the matcher writes normalised centroids so that's fine on
+///     the hot path. The drift surface compares the live centroid against a cluster
+///     mean (= mean of normalised vectors), which is NOT unit-length, so a full cosine
+///     with the magnitude denominator is needed. Returns 1.0 for parallel vectors, 0.0
+///     for orthogonal. Five vector-math impls in the repo today (BruteForce.Cosine /
+///     BruteForce.WeightedCosine / SessionVector.CosineSimilarity / VectorMath.Cosine
+///     / this) is a known cleanup -- consolidating into a typed math library is on the
+///     follow-up list.
 /// </summary>
 public static class FingerprintDriftMath
 {

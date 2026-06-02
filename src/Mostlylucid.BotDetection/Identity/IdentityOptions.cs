@@ -143,6 +143,24 @@ public sealed class IdentityMatchOptions
     public double SignificantDriftEpsilon { get; set; } = 0.20;
 
     /// <summary>
+    ///     Minimum unique fingerprints per cluster before <c>BotClusterService</c>
+    ///     reseats their <c>root_centroid</c> to the cluster's community mean.
+    ///     A 1-member "community" would replace the fingerprint's root with its
+    ///     own centroid, leaving drift permanently at zero. Default 2 -- raise on
+    ///     deployments with very noisy clusters to require stronger evidence
+    ///     before adapting the reference centroid.
+    /// </summary>
+    public int RootReseatMinClusterFingerprints { get; set; } = 2;
+
+    /// <summary>
+    ///     Maximum number of <c>fingerprint_root_history</c> rows the dashboard
+    ///     timeline displays per fingerprint, newest-first. Each row is a past
+    ///     reference centroid + lineage marker. Default 12 = enough to see the
+    ///     archetype-seed origin plus ~10 cluster reseats.
+    /// </summary>
+    public int RootHistoryDisplayLimit { get; set; } = 12;
+
+    /// <summary>
     ///     Minimum archetype-match cosine score required before
     ///     <c>FingerprintMatchContributor.WriteArchetypeSignals</c> emits the
     ///     <c>identity.archetype_name</c> / drift signals. Below this floor the signals are
