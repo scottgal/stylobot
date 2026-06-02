@@ -37,6 +37,26 @@ existing users:
 
 CONTRIBUTING.md was updated so new contributions are also AGPLv3.
 
+### In-memory storage mode
+
+New `AddBotDetectionInMemory()` DI extension routes every FOSS SQLite
+store at a per-store named shared in-memory database
+(`file:<name>?mode=memory&cache=shared`). No `.db` files on disk; state
+evaporates on restart. Same code paths as the disk-backed mode -- just
+a new `SqliteConnectionStrings` helper that centralises the
+connection-string construction.
+
+Designed for:
+- Ephemeral pods / serverless deployments
+- Demo / sandbox containers (the `x.stylo.bot` live samples use this)
+- Integration tests (no tempdir cleanup, faster setup than file SQLite)
+
+Trade-off: the verdict cache / fingerprint match cache / session
+aggregation still work but reset on every restart -- 10-30 s warmup
+cost right after deploys. Not for long-running prod deployments;
+great for ephemeral ones. Backwards-compatible: callers of
+`AddBotDetection()` get identical behaviour to today.
+
 ### Headline
 
 - **Identity store is pluggable.** `IFingerprintStore`, `IClusterStore`,
