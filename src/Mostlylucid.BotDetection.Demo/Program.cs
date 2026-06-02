@@ -171,6 +171,11 @@ app.MapStyloBotApi();
 // Map the fingerprint endpoint for client-side JS to POST data to
 app.MapBotDetectionFingerprintEndpoint();
 
+// Serve the modern client-side detector script (ClientSide/botdetection.js).
+// The BotDetectionTagHelper bootstrap references this path; one endpoint =
+// one cacheable artifact = one place to review the JS we ship.
+app.MapBotDetectionScript();
+
 // Map BDF replay endpoints for offline debugging and regression testing
 app.MapBdfReplayEndpoints();
 

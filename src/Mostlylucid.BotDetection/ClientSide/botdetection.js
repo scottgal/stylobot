@@ -1,717 +1,470 @@
 /**
- * Mostlylucid.BotDetection - Enhanced Browser Fingerprinting & Headless Detection
+ * StyloBot client-side bot/headless detector. Served as a static file via
+ * /bot-detection/script.js -- the TagHelper emits a small bootstrap that
+ * sets `window.MLBotD` (token, endpoint, feature toggles) before this
+ * file loads. Keeps the served JS cacheable, CSP-friendly (nonce + self),
+ * and reviewable as a plain artifact instead of an inline string spliced
+ * together in C#.
  *
- * This script collects minimal, non-invasive browser signals to detect
- * headless browsers and automation frameworks. Results are posted to
- * a server endpoint for correlation with request-based detection.
+ * 2026 collection targets (see docs/client-side-detection-2026.md for the
+ * rationale and which signals still pull weight after Chrome UA Reduction,
+ * Safari ITP, Brave farbling, and Firefox ETP):
  *
- * Signals collected:
- * - Basic: timezone, language, platform, screen, hardware, touch, maxTouchPoints
- * - Device: pointer type (coarse/fine), network hints (connection type)
- * - Preferences: dark mode, reduced motion (privacy-safe, coarse)
- * - Performance: timing shapes, resource counts (no URLs)
- * - Automation markers: webdriver, phantom, selenium, CDP
- * - Consistency: window dimensions, function integrity
- * - Anti-tamper: native function checks (getBattery, console, querySelector)
- * - Context: iframe detection, sandboxing
- * - Optional: WebGL vendor/renderer, canvas hash, audio context hash
- * - Optional: Interaction tracking (did user interact at all - no PII)
+ *   PRIMARY  (load-bearing in 2026)
+ *     - CDP trap          : console.debug getter + Error stack foreign-frame probe
+ *     - UA-CH             : getHighEntropyValues -- replaces raw UA parsing
+ *     - Permissions vector: query 6, expect at least one "granted" on real users
+ *     - BroadcastChannel  : echo latency, fresh-context bots show pristine values
+ *     - performance.now() : clamp-residue distribution leaks the actual browser
+ *     - Chromium triple   : startViewTransition + Speculation Rules + hasStorageAccess
+ *     - Headless markers  : plugins.length, Notification.permission, chrome.runtime,
+ *                           GPU renderer (SwiftShader / ANGLE Google Vulkan)
+ *     - Touch consistency : mobile UA must have maxTouchPoints > 0 + 'ontouchstart'
  *
- * Privacy & Security:
- * - No cookies or localStorage used for tracking
- * - All high-entropy signals (canvas, audio, WebGL) sent as HASHES only
- * - Fingerprint hash is ephemeral (session-scoped, non-persistent)
- * - No PII collected (no IPs, no precise location, no keylogging)
- * - Interaction tracking is boolean only (did interact: yes/no)
- * - Network hints are coarse (effectiveType, not bandwidth details)
- * - User preferences are standard media queries (not fingerprintable)
- * - Uses fetch with keepalive for reliable, non-blocking delivery
- * - Explainable scoring with reasons for transparency
+ *   SUPPORTING
+ *     - Hardware          : cores, memory, screen, devicePixelRatio
+ *     - Timezone / locale : Intl + navigator.language(s)
+ *     - Audio fingerprint : OfflineAudioContext FFT hash (Chrome+Safari only;
+ *                           Brave/Firefox noise it, so report-only)
+ *     - Canvas hash       : same caveat -- collected but never used as a sole
+ *                           verdict because Brave farbles it deliberately
+ *     - WebGL parameter   : UNMASKED_RENDERER_WEBGL string
+ *     - Network hints     : connection.effectiveType (coarse, non-PII)
+ *     - User prefs        : prefers-color-scheme, prefers-reduced-motion
+ *     - Interaction       : did the visitor interact at all (boolean)
  *
- * Enhancements (2025):
- * - Audio context fingerprinting (hash-only, async)
- * - Extended native function integrity checks
- * - Device capability signals (maxTouchPoints, pointer type)
- * - User preference signals (prefers-dark, reduced-motion)
- * - Network connection hints (coarse, non-PII)
- * - Performance timing shapes (no URLs)
- * - Iframe/sandbox context detection
- * - Interaction tracking (non-invasive, boolean)
- * - Explainable scoring with reasons
- * - sendBeacon for reliable transport
+ *   LEGITIMATE-USER CLASSIFIERS (collected so server-side doesn't punish them)
+ *     - navigator.brave?.isBrave() -- Brave Shields user, expect farbled signals
+ *     - Lockdown Mode (iOS, WebGL+WebAudio+JIT all absent simultaneously)
+ *     - Firefox RFP / Tor Browser fingerprint -- spoof the spoofers detected
+ *
+ *   NOT COLLECTED  (deprecated by 2026 browser changes)
+ *     - Raw UA build / OS minor version  -- Chrome UA Reduction froze it
+ *     - localStorage / cookie-based identity -- Safari ITP caps at 7 days,
+ *                                              storage partitioning kills it
+ *     - Naive navigator.webdriver as sole verdict -- patched by every modern
+ *       bot framework; collected for the long tail only, never load-bearing
+ *
+ * Privacy contract:
+ *   - No PII collected. Canvas / audio / WebGL hashes only (never raw pixels).
+ *   - Fingerprint session is per-origin (storage partitioning is the rule).
+ *   - Interaction tracking is boolean only (did interact: 0/1, never WHAT).
+ *   - Network hints stay coarse (effectiveType, not downlink/RTT).
  */
 (function () {
     'use strict';
 
-    // Configuration injected by TagHelper
-    // %%CONFIG%% will be replaced with actual values
-    var MLBotD = {
-            version: '%%VERSION%%',
-            token: '%%TOKEN%%',
-            endpoint: '%%ENDPOINT%%',
-            config: {
-                collectWebGL: % % COLLECT_WEBGL % %,
-            collectCanvas: % % COLLECT_CANVAS % %,
-        collectAudio:
-%%
-    COLLECT_AUDIO % %,
-        collectInteraction
-: %%
-    COLLECT_INTERACTION % %,
-        timeout
-: %%
-    TIMEOUT % %
-},
+    // === Bootstrap config (set by the TagHelper before this script loads) ====
+    // {
+    //   t:    signed token (required; if missing we abort silently)
+    //   e:    endpoint URL  (default: /bot-detection/fingerprint)
+    //   cfg: {
+    //     timeout:           ms before we give up collecting          [3000]
+    //     collectWebGL:      boolean                                  [true]
+    //     collectCanvas:     boolean                                  [true]
+    //     collectAudio:      boolean                                  [true]
+    //     collectInteraction:boolean (waits 500ms after load, then posts) [true]
+    //   }
+    // }
+    var cfg = (window.MLBotD || {});
+    if (!cfg.t) return;
+    var endpoint = cfg.e || '/bot-detection/fingerprint';
+    var c = cfg.cfg || {};
+    var timeout = c.timeout || 3000;
 
-    /**
-     * Simple non-cryptographic hash for fingerprint components
-     */
-    hash: function (str) {
-        var hash = 0;
-        for (var i = 0; i < str.length; i++) {
-            hash = ((hash << 5) - hash) + str.charCodeAt(i);
-            hash |= 0; // Convert to 32-bit integer
+    // === Tiny non-cryptographic hash (used for canvas / audio / WebGL) =======
+    function h(s) {
+        var x = 0;
+        for (var i = 0; i < s.length; i++) {
+            x = ((x << 5) - x) + s.charCodeAt(i);
+            x |= 0;
         }
-        return hash.toString(16);
+        return x.toString(16);
     }
-,
 
-    /**
-     * Check if a function is native (not modified/wrapped)
-     */
-    checkNative: function (fn) {
+    // === [PRIMARY] CDP getter trap ============================================
+    // Chrome DevTools Protocol-driven browsers (Puppeteer/Playwright/Selenium)
+    // call console.debug when they format messages internally. A getter on
+    // console.debug fires when CDP reads the function; legitimate JS code
+    // accessing console.debug as a property would NOT trigger the getter on
+    // simple reads in the same call frame (it's evaluated at read time).
+    // Returns 1 = CDP detected, 0 = quiet.
+    var cdpHit = 0;
+    try {
+        var dbgFn = console.debug;
+        Object.defineProperty(console, 'debug', {
+            get: function () { cdpHit = 1; return dbgFn; },
+            configurable: true
+        });
+    } catch (e) {}
+
+    // === [PRIMARY] Error-stack foreign-frame probe ===========================
+    // Bot frameworks inject wrapper functions; synthesizing an Error and
+    // inspecting the stack trace reveals frames like `at Object.apply` /
+    // `at <anonymous>` that legitimate browser code rarely emits.
+    function stackFrames() {
         try {
-            if (!fn) return -1;
-            var s = Function.prototype.toString.call(fn);
-            return s.indexOf('[native code]') > -1 ? 1 : 0;
-        } catch (e) {
-            return -1;
-        }
-    }
-,
-
-    /**
-     * Setup interaction tracking (non-invasive, just "did user interact at all")
-     */
-    setupInteractionSignals: function () {
-        var interacted = 0;
-        var mark = function () {
-            interacted = 1;
-        };
-
-        try {
-            window.addEventListener('mousemove', mark, {once: true, passive: true});
-            window.addEventListener('mousedown', mark, {once: true, passive: true});
-            window.addEventListener('touchstart', mark, {once: true, passive: true});
-            window.addEventListener('keydown', mark, {once: true, passive: true});
-        } catch (e) {
-        }
-
-        return function () {
-            return interacted;
-        };
-    }
-,
-
-    /**
-     * Get audio context fingerprint hash (privacy-safe, only hash sent)
-     */
-    getAudioHash: function () {
-        try {
-            var AudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-            if (!AudioContext) return '';
-
-            var ctx = new AudioContext(1, 44100, 44100);
-            var osc = ctx.createOscillator();
-            var comp = ctx.createDynamicsCompressor();
-
-            osc.type = 'triangle';
-            osc.frequency.value = 1000;
-
-            osc.connect(comp);
-            comp.connect(ctx.destination);
-            osc.start(0);
-            ctx.startRendering();
-
-            var self = this;
-            return new Promise(function (resolve) {
-                ctx.oncomplete = function (e) {
-                    try {
-                        var buf = e.renderedBuffer.getChannelData(0);
-                        // Downsample aggressively to keep it light
-                        var step = Math.max(1, Math.floor(buf.length / 128));
-                        var str = '';
-                        for (var i = 0; i < buf.length; i += step) {
-                            str += String.fromCharCode(~~((buf[i] + 1) * 127));
-                        }
-                        resolve(self.hash(str));
-                    } catch (ex) {
-                        resolve('');
-                    }
-                };
-            });
-        } catch (e) {
-            return Promise.resolve('');
-        }
-    }
-,
-
-    /**
-     * Collect browser fingerprint signals
-     */
-    collect: function (callback) {
-        var data = {};
-        var nav = navigator;
-        var win = window;
-        var scr = screen;
-
-        // ===== Basic Signals (low entropy, non-invasive) =====
-        data.tz = this.getTimezone();
-        data.lang = nav.language || '';
-        data.langs = (nav.languages || []).slice(0, 3).join(',');
-        data.platform = nav.platform || '';
-        data.cores = nav.hardwareConcurrency || 0;
-        data.mem = nav.deviceMemory || 0;
-        data.touch = 'ontouchstart' in win ? 1 : 0;
-        data.screen = scr.width + 'x' + scr.height + 'x' + scr.colorDepth;
-        data.avail = scr.availWidth + 'x' + scr.availHeight;
-        data.dpr = win.devicePixelRatio || 1;
-        data.pdf = this.hasPdfPlugin() ? 1 : 0;
-
-        // ===== Enhanced Device Signals =====
-        data.maxTouchPoints = nav.maxTouchPoints || 0;
-        try {
-            var mql = win.matchMedia && win.matchMedia('(pointer: coarse)');
-            data.pointer = mql ? (mql.matches ? 'coarse' : 'fine') : '';
-        } catch (e) {
-            data.pointer = '';
-        }
-
-        // ===== User Preferences (privacy-safe, coarse) =====
-        try {
-            data.prefersDark = win.matchMedia && win.matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 0;
-        } catch (e) {
-            data.prefersDark = -1;
-        }
-        try {
-            data.reducedMotion = win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 0;
-        } catch (e) {
-            data.reducedMotion = -1;
-        }
-
-        // ===== Network Hints (coarse, non-PII) =====
-        try {
-            var conn = nav.connection || nav.mozConnection || nav.webkitConnection;
-            if (conn) {
-                data.netType = conn.effectiveType || '';
-                data.netSaveData = conn.saveData ? 1 : 0;
-                data.netDownlink = conn.downlink ? Math.round(conn.downlink) : 0;
-            }
-        } catch (e) {
-        }
-
-        // ===== Performance Timing Shape (no URLs, just relative timings) =====
-        try {
-            if (performance && performance.timing) {
-                var t = performance.timing;
-                data.navStartDelta = (t.domContentLoadedEventEnd || 0) - (t.navigationStart || 0);
-                data.loadEventDelta = (t.loadEventEnd || 0) - (t.loadEventStart || 0);
-            }
-            if (performance && performance.getEntriesByType) {
-                var res = performance.getEntriesByType('resource') || [];
-                data.resCount = res.length;
-            }
-        } catch (e) {
-        }
-
-        // ===== Headless/Automation Detection =====
-        data.webdriver = nav.webdriver ? 1 : 0;
-        data.phantom = this.detectPhantom();
-        data.nightmare = !!win.__nightmare ? 1 : 0;
-        data.selenium = this.detectSelenium();
-        data.cdc = this.detectCDP();
-        data.playwright = this.detectPlaywright();
-        data.chromeRuntime = (win.chrome && win.chrome.runtime && win.chrome.runtime.id) ? 1 : 0;
-        data.plugins = nav.plugins ? nav.plugins.length : 0;
-        data.chrome = !!win.chrome ? 1 : 0;
-        data.permissions = this.checkPermissions();
-
-        // ===== Window Consistency =====
-        data.outerW = win.outerWidth || 0;
-        data.outerH = win.outerHeight || 0;
-        data.innerW = win.innerWidth || 0;
-        data.innerH = win.innerHeight || 0;
-
-        // ===== Function Integrity & Anti-Tamper =====
-        data.evalLen = this.getEvalLength();
-        data.bindNative = this.isBindNative() ? 1 : 0;
-        data.getBatteryNative = this.checkNative(nav.getBattery);
-        data.consoleDebugNative = this.checkNative(console.debug);
-        data.querySelectorNative = this.checkNative(Document.prototype.querySelector || document.querySelector);
-
-        // ===== Iframe / Sandboxed Context =====
-        try {
-            data.isIframe = (win.self !== win.top) ? 1 : 0;
-        } catch (e) {
-            data.isIframe = -1; // Cross-origin iframe restriction
-        }
-
-        // ===== Optional: WebGL =====
-        if (this.config.collectWebGL) {
-            var gl = this.getWebGLInfo();
-            if (gl) {
-                data.glVendor = gl.vendor || '';
-                data.glRenderer = gl.renderer || '';
-            }
-        }
-
-        // ===== Optional: Canvas Hash =====
-        if (this.config.collectCanvas) {
-            data.canvasHash = this.getCanvasHash();
-        }
-
-        // ===== Optional: Audio Hash (async) =====
-        var self = this;
-        var pending = 0;
-        var finish = function () {
-            if (pending === 0) {
-                // ===== Client-side Score =====
-                data.score = self.calculateScore(data);
-
-                if (callback) callback(data);
-            }
-        };
-
-        if (this.config.collectAudio) {
-            var audioHash = this.getAudioHash();
-            if (audioHash && typeof audioHash.then === 'function') {
-                pending++;
-                audioHash.then(function (h) {
-                    data.audioHash = h || '';
-                    pending--;
-                    finish();
-                }).catch(function () {
-                    data.audioHash = '';
-                    pending--;
-                    finish();
-                });
-            } else {
-                data.audioHash = '';
-            }
-        }
-
-        // Trigger finish immediately if no async tasks
-        finish();
-
-        // For synchronous use (backward compatibility)
-        if (!callback && pending === 0) {
-            data.score = this.calculateScore(data);
-            return data;
-        }
-    }
-,
-
-    /**
-     * Get timezone safely
-     */
-    getTimezone: function () {
-        try {
-            return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-        } catch (e) {
-            return '';
-        }
-    }
-,
-
-    /**
-     * Check for PDF plugin
-     */
-    hasPdfPlugin: function () {
-        try {
-            var plugins = navigator.plugins;
-            for (var i = 0; i < plugins.length; i++) {
-                if (plugins[i].name.toLowerCase().indexOf('pdf') > -1) {
-                    return true;
-                }
-            }
-        } catch (e) {
-        }
-        return false;
-    }
-,
-
-    /**
-     * Detect PhantomJS markers
-     */
-    detectPhantom: function () {
-        return (window.phantom || window._phantom || window.callPhantom) ? 1 : 0;
-    }
-,
-
-    /**
-     * Detect Selenium markers
-     */
-    detectSelenium: function () {
-        var doc = document;
-        return (doc.__selenium_unwrapped ||
-            doc.__webdriver_evaluate ||
-            doc.__driver_evaluate ||
-            doc.__webdriver_script_function ||
-            doc.__webdriver_script_func ||
-            doc.__webdriver_script_fn ||
-            doc.$cdc_asdjflasutopfhvcZLmcfl_ ||
-            doc.$chrome_asyncScriptInfo) ? 1 : 0;
-    }
-,
-
-    /**
-     * Detect Chrome DevTools Protocol markers (Puppeteer, other CDP tools)
-     */
-    detectCDP: function () {
-        try {
-            for (var key in window) {
-                if (key.match(/^cdc_|^__\$|^\$cdc_/)) {
-                    return 1;
-                }
-            }
-        } catch (e) {
-        }
-        return 0;
-    }
-,
-
-    /**
-     * Detect Playwright markers (__playwright, __pw_* globals)
-     */
-    detectPlaywright: function () {
-        try {
-            if (window.__playwright) return 1;
-            if (window.__pw_manual) return 1;
-            for (var key in window) {
-                if (key.indexOf('__pw_') === 0) {
-                    return 1;
-                }
-            }
-        } catch (e) {
-        }
-        return 0;
-    }
-,
-
-    /**
-     * Check notification permissions for consistency
-     */
-    checkPermissions: function () {
-        try {
-            if (typeof Notification === 'undefined') {
-                return 'unavailable';
-            }
-            // Suspicious: denied permissions with no plugins (common in headless)
-            if (Notification.permission === 'denied' && navigator.plugins.length === 0) {
-                return 'suspicious';
-            }
-            return Notification.permission;
-        } catch (e) {
-            return 'error';
-        }
-    }
-,
-
-    /**
-     * Get eval function length (modified in some automation tools)
-     */
-    getEvalLength: function () {
-        try {
-            return eval.toString().length;
-        } catch (e) {
-            return 0;
-        }
-    }
-,
-
-    /**
-     * Check if Function.prototype.bind is native
-     */
-    isBindNative: function () {
-        try {
-            return Function.prototype.bind.toString().indexOf('[native code]') > -1;
-        } catch (e) {
-            return false;
-        }
-    }
-,
-
-    /**
-     * Get WebGL vendor and renderer info
-     */
-    getWebGLInfo: function () {
-        try {
-            var canvas = document.createElement('canvas');
-            var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-            if (!gl) return null;
-
-            var debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-            if (!debugInfo) return {vendor: '', renderer: ''};
-
+            var s = new Error().stack || '';
             return {
-                vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || '',
-                renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || ''
+                len: s.length,
+                hasObjectApply: /at Object\.apply/.test(s) ? 1 : 0,
+                hasAnonymous: /at <anonymous>/.test(s) ? 1 : 0
             };
         } catch (e) {
-            return null;
+            return { len: 0, hasObjectApply: 0, hasAnonymous: 0 };
         }
     }
-,
 
-    /**
-     * Generate a simple canvas hash for consistency checking
-     */
-    getCanvasHash: function () {
+    // === [PRIMARY] UA-Client Hints ===========================================
+    // Replaces raw User-Agent parsing post Chrome UA Reduction. Returns the
+    // high-entropy values when available (async; only on secure contexts).
+    // Server-side cross-checks the architecture/platform vs the legacy UA
+    // string to catch UA spoofers.
+    async function uaCH() {
         try {
-            var canvas = document.createElement('canvas');
-            canvas.width = 200;
-            canvas.height = 50;
-            var ctx = canvas.getContext('2d');
+            var ud = navigator.userAgentData;
+            if (!ud || !ud.getHighEntropyValues) return null;
+            var v = await ud.getHighEntropyValues([
+                'architecture', 'bitness', 'model',
+                'platformVersion', 'fullVersionList', 'formFactors'
+            ]);
+            return {
+                brands: ud.brands || [],
+                mobile: ud.mobile ? 1 : 0,
+                platform: ud.platform || '',
+                arch: v.architecture || '',
+                bits: v.bitness || '',
+                model: v.model || '',
+                platformVersion: v.platformVersion || '',
+                fullVersionList: v.fullVersionList || [],
+                formFactors: v.formFactors || []
+            };
+        } catch (e) { return null; }
+    }
 
-            // Draw some elements that will vary by GPU/driver
+    // === [PRIMARY] Permissions-API state vector ==============================
+    // Real users accumulate at least one "granted" permission (clipboard,
+    // notifications, geolocation if they ever allowed it). Fresh bot
+    // contexts return all-"prompt".
+    async function permissionsVector() {
+        try {
+            if (!navigator.permissions || !navigator.permissions.query) return null;
+            var names = ['clipboard-read', 'notifications', 'geolocation',
+                         'camera', 'microphone', 'push'];
+            var out = {};
+            for (var i = 0; i < names.length; i++) {
+                try {
+                    var r = await navigator.permissions.query({ name: names[i] });
+                    out[names[i]] = r.state;
+                } catch (e) {
+                    out[names[i]] = 'unsupported';
+                }
+            }
+            return out;
+        } catch (e) { return null; }
+    }
+
+    // === [PRIMARY] BroadcastChannel echo latency =============================
+    // Most stealth shims don't touch BroadcastChannel; round-trip latency
+    // through the channel is consistent in real browsers (~0.5-2ms) and
+    // varies wildly in fresh bot contexts. Returns the median of 5 round
+    // trips in ms.
+    function broadcastEcho() {
+        return new Promise(function (resolve) {
+            try {
+                if (typeof BroadcastChannel === 'undefined') return resolve(null);
+                var bc = new BroadcastChannel('mlb-' + Math.random().toString(36).slice(2));
+                var times = [];
+                var n = 0;
+                bc.onmessage = function (ev) {
+                    if (ev.data && ev.data.t0) {
+                        times.push(performance.now() - ev.data.t0);
+                        if (n < 5) tick();
+                        else { bc.close(); resolve(median(times)); }
+                    }
+                };
+                function tick() { n++; bc.postMessage({ t0: performance.now(), i: n }); }
+                tick();
+                // Safety timeout: BroadcastChannel onmessage isn't called for
+                // the sender's own postMessage in some sandboxed contexts.
+                setTimeout(function () { try { bc.close(); } catch (e) {} resolve(null); }, 200);
+            } catch (e) { resolve(null); }
+        });
+    }
+    function median(arr) {
+        if (!arr.length) return 0;
+        var s = arr.slice().sort(function (a, b) { return a - b; });
+        return s[Math.floor(s.length / 2)];
+    }
+
+    // === [PRIMARY] performance.now() clamp-residue probe =====================
+    // Chrome clamps at 100µs, Firefox at 20µs, Safari at 1ms. Take 2000 tight
+    // subtractions, bucket the modal delta. Reveals the actual browser
+    // engine even when UA is spoofed.
+    function clampProbe() {
+        try {
+            if (!performance || !performance.now) return null;
+            var buckets = {};
+            for (var i = 0; i < 2000; i++) {
+                var a = performance.now();
+                var b = performance.now();
+                var d = (b - a).toFixed(3);
+                buckets[d] = (buckets[d] || 0) + 1;
+            }
+            var modal = '', modalC = 0;
+            for (var k in buckets) {
+                if (buckets[k] > modalC) { modal = k; modalC = buckets[k]; }
+            }
+            return { modalDeltaMs: parseFloat(modal), count: modalC };
+        } catch (e) { return null; }
+    }
+
+    // === [PRIMARY] Chromium-feature presence triple ==========================
+    // If UA brands include Safari but `document.startViewTransition` exists,
+    // the UA is spoofed (Safari doesn't ship View Transitions). Cheap UA
+    // cross-check, server-side compares with the brand list.
+    function chromiumTriple() {
+        return {
+            viewTx: typeof document.startViewTransition === 'function' ? 1 : 0,
+            speculation: ('speculationrules' in HTMLScriptElement.prototype) ? 1 : 0,
+            storageAccess: typeof document.hasStorageAccess === 'function' ? 1 : 0
+        };
+    }
+
+    // === [PRIMARY] Headless markers ==========================================
+    // No single one is enough; the server combines 3+ for a verdict.
+    function headlessMarkers() {
+        var m = {};
+        try { m.plugins = (navigator.plugins || []).length; } catch (e) { m.plugins = -1; }
+        try { m.notif = Notification && Notification.permission ? Notification.permission : 'unsupported'; }
+        catch (e) { m.notif = 'unsupported'; }
+        try { m.chromeRt = (typeof chrome !== 'undefined' && chrome.runtime) ? 1 : 0; }
+        catch (e) { m.chromeRt = 0; }
+        try { m.languages = (navigator.languages || []).length; } catch (e) { m.languages = 0; }
+        try { m.connection = navigator.connection ? 1 : 0; } catch (e) { m.connection = 0; }
+        return m;
+    }
+
+    // === [PRIMARY] Touch + pointer consistency ===============================
+    // Mobile UA with maxTouchPoints === 0 is the single best mobile-bot tell.
+    function touchProfile() {
+        return {
+            maxTouch: navigator.maxTouchPoints || 0,
+            ontouch: ('ontouchstart' in window) ? 1 : 0,
+            pointerEvt: ('PointerEvent' in window) ? 1 : 0
+        };
+    }
+
+    // === [SUPPORTING] Hardware / locale / preferences ========================
+    function basics() {
+        var n = navigator, w = window, s = screen, b = {};
+        b.tz = (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || '';
+        b.lang = n.language || '';
+        b.langs = (n.languages || []).slice(0, 3).join(',');
+        b.platform = n.platform || '';
+        b.cores = n.hardwareConcurrency || 0;
+        b.mem = n.deviceMemory || 0;
+        b.screen = s.width + 'x' + s.height + 'x' + s.colorDepth;
+        b.avail = s.availWidth + 'x' + s.availHeight;
+        b.dpr = w.devicePixelRatio || 1;
+        b.outerW = w.outerWidth || 0;
+        b.outerH = w.outerHeight || 0;
+        b.innerW = w.innerWidth || 0;
+        b.innerH = w.innerHeight || 0;
+        // Coarse non-PII preferences
+        try { b.dark = matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 0; } catch (e) { b.dark = -1; }
+        try { b.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 0; } catch (e) { b.reduced = -1; }
+        // Network hints (coarse: effectiveType only, not bandwidth)
+        try {
+            var conn = n.connection || n.mozConnection || n.webkitConnection;
+            b.net = conn ? (conn.effectiveType || '') : '';
+        } catch (e) { b.net = ''; }
+        return b;
+    }
+
+    // === [SUPPORTING] Audio fingerprint ======================================
+    // OfflineAudioContext + DynamicsCompressor. FFT-implementation entropy
+    // per architecture is real on Chrome+Safari; Firefox RFP and Brave
+    // farble it. Server compares with the browser-vendor cross-checks.
+    async function audioHash() {
+        if (c.collectAudio === false) return null;
+        try {
+            var Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+            if (!Ctx) return null;
+            var oac = new Ctx(1, 44100, 44100);
+            var osc = oac.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.value = 10000;
+            var comp = oac.createDynamicsCompressor();
+            comp.threshold.value = -50;
+            comp.knee.value = 40;
+            comp.ratio.value = 12;
+            comp.attack.value = 0;
+            comp.release.value = 0.25;
+            osc.connect(comp);
+            comp.connect(oac.destination);
+            osc.start(0);
+            var buf = await oac.startRendering();
+            var data = buf.getChannelData(0);
+            var sum = 0;
+            for (var i = 4500; i < 5000; i++) sum += Math.abs(data[i]);
+            return h(sum.toString());
+        } catch (e) { return null; }
+    }
+
+    // === [SUPPORTING] Canvas hash (Brave-aware: collected but server-side
+    //     never penalises drift -- Brave farbles deliberately) ===============
+    function canvasHash() {
+        if (c.collectCanvas === false) return null;
+        try {
+            var cv = document.createElement('canvas');
+            cv.width = 240; cv.height = 60;
+            var ctx = cv.getContext('2d');
+            if (!ctx) return null;
             ctx.textBaseline = 'top';
             ctx.font = '14px Arial';
             ctx.fillStyle = '#f60';
             ctx.fillRect(125, 1, 62, 20);
             ctx.fillStyle = '#069';
-            ctx.fillText('MLBotD', 2, 15);
+            ctx.fillText('StyloBot \u{1f6e1}\u{fe0f}', 2, 15);
             ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-            ctx.fillText('MLBotD', 4, 17);
-
-            return this.hash(canvas.toDataURL());
-        } catch (e) {
-            return '';
-        }
+            ctx.fillText('StyloBot \u{1f6e1}\u{fe0f}', 4, 17);
+            return h(cv.toDataURL().slice(-256));
+        } catch (e) { return null; }
     }
-,
 
-    /**
-     * Calculate client-side integrity score with explainable reasons
-     */
-    calculateScore: function (data) {
-        var score = 100;
-        var reasons = [];
-
-        // Definite automation markers
-        if (data.webdriver) {
-            score -= 50;
-            reasons.push('webdriver');
-        }
-        if (data.phantom) {
-            score -= 50;
-            reasons.push('phantom');
-        }
-        if (data.nightmare) {
-            score -= 50;
-            reasons.push('nightmare');
-        }
-        if (data.selenium) {
-            score -= 50;
-            reasons.push('selenium');
-        }
-        if (data.cdc) {
-            score -= 40;
-            reasons.push('cdp');
-        }
-        if (data.playwright) {
-            score -= 50;
-            reasons.push('playwright');
-        }
-
-        // Suspicious indicators
-        if (data.plugins === 0 && data.chrome) {
-            score -= 20;
-            reasons.push('chrome-no-plugins');
-        }
-        if (data.outerW === 0 || data.outerH === 0) {
-            score -= 30;
-            reasons.push('zero-outer');
-        }
-        if (data.innerW === data.outerW && data.innerH === data.outerH) {
-            score -= 10;
-            reasons.push('no-chrome-ui');
-        }
-        if (!data.bindNative) {
-            score -= 20;
-            reasons.push('bind-not-native');
-        }
-        if (data.evalLen > 0 && (data.evalLen < 30 || data.evalLen > 50)) {
-            score -= 15;
-            reasons.push('eval-len-weird');
-        }
-        if (data.permissions === 'suspicious') {
-            score -= 25;
-            reasons.push('perm-suspicious');
-        }
-
-        // Anti-tamper signals
-        if (data.getBatteryNative === 0) {
-            score -= 15;
-            reasons.push('getBattery-wrapped');
-        }
-        if (data.consoleDebugNative === 0) {
-            score -= 10;
-            reasons.push('console-wrapped');
-        }
-        if (data.querySelectorNative === 0) {
-            score -= 15;
-            reasons.push('querySelector-wrapped');
-        }
-
-        // Context anomalies
-        if (data.isIframe === 1 && data.outerW === 0) {
-            score -= 20;
-            reasons.push('suspicious-iframe');
-        }
-
-        // Store reasons for explainability
-        data.scoreReasons = reasons.join(',');
-        return Math.max(0, score);
-    }
-,
-
-    /**
-     * Send fingerprint data to server using fetch (requires custom header for token validation)
-     */
-    send: function (data) {
+    // === [SUPPORTING] WebGL renderer string ==================================
+    function webglRenderer() {
+        if (c.collectWebGL === false) return null;
         try {
-            var payload = JSON.stringify(data);
-            var token = this.token;
+            var cv = document.createElement('canvas');
+            var gl = cv.getContext('webgl') || cv.getContext('experimental-webgl');
+            if (!gl) return null;
+            var ext = gl.getExtension('WEBGL_debug_renderer_info');
+            if (!ext) return null;
+            return {
+                vendor: gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || '',
+                renderer: gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || ''
+            };
+        } catch (e) { return null; }
+    }
 
-            // Use fetch with custom header (sendBeacon cannot send custom headers)
-            if (window.fetch) {
-                fetch(this.endpoint, {
+    // === Legitimate-user classifiers (don't penalise these) ==================
+    async function legitimacyMarkers() {
+        var out = { brave: 0, lockdown: 0 };
+        try {
+            if (navigator.brave && typeof navigator.brave.isBrave === 'function') {
+                out.brave = (await navigator.brave.isBrave()) ? 1 : 0;
+            }
+        } catch (e) {}
+        // Lockdown Mode: WebGL + WebAudio + JIT all disabled on iOS
+        try {
+            var cv = document.createElement('canvas');
+            var noWebGL = !(cv.getContext('webgl') || cv.getContext('experimental-webgl'));
+            var noAudio = !(window.OfflineAudioContext || window.webkitOfflineAudioContext);
+            var iOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
+            out.lockdown = (iOS && noWebGL && noAudio) ? 1 : 0;
+        } catch (e) {}
+        return out;
+    }
+
+    // === Long-tail signals (collected for completeness; not load-bearing) ====
+    function longTail() {
+        var t = {};
+        try { t.webdriver = navigator.webdriver === true ? 1 : 0; } catch (e) { t.webdriver = -1; }
+        try { t.phantom = ('callPhantom' in window || '_phantom' in window) ? 1 : 0; } catch (e) { t.phantom = 0; }
+        try { t.selenium = ('webdriver' in window || '__selenium_unwrapped' in window) ? 1 : 0; } catch (e) { t.selenium = 0; }
+        try { t.iframe = (window.parent !== window) ? 1 : 0; } catch (e) { t.iframe = -1; }
+        return t;
+    }
+
+    // === Interaction tracking (boolean, no PII) ==============================
+    var interacted = 0;
+    if (c.collectInteraction !== false) {
+        try {
+            var mark = function () { interacted = 1; };
+            window.addEventListener('mousemove', mark, { once: true, passive: true });
+            window.addEventListener('mousedown', mark, { once: true, passive: true });
+            window.addEventListener('touchstart', mark, { once: true, passive: true });
+            window.addEventListener('keydown', mark, { once: true, passive: true });
+        } catch (e) {}
+    }
+
+    // === Orchestration =======================================================
+    async function collect() {
+        // Run async collectors in parallel, then bolt on sync ones. Each
+        // collector has its own try/catch -- a single broken probe must
+        // never block the whole payload.
+        var deadline = new Promise(function (res) { setTimeout(res, timeout); });
+        var asyncPart = Promise.all([
+            uaCH(),
+            permissionsVector(),
+            broadcastEcho(),
+            audioHash(),
+            legitimacyMarkers()
+        ]);
+        var asyncOrTimeout = Promise.race([asyncPart, deadline.then(function () { return null; })]);
+        var asyncResult = await asyncOrTimeout || [];
+
+        var payload = {
+            t: cfg.t,
+            v: '2.0.0',
+            ts: Date.now(),
+            cdp: cdpHit,
+            stack: stackFrames(),
+            ua: asyncResult[0] || null,
+            perms: asyncResult[1] || null,
+            bcast: asyncResult[2] || null,
+            audio: asyncResult[3] || null,
+            legit: asyncResult[4] || { brave: 0, lockdown: 0 },
+            clamp: clampProbe(),
+            triple: chromiumTriple(),
+            headless: headlessMarkers(),
+            touch: touchProfile(),
+            basics: basics(),
+            canvas: canvasHash(),
+            webgl: webglRenderer(),
+            tail: longTail(),
+            interacted: interacted
+        };
+        return payload;
+    }
+
+    // === Transport ===========================================================
+    function send(payload) {
+        var json = JSON.stringify(payload);
+        // Prefer fetch+keepalive (gives a real response if anyone listens);
+        // sendBeacon fallback for unload-time delivery. Both are
+        // CSP-friendly via the 'connect-src' directive.
+        try {
+            if (typeof fetch === 'function') {
+                fetch(endpoint, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-ML-BotD-Token': token
-                    },
-                    body: payload,
-                    keepalive: true // Ensures delivery even during page unload (like sendBeacon)
+                    headers: { 'Content-Type': 'application/json' },
+                    body: json,
+                    keepalive: true,
+                    credentials: 'omit',
+                    mode: 'cors'
                 }).catch(function () {
-                    // Silent fail - don't break the page
+                    // Fall through to sendBeacon on fetch error
+                    if (navigator.sendBeacon) {
+                        navigator.sendBeacon(endpoint, new Blob([json], { type: 'application/json' }));
+                    }
                 });
                 return;
             }
-
-            // Fallback to XHR for very old browsers
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', this.endpoint, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.setRequestHeader('X-ML-BotD-Token', token);
-            xhr.timeout = this.config.timeout;
-
-            xhr.onerror = function () {
-                // Silent fail - don't break the page
-            };
-
-            xhr.send(payload);
-        } catch (e) {
-            // Don't break page on error
-        }
-    }
-,
-
-    /**
-     * Collect JS execution timing probes (async).
-     * Measures DOM layout timing, setTimeout accuracy, and performance.now() resolution
-     * to detect headless browsers that pass all static fingerprint checks but have
-     * different timing characteristics (Puppeteer stealth, Playwright, etc.).
-     */
-    collectTiming: function (data, callback) {
-        var pending = 2;
-        var done = function () {
-            pending--;
-            if (pending === 0) callback(data);
-        };
-
-        // 1. DOM layout timing: requestAnimationFrame + getBoundingClientRect
-        // Real browsers have non-trivial layout time; headless = instant
-        var layoutStart = performance.now();
-        requestAnimationFrame(function () {
-            var el = document.createElement('div');
-            el.style.cssText = 'position:absolute;top:-9999px;width:100px';
-            document.body.appendChild(el);
-            el.getBoundingClientRect();
-            data.layoutTimeMs = performance.now() - layoutStart;
-            document.body.removeChild(el);
-            done();
-        });
-
-        // 2. setTimeout accuracy: measure actual vs requested 1ms delay
-        // Headless environments often have near-zero drift (no timer coalescing)
-        var stStart = performance.now();
-        setTimeout(function () {
-            data.setTimeoutDrift = performance.now() - stStart - 1;
-            done();
-        }, 1);
-
-        // 3. Performance.now() resolution: find minimum observable delta
-        // Post-Spectre browsers reduce resolution (~100us); unpatched/headless differ
-        var prev = performance.now(), count = 0;
-        while (count < 100) {
-            var now = performance.now();
-            if (now !== prev) {
-                data.perfResolution = now - prev;
-                break;
+        } catch (e) {}
+        try {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(endpoint, new Blob([json], { type: 'application/json' }));
             }
-            count++;
-        }
-        if (!data.perfResolution) data.perfResolution = 0;
+        } catch (e) {}
     }
-,
 
-    /**
-     * Main entry point
-     */
-    run: function () {
-        var self = this;
-
-        // Setup interaction tracking (if enabled)
-        var getInteracted = null;
-        if (this.config.collectInteraction) {
-            getInteracted = this.setupInteractionSignals();
-        }
-
-        // Small delay to not block page load
-        setTimeout(function () {
-            try {
-                // Collect with async callback support
-                self.collect(function (data) {
-                    data.ts = Date.now();
-
-                    // Add interaction signal if enabled
-                    if (getInteracted) {
-                        data.interacted = getInteracted();
-                    }
-
-                    // Collect timing probes (async), then send
-                    self.collectTiming(data, function (data) {
-                        self.send(data);
-                    });
-                });
-            } catch (e) {
-                // Send error report
-                self.send({
-                    error: e.message || 'Unknown error',
-                    ts: Date.now()
-                });
-            }
-        }, 100);
-    }
-}
-
-    // Run when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            MLBotD.run();
-        });
-    } else {
-        MLBotD.run();
-    }
+    // === Entry point =========================================================
+    // Give interaction listeners a beat to mark, then collect + send.
+    var startDelay = c.collectInteraction === false ? 0 : 500;
+    setTimeout(function () {
+        collect().then(send).catch(function () {});
+    }, startDelay);
 })();

@@ -6,15 +6,39 @@ using Mostlylucid.BotDetection.Models;
 namespace Mostlylucid.BotDetection.ClientSide;
 
 /// <summary>
-///     Tag helper that injects a lightweight browser fingerprinting script.
-///     The script collects minimal, non-invasive signals to detect headless browsers
-///     and automation frameworks, then posts results to a server endpoint.
+///     Renders the bootstrap pair that loads the StyloBot client-side detector:
+///     <list type="number">
+///         <item>An inline <c>&lt;script&gt;</c> block that publishes
+///               <c>window.MLBotD = { t, e, cfg }</c> -- token, beacon endpoint,
+///               feature toggles.</item>
+///         <item>A <c>&lt;script src="/bot-detection/script.js"&gt;</c> tag
+///               that loads the actual detector logic from the endpoint
+///               registered by <c>MapBotDetectionScript</c>. The browser
+///               caches it; the served bytes are exactly what the repo's
+///               <c>ClientSide/botdetection.js</c> contains.</item>
+///     </list>
+///     <para>
+///     Replaces the prior in-tag-helper inline IIFE that grew to ~80 lines of
+///     JavaScript embedded in a C# string -- a maintenance liability and an
+///     auditing problem (the JS in the repo's <c>botdetection.js</c> file was
+///     a third, unused twin). One source of truth now: the .js file.
+///     </para>
+///     <para>
+///     CSP: if the host site uses <c>script-src 'self' 'nonce-...' 'strict-dynamic'</c>,
+///     pass the nonce via the <c>nonce</c> attribute and both emitted script
+///     tags will carry it. With <c>'strict-dynamic'</c> the nonce on the
+///     bootstrap propagates to the loaded <c>/bot-detection/script.js</c>.
+///     </para>
+///     <para>
 ///     Usage:
-///     <![CDATA[
-///     <bot-detection-script />
-///     <!-- or with options -->
-///     <bot-detection-script endpoint="/bot-detection/fingerprint" defer="true" />
-///     ]]>
+///     <code>
+///     &lt;bot-detection-script /&gt;
+///     &lt;!-- with overrides --&gt;
+///     &lt;bot-detection-script endpoint="/bot-detection/fingerprint"
+///                            script-path="/bot-detection/script.js"
+///                            nonce="@nonce" /&gt;
+///     </code>
+///     </para>
 /// </summary>
 [HtmlTargetElement("bot-detection-script")]
 public class BotDetectionTagHelper : TagHelper
@@ -38,39 +62,37 @@ public class BotDetectionTagHelper : TagHelper
         _tokenService = tokenService;
     }
 
-    /// <summary>
-    ///     The endpoint to post fingerprint data to.
-    ///     Default: "/bot-detection/fingerprint"
-    /// </summary>
+    /// <summary>Beacon endpoint the detector posts the payload to.</summary>
     [HtmlAttributeName("endpoint")]
     public string Endpoint { get; set; } = "/bot-detection/fingerprint";
 
-    /// <summary>
-    ///     Whether to defer script execution.
-    ///     Default: true
-    /// </summary>
+    /// <summary>Static-script path served by <c>MapBotDetectionScript</c>.</summary>
+    [HtmlAttributeName("script-path")]
+    public string ScriptPath { get; set; } = "/bot-detection/script.js";
+
+    /// <summary>Defer the external script (default true -- runs after parse).</summary>
     [HtmlAttributeName("defer")]
     public bool Defer { get; set; } = true;
 
-    /// <summary>
-    ///     Whether to use async script loading.
-    ///     Default: false
-    /// </summary>
+    /// <summary>Async-load the external script (default false; defer is usually preferable).</summary>
     [HtmlAttributeName("async")]
     public bool Async { get; set; } = false;
 
     /// <summary>
-    ///     Custom nonce for CSP compliance.
-    ///     If set, adds nonce attribute to script tag.
+    ///     CSP nonce -- attached to BOTH emitted script tags. With
+    ///     <c>'strict-dynamic'</c> the nonce on the inline bootstrap propagates
+    ///     to the dynamically-loaded <c>script.js</c> anyway, but emitting it
+    ///     on both is the safe default.
     /// </summary>
     [HtmlAttributeName("nonce")]
     public string? Nonce { get; set; }
 
     public override void Process(TagHelperContext context, TagHelperOutput output)
     {
-        // Suppress in three cases: client-side detection disabled in config, no
-        // active HttpContext, or no token service registered (dashboard-viewer
-        // hosts don't run detection so they can't sign tokens).
+        // Three suppress conditions: client-side detection disabled, no
+        // active HttpContext (dashboard-viewer hosts), or no token service
+        // registered (token signs the bootstrap; without it the server
+        // rejects the beacon as spoofed).
         if (!_options.ClientSide.Enabled || _tokenService is null)
         {
             output.SuppressOutput();
@@ -78,94 +100,53 @@ public class BotDetectionTagHelper : TagHelper
         }
 
         var httpContext = _httpContextAccessor.HttpContext;
-        if (httpContext == null)
+        if (httpContext is null)
         {
             output.SuppressOutput();
             return;
         }
 
-        // Generate a signed token to prevent spoofing
         var token = _tokenService.GenerateToken(httpContext);
-
-        output.TagName = "script";
-        output.TagMode = TagMode.StartTagAndEndTag;
-
-        if (Defer) output.Attributes.Add("defer", null);
-        if (Async) output.Attributes.Add("async", null);
-        if (!string.IsNullOrEmpty(Nonce)) output.Attributes.Add("nonce", Nonce);
-
-        var script = GenerateScript(token);
-        output.Content.SetHtmlContent(script);
-    }
-
-    private string GenerateScript(string token)
-    {
         var opts = _options.ClientSide;
 
-        return $@"(function(){{
-'use strict';
-var MLBotD={{
-  v:'{BotDetectionScript.Version}',
-  t:'{token}',
-  e:'{Endpoint}',
-  cfg:{{
-    collectWebGL:{(opts.CollectWebGL ? "true" : "false")},
-    collectCanvas:{(opts.CollectCanvas ? "true" : "false")},
-    collectAudio:{(opts.CollectAudio ? "true" : "false")},
-    timeout:{opts.CollectionTimeoutMs}
-  }},
-  h:function(s){{var h=0;for(var i=0;i<s.length;i++){{h=((h<<5)-h)+s.charCodeAt(i);h|=0;}}return h.toString(16);}},
-  collect:function(){{
-    var d={{}},n=navigator,w=window,s=screen;
-    d.tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';
-    d.lang=n.language||'';
-    d.langs=(n.languages||[]).slice(0,3).join(',');
-    d.platform=n.platform||'';
-    d.cores=n.hardwareConcurrency||0;
-    d.mem=n.deviceMemory||0;
-    d.touch='ontouchstart' in w?1:0;
-    d.screen=s.width+'x'+s.height+'x'+s.colorDepth;
-    d.avail=s.availWidth+'x'+s.availHeight;
-    d.dpr=w.devicePixelRatio||1;
-    d.pdf=this.hasPdf()?1:0;
-    d.webdriver=n.webdriver?1:0;
-    d.phantom=w.phantom||w._phantom||w.callPhantom?1:0;
-    d.nightmare=!!w.__nightmare;
-    d.selenium=!!w.document.__selenium_unwrapped||!!w.document.__webdriver_evaluate||!!w.document.__driver_evaluate;
-    d.cdc=this.hasCdc();
-    d.plugins=n.plugins?n.plugins.length:0;
-    d.chrome=!!w.chrome;
-    d.permissions=this.checkPerms();
-    d.outerW=w.outerWidth||0;
-    d.outerH=w.outerHeight||0;
-    d.innerW=w.innerWidth||0;
-    d.innerH=w.innerHeight||0;
-    d.evalLen=(function(){{try{{return eval.toString().length;}}catch(e){{return 0;}}}})();
-    d.bindNative=Function.prototype.bind.toString().indexOf('[native code]')>-1?1:0;
-    if(this.cfg.collectWebGL){{var gl=this.getWebGL();if(gl){{d.glVendor=gl.vendor||'';d.glRenderer=gl.renderer||'';}}}}
-    if(this.cfg.collectCanvas){{d.canvasHash=this.getCanvasHash();}}
-    d.score=this.calcScore(d);
-    return d;
-  }},
-  hasPdf:function(){{try{{var p=navigator.plugins;for(var i=0;i<p.length;i++){{if(p[i].name.toLowerCase().indexOf('pdf')>-1)return true;}}}}catch(e){{}}return false;}},
-  hasCdc:function(){{try{{for(var k in window){{if(k.match(/^cdc_|^__$|^\$cdc_/))return 1;}}}}catch(e){{}}return 0;}},
-  checkPerms:function(){{try{{if(Notification&&Notification.permission==='denied'&&navigator.plugins.length===0)return 'suspicious';return Notification?Notification.permission:'unavailable';}}catch(e){{return 'error';}}}},
-  getWebGL:function(){{try{{var c=document.createElement('canvas');var gl=c.getContext('webgl')||c.getContext('experimental-webgl');if(!gl)return null;var d=gl.getExtension('WEBGL_debug_renderer_info');return{{vendor:d?gl.getParameter(d.UNMASKED_VENDOR_WEBGL):'',renderer:d?gl.getParameter(d.UNMASKED_RENDERER_WEBGL):''}};}}catch(e){{return null;}}}},
-  getCanvasHash:function(){{try{{var c=document.createElement('canvas');c.width=200;c.height=50;var ctx=c.getContext('2d');ctx.textBaseline='top';ctx.font='14px Arial';ctx.fillStyle='#f60';ctx.fillRect(125,1,62,20);ctx.fillStyle='#069';ctx.fillText('BotD',2,15);return this.h(c.toDataURL());}}catch(e){{return '';}}}},
-  calcScore:function(d){{var score=100;if(d.webdriver)score-=50;if(d.phantom)score-=50;if(d.nightmare)score-=50;if(d.selenium)score-=50;if(d.cdc)score-=40;if(d.plugins===0&&d.chrome)score-=20;if(d.outerW===0||d.outerH===0)score-=30;if(d.innerW===d.outerW&&d.innerH===d.outerH)score-=10;if(!d.bindNative)score-=20;if(d.evalLen<30||d.evalLen>50)score-=15;if(d.permissions==='suspicious')score-=25;return Math.max(0,score);}},
-  send:function(data){{var xhr=new XMLHttpRequest();xhr.open('POST',this.e,true);xhr.setRequestHeader('Content-Type','application/json');xhr.setRequestHeader('X-ML-BotD-Token',this.t);xhr.onload=function(){{if(xhr.status>=200&&xhr.status<300){{window.__mlbotd_done=true;try{{document.dispatchEvent(new CustomEvent('mlbotd:fingerprint',{{detail:JSON.parse(xhr.responseText)}}));}}catch(e){{}}}}}};xhr.send(JSON.stringify(data));}},
-  timing:function(d,cb){{var pending=2;var done=function(){{pending--;if(pending===0)cb(d);}};var ls=performance.now();requestAnimationFrame(function(){{var el=document.createElement('div');el.style.cssText='position:absolute;top:-9999px;width:100px';document.body.appendChild(el);el.getBoundingClientRect();d.layoutTimeMs=performance.now()-ls;document.body.removeChild(el);done();}});var ss=performance.now();setTimeout(function(){{d.setTimeoutDrift=performance.now()-ss-1;done();}},1);var prev=performance.now(),cnt=0;while(cnt<100){{var now=performance.now();if(now!==prev){{d.perfResolution=now-prev;break;}}cnt++;}}if(!d.perfResolution)d.perfResolution=0;}},
-  run:function(){{var self=this;setTimeout(function(){{try{{var d=self.collect();d.ts=Date.now();self.timing(d,function(d){{self.send(d);}});}}catch(e){{self.send({{error:e.message,ts:Date.now()}});}}}},100);}}
-}};
-if(document.readyState==='loading'){{document.addEventListener('DOMContentLoaded',function(){{MLBotD.run();}});}}else{{MLBotD.run();}}
-}})();";
+        // The bootstrap script publishes the config object and is the ONLY
+        // inline JS in this surface; the detector itself loads from the
+        // /bot-detection/script.js endpoint and can be CSP-restricted to
+        // 'self'. The bootstrap is a single object literal -- no logic, no
+        // function definitions -- so it stays trivially auditable.
+        var nonceAttr = string.IsNullOrEmpty(Nonce) ? "" : $" nonce=\"{System.Net.WebUtility.HtmlEncode(Nonce)}\"";
+        var deferAttr = Defer ? " defer" : "";
+        var asyncAttr = Async ? " async" : "";
+
+        var bootstrap = $"window.MLBotD={{t:'{JsEscape(token)}',e:'{JsEscape(Endpoint)}',cfg:{{collectWebGL:{B(opts.CollectWebGL)},collectCanvas:{B(opts.CollectCanvas)},collectAudio:{B(opts.CollectAudio)},collectInteraction:{B(true)},timeout:{opts.CollectionTimeoutMs}}}}};";
+
+        var html =
+            $"<script{nonceAttr}>{bootstrap}</script>" +
+            $"<script src=\"{System.Net.WebUtility.HtmlEncode(ScriptPath)}\"{deferAttr}{asyncAttr}{nonceAttr}></script>";
+
+        output.TagName = null; // erase the custom-element wrapper; we emit raw <script> tags
+        output.Content.SetHtmlContent(html);
     }
+
+    private static string B(bool v) => v ? "true" : "false";
+
+    /// <summary>
+    ///     JS literal escaping for the bootstrap config values. Tokens are
+    ///     base64-shaped and endpoint paths are operator-controlled; we still
+    ///     defensively escape backslashes + quotes + the line-separator chars
+    ///     U+2028/U+2029 that JS treats as line terminators (the same
+    ///     hardening applied to <c>AdblockerProbeTagHelper</c>).
+    /// </summary>
+    private static string JsEscape(string s)
+        => System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(s);
 }
 
 /// <summary>
-///     Script version and metadata.
+///     Script version metadata. The actual script source lives in
+///     <c>ClientSide/botdetection.js</c>; this constant is referenced by
+///     telemetry / logging only.
 /// </summary>
 public static class BotDetectionScript
 {
-    public const string Version = "1.1.0";
+    public const string Version = "2.0.0";
 }
