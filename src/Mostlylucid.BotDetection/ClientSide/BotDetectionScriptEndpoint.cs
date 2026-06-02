@@ -21,34 +21,54 @@ namespace Mostlylucid.BotDetection.ClientSide;
 /// </summary>
 public static class BotDetectionScriptEndpointExtensions
 {
-    private const string ResourceName = "Mostlylucid.BotDetection.ClientSide.botdetection.js";
-    private static byte[]? _bytes;
-    private static string? _etag;
+    private const string DetectorResource = "Mostlylucid.BotDetection.ClientSide.botdetection.js";
+    private const string ChallengeResource = "Mostlylucid.BotDetection.ClientSide.challenge.js";
+
+    private static readonly Dictionary<string, (byte[] Bytes, string Etag)> Cache =
+        new(StringComparer.Ordinal);
     private static readonly object Lock = new();
 
     /// <summary>
-    ///     Maps the script endpoint. Default path <c>/bot-detection/script.js</c> --
-    ///     matches the <c>BotDetectionTagHelper.ScriptPath</c> default so the tag
-    ///     helper and endpoint stay in sync without configuration.
+    ///     Maps the detector-script endpoint. Default path
+    ///     <c>/bot-detection/script.js</c> -- matches
+    ///     <c>BotDetectionTagHelper.ScriptPath</c> so the tag helper + endpoint
+    ///     stay in sync without configuration.
     /// </summary>
     public static IEndpointConventionBuilder MapBotDetectionScript(
         this IEndpointRouteBuilder endpoints,
         string path = "/bot-detection/script.js")
     {
-        return endpoints.MapGet(path, HandleAsync)
+        return endpoints.MapGet(path, ctx => HandleAsync(ctx, DetectorResource))
             .WithName("BotDetectionScript")
             .WithDisplayName("StyloBot client-side detection script")
             .AllowAnonymous();
     }
 
-    private static async Task HandleAsync(HttpContext ctx)
+    /// <summary>
+    ///     Maps the PoW-challenge solver endpoint. Default path
+    ///     <c>/bot-detection/challenge.js</c> -- referenced by the
+    ///     proof-of-work HTML page emitted by <c>ChallengeActionPolicy</c>.
+    ///     Same cache/ETag contract as the detector script.
+    /// </summary>
+    public static IEndpointConventionBuilder MapBotDetectionChallengeScript(
+        this IEndpointRouteBuilder endpoints,
+        string path = "/bot-detection/challenge.js")
     {
-        var (bytes, etag) = LoadIfNeeded();
-        if (bytes is null || etag is null)
+        return endpoints.MapGet(path, ctx => HandleAsync(ctx, ChallengeResource))
+            .WithName("BotDetectionChallengeScript")
+            .WithDisplayName("StyloBot PoW challenge solver")
+            .AllowAnonymous();
+    }
+
+    private static async Task HandleAsync(HttpContext ctx, string resourceName)
+    {
+        var entry = LoadIfNeeded(resourceName);
+        if (entry is null)
         {
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
+        var (bytes, etag) = entry.Value;
 
         // Honour If-None-Match -- browsers re-validate cheaply on every page hit.
         var ifNoneMatch = ctx.Request.Headers["If-None-Match"].FirstOrDefault();
@@ -59,11 +79,10 @@ public static class BotDetectionScriptEndpointExtensions
             return;
         }
 
-        // Set headers + body directly. The earlier draft returned
-        // Results.File(byte[]); that overload sometimes fights pre-set ETag/
-        // Cache-Control headers (overlap with its own range-processing
-        // headers) and the body landed empty on the wire under
-        // BotDetectionMiddleware. Direct write removes the ambiguity.
+        // Direct response write (not Results.File(byte[])) -- the latter
+        // conflicted with pre-set ETag headers under BotDetectionMiddleware
+        // and produced 200 with empty body. Lesson logged in the original
+        // commit (480b790e).
         ctx.Response.StatusCode = StatusCodes.Status200OK;
         ctx.Response.ContentType = "application/javascript; charset=utf-8";
         ctx.Response.Headers.ETag = etag;
@@ -72,23 +91,24 @@ public static class BotDetectionScriptEndpointExtensions
         await ctx.Response.Body.WriteAsync(bytes, ctx.RequestAborted);
     }
 
-    private static (byte[]? Bytes, string? Etag) LoadIfNeeded()
+    private static (byte[] Bytes, string Etag)? LoadIfNeeded(string resourceName)
     {
-        if (_bytes is not null && _etag is not null) return (_bytes, _etag);
+        if (Cache.TryGetValue(resourceName, out var hit)) return hit;
         lock (Lock)
         {
-            if (_bytes is not null && _etag is not null) return (_bytes, _etag);
+            if (Cache.TryGetValue(resourceName, out hit)) return hit;
             using var stream = typeof(BotDetectionScriptEndpointExtensions).Assembly
-                .GetManifestResourceStream(ResourceName);
-            if (stream is null) return (null, null);
+                .GetManifestResourceStream(resourceName);
+            if (stream is null) return null;
             using var ms = new MemoryStream();
             stream.CopyTo(ms);
-            _bytes = ms.ToArray();
-            // Strong ETag: SHA-256 of content, base64url-truncated for compactness.
+            var bytes = ms.ToArray();
+            // Strong ETag: SHA-256 of content, hex-truncated for compactness.
             // Stable per build; changes on every script update.
-            var hash = SHA256.HashData(_bytes);
-            _etag = "\"" + Convert.ToHexString(hash, 0, 8) + "\"";
-            return (_bytes, _etag);
+            var hash = SHA256.HashData(bytes);
+            var etag = "\"" + Convert.ToHexString(hash, 0, 8) + "\"";
+            Cache[resourceName] = (bytes, etag);
+            return (bytes, etag);
         }
     }
 }

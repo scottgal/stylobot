@@ -96,9 +96,10 @@
         <Content Include="docs\ai-detection.md" />
     </ItemGroup>
 
-    <!-- Embed JS files as resources for TagHelper -->
+    <!-- Embed JS files as resources for served-endpoint delivery -->
     <ItemGroup>
         <EmbeddedResource Include="ClientSide\botdetection.js" />
+        <EmbeddedResource Include="ClientSide\challenge.js" />
     </ItemGroup>
 
     <!-- Embed policy definition YAML files -->

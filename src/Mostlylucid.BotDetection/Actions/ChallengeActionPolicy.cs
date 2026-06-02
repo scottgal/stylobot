@@ -446,7 +446,18 @@ public class ChallengeActionPolicy : IActionPolicy
         string challengeId, string seedsJson, int requiredZeros, int puzzleCount,
         string verifyUrl, string returnUrl)
     {
+        // The PoW solver lives in ClientSide/challenge.js, served at
+        // /bot-detection/challenge.js. This page emits a small bootstrap
+        // that publishes window.MLChallenge = {id, seeds, requiredZeros,
+        // verifyUrl, returnUrl} and then loads the solver. Same
+        // architecture as the fingerprint detector (botdetection.js + the
+        // BotDetectionTagHelper bootstrap): the JS source on disk IS the
+        // JS that runs on the wire, no string-in-C# divergence possible.
         var encodedReturnUrl = Uri.EscapeDataString(returnUrl);
+        var enc = System.Text.Encodings.Web.JavaScriptEncoder.Default;
+        var jsChallengeId = enc.Encode(challengeId);
+        var jsVerifyUrl = enc.Encode(verifyUrl);
+        var jsReturnUrl = enc.Encode(encodedReturnUrl);
         return $@"<!DOCTYPE html>
 <html>
 <head>
@@ -471,112 +482,15 @@ public class ChallengeActionPolicy : IActionPolicy
         <p id=""status"">Solving 0 / {puzzleCount} puzzles...</p>
     </div>
     <script>
-    (function() {{
-        const challengeId = '{challengeId}';
-        const seeds = {seedsJson};
-        const requiredZeros = {requiredZeros};
-        const verifyUrl = '{verifyUrl}';
-        const returnUrl = '{encodedReturnUrl}';
-        const startTime = performance.now();
-        const puzzleTimings = [];
-        const solutions = [];
-        let solved = 0;
-
-        // Hex conversion helper for Workers
-        const workerCode = `
-            self.onmessage = async function(e) {{
-                const {{ seedB64, seedIndex, requiredZeros }} = e.data;
-                const seedBytes = Uint8Array.from(atob(seedB64), c => c.charCodeAt(0));
-                const target = '0'.repeat(requiredZeros);
-                const encoder = new TextEncoder();
-                const startMs = performance.now();
-                let nonce = 0;
-
-                while (true) {{
-                    const nonceBytes = encoder.encode(nonce.toString());
-                    const input = new Uint8Array(seedBytes.length + nonceBytes.length);
-                    input.set(seedBytes, 0);
-                    input.set(nonceBytes, seedBytes.length);
-
-                    const hash = await crypto.subtle.digest('SHA-256', input);
-                    const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-                    if (hex.startsWith(target)) {{
-                        self.postMessage({{ seedIndex, nonce, solveMs: performance.now() - startMs }});
-                        return;
-                    }}
-                    nonce++;
-                    if (nonce % 5000 === 0) await new Promise(r => setTimeout(r, 0));
-                }}
-            }};
-        `;
-
-        const blob = new Blob([workerCode], {{ type: 'application/javascript' }});
-        const workerUrl = URL.createObjectURL(blob);
-        const maxWorkers = Math.min(navigator.hardwareConcurrency || 2, 8);
-        const workerCount = Math.min(maxWorkers, seeds.length);
-
-        // Queue puzzles across workers
-        let nextPuzzle = 0;
-
-        function launchNext(worker) {{
-            if (nextPuzzle >= seeds.length) {{ worker.terminate(); return; }}
-            const s = seeds[nextPuzzle++];
-            worker.postMessage({{ seedB64: s.seed, seedIndex: s.index, requiredZeros }});
-        }}
-
-        for (let w = 0; w < workerCount; w++) {{
-            const worker = new Worker(workerUrl);
-            worker.onmessage = function(e) {{
-                solutions.push({{ seedIndex: e.data.seedIndex, nonce: e.data.nonce }});
-                puzzleTimings.push(e.data.solveMs);
-                solved++;
-                document.getElementById('progress').value = solved;
-                document.getElementById('status').textContent = 'Solving ' + solved + ' / {puzzleCount} puzzles...';
-
-                if (solved === seeds.length) {{
-                    submitSolutions();
-                }} else {{
-                    launchNext(worker);
-                }}
-            }};
-            launchNext(worker);
-        }}
-
-        async function submitSolutions() {{
-            document.getElementById('status').textContent = 'Verified!';
-            document.getElementById('status').className = 'success';
-
-            const totalTimeMs = performance.now() - startTime;
-            const payload = {{
-                challengeId,
-                solutions: solutions.sort((a, b) => a.seedIndex - b.seedIndex),
-                metadata: {{ workerCount, totalTimeMs, puzzleTimingsMs: puzzleTimings }},
-                returnUrl: decodeURIComponent(returnUrl)
-            }};
-
-            try {{
-                const resp = await fetch(verifyUrl, {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify(payload),
-                    credentials: 'same-origin'
-                }});
-
-                if (resp.ok) {{
-                    const data = await resp.json();
-                    window.location.href = data.returnUrl || '/';
-                }} else {{
-                    document.getElementById('status').textContent = 'Verification failed. Please refresh.';
-                    document.getElementById('status').className = '';
-                }}
-            }} catch (err) {{
-                document.getElementById('status').textContent = 'Network error. Please refresh.';
-                document.getElementById('status').className = '';
-            }}
-        }}
-    }})();
+    window.MLChallenge = {{
+        id: '{jsChallengeId}',
+        seeds: {seedsJson},
+        requiredZeros: {requiredZeros},
+        verifyUrl: '{jsVerifyUrl}',
+        returnUrl: '{jsReturnUrl}'
+    }};
     </script>
+    <script src=""/bot-detection/challenge.js"" defer></script>
 </body>
 </html>";
     }

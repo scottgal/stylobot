@@ -176,6 +176,10 @@ app.MapBotDetectionFingerprintEndpoint();
 // one cacheable artifact = one place to review the JS we ship.
 app.MapBotDetectionScript();
 
+// Serve the PoW challenge solver (ClientSide/challenge.js). Referenced by
+// the verification HTML emitted by ChallengeActionPolicy.
+app.MapBotDetectionChallengeScript();
+
 // Map BDF replay endpoints for offline debugging and regression testing
 app.MapBdfReplayEndpoints();
 
