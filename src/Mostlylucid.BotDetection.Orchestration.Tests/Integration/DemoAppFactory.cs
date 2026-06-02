@@ -6,8 +6,9 @@ using System.Net.Sockets;
 namespace Mostlylucid.BotDetection.Orchestration.Tests.Integration;
 
 /// <summary>
-///     Starts the Demo app as a child process on a random port for Puppeteer integration tests.
-///     Avoids WebApplicationFactory assembly-loading issues with the test host.
+///     Starts the Demo app as a child process on a random port for browser-driven
+///     (Playwright) integration tests and the BDF replay harness. Avoids
+///     WebApplicationFactory assembly-loading issues with the test host.
 /// </summary>
 public sealed class DemoAppFactory : IAsyncLifetime
 {

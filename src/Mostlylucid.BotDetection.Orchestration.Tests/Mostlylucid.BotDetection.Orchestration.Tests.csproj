@@ -41,8 +41,13 @@
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.6" />
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.3.0" />
 
-        <!-- Browser automation for integration testing -->
-        <PackageReference Include="PuppeteerSharp" Version="24.40.0" />
+        <!-- Browser automation for integration testing.
+             Playwright .NET (Microsoft.Playwright) replaces PuppeteerSharp.
+             Playwright is the actively-developed Microsoft fork; supports Chromium /
+             Firefox / WebKit in one harness, ships its own driver+browsers via the
+             `playwright install` CLI run by the InstallChromiumIfNeeded helper in
+             DemoAppFactory. -->
+        <PackageReference Include="Microsoft.Playwright" Version="1.49.0" />
 
         <PackageReference Include="Xunit.Extensions.Logging" Version="1.1.0" />
     </ItemGroup>
