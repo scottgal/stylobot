@@ -4626,17 +4626,18 @@ public class StyloBotDashboardMiddleware
                     var effectiveWeights = globalWeights?.Compose(fp.Weights) ?? fp.Weights;
                     var shape = FingerprintRadarProjection.Project(fp, archetype, layout, effectiveWeights);
 
-                    // Drift surface: cosine of the current centroid against (a) the
-                    // origin archetype the matcher anchored at, and (b) the current
-                    // nearest archetype as of right now. When (b) differs from
-                    // ArchetypeOrigin the fingerprint has drifted into a different
-                    // archetype's neighbourhood -- this is the operator-visible
-                    // self-tuning signal that justifies trusting the matcher over
-                    // its initial guess.
-                    var originScore = archetypes.ScoreAgainst(fp.Centroid, archetype);
+                    // Categorical drift label: which archetype is the centroid CLOSEST
+                    // to right now? The view reads this for the "Drifted A → B" text
+                    // (A = ArchetypeOrigin from above, B = NearestArchetypeName here).
+                    // The cosine scores that used to live here (OriginScore against
+                    // the seed archetype, NearestScore against the current-nearest)
+                    // were replaced by the truthful SelfDriftScore further down --
+                    // both were misleading: the seed cosine wasn't a self-drift
+                    // metric, and the nearest cosine was near-trivially high by
+                    // construction. Cleanup of 5bfe7551 left them computed but
+                    // unread; deleted now.
                     var nearest = archetypes.FindNearest(fp.Centroid);
                     string? nearestName = nearest?.Archetype.Name;
-                    double? nearestScore = nearest?.Score;
 
                     // Adaptation-loop drift: cosine of live centroid vs the active
                     // root_centroid. Runtime contract is "root is never null" --
@@ -4673,9 +4674,7 @@ public class StyloBotDashboardMiddleware
 
                     shape = shape with
                     {
-                        OriginScore = originScore,
                         NearestArchetypeName = nearestName,
-                        NearestScore = nearestScore,
                         SelfDriftScore = selfDrift,
                         SelfDriftLabel = fp.RootSource,
                         RootCentroidAt = fp.RootCentroidAt,

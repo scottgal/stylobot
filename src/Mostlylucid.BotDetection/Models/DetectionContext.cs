@@ -1537,7 +1537,18 @@ public static class SignalKeys
     /// </summary>
     public const string ClientSideAdblockerDetected = "clientside.adblocker_detected";
 
-    /// <summary>String: ad-network provider alias the probe used (e.g. "adsense", "amazon", "medianet", "custom").</summary>
+    /// <summary>
+    ///     String: ad-network provider alias the probe used (<c>"adsense"</c>,
+    ///     <c>"amazon"</c>, <c>"medianet"</c>, <c>"custom"</c>).
+    ///     <para>
+    ///     Diagnostic-only -- written by <see cref="ContributingDetectors.ClientSideContributor"/>
+    ///     but not consumed for any classification decision. Surfaces in the
+    ///     BdfReplay probe list and dashboard signal inspector so operators can
+    ///     see which provider URL the probe blocked. Don't gate any logic on
+    ///     this value -- the boolean <see cref="ClientSideAdblockerDetected"/>
+    ///     is the decision-relevant signal.
+    ///     </para>
+    /// </summary>
     public const string ClientSideAdblockerProvider = "clientside.adblocker_provider";
 
 

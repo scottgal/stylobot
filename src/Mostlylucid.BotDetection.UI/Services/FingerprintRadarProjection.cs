@@ -181,9 +181,7 @@ public sealed record FingerprintRadarShape(
     double[]? OriginBuckets,
     string[] BucketLabels,
     string? ArchetypeName,
-    double? OriginScore = null,
     string? NearestArchetypeName = null,
-    double? NearestScore = null,
     // Phase 1 adaptation-loop drift: cosine of the live centroid against the
     // CURRENT active root_centroid (archetype seed at allocation, replaced by
     // BotClusterService community means later). SelfDriftScore = 1.0 immediately
@@ -195,6 +193,12 @@ public sealed record FingerprintRadarShape(
     // entry's RootDistance is cosine(live, that historical root) so the
     // dashboard can render "how far have I moved since THAT past anchor" at a
     // glance. Empty for legacy rows that haven't yet been re-rooted post-backfill.
+    //
+    // Previously also carried OriginScore + NearestScore (cosine against the
+    // seed archetype + current-nearest archetype respectively); the view in
+    // _FingerprintShape.cshtml stopped rendering both when SelfDriftScore took
+    // over the quantitative display. Deleted now to stop the wasted
+    // ScoreAgainst computation on every fingerprint render.
     double? SelfDriftScore = null,
     string? SelfDriftLabel = null,
     DateTime? RootCentroidAt = null,
