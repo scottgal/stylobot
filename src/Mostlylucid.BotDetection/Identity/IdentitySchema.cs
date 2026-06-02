@@ -30,8 +30,23 @@ internal static class IdentitySchema
             cached_score_updated_at     TEXT,
             ambiguity_persistence       REAL NOT NULL DEFAULT 0,
             display_name                TEXT NOT NULL DEFAULT '',
-            display_name_updated_at     TEXT NOT NULL DEFAULT ''
+            display_name_updated_at     TEXT NOT NULL DEFAULT '',
+            root_centroid               BLOB,
+            root_centroid_at            TEXT,
+            root_source                 TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS fingerprint_root_history (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            fingerprint_id      TEXT NOT NULL REFERENCES fingerprints(fingerprint_id),
+            root_centroid       BLOB NOT NULL,
+            root_source         TEXT NOT NULL,
+            member_count        INTEGER NOT NULL DEFAULT 1,
+            set_at              TEXT NOT NULL,
+            superseded_at       TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ix_frh_fp_setat
+            ON fingerprint_root_history(fingerprint_id, set_at DESC);
 
         CREATE TABLE IF NOT EXISTS fingerprint_keys (
             primary_signature   TEXT PRIMARY KEY,
@@ -115,6 +130,19 @@ internal static class IdentitySchema
             "ALTER TABLE fingerprints ADD COLUMN display_name TEXT NOT NULL DEFAULT ''", ct);
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN display_name_updated_at TEXT NOT NULL DEFAULT ''", ct);
+        // root_centroid: the reference centroid drift is measured against.
+        // Seeded at allocation from the matched archetype's centroid (archetypes
+        // ARE the cold-start root); replaced by BotClusterService snapshots once
+        // the population produces data-driven community means. Each replacement
+        // writes a fingerprint_root_history row so the dashboard can show the
+        // evolution chain. root_source is a lineage marker
+        // (e.g. "archetype:chrome-desktop" or "cluster:abc123").
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN root_centroid BLOB", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN root_centroid_at TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN root_source TEXT", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)
@@ -128,6 +156,48 @@ internal static class IdentitySchema
         catch (SqliteException ex) when (ex.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase))
         {
             // Already migrated; nothing to do.
+        }
+    }
+
+    /// <summary>
+    ///     Backfills <c>root_centroid</c> for any legacy fingerprint row where the
+    ///     column is null (rows inserted before the column existed). Self-seeds from
+    ///     the live centroid with source <c>"bootstrap"</c>, and writes a matching
+    ///     <c>fingerprint_root_history</c> row so the timeline starts somewhere.
+    ///     Runtime contract: every fingerprint has a non-null root_centroid; this
+    ///     enforces that on the migration boundary so the dashboard never falls into
+    ///     a "calibrating" state.
+    /// </summary>
+    public static async Task BackfillRootCentroidsAsync(SqliteConnection conn, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow.ToString("O");
+
+        // First write history rows for the legacy fingerprints -- do this BEFORE
+        // updating root_centroid so we can filter on `root_centroid IS NULL`.
+        await using (var hist = conn.CreateCommand())
+        {
+            hist.CommandText = """
+                INSERT INTO fingerprint_root_history
+                    (fingerprint_id, root_centroid, root_source, member_count, set_at)
+                SELECT fingerprint_id, centroid, 'bootstrap', 1, @now
+                  FROM fingerprints
+                 WHERE root_centroid IS NULL
+                """;
+            hist.Parameters.AddWithValue("@now", now);
+            await hist.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var upd = conn.CreateCommand())
+        {
+            upd.CommandText = """
+                UPDATE fingerprints
+                   SET root_centroid    = centroid,
+                       root_centroid_at = @now,
+                       root_source      = 'bootstrap'
+                 WHERE root_centroid IS NULL
+                """;
+            upd.Parameters.AddWithValue("@now", now);
+            await upd.ExecuteNonQueryAsync(ct);
         }
     }
 

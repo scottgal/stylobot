@@ -47,6 +47,32 @@ public sealed record Fingerprint
     ///     and surfaced to the dashboard as a freshness signal.
     /// </summary>
     public DateTime DisplayNameUpdatedAt { get; init; }
+
+    /// <summary>
+    ///     The reference centroid that drift is measured against. Seeded at allocation
+    ///     from the matched archetype's centroid -- archetypes ARE the cold-start root,
+    ///     not a placeholder waiting for "real" data. Replaced by <c>BotClusterService</c>
+    ///     snapshots when the fingerprint's cluster produces a data-driven community mean,
+    ///     so a Chrome-142 release that shifts the population's centroids gets reflected
+    ///     in every member fingerprint's root within one clustering cycle even though
+    ///     the seed archetype YAML is now stale. Every change writes a row to
+    ///     <c>fingerprint_root_history</c> so the dashboard can show the evolution chain.
+    ///     Nullable only on the migration boundary -- legacy rows are backfilled on
+    ///     first startup. Runtime steady state: never null. A null at request time is a
+    ///     bug, not a "calibrating" state.
+    /// </summary>
+    public float[]? RootCentroid { get; init; }
+
+    /// <summary>UTC timestamp when <see cref="RootCentroid"/> was last set.</summary>
+    public DateTime? RootCentroidAt { get; init; }
+
+    /// <summary>
+    ///     Lineage marker for <see cref="RootCentroid"/>: <c>archetype:&lt;id&gt;</c> at
+    ///     allocation, <c>cluster:&lt;id&gt;</c> after a BotClusterService snapshot,
+    ///     <c>verifiedbot:&lt;name&gt;</c> for the verifiedbot allocation path,
+    ///     <c>bootstrap</c> for legacy rows backfilled on the migration boundary.
+    /// </summary>
+    public string? RootSource { get; init; }
 }
 
 /// <summary>

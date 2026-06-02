@@ -71,6 +71,7 @@ public class SqliteFingerprintStore : IFingerprintStore
 
             await IdentitySchema.CreateCoreTablesAsync(conn, ct);
             await IdentitySchema.MigrateExistingTablesAsync(conn, ct);
+            await IdentitySchema.BackfillRootCentroidsAsync(conn, ct);
             await EnsureLayoutRowAsync(conn, ct);
 
             // Best-effort sqlite-vec load. The brute-force index is the FOSS default;
@@ -247,7 +248,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
-                   display_name, display_name_updated_at
+                   display_name, display_name_updated_at,
+                   root_centroid, root_centroid_at, root_source
               FROM fingerprints WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
@@ -273,14 +275,16 @@ public class SqliteFingerprintStore : IFingerprintStore
                     archetype_origin, inferred_client_type, inferred_type_confidence,
                     inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                     cached_score_updated_at, ambiguity_persistence,
-                    display_name, display_name_updated_at
+                    display_name, display_name_updated_at,
+                    root_centroid, root_centroid_at, root_source
                 ) VALUES (
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
                     @origin, @inferred_type, @inferred_conf,
                     @inferred_changed, @cached_prob, @cached_band,
                     @cached_updated, @ambiguity,
-                    @display_name, @display_name_updated
+                    @display_name, @display_name_updated,
+                    @root_centroid, @root_at, @root_source
                 )
                 """;
             cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
@@ -305,7 +309,36 @@ public class SqliteFingerprintStore : IFingerprintStore
             cmd.Parameters.AddWithValue("@display_name", fp.DisplayName ?? "");
             cmd.Parameters.AddWithValue("@display_name_updated",
                 fp.DisplayNameUpdatedAt == default ? "" : fp.DisplayNameUpdatedAt.ToString("O"));
+            // root_centroid is the reference drift is measured against. The matcher
+            // is expected to seed it from the matched archetype's centroid (or the
+            // seed centroid on the verifiedbot path); if anything in the allocation
+            // flow forgets to set it, self-seed from the live centroid + source
+            // "bootstrap" rather than leave it null. "Null root at request time is
+            // a bug" -- catch it here so the dashboard never sees it.
+            var rootCentroid = fp.RootCentroid ?? fp.Centroid;
+            var rootAt = (fp.RootCentroidAt ?? fp.FirstSeen).ToString("O");
+            var rootSource = fp.RootSource ?? "bootstrap";
+            cmd.Parameters.AddWithValue("@root_centroid", FloatsToBlob(rootCentroid));
+            cmd.Parameters.AddWithValue("@root_at", rootAt);
+            cmd.Parameters.AddWithValue("@root_source", rootSource);
             await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // Initial history row -- every root assignment must leave a trail so the
+        // dashboard timeline can show the full evolution chain.
+        await using (var hist = conn.CreateCommand())
+        {
+            hist.Transaction = tx;
+            hist.CommandText = """
+                INSERT INTO fingerprint_root_history
+                    (fingerprint_id, root_centroid, root_source, member_count, set_at)
+                VALUES (@id, @root_centroid, @root_source, 1, @set_at)
+                """;
+            hist.Parameters.AddWithValue("@id", fp.FingerprintId);
+            hist.Parameters.AddWithValue("@root_centroid", FloatsToBlob(fp.RootCentroid ?? fp.Centroid));
+            hist.Parameters.AddWithValue("@root_source", fp.RootSource ?? "bootstrap");
+            hist.Parameters.AddWithValue("@set_at", (fp.RootCentroidAt ?? fp.FirstSeen).ToString("O"));
+            await hist.ExecuteNonQueryAsync(ct);
         }
 
         await UpsertKeyAsync(conn, tx, primarySignature, fp.FingerprintId, ct);
@@ -683,7 +716,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
-                   display_name, display_name_updated_at
+                   display_name, display_name_updated_at,
+                   root_centroid, root_centroid_at, root_source
               FROM fingerprints
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -738,7 +772,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
-                   display_name, display_name_updated_at
+                   display_name, display_name_updated_at,
+                   root_centroid, root_centroid_at, root_source
               FROM fingerprints
              WHERE observation_count > 0
                AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
@@ -1084,7 +1119,12 @@ public class SqliteFingerprintStore : IFingerprintStore
         DisplayName = reader.GetString(18),
         DisplayNameUpdatedAt = string.IsNullOrEmpty(reader.GetString(19))
             ? default
-            : DateTime.Parse(reader.GetString(19), null, System.Globalization.DateTimeStyles.RoundtripKind)
+            : DateTime.Parse(reader.GetString(19), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        RootCentroid = reader.IsDBNull(20) ? null : BlobToFloats((byte[])reader.GetValue(20)),
+        RootCentroidAt = reader.IsDBNull(21)
+            ? null
+            : DateTime.Parse(reader.GetString(21), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        RootSource = reader.IsDBNull(22) ? null : reader.GetString(22),
     };
 
     /// <summary>

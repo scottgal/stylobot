@@ -283,7 +283,14 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             CachedRiskBand = spoofed ? "VeryHigh" : "Medium",
             CachedScoreUpdatedAt = now,
             DisplayName = displayName,
-            DisplayNameUpdatedAt = now
+            DisplayNameUpdatedAt = now,
+            // Verifiedbot path has no archetype centroid to anchor against (the UA
+            // name IS the identity); self-seed the root from the live vector so the
+            // row has a non-null root from row 1. Drift starts at zero and grows if
+            // the verified bot's behavioural shape ever moves.
+            RootCentroid = (float[])vector.Clone(),
+            RootCentroidAt = now,
+            RootSource = $"verifiedbot:{botName.ToLowerInvariant()}",
         };
         await _store.InsertFingerprintAsync(fp, primarySig, ct);
         EmitConfirmedSignals(state, vector, fp, matchScore: 1.0, primarySig);
@@ -488,6 +495,17 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         var persistedDisplayName = displayName ?? "";
 
+        // root_centroid = the archetype's centroid when one matched (the cold-start
+        // root for the adaptation loop; replaced later by BotClusterService snapshots).
+        // No-archetype fallback: anchor on the seed itself so the row always has a
+        // root -- "null at request time is a bug" is enforced from allocation.
+        var rootCentroid = nearestArchetype is not null
+            ? (float[])nearestArchetype.Archetype.Centroid.Clone()
+            : (float[])seedCentroid.Clone();
+        var rootSource = archetypeOrigin is not null
+            ? $"archetype:{archetypeOrigin}"
+            : "bootstrap";
+
         var newFp = new Fingerprint
         {
             FingerprintId = newId,
@@ -508,7 +526,10 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             CachedRiskBand = null,
             CachedScoreUpdatedAt = null,
             DisplayName = persistedDisplayName,
-            DisplayNameUpdatedAt = now
+            DisplayNameUpdatedAt = now,
+            RootCentroid = rootCentroid,
+            RootCentroidAt = now,
+            RootSource = rootSource,
         };
         await _store.InsertFingerprintAsync(newFp, primarySig, cancellationToken);
 
