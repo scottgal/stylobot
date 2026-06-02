@@ -290,6 +290,15 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Singleton<ISessionCentroidStore, NullSessionCentroidStore>());
         services.Replace(ServiceDescriptor.Singleton<IIntentCentroidStore, NullIntentCentroidStore>());
 
+        // Bot signature catalog: the SQLite-backed BotListDatabase writes the
+        // pattern + datacenter-IP cache to botdetection.db. In economy mode we
+        // hold both lists in memory only via InMemoryBotListDatabase -- same
+        // IBotListFetcher source data, no SQLite, no file on disk.
+        services.Replace(ServiceDescriptor.Singleton<IBotListDatabase>(sp =>
+            new InMemoryBotListDatabase(
+                sp.GetRequiredService<IBotListFetcher>(),
+                sp.GetRequiredService<ILogger<InMemoryBotListDatabase>>())));
+
         // CentroidSequenceStore + AssetHashStore are concrete-typed singletons with
         // no interface to Replace; they open sessions.db directly in their hosted
         // services' init paths. Pull them out of the container entirely along with
