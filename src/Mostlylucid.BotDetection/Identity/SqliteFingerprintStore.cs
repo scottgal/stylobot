@@ -32,24 +32,15 @@ public class SqliteFingerprintStore : IFingerprintStore
         _logger = logger;
         _layout = layout;
         _engineOptions = options.Value.Identity.Engine;
-        // In-memory mode short-circuits the on-disk dir creation; SqliteConnectionStrings
-        // routes us at a per-store named shared in-memory DB.
-        if (Data.SqliteConnectionStrings.IsInMemory(options.Value.DatabasePath))
-        {
-            _connectionString = Data.SqliteConnectionStrings.ForSibling(options.Value.DatabasePath, "fingerprints.db");
-        }
-        else
-        {
-            var dbPath = options.Value.DatabasePath
-                ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
-            var dir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
-            Directory.CreateDirectory(dir);
-            var fpDb = Path.Combine(dir, "fingerprints.db");
-            // Private cache + WAL gives proper reader/writer concurrency. Shared cache forces
-            // serialisation across all connections in-process, which deadlocks when the brute-force
-            // index holds a reader on `fingerprints` while the absorption service tries to UPDATE.
-            _connectionString = $"Data Source={fpDb}";
-        }
+        var dbPath = options.Value.DatabasePath
+            ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
+        var dir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
+        Directory.CreateDirectory(dir);
+        var fpDb = Path.Combine(dir, "fingerprints.db");
+        // Private cache + WAL gives proper reader/writer concurrency. Shared cache forces
+        // serialisation across all connections in-process, which deadlocks when the brute-force
+        // index holds a reader on `fingerprints` while the absorption service tries to UPDATE.
+        _connectionString = $"Data Source={fpDb}";
     }
 
     public IdentityVectorLayout Layout => _layout;

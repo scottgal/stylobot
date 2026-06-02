@@ -34,15 +34,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         _vectorSearch = vectorSearch;
         _logger = logger;
         _options = options.Value;
-        var dbPathOption = options.Value.DatabasePath;
-        if (!SqliteConnectionStrings.IsInMemory(dbPathOption))
-        {
-            var basePath = Path.GetDirectoryName(
-                dbPathOption ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
-                ?? AppContext.BaseDirectory;
-            Directory.CreateDirectory(basePath);
-        }
-        _connectionString = SqliteConnectionStrings.ForSibling(dbPathOption, "sessions.db");
+        var basePath = Path.GetDirectoryName(
+            options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
+            ?? AppContext.BaseDirectory;
+        Directory.CreateDirectory(basePath);
+        var dbPath = Path.Combine(basePath, "sessions.db");
+        _connectionString = $"Data Source={dbPath};Cache=Shared";
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)

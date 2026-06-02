@@ -77,7 +77,10 @@ public class SqliteLearnedPatternStore : ILearnedPatternStore, IAsyncDisposable
     {
         _logger = logger;
 
-        _connectionString = SqliteConnectionStrings.ForFile(options.Value.DatabasePath, "botdetection");
+        var dbPath = options.Value.DatabasePath
+                     ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
+
+        _connectionString = $"Data Source={dbPath}";
     }
 
     public ValueTask DisposeAsync()
