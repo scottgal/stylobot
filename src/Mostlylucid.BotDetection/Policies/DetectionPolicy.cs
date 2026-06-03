@@ -221,9 +221,13 @@ public sealed record DetectionPolicy
             "Geo", "GeoClient",
             // Honeypot / threat-feed
             "HoneypotLink", "ThreatIntel",
-            // Bot-shape classifiers. VerifiedBot is intentionally NOT here - rDNS lookup
-            // is too expensive for the inline path; BackgroundEnrichmentService runs it
-            // async and feeds results into FastPathReputation for subsequent requests.
+            // Bot-shape classifiers. VerifiedBot (full) is intentionally NOT here -
+            // rDNS lookup is too expensive for the inline path; BackgroundEnrichmentService
+            // runs it async and feeds results into FastPathReputation for subsequent
+            // requests. VerifiedBotInline IS inline -- it runs only the IP-range portion
+            // (O(n) CIDR lookup, no I/O) so the first request from an Amazonbot UA on a
+            // non-Amazon IP is caught immediately rather than after the next request.
+            "VerifiedBotInline",
             "AiScraper", "Haxxor", "FediverseDomain",
             // Protocol-deep fingerprinting (no-op when proxy/TLS not present)
             "TlsFingerprint", "TcpIpFingerprint", "Http2Fingerprint", "Http3Fingerprint",

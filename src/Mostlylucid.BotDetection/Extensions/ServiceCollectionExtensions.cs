@@ -741,6 +741,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<VerifiedBotRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<VerifiedBotRegistry>());
         services.AddSingleton<IContributingDetector, VerifiedBotContributor>();
+        // Inline IP-range verifier (priority 4) - catches UA-claim impersonators on
+        // the first request when the claimed bot publishes CIDR ranges (Bingbot,
+        // Googlebot, Amazonbot, OpenAI's GPTBot, etc.). The full VerifiedBotContributor
+        // does rDNS too and is too slow inline; this one skips DNS and only checks
+        // IP ranges (O(n) CIDR lookup, zero I/O). Live trigger: sig 9z3avO7sKTd7NAYY896Yog
+        // claimed Amazonbot from a Hong Kong residential IP.
+        services.AddSingleton<IContributingDetector, VerifiedBotInlineContributor>();
         // Fediverse domain verification (priority 5) - NodeInfo lookup against the
         // +https://instance/ URL in Mastodon/Pleroma/Misskey UAs. The cross-
         // corroboration analogue to IP-range verification for traffic that runs

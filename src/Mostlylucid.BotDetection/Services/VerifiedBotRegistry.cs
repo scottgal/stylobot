@@ -153,6 +153,56 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
     }
 
     /// <summary>
+    ///     Synchronous IP-range-only verification. Skips the FCrDNS fallback so the
+    ///     check is safe to call from the inline detector path (the default
+    ///     policy excludes the full <see cref="VerifyBotAsync"/> because rDNS is
+    ///     too slow inline).
+    /// </summary>
+    /// <returns>
+    ///     <list type="bullet">
+    ///         <item><c>null</c> -- UA doesn't match any known bot pattern, OR the
+    ///               matched bot has only FCrDNS domains and no published IP ranges
+    ///               (deferred to the async path).</item>
+    ///         <item><c>VerifiedBotResult{ IsVerified = true, VerificationMethod = "ip_range" }</c>
+    ///               -- UA matches a known bot AND the client IP is in the bot's
+    ///               published range. Real Bingbot from Microsoft Azure lands here.</item>
+    ///         <item><c>VerifiedBotResult{ IsVerified = false, VerificationMethod = "ip_range" }</c>
+    ///               -- UA claims a known bot whose ranges loaded, but the IP isn't
+    ///               in any of them. Live Amazonbot-impersonator from HK lands here.</item>
+    ///     </list>
+    /// </returns>
+    public VerifiedBotResult? VerifyBotInline(string? userAgent, string? clientIp)
+    {
+        if (string.IsNullOrWhiteSpace(userAgent) || string.IsNullOrWhiteSpace(clientIp))
+            return null;
+
+        var matchedBot = FindBotByUserAgent(userAgent);
+        if (matchedBot == null)
+            return null;
+
+        if (!_ipRanges.TryGetValue(matchedBot.Name, out var ranges) || ranges.Count == 0)
+            return null; // IP ranges not yet loaded or bot only verifiable via FCrDNS.
+
+        if (!IPAddress.TryParse(clientIp, out var ip))
+            return null;
+
+        foreach (var network in ranges)
+        {
+            if (network.Contains(ip))
+                return new VerifiedBotResult(matchedBot.Name, "ip_range", true);
+        }
+
+        // Has IP ranges loaded but IP didn't match any. If FCrDNS is a fallback,
+        // defer to the async path -- don't emit a "spoofed" verdict that the async
+        // check could overturn. If the bot has NO FCrDNS fallback, the IP miss is
+        // authoritative -- it's spoofed.
+        if (matchedBot.FcrDnsDomains is { Length: > 0 })
+            return null;
+
+        return new VerifiedBotResult(matchedBot.Name, "ip_range", false);
+    }
+
+    /// <summary>
     ///     Synchronous quick check - returns the bot name if UA matches, null otherwise.
     ///     Does NOT verify IP. Use <see cref="VerifyBotAsync"/> for full verification.
     /// </summary>
