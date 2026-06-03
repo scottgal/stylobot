@@ -113,14 +113,33 @@ public static class DetectionLedgerExtensions
         // and the friendly-pin corroboration check that used to live in
         // DetermineRiskBand). The same composer is now used by /api/v1/topbots
         // OverlayRiskVerdict, so the two paths can't desync any more.
-        var (riskBand, riskJustification, friendlyPinTrace) = DetermineRiskBand(botProbability, confidence, aiRan,
+        //
+        // Switched from DetermineRiskBand's tuple-of-three to the full verdict
+        // so HostilePinFired can feed bot_type + ThreatBand overrides below.
+        // Operator-visible bug: a confirmed-bad actor claiming Amazonbot was
+        // showing bot_type=GoodBot and ThreatBand from the signals dict (None),
+        // which made DetectionPolicyMatcher pick "Silent Throttle" instead of
+        // Block. Compose marks HostilePinFired correctly; we now use it.
+        var (verdict, friendlyPinTrace) = DetermineRiskVerdict(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
             ledgerBotType, ledgerBotName, friendlyIpVerified, friendlyDomainVerified);
+        var riskBand = verdict.RiskBand;
+        var riskJustification = verdict.Justification;
 
         // PrimaryBotType stays gated on classification — it's a claim about WHAT KIND of bot
         // ("this looks like a Scraper") and is only meaningful when classified as bot.
+        //
+        // HostilePin override: when the composer pinned hostile (ConfirmedBad latch,
+        // raw threat above the gate, or hostile-cluster membership), a friendly
+        // UA-derived bot_type is wrong by definition. Demote to MaliciousBot so
+        // the dashboard heading agrees with the verdict and policy rules keyed
+        // on bot_type match the correct catalog entry. The original UA-derived
+        // name still flows through PrimaryBotName for operator triage.
         var isActuallyBot = botProbability >= 0.5;
-        var primaryBotType = isActuallyBot ? ParseBotType(ledger.BotType) : null;
+        var ledgerPrimaryBotType = ParseBotType(ledger.BotType);
+        var primaryBotType = verdict.HostilePinFired
+            ? BotType.MaliciousBot
+            : (isActuallyBot ? ledgerPrimaryBotType : null);
 
         // PrimaryBotName is NEVER gated — every fingerprint always has a name (verdict label
         // and name are separate concerns). Prefer the matcher-set identity.display_name
@@ -137,7 +156,18 @@ public static class DetectionLedgerExtensions
             ? new Dictionary<string, object>(premergedSignals)
             : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-        var (threatScore, threatBand) = ExtractThreatScore(signals);
+        var (threatScore, signalsThreatBand) = ExtractThreatScore(signals);
+
+        // HostilePin override: signals-derived threat band can be None when the
+        // bad-actor signal is a reputation latch or honeypot tag rather than a
+        // raw threat score (which is what feeds ExtractThreatScore). The verdict
+        // already composes those into ThreatBand.Critical; lift it to the
+        // AggregatedEvidence surface so DetectionPolicyMiddleware sees Critical
+        // and the matching catalog rule (ThreatBand: ["Critical"] -> Block)
+        // wins over a friendlier earlier rule.
+        var threatBand = verdict.HostilePinFired
+            ? (ThreatBand)Math.Max((int)signalsThreatBand, (int)verdict.ThreatBand)
+            : signalsThreatBand;
 
         // Write risk justification back to signals so downstream consumers can read it
         if (!string.IsNullOrEmpty(riskJustification))
@@ -410,6 +440,31 @@ public static class DetectionLedgerExtensions
         bool? friendlyIpVerified = null,
         bool? friendlyDomainVerified = null)
     {
+        var (verdict, trace) = DetermineRiskVerdict(
+            botProbability, confidence, aiRan, threatScore, isConfirmedBad,
+            sessionRequestCount, intentCategory, botType, botName,
+            friendlyIpVerified, friendlyDomainVerified);
+        return (verdict.RiskBand, verdict.Justification, trace);
+    }
+
+    /// <summary>
+    ///     Same inputs and dispatch as <see cref="DetermineRiskBand"/> but returns the
+    ///     full <see cref="Risk.SignatureRiskVerdict"/>. ToAggregatedEvidence needs
+    ///     <see cref="Risk.SignatureRiskVerdict.HostilePinFired"/> +
+    ///     <see cref="Risk.SignatureRiskVerdict.ThreatBand"/> so a confirmed-bad latch
+    ///     overrides a friendly UA-derived <c>PrimaryBotType</c> and a
+    ///     None-band threat score, instead of leaking the friendly identity into
+    ///     the policy matcher's <c>BotType</c> + <c>ThreatBand</c> inputs.
+    /// </summary>
+    internal static (Risk.SignatureRiskVerdict Verdict, string FriendlyPinTrace) DetermineRiskVerdict(
+        double botProbability, double confidence, bool aiRan,
+        double threatScore, bool isConfirmedBad, int sessionRequestCount,
+        string? intentCategory = null,
+        BotType? botType = null,
+        string? botName = null,
+        bool? friendlyIpVerified = null,
+        bool? friendlyDomainVerified = null)
+    {
         // YAML fallback: ledger.BotType is last-writer-wins (HeuristicEarly often
         // overwrites the authoritative UA pattern's GoodBot with a generic
         // Scraper guess). Recover by looking up the bot_name in the YAML pattern
@@ -465,7 +520,7 @@ public static class DetectionLedgerExtensions
                 trace = $"skipped:no_corroboration (UA claims {botName ?? "friendly bot"} as {resolvedBotType?.ToString() ?? "null"})";
         }
 
-        return (verdict.RiskBand, verdict.Justification, trace);
+        return (verdict, trace);
     }
 
 
