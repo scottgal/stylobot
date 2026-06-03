@@ -55,8 +55,7 @@ public class BotDetectionMiddleware(
     Services.PipelineLoadSensor? loadSensor = null,
     LoadShedDecision? loadShedDecision = null,
     Services.SignatureVerdictGate? verdictGate = null,
-    Services.VarianceWatchdog? watchdog = null,
-    Services.InProcessVerdictCache? l0Cache = null)
+    Services.VarianceWatchdog? watchdog = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -111,7 +110,6 @@ public class BotDetectionMiddleware(
     private readonly LoadShedDecision? _loadShedDecision = loadShedDecision;
     private readonly Services.SignatureVerdictGate? _verdictGate = verdictGate;
     private readonly Services.VarianceWatchdog? _watchdog = watchdog;
-    private readonly Services.InProcessVerdictCache? _l0Cache = l0Cache;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -571,26 +569,6 @@ public class BotDetectionMiddleware(
         }
 
         PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
-
-        // L0 cache populate: hand the just-computed verdict to the in-process
-        // cache so the parallel HTTP/2 asset fetches that follow this HTML
-        // request hit the cache instead of pay-the-pipeline. Synchronous to
-        // close the cold-start race the identity-store async write leaves
-        // open (Bug O). Skipped when the verdict carries no usable confidence
-        // (foundation-only paths, load-shed, failure-synthesised neutral).
-        if (_l0Cache is not null && precomputedSig is not null && aggregatedResult.Confidence > 0)
-        {
-            _l0Cache.Put(precomputedSig, new SignatureVerdict
-            {
-                SignatureId = precomputedSig,
-                BotProbability = aggregatedResult.BotProbability,
-                Confidence = aggregatedResult.Confidence,
-                RiskBand = aggregatedResult.RiskBand,
-                ThreatScore = aggregatedResult.ThreatScore,
-                RequestCount = 1,
-                LastSeenUtc = DateTime.UtcNow
-            });
-        }
 
         // The orchestrator's foundation wave already wrote signature.primary and
         // signature.multifactor to aggregatedResult.Signals — see SignatureContributor.
