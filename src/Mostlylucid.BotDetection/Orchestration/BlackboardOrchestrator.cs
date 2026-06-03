@@ -1189,18 +1189,33 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
 
         var enrichmentOptions = _fullOptions.BackgroundEnrichment;
 
-        // Only enqueue when confidence is low and probability is meaningful
-        if (result.Confidence >= enrichmentOptions.ConfidenceThreshold ||
-            result.BotProbability < enrichmentOptions.MinBotProbability)
-            return;
-
         var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
         if (string.IsNullOrEmpty(clientIp))
             return;
 
-        var signature = _piiHasher.ComputeSignature(
-            clientIp,
-            httpContext.Request.Headers.UserAgent.ToString());
+        var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+
+        // Two independent gates -- whichever opens, we enqueue. The original
+        // low-confidence Project-Honeypot gate stays as-is (cheap DNSBL lookup
+        // for high-probability/low-confidence IPs). The new gate covers FCrDNS
+        // verification of UA-claimed-bot requests that the inline VerifiedBot
+        // path could NOT verify because the bot has no published CIDR list
+        // (Applebot, Yandex, etc.). Without this second gate the DNS path stays
+        // dark forever, exactly the regression that produced the question
+        // "is the verified bot dns lookup ACTUALLY WORKING?" -- before this
+        // change, the answer was no.
+        var honeypotGateOpen =
+            result.Confidence < enrichmentOptions.ConfidenceThreshold
+            && result.BotProbability >= enrichmentOptions.MinBotProbability;
+
+        var fcrDnsGateOpen =
+            !string.IsNullOrEmpty(userAgent)
+            && NeedsFcrDnsVerification(result);
+
+        if (!honeypotGateOpen && !fcrDnsGateOpen)
+            return;
+
+        var signature = _piiHasher.ComputeSignature(clientIp, userAgent);
 
         _enrichmentService.TryEnqueue(new EnrichmentRequest
         {
@@ -1208,8 +1223,40 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             SignatureHash = signature,
             BotProbability = result.BotProbability,
             Confidence = result.Confidence,
-            RequestId = httpContext.TraceIdentifier
+            RequestId = httpContext.TraceIdentifier,
+            UserAgent = userAgent
         });
+    }
+
+    /// <summary>
+    ///     True when the request is a UA-claimed bot that the inline path could
+    ///     not verify (no <c>verifiedbot.checked=true</c> signal landed). Reading
+    ///     the signal is the simplest gate: VerifiedBotInline only writes it when
+    ///     it actually evaluated the IP, so absence means the UA matched a bot
+    ///     pattern whose only verification surface is FCrDNS.
+    /// </summary>
+    private static bool NeedsFcrDnsVerification(AggregatedEvidence result)
+    {
+        // verifiedbot.checked=true means the inline path produced a verdict
+        // (verified or spoofed) and DNS is redundant.
+        if (result.Signals.TryGetValue(Models.SignalKeys.VerifiedBotChecked, out var checkedObj)
+            && checkedObj is true)
+            return false;
+
+        // The UA must look bot-shaped to be worth a DNS round-trip. Cheapest proxy:
+        // the request already produced a non-trivial bot probability and the
+        // primary bot type is one we care about verifying (SearchEngine, AiBot,
+        // SocialMediaBot, GoodBot). Random scrapers don't need FCrDNS -- they
+        // don't claim a verifiable identity.
+        if (result.BotProbability < 0.2)
+            return false;
+
+        return result.PrimaryBotType is
+            BotType.SearchEngine
+            or BotType.AiBot
+            or BotType.SocialMediaBot
+            or BotType.GoodBot
+            or BotType.VerifiedBot;
     }
 
     #endregion

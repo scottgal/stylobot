@@ -18,6 +18,16 @@ public record EnrichmentRequest
     public required double BotProbability { get; init; }
     public required double Confidence { get; init; }
     public required string RequestId { get; init; }
+
+    /// <summary>
+    ///     Raw User-Agent from the request. Required for the FCrDNS verified-bot
+    ///     lookup -- the registry resolves which bot (Applebot, Yandex, etc.) is
+    ///     being claimed via UA pattern, then verifies the client IP via
+    ///     reverse-DNS + forward-A lookup. Optional today so callers without UA
+    ///     context (legacy enqueue sites, tests) still compile; nullable lets
+    ///     us bypass the FCrDNS step when absent rather than no-op silently.
+    /// </summary>
+    public string? UserAgent { get; init; }
 }
 
 /// <summary>
@@ -35,22 +45,27 @@ public class BackgroundEnrichmentService : BackgroundService
     private readonly Channel<EnrichmentRequest> _channel;
     private readonly ILogger<BackgroundEnrichmentService> _logger;
     private readonly ProjectHoneypotLookupService _honeypotLookup;
+    private readonly VerifiedBotRegistry _verifiedBots;
     private readonly IPatternReputationCache _reputationCache;
     private readonly PatternReputationUpdater _updater;
     private readonly BackgroundEnrichmentOptions _options;
 
     private long _totalProcessed;
     private long _totalEnqueued;
+    private long _totalFcrDnsVerified;
+    private long _totalFcrDnsSpoofed;
 
     public BackgroundEnrichmentService(
         ILogger<BackgroundEnrichmentService> logger,
         ProjectHoneypotLookupService honeypotLookup,
+        VerifiedBotRegistry verifiedBots,
         IPatternReputationCache reputationCache,
         PatternReputationUpdater updater,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _honeypotLookup = honeypotLookup;
+        _verifiedBots = verifiedBots;
         _reputationCache = reputationCache;
         _updater = updater;
         _options = options.Value.BackgroundEnrichment;
@@ -131,7 +146,17 @@ public class BackgroundEnrichmentService : BackgroundService
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             cts.CancelAfter(TimeSpan.FromSeconds(5)); // Hard timeout per lookup
 
-            var result = await _honeypotLookup.LookupIpAsync(request.ClientIp, cts.Token);
+            // Run Honeypot and FCrDNS in parallel: independent I/O, neither blocks
+            // the request path (we are already off the hot path). FCrDNS is the
+            // verified-bot DNS verification for the 8 published-CIDR-less bots
+            // (Applebot, Yandex, DuckDuckBot, etc.) -- VerifiedBotRegistry's
+            // internal cache de-dupes repeated IPs, so we can run this on every
+            // enriched request without blowing up DNS.
+            var honeypotTask = _honeypotLookup.LookupIpAsync(request.ClientIp, cts.Token);
+            var verifiedBotTask = RunVerifiedBotEnrichmentAsync(request, cts.Token);
+
+            var result = await honeypotTask;
+            await verifiedBotTask; // FCrDNS side-effects (reputation writes) inside the helper
 
             Interlocked.Increment(ref _totalProcessed);
 
@@ -220,4 +245,95 @@ public class BackgroundEnrichmentService : BackgroundService
             semaphore.Release();
         }
     }
+
+    /// <summary>
+    ///     Async verified-bot path. Runs FCrDNS (reverse-DNS + forward-A confirm) for
+    ///     bots whose vendors don't publish CIDR ranges -- Applebot, Applebot-Extended,
+    ///     Amazonbot, DuckDuckBot, Baidu, Yandex, TwitterBot, LinkedInBot. The synchronous
+    ///     <c>VerifiedBotInline</c> contributor returns null for these because their
+    ///     <c>_ipRanges</c> entry is empty; without this background pass they would
+    ///     never get verified at all and the only signal would be UA-pattern match,
+    ///     which Bug F established as not enough to trust on its own.
+    ///
+    ///     Side-effects:
+    ///         * Verified GoodBot -> write a strong human-leaning reputation entry
+    ///           (the next request from this IP early-exits via FastPathReputation).
+    ///         * Spoofed UA      -> write a strong bot-leaning reputation entry so the
+    ///           impostor lands in ConfirmedBad on the next request.
+    ///         * Unknown UA      -> no reputation write; no-op.
+    /// </summary>
+    private async Task RunVerifiedBotEnrichmentAsync(EnrichmentRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(request.UserAgent) || string.IsNullOrEmpty(request.ClientIp))
+            return;
+
+        VerifiedBotResult? verdict;
+        try
+        {
+            verdict = await _verifiedBots.VerifyBotAsync(request.UserAgent, request.ClientIp);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "FCrDNS enrichment threw for IP {Ip} request {RequestId}",
+                ProjectHoneypotLookupService.MaskIp(request.ClientIp), request.RequestId);
+            return;
+        }
+
+        if (verdict is null)
+            return; // UA didn't match any verifiable bot pattern -- nothing to feed back
+
+        var patternId = $"ip:{request.ClientIp}";
+        var current = _reputationCache.Get(patternId);
+
+        if (verdict.IsVerified)
+        {
+            Interlocked.Increment(ref _totalFcrDnsVerified);
+            // Strong human/goodbot signal: label=0.05 means "very likely not a hostile bot"
+            // (the cache stores 0.0=human, 1.0=hostile; verified Applebot is a friendly bot
+            // we want allowed). Weight 1.0 because FCrDNS-verified is high-confidence evidence.
+            var updated = _updater.ApplyEvidence(
+                current,
+                patternId,
+                "IP",
+                request.ClientIp,
+                label: 0.05,
+                evidenceWeight: 1.0);
+            _reputationCache.Update(updated);
+            _logger.LogInformation(
+                "FCrDNS verified {BotName} at {Ip} for request {RequestId}; reputation -> {Score:F2}",
+                verdict.BotName,
+                ProjectHoneypotLookupService.MaskIp(request.ClientIp),
+                request.RequestId,
+                updated.BotScore);
+            return;
+        }
+
+        // Spoofed: UA matched a known bot whose ranges + FCrDNS were checked and both
+        // disagreed with the client IP. Strong bot evidence: label=0.95 + full weight.
+        Interlocked.Increment(ref _totalFcrDnsSpoofed);
+        var spoofUpdated = _updater.ApplyEvidence(
+            current,
+            patternId,
+            "IP",
+            request.ClientIp,
+            label: 0.95,
+            evidenceWeight: 1.0);
+        _reputationCache.Update(spoofUpdated);
+        _logger.LogWarning(
+            "FCrDNS spoof: {Ip} claims {BotName} but reverse/forward DNS does not confirm; reputation -> {Score:F2}",
+            ProjectHoneypotLookupService.MaskIp(request.ClientIp),
+            verdict.BotName,
+            spoofUpdated.BotScore);
+    }
+
+    /// <summary>FCrDNS-verified count since startup (dashboard / health surfaces).</summary>
+    public long TotalFcrDnsVerified => Interlocked.Read(ref _totalFcrDnsVerified);
+
+    /// <summary>FCrDNS-detected spoof count since startup.</summary>
+    public long TotalFcrDnsSpoofed => Interlocked.Read(ref _totalFcrDnsSpoofed);
 }
