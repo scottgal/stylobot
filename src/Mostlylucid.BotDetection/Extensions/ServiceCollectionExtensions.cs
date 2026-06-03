@@ -696,11 +696,18 @@ public static class ServiceCollectionExtensions
         // is registered. Without this factory the "metastable cached verdict alongside the
         // per-signature aggregate" path documented around the IdentityVerdictLookup registration
         // is silently dead.
+        // L0 in-process verdict cache: populated by BotDetectionMiddleware right
+        // after the pipeline returns, consulted by the gate before the SQLite
+        // identity store, so a fresh visitor's HTML detection is immediately
+        // visible to the parallel asset bursts that follow (Bug O fix).
+        services.TryAddSingleton<Services.InProcessVerdictCache>();
+
         services.TryAddSingleton<Services.SignatureVerdictGate>(sp =>
             new Services.SignatureVerdictGate(
                 sp.GetRequiredService<SignatureCoordinator>(),
                 sp.GetRequiredService<ILogger<Services.SignatureVerdictGate>>(),
-                sp.GetService<Identity.IdentityVerdictLookup>()));
+                sp.GetService<Identity.IdentityVerdictLookup>(),
+                sp.GetService<Services.InProcessVerdictCache>()));
 
         // Register response coordinator (tracks response patterns for behavioral feedback)
         services.TryAddSingleton<ResponseCoordinator>();
