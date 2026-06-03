@@ -1,0 +1,71 @@
+{
+  "scenarioName": "fp-chrome-ublock-xhr-mastodon-misclass",
+  "description": "REGRESSION: real Chrome+uBlock dashboard session was classified 'Mastodon Family' (see https://staging.stylobot.net/dashboard/signature/Cd3rCikNaSaLLLG0rXMv8Q exported 2026-06-03). Root cause: the umbrella mastodon archetype (minimal-headers, Accept=*/*, no Sec-Fetch, no Upgrade-Insecure-Requests) wins the unweighted cosine pick against chrome-desktop for any Chrome-issued XHR / SignalR /negotiate / API-fetch because XHRs by spec don't carry Upgrade-Insecure-Requests and only set 3 of 4 Sec-Fetch headers (Dest, Mode, Site -- no Sec-Fetch-User), and uBlock Origin strips Sec-Ch-Ua-Mobile. Mastodon's centroid is broad enough to absorb the resulting shape. This scenario reproduces it with the user's real UA and the request mix that triggered the misclassification in production.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/dashboard/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1"
+      },
+      "delayAfter": 1.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.3, "riskBand": "VeryLow" }
+    },
+    {
+      "method": "POST",
+      "path": "/stylobot/hub/negotiate",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, br",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "https://staging.stylobot.net/dashboard/"
+      },
+      "delayAfter": 2.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.3, "riskBand": "VeryLow" }
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/api/timeseries",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, br",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "https://staging.stylobot.net/dashboard/"
+      },
+      "delayAfter": 3.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.3, "riskBand": "VeryLow" }
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/api/topbots",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, br",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "https://staging.stylobot.net/dashboard/"
+      },
+      "delayAfter": 1.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.3, "riskBand": "VeryLow" }
+    }
+  ]
+}

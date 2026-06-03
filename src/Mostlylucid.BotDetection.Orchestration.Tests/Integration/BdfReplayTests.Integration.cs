@@ -92,12 +92,69 @@ public sealed class BdfReplayTests
 
         AssertSignalsFlowed(response.ScenarioName, last);
         AssertFingerprintStableWithinScenario(response.ScenarioName, response);
+        AssertArchetypeMatchesScenarioUaFamily(response, last);
 
         _output.WriteLine(
             $"{response.ScenarioName}: humans={humanCount}/{response.Results.Count} " +
             $"last band={last.Actual.RiskBand} signals={last.Actual.SignalCount} " +
             $"fp={last.Actual.IdentityFingerprintId?[..Math.Min(8, last.Actual.IdentityFingerprintId.Length)]} " +
             $"client={last.Actual.IdentityClientType}");
+    }
+
+    /// <summary>
+    ///     Closes the testing gap surfaced by the live "Mastodon Family" misclassification of a
+    ///     Chrome+uBlock dashboard session on staging (sig Cd3rCikN...). Before this assertion
+    ///     existed, a human scenario could be classified as Mastodon / Googlebot / Curl and the
+    ///     test still passed because only IsBot was checked.
+    ///
+    ///     Rule: the LAST request in a human BDF scenario must land on an archetype whose family
+    ///     matches the family asserted by the scenario filename. Scenario names declare the
+    ///     intended browser/OS family (fp-XX-chrome-windows, fp-XX-firefox-linux, etc.), and a
+    ///     correctly-functioning archetype matcher must produce a same-family inferred type.
+    ///     Cross-family matches (chrome scenario landing on brave-*, mastodon, googlebot,
+    ///     curl-tool, python-requests) trip the assertion and are real bugs in the archetype
+    ///     centroids / dimension weighting, not benign noise.
+    ///
+    ///     The scenario name is the only family declaration available at assert time -- the BDF
+    ///     replay response does not echo back the scenario UA. We accept that and key off the
+    ///     filename; the BDF generator already enforces filename-matches-content.
+    /// </summary>
+    private static void AssertArchetypeMatchesScenarioUaFamily(BdfReplayResponse response, BdfReplayResult last)
+    {
+        var scenario = (response.ScenarioName ?? "").ToLowerInvariant();
+        var actual = (last.Actual!.IdentityClientType ?? "").ToLowerInvariant();
+        if (string.IsNullOrEmpty(actual)) return; // No archetype matched at all -- a separate failure, not this one's.
+
+        // (scenario-token, allowed-actual-prefixes). Tokens are substrings of the scenario
+        // filename; actual prefixes are archetype IDs from Definitions/IdentityArchetypes/*.yaml.
+        var rules = new (string ScenarioToken, string[] AllowedPrefixes)[]
+        {
+            ("chrome",  new[] { "chrome", "mobile-chrome", "headless-chrome" }),
+            ("brave",   new[] { "brave" }),
+            ("firefox", new[] { "firefox" }),
+            ("safari",  new[] { "safari" }),
+            ("edge",    new[] { "edge" }),
+            ("opera",   new[] { "opera" }),
+            ("vivaldi", new[] { "vivaldi" }),
+        };
+
+        foreach (var rule in rules)
+        {
+            if (!scenario.Contains(rule.ScenarioToken, StringComparison.Ordinal)) continue;
+            var allowed = rule.AllowedPrefixes.Any(p =>
+                actual.StartsWith(p, StringComparison.Ordinal));
+            Assert.True(allowed,
+                $"{response.ScenarioName}: archetype matcher classified a {rule.ScenarioToken} " +
+                $"human session as '{last.Actual.IdentityClientType}' -- expected family prefix " +
+                $"{string.Join("|", rule.AllowedPrefixes)}. This is the umbrella-centroid problem: " +
+                "broad archetypes (mastodon, googlebot, generic bots) win the unweighted cosine " +
+                "against tight chrome-* / firefox-* centroids when an XHR / API request strips " +
+                "Upgrade-Insecure-Requests + half the Sec-Fetch headers + Sec-Ch-Ua-* (uBlock). " +
+                "Fix the archetype scoring (per-archetype specificity weighting, or Mahalanobis " +
+                "distance with per-class spread), do NOT add a UA-family allowlist in the " +
+                "matcher -- the YAML already owns this data.");
+            return;
+        }
     }
 
     /// <summary>
