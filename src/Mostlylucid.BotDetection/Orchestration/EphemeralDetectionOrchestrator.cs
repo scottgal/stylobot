@@ -982,6 +982,13 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             && !(result.Signals.TryGetValue(Models.SignalKeys.VerifiedBotChecked, out var checkedObj)
                  && checkedObj is true);
 
+        _logger.LogInformation(
+            "[EBE-GATE] honeypot={Honey} fcrdns={Fc} ua-empty={UaEmpty} sig-has-checked={HasChecked} prob={Prob:F2} conf={Conf:F2}",
+            honeypotGateOpen, fcrDnsGateOpen,
+            string.IsNullOrEmpty(userAgent),
+            result.Signals.ContainsKey(Models.SignalKeys.VerifiedBotChecked),
+            result.BotProbability, result.Confidence);
+
         if (!honeypotGateOpen && !fcrDnsGateOpen) return;
 
         var signature = _piiHasher.ComputeSignature(clientIp, userAgent);
