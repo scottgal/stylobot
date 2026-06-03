@@ -50,3 +50,60 @@ patterns:
     bot_name: PeerTube
     bot_type: SocialMediaBot
     vendor: Framasoft
+
+  # Live trigger (Iceshrimp): sig dE6rEAecvb3KKRsfUGui5w on www.stylobot.net
+  # was a legitimate Iceshrimp NodeInfo fetch from a Hetzner instance host
+  # (162.55.240.x). The catalog was missing Iceshrimp so the friendly-pin
+  # gate exited "not-applicable:yamlType=null" and the reputation cache
+  # latched ConfirmedBad on the first visit -- next visit got Silent Throttle
+  # despite being legitimate fediverse traffic.
+  - pattern: Iceshrimp
+    bot_name: Iceshrimp
+    bot_type: SocialMediaBot
+    vendor: Iceshrimp
+
+  - pattern: Sharkey
+    bot_name: Sharkey
+    bot_type: SocialMediaBot
+    vendor: Sharkey
+
+  - pattern: Firefish
+    bot_name: Firefish
+    bot_type: SocialMediaBot
+    vendor: Firefish
+
+  - pattern: GoToSocial
+    bot_name: GoToSocial
+    bot_type: SocialMediaBot
+    vendor: GoToSocial
+
+  - pattern: Mitra
+    bot_name: Mitra
+    bot_type: SocialMediaBot
+    vendor: Mitra
+
+  - pattern: Bonfire
+    bot_name: Bonfire
+    bot_type: SocialMediaBot
+    vendor: Bonfire
+
+  # Activity poolers / search-side fediverse clients
+  - pattern: Mbin
+    bot_name: Mbin
+    bot_type: SocialMediaBot
+    vendor: Mbin
+
+  - pattern: kbin
+    bot_name: Kbin
+    bot_type: SocialMediaBot
+    vendor: kbin
+
+  - pattern: Snac
+    bot_name: Snac
+    bot_type: SocialMediaBot
+    vendor: Snac
+
+  - pattern: Takahe
+    bot_name: Takahe
+    bot_type: SocialMediaBot
+    vendor: Takahe
