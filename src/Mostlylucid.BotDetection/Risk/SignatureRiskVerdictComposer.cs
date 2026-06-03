@@ -57,11 +57,28 @@ public static class SignatureRiskVerdictComposer
         var hostilePin = false;
         string? hostileWhy = null;
 
-        if (inputs.ConfirmedBad)
+        // ConfirmedBad gate has an IP-verification carve-out: the UA-pattern
+        // reputation cache key is too coarse, so an earlier spoofer of "bingbot"
+        // from a residential IP latches the WHOLE bingbot UA pattern bad. When
+        // the next visitor uses that same UA from a real Microsoft IP (and the
+        // FediverseDomainContributor / IP-range contributor positively verifies
+        // it), the cache verdict is wrong for this specific request. IP
+        // verification is authoritative for this transport-level identity --
+        // it beats the UA-level cache. Without this carve-out the composer
+        // pins hostile on real Bingbot / Googlebot / Applebot the moment one
+        // impersonator visit poisons their UA pattern. (Honeypot hits and
+        // RawThreatScore are per-request behavioural signals and are NOT
+        // suppressed by IP verification -- behaviour still wins there.)
+        var ipVerifiedFriendly = inputs.FriendlyIpVerified == true;
+        if (inputs.ConfirmedBad && !ipVerifiedFriendly)
         {
             hostilePin = true;
             hostileWhy = "Confirmed bad: reputation abort or honeypot hit on this signature";
             reasons.Add("hostile_pin: confirmed_bad latch true");
+        }
+        else if (inputs.ConfirmedBad && ipVerifiedFriendly)
+        {
+            reasons.Add("hostile_pin_suppressed: ip_verified beats reputation cache");
         }
         else if (inputs.RawThreatScore >= s.ThreatHostileThreshold)
         {

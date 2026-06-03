@@ -38,13 +38,40 @@ public sealed class SignatureRiskVerdictComposerTests
     // ============================================================================
 
     [Fact]
+    public void ConfirmedBad_WithIpVerified_DefersToFriendlyPin()
+    {
+        // Live repro from sig BcRrawwUImTNmQxoKIrOEw on www.stylobot.net:
+        // real Bingbot UA from a real Microsoft Azure IP (52.167.144), but the
+        // fastpath reputation cache had latched ConfirmedBad on the bingbot UA
+        // pattern after a residential-IP impersonator visited days earlier.
+        // The UA-pattern cache key is too coarse to distinguish the real bot
+        // from its impersonator; IP-range verification is authoritative for
+        // transport-level identity and must beat the cache.
+        var inputs = Base(probability: 1.0, confidence: 1.0) with
+        {
+            FriendlyIpVerified = true,      // vendor IP-range check passed
+            BotType = "SearchEngine",
+            BotName = "bingbot",
+            IsFriendlyBotType = true,
+            ConfirmedBad = true,            // UA-pattern cache latch from earlier spoofer
+        };
+
+        var verdict = SignatureRiskVerdictComposer.Compose(inputs);
+
+        Assert.False(verdict.HostilePinFired);
+        Assert.True(verdict.FriendlyPinFired);
+        Assert.Equal(ThreatBand.None, verdict.ThreatBand);
+        Assert.Contains(verdict.Reasons, r => r.Contains("hostile_pin_suppressed"));
+    }
+
+    [Fact]
     public void HostilePin_FromConfirmedBad_OverridesFriendlyVerification()
     {
         // A verified Googlebot UA that has previously tripped a honeypot or reputation
         // abort is still hostile -- verification is identity, behaviour is the verdict.
         var inputs = Base(probability: 1.0, confidence: 1.0) with
         {
-            FriendlyVerified = true,        // would normally clamp friendly
+            FriendlyVerified = true,        // legacy convenience latch (no IP check)
             DeclaredBot = true,
             IsFriendlyBotType = true,
             BotType = "Crawler",
