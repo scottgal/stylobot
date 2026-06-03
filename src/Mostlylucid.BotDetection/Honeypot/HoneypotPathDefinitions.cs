@@ -79,13 +79,20 @@ public static class HoneypotPathDefinitions
 
         (HoneypotTier.Always, HoneypotCategory.Config, new[]
         {
-            // .env family -- the glob catches .env, .env.local.save, .env.production.bak etc
-            "/.env*",
-            // wp-config backup variants -- the actual config never web-served
-            "/wp-config.php.bak", "/wp-config.php.old", "/wp-config.php.save",
-            "/wp-config.php.swp", "/wp-config.php.txt", "/wp-config.php~",
-            "/wp-config.bak", "/wp-config.old", "/wp-config.txt",
-            "/.env.local.php"
+            // .env family. The *X* substring glob catches:
+            //   /.env, /.env.local.save, /.env.production.bak
+            //   /app/.env, /backend/.env, /laravel/.env, /admin/.env
+            //   /config/.env.production.bak
+            // The original /.env* prefix glob only caught root-level paths;
+            // every mass-scanner now uses subdir variants (sig
+            // 9z3avO7sKTd7NAYY896Yog hit /app/.env + /backend/.env).
+            "*/.env*",
+            // wp-config backup variants -- the actual config never web-served,
+            // and attackers spray these under nested admin dirs too.
+            "*/wp-config.php.bak", "*/wp-config.php.old", "*/wp-config.php.save",
+            "*/wp-config.php.swp", "*/wp-config.php.txt", "*/wp-config.php~",
+            "*/wp-config.bak", "*/wp-config.old", "*/wp-config.txt",
+            "*/.env.local.php"
         }),
 
         (HoneypotTier.Always, HoneypotCategory.VersionControl, new[]
@@ -359,8 +366,20 @@ public static class HoneypotPathDefinitions
 
     /// <summary>
     ///     Pattern-matches a normalised path against a set of catalog
-    ///     entries. Supports a trailing <c>*</c> glob (no other wildcards)
-    ///     and falls back to exact + path-segment-prefix match otherwise.
+    ///     entries. Supported shapes:
+    ///     <list type="bullet">
+    ///         <item><c>X</c> -- exact match OR path-segment prefix
+    ///               (<c>/wp-admin</c> matches <c>/wp-admin</c> and <c>/wp-admin/...</c>)</item>
+    ///         <item><c>X*</c> -- prefix glob (<c>/.git/*</c>)</item>
+    ///         <item><c>*X</c> -- suffix match (<c>*/.env</c> matches
+    ///               <c>/.env</c>, <c>/app/.env</c>, <c>/backend/.env</c>)</item>
+    ///         <item><c>*X*</c> -- substring match (<c>*/.env*</c> also
+    ///               catches <c>/.env.local</c>, <c>/app/.env.production.bak</c>)</item>
+    ///     </list>
+    ///     The leading-glob shapes were added to close the catalogue gap
+    ///     surfaced by the prod env-scanner sig <c>9z3avO7sKTd7NAYY896Yog</c>
+    ///     which hit <c>/app/.env</c> and <c>/backend/.env</c> -- the
+    ///     existing <c>/.env*</c> prefix-glob never matched subdir variants.
     /// </summary>
     public static bool TryMatch(string path, FrozenSet<string> patterns, out string? matched)
     {
@@ -372,17 +391,7 @@ public static class HoneypotPathDefinitions
 
         foreach (var pattern in patterns)
         {
-            if (pattern.Length > 1 && pattern[^1] == '*')
-            {
-                var prefix = pattern.AsSpan(0, pattern.Length - 1);
-                if (path.AsSpan().StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    matched = pattern;
-                    return true;
-                }
-            }
-            else if (path.StartsWith(pattern, StringComparison.OrdinalIgnoreCase)
-                     && (path.Length == pattern.Length || path[pattern.Length] == '/'))
+            if (MatchPattern(path, pattern))
             {
                 matched = pattern;
                 return true;
@@ -391,6 +400,45 @@ public static class HoneypotPathDefinitions
 
         matched = null;
         return false;
+    }
+
+    internal static bool MatchPattern(string path, string pattern)
+    {
+        if (string.IsNullOrEmpty(pattern)) return false;
+
+        var len = pattern.Length;
+        var leadingStar = len > 1 && pattern[0] == '*';
+        var trailingStar = len > 1 && pattern[^1] == '*';
+
+        if (leadingStar && trailingStar)
+        {
+            // *X* -- substring match. Two-char "**" is allowed but pointless;
+            // an empty inner-span is treated as a match-anything wildcard
+            // (operators sometimes use "**" as "tag this path" sentinel).
+            var inner = pattern.AsSpan(1, len - 2);
+            if (inner.IsEmpty) return true;
+            return path.AsSpan().IndexOf(inner, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        if (leadingStar)
+        {
+            // *X -- suffix match.
+            var suffix = pattern.AsSpan(1);
+            return path.AsSpan().EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (trailingStar)
+        {
+            // X* -- prefix glob (original behaviour).
+            var prefix = pattern.AsSpan(0, len - 1);
+            return path.AsSpan().StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Exact match was handled by the FrozenSet hit above, so this branch
+        // covers path-segment prefix: pattern "/wp-admin" matches "/wp-admin"
+        // (handled above) and "/wp-admin/users".
+        return path.StartsWith(pattern, StringComparison.OrdinalIgnoreCase)
+               && (path.Length == pattern.Length || path[pattern.Length] == '/');
     }
 
     private static HoneypotCategory LookupCategory(string pattern) =>

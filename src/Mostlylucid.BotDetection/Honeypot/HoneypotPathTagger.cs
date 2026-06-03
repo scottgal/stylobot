@@ -142,16 +142,10 @@ public sealed class HoneypotPathTagger
 
     private static bool MatchesAdditional(string path, string pattern)
     {
-        if (pattern.Length > 1 && pattern[^1] == '*')
-        {
-            var prefix = pattern.AsSpan(0, pattern.Length - 1);
-            return path.AsSpan().StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
-        }
-
+        // Single source of truth for pattern matching across the catalog
+        // and operator-supplied paths. Supports exact, X*, *X, *X*, plus
+        // path-segment-prefix -- see HoneypotPathDefinitions.MatchPattern.
         if (path.Equals(pattern, StringComparison.OrdinalIgnoreCase)) return true;
-
-        return path.StartsWith(pattern, StringComparison.OrdinalIgnoreCase)
-               && path.Length > pattern.Length
-               && path[pattern.Length] == '/';
+        return HoneypotPathDefinitions.MatchPattern(path, pattern);
     }
 }

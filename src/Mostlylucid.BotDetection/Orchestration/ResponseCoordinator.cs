@@ -122,7 +122,10 @@ public sealed class ResponseCoordinatorOptions
         "/xmlrpc.php",
         // Version control / config exposure
         "/.git*",
-        "/.env*",
+        // *X* substring matches subdir variants the original prefix-only glob
+        // missed -- live env-scanner sig 9z3avO7sKTd7NAYY896Yog hit /app/.env
+        // and /backend/.env, which "/.env*" never matched.
+        "*/.env*",
         "/.DS_Store",
         "/.svn*",
         // Database / backup exposure

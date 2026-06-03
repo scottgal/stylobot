@@ -43,7 +43,37 @@ public class HoneypotPathDefinitionsTests
         var tier = HoneypotPathDefinitions.Classify(path.ToLowerInvariant(), out var matched);
 
         Assert.Equal(HoneypotTier.Always, tier);
-        Assert.Equal("/.env*", matched);
+        Assert.Equal("*/.env*", matched);
+    }
+
+    [Theory]
+    [InlineData("/app/.env")]
+    [InlineData("/backend/.env")]
+    [InlineData("/laravel/.env")]
+    [InlineData("/admin/.env.production.bak")]
+    [InlineData("/config/.env.local")]
+    public void Tier1_EnvFamily_SubdirVariantsMatch(string path)
+    {
+        // Bug A regression: live env-scanner sig 9z3avO7sKTd7NAYY896Yog
+        // hit /app/.env and /backend/.env. The pre-fix catalog pattern
+        // /.env* only matched root-level paths.
+        var tier = HoneypotPathDefinitions.Classify(path.ToLowerInvariant(), out var matched);
+
+        Assert.Equal(HoneypotTier.Always, tier);
+        Assert.Equal("*/.env*", matched);
+    }
+
+    [Theory]
+    [InlineData("/file.envrc")]    // contains ".env" but no "/.env" substring
+    [InlineData("/foo.env.bar")]   // same: must not false-match
+    [InlineData("/uploads/file.envtest")]
+    public void EnvLookalike_PathsDoNotMatch(string path)
+    {
+        // Substring matcher must require a leading "/" before ".env" --
+        // arbitrary filenames containing ".env" should NOT trip the honeypot.
+        var tier = HoneypotPathDefinitions.Classify(path.ToLowerInvariant(), out _);
+
+        Assert.Equal(HoneypotTier.None, tier);
     }
 
     [Theory]
@@ -160,6 +190,6 @@ public class HoneypotPathDefinitionsTests
         var tier = HoneypotPathDefinitions.Classify(normalized, out var matched);
 
         Assert.Equal(HoneypotTier.Always, tier);
-        Assert.Equal("/.env*", matched);
+        Assert.Equal("*/.env*", matched);
     }
 }

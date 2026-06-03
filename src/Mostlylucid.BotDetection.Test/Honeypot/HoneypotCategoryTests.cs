@@ -122,7 +122,7 @@ public class HoneypotCategoryTests
             HoneypotPathDefinitions.CategoryForPattern("/.aws/credentials"));
         Assert.Equal(
             HoneypotCategory.Config,
-            HoneypotPathDefinitions.CategoryForPattern("/.env*"));
+            HoneypotPathDefinitions.CategoryForPattern("*/.env*"));
     }
 
     [Fact]

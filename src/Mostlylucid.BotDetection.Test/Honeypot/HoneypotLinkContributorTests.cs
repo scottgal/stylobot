@@ -83,7 +83,7 @@ public class HoneypotLinkContributorTests
 
         var c = Assert.Single(contributions);
         Assert.True(c.Signals.ContainsKey(HoneypotLinkContributor.SignalTier1Hit));
-        Assert.Equal("/.env*", c.Signals[HoneypotLinkContributor.SignalMatchedPattern]);
+        Assert.Equal("*/.env*", c.Signals[HoneypotLinkContributor.SignalMatchedPattern]);
     }
 
     [Fact]

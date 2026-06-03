@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Honeypot;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
 using Mostlylucid.BotDetection.Llm.Ollama.Extensions;
@@ -279,6 +280,13 @@ try
     // Persist detections to shared DB + broadcast via SignalR
     // Downstream dashboard clients (on the website) can connect to this hub
     app.UseBotDetectionPersistence();
+
+    // Terminate Tier 1 honeypot hits (/.env, /.git/config, /etc/passwd, etc.)
+    // with a bare 404 before YARP. Must run AFTER UseBotDetection so the
+    // detection event is still written (honeypot panel + threat aggregator
+    // see the hit) and BEFORE MapReverseProxy so the upstream origin never
+    // answers -- otherwise its own 404/403/200 fingerprint-leaks.
+    app.UseHoneypotTermination();
 
     // Attach X-Bot-Detection-* headers to the proxied request so the downstream
     // dashboard host's StyloBotForwardedHeadersHydratorMiddleware can populate

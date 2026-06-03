@@ -40,7 +40,48 @@ public class HoneypotPathTaggerTests
         await tagger.InvokeAsync(ctx);
 
         Assert.Equal(HoneypotTier.Always, ctx.Items[HoneypotPathTagger.ItemKeyTier]);
-        Assert.Equal("/.env*", ctx.Items[HoneypotPathTagger.ItemKeyMatchedPattern]);
+        Assert.Equal("*/.env*", ctx.Items[HoneypotPathTagger.ItemKeyMatchedPattern]);
+    }
+
+    [Theory]
+    [InlineData("/app/.env")]
+    [InlineData("/backend/.env")]
+    [InlineData("/laravel/.env")]
+    [InlineData("/admin/.env")]
+    [InlineData("/config/.env.production.bak")]
+    [InlineData("/app/wp-config.php.bak")]
+    public async Task Tier1_SubdirEnvPaths_TagAsAlways(string path)
+    {
+        // Bug A regression: live env-scanner sig 9z3avO7sKTd7NAYY896Yog
+        // hit /app/.env and /backend/.env. The original /.env* prefix-glob
+        // only matched paths starting with /.env, missing every subdir
+        // variant attackers actually use. The substring-pattern catalog
+        // entry "*/.env*" closes the gap.
+        var tagger = CreateTagger();
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = path;
+
+        await tagger.InvokeAsync(ctx);
+
+        Assert.Equal(HoneypotTier.Always, ctx.Items[HoneypotPathTagger.ItemKeyTier]);
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/docs/frequently-asked-questions")]
+    [InlineData("/api/account")]
+    [InlineData("/site.webmanifest")]
+    [InlineData("/file.envrc")]      // contains ".env" but not "/.env" -- must not match
+    [InlineData("/foo.env.bar")]     // same: no "/" before ".env"
+    public async Task NonHoneypot_NoTagWritten(string path)
+    {
+        var tagger = CreateTagger();
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = path;
+
+        await tagger.InvokeAsync(ctx);
+
+        Assert.False(ctx.Items.ContainsKey(HoneypotPathTagger.ItemKeyTier));
     }
 
     [Fact]
