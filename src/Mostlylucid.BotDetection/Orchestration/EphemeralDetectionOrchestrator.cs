@@ -951,6 +951,12 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     /// </summary>
     private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)
     {
+        _logger.LogInformation(
+            "[EBE-ENTRY] svc={HasSvc} hasher={HasHasher} ua-len={UaLen}",
+            _enrichmentService != null,
+            _piiHasher != null,
+            httpContext.Request.Headers.UserAgent.ToString().Length);
+
         if (_enrichmentService is null || _piiHasher is null) return;
 
         var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
