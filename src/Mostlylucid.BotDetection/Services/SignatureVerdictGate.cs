@@ -56,20 +56,52 @@ public sealed class SignatureVerdictGate
         CancellationToken ct = default)
     {
         if (!options.Enabled || string.IsNullOrEmpty(signature))
+        {
+            _logger.LogDebug(
+                "VerdictGate sig={SigPrefix} -> Miss (gate disabled or empty signature)",
+                signature?.Substring(0, Math.Min(8, signature.Length)) ?? "(null)");
             return new GateDecision(GateAction.Miss, null);
+        }
 
+        // Time each lookup so we can see SQLite contention under HTTP/2 burst.
+        // Live finding (sig lXkzR1RLyBbyq19hUIP9ZA on prod): request 1 (HTML) hit
+        // identity-cache in 1.2 ms; requests 2-5 (CSS assets from the same visitor,
+        // same primarySig, 1 second later) missed and ran the full pipeline at
+        // 13-15 ms each. Static code analysis says both should hit; only runtime
+        // logs will reveal whether the SQLite row vanished, the connection raced,
+        // or sigVerdict/idVerdict diverged across the burst.
+        var sigSwStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var sigVerdict = await _coordinator.TryGetVerdictAsync(signature, ct);
+        var sigLookupMs = ElapsedMs(sigSwStart);
+
+        var idSwStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var idVerdict = _identityLookup is null
             ? null
             : await _identityLookup.TryGetAsync(signature, ct);
+        var idLookupMs = ElapsedMs(idSwStart);
+
+        var sigPrefix = signature.Substring(0, Math.Min(8, signature.Length));
 
         var verdict = ComposeVerdicts(signature, sigVerdict, idVerdict);
         if (verdict is null)
+        {
+            _logger.LogInformation(
+                "VerdictGate sig={SigPrefix} -> Miss (no cached verdict) " +
+                "sigHit={SigHit} sigMs={SigMs:F1} idHit={IdHit} idMs={IdMs:F1}",
+                sigPrefix, sigVerdict is not null, sigLookupMs, idVerdict is not null, idLookupMs);
             return new GateDecision(GateAction.Miss, null);
+        }
 
         // Reject very-low-confidence entries: noise.
         if (verdict.Confidence < options.BiasMinConfidence)
+        {
+            _logger.LogInformation(
+                "VerdictGate sig={SigPrefix} -> Miss (low confidence {Conf:F2} < BiasMin {Min:F2}) " +
+                "sigHit={SigHit} sigMs={SigMs:F1} idHit={IdHit} idMs={IdMs:F1}",
+                sigPrefix, verdict.Confidence, options.BiasMinConfidence,
+                sigVerdict is not null, sigLookupMs, idVerdict is not null, idLookupMs);
             return new GateDecision(GateAction.Miss, verdict);
+        }
 
         var ageSeconds = (DateTime.UtcNow - verdict.LastSeenUtc).TotalSeconds;
 
@@ -78,11 +110,31 @@ public sealed class SignatureVerdictGate
             && ageSeconds <= options.SkipMaxAgeSeconds;
 
         if (skipEligible && !ShouldRefresh(signature, options.SkipSamplingRate))
+        {
+            _logger.LogInformation(
+                "VerdictGate sig={SigPrefix} -> Skip conf={Conf:F2} age={AgeSec:F1}s " +
+                "sigHit={SigHit} sigMs={SigMs:F1} idHit={IdHit} idMs={IdMs:F1} prob={Prob:F2}",
+                sigPrefix, verdict.Confidence, ageSeconds,
+                sigVerdict is not null, sigLookupMs, idVerdict is not null, idLookupMs,
+                verdict.BotProbability);
             return new GateDecision(GateAction.Skip, verdict);
+        }
 
         var biasEligible = ageSeconds <= options.BiasMaxAgeSeconds;
-        return new GateDecision(biasEligible ? GateAction.Bias : GateAction.Miss, verdict);
+        var action = biasEligible ? GateAction.Bias : GateAction.Miss;
+        _logger.LogInformation(
+            "VerdictGate sig={SigPrefix} -> {Action} conf={Conf:F2} age={AgeSec:F1}s skipMin={SkipMin:F2} skipMaxAge={SkipMaxAge}s biasMaxAge={BiasMaxAge}s " +
+            "sigHit={SigHit} sigMs={SigMs:F1} idHit={IdHit} idMs={IdMs:F1} refresh={Refresh}",
+            sigPrefix, action, verdict.Confidence, ageSeconds, options.SkipMinConfidence,
+            options.SkipMaxAgeSeconds, options.BiasMaxAgeSeconds,
+            sigVerdict is not null, sigLookupMs, idVerdict is not null, idLookupMs,
+            ShouldRefresh(signature, options.SkipSamplingRate));
+        return new GateDecision(action, verdict);
     }
+
+    private static double ElapsedMs(long startTicks)
+        => (System.Diagnostics.Stopwatch.GetTimestamp() - startTicks)
+            * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
     // Deterministic refresh: a fraction of Skip-eligible requests are downgraded to
     // Bias so the pipeline runs and refreshes the live state. Stable by signature hash
