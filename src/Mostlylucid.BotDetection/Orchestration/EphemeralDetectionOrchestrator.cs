@@ -57,6 +57,8 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     private readonly IPolicyEvaluator? _policyEvaluator;
     private readonly IPolicyRegistry? _policyRegistry;
     private readonly RequestPersistenceService? _requestPersistence;
+    private readonly Services.BackgroundEnrichmentService? _enrichmentService;
+    private readonly Dashboard.PiiHasher? _piiHasher;
 
     public EphemeralDetectionOrchestrator(
         ILogger<EphemeralDetectionOrchestrator> logger,
@@ -65,7 +67,9 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         ILearningEventBus? learningBus = null,
         IPolicyRegistry? policyRegistry = null,
         IPolicyEvaluator? policyEvaluator = null,
-        RequestPersistenceService? requestPersistence = null)
+        RequestPersistenceService? requestPersistence = null,
+        Services.BackgroundEnrichmentService? enrichmentService = null,
+        Dashboard.PiiHasher? piiHasher = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -75,6 +79,8 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         _policyRegistry = policyRegistry;
         _policyEvaluator = policyEvaluator;
         _requestPersistence = requestPersistence;
+        _enrichmentService = enrichmentService;
+        _piiHasher = piiHasher;
 
         // Global signal sink for observability (configurable)
         _globalSignals = new SignalSink(
@@ -416,6 +422,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
 
         PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
         TryPersistRequest(httpContext, result);
+        TryEnqueueBackgroundEnrichment(httpContext, result);
 
         _logger.LogDebug(
             "Ephemeral detection complete for {RequestId}: {RiskBand} (prob={Probability:F2}) in {Elapsed}ms, {Waves} waves, quorum: {Completed}/{Total}",
@@ -924,6 +931,63 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
                 "Circuit breaker opened for detector {Name}, failure score: {Score:F1}",
                 detectorName, newScore);
         }
+    }
+
+    #endregion
+
+    #region Background Enrichment
+
+    /// <summary>
+    ///     Hand the request to the background enrichment channel when (a) the
+    ///     low-confidence Project-Honeypot DNSBL gate opens, or (b) the inline
+    ///     verified-bot path could not produce a verdict and the UA might be a
+    ///     known bot that needs FCrDNS verification. The second gate is what
+    ///     makes the DNS lookup for Applebot / Yandex / etc. actually run; before
+    ///     this hook existed, the DNS code was dead because
+    ///     <see cref="ContributingDetectors.VerifiedBotContributor"/> is excluded
+    ///     from every <see cref="DetectionPolicy"/> and
+    ///     <see cref="BackgroundEnrichmentService"/> only ran the Project Honeypot
+    ///     lookup.
+    /// </summary>
+    private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)
+    {
+        if (_enrichmentService is null || _piiHasher is null) return;
+
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
+        if (string.IsNullOrEmpty(clientIp)) return;
+
+        var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+
+        var enrichmentOptions = _fullOptions.BackgroundEnrichment;
+        var honeypotGateOpen =
+            result.Confidence < enrichmentOptions.ConfidenceThreshold
+            && result.BotProbability >= enrichmentOptions.MinBotProbability;
+
+        // FCrDNS gate: enqueue when the inline verified-bot path did NOT already
+        // produce a verdict. VerifiedBotInline writes verifiedbot.checked=true
+        // when it evaluates; absence means the UA matched a bot pattern whose
+        // only verification surface is reverse-DNS (the 8 published-CIDR-less
+        // bots: Applebot, Applebot-Extended, Amazonbot, DuckDuckBot, Baidu,
+        // Yandex, TwitterBot, LinkedInBot). VerifiedBotRegistry.VerifyBotAsync
+        // returns null for non-matching UAs (dict lookup, no I/O), so a wide
+        // gate is cheap.
+        var fcrDnsGateOpen =
+            !string.IsNullOrEmpty(userAgent)
+            && !(result.Signals.TryGetValue(Models.SignalKeys.VerifiedBotChecked, out var checkedObj)
+                 && checkedObj is true);
+
+        if (!honeypotGateOpen && !fcrDnsGateOpen) return;
+
+        var signature = _piiHasher.ComputeSignature(clientIp, userAgent);
+        _enrichmentService.TryEnqueue(new Services.EnrichmentRequest
+        {
+            ClientIp = clientIp,
+            SignatureHash = signature,
+            BotProbability = result.BotProbability,
+            Confidence = result.Confidence,
+            RequestId = httpContext.TraceIdentifier,
+            UserAgent = userAgent
+        });
     }
 
     #endregion

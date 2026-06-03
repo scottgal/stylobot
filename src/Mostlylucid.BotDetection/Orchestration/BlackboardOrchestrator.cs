@@ -1184,15 +1184,6 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     /// </summary>
     private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)
     {
-        _logger.LogInformation(
-            "BG-Enrich entry: svc={HasSvc} ip={Ip} ua-len={UaLen} sig-has-checked={HasChecked} prob={Prob:F2} conf={Conf:F2}",
-            _enrichmentService != null,
-            httpContext.Connection.RemoteIpAddress,
-            httpContext.Request.Headers.UserAgent.ToString().Length,
-            result.Signals.ContainsKey(Models.SignalKeys.VerifiedBotChecked),
-            result.BotProbability,
-            result.Confidence);
-
         if (_enrichmentService == null)
             return;
 
