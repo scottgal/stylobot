@@ -139,6 +139,7 @@ public partial class DetectionBroadcastMiddleware
         DashboardDetectionEvent? detection = null;
         AggregatedEvidence? evidenceCapture = null;
         bool isUpstreamPath = false;
+        bool excludeLocal = false;
         var dashOpts = dashboardOptionsAccessor.Value;
         var detOpts = optionsAccessor.Value;
 
@@ -173,39 +174,46 @@ public partial class DetectionBroadcastMiddleware
                 // traffic on local LANs still records because IsLocalIp matches only RFC1918 /
                 // loopback / link-local; the public-edge visitor IP is preserved by
                 // UseForwardedHeaders earlier in the pipeline.
-                var excludeLocal = detOpts.ExcludeLocalIpFromBroadcast
-                                   && IsLocalIp(context.Connection.RemoteIpAddress);
-                if (excludeLocal)
+                excludeLocal = detOpts.ExcludeLocalIpFromBroadcast
+                               && IsLocalIp(context.Connection.RemoteIpAddress);
+
+                if (!excludeLocal)
                 {
-                    await _next(context);
-                    return;
+                    // === SYNCHRONOUS CACHE UPDATE (microseconds; the write-through hot tier) ===
+                    signatureAggregateCache.UpdateFromDetection(detection);
+                    visitorListCache.Upsert(detection);
+
+                    // === SIGNALR BEACONS (throttled by SignalRBroadcastConstrainer) ===
+                    SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashOpts.BroadcastMinIntervalMs);
+                    SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashOpts.BroadcastMinIntervalMs);
+                    if (detection.ThreatScore is > 0.3 || detection.Action == "simulation-pack")
+                        SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashOpts.BroadcastMinIntervalMs);
+
+                    // === ATTACK ARC (best-effort, throttled) ===
+                    if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
+                                        && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL"
+                                        && TryReserveArcSlot(dashOpts.AttackArcMinIntervalMs))
+                        _ = hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
                 }
-
-                // === SYNCHRONOUS CACHE UPDATE (microseconds; the write-through hot tier) ===
-                signatureAggregateCache.UpdateFromDetection(detection);
-                visitorListCache.Upsert(detection);
-
-                // === SIGNALR BEACONS (throttled by SignalRBroadcastConstrainer) ===
-                SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashOpts.BroadcastMinIntervalMs);
-                SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashOpts.BroadcastMinIntervalMs);
-                if (detection.ThreatScore is > 0.3 || detection.Action == "simulation-pack")
-                    SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashOpts.BroadcastMinIntervalMs);
-
-                // === ATTACK ARC (best-effort, throttled) ===
-                if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
-                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL"
-                                    && TryReserveArcSlot(dashOpts.AttackArcMinIntervalMs))
-                    _ = hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
             }
         }
         catch (Exception ex)
         {
+            // Only broadcast-prep failures land here -- _next is OUTSIDE the try, so a
+            // downstream endpoint exception is no longer mis-attributed to this stage
+            // AND no longer causes a second _next(context) call (which is what produced
+            // the "StatusCode cannot be set because the response has already started"
+            // unhandled exception in the gateway log).
             _logger.LogWarning(ex, "Pre-proxy broadcast prep failed");
         }
 
-        // === PROXY DOWNSTREAM ===
+        // === PROXY DOWNSTREAM (exactly once, regardless of prep outcome) ===
         // The website's render fires here. It sees the cache update we just made above.
         await _next(context);
+
+        // Local-IP exclusion: cache update and broadcasts were already skipped in the
+        // try block; skip write-behind persist too so loopback noise stays out of the DB.
+        if (excludeLocal) return;
 
         // === WRITE-BEHIND PERSIST (fire-and-forget; never blocks the request) ===
         // The dict is already correct via the synchronous update above; this batch
