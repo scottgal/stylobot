@@ -1229,34 +1229,20 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     }
 
     /// <summary>
-    ///     True when the request is a UA-claimed bot that the inline path could
-    ///     not verify (no <c>verifiedbot.checked=true</c> signal landed). Reading
-    ///     the signal is the simplest gate: VerifiedBotInline only writes it when
-    ///     it actually evaluated the IP, so absence means the UA matched a bot
-    ///     pattern whose only verification surface is FCrDNS.
+    ///     True when the request could benefit from FCrDNS verification -- i.e. the
+    ///     inline VerifiedBot path did NOT already produce a verdict. Filtering on
+    ///     <c>PrimaryBotType</c> was tempting but turned out to be too restrictive
+    ///     (live test: TwitterBot UA produced bot=TwitterBot but no PrimaryBotType
+    ///     match against the SocialMediaBot enum), so the gate is intentionally
+    ///     wide: VerifiedBotRegistry.VerifyBotAsync internally returns null when
+    ///     the UA doesn't match any known verifiable bot, which costs almost
+    ///     nothing -- a dict lookup -- and the channel's DropOldest backpressure
+    ///     absorbs any over-enqueue.
     /// </summary>
     private static bool NeedsFcrDnsVerification(AggregatedEvidence result)
     {
-        // verifiedbot.checked=true means the inline path produced a verdict
-        // (verified or spoofed) and DNS is redundant.
-        if (result.Signals.TryGetValue(Models.SignalKeys.VerifiedBotChecked, out var checkedObj)
-            && checkedObj is true)
-            return false;
-
-        // The UA must look bot-shaped to be worth a DNS round-trip. Cheapest proxy:
-        // the request already produced a non-trivial bot probability and the
-        // primary bot type is one we care about verifying (SearchEngine, AiBot,
-        // SocialMediaBot, GoodBot). Random scrapers don't need FCrDNS -- they
-        // don't claim a verifiable identity.
-        if (result.BotProbability < 0.2)
-            return false;
-
-        return result.PrimaryBotType is
-            BotType.SearchEngine
-            or BotType.AiBot
-            or BotType.SocialMediaBot
-            or BotType.GoodBot
-            or BotType.VerifiedBot;
+        return !(result.Signals.TryGetValue(Models.SignalKeys.VerifiedBotChecked, out var checkedObj)
+                 && checkedObj is true);
     }
 
     #endregion
