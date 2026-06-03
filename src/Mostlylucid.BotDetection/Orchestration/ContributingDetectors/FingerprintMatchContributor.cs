@@ -382,7 +382,13 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         var now = DateTime.UtcNow;
         var dim = vector.Length;
 
-        var nearestArchetype = _archetypes.FindNearest(vector);
+        // UA-aware archetype lookup: when the UA says Chrome, never seed from a brave-*
+        // archetype just because the request has Sec-GPC. See
+        // IdentityArchetypeRegistry.FindNearest(vector, uaClaimedBrowser) for the rule.
+        var uaClaimedBrowser = !string.IsNullOrEmpty(state.UserAgent)
+            ? UserAgentParser.Parse(state.UserAgent).Family
+            : null;
+        var nearestArchetype = _archetypes.FindNearest(vector, uaClaimedBrowser);
         float[] seedCentroid;
         float[] seedWeights;
         string? archetypeOrigin = null;
