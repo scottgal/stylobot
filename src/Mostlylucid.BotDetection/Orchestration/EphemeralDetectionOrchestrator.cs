@@ -951,6 +951,12 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     /// </summary>
     private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)
     {
+        _logger.LogInformation(
+            "[EBE-ENTRY] svc={HasSvc} hasher={HasHasher} ua-len={UaLen}",
+            _enrichmentService != null,
+            _piiHasher != null,
+            httpContext.Request.Headers.UserAgent.ToString().Length);
+
         if (_enrichmentService is null || _piiHasher is null) return;
 
         var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
@@ -975,6 +981,13 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             !string.IsNullOrEmpty(userAgent)
             && !(result.Signals.TryGetValue(Models.SignalKeys.VerifiedBotChecked, out var checkedObj)
                  && checkedObj is true);
+
+        _logger.LogInformation(
+            "[EBE-GATE] honeypot={Honey} fcrdns={Fc} ua-empty={UaEmpty} sig-has-checked={HasChecked} prob={Prob:F2} conf={Conf:F2}",
+            honeypotGateOpen, fcrDnsGateOpen,
+            string.IsNullOrEmpty(userAgent),
+            result.Signals.ContainsKey(Models.SignalKeys.VerifiedBotChecked),
+            result.BotProbability, result.Confidence);
 
         if (!honeypotGateOpen && !fcrDnsGateOpen) return;
 

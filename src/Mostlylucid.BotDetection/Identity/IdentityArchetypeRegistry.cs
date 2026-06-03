@@ -65,33 +65,12 @@ public sealed class IdentityArchetypeRegistry
     ///     behaviour the rest of the pipeline relies on).
     /// </summary>
     public ArchetypeMatch? FindNearest(float[] vector)
-        => FindNearest(vector, uaClaimedBrowser: null);
-
-    /// <summary>
-    ///     UA-aware nearest-archetype lookup. When <paramref name="uaClaimedBrowser"/> is
-    ///     provided (e.g. "Chrome", "Firefox", "Safari"), archetypes whose ID contradicts
-    ///     that browser are excluded from the cosine scan. This is the fix for the
-    ///     Chrome-with-adblocker-and-GPC visitor being classified as <c>brave-desktop</c>
-    ///     because Brave and Chrome+GPC are indistinguishable on header shape alone --
-    ///     once we let the UA filter the candidate set, the matcher can only pick a
-    ///     chrome-* archetype (chrome-desktop, chrome-privacy, headless-chrome, etc.)
-    ///     for a Chrome-claiming visitor, never a brave-* one. Browser-agnostic
-    ///     archetypes (bot/tool families, fediverse, googlebot) always remain in the
-    ///     candidate set; they have nothing to disagree with at the UA level. When the
-    ///     filter eliminates every candidate, fall back to the full scan so a malformed
-    ///     UA cannot starve the matcher of any seed.
-    /// </summary>
-    public ArchetypeMatch? FindNearest(float[] vector, string? uaClaimedBrowser)
     {
         if (_archetypes.Count == 0) return null;
         IdentityArchetype? best = null;
         var bestScore = double.NegativeInfinity;
-        var consideredAny = false;
         foreach (var a in _archetypes)
         {
-            if (!IsArchetypeConsistentWithUa(a.ArchetypeId, uaClaimedBrowser))
-                continue;
-            consideredAny = true;
             var s = BruteForceIdentityAnchorIndex.Cosine(vector, a.Centroid);
             if (s > bestScore)
             {
@@ -99,63 +78,7 @@ public sealed class IdentityArchetypeRegistry
                 best = a;
             }
         }
-        if (!consideredAny)
-        {
-            // UA was something the filter didn't recognise; fall back to unfiltered scan
-            // so the matcher still produces a seed (don't strand unknown UAs).
-            foreach (var a in _archetypes)
-            {
-                var s = BruteForceIdentityAnchorIndex.Cosine(vector, a.Centroid);
-                if (s > bestScore)
-                {
-                    bestScore = s;
-                    best = a;
-                }
-            }
-        }
         return best is null ? null : new ArchetypeMatch(best, bestScore);
-    }
-
-    /// <summary>
-    ///     UA-consistency check used by <see cref="FindNearest(float[], string?)"/>.
-    ///     Each archetype ID family is tagged with the browser identity it represents
-    ///     (chrome-*, brave-*, firefox-*, etc.); the check returns true when that
-    ///     family matches the UA-claimed browser, or when the archetype is browser-
-    ///     agnostic (bots, tools, fediverse software, generic mobile profiles).
-    ///     <c>uaClaimedBrowser == null</c> is the "no UA context" case and always
-    ///     returns true (legacy callers still get the full scan).
-    /// </summary>
-    private static bool IsArchetypeConsistentWithUa(string archetypeId, string? uaClaimedBrowser)
-    {
-        if (string.IsNullOrEmpty(uaClaimedBrowser)) return true;
-        if (string.IsNullOrEmpty(archetypeId)) return true;
-
-        var id = archetypeId.ToLowerInvariant();
-        var ua = uaClaimedBrowser.ToLowerInvariant();
-
-        // Browser-agnostic archetypes: bot/tool families, fediverse, search crawlers,
-        // and the generic mobile-chrome bucket. These can always match regardless of
-        // UA; they're not browser identities.
-        if (id.StartsWith("curl") || id.StartsWith("python") || id.StartsWith("wget")
-            || id.StartsWith("go-") || id.StartsWith("java") || id.StartsWith("node")
-            || id.StartsWith("googlebot") || id.StartsWith("bingbot")
-            || id.StartsWith("mastodon") || id.StartsWith("fediverse")
-            || id.StartsWith("headless-"))
-            return true;
-
-        // Map UA-claimed browser to its archetype prefix(es).
-        return ua switch
-        {
-            "chrome"            => id.StartsWith("chrome") || id == "mobile-chrome",
-            "brave"             => id.StartsWith("brave"),
-            "firefox"           => id.StartsWith("firefox"),
-            "safari"            => id.StartsWith("safari"),
-            "edge"              => id.StartsWith("edge"),
-            "opera"             => id.StartsWith("opera"),
-            "vivaldi"           => id.StartsWith("vivaldi"),
-            "internet explorer" => id.StartsWith("ie") || id.StartsWith("internet-explorer"),
-            _ => true // unknown UA family: don't filter, let cosine decide
-        };
     }
 
     /// <summary>
