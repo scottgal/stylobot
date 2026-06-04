@@ -1,6 +1,6 @@
 archetype_id: firefox-desktop
 name: Firefox Desktop
-description: Mozilla Firefox on a desktop OS.
+description: Mozilla Firefox on a desktop OS. Asserts only the browser-identity-defining slots (UA family, Accept, Accept-Encoding). Sec-Fetch-* and Upgrade-Insecure-Requests are navigation-volatile (Firefox omits Sec-Fetch-User on programmatic and initial loads; UIR is top-level-only by spec) so the archetype stays silent on them rather than mis-classifying a real Firefox sub-resource or XHR as another browser family.
 archetype_kind: human-browser
 dimensions:
   hdr.ua_family:
@@ -10,11 +10,5 @@ dimensions:
     value: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     confidence: 0.7
   hdr.accept_encoding_ordered:
-    value: "gzip, deflate, br, zstd"
-    confidence: 0.85
-  hdr.sec_fetch_pattern:
-    value: 15
-    confidence: 0.85
-  hdr.upgrade_insecure_requests:
-    value: true
-    confidence: 0.9
+    value: "gzip, deflate, br"
+    confidence: 0.7

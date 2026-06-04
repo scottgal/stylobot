@@ -46,6 +46,24 @@ public sealed class DemoAppFactory : IAsyncLifetime
             },
         };
         _process.Start();
+        // Capture Demo stdout/stderr to a known temp file so test-time
+        // debugging can grep for archetype allocations etc.
+        var logPath = $"/tmp/demo-app-{_port}.log";
+        _ = Task.Run(async () =>
+        {
+            using var f = new StreamWriter(logPath, append: false) { AutoFlush = true };
+            string? line;
+            while ((line = await _process.StandardOutput.ReadLineAsync()) != null)
+                await f.WriteLineAsync(line);
+        });
+        _ = Task.Run(async () =>
+        {
+            using var f = new StreamWriter(logPath + ".err", append: false) { AutoFlush = true };
+            string? line;
+            while ((line = await _process.StandardError.ReadLineAsync()) != null)
+                await f.WriteLineAsync(line);
+        });
+        Console.WriteLine($"[DemoAppFactory] demo logs -> {logPath} (+.err)");
 
         // Two-phase wait. First phase: get any non-5xx response from /api --
         // confirms Kestrel is listening and routes are mapped. Second phase:

@@ -56,12 +56,26 @@ public sealed class IdentityArchetypeRegistry
     }
 
     /// <summary>
-    ///     Brute-force scan: cosine of <paramref name="vector"/> against every archetype.
-    ///     Archetype set is small (tens of entries), so the scan is fast and needs no index.
-    ///     Returns null if no archetypes are loaded. Always returns the nearest by cosine
-    ///     regardless of score — callers that want a minimum-score gate apply it on the
-    ///     returned <see cref="ArchetypeMatch.Score"/> (e.g. the matcher gates name signal
-    ///     emission via <c>Match.MinArchetypeMatchScore</c> without changing the seeding
+    ///     Brute-force scan: per-archetype masked-cosine score against every archetype.
+    ///     "Masked" means each archetype's own <see cref="IdentityArchetype.DimensionMask"/>
+    ///     weights its contribution per dim, with the mask read straight from the YAML's
+    ///     <c>confidence</c> per asserted dim. Dims the archetype is silent on (mask = 0)
+    ///     contribute nothing -- that IS the meaning of "no claim" in the YAML, and that
+    ///     is what fixes the umbrella-centroid problem unweighted cosine suffered from:
+    ///     a broad archetype (mastodon, googlebot) no longer wins by accidentally
+    ///     overlapping the observation on many low-importance dims, because each match
+    ///     is now scaled by the archetype's own confidence in that dim.
+    ///
+    ///     Score formula (per archetype):
+    ///       score = Σᵢ mask[i] · obs[i] · centroid[i]
+    ///                 / sqrt(Σᵢ mask[i] · centroid[i]² · Σᵢ mask[i] · obs[i]²)
+    ///
+    ///     The normaliser keeps scores comparable across archetypes that assert
+    ///     different numbers of dims. Returns null if no archetypes are loaded; always
+    ///     returns the nearest by score regardless of absolute value -- callers that
+    ///     want a minimum-score gate apply it on the returned
+    ///     <see cref="ArchetypeMatch.Score"/> (the matcher gates name signal emission
+    ///     via <c>Match.MinArchetypeMatchScore</c> without changing the seeding
     ///     behaviour the rest of the pipeline relies on).
     /// </summary>
     public ArchetypeMatch? FindNearest(float[] vector)
@@ -71,7 +85,7 @@ public sealed class IdentityArchetypeRegistry
         var bestScore = double.NegativeInfinity;
         foreach (var a in _archetypes)
         {
-            var s = BruteForceIdentityAnchorIndex.Cosine(vector, a.Centroid);
+            var s = MaskedSimilarity(vector, a);
             if (s > bestScore)
             {
                 bestScore = s;
@@ -82,17 +96,73 @@ public sealed class IdentityArchetypeRegistry
     }
 
     /// <summary>
-    ///     Cosine of <paramref name="vector"/> against one specific archetype.
-    ///     Used by the dashboard's drift surface to score the fingerprint
-    ///     against its <c>ArchetypeOrigin</c> (the prior it was anchored at)
-    ///     alongside the current-nearest from <see cref="FindNearest"/>.
-    ///     Returns null when the archetype is null or shapes don't match.
+    ///     Per-archetype similarity score for <paramref name="vector"/>. Same scale
+    ///     as <see cref="FindNearest"/>; the dashboard's drift surface reads this
+    ///     for the fingerprint's <c>ArchetypeOrigin</c> alongside the current-nearest.
     /// </summary>
     public double? ScoreAgainst(float[] vector, IdentityArchetype? archetype)
     {
         if (archetype is null || vector is null) return null;
         if (vector.Length != archetype.Centroid.Length) return null;
-        return BruteForceIdentityAnchorIndex.Cosine(vector, archetype.Centroid);
+        return MaskedSimilarity(vector, archetype);
+    }
+
+    /// <summary>
+    ///     Mask-weighted-distance similarity over the slots the archetype asserts AND
+    ///     the observation actually populated. Replaces masked-cosine, which suffered
+    ///     an "umbrella centroid" inflation: a sparse observation scored highly
+    ///     against archetypes with many low- or zero-valued centroid slots
+    ///     (googlebot's <c>sec_fetch_pattern=0</c>, <c>UIR=false</c>, mastodon's
+    ///     minimal-header assertions) because cosine over sparse vectors is
+    ///     degenerate -- slots where both sides are near-zero drop out of numerator
+    ///     and denominator entirely, leaving the metric ungrounded.
+    ///
+    ///     For each slot the archetype asserts, we check whether the observation
+    ///     populated it (any per-dim value non-zero). Slots the observation didn't
+    ///     populate are SKIPPED -- the archetype can't claim credit on a dim the
+    ///     request didn't provide, and the observation can't be penalised for not
+    ///     having data the archetype was specific about. This makes a Chrome+uBlock
+    ///     XHR that strips <c>Sec-Ch-Ua-Mobile</c> no longer trivially "matches"
+    ///     googlebot's <c>sec_ch_ua_mobile=false</c> assertion.
+    ///
+    ///     Per-slot contribution is the squared difference summed across the slot's
+    ///     dims, scaled by the archetype's mask (= YAML confidence). The total
+    ///     normalises by the populated-slot mask weight so archetypes with different
+    ///     specificities compare fairly, then converts to similarity via 1/(1+avg).
+    ///     Archetypes whose asserted slots are ALL unpopulated by the observation
+    ///     score zero -- no overlap, no win, no inflation.
+    /// </summary>
+    private double MaskedSimilarity(float[] vector, IdentityArchetype archetype)
+    {
+        var centroid = archetype.Centroid;
+        var mask = archetype.DimensionMask;
+        const float presenceEpsilon = 1e-6f;
+
+        double weightedSqDist = 0, totalMask = 0;
+        foreach (var slot in _encoder.Layout.Slots)
+        {
+            if (slot.Offset >= mask.Length) continue;
+            var slotMask = (double)mask[slot.Offset];
+            if (slotMask <= 0) continue;
+
+            var end = Math.Min(slot.Offset + slot.Width, Math.Min(vector.Length, centroid.Length));
+            var obsPopulated = false;
+            for (var i = slot.Offset; i < end; i++)
+            {
+                if (Math.Abs(vector[i]) > presenceEpsilon) { obsPopulated = true; break; }
+            }
+            if (!obsPopulated) continue;
+
+            for (var i = slot.Offset; i < end; i++)
+            {
+                double diff = vector[i] - centroid[i];
+                weightedSqDist += slotMask * diff * diff;
+            }
+            totalMask += slotMask * (end - slot.Offset);
+        }
+        if (totalMask <= 0) return 0.0;
+        var avg = weightedSqDist / totalMask;
+        return 1.0 / (1.0 + avg);
     }
 
     private IReadOnlyList<IdentityArchetype> LoadFromEmbeddedResources()
