@@ -503,9 +503,27 @@ public static class SignalKeys
     ///     declared in <c>Definitions/BrowserModes/*.yaml</c> (navigation, xhr,
     ///     sub-resource, signalr-negotiate, websocket-upgrade, prefetch, bot-raw,
     ///     unknown). Written by BrowserModeClassifierContributor.
-    ///     See docs/architecture/composite-character-fingerprints.md.
+    ///     See docs/architecture/composite-browser-mode-fingerprints.md.
     /// </summary>
     public const string IdentityBrowserMode = "identity.browser_mode";
+
+    /// <summary>
+    ///     Int: this fingerprint's centroid maturity for the matched browser mode
+    ///     <em>after</em> the current request's absorption. Equal to <c>1</c> on
+    ///     the first request that introduces this mode to the fingerprint. The
+    ///     mix-deviation anomaly axis (composite spec step 6) reads this to gate
+    ///     score contribution on <c>BrowserModeOptions.MinModeMaturityForArchetypeMatch</c>.
+    ///     Written by FingerprintMatchContributor on the absorb path.
+    /// </summary>
+    public const string IdentityBrowserModeMaturity = "identity.browser_mode_maturity";
+
+    /// <summary>
+    ///     Bool: true when this is the first request the matched browser mode
+    ///     was ever observed on this fingerprint. The verdict composer treats
+    ///     a true emergence here as a per-request anomaly axis (composite spec
+    ///     step 6, axis 5). Written by FingerprintMatchContributor.
+    /// </summary>
+    public const string IdentityBrowserModeUnseen = "identity.browser_mode_unseen";
 
     /// <summary>String (UUID): the matched (or newly allocated) fingerprint shape. Written by FingerprintMatchContributor.</summary>
     public const string IdentityFingerprintId = "identity.fingerprint_id";

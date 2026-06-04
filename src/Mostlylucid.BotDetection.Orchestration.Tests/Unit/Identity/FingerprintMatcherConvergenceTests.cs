@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Identity.BrowserModes;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -70,6 +71,12 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         _coordCts = new CancellationTokenSource();
         await _coordinator.StartAsync(_coordCts.Token);
 
+        var modeStore = new SqliteFingerprintBrowserModeStore(
+            _store, options, NullLogger<SqliteFingerprintBrowserModeStore>.Instance);
+        var modes = new BrowserModeRegistry(
+            NullLogger<BrowserModeRegistry>.Instance,
+            fallbackModeId: "unknown");
+
         _matcher = new FingerprintMatchContributor(
             NullLogger<FingerprintMatchContributor>.Instance,
             _store,
@@ -78,6 +85,8 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
             globalWeights,
             _coordinator,
             new IdentityVectorEncoder(_layout),
+            modeStore,
+            modes,
             options);
     }
 

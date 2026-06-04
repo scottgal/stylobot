@@ -1,7 +1,9 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Identity.BrowserModes;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -28,8 +30,11 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     private readonly IdentityGlobalWeightsCache _globalWeights;
     private readonly IdentityProcessingCoordinator _coordinator;
     private readonly IdentityVectorEncoder _encoder;
+    private readonly IFingerprintBrowserModeStore _modeStore;
+    private readonly BrowserModeRegistry _modes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
+    private readonly bool _modeAbsorbEnabled;
 
     public FingerprintMatchContributor(
         ILogger<FingerprintMatchContributor> logger,
@@ -39,6 +44,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         IdentityGlobalWeightsCache globalWeights,
         IdentityProcessingCoordinator coordinator,
         IdentityVectorEncoder encoder,
+        IFingerprintBrowserModeStore modeStore,
+        BrowserModeRegistry modes,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
@@ -48,8 +55,11 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         _globalWeights = globalWeights;
         _coordinator = coordinator;
         _encoder = encoder;
+        _modeStore = modeStore;
+        _modes = modes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
+        _modeAbsorbEnabled = _options.Enabled && _options.BrowserMode.Enabled;
     }
 
     public override string Name => "FingerprintMatch";
@@ -170,6 +180,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             {
                 EmitConfirmedSignals(state, vector, l1Candidate, confirmScore, primarySig);
                 await _store.RecordObservationAsync(l1Candidate.FingerprintId, vector, cancellationToken);
+                await AbsorbIntoBrowserModeAsync(state, l1Candidate.FingerprintId, vector, cancellationToken);
                 // Clean L1 confirm = non-ambiguity event; pulls EWMA toward 0.
                 await BumpAmbiguityAsync(state, l1Candidate.FingerprintId, isAmbiguous: false, cancellationToken);
                 return Array.Empty<DetectionContribution>();
@@ -199,6 +210,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Shed: fall back to the L1 candidate's identity verdict.
             state.WriteSignal(SignalKeys.IdentitySlowPathShed, dispatchOutcome.ToString());
             EmitConfirmedSignals(state, vector, l1Candidate, matchScore: 0.0, primarySig);
+            await AbsorbIntoBrowserModeAsync(state, l1Candidate.FingerprintId, vector, cancellationToken);
             return Array.Empty<DetectionContribution>();
         }
 
@@ -248,6 +260,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // skip even the SHA + GetFingerprint call; record the observation; emit signals.
             await _store.UpsertKeyAsync(primarySig, canonicalId, ct);
             await _store.RecordObservationAsync(canonicalId, vector, ct);
+            await AbsorbIntoBrowserModeAsync(state, canonicalId, vector, ct);
             EmitConfirmedSignals(state, vector, existing, matchScore: 1.0, primarySig);
             await BumpAmbiguityAsync(state, canonicalId, isAmbiguous: false, ct);
             return true;
@@ -293,6 +306,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             RootSource = $"verifiedbot:{botName.ToLowerInvariant()}",
         };
         await _store.InsertFingerprintAsync(fp, primarySig, ct);
+        await AbsorbIntoBrowserModeAsync(state, canonicalId, vector, ct);
         EmitConfirmedSignals(state, vector, fp, matchScore: 1.0, primarySig);
         await BumpAmbiguityAsync(state, canonicalId, isAmbiguous: false, ct);
         return true;
@@ -339,6 +353,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
                 && !string.Equals(l1Candidate.FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, isCorrection: isCorrection);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+            await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
 
             if (isCorrection)
             {
@@ -370,6 +385,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Rotation candidate band: assign to the candidate, observe-and-drift, signal it.
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, rotationCandidate: true);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+            await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
             // Rotation-band match = ambiguity event by definition.
             await BumpAmbiguityAsync(state, best.FingerprintId, isAmbiguous: true, cancellationToken);
             return true;
@@ -532,6 +548,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             RootSource = rootSource,
         };
         await _store.InsertFingerprintAsync(newFp, primarySig, cancellationToken);
+        await AbsorbIntoBrowserModeAsync(state, newId, vector, cancellationToken);
 
         // Compose returns null when there's no usable signal; downstream stays unset and
         // the render layer synthesises a descriptive label from threat/behaviour signals.
@@ -561,6 +578,125 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         var bytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes("fp-fallback:" + seed));
         var fallbackId = Convert.ToHexString(bytes, 0, 16).ToLowerInvariant();
         state.WriteSignal(SignalKeys.IdentityFingerprintId, fallbackId);
+    }
+
+    /// <summary>
+    ///     Absorb the current request's vector into the per-mode centroid for
+    ///     <paramref name="fingerprintId"/>. EWMA-merges with any existing row,
+    ///     seeds a fresh row when the fingerprint hasn't shown this mode before,
+    ///     and emits the diagnostic <c>identity.browser_mode_maturity</c> +
+    ///     <c>identity.browser_mode_unseen</c> signals.
+    ///
+    ///     Composite spec step 3: this runs alongside today's parent-fingerprint
+    ///     absorption rather than replacing it, so identity stability is
+    ///     preserved by construction. The parent <see cref="Fingerprint.Centroid"/>
+    ///     evolves as it did before this commit; mode rows accumulate per-mode
+    ///     observation history that later steps (rollup recompute, mode-aware
+    ///     L1 confirm, mix-deviation axis) build on. Failures here are caught
+    ///     and logged — they must never break the matcher's primary contract.
+    /// </summary>
+    private async Task AbsorbIntoBrowserModeAsync(
+        BlackboardState state,
+        string fingerprintId,
+        float[] vector,
+        CancellationToken cancellationToken)
+    {
+        if (!_modeAbsorbEnabled || string.IsNullOrEmpty(fingerprintId)) return;
+
+        try
+        {
+            var modeId = ResolveBrowserModeId(state);
+            var existing = await _modeStore.GetModeAsync(fingerprintId, modeId, cancellationToken);
+            var now = DateTime.UtcNow;
+            FingerprintBrowserMode next;
+            var unseen = existing is null;
+
+            if (existing is null)
+            {
+                // Fresh mode for this fingerprint — seed from the request vector
+                // with uniform weights. Mirrors the seed pattern the parent
+                // allocation path uses (volatile-dim downweighting belongs to
+                // the parent's weight prior, not the mode's).
+                var dim = vector.Length;
+                var seedWeights = new float[dim];
+                for (var i = 0; i < dim; i++) seedWeights[i] = 1.0f;
+                next = new FingerprintBrowserMode
+                {
+                    FingerprintId = fingerprintId,
+                    ModeId = modeId,
+                    Centroid = (float[])vector.Clone(),
+                    CentroidMaturity = 1,
+                    Weights = seedWeights,
+                    ObservationCount = 1,
+                    FirstSeen = now,
+                    LastSeen = now,
+                    InferredArchetype = null,
+                    InferredConfidence = null,
+                };
+            }
+            else
+            {
+                // EWMA merge. Same math the FingerprintAbsorptionService uses
+                // for the parent centroid: new = (old * maturity + obs) / (maturity + 1).
+                var dim = Math.Min(vector.Length, existing.Centroid.Length);
+                var merged = new float[dim];
+                var oldMaturity = existing.CentroidMaturity;
+                for (var i = 0; i < dim; i++)
+                    merged[i] = (existing.Centroid[i] * oldMaturity + vector[i]) / (oldMaturity + 1);
+
+                next = existing with
+                {
+                    Centroid = merged,
+                    CentroidMaturity = oldMaturity + 1,
+                    ObservationCount = existing.ObservationCount + 1,
+                    LastSeen = now,
+                };
+            }
+
+            await _modeStore.UpsertModeAsync(next, cancellationToken);
+
+            state.WriteSignal(SignalKeys.IdentityBrowserMode, modeId);
+            state.WriteSignal(SignalKeys.IdentityBrowserModeMaturity, next.CentroidMaturity);
+            if (unseen) state.WriteSignal(SignalKeys.IdentityBrowserModeUnseen, true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "BrowserMode absorb failed for fp={Fp}; primary match path unaffected", fingerprintId);
+        }
+    }
+
+    /// <summary>
+    ///     Resolve the request's browser mode id. Prefer the
+    ///     <c>identity.browser_mode</c> signal written by
+    ///     <see cref="BrowserModeClassifierContributor"/>; fall back to
+    ///     self-classifying via the registry when the signal hasn't landed yet
+    ///     (the foundation wave runs both contributors in parallel — same
+    ///     pattern this contributor uses for the raw-values dict).
+    /// </summary>
+    private string ResolveBrowserModeId(BlackboardState state)
+    {
+        var signal = state.GetSignal<string>(SignalKeys.IdentityBrowserMode);
+        if (!string.IsNullOrEmpty(signal)) return signal;
+
+        IReadOnlyDictionary<string, object?>? raw = null;
+        if (state.Signals.TryGetValue(SignalKeys.IdentityRawValues, out var rawObj))
+            raw = rawObj as IReadOnlyDictionary<string, object?>;
+        raw ??= IdentityVectorContributor.ComposeRawValues(state);
+
+        var probe = new MatcherRequestProbe(state.HttpContext);
+        return _modes.Classify(raw, probe);
+    }
+
+    private sealed class MatcherRequestProbe : IRequestProbe
+    {
+        private readonly HttpContext _ctx;
+        public MatcherRequestProbe(HttpContext ctx) => _ctx = ctx;
+        public string Method => _ctx.Request.Method ?? string.Empty;
+        public string Path => _ctx.Request.Path.Value ?? string.Empty;
+        public bool HasHeader(string name) => _ctx.Request.Headers.ContainsKey(name);
+        public string HeaderOrDefault(string name, string fallback)
+            => _ctx.Request.Headers.TryGetValue(name, out var v) ? v.ToString() : fallback;
     }
 
     private void EmitConfirmedSignals(
