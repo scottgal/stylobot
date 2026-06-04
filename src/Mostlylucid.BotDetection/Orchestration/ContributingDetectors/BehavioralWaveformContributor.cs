@@ -463,9 +463,13 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
 
     private string GetClientSignature(BlackboardState state)
     {
-        // Use resolved IP from IpContributor (handles X-Forwarded-For behind proxies)
+        // Prefer the resolved IP from IpContributor (Cloudflare/Cloudfront/Fastly/Nginx/XFF
+        // unwrapping via IProxyEnvironment). If that signal hasn't landed yet, fall back to
+        // state.ClientIp — which itself consults IProxyEnvironment — never the raw socket
+        // address, which through Cloudflare is always the edge IP and collapses every
+        // visitor into one behavioural key.
         var ip = state.GetSignal<string>(SignalKeys.ClientIp)
-                 ?? state.HttpContext.Connection.RemoteIpAddress?.ToString()
+                 ?? state.ClientIp
                  ?? "unknown";
         var ua = state.HttpContext.Request.Headers.UserAgent.ToString();
         return $"{ip}:{GetHash(ua)}";

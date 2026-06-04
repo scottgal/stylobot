@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Proxy;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration;
@@ -390,10 +392,40 @@ public sealed class BlackboardState
     public string UserAgent => HttpContext.Request.Headers.UserAgent.ToString();
 
     /// <summary>
-    ///     Get the client IP address (PII).
+    ///     Get the real client IP address (PII).
     ///     IMPORTANT: Access directly from state, NEVER put in signal payload.
+    ///
+    ///     Delegates to <see cref="IProxyEnvironment.GetRealClientIp"/> when
+    ///     resolvable, which auto-detects the upstream proxy/CDN topology
+    ///     (Cloudflare, CloudFront, Fastly, Nginx, generic XFF) and returns
+    ///     the right header — <c>CF-Connecting-IP</c> behind Cloudflare,
+    ///     <c>X-Real-IP</c> behind Nginx, leftmost <c>X-Forwarded-For</c>
+    ///     otherwise — falling back to the raw socket address only when no
+    ///     forwarded header is set. This closes the gap where every
+    ///     IP-keyed detector (VerifiedBotInline / VerifiedBot /
+    ///     ReputationBias / FastPathReputation / BehavioralWaveform) was
+    ///     reading Cloudflare's edge address through a CDN-fronted gateway,
+    ///     causing real Googlebot / Bingbot crawls to fail IP verification
+    ///     and land as <c>Spoofed-*</c> with BotType=Scraper, VeryHigh risk.
+    ///
+    ///     When the IProxyEnvironment service isn't in the DI container
+    ///     (unit tests, ad-hoc orchestration, very early bootstrap), falls
+    ///     back to the raw connection address — same behaviour the property
+    ///     had before this fix.
     /// </summary>
-    public string? ClientIp => HttpContext.Connection.RemoteIpAddress?.ToString();
+    public string? ClientIp
+    {
+        get
+        {
+            var proxy = HttpContext.RequestServices?.GetService<IProxyEnvironment>();
+            if (proxy is not null)
+            {
+                var real = proxy.GetRealClientIp(HttpContext);
+                if (!string.IsNullOrEmpty(real)) return real;
+            }
+            return HttpContext.Connection.RemoteIpAddress?.ToString();
+        }
+    }
 
     /// <summary>
     ///     Get the request path.
