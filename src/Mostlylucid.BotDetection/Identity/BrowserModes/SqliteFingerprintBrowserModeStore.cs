@@ -252,6 +252,31 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         InvalidateModes(updated.FingerprintId);
     }
 
+    public async Task<IReadOnlyList<string>> ListFingerprintIdsWithModesAsync(
+        int maxRows, CancellationToken ct = default)
+    {
+        if (maxRows <= 0) return Array.Empty<string>();
+        await _parent.EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // Distinct fp_ids ordered by the oldest mode-row last_seen so the rollup
+        // sweep walks stale fingerprints first. ix_fm_last_seen makes this cheap.
+        cmd.CommandText = """
+            SELECT fingerprint_id
+              FROM fingerprint_modes
+             GROUP BY fingerprint_id
+             ORDER BY MIN(last_seen) ASC
+             LIMIT @lim
+            """;
+        cmd.Parameters.AddWithValue("@lim", maxRows);
+
+        var ids = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) ids.Add(reader.GetString(0));
+        return ids;
+    }
+
     private void InvalidateModes(string fingerprintId)
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;

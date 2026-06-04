@@ -80,6 +80,10 @@ public sealed class NullFingerprintStore : IFingerprintStore
         bool inferredTypeChanged = false, CancellationToken ct = default)
         => Task.CompletedTask;
 
+    public Task UpdateRollupCentroidAsync(
+        string fingerprintId, float[] newCentroid, int newMaturity, CancellationToken ct = default)
+        => Task.CompletedTask;
+
     public Task<double> BumpAmbiguityPersistenceAsync(
         string fingerprintId, bool isAmbiguityEvent, double alpha, CancellationToken ct = default)
         => Task.FromResult(0.0);

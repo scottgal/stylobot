@@ -76,6 +76,15 @@ public interface IFingerprintBrowserModeStore
         FingerprintBrowserMode updated,
         IReadOnlyList<long> observationIds,
         CancellationToken ct = default);
+
+    /// <summary>
+    ///     Returns up to <paramref name="maxRows"/> fingerprint ids that have
+    ///     at least one mode row, oldest <c>last_seen</c> first. The rollup
+    ///     recompute sweep walks this list to find fingerprints whose parent
+    ///     centroid is stale relative to their child mode evolution.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListFingerprintIdsWithModesAsync(
+        int maxRows, CancellationToken ct = default);
 }
 
 /// <summary>

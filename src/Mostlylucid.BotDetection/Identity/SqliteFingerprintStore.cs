@@ -1315,6 +1315,54 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     concurrent writers can't lose updates — SQLite serialises UPDATEs to the same
     ///     row. Uses RETURNING for the atomic post-write read.
     /// </summary>
+    public async Task UpdateRollupCentroidAsync(
+        string fingerprintId, float[] newCentroid, int newMaturity, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId) || newCentroid.Length == 0) return;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                UPDATE fingerprints
+                   SET centroid          = @centroid,
+                       centroid_maturity = @maturity
+                 WHERE fingerprint_id = @id
+                """;
+            cmd.Parameters.AddWithValue("@centroid", FloatsToBlob(newCentroid));
+            cmd.Parameters.AddWithValue("@maturity", newMaturity);
+            cmd.Parameters.AddWithValue("@id", fingerprintId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (_vecAvailable)
+        {
+            // Same delete-then-insert dance AbsorbObservationAsync uses for vec0 —
+            // keeps the KNN index in sync with the centroid blob in the SQL table.
+            await using (var del = conn.CreateCommand())
+            {
+                del.Transaction = tx;
+                del.CommandText = "DELETE FROM fingerprints_vec WHERE fingerprint_id = @id";
+                del.Parameters.AddWithValue("@id", fingerprintId);
+                await del.ExecuteNonQueryAsync(ct);
+            }
+            await using (var ins = conn.CreateCommand())
+            {
+                ins.Transaction = tx;
+                ins.CommandText = "INSERT INTO fingerprints_vec(fingerprint_id, centroid) VALUES (@id, @vec)";
+                ins.Parameters.AddWithValue("@id", fingerprintId);
+                ins.Parameters.AddWithValue("@vec", FloatsToBlob(newCentroid));
+                await ins.ExecuteNonQueryAsync(ct);
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        InvalidateFingerprintCache(fingerprintId);
+    }
+
     public async Task<double> BumpAmbiguityPersistenceAsync(
         string fingerprintId, bool isAmbiguityEvent, double alpha, CancellationToken ct = default)
     {

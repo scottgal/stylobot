@@ -60,6 +60,20 @@ public interface IFingerprintStore : IFingerprintReader
     Task<double> BumpAmbiguityPersistenceAsync(
         string fingerprintId, bool isAmbiguityEvent, double alpha, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Overwrite the fingerprint's centroid + centroid_maturity with the
+    ///     rollup the <c>FingerprintRollupRecomputeService</c> computed as the
+    ///     maturity-weighted mean of its child mode centroids. Does not touch
+    ///     weights / inferred client type / cached score — those are owned by
+    ///     other paths. Invalidates the LFU fingerprint cache slot so the next
+    ///     read sees the new state.
+    /// </summary>
+    Task UpdateRollupCentroidAsync(
+        string fingerprintId,
+        float[] newCentroid,
+        int newMaturity,
+        CancellationToken ct = default);
+
     // ── Display name ─────────────────────────────────────────────────────────
     Task UpdateDisplayNameAsync(
         string fingerprintId, string displayName, DateTime updatedAt, CancellationToken ct = default);

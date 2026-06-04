@@ -60,6 +60,35 @@ public sealed class BrowserModeOptions
     ///     traffic without saturating the absorption transaction.
     /// </summary>
     public int DrainMaxRowsPerTick { get; set; } = 5_000;
+
+    /// <summary>
+    ///     Composite spec step 4: parent fingerprint centroid becomes a
+    ///     maturity-weighted mean of its child mode centroids, recomputed on
+    ///     a tick. Default false initially so this lands as observable
+    ///     infrastructure without disturbing identity stability — the parent
+    ///     absorption path keeps owning the centroid until an operator (or
+    ///     step 4b) flips the gate after validating the rollup math on live
+    ///     traffic. When true, the rollup overwrites the parent centroid on
+    ///     each tick; the parent-absorption-vs-rollup contention is tracked
+    ///     in <c>project_absorption_services_migration</c>.
+    /// </summary>
+    public bool RollupEnabled { get; set; }
+
+    /// <summary>
+    ///     Recompute cadence for the rollup. 5 minutes by default matches the
+    ///     spec's tick.5m subscription target. Hot fingerprints get caught
+    ///     either way because the rollup sweeps oldest-mode-row-last-seen
+    ///     first.
+    /// </summary>
+    public int RollupRecomputeIntervalSeconds { get; set; } = 300;
+
+    /// <summary>
+    ///     Maximum fingerprints the rollup sweep recomputes per tick. Bounds
+    ///     each tick's work to a predictable upper limit on a busy gateway;
+    ///     uncovered fingerprints get caught next tick because the sweep
+    ///     orders by oldest-mode-row-last-seen.
+    /// </summary>
+    public int RollupMaxFingerprintsPerTick { get; set; } = 1_000;
 }
 
 /// <summary>
@@ -153,6 +182,32 @@ public sealed class IdentityVectorOptions
     ///     and the eventual centroid update.
     /// </summary>
     public double ObservationSamplingRate { get; set; } = 1.0;
+
+    /// <summary>
+    ///     Amortise the per-request encoder cost across sub-resource requests in a page load.
+    ///     When enabled (default), <see cref="EncoderResultCache"/> short-circuits the encode
+    ///     step for any request whose <c>primary_signature</c> was seen within the TTL window.
+    ///     For a 30-asset page load this collapses 30 × ~1 μs of encode to one encode plus
+    ///     29 cache lookups. Disable on hosts that need per-request encode fidelity (e.g.
+    ///     volatile session.* dims must be exact for downstream consumers).
+    /// </summary>
+    public bool EncoderCacheEnabled { get; set; } = true;
+
+    /// <summary>
+    ///     Cache entry lifetime. 1 second comfortably covers a page-load asset burst (most
+    ///     browsers complete sub-resource fetches within ~500 ms of the document arriving)
+    ///     while limiting how stale the volatile session.* dims (request_rate, path_entropy,
+    ///     session_age) can get on the cached vector. Larger windows trade freshness for
+    ///     hit-rate.
+    /// </summary>
+    public int EncoderCacheTtlMs { get; set; } = 1_000;
+
+    /// <summary>
+    ///     Maximum live cache entries. Bounds memory: each entry holds one ~352-byte vector
+    ///     plus the dictionary slot. 10k entries ≈ 5 MB upper bound — comfortably small for
+    ///     a busy gateway.
+    /// </summary>
+    public int EncoderCacheMaxEntries { get; set; } = 10_000;
 }
 
 public sealed class IdentityMatchOptions

@@ -825,6 +825,9 @@ public static class ServiceCollectionExtensions
         // Both contributors are foundation, dormant when Identity.Enabled = false.
         services.TryAddSingleton(sp => Identity.IdentityVectorLayout.DefaultV1());
         services.TryAddSingleton<Identity.IdentityVectorEncoder>();
+        // Sub-resource amortisation cache; dormant when Identity.Enabled = false
+        // or BotDetection:Identity:Vector:EncoderCacheEnabled = false.
+        services.TryAddSingleton<Identity.EncoderResultCache>();
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
         // Surface the read-only fingerprint interface so the dashboard / REST endpoints
         // resolve it without depending on the concrete store - swapped for a HTTP-backed
@@ -885,6 +888,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Identity.BrowserModes.FingerprintModeAbsorptionService>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Identity.BrowserModes.FingerprintModeAbsorptionService>());
+        // Rollup recompute: parent centroid as maturity-weighted mean of child
+        // mode centroids on a tick (composite spec step 4). Runs the math
+        // unconditionally; the BrowserMode.RollupEnabled gate decides whether
+        // each tick writes the parent row or stays dry-run while staging
+        // validates the rollup before identity-stability behaviour changes.
+        services.AddSingleton<Identity.BrowserModes.FingerprintRollupRecomputeService>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Identity.BrowserModes.FingerprintRollupRecomputeService>());
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());
