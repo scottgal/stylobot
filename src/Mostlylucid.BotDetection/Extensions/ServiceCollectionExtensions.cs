@@ -108,6 +108,16 @@ public static class ServiceCollectionExtensions
         services.AddOptions<BotDetectionOptions>()
             .Bind(configuration)
             .Configure(options => configure?.Invoke(options))
+            .PostConfigure(options =>
+            {
+                // The regex match timeout is captured by Regex.Compiled at compile
+                // time and binds with the rule, so configure the parser BEFORE the
+                // static Default is touched (any UserAgentParser.Parse call will
+                // trigger the compile). PostConfigure runs at options finalisation,
+                // which happens during host build before request processing starts.
+                Helpers.UapCoreUserAgentParser.ConfigureRegexTimeout(
+                    TimeSpan.FromMilliseconds(options.UserAgents.RegexMatchTimeoutMs));
+            })
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<BotDetectionOptions>, BotDetectionOptionsValidator>();

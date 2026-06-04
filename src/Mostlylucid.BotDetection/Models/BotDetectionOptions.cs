@@ -128,6 +128,13 @@ public class BotDetectionOptions
     public BackgroundEnrichmentOptions BackgroundEnrichment { get; set; } = new();
 
     /// <summary>
+    ///     uap-core driven User-Agent parser settings. The parser ships with an
+    ///     embedded copy of uap-core's regexes.yaml; this section governs the
+    ///     compile-time timeout and (in a follow-up) the upstream fetch schedule.
+    /// </summary>
+    public UapCoreOptions UserAgents { get; set; } = new();
+
+    /// <summary>
     ///     Threat-intel enrichment (Spamhaus, Tor exit, CISA KEV, cloud ranges, etc.).
     ///     FOSS default: every provider disabled, master switch off - the operator
     ///     opts in per-provider. See <c>docs/architecture/threat-intel.md</c>.
@@ -4348,4 +4355,21 @@ public class EdgeForwardedHeadersOptions
     ///     never needs to see detection state.
     /// </summary>
     public bool EmitOnForwardedRequest { get; set; } = true;
+}
+
+/// <summary>
+///     Options for the uap-core driven UA parser
+///     (<see cref="Helpers.UapCoreUserAgentParser"/>). All values bind under
+///     <c>BotDetection:UserAgents</c>.
+/// </summary>
+public class UapCoreOptions
+{
+    /// <summary>
+    ///     Per-rule regex match timeout. Caps how long a single uap-core regex
+    ///     can spend on one UA before the parser skips it and moves to the next
+    ///     rule; without this cap a pathological UA could spend seconds inside
+    ///     a backtracking-heavy regex from upstream. Applied at compile time;
+    ///     subsequent re-binds would require restart to take effect.
+    /// </summary>
+    public int RegexMatchTimeoutMs { get; set; } = 100;
 }

@@ -1,0 +1,51 @@
+# Coarse categorisation of UA family strings emitted by uap-core's user_agent_parsers.
+# Consumed by UapCoreUserAgentParser.Category() and surfaced on the dashboard's
+# analytics-tab filter chips ("browser" vs "tool"). Keep family names exactly as
+# uap-core emits them; new entries land here, never in a C# switch.
+#
+# Categories:
+#   browser  - interactive browser (Chrome, Firefox, Safari, Edge, Brave, Vivaldi, IE, etc.)
+#   tool     - CLI / HTTP-library / dev tool (curl, Python, Java, Go, wget, etc.)
+#
+# Bot families are deliberately absent: the dashboard reads bot identity from
+# BotPatternLoader first and only falls back to this map for the residual. Adding
+# bots here would create a parallel source of truth for what is already canonical
+# in Definitions/BotPatterns/*.yaml.
+
+families:
+  # Interactive browsers
+  Chrome: browser
+  Firefox: browser
+  Safari: browser
+  Mobile Safari: browser
+  Edge: browser
+  Opera: browser
+  Brave: browser
+  Vivaldi: browser
+  IE: browser
+  Internet Explorer: browser
+  Chromium: browser
+  Chrome Mobile: browser
+  Chrome Mobile iOS: browser
+  Chrome Mobile WebView: browser
+  Mobile Safari UI/WKWebView: browser
+  Samsung Internet: browser
+  UC Browser: browser
+  Yandex Browser: browser
+  Firefox Mobile: browser
+  Firefox iOS: browser
+  DuckDuckGo Mobile: browser
+
+  # CLI tools / HTTP libraries
+  curl: tool
+  Wget: tool
+  Python Requests: tool
+  Python-urllib: tool
+  Java: tool
+  Go-http-client: tool
+  HTTPie: tool
+  http.rb: tool
+  Apache-HttpClient: tool
+  Postman: tool
+  Insomnia: tool
+  PowerShell: tool
