@@ -133,6 +133,125 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         InvalidateModes(fingerprintId);
     }
 
+    public async Task RecordModeObservationAsync(
+        string fingerprintId, string modeId, float[] vector, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId) || string.IsNullOrEmpty(modeId)) return;
+        await _parent.EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO fingerprint_mode_observations
+                (fingerprint_id, mode_id, vector, observed_at, absorbed_at)
+            VALUES (@fp, @mode, @vec, @ts, NULL)
+            """;
+        cmd.Parameters.AddWithValue("@fp", fingerprintId);
+        cmd.Parameters.AddWithValue("@mode", modeId);
+        cmd.Parameters.AddWithValue("@vec", SqliteFingerprintStore.FloatsToBlob(vector));
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<UnabsorbedModeObservation>> ListUnabsorbedModeObservationsAsync(
+        int maxRows, CancellationToken ct = default)
+    {
+        if (maxRows <= 0) return Array.Empty<UnabsorbedModeObservation>();
+        await _parent.EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // ORDER BY (fp, mode, id) so the drainer processes a tuple's rows in
+        // arrival order — the EWMA result is otherwise indistinguishable, but
+        // grouping in C# is one pass instead of a sort.
+        cmd.CommandText = """
+            SELECT id, fingerprint_id, mode_id, vector, observed_at
+              FROM fingerprint_mode_observations
+             WHERE absorbed_at IS NULL
+             ORDER BY fingerprint_id, mode_id, id
+             LIMIT @lim
+            """;
+        cmd.Parameters.AddWithValue("@lim", maxRows);
+
+        var rows = new List<UnabsorbedModeObservation>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new UnabsorbedModeObservation(
+                ObservationId: reader.GetInt64(0),
+                FingerprintId: reader.GetString(1),
+                ModeId: reader.GetString(2),
+                Vector: SqliteFingerprintStore.BlobToFloats((byte[])reader.GetValue(3)),
+                ObservedAt: DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind)));
+        }
+        return rows;
+    }
+
+    public async Task AbsorbModeObservationsAsync(
+        FingerprintBrowserMode updated,
+        IReadOnlyList<long> observationIds,
+        CancellationToken ct = default)
+    {
+        await _parent.EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        await using (var modeCmd = conn.CreateCommand())
+        {
+            modeCmd.Transaction = tx;
+            modeCmd.CommandText = """
+                INSERT INTO fingerprint_modes
+                    (fingerprint_id, mode_id, centroid, centroid_maturity, weights,
+                     observation_count, first_seen, last_seen,
+                     inferred_archetype, inferred_confidence)
+                VALUES (@fp, @mode, @centroid, @maturity, @weights,
+                        @obs, @first, @last, @arch, @conf)
+                ON CONFLICT(fingerprint_id, mode_id) DO UPDATE SET
+                    centroid            = excluded.centroid,
+                    centroid_maturity   = excluded.centroid_maturity,
+                    weights             = excluded.weights,
+                    observation_count   = excluded.observation_count,
+                    last_seen           = excluded.last_seen,
+                    inferred_archetype  = excluded.inferred_archetype,
+                    inferred_confidence = excluded.inferred_confidence
+                """;
+            modeCmd.Parameters.AddWithValue("@fp", updated.FingerprintId);
+            modeCmd.Parameters.AddWithValue("@mode", updated.ModeId);
+            modeCmd.Parameters.AddWithValue("@centroid", SqliteFingerprintStore.FloatsToBlob(updated.Centroid));
+            modeCmd.Parameters.AddWithValue("@maturity", updated.CentroidMaturity);
+            modeCmd.Parameters.AddWithValue("@weights", SqliteFingerprintStore.FloatsToBlob(updated.Weights));
+            modeCmd.Parameters.AddWithValue("@obs", updated.ObservationCount);
+            modeCmd.Parameters.AddWithValue("@first", updated.FirstSeen.ToString("O"));
+            modeCmd.Parameters.AddWithValue("@last", updated.LastSeen.ToString("O"));
+            modeCmd.Parameters.AddWithValue("@arch", (object?)updated.InferredArchetype ?? DBNull.Value);
+            modeCmd.Parameters.AddWithValue("@conf", (object?)updated.InferredConfidence ?? DBNull.Value);
+            await modeCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (observationIds.Count > 0)
+        {
+            await using var obsCmd = conn.CreateCommand();
+            obsCmd.Transaction = tx;
+            // SQLite doesn't support array params; build an in-place IN clause.
+            // observationIds count is bounded by the drainer's batch cap so the
+            // statement size never explodes.
+            var inClause = string.Join(',', Enumerable.Range(0, observationIds.Count).Select(i => $"@id{i}"));
+            obsCmd.CommandText = $"""
+                UPDATE fingerprint_mode_observations
+                   SET absorbed_at = @ts
+                 WHERE id IN ({inClause})
+                """;
+            obsCmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+            for (var i = 0; i < observationIds.Count; i++)
+                obsCmd.Parameters.AddWithValue($"@id{i}", observationIds[i]);
+            await obsCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+        InvalidateModes(updated.FingerprintId);
+    }
+
     private void InvalidateModes(string fingerprintId)
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;

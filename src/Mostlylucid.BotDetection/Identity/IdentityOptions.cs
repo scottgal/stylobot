@@ -50,6 +50,16 @@ public sealed class BrowserModeOptions
     ///     so the lookup is well-defined.
     /// </summary>
     public string FallbackModeId { get; set; } = "unknown";
+
+    /// <summary>
+    ///     Maximum unabsorbed mode observation rows the drainer fetches per
+    ///     tick. Bounds the per-tick SQL statement size, the
+    ///     <see cref="DateTime"/> parameter list size for SQLite's IN clause,
+    ///     and the worst-case memory footprint of one tick's batch.
+    ///     Conservative default keeps a busy gateway honest under bursty
+    ///     traffic without saturating the absorption transaction.
+    /// </summary>
+    public int DrainMaxRowsPerTick { get; set; } = 5_000;
 }
 
 /// <summary>

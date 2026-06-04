@@ -126,6 +126,25 @@ internal static class IdentitySchema
             PRIMARY KEY (fingerprint_id, mode_id)
         );
         CREATE INDEX IF NOT EXISTS ix_fm_last_seen ON fingerprint_modes(last_seen DESC);
+
+        -- Append-only per-mode observation log. Mirrors fingerprint_observations
+        -- shape: matcher inserts a row per request (no read, no merge); the
+        -- FingerprintModeAbsorptionService drains unabsorbed rows on a tick,
+        -- computes the batched EWMA against the cached mode centroid, and
+        -- writes one UPSERT per (fingerprint_id, mode_id) tuple per tick. This
+        -- closes the race the previous read-modify-write absorb opened — only
+        -- the drainer ever modifies the mode centroid, and it processes all of
+        -- a tuple's pending observations in one merge.
+        CREATE TABLE IF NOT EXISTS fingerprint_mode_observations (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            fingerprint_id      TEXT NOT NULL REFERENCES fingerprints(fingerprint_id) ON DELETE CASCADE,
+            mode_id             TEXT NOT NULL,
+            vector              BLOB NOT NULL,
+            observed_at         TEXT NOT NULL,
+            absorbed_at         TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ix_fmo_active
+            ON fingerprint_mode_observations(fingerprint_id, mode_id) WHERE absorbed_at IS NULL;
         """;
 
     /// <summary>

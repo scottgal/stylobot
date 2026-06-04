@@ -581,19 +581,24 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     }
 
     /// <summary>
-    ///     Absorb the current request's vector into the per-mode centroid for
-    ///     <paramref name="fingerprintId"/>. EWMA-merges with any existing row,
-    ///     seeds a fresh row when the fingerprint hasn't shown this mode before,
-    ///     and emits the diagnostic <c>identity.browser_mode_maturity</c> +
-    ///     <c>identity.browser_mode_unseen</c> signals.
+    ///     Append-only mode observation log. The matcher inserts one row per
+    ///     absorb (no read, no merge); the <c>FingerprintModeAbsorptionService</c>
+    ///     drains unabsorbed rows on its tick, computes the batched EWMA against
+    ///     the cached mode centroid, and writes one UPSERT per (fingerprint_id,
+    ///     mode_id) tuple per tick. This mirrors the parent's append-only
+    ///     observation pattern and closes the read-modify-write race the
+    ///     previous direct-UPSERT absorb opened on concurrent HTTP/2 sub-resource
+    ///     fetches for the same Chrome session.
     ///
-    ///     Composite spec step 3: this runs alongside today's parent-fingerprint
-    ///     absorption rather than replacing it, so identity stability is
-    ///     preserved by construction. The parent <see cref="Fingerprint.Centroid"/>
-    ///     evolves as it did before this commit; mode rows accumulate per-mode
-    ///     observation history that later steps (rollup recompute, mode-aware
-    ///     L1 confirm, mix-deviation axis) build on. Failures here are caught
-    ///     and logged — they must never break the matcher's primary contract.
+    ///     Emits the diagnostic <c>identity.browser_mode_*</c> signals against
+    ///     the cached mode row's current state so downstream consumers see the
+    ///     mode mix without waiting for the drainer tick. The matched mode's
+    ///     maturity will lag by up to one tick on hot fingerprints — that's
+    ///     acceptable for the mix-deviation axis (step 6 reads the eventual,
+    ///     post-drain state from the cached mode row).
+    ///
+    ///     Failures here are caught and logged — they must never break the
+    ///     matcher's primary contract.
     /// </summary>
     private async Task AbsorbIntoBrowserModeAsync(
         BlackboardState state,
@@ -606,63 +611,29 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         try
         {
             var modeId = ResolveBrowserModeId(state);
-            var existing = await _modeStore.GetModeAsync(fingerprintId, modeId, cancellationToken);
-            var now = DateTime.UtcNow;
-            FingerprintBrowserMode next;
-            var unseen = existing is null;
+            await _modeStore.RecordModeObservationAsync(fingerprintId, modeId, vector, cancellationToken);
 
-            if (existing is null)
+            // Diagnostic signals reflect the current cached state (before this
+            // observation is folded by the drainer). unseen flips true the
+            // first time the matcher records a mode that hasn't appeared on
+            // the fingerprint yet; subsequent requests for the same mode within
+            // a drain window also report the cache's last-known maturity.
+            var cached = await _modeStore.GetModeAsync(fingerprintId, modeId, cancellationToken);
+            state.WriteSignal(SignalKeys.IdentityBrowserMode, modeId);
+            if (cached is null)
             {
-                // Fresh mode for this fingerprint — seed from the request vector
-                // with uniform weights. Mirrors the seed pattern the parent
-                // allocation path uses (volatile-dim downweighting belongs to
-                // the parent's weight prior, not the mode's).
-                var dim = vector.Length;
-                var seedWeights = new float[dim];
-                for (var i = 0; i < dim; i++) seedWeights[i] = 1.0f;
-                next = new FingerprintBrowserMode
-                {
-                    FingerprintId = fingerprintId,
-                    ModeId = modeId,
-                    Centroid = (float[])vector.Clone(),
-                    CentroidMaturity = 1,
-                    Weights = seedWeights,
-                    ObservationCount = 1,
-                    FirstSeen = now,
-                    LastSeen = now,
-                    InferredArchetype = null,
-                    InferredConfidence = null,
-                };
+                state.WriteSignal(SignalKeys.IdentityBrowserModeUnseen, true);
+                state.WriteSignal(SignalKeys.IdentityBrowserModeMaturity, 0);
             }
             else
             {
-                // EWMA merge. Same math the FingerprintAbsorptionService uses
-                // for the parent centroid: new = (old * maturity + obs) / (maturity + 1).
-                var dim = Math.Min(vector.Length, existing.Centroid.Length);
-                var merged = new float[dim];
-                var oldMaturity = existing.CentroidMaturity;
-                for (var i = 0; i < dim; i++)
-                    merged[i] = (existing.Centroid[i] * oldMaturity + vector[i]) / (oldMaturity + 1);
-
-                next = existing with
-                {
-                    Centroid = merged,
-                    CentroidMaturity = oldMaturity + 1,
-                    ObservationCount = existing.ObservationCount + 1,
-                    LastSeen = now,
-                };
+                state.WriteSignal(SignalKeys.IdentityBrowserModeMaturity, cached.CentroidMaturity);
             }
-
-            await _modeStore.UpsertModeAsync(next, cancellationToken);
-
-            state.WriteSignal(SignalKeys.IdentityBrowserMode, modeId);
-            state.WriteSignal(SignalKeys.IdentityBrowserModeMaturity, next.CentroidMaturity);
-            if (unseen) state.WriteSignal(SignalKeys.IdentityBrowserModeUnseen, true);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "BrowserMode absorb failed for fp={Fp}; primary match path unaffected", fingerprintId);
+                "BrowserMode observation record failed for fp={Fp}; primary match path unaffected", fingerprintId);
         }
     }
 

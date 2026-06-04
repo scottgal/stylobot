@@ -44,4 +44,46 @@ public interface IFingerprintBrowserModeStore
     ///     configurable floors.
     /// </summary>
     Task DeleteModeAsync(string fingerprintId, string modeId, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Append-only insert of a per-mode observation row. The matcher calls
+    ///     this on the request path — no read, no merge — so the hot path is a
+    ///     single SQL insert with no race. The drainer (FingerprintMode
+    ///     AbsorptionService) batches absorption per (fingerprint_id, mode_id)
+    ///     tuple on a tick.
+    /// </summary>
+    Task RecordModeObservationAsync(
+        string fingerprintId, string modeId, float[] vector, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Returns up to <paramref name="maxRows"/> unabsorbed mode observation
+    ///     rows grouped per (fingerprint_id, mode_id) tuple. The drainer walks
+    ///     this batch, EWMA-merges the vectors into the cached mode centroid,
+    ///     and calls <see cref="AbsorbModeObservationsAsync"/> to commit the
+    ///     updated mode row and mark the observation rows absorbed.
+    /// </summary>
+    Task<IReadOnlyList<UnabsorbedModeObservation>> ListUnabsorbedModeObservationsAsync(
+        int maxRows, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Commit a batched absorption: write the new mode row state (centroid /
+    ///     maturity / observation_count / last_seen / inferred archetype) and
+    ///     mark the listed observation ids absorbed in one transaction. The
+    ///     LFU cache slot for the fingerprint is invalidated so the next read
+    ///     sees the new state.
+    /// </summary>
+    Task AbsorbModeObservationsAsync(
+        FingerprintBrowserMode updated,
+        IReadOnlyList<long> observationIds,
+        CancellationToken ct = default);
 }
+
+/// <summary>
+///     One unabsorbed observation row returned by the drainer's batch fetch.
+/// </summary>
+public sealed record UnabsorbedModeObservation(
+    long ObservationId,
+    string FingerprintId,
+    string ModeId,
+    float[] Vector,
+    DateTime ObservedAt);

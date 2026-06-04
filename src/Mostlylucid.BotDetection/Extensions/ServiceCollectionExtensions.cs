@@ -877,6 +877,14 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.BrowserModes.SqliteFingerprintBrowserModeStore>();
         services.TryAddSingleton<Identity.BrowserModes.IFingerprintBrowserModeStore>(
             sp => sp.GetRequiredService<Identity.BrowserModes.SqliteFingerprintBrowserModeStore>());
+
+        // Mode-observation drainer: batched EWMA absorption per
+        // (fingerprint_id, mode_id) tuple on a fixed tick. Mirrors the
+        // FingerprintAbsorptionService shape so both services migrate to the
+        // schedule coordinator together when that lands.
+        services.AddSingleton<Identity.BrowserModes.FingerprintModeAbsorptionService>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Identity.BrowserModes.FingerprintModeAbsorptionService>());
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());

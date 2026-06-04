@@ -25,6 +25,7 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
     private string _tempDir = string.Empty;
     private SqliteFingerprintStore _store = null!;
     private SqliteFingerprintBrowserModeStore _modeStore = null!;
+    private FingerprintModeAbsorptionService _drainer = null!;
     private IdentityProcessingCoordinator _coordinator = null!;
     private CancellationTokenSource _coordCts = null!;
     private FingerprintMatchContributor _matcher = null!;
@@ -70,6 +71,8 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
 
         _modeStore = new SqliteFingerprintBrowserModeStore(
             _store, options, NullLogger<SqliteFingerprintBrowserModeStore>.Instance);
+        _drainer = new FingerprintModeAbsorptionService(
+            NullLogger<FingerprintModeAbsorptionService>.Instance, _modeStore, options);
         var modes = new BrowserModeRegistry(
             NullLogger<BrowserModeRegistry>.Instance, fallbackModeId: "unknown");
 
@@ -78,6 +81,9 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
             _store, index, archetypes, globalWeights, _coordinator,
             new IdentityVectorEncoder(_layout), _modeStore, modes, options);
     }
+
+    private Task<int> DrainAsync() =>
+        _drainer.TickOnceAsync(maxRows: 5_000, CancellationToken.None);
 
     public async Task DisposeAsync()
     {
@@ -89,79 +95,130 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task NewFingerprint_AllocatesModeRowSeededFromObservation()
+    public async Task NewFingerprint_RecordsObservation_DrainerSeedsModeRow()
     {
         var v = IdentityTestHelpers.MakeUnitVector(_layout.Dimension, seed: 41);
         var signals = await RunMatcherAsync(v, "sig-alloc-nav", browserMode: "navigation");
 
         var fpId = (string)signals[SignalKeys.IdentityFingerprintId];
-        var modes = await _modeStore.GetModesAsync(fpId);
-        Assert.Single(modes);
-        Assert.Equal("navigation", modes[0].ModeId);
-        Assert.Equal(1, modes[0].CentroidMaturity);
-        Assert.Equal(1, modes[0].ObservationCount);
 
-        // unseen=true on the request that introduced the mode.
+        // Append-only: the matcher recorded an observation but the mode row
+        // doesn't exist yet — it materialises only after the drainer ticks.
+        var beforeDrain = await _modeStore.GetModesAsync(fpId);
+        Assert.Empty(beforeDrain);
+
+        // unseen=true on the request that introduced the mode (because the
+        // cached mode row was null when the matcher emitted the signal).
         Assert.True(signals.TryGetValue(SignalKeys.IdentityBrowserModeUnseen, out var unseenObj));
         Assert.True((bool)unseenObj);
+        Assert.Equal(0, (int)signals[SignalKeys.IdentityBrowserModeMaturity]);
 
-        Assert.Equal(1, (int)signals[SignalKeys.IdentityBrowserModeMaturity]);
+        // One drain tick folds the observation into a fresh mode row.
+        var folded = await DrainAsync();
+        Assert.Equal(1, folded);
+
+        var afterDrain = await _modeStore.GetModesAsync(fpId);
+        Assert.Single(afterDrain);
+        Assert.Equal("navigation", afterDrain[0].ModeId);
+        Assert.Equal(1, afterDrain[0].CentroidMaturity);
+        Assert.Equal(1, afterDrain[0].ObservationCount);
     }
 
     [Fact]
-    public async Task L1Confirm_SameMode_EWMAsCentroidAndIncrementsMaturity()
+    public async Task L1Confirm_SameMode_BatchEWMAsAcrossAllPendingObservations()
     {
         var v = IdentityTestHelpers.MakeUnitVector(_layout.Dimension, seed: 43);
 
-        // Two requests, same primarySig, same browser mode -- second request hits
-        // L1 confirm and absorbs into the existing mode row.
+        // Three requests, same primarySig, same browser mode. Matcher records
+        // three observations (no mode row yet). One drain tick folds them all
+        // in a single batched EWMA against a freshly-seeded row.
         var s1 = await RunMatcherAsync(v, "sig-l1", browserMode: "navigation");
         var fpId = (string)s1[SignalKeys.IdentityFingerprintId];
-        var s2 = await RunMatcherAsync(v, "sig-l1", browserMode: "navigation");
+        await RunMatcherAsync(v, "sig-l1", browserMode: "navigation");
+        await RunMatcherAsync(v, "sig-l1", browserMode: "navigation");
+
+        var folded = await DrainAsync();
+        Assert.Equal(3, folded);
 
         var modes = await _modeStore.GetModesAsync(fpId);
         Assert.Single(modes);
         Assert.Equal("navigation", modes[0].ModeId);
-        Assert.Equal(2, modes[0].CentroidMaturity);
-        Assert.Equal(2, modes[0].ObservationCount);
+        // Batched EWMA over 3 observations against an empty row = N=3.
+        Assert.Equal(3, modes[0].CentroidMaturity);
+        Assert.Equal(3, modes[0].ObservationCount);
 
-        // Second request: unseen=false, maturity=2.
-        Assert.False(s2.TryGetValue(SignalKeys.IdentityBrowserModeUnseen, out _),
-            "Second observation of the same mode must not emit identity.browser_mode_unseen.");
-        Assert.Equal(2, (int)s2[SignalKeys.IdentityBrowserModeMaturity]);
+        // After the drain, a fourth request sees the cached mode row's
+        // maturity in the diagnostic signal — unseen=false, maturity=3
+        // (pre-fold; the new observation lands in the next drain tick).
+        var s4 = await RunMatcherAsync(v, "sig-l1", browserMode: "navigation");
+        Assert.False(s4.TryGetValue(SignalKeys.IdentityBrowserModeUnseen, out _),
+            "Cached mode row exists, so unseen must NOT be emitted.");
+        Assert.Equal(3, (int)s4[SignalKeys.IdentityBrowserModeMaturity]);
+
+        var folded2 = await DrainAsync();
+        Assert.Equal(1, folded2);
+        var afterSecondDrain = await _modeStore.GetModesAsync(fpId);
+        Assert.Equal(4, afterSecondDrain.Single().CentroidMaturity);
+        Assert.Equal(4, afterSecondDrain.Single().ObservationCount);
     }
 
     [Fact]
-    public async Task L1Confirm_DifferentMode_AllocatesNewModeRow_PreservesExisting()
+    public async Task L1Confirm_DifferentMode_DrainerSeedsEachTuple_Independently()
     {
         var v = IdentityTestHelpers.MakeUnitVector(_layout.Dimension, seed: 47);
 
-        // Request 1: navigation. Request 2: xhr against the same fingerprint
-        // -- L1 confirms but the mode is unseen; a new row gets allocated and
-        // the navigation row is untouched.
+        // Two requests in different modes against the same fingerprint. The
+        // drainer groups by (fp, mode_id) and seeds each tuple independently.
         var s1 = await RunMatcherAsync(v, "sig-mix", browserMode: "navigation");
         var fpId = (string)s1[SignalKeys.IdentityFingerprintId];
         var s2 = await RunMatcherAsync(v, "sig-mix", browserMode: "xhr");
+
+        // Second request's mode is also unseen at the time (no cached row).
+        Assert.True(s2.TryGetValue(SignalKeys.IdentityBrowserModeUnseen, out var unseenObj));
+        Assert.True((bool)unseenObj);
+
+        await DrainAsync();
 
         var modes = await _modeStore.GetModesAsync(fpId);
         var byMode = modes.ToDictionary(m => m.ModeId, m => m);
         Assert.Equal(2, byMode.Count);
         Assert.Equal(1, byMode["navigation"].CentroidMaturity);
-        Assert.Equal(1, byMode["navigation"].ObservationCount);
         Assert.Equal(1, byMode["xhr"].CentroidMaturity);
-        Assert.Equal(1, byMode["xhr"].ObservationCount);
+    }
 
-        Assert.True(s2.TryGetValue(SignalKeys.IdentityBrowserModeUnseen, out var unseenObj),
-            "Switching to a previously-unseen mode must emit identity.browser_mode_unseen.");
-        Assert.True((bool)unseenObj);
+    [Fact]
+    public async Task ConcurrentAbsorbsForSameTuple_DoNotRace()
+    {
+        // The append-only + batched drain fix is exactly here: previously the
+        // matcher did a read-modify-write per request, so N concurrent absorbs
+        // for the same (fp, mode) tuple all read the same baseline and one
+        // observation got lost when they raced to UPSERT. With the new design
+        // each absorb is one INSERT; one drain tick folds them all.
+        var v = IdentityTestHelpers.MakeUnitVector(_layout.Dimension, seed: 49);
+
+        var first = await RunMatcherAsync(v, "sig-race", browserMode: "xhr");
+        var fpId = (string)first[SignalKeys.IdentityFingerprintId];
+
+        const int concurrentCount = 16;
+        var tasks = new Task[concurrentCount];
+        for (var i = 0; i < concurrentCount; i++)
+            tasks[i] = RunMatcherAsync(v, "sig-race", browserMode: "xhr");
+        await Task.WhenAll(tasks);
+
+        var folded = await DrainAsync();
+        Assert.Equal(concurrentCount + 1, folded);
+
+        var modes = await _modeStore.GetModesAsync(fpId);
+        Assert.Single(modes);
+        Assert.Equal(concurrentCount + 1, modes[0].ObservationCount);
+        Assert.Equal(concurrentCount + 1, modes[0].CentroidMaturity);
     }
 
     [Fact]
     public async Task ParentAbsorbPath_UnaffectedByModeAbsorb()
     {
-        // Identity stability assertion: with mode absorb wired in, the parent
-        // store still receives RecordObservationAsync per request, just as it
-        // did before step 3.
+        // Identity stability assertion: the parent store still receives
+        // RecordObservationAsync per request, exactly as it did before step 3.
         var v = IdentityTestHelpers.MakeUnitVector(_layout.Dimension, seed: 53);
         var s1 = await RunMatcherAsync(v, "sig-parent", browserMode: "xhr");
         var fpId = (string)s1[SignalKeys.IdentityFingerprintId];
