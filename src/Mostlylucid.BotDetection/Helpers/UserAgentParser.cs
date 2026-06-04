@@ -9,53 +9,23 @@ namespace Mostlylucid.BotDetection.Helpers;
 public static class UserAgentParser
 {
     /// <summary>
-    ///     Extract browser family and version from a user agent string.
-    ///     Returns a tuple of (Family, Version) where Family is always non-null
-    ///     and Version may be null for UAs without parseable versions.
+    ///     Extract browser family and version from a user agent string. Pure delegate to
+    ///     <see cref="UapCoreUserAgentParser"/>, which reads uap-core's community-maintained
+    ///     <c>regexes.yaml</c> (~4000 rules) -- both family AND version come from the SAME
+    ///     match against the SAME regex, expanded via the rule's v1/v2/v3 replacement fields.
+    ///     Returns "Other"/null when no upstream rule matches.
+    ///
+    ///     The previous body of this method was a hand-rolled switch over ~16 hard-coded
+    ///     browser/tool tokens (Applebot returned "Safari" because the regex saw "Safari/"
+    ///     before the "Applebot/" token; Mastodon, Iceshrimp, Pleroma, Misskey, Bing-Preview
+    ///     all returned "Other"; Brave matched only on the literal "Brave" string which
+    ///     modern Brave doesn't put in its UA). The switch is gone; the YAML carries the
+    ///     canonical mapping and the update service refreshes it on a schedule.
     /// </summary>
     public static (string Family, string? Version) Parse(string ua)
     {
-        // Order matters: check specific browsers before generic Chrome/Safari
-        if (ua.Contains("Edg/", StringComparison.Ordinal))
-            return ("Edge", ExtractVersion(ua, "Edg/"));
-        if (ua.Contains("OPR/", StringComparison.Ordinal))
-            return ("Opera", ExtractVersion(ua, "OPR/"));
-        if (ua.Contains("Vivaldi/", StringComparison.Ordinal))
-            return ("Vivaldi", ExtractVersion(ua, "Vivaldi/"));
-        if (ua.Contains("Brave", StringComparison.Ordinal) && ua.Contains("Chrome/", StringComparison.Ordinal))
-            return ("Brave", ExtractVersion(ua, "Chrome/"));
-        if (ua.Contains("Firefox/", StringComparison.Ordinal))
-            return ("Firefox", ExtractVersion(ua, "Firefox/"));
-        if (ua.Contains("Chrome/", StringComparison.Ordinal))
-            return ("Chrome", ExtractVersion(ua, "Chrome/"));
-        if (ua.Contains("Safari/", StringComparison.Ordinal) && ua.Contains("Version/", StringComparison.Ordinal))
-            return ("Safari", ExtractVersion(ua, "Version/"));
-        if (ua.Contains("MSIE", StringComparison.Ordinal) || ua.Contains("Trident/", StringComparison.Ordinal))
-            return ("Internet Explorer", null);
-        // Bot/tool UAs
-        if (ua.Contains("curl/", StringComparison.OrdinalIgnoreCase))
-            return ("curl", ExtractVersion(ua, "curl/"));
-        if (ua.Contains("python", StringComparison.OrdinalIgnoreCase))
-            return ("Python", null);
-        if (ua.Contains("Go-http-client", StringComparison.Ordinal))
-            return ("Go", null);
-        if (ua.Contains("Java/", StringComparison.Ordinal))
-            return ("Java", ExtractVersion(ua, "Java/"));
-        if (ua.Contains("node", StringComparison.OrdinalIgnoreCase))
-            return ("Node.js", null);
-        if (ua.Contains("wget", StringComparison.OrdinalIgnoreCase))
-            return ("wget", null);
-        // Known bots
-        if (ua.Contains("Googlebot", StringComparison.OrdinalIgnoreCase))
-            return ("Googlebot", null);
-        if (ua.Contains("bingbot", StringComparison.OrdinalIgnoreCase))
-            return ("Bingbot", null);
-        if (ua.Contains("GPTBot", StringComparison.OrdinalIgnoreCase))
-            return ("GPTBot", null);
-        if (ua.Contains("ClaudeBot", StringComparison.OrdinalIgnoreCase))
-            return ("ClaudeBot", null);
-
-        return ("Other", null);
+        var parsed = UapCoreUserAgentParser.Default.Parse(ua);
+        return parsed ?? ("Other", null);
     }
 
     /// <summary>

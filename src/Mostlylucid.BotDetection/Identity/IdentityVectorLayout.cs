@@ -109,13 +109,25 @@ public sealed class IdentityVectorLayout
         Add("session.method_pattern", 1, IdentityVectorEncoding.HashLsh);
         Add("session.path_entropy", 1, IdentityVectorEncoding.Scalar);
 
+        // UA family (Chrome / Firefox / Safari / Googlebot / curl / etc., as produced by
+        // UserAgentParser.Parse). The literal UA-family identity was previously NOT in the
+        // vector, which let umbrella archetypes (googlebot, mastodon) win the cosine pick
+        // against chrome-* for any browser XHR / API request whose Sec-Fetch / Sec-Ch-Ua /
+        // Upgrade-Insecure-Requests dims collapsed to bot-shaped values under adblockers or
+        // by spec. Encoding the UA family directly means archetypes can simply assert what
+        // browser they represent and cosine separates families cleanly.
+        Add("hdr.ua_family", 2, IdentityVectorEncoding.HashLsh);
+
         // Quality
         Add("quality.dimension_presence_ratio", 1, IdentityVectorEncoding.Scalar);
         Add("quality.transport_quality", 1, IdentityVectorEncoding.Scalar);
         Add("quality.cleartext_flag", 1, IdentityVectorEncoding.Bool);
         Add("quality.layout_version", 1, IdentityVectorEncoding.Scalar);
 
-        return new IdentityVectorLayout(version: 1, slots);
+        // v2: added hdr.ua_family. Bumped from 1 because the dimension changed; stored centroids
+        // from v1 will mismatch on width and the matcher's version check will treat them as
+        // stale, triggering re-allocation on the next request from each fingerprint.
+        return new IdentityVectorLayout(version: 2, slots);
     }
 }
 

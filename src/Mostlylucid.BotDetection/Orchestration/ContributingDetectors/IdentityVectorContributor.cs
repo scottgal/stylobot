@@ -114,6 +114,18 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
         values["hdr.te"] = (string?)headers["TE"];
         values["hdr.connection_pattern"] = (string?)headers.Connection;
 
+        // UA family: literal browser/tool/bot identity from the User-Agent string. Encoding
+        // this directly lets archetypes assert "I represent Chrome" / "I represent Googlebot"
+        // and cosine separates families cleanly, instead of the umbrella mastodon/googlebot
+        // archetypes winning the pick whenever an XHR/adblocker observation collapses the
+        // header-shape dims. UserAgentParser.Parse returns "Other" when no canonical family
+        // matches, which lands all non-classified UAs (e.g. fediverse software) into a shared
+        // bin rather than impersonating a real browser family.
+        var ua = ctx.Request.Headers.UserAgent.ToString();
+        values["hdr.ua_family"] = string.IsNullOrEmpty(ua)
+            ? null
+            : Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(ua).Family;
+
         // HTTP-library tells
         values["tool.x_requested_with"] = headers.ContainsKey("X-Requested-With");
         values["tool.custom_header_signature"] = string.Join("|",
