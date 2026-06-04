@@ -1,0 +1,12 @@
+mode_id: xhr
+name: XHR / fetch
+description: AJAX / fetch / SignalR send. Browser-issued, not top-level navigation. Sec-Fetch-Dest=empty, Mode=cors, Site=same-origin, no Sec-Fetch-User (no user gesture). Accept collapses to */* or application/json. UIR absent.
+order: 30
+predicate:
+  sec_fetch_pattern_in: [7]
+  upgrade_insecure_requests: false
+  accept_in:
+    - "*/*"
+    - "application/json"
+    - "application/json, text/plain, */*"
+    - "text/plain, */*; q=0.01"

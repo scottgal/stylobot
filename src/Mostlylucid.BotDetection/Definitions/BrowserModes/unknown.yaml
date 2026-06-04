@@ -1,0 +1,5 @@
+mode_id: unknown
+name: Unknown
+description: Fallback character — the registry returns this when no other predicate matches. The empty predicate matches anything, so this row is always the last walked. Operators can introduce new characters by adding a YAML file with a lower order; this row stays the floor.
+order: 9999
+predicate: {}

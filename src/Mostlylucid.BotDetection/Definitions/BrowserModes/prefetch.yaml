@@ -1,0 +1,9 @@
+mode_id: prefetch
+name: Prefetch
+description: Browser speculation prefetch (Chrome's Sec-Purpose=prefetch and similar). Distinct from real navigation because the user did not initiate it; downstream policies may treat prefetch differently from a click-driven request.
+order: 4
+predicate:
+  has_header:
+    - "Sec-Purpose"
+  header_equals:
+    Sec-Purpose: "prefetch"

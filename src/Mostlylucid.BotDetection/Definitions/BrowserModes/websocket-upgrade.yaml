@@ -1,0 +1,9 @@
+mode_id: websocket-upgrade
+name: WebSocket upgrade
+description: HTTP Upgrade to WebSocket. Browser-issued, identifies real-time wire over an established session. Connection header includes upgrade and an Upgrade header value of websocket.
+order: 5
+predicate:
+  has_header:
+    - "Sec-WebSocket-Key"
+  header_equals:
+    Upgrade: "websocket"

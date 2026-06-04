@@ -1,0 +1,11 @@
+mode_id: signalr-negotiate
+name: SignalR negotiate
+description: SignalR hub handshake. POST to a path ending /hub/negotiate or /negotiate?negotiateVersion=N, same-origin XHR shape. Identifies real-time hub clients vs scripted polling.
+order: 20
+predicate:
+  method_in: ["POST"]
+  sec_fetch_pattern_in: [7]
+  upgrade_insecure_requests: false
+  path_matches:
+    - "*/hub/negotiate*"
+    - "*/negotiate*"

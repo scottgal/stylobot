@@ -21,6 +21,35 @@ public sealed class IdentityOptions
     public IdentityEngineOptions Engine { get; set; } = new();
     public IdentityCoordinatorOptions Coordinator { get; set; } = new();
     public IdentityLooksLikeOptions LooksLike { get; set; } = new();
+    public BrowserModeOptions BrowserMode { get; set; } = new();
+}
+
+/// <summary>
+///     Per-request browser-mode classifier knobs. A browser mode is the
+///     request-shape class a single browser is currently operating in — same
+///     Chrome user emits navigation on a page load, xhr on API fetches,
+///     sub-resource on stylesheets, signalr-negotiate on hub connects, etc.
+///     The inventory lives in YAML (<c>Definitions/BrowserModes/*.yaml</c>);
+///     these knobs only control the dispatch behaviour, not the predicate
+///     library. See docs/architecture/composite-character-fingerprints.md.
+/// </summary>
+public sealed class BrowserModeOptions
+{
+    /// <summary>
+    ///     Master switch. When false, the BrowserModeClassifierContributor does
+    ///     not run; downstream consumers see <c>identity.browser_mode</c> as
+    ///     absent. Defaults to true so step 1 (classifier-only, no persistence
+    ///     change) is active wherever Identity.Enabled is also true.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     Mode id emitted when no YAML predicate matches the request. The
+    ///     string is the registry's lookup key for the fallback mode; the YAML
+    ///     inventory should ship one entry with this id and an empty predicate
+    ///     so the lookup is well-defined.
+    /// </summary>
+    public string FallbackModeId { get; set; } = "unknown";
 }
 
 /// <summary>

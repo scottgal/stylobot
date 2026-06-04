@@ -1,0 +1,6 @@
+mode_id: bot-raw
+name: Bot raw
+description: No Sec-Fetch-* headers at all. Googlebot, curl, python-requests, wget, ad-hoc HTTP libraries. Real browsers always emit at least Sec-Fetch-Dest+Mode+Site on every request, even sub-resources; the absence of every Sec-Fetch-* slot is the cleanest tell.
+order: 80
+predicate:
+  sec_fetch_pattern_in: [0]

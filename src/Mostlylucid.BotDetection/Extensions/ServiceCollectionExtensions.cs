@@ -860,6 +860,16 @@ public static class ServiceCollectionExtensions
         // when no Llm package is registered, so the dashboard surface stays well-defined.
         services.TryAddSingleton<Identity.IdentityAiOpinionService>();
         services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
+        // Browser-mode classifier: same browser, different modes (navigation/xhr/
+        // sub-resource/signalr-negotiate/...). YAML-driven inventory in
+        // Definitions/BrowserModes/*.yaml. Foundation contributor priority 6,
+        // emits identity.browser_mode signal. See
+        // docs/architecture/composite-character-fingerprints.md.
+        services.TryAddSingleton<Identity.BrowserModes.BrowserModeRegistry>(sp =>
+            new Identity.BrowserModes.BrowserModeRegistry(
+                sp.GetRequiredService<ILogger<Identity.BrowserModes.BrowserModeRegistry>>(),
+                sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.Identity.BrowserMode.FallbackModeId));
+        services.AddSingleton<IContributingDetector, BrowserModeClassifierContributor>();
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());

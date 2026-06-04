@@ -493,6 +493,20 @@ public static class SignalKeys
     /// <summary>double in [0,1]: average dimension-presence ratio for the composed vector.</summary>
     public const string IdentityVectorQuality = "identity.vector_quality";
 
+    /// <summary>IReadOnlyDictionary&lt;string,object?&gt;: the raw-values dict the encoder consumed. Written by IdentityVectorContributor so the BrowserMode classifier can walk it without recomposing.</summary>
+    public const string IdentityRawValues = "identity.raw_values";
+
+    /// <summary>
+    ///     String: the browser mode this request was classified as. Same browser,
+    ///     different modes — a real Chrome user emits navigation on a page load,
+    ///     xhr on API fetches, sub-resource on stylesheets, etc. One of the ids
+    ///     declared in <c>Definitions/BrowserModes/*.yaml</c> (navigation, xhr,
+    ///     sub-resource, signalr-negotiate, websocket-upgrade, prefetch, bot-raw,
+    ///     unknown). Written by BrowserModeClassifierContributor.
+    ///     See docs/architecture/composite-character-fingerprints.md.
+    /// </summary>
+    public const string IdentityBrowserMode = "identity.browser_mode";
+
     /// <summary>String (UUID): the matched (or newly allocated) fingerprint shape. Written by FingerprintMatchContributor.</summary>
     public const string IdentityFingerprintId = "identity.fingerprint_id";
 

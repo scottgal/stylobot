@@ -1,0 +1,16 @@
+mode_id: sub-resource
+name: Sub-resource
+description: Browser-issued sub-resource fetch following a navigation — CSS, JS, image, font, web font, audio/video. Sec-Fetch-Dest is one of image/style/script/font/audio/video; Accept matches the resource family. Lots of these per real page load; near-zero on scripted clients.
+order: 40
+predicate:
+  method_in: ["GET"]
+  sec_fetch_pattern_in: [7]
+  sec_fetch_dest_in:
+    - "image"
+    - "style"
+    - "script"
+    - "font"
+    - "audio"
+    - "video"
+    - "track"
+    - "worker"

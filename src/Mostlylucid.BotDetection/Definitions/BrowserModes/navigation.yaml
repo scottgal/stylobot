@@ -1,0 +1,8 @@
+mode_id: navigation
+name: Navigation
+description: Top-level browser navigation. Real browser issuing a document request — full Sec-Fetch headers, Accept includes text/html, GET. The shape every legitimate browsing session starts on; scripted clients hitting authenticated paths skip it.
+order: 10
+predicate:
+  method_in: ["GET"]
+  sec_fetch_pattern_in: [7, 15]
+  accept_contains: "text/html"
