@@ -3,6 +3,9 @@ name: Mobile Chrome
 description: Chrome on Android or iOS.
 archetype_kind: human-browser
 dimensions:
+  hdr.ua_family:
+    value: "Chrome Mobile"
+    confidence: 0.95
   hdr.sec_ch_ua_mobile:
     value: true
     confidence: 0.95

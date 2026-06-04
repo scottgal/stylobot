@@ -3,6 +3,9 @@ name: Brave Desktop
 description: Brave browser on desktop. Chromium-family with Sec-GPC enabled by default.
 archetype_kind: human-browser
 dimensions:
+  hdr.ua_family:
+    value: "Brave"
+    confidence: 0.95
   hdr.accept:
     value: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     confidence: 0.8

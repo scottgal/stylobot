@@ -1,0 +1,17 @@
+archetype_id: chrome-xhr
+name: Chrome XHR
+description: Chromium-family browser issuing an XHR / fetch / SignalR request. XHRs by spec do not carry Upgrade-Insecure-Requests and only set 3 of 4 Sec-Fetch headers (Dest=empty, Mode=cors, Site=same-origin, no Sec-Fetch-User); Accept collapses to */*; many privacy extensions strip Sec-Ch-Ua-*. This archetype anchors the XHR shape so a real Chrome session doing API calls is not classified as the broader mastodon / googlebot umbrella archetypes whose minimal-headers patterns happen to overlap.
+archetype_kind: human-browser
+dimensions:
+  hdr.ua_family:
+    value: "Chrome"
+    confidence: 0.95
+  hdr.accept:
+    value: "*/*"
+    confidence: 0.85
+  hdr.sec_fetch_pattern:
+    value: 7              # Dest + Mode + Site, no Sec-Fetch-User on XHR
+    confidence: 0.9
+  hdr.upgrade_insecure_requests:
+    value: false
+    confidence: 0.85

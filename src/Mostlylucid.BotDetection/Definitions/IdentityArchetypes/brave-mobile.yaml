@@ -3,6 +3,9 @@ name: Brave Mobile
 description: Brave browser on Android. Chromium-family with Sec-GPC enabled by default.
 archetype_kind: human-browser
 dimensions:
+  hdr.ua_family:
+    value: "Brave"
+    confidence: 0.95
   hdr.accept_encoding_ordered:
     value: "gzip, deflate, br, zstd"
     confidence: 0.85

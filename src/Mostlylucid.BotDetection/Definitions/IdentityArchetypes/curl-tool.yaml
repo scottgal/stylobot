@@ -3,6 +3,9 @@ name: curl
 description: Command-line HTTP client (curl, wget, similar).
 archetype_kind: tool
 dimensions:
+  hdr.ua_family:
+    value: "curl"
+    confidence: 0.95
   hdr.accept:
     value: "*/*"
     confidence: 0.95

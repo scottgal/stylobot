@@ -3,6 +3,9 @@ name: Googlebot
 description: Google's web crawler.
 archetype_kind: verified-bot
 dimensions:
+  hdr.ua_family:
+    value: "Googlebot"
+    confidence: 0.95
   hdr.accept:
     value: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     confidence: 0.6

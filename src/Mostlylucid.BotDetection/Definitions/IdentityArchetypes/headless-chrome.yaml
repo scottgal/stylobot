@@ -3,6 +3,9 @@ name: Headless Chrome
 description: Puppeteer / Playwright / chrome --headless signatures.
 archetype_kind: headless
 dimensions:
+  hdr.ua_family:
+    value: "HeadlessChrome"
+    confidence: 0.95
   hdr.accept:
     value: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     confidence: 0.7

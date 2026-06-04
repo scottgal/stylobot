@@ -3,6 +3,9 @@ name: python-requests
 description: Python `requests` library default fingerprint.
 archetype_kind: tool
 dimensions:
+  hdr.ua_family:
+    value: "Python Requests"
+    confidence: 0.95
   hdr.accept:
     value: "*/*"
     confidence: 0.9
