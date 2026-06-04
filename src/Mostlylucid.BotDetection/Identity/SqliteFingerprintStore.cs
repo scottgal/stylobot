@@ -156,6 +156,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             await IdentitySchema.CreateCoreTablesAsync(conn, ct);
             await IdentitySchema.MigrateExistingTablesAsync(conn, ct);
             await IdentitySchema.BackfillRootCentroidsAsync(conn, ct);
+            await IdentitySchema.SeedFingerprintModesAsync(conn, ct);
             await EnsureLayoutRowAsync(conn, ct);
 
             // Best-effort sqlite-vec load. The brute-force index is the FOSS default;

@@ -104,6 +104,28 @@ internal static class IdentitySchema
             layout_json         TEXT NOT NULL,
             installed_at        TEXT NOT NULL
         );
+
+        -- Per-fingerprint browser-mode rows. A fingerprint can hold several mode
+        -- centroids — one per request shape the same identity plays during a
+        -- session (navigation / xhr / sub-resource / signalr-negotiate / ...).
+        -- Each row reuses the existing centroid + weights blob layout; the
+        -- parent fingerprints.centroid stays as the rollup (weighted mean of
+        -- children, recomputed on a schedule tick). See
+        -- docs/architecture/composite-browser-mode-fingerprints.md.
+        CREATE TABLE IF NOT EXISTS fingerprint_modes (
+            fingerprint_id        TEXT NOT NULL REFERENCES fingerprints(fingerprint_id) ON DELETE CASCADE,
+            mode_id               TEXT NOT NULL,
+            centroid              BLOB NOT NULL,
+            centroid_maturity     INTEGER NOT NULL,
+            weights               BLOB NOT NULL,
+            observation_count     INTEGER NOT NULL DEFAULT 0,
+            first_seen            TEXT NOT NULL,
+            last_seen             TEXT NOT NULL,
+            inferred_archetype    TEXT,
+            inferred_confidence   REAL,
+            PRIMARY KEY (fingerprint_id, mode_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_fm_last_seen ON fingerprint_modes(last_seen DESC);
         """;
 
     /// <summary>
@@ -199,6 +221,42 @@ internal static class IdentitySchema
             upd.Parameters.AddWithValue("@now", now);
             await upd.ExecuteNonQueryAsync(ct);
         }
+    }
+
+    /// <summary>
+    ///     Backfills <c>fingerprint_modes</c> with a single synthetic <c>unknown</c>
+    ///     mode row for every fingerprint that doesn't already have a mode row.
+    ///     The row mirrors the parent fingerprint's centroid / weights / maturity /
+    ///     observation_count / first_seen / last_seen verbatim, so existing
+    ///     identities are immediately mode-addressable. As real observations
+    ///     arrive after this run, the classifier splits them off into proper mode
+    ///     rows and the <c>unknown</c> row decays as its observation_count stops
+    ///     growing (the prune atom drops it once both gates clear).
+    ///
+    ///     Idempotent: the <c>NOT EXISTS</c> clause makes re-runs no-ops once the
+    ///     fingerprint has any mode row, and the <c>INSERT OR IGNORE</c> guards the
+    ///     PRIMARY KEY collision if the row was inserted between the SELECT and the
+    ///     INSERT by a concurrent path.
+    /// </summary>
+    public static async Task SeedFingerprintModesAsync(SqliteConnection conn, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow.ToString("O");
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO fingerprint_modes (
+                fingerprint_id, mode_id, centroid, centroid_maturity, weights,
+                observation_count, first_seen, last_seen, inferred_archetype, inferred_confidence
+            )
+            SELECT
+                f.fingerprint_id, 'unknown', f.centroid, f.centroid_maturity, f.weights,
+                f.observation_count, f.first_seen, f.last_seen, f.inferred_client_type, f.inferred_type_confidence
+              FROM fingerprints f
+             WHERE NOT EXISTS (
+                   SELECT 1 FROM fingerprint_modes m
+                    WHERE m.fingerprint_id = f.fingerprint_id
+               )
+            """;
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>

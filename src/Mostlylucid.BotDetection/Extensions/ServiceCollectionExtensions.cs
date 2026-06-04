@@ -870,6 +870,13 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<Identity.BrowserModes.BrowserModeRegistry>>(),
                 sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.Identity.BrowserMode.FallbackModeId));
         services.AddSingleton<IContributingDetector, BrowserModeClassifierContributor>();
+        // Per-fingerprint browser-mode store (step 2 of the composite spec).
+        // Surface the interface so commercial Postgres can swap in its impl;
+        // FOSS default is the SQLite-backed store sharing the fingerprints.db
+        // connection. Read-side is LFU-cached, writes invalidate per-fingerprint.
+        services.TryAddSingleton<Identity.BrowserModes.SqliteFingerprintBrowserModeStore>();
+        services.TryAddSingleton<Identity.BrowserModes.IFingerprintBrowserModeStore>(
+            sp => sp.GetRequiredService<Identity.BrowserModes.SqliteFingerprintBrowserModeStore>());
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());
