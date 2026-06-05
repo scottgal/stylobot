@@ -272,6 +272,7 @@ public sealed class SignatureAggregateCache
                 // "GB Chrome User" until a new live-traffic detection refreshes
                 // the aggregate.
                 UaFamily = bot.UaFamily,
+                UserAgent = bot.UserAgent,
                 EntityId = bot.EntityId,
             };
 
@@ -422,6 +423,7 @@ public sealed class SignatureAggregateCache
             ThreatBand = detection.ThreatBand,
             IsVerifiedBot = detection.IsVerifiedBot,
             UaFamily = ExtractUaFamilySignal(detection),
+            UserAgent = detection.UserAgentRaw ?? detection.UserAgent,
             EntityId = detection.EntityId,
         };
 
@@ -514,6 +516,14 @@ public sealed class SignatureAggregateCache
                 var fam = ExtractUaFamilySignal(detection);
                 if (!string.IsNullOrEmpty(fam)) existing.UaFamily = fam;
             }
+            // Raw UA tracks the LATEST detection so an auto-update / UA bump
+            // reflects the current version. Never overwrite with null (some
+            // detection paths quorum-exit before the UA was serialised onto
+            // the broadcast event); a missing UA must not erase a previously
+            // populated one or the dashboard's "Chrome 119 / macOS" label
+            // would flicker back to "GB User" on every subsequent hit.
+            var incomingUa = detection.UserAgentRaw ?? detection.UserAgent;
+            if (!string.IsNullOrEmpty(incomingUa)) existing.UserAgent = incomingUa;
             // EntityId latches sticky on the first non-null value. Verdict-cache
             // skip paths sometimes carry no entity id (the gateway didn't resolve
             // one for that request); a missing id MUST NOT erase a previously
@@ -591,6 +601,7 @@ public sealed class SignatureAggregateCache
                 ThreatBand = agg.ThreatBand,
                 IsVerifiedBot = agg.IsVerifiedBot,
                 UaFamily = agg.UaFamily,
+                UserAgent = agg.UserAgent,
                 EntityId = agg.EntityId,
                 HitTrend = agg.ReadHitTrend(),
             };
@@ -685,6 +696,17 @@ public sealed class SignatureAggregate
     ///     dashboard rows degrade to "GB User" instead of "GB Chrome User".
     /// </summary>
     public string? UaFamily;
+
+    /// <summary>
+    ///     Raw User-Agent string of the latest detection -- feeds the
+    ///     dashboard's rich client identity label ("Chrome 119 / macOS")
+    ///     via uap-core in <see cref="SignatureDisplayName.Resolve"/>. Without
+    ///     this the cache-hit fast path on the gateway short-circuits
+    ///     SbVisitorList / Top Bots responses to a null UserAgent and the
+    ///     rows degrade back to "GB User N" even after Postgres SELECTs
+    ///     started carrying user_agent_raw.
+    /// </summary>
+    public string? UserAgent;
 
     /// <summary>
     ///     Durable visitor handle resolved by the gateway via
