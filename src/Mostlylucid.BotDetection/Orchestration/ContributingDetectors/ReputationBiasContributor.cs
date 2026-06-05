@@ -261,20 +261,11 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         // type null on Suspect so the UA contributor / matcher's classification
         // survives. The reputation evidence is already captured in Reason /
         // ConfidenceDelta / Weight.
-        //
-        // ConfirmedBad / ManuallyBlocked carve-out: when browser attestation is
-        // present, the confidence weight is already downgraded above (line 211)
-        // and the SignatureRiskVerdictComposer suppresses the hostile pin via
-        // its BrowserAttestationVerified gate. Leaving BotType=MaliciousBot
-        // stamped here would override the matcher's archetype identity (real
-        // Chrome XHR getting labelled MaliciousBot on the dashboard heading
-        // even after the composer correctly downgraded the row). Mirror the
-        // Suspect-skip logic: leave the type null and let upstream survive.
-        string? botType = (reputation.State, hasBrowserAttestation) switch
+        string? botType = reputation.State switch
         {
-            (ReputationState.ConfirmedBad, false)    => BotType.MaliciousBot.ToString(),
-            (ReputationState.ManuallyBlocked, false) => BotType.MaliciousBot.ToString(),
-            _                                        => null
+            ReputationState.ConfirmedBad => BotType.MaliciousBot.ToString(),
+            ReputationState.ManuallyBlocked => BotType.MaliciousBot.ToString(),
+            _ => null
         };
 
         return new DetectionContribution

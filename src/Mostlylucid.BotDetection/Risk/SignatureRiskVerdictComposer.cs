@@ -57,30 +57,20 @@ public static class SignatureRiskVerdictComposer
         var hostilePin = false;
         string? hostileWhy = null;
 
-        // ConfirmedBad gate has two carve-outs because the UA-pattern reputation
-        // cache key is too coarse to identify a specific actor: an earlier
-        // spoofer of "bingbot" from a residential IP latches the WHOLE bingbot
-        // UA pattern bad, and the same applies to any human Chrome variant whose
-        // UA was once associated with abuse.
-        //
-        //   1. FriendlyIpVerified: vendor-IP corroboration (Googlebot, Bingbot,
-        //      Applebot). Verified IP-range membership is the authoritative
-        //      transport-level identity for declared good bots and beats the
-        //      UA-level cache.
-        //   2. BrowserAttestationVerified: per-request Sec-Fetch-Site attestation
-        //      present + low probability + low threat (gates set on
-        //      RiskVerdictOptions). Real browsers can never satisfy carve-out 1
-        //      because they have no published-CIDR identity to verify against;
-        //      this is their transport-layer analogue. Without it, every real
-        //      Chrome visitor sharing a UA with an earlier scraper inherits
-        //      BotType=MaliciousBot + RiskBand=VeryHigh from the latch.
-        //
-        // Honeypot hits and RawThreatScore are per-request behavioural signals
-        // and are NOT suppressed by either carve-out -- behaviour wins for
-        // negative signals.
+        // ConfirmedBad gate has an IP-verification carve-out: the UA-pattern
+        // reputation cache key is too coarse, so an earlier spoofer of "bingbot"
+        // from a residential IP latches the WHOLE bingbot UA pattern bad. When
+        // the next visitor uses that same UA from a real Microsoft IP (and the
+        // FediverseDomainContributor / IP-range contributor positively verifies
+        // it), the cache verdict is wrong for this specific request. IP
+        // verification is authoritative for this transport-level identity --
+        // it beats the UA-level cache. Without this carve-out the composer
+        // pins hostile on real Bingbot / Googlebot / Applebot the moment one
+        // impersonator visit poisons their UA pattern. (Honeypot hits and
+        // RawThreatScore are per-request behavioural signals and are NOT
+        // suppressed by IP verification -- behaviour still wins there.)
         var ipVerifiedFriendly = inputs.FriendlyIpVerified == true;
-        var browserAttestationVerified = inputs.BrowserAttestationVerified;
-        if (inputs.ConfirmedBad && !ipVerifiedFriendly && !browserAttestationVerified)
+        if (inputs.ConfirmedBad && !ipVerifiedFriendly)
         {
             hostilePin = true;
             hostileWhy = "Confirmed bad: reputation abort or honeypot hit on this signature";
@@ -89,10 +79,6 @@ public static class SignatureRiskVerdictComposer
         else if (inputs.ConfirmedBad && ipVerifiedFriendly)
         {
             reasons.Add("hostile_pin_suppressed: ip_verified beats reputation cache");
-        }
-        else if (inputs.ConfirmedBad && browserAttestationVerified)
-        {
-            reasons.Add("hostile_pin_suppressed: browser_attestation outweighs reputation latch (per-request transport evidence)");
         }
         else if (inputs.RawThreatScore >= s.ThreatHostileThreshold)
         {

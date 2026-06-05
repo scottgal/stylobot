@@ -119,23 +119,6 @@ public sealed record SignatureRiskInputs
     /// +https://instance/ and the fediverse software-name was confirmed). Same
     /// bool? semantics as <see cref="FriendlyIpVerified"/>.</summary>
     public bool? FriendlyDomainVerified { get; init; }
-
-    /// <summary>
-    ///     Per-request transport-layer verification: Sec-Fetch-Site attestation
-    ///     present AND this request's heuristic-rolled bot probability + raw
-    ///     threat score sit inside the carve-out band (see
-    ///     <see cref="Models.RiskVerdictOptions"/>). When true, the composer
-    ///     suppresses the <see cref="ConfirmedBad"/>-driven hostile pin so a real
-    ///     browser sharing a UA pattern with an earlier abuser does not inherit
-    ///     <c>BotType=MaliciousBot</c> / <c>RiskBand=VeryHigh</c> from the
-    ///     UA-pattern reputation cache. Mirrors <see cref="FriendlyIpVerified"/>
-    ///     at the transport/header layer.
-    ///     <para>
-    ///     Does NOT suppress raw-threat-score or BotNetwork-cluster hostile pins
-    ///     -- crisp negative behaviour wins over identity claims either way.
-    ///     </para>
-    /// </summary>
-    public bool BrowserAttestationVerified { get; init; }
 }
 
 /// <summary>
