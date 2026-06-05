@@ -136,9 +136,13 @@ public sealed class IdentityArchetypeRegistry
     {
         var centroid = archetype.Centroid;
         var mask = archetype.DimensionMask;
+        var variance = archetype.VarianceVector ?? DefaultVarianceFor(archetype);
         const float presenceEpsilon = 1e-6f;
+        const double varianceFloor = 1e-4; // prevents div-by-zero and log(0)
 
-        double weightedSqDist = 0, totalMask = 0;
+        double weightedLogLikelihood = 0;
+        double totalMask = 0;
+
         foreach (var slot in _encoder.Layout.Slots)
         {
             if (slot.Offset >= mask.Length) continue;
@@ -156,13 +160,54 @@ public sealed class IdentityArchetypeRegistry
             for (var i = slot.Offset; i < end; i++)
             {
                 double diff = vector[i] - centroid[i];
-                weightedSqDist += slotMask * diff * diff;
+                double v = i < variance.Length ? Math.Max(varianceFloor, variance[i]) : varianceFloor;
+                // Gaussian per-dim log-likelihood (constants dropped, monotone-preserving):
+                //   LL = -0.5 * diff^2 / v   - 0.5 * log(v)
+                // First term penalises deviation. Second term rewards specificity (tight var -> large
+                // positive bonus). Together they make tight archetypes preferred for near-centroid
+                // observations and broad archetypes preferred for distant ones.
+                double logLik = -0.5 * (diff * diff) / v - 0.5 * Math.Log(v);
+                weightedLogLikelihood += slotMask * logLik;
             }
             totalMask += slotMask * (end - slot.Offset);
         }
         if (totalMask <= 0) return 0.0;
-        var avg = weightedSqDist / totalMask;
-        return 1.0 / (1.0 + avg);
+
+        var avgLogLikelihood = weightedLogLikelihood / totalMask;
+        // Sigmoid bounds the score to (0, 1) regardless of variance and deviation magnitudes.
+        return 1.0 / (1.0 + Math.Exp(-avgLogLikelihood));
+    }
+
+    /// <summary>
+    ///     Default per-dimension variance derived from the archetype's own mask confidence.
+    ///     High mask confidence means the archetype "really means it" on that dim, so variance
+    ///     is tight; low confidence means the dim is loosely asserted, so variance is broad.
+    ///         variance[i] = (1 - confidence[i])^2 * baseScale + varianceFloor
+    ///     baseScale of 0.05 yields ~1e-4 for high-confidence dims and ~0.04 for low-confidence
+    ///     ones, giving the Gaussian-NLL specificity reward a workable dynamic range without any
+    ///     descendant calibration runs.
+    /// </summary>
+    private static float[] DefaultVarianceFor(IdentityArchetype archetype)
+    {
+        // L2-normalised vectors (both centroid and observation) produce non-trivial
+        // per-dim diffs even on matching raw inputs because the normaliser divides by
+        // the magnitude of the populated-dim set, which differs between centroid and
+        // observation. A small baseScale would let the Gaussian penalty explode on
+        // those tiny "structural" diffs and drown the specificity reward. A larger
+        // baseScale keeps default variance broad enough that the specificity term
+        // dominates for high-confidence archetypes while the penalty term still
+        // bites when diff is genuinely large (far observation).
+        const float baseScale = 1.0f;
+        const float varianceFloor = 1e-4f;
+        var mask = archetype.DimensionMask;
+        var result = new float[mask.Length];
+        for (var i = 0; i < mask.Length; i++)
+        {
+            var conf = Math.Clamp(mask[i], 0f, 1f);
+            var diff = 1f - conf;
+            result[i] = diff * diff * baseScale + varianceFloor;
+        }
+        return result;
     }
 
     private IReadOnlyList<IdentityArchetype> LoadFromEmbeddedResources()
