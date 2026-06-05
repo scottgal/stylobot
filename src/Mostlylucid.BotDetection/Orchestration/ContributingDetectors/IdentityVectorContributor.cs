@@ -23,15 +23,18 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
 {
     private readonly ILogger<IdentityVectorContributor> _logger;
     private readonly IdentityVectorEncoder _encoder;
+    private readonly EncoderResultCache _cache;
     private readonly bool _enabled;
 
     public IdentityVectorContributor(
         ILogger<IdentityVectorContributor> logger,
         IdentityVectorEncoder encoder,
+        EncoderResultCache cache,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _encoder = encoder;
+        _cache = cache;
         _enabled = options.Value.Identity.Enabled;
     }
 
@@ -44,6 +47,29 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
+        // Sub-resource amortisation: the foundation wave runs unconditionally for every
+        // request, but the identity-stable portion of the vector (network, locale, header
+        // bag, transport, hdr.ua_family) is invariant across all requests from the same
+        // client. Cache the encoded vector keyed on primary_signature with a short TTL so
+        // a 30-asset page load pays the ~1 μs encode once, not thirty times. Volatile
+        // session.* dims (request_rate, path_entropy, session_age) carry the freshness
+        // cost; the matcher's seedWeights already downweight those dims via MinWeight so
+        // the staleness doesn't move identity matching results within the TTL window.
+        var primarySig = state.GetSignal<string>(SignalKeys.PrimarySignature);
+        if (_cache.TryGet(primarySig ?? string.Empty, out var cached) && cached is not null)
+        {
+            state.WriteSignal(SignalKeys.IdentityVector, cached);
+            var cachedPresenceSlot = _encoder.Layout.FindSlot("quality.dimension_presence_ratio");
+            if (cachedPresenceSlot is not null)
+                state.WriteSignal(SignalKeys.IdentityVectorQuality, (double)cached[cachedPresenceSlot.Offset]);
+            // ComposeRawValues + the IdentityRawValues signal are intentionally skipped on
+            // cache hit: BrowserModeClassifierContributor + FingerprintMatchContributor.
+            // ResolveBrowserModeId self-compose raw values when the signal is absent, and a
+            // stale raw dict (from a prior request whose path / method differed) would
+            // mis-classify the current request's browser mode.
+            return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
+        }
+
         var raw = ComposeRawValues(state);
         var vector = _encoder.Encode(raw);
         state.WriteSignal(SignalKeys.IdentityVector, vector);
@@ -52,6 +78,9 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
         var presenceSlot = _encoder.Layout.FindSlot("quality.dimension_presence_ratio");
         if (presenceSlot is not null)
             state.WriteSignal(SignalKeys.IdentityVectorQuality, (double)vector[presenceSlot.Offset]);
+
+        if (!string.IsNullOrEmpty(primarySig))
+            _cache.Set(primarySig, vector);
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
     }

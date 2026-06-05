@@ -1,3 +1,7 @@
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
 namespace Mostlylucid.BotDetection.Identity;
 
 /// <summary>
@@ -63,28 +67,89 @@ public sealed class BruteForceIdentityAnchorIndex : IIdentityAnchorIndex
     {
         // Inputs are L2-normalised at composition time, so cosine collapses to a dot product.
         if (a.Length != b.Length) return 0;
-        double dot = 0;
-        for (var i = 0; i < a.Length; i++) dot += a[i] * b[i];
-        return dot;
+        return DotProductSimd(a, b);
     }
 
     /// <summary>
     ///     Weighted cosine. Inputs are L2-normalised but weights break that invariant, so this
     ///     re-normalises by the weighted norms.
+    ///
+    ///     SIMD path: on ARM64 NEON (Vector&lt;float&gt;.Count = 4) or x64 AVX2 (8) the inner
+    ///     loop processes Count elements per iteration. For the 88-dim layout v2 this means
+    ///     22 NEON iterations vs 88 scalar iterations. Tail handles the remainder when
+    ///     vector length isn't a multiple of Vector&lt;float&gt;.Count.
     /// </summary>
     public static double WeightedCosine(float[] a, float[] b, float[] weights)
     {
         if (a.Length != b.Length || a.Length != weights.Length) return 0;
-        double dot = 0, normA = 0, normB = 0;
-        for (var i = 0; i < a.Length; i++)
-        {
-            var w = weights[i];
-            dot += w * a[i] * b[i];
-            normA += w * a[i] * a[i];
-            normB += w * b[i] * b[i];
-        }
+
+        var (dot, normA, normB) = WeightedCosineAccumulatorsSimd(a, b, weights);
         var denom = Math.Sqrt(normA * normB);
         return denom > 0 ? dot / denom : 0;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static double DotProductSimd(float[] a, float[] b)
+    {
+        var len = a.Length;
+        var aSpan = MemoryMarshal.Cast<float, float>(a);
+        var bSpan = MemoryMarshal.Cast<float, float>(b);
+
+        var width = Vector<float>.Count;
+        var i = 0;
+        var dot = Vector<float>.Zero;
+
+        for (; i <= len - width; i += width)
+        {
+            var va = new Vector<float>(aSpan.Slice(i, width));
+            var vb = new Vector<float>(bSpan.Slice(i, width));
+            dot += va * vb;
+        }
+
+        double sum = Vector.Sum(dot);
+        for (; i < len; i++) sum += a[i] * b[i];
+        return sum;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static (double Dot, double NormA, double NormB) WeightedCosineAccumulatorsSimd(
+        float[] a, float[] b, float[] weights)
+    {
+        var len = a.Length;
+        var aSpan = MemoryMarshal.Cast<float, float>(a);
+        var bSpan = MemoryMarshal.Cast<float, float>(b);
+        var wSpan = MemoryMarshal.Cast<float, float>(weights);
+
+        var width = Vector<float>.Count;
+        var dot = Vector<float>.Zero;
+        var normA = Vector<float>.Zero;
+        var normB = Vector<float>.Zero;
+        var i = 0;
+
+        for (; i <= len - width; i += width)
+        {
+            var va = new Vector<float>(aSpan.Slice(i, width));
+            var vb = new Vector<float>(bSpan.Slice(i, width));
+            var vw = new Vector<float>(wSpan.Slice(i, width));
+            var wa = vw * va;
+            var wb = vw * vb;
+            dot += wa * vb;
+            normA += wa * va;
+            normB += wb * vb;
+        }
+
+        double sumDot = Vector.Sum(dot);
+        double sumA = Vector.Sum(normA);
+        double sumB = Vector.Sum(normB);
+        for (; i < len; i++)
+        {
+            var w = weights[i];
+            sumDot += w * a[i] * b[i];
+            sumA += w * a[i] * a[i];
+            sumB += w * b[i] * b[i];
+        }
+
+        return (sumDot, sumA, sumB);
     }
 
     private sealed class CandidateComparer : IComparer<(double Score, string Id)>

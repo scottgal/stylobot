@@ -825,6 +825,11 @@ public static class ServiceCollectionExtensions
         // Both contributors are foundation, dormant when Identity.Enabled = false.
         services.TryAddSingleton(sp => Identity.IdentityVectorLayout.DefaultV1());
         services.TryAddSingleton<Identity.IdentityVectorEncoder>();
+        // Sub-resource amortisation cache. IdentityVectorContributor short-circuits its
+        // Encode call when this hands back a live cached vector for the request's
+        // primary_signature. Dormant when Identity.Enabled = false or
+        // BotDetection:Identity:Vector:EncoderCacheEnabled = false.
+        services.TryAddSingleton<Identity.EncoderResultCache>();
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
         // Surface the read-only fingerprint interface so the dashboard / REST endpoints
         // resolve it without depending on the concrete store - swapped for a HTTP-backed

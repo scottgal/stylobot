@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
+using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,7 +24,32 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 /// </summary>
 public partial class DetectionBroadcastMiddleware
 {
-    private static readonly ConcurrentDictionary<Type, PropertyInfo?> CountryCodePropertyCache = new();
+    /// <summary>
+    ///     Per-Type cache of a compiled <c>obj =&gt; ((SomeGeoLocationType)obj).CountryCode</c>
+    ///     accessor. The dashboard layer doesn't build-time reference the GeoDetection
+    ///     <c>GeoLocation</c> class (we accept any GeoLocation provider that exposes a
+    ///     <c>CountryCode</c> property on its result object), so the historical implementation
+    ///     called <c>Type.GetProperty("CountryCode")?.GetValue(obj)</c> on every request that
+    ///     had a populated GeoLocation context item. Reflection invocation per request is
+    ///     measurably slower than a one-time Expression-compiled delegate; this cache pays
+    ///     the expression compile cost once per distinct type and amortises it across every
+    ///     subsequent request. Returns null for a type that has no readable
+    ///     <c>CountryCode</c> string property so the upstream-header fallback still kicks in.
+    /// </summary>
+    private static readonly ConcurrentDictionary<Type, Func<object, string?>?> CountryCodeAccessorCache = new();
+
+    private static Func<object, string?>? GetCountryCodeAccessor(Type t)
+        => CountryCodeAccessorCache.GetOrAdd(t, static type =>
+        {
+            var prop = type.GetProperty("CountryCode");
+            if (prop is null || !prop.CanRead || prop.PropertyType != typeof(string)) return null;
+            var param = System.Linq.Expressions.Expression.Parameter(typeof(object), "o");
+            var cast = System.Linq.Expressions.Expression.Convert(param, type);
+            var access = System.Linq.Expressions.Expression.Property(cast, prop);
+            return System.Linq.Expressions.Expression
+                .Lambda<Func<object, string?>>(access, param)
+                .Compile();
+        });
 
     // Outbound broadcasts route through SignalRBroadcastConstrainer so the
     // detection-rate doesn't dictate the beacon rate. See that class for the
@@ -350,25 +376,15 @@ public partial class DetectionBroadcastMiddleware
         var sigValue = ResolvePrimarySignature(context);
         var countryCode = ResolveCountryCode(context, evidence.Signals);
 
-        var topReasons = evidence.Contributions
-            .Where(c => !string.IsNullOrEmpty(c.Reason))
-            .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-            .Take(5)
-            .Select(c => c.Reason!)
-            .ToList();
-
-        var detectorContributions = evidence.Contributions
-            .GroupBy(c => c.DetectorName)
-            .ToDictionary(
-                g => g.Key,
-                g => new DashboardDetectorContribution
-                {
-                    ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
-                    Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
-                    Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
-                    ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
-                    Priority = g.First().Priority
-                });
+        // Single-pass aggregation. Previous version walked evidence.Contributions five
+        // times: Where + OrderByDescending + Take + Select + ToList for top reasons,
+        // then GroupBy + ToDictionary with four separate Sum() calls per group plus a
+        // First() for Priority and a string.Join scanning the group again for the
+        // reason concat. On a 25-contributor request that's >100 LINQ enumerator allocs
+        // and ~6 passes over the list. The hot path runs on every request that hits the
+        // dashboard broadcast layer; LINQ chains here meaningfully eat into the
+        // microsecond budget the foundation wave just earned back.
+        var (topReasons, detectorContributions) = AggregateContributionsAndTopReasons(evidence.Contributions);
 
         var importantSignals = BuildImportantSignals(context, evidence.Signals, ref countryCode);
 
@@ -613,9 +629,8 @@ public partial class DetectionBroadcastMiddleware
         // From GeoLocation middleware context
         if (context.Items.TryGetValue("GeoLocation", out var geoLocObj) && geoLocObj != null)
         {
-            var countryProp = CountryCodePropertyCache.GetOrAdd(
-                geoLocObj.GetType(), t => t.GetProperty("CountryCode"));
-            if (countryProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
+            var accessor = GetCountryCodeAccessor(geoLocObj.GetType());
+            if (accessor?.Invoke(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
                 return geoCC;
         }
 
@@ -661,7 +676,12 @@ public partial class DetectionBroadcastMiddleware
 
         try
         {
-            var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(upstreamSignalsHeader);
+            // Source-gen JsonTypeInfo replaces the reflection-based deserialize call;
+            // closes IL2026/IL3050 AoT warnings and removes a per-request reflection
+            // metadata walk on the gateway-hydration edge path.
+            var parsed = System.Text.Json.JsonSerializer.Deserialize(
+                upstreamSignalsHeader,
+                UpstreamSignalsJsonContext.Default.DictionaryStringJsonElement);
             if (parsed != null)
             {
                 var count = 0;
@@ -838,9 +858,8 @@ public partial class DetectionBroadcastMiddleware
         if (countryCode == null &&
             context.Items.TryGetValue("GeoLocation", out var geoLocObj) && geoLocObj != null)
         {
-            var countryProp = CountryCodePropertyCache.GetOrAdd(
-                geoLocObj.GetType(), t => t.GetProperty("CountryCode"));
-            if (countryProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
+            var accessor = GetCountryCodeAccessor(geoLocObj.GetType());
+            if (accessor?.Invoke(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
                 countryCode = geoCC;
         }
 
@@ -860,6 +879,80 @@ public partial class DetectionBroadcastMiddleware
     }
 
     /// <summary>
+    ///     Single-pass aggregation over <paramref name="contributions"/>. Returns the
+    ///     top-5 reasons ranked by absolute weighted confidence delta, and a per-detector
+    ///     summary keyed by detector name. Replaces a chain of LINQ Where + OrderByDescending
+    ///     + Take + Select + GroupBy + ToDictionary that walked the contribution list
+    ///     six times. One pass populates a small temp list of (reasons, weighted) plus a
+    ///     dictionary keyed on detector name; a final sort + slice handles top-5.
+    /// </summary>
+    internal static (List<string> TopReasons, Dictionary<string, DashboardDetectorContribution> ByDetector)
+        AggregateContributionsAndTopReasons(IReadOnlyList<DetectionContribution> contributions)
+    {
+        var byDetector = new Dictionary<string, DetectorAccumulator>(StringComparer.Ordinal);
+        var reasonsBuffer = new List<(string Reason, double Score)>(contributions.Count);
+
+        for (var i = 0; i < contributions.Count; i++)
+        {
+            var c = contributions[i];
+
+            // Per-detector accumulator.
+            var name = c.DetectorName;
+            if (!string.IsNullOrEmpty(name))
+            {
+                ref var acc = ref System.Runtime.InteropServices.CollectionsMarshal
+                    .GetValueRefOrAddDefault(byDetector, name, out var existed);
+                if (!existed)
+                    acc.Priority = c.Priority;
+                acc.ConfidenceDelta += c.ConfidenceDelta;
+                acc.Contribution += c.ConfidenceDelta * c.Weight;
+                acc.ExecutionTimeMs += c.ProcessingTimeMs;
+                if (!string.IsNullOrEmpty(c.Reason))
+                    (acc.Reasons ??= new List<string>(2)).Add(c.Reason);
+            }
+
+            // Top-reasons feed.
+            if (!string.IsNullOrEmpty(c.Reason))
+                reasonsBuffer.Add((c.Reason, Math.Abs(c.ConfidenceDelta * c.Weight)));
+        }
+
+        // Sort reasons by abs(weighted delta) descending, then slice to 5. Sort on a
+        // freshly built buffer rather than the input list so the matcher's contribution
+        // ordering is preserved for everyone else who reads evidence.Contributions.
+        reasonsBuffer.Sort(static (a, b) => b.Score.CompareTo(a.Score));
+        var topReasons = new List<string>(Math.Min(5, reasonsBuffer.Count));
+        for (var i = 0; i < reasonsBuffer.Count && i < 5; i++)
+            topReasons.Add(reasonsBuffer[i].Reason);
+
+        // Materialise the per-detector dict into the final record-shaped dictionary.
+        var byDetectorOut = new Dictionary<string, DashboardDetectorContribution>(
+            byDetector.Count, StringComparer.Ordinal);
+        foreach (var kv in byDetector)
+        {
+            var a = kv.Value;
+            byDetectorOut[kv.Key] = new DashboardDetectorContribution
+            {
+                ConfidenceDelta = a.ConfidenceDelta,
+                Contribution = a.Contribution,
+                ExecutionTimeMs = a.ExecutionTimeMs,
+                Priority = a.Priority,
+                Reason = a.Reasons is null ? null : string.Join("; ", a.Reasons),
+            };
+        }
+
+        return (topReasons, byDetectorOut);
+    }
+
+    private struct DetectorAccumulator
+    {
+        public double ConfidenceDelta;
+        public double Contribution;
+        public double ExecutionTimeMs;
+        public int Priority;
+        public List<string>? Reasons;
+    }
+
+    /// <summary>
     ///     Projects the in-process <c>DashboardDetectionEvent</c> into the transport-friendly
     ///     <c>DetectionEvent</c> record and hands it to the registered publisher. Catches and
     ///     logs any failure - publish errors must never affect request processing.
@@ -872,17 +965,19 @@ public partial class DetectionBroadcastMiddleware
     {
         try
         {
-            var topReasons = evidence?.Contributions
-                .Where(c => !string.IsNullOrWhiteSpace(c.Reason))
-                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-                .Take(5)
-                .Select(c => c.Reason!)
-                .ToList();
-
-            var detectorContribs = evidence?.Contributions
-                .Where(c => !string.IsNullOrWhiteSpace(c.DetectorName))
-                .GroupBy(c => c.DetectorName!)
-                .ToDictionary(g => g.Key, g => g.Sum(c => c.ConfidenceDelta * c.Weight));
+            // Both topReasons and detector contributions were already aggregated when the
+            // DashboardDetectionEvent was built in BuildDetectionFromEvidence. Reading them
+            // off the detection object instead of recomputing from evidence.Contributions
+            // saves a second LINQ chain (Where + OrderByDescending + Take + Select + ToList)
+            // plus a second GroupBy + Sum pass per request.
+            var topReasons = detection.TopReasons;
+            Dictionary<string, double>? detectorContribs = null;
+            if (detection.DetectorContributions is { Count: > 0 } dc)
+            {
+                detectorContribs = new Dictionary<string, double>(dc.Count, StringComparer.Ordinal);
+                foreach (var kv in dc)
+                    detectorContribs[kv.Key] = kv.Value.Contribution;
+            }
 
             var evt = new Mostlylucid.BotDetection.Orchestration.Telemetry.DetectionEvent
             {

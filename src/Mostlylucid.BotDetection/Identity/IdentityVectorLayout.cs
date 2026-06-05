@@ -19,18 +19,25 @@ public sealed class IdentityVectorLayout
     /// <summary>Total vector dimension count (D).</summary>
     public int Dimension { get; }
 
-    private readonly IReadOnlyList<IdentityVectorSlot> _slots;
+    private readonly IdentityVectorSlot[] _slots;
     private readonly Dictionary<string, IdentityVectorSlot> _byName;
 
     public IdentityVectorLayout(int version, IEnumerable<IdentityVectorSlot> slots)
     {
         Version = version;
-        _slots = slots.ToList();
+        _slots = slots.ToArray();
         _byName = _slots.ToDictionary(s => s.Name, s => s, StringComparer.OrdinalIgnoreCase);
-        Dimension = _slots.Sum(s => s.Width);
+        var sum = 0;
+        for (var i = 0; i < _slots.Length; i++) sum += _slots[i].Width;
+        Dimension = sum;
     }
 
     public IReadOnlyList<IdentityVectorSlot> Slots => _slots;
+
+    // Encoder-internal accessor that lets the hot path iterate the array directly
+    // without paying for IEnumerable<T>.GetEnumerator() boxing. Public Slots stays
+    // typed as IReadOnlyList<T> so existing callers are unaffected.
+    internal IdentityVectorSlot[] SlotsArray => _slots;
 
     /// <summary>Lookup a slot by name; null if no such slot exists in this layout.</summary>
     public IdentityVectorSlot? FindSlot(string name) => _byName.GetValueOrDefault(name);
@@ -180,8 +187,20 @@ public sealed class IdentityVectorEncoder
         var v = new float[_layout.Dimension];
         var presentSlotCount = 0;
 
-        foreach (var slot in _layout.Slots)
+        // Hoisted UTF-8 scratch buffer for HashLsh slots. Real values (ASN strings, country
+        // codes, accept-encoding lists, JA4 hashes, header-order hashes) are well under 256
+        // bytes; longer strings fall back to a heap byte[] so correctness is preserved.
+        // Hoisting outside the loop avoids stackalloc-in-loop pessimisation by the JIT.
+        Span<byte> stackBuf = stackalloc byte[256];
+
+        // Index over the concrete array rather than `foreach (var slot in _layout.Slots)`;
+        // the public Slots is typed IReadOnlyList<T>, whose enumerator is boxed per call
+        // (~80 B/req in MemoryDiagnoser). The internal SlotsArray accessor lets the JIT
+        // emit straight bounds-checked array indexing here.
+        var slots = _layout.SlotsArray;
+        for (var sx = 0; sx < slots.Length; sx++)
         {
+            var slot = slots[sx];
             if (!rawValues.TryGetValue(slot.Name, out var raw) || raw is null)
                 continue;
 
@@ -215,11 +234,12 @@ public sealed class IdentityVectorEncoder
 
                 case IdentityVectorEncoding.HashLsh:
                     {
-                        var bytes = raw switch
-                        {
-                            string s => Encoding.UTF8.GetBytes(s),
-                            _ => Encoding.UTF8.GetBytes(raw.ToString() ?? "")
-                        };
+                        var s = raw as string ?? raw.ToString() ?? string.Empty;
+                        var byteCount = Encoding.UTF8.GetByteCount(s);
+                        Span<byte> bytes = byteCount <= stackBuf.Length
+                            ? stackBuf[..byteCount]
+                            : new byte[byteCount];
+                        Encoding.UTF8.GetBytes(s, bytes);
                         // Spread across slot.Width slots using independent hash seeds so
                         // a small change in `bytes` moves at most one slot.
                         for (var i = 0; i < slot.Width; i++)

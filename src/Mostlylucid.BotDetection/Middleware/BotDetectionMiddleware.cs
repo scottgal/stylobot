@@ -940,8 +940,10 @@ public class BotDetectionMiddleware(
                 context.Response.Headers.TryAdd($"{prefix}Verdict", aggregated.EarlyExitVerdict.Value.ToString());
         }
 
-        // Include AI status for calibration visibility
-        context.Response.Headers.TryAdd($"{prefix}Ai-Ran", aggregated.AiRan.ToString().ToLowerInvariant());
+        // Include AI status for calibration visibility. Hard-code the bool→string
+        // constants instead of bool.ToString().ToLowerInvariant() — saves the
+        // "True"/"False" alloc + the lowercased copy alloc per request.
+        context.Response.Headers.TryAdd($"{prefix}Ai-Ran", aggregated.AiRan ? "true" : "false");
 
         // Threat scoring headers (from IntentContributor)
         if (headerConfig.IncludeThreatScore)
@@ -971,13 +973,26 @@ public class BotDetectionMiddleware(
             context.Response.Headers.TryAdd($"{prefix}Result-Json", base64);
         }
 
-        // Reason header: top contributing detector reason (opt-in per policy, PII-free)
+        // Reason header: top contributing detector reason (opt-in per policy, PII-free).
+        // Single-pass linear scan tracking the best (highest |delta * weight|) match -
+        // previously a Where + OrderByDescending + FirstOrDefault chain that walked the
+        // contribution list, sorted it, then took the first element. For 15-25 typical
+        // contributions per request the sort is wasted work; we only need the maximum.
         if (headerConfig.IncludeReasonHeader && aggregated.Contributions.Count > 0)
         {
-            var topReason = aggregated.Contributions
-                .Where(c => Math.Abs(c.ConfidenceDelta) > 0.01)
-                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-                .FirstOrDefault()?.Reason;
+            string? topReason = null;
+            double bestScore = 0;
+            for (var i = 0; i < aggregated.Contributions.Count; i++)
+            {
+                var c = aggregated.Contributions[i];
+                if (Math.Abs(c.ConfidenceDelta) <= 0.01) continue;
+                var score = Math.Abs(c.ConfidenceDelta * c.Weight);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    topReason = c.Reason;
+                }
+            }
 
             if (topReason is not null)
             {
