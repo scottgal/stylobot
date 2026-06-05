@@ -65,6 +65,50 @@ public sealed class SignatureRiskVerdictComposerTests
     }
 
     [Fact]
+    public void ConfirmedBad_WithBrowserAttestation_SuppressesHostilePin()
+    {
+        // Live repro from sig o9jGwItMMckqUIyrYxOMhA on staging.stylobot.net
+        // (bug U/V): a real Chrome XHR request whose UA pattern had been latched
+        // ConfirmedBad in the reputation cache by an earlier abuser. Per-request
+        // signals (Sec-Fetch-Site attestation, 96% human heuristic, threat=none)
+        // unambiguously identify this visit as human, but with no IP-vendor range
+        // to verify against the carve-out at <see cref="FriendlyIpVerified"/> can
+        // never fire. <see cref="BrowserAttestationVerified"/> is the transport-
+        // layer analogue and must suppress the hostile pin -- otherwise the
+        // composer pins RiskBand=VeryHigh + the ledger overrides PrimaryBotType
+        // to MaliciousBot on the persisted row.
+        var inputs = Base(probability: 0.06, confidence: 0.68) with
+        {
+            ConfirmedBad = true,
+            BrowserAttestationVerified = true,
+        };
+
+        var verdict = SignatureRiskVerdictComposer.Compose(inputs);
+
+        Assert.False(verdict.HostilePinFired);
+        Assert.NotEqual(RiskBand.VeryHigh, verdict.RiskBand);
+        Assert.Contains(verdict.Reasons, r => r.Contains("hostile_pin_suppressed: browser_attestation"));
+    }
+
+    [Fact]
+    public void HostilePin_FromRawThreat_NotSuppressedByBrowserAttestation()
+    {
+        // Carve-out is reputation-cache-specific. Raw threat score above the
+        // hostile gate is per-request behavioural evidence -- a human running
+        // SQLi scans from a browser still trips hostile even with Sec-Fetch
+        // present. Behaviour wins for crisp negative signals.
+        var inputs = Base(probability: 0.06, confidence: 0.68, rawThreat: 0.85) with
+        {
+            BrowserAttestationVerified = true,
+        };
+
+        var verdict = SignatureRiskVerdictComposer.Compose(inputs);
+
+        Assert.True(verdict.HostilePinFired);
+        Assert.Equal(RiskBand.VeryHigh, verdict.RiskBand);
+    }
+
+    [Fact]
     public void HostilePin_FromConfirmedBad_OverridesFriendlyVerification()
     {
         // A verified Googlebot UA that has previously tripped a honeypot or reputation

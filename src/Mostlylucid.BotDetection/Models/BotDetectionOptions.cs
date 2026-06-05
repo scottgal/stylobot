@@ -417,6 +417,14 @@ public class BotDetectionOptions
     /// </summary>
     public ReputationOptions Reputation { get; set; } = new();
 
+    /// <summary>
+    ///     Risk-verdict composition + carve-outs. Owns the thresholds the
+    ///     <see cref="Risk.SignatureRiskVerdictComposer"/> consults when deciding
+    ///     whether per-request transport evidence (browser attestation) outweighs
+    ///     a UA-pattern reputation latch.
+    /// </summary>
+    public RiskVerdictOptions RiskVerdict { get; set; } = new();
+
     // ==========================================
     // Blackboard Orchestrator Settings
     // ==========================================
@@ -4372,4 +4380,58 @@ public class UapCoreOptions
     ///     subsequent re-binds would require restart to take effect.
     /// </summary>
     public int RegexMatchTimeoutMs { get; set; } = 100;
+}
+
+/// <summary>
+///     Settings for <see cref="Risk.SignatureRiskVerdictComposer"/> and the
+///     ledger -> composer plumbing. Binds under <c>BotDetection:RiskVerdict</c>.
+///     <para>
+///     The browser-attestation carve-out closes the parallel-axis bug where a
+///     real browser sharing a UA with an earlier abuser inherits the UA-pattern
+///     reputation latch (ConfirmedBad) and gets stamped <c>BotType=MaliciousBot</c>
+///     + <c>RiskBand=VeryHigh</c> even when this specific request is human (low
+///     probability, low threat, Sec-Fetch-Site attestation present). It mirrors
+///     the existing <see cref="Risk.SignatureRiskInputs.FriendlyIpVerified"/>
+///     carve-out at the transport/header layer, where vendor-published IP ranges
+///     are not available as a verification channel.
+///     </para>
+///     <para>
+///     The carve-out only suppresses the <c>ConfirmedBad</c> hostile pin.
+///     Raw-threat-score and BotNetwork-cluster hostile pins are independent --
+///     crisp negative behaviour still wins over identity claims.
+///     </para>
+/// </summary>
+public class RiskVerdictOptions
+{
+    /// <summary>
+    ///     Master toggle for the browser-attestation carve-out. Default true.
+    ///     When false the composer reverts to the legacy gate
+    ///     (<c>ConfirmedBad &amp;&amp; !FriendlyIpVerified</c> only).
+    /// </summary>
+    public bool BrowserAttestationCarveOutEnabled { get; set; } = true;
+
+    /// <summary>
+    ///     Maximum sigmoid-rollup bot probability for the carve-out to fire.
+    ///     Above this, the per-request signal is itself suspicious enough that
+    ///     the reputation latch is corroborated and the carve-out is suppressed.
+    ///     Default 0.20 (the legacy "Low" band ceiling).
+    /// </summary>
+    public double BrowserAttestationMaxBotProbability { get; set; } = 0.20;
+
+    /// <summary>
+    ///     Minimum coverage confidence for the carve-out to fire. A fresh
+    ///     signature with no confidence floor falls back to the legacy
+    ///     behaviour. Default 0.30 (matches the composer's "low_confidence"
+    ///     demotion floor).
+    /// </summary>
+    public double BrowserAttestationMinConfidence { get; set; } = 0.30;
+
+    /// <summary>
+    ///     Maximum raw threat score for the carve-out to fire. Above this,
+    ///     crisp negative behaviour (honeypot, injection payload) is the
+    ///     dominant signal and the hostile pin stays. Default 0.15 (the
+    ///     <see cref="ThreatBand.None"/> ceiling shared with
+    ///     <see cref="Risk.SignatureRiskVerdictComposer.BucketThreat"/>).
+    /// </summary>
+    public double BrowserAttestationMaxThreatScore { get; set; } = 0.15;
 }
