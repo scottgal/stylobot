@@ -10,7 +10,7 @@
         "Medium" or "Elevated" => "text-warning",
         _ => "text-success"
     };
-    var displayName = SignatureDisplayName.Resolve(Model.PrimarySignature, Model.BotName, Model.BotType, null, Model.CountryCode, Model.IsBot, Model.UaFamily);
+    var displayName = SignatureDisplayName.Resolve(Model.PrimarySignature, Model.BotName, Model.BotType, null, Model.CountryCode, Model.IsBot, Model.UaFamily, userAgent: Model.UserAgent);
     var probPct = (Model.BotProbability * 100).ToString("F0");
     var confPct = (Model.Confidence * 100).ToString("F0");
     var actionClass = ActionDisplayHelper.GetBadgeCssClass(Model.Action);

@@ -214,6 +214,10 @@
                                country/UA, so we no longer carry per-widget local logic
                                that appended `#2` / `(first seen ...)` -- that produced
                                labels that diverged from the rest of the dashboard. *@
+                            // DashboardTopBotEntry has UaFamily but not raw UserAgent yet -- the SQL
+                            // projection only carries the parsed family. Until the GetTopBotsAsync
+                            // SELECT is widened to include user_agent_raw, the top-bots widget falls
+                            // back to the family-only label path inside Resolve. Tracked separately.
                             var displayName = SignatureDisplayName.Resolve(
                                 bot.PrimarySignature,
                                 bot.BotName,

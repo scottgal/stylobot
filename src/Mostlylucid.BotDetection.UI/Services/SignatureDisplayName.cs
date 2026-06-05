@@ -1,33 +1,47 @@
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Helpers;
+
 namespace Mostlylucid.BotDetection.UI.Services;
 
 /// <summary>
 ///     Single source of truth for the human-readable label of a signature row.
 ///     Every view that needs to render "what is this fingerprint called" calls
 ///     <see cref="Resolve"/>. Labels come ONLY from real signals -- an operator
-///     rename, a detector-emitted bot name, a real bot-type classification,
-///     country + UA family composition for ordinary visitors, or the short
-///     hash prefix as the final fallback. No wordlists, no invented personas.
+///     rename, a recognised bot identity, the parsed UA family + version + OS
+///     for ordinary visitors, or the short hash prefix as the final fallback.
+///     No wordlists, no invented personas, no mode labels in the client slot.
 /// </summary>
 public static class SignatureDisplayName
 {
     /// <summary>
     ///     Resolve the visible name for a signature. Order of preference:
     ///     1. Operator-set <paramref name="customLabel"/> (free-form rename).
-    ///     2. Detected <paramref name="botName"/> (e.g. "Googlebot", "GPTBot").
-    ///     3. Detected <paramref name="botType"/> (e.g. "Scraper") when not the
-    ///        useless "Unknown"/"Tool"/"Other" sentinels.
-    ///     4. Composite "{CountryCode} {UaFamily} {Role}" when both signals are
-    ///        available -- e.g. "GB Chrome User", "US curl Bot". Country codes
-    ///        beat adjectives (American / British / German) because table cells
-    ///        are width-constrained and the country-flag primitive next to the
-    ///        label already shows the country visually. NO random-character
-    ///        hash suffix -- the previous "GB Chrome User * rVfs" form was
-    ///        unreadable. Duplicate composite labels in the same render get a
-    ///        numeric tail (" 2", " 3", ...) via the <paramref name="seen"/>
-    ///        dictionary.
-    ///     5. UaFamily on its own ("Chrome", "Bot Chrome") when country is
-    ///        unknown but the family resolved.
-    ///     6. Short signature prefix as the bare-minimum fallback.
+    ///     2. Detected <paramref name="botName"/> ONLY when it matches a known
+    ///        bot pattern in <see cref="BotPatternLoader"/> (Googlebot, GPTBot,
+    ///        Mastodon, etc.). Mode-shaped archetype names like "Chrome XHR" or
+    ///        "Mobile Chrome (header drift)" are NOT bot identities -- they
+    ///        describe HOW a known client made the request, not WHAT it is.
+    ///        Those fall through to the UA-rich label below so the operator
+    ///        sees the client (Chrome 119 / macOS) plus the mode badge,
+    ///        instead of "Chrome XHR" displacing the client identity. Per
+    ///        spec docs/architecture/composite-browser-mode-fingerprints.md.
+    ///     3. Rich UA label "{Family} {Version} / {OsFamily}" parsed from
+    ///        <paramref name="userAgent"/> via uap-core (e.g. "Chrome 119 /
+    ///        macOS", "Safari 17 / iOS"). When OS resolves but version does
+    ///        not, the family alone is composed with the OS. This is where
+    ///        the dashboard SHOWS what it KNOWS -- every visitor row whose
+    ///        UA parsed at all gets a coherent client label instead of a
+    ///        "GB User N" synth placeholder.
+    ///     4. Detected <paramref name="botType"/> (e.g. "Scraper") when not
+    ///        the useless "Unknown" / "Tool" / "Other" sentinels and no UA
+    ///        label resolved.
+    ///     5. Composite "{CountryCode} {UaFamily} {Role}" when raw UA is not
+    ///        available but the family is.
+    ///     6. {CountryCode} {Role} when only the country is known.
+    ///     7. {UaFamily} alone when only the family is known.
+    ///     8. Short signature prefix as the bare-minimum fallback.
+    ///     Duplicate composite labels in the same render get a numeric tail
+    ///     (" 2", " 3", ...) via the <paramref name="seen"/> dictionary.
     ///     Never returns null and never returns a hallucinated label.
     /// </summary>
     public static string Resolve(
@@ -38,9 +52,10 @@ public static class SignatureDisplayName
         string? countryCode,
         bool isBot,
         string? uaFamily = null,
-        IDictionary<string, int>? seen = null)
+        IDictionary<string, int>? seen = null,
+        string? userAgent = null)
     {
-        var label = BuildLabel(signature, botName, botType, customLabel, countryCode, isBot, uaFamily);
+        var label = BuildLabel(signature, botName, botType, customLabel, countryCode, isBot, uaFamily, userAgent);
         if (seen is null) return label;
 
         // Dedup with a numeric suffix when multiple rows in the same render
@@ -63,9 +78,49 @@ public static class SignatureDisplayName
         string? customLabel,
         string? countryCode,
         bool isBot,
-        string? uaFamily)
+        string? uaFamily,
+        string? userAgent)
     {
         if (!string.IsNullOrWhiteSpace(customLabel)) return customLabel.Trim();
+
+        // botName wins ONLY when it's a recognised bot identity. Mode-shaped
+        // archetype names like "Chrome XHR" / "Mobile Chrome (header drift)"
+        // aren't bot identities -- they're shape annotations on a known client
+        // -- and letting them displace the client identity is the parallel-
+        // axis bug the composite-browser-mode spec was meant to kill. The
+        // BotPatternLoader catalog is the canonical "is this a real bot UA
+        // family" check; an operator-set rename is already handled by
+        // customLabel above. (Pattern-id leaks "ip:..." / "ua:..." are
+        // always rejected.)
+        if (!string.IsNullOrWhiteSpace(botName) && !IsPatternIdLeak(botName))
+        {
+            var catalogBotType = BotPatternLoader.Default.FindBotTypeByName(botName);
+            if (!string.IsNullOrEmpty(catalogBotType))
+                return botName.Trim();
+        }
+
+        // Rich UA label -- the dashboard SHOWING what it KNOWS. uap-core gives
+        // us family + version + OS family from the raw UA on every request,
+        // and we already store it; "GB User N" / "Chrome XHR" instead of
+        // "Chrome 119 / macOS" was a regression in operator legibility.
+        if (!string.IsNullOrWhiteSpace(userAgent))
+        {
+            var (family, version) = UserAgentParser.Parse(userAgent);
+            var os = UserAgentParser.ExtractOs(userAgent);
+            var familyClean = !string.IsNullOrWhiteSpace(family) && !IsUselessUaFamily(family) ? family.Trim() : null;
+            var osClean = !string.IsNullOrWhiteSpace(os) ? os.Trim() : null;
+            if (familyClean != null)
+            {
+                var head = !string.IsNullOrWhiteSpace(version)
+                    ? $"{familyClean} {version}"
+                    : familyClean;
+                return osClean != null ? $"{head} / {osClean}" : head;
+            }
+        }
+
+        // botName fallback for matcher-derived names that aren't in the bot
+        // pattern catalog but aren't mode-shaped either (operator-named
+        // fingerprints, fediverse instance suffixes, etc.).
         if (!string.IsNullOrWhiteSpace(botName) && !IsPatternIdLeak(botName))
             return botName.Trim();
         if (!string.IsNullOrWhiteSpace(botType) && !IsUselessBotType(botType))
@@ -78,7 +133,7 @@ public static class SignatureDisplayName
         var country = !string.IsNullOrEmpty(countryCode) && countryCode.Length == 2 && countryCode != "XX"
             ? countryCode.ToUpperInvariant()
             : null;
-        var family = string.IsNullOrWhiteSpace(uaFamily) || IsUselessUaFamily(uaFamily)
+        var uaFam = string.IsNullOrWhiteSpace(uaFamily) || IsUselessUaFamily(uaFamily)
             ? null
             : uaFamily.Trim();
         var role = isBot ? "Bot" : "User";
@@ -86,14 +141,14 @@ public static class SignatureDisplayName
         // No random-character hash suffix on the visible label. Operators read
         // "GB Chrome User" -- not "GB User * rVfs". Duplicate composite labels
         // get a numeric tail (" 2", " 3") via the seen dictionary in Resolve.
-        if (country != null && family != null)
-            return $"{country} {family} {role}";
+        if (country != null && uaFam != null)
+            return $"{country} {uaFam} {role}";
 
         if (country != null)
             return $"{country} {role}";
 
-        if (family != null)
-            return isBot ? $"Bot {family}" : family;
+        if (uaFam != null)
+            return isBot ? $"Bot {uaFam}" : uaFam;
 
         return isBot ? $"Bot {ShortHash(signature)}" : ShortHash(signature);
     }

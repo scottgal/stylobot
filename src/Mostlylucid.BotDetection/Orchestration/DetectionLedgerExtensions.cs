@@ -239,7 +239,27 @@ public static class DetectionLedgerExtensions
     {
         var exitContrib = ledger.EarlyExitContribution!;
         var verdict = ParseEarlyExitVerdict(exitContrib.EarlyExitVerdict);
-        var isBot = verdict is EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.VerifiedBadBot;
+        // is_bot reflects the UA classification, not the early-exit verdict.
+        // Whitelisted ("we accept this client") is a verdict on the ACTION,
+        // not a claim about whether the client is a bot -- so when the
+        // contributor stamped a real BotType (curl=Tool, etc.) the
+        // persisted row must carry is_bot=true so the dashboard's row
+        // groupings, summary counts, and BotType chip agree with each
+        // other. The previous "Tool but Human Allow" disconnect on
+        // internal-network curl rows came from inferring is_bot purely
+        // from the verdict. VerifiedGoodBot / VerifiedBadBot remain
+        // bots by definition; Whitelisted / Blacklisted defer to the UA
+        // classification; everything else stays human.
+        var exitBotType = ParseBotType(exitContrib.BotType);
+        var hasMeaningfulBotType = exitBotType is not null and not BotType.Unknown;
+        var isBot = verdict switch
+        {
+            EarlyExitVerdict.VerifiedGoodBot => true,
+            EarlyExitVerdict.VerifiedBadBot  => true,
+            EarlyExitVerdict.Whitelisted     => hasMeaningfulBotType,
+            EarlyExitVerdict.Blacklisted     => hasMeaningfulBotType,
+            _                                => false
+        };
 
         var earlySignals = premergedSignals != null
             ? new Dictionary<string, object>(premergedSignals)

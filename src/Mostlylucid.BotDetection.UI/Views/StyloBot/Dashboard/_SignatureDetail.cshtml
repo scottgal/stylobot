@@ -11,7 +11,7 @@
     // one from here, plus the breadcrumb/title), and the host could never customise
     // it.
     var signatureDisplayName = Model.Found
-        ? SignatureDisplayName.Resolve(Model.SignatureId, Model.BotName, Model.BotType, null, Model.CountryCode, Model.IsBot)
+        ? SignatureDisplayName.Resolve(Model.SignatureId, Model.BotName, Model.BotType, null, Model.CountryCode, Model.IsBot, userAgent: Model.UserAgent)
         : null;
     ViewData["Title"] = signatureDisplayName ?? "Not Found";
     var bp = Model.BasePath;
