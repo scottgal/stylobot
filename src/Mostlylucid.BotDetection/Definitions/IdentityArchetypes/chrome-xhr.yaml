@@ -2,6 +2,14 @@ archetype_id: chrome-xhr
 name: Chrome XHR
 description: Chromium-family browser issuing an XHR / fetch / SignalR request. XHRs by spec do not carry Upgrade-Insecure-Requests and only set 3 of 4 Sec-Fetch headers (Dest=empty, Mode=cors, Site=same-origin, no Sec-Fetch-User); Accept collapses to */*; many privacy extensions strip Sec-Ch-Ua-*. This archetype anchors the XHR shape so a real Chrome session doing API calls is not classified as the broader mastodon / googlebot umbrella archetypes whose minimal-headers patterns happen to overlap.
 archetype_kind: human-browser
+# MODE archetype, not a client identity. The matcher still scores against this
+# centroid (FindNearest considers it) so a real Chrome XHR doesn't drift to
+# googlebot at allocation, but the dashboard's identity display + drift "Origin
+# -> Current" comparison MUST skip mode archetypes (FindNearestClient). Without
+# this flag the visitor row reads "Chrome XHR" as the client identity and the
+# drift banner shows "Chrome Desktop -> Chrome XHR 65%" -- a mode shift
+# presented as a client-identity change. Per docs/architecture/composite-browser-mode-fingerprints.md.
+archetype_role: mode
 dimensions:
   hdr.ua_family:
     value: "Chrome"

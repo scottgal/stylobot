@@ -424,13 +424,31 @@ public class BotDetectionMiddleware(
                     // but tracks severity instead of always-Low.
                     var cachedThreatBand = Risk.SignatureRiskVerdictComposer.BucketThreat(v.BotProbability);
 
+                    // When the live UA matcher stamps a real bot type (Tool, Scraper,
+                    // SearchEngine, etc.) the row IS a bot regardless of what the
+                    // cached BotProbability says. The cached probability comes from
+                    // an earlier full-pipeline run that may have landed at 0 via an
+                    // EarlyExit Whitelisted path; the categorical "is this a bot UA"
+                    // judgement comes from the UA pattern catalog, not from a sigmoid
+                    // rollup. Without this override the cached fastpath persists
+                    // "bot_type=Tool / bot_name=curl / is_bot=false" rows -- the
+                    // exact "Tool but Human" disconnect Bug U/V verification
+                    // surfaced on staging. Mirrors the CreateEarlyExitResult fix
+                    // for the same display-coherence reason.
+                    var hasMeaningfulBotType = cachedPrimaryBotType is not null
+                                               and not BotType.Unknown;
+                    var cachedBotProbability = hasMeaningfulBotType ? 1.0 : v.BotProbability;
+                    var cachedRiskBand = hasMeaningfulBotType && v.BotProbability < 0.5
+                        ? v.RiskBand // preserve the cached band -- the verdict is "known bot, accepted"
+                        : v.RiskBand;
+
                     var cachedEvidence = new AggregatedEvidence
                     {
-                        BotProbability = v.BotProbability,
+                        BotProbability = cachedBotProbability,
                         Confidence = v.Confidence,
                         PriorProbability = v.BotProbability,
                         RequestContributionDelta = 0.0,
-                        RiskBand = v.RiskBand,
+                        RiskBand = cachedRiskBand,
                         ThreatBand = cachedThreatBand,
                         TotalProcessingTimeMs = 0.0,
                         PrimaryBotType = cachedPrimaryBotType,
@@ -446,9 +464,9 @@ public class BotDetectionMiddleware(
                     // is treated as "not a bot" by controller code -- silently breaking
                     // `if (HttpContext.IsBot()) return RedirectToAction("LoginDenied");`
                     // for returning bot visitors.
-                    var cachedIsBot = v.BotProbability > 0.5;
+                    var cachedIsBot = hasMeaningfulBotType || v.BotProbability > 0.5;
                     context.Items[IsBotKey] = cachedIsBot;
-                    context.Items[BotProbabilityKey] = v.BotProbability;
+                    context.Items[BotProbabilityKey] = cachedBotProbability;
                     context.Items[BotDetectionResultKey] = new BotDetectionResult
                     {
                         IsBot = cachedIsBot,

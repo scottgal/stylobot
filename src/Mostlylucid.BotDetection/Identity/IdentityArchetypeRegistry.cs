@@ -225,6 +225,7 @@ public sealed class IdentityArchetypeRegistry
             Name = dto.Name ?? dto.ArchetypeId,
             Description = dto.Description,
             ArchetypeKind = dto.ArchetypeKind ?? "unknown",
+            ArchetypeRole = dto.ArchetypeRole ?? "client",
             Centroid = centroid,
             DimensionMask = mask,
             DescendantCount = 0,
@@ -232,6 +233,40 @@ public sealed class IdentityArchetypeRegistry
         };
     }
 
+    /// <summary>
+    ///     Nearest CLIENT archetype to <paramref name="vector"/>, ignoring mode
+    ///     archetypes (chrome-xhr, future signalr / prefetch / ws entries).
+    ///     <para>
+    ///     Used by <see cref="Orchestration.ContributingDetectors.FingerprintMatchContributor"/>
+    ///     to pick the archetype that drives <c>archetypeOrigin</c>, the
+    ///     displayed identity name, and the drift "Origin -> Current"
+    ///     comparison. The full <see cref="FindNearest"/> still considers
+    ///     modes -- they're needed as seed priors so a Chrome XHR doesn't
+    ///     drift to googlebot at allocation -- but the identity-display
+    ///     surface MUST consult this client-only view, otherwise the
+    ///     dashboard's drift banner reads "Chrome Desktop -> Chrome XHR
+    ///     drift 65%" which is a mode shift presented as identity change
+    ///     (per the composite-browser-mode-fingerprints spec, that's a
+    ///     category error -- one identity plays many modes).
+    ///     </para>
+    /// </summary>
+    public ArchetypeMatch? FindNearestClient(float[] vector)
+    {
+        if (_archetypes.Count == 0) return null;
+        IdentityArchetype? best = null;
+        var bestScore = double.NegativeInfinity;
+        foreach (var a in _archetypes)
+        {
+            if (a.IsMode) continue;
+            var s = MaskedSimilarity(vector, a);
+            if (s > bestScore)
+            {
+                bestScore = s;
+                best = a;
+            }
+        }
+        return best is null ? null : new ArchetypeMatch(best, bestScore);
+    }
 }
 
 [VYaml.Annotations.YamlObject(VYaml.Annotations.NamingConvention.SnakeCase)]
@@ -241,6 +276,13 @@ public sealed partial class IdentityArchetypeYaml
     public string? Name { get; set; }
     public string? Description { get; set; }
     public string? ArchetypeKind { get; set; }
+    /// <summary>
+    ///     <c>client</c> (default) or <c>mode</c>. See <see cref="IdentityArchetype.ArchetypeRole"/>
+    ///     for semantics. Only chrome-xhr.yaml carries this today; future
+    ///     signalr / prefetch / ws-upgrade entries should also set
+    ///     <c>archetype_role: mode</c> when migrated out of BrowserModes/.
+    /// </summary>
+    public string? ArchetypeRole { get; set; }
     public Dictionary<string, IdentityArchetypeDimensionYaml>? Dimensions { get; set; }
 }
 

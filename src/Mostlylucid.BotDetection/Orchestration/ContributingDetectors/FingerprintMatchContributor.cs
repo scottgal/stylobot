@@ -398,7 +398,18 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         var now = DateTime.UtcNow;
         var dim = vector.Length;
 
+        // FindNearest considers ALL archetypes (including mode-shaped ones like
+        // chrome-xhr) because the matcher needs a per-mode prior to keep a real
+        // Chrome XHR from drifting to googlebot at allocation. But the IDENTITY
+        // surface (archetypeOrigin + display name + drift origin-vs-current
+        // comparison) must consult the client-only view so "Chrome XHR" never
+        // appears as the client identity and "Chrome Desktop -> Chrome XHR"
+        // never appears as a drift banner. Per the composite-browser-mode-
+        // fingerprints spec, mode shifts are orthogonal to identity drift.
         var nearestArchetype = _archetypes.FindNearest(vector);
+        var nearestClient = nearestArchetype is { Archetype.IsMode: true }
+            ? _archetypes.FindNearestClient(vector)
+            : nearestArchetype;
         float[] seedCentroid;
         float[] seedWeights;
         string? archetypeOrigin = null;
@@ -444,6 +455,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (nearestArchetype is not null)
         {
             // Light blend: 70% observation, 30% archetype prior.
+            // Centroid blend uses the OVERALL nearest (may be a mode) so the
+            // seed prior continues to anchor mode-shaped requests correctly.
             var arch = nearestArchetype.Archetype;
             seedCentroid = new float[dim];
             for (var i = 0; i < dim; i++)
@@ -454,9 +467,17 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             for (var i = 0; i < dim; i++)
                 seedWeights[i] += arch.DimensionMask[i];
 
-            archetypeOrigin = arch.ArchetypeId;
-            inferredType = arch.ArchetypeId;
-            inferredConfidence = nearestArchetype.Score;
+            // archetypeOrigin + inferredType drive the dashboard's CLIENT identity
+            // ("what is this visitor"). They MUST point at a client archetype, never
+            // a mode archetype -- otherwise the row reads "Chrome XHR" instead of
+            // "Chrome Desktop". When the overall nearest IS a mode, fall back to
+            // the nearest client archetype (which the matcher already scored
+            // above). The mode itself is captured separately by the browser-mode
+            // resolver / classifier; nothing identity-shaped reads it.
+            var identityArch = (nearestClient ?? nearestArchetype).Archetype;
+            archetypeOrigin = identityArch.ArchetypeId;
+            inferredType = identityArch.ArchetypeId;
+            inferredConfidence = (nearestClient ?? nearestArchetype).Score;
         }
         else
         {
@@ -476,7 +497,12 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (archetypeOrigin is not null)
             state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
 
-        WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype, nearestArchetype?.Score ?? 0.0);
+        // WriteArchetypeSignals emits IdentityArchetypeName which feeds the
+        // dashboard's drift "Origin -> Current" banner. Pass the CLIENT-only
+        // nearest so the banner compares client archetypes -- mode-shaped
+        // archetypes never appear in the identity display surface.
+        var displayArchetype = (nearestClient ?? nearestArchetype);
+        WriteArchetypeSignals(state, vector, displayArchetype?.Archetype, displayArchetype?.Score ?? 0.0);
 
         // Compose the display name from the now-populated signals. Returns null when no
         // usable signal is available yet -- we leave the persisted name blank in that case
@@ -703,6 +729,22 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     {
         if (archetype is null) return null;
         if (matchScore < _options.Match.MinArchetypeMatchScore) return null;
+
+        // Defensive: mode-shaped archetypes (chrome-xhr today) MUST NOT reach
+        // the identity-display surface. The allocate path already filters via
+        // FindNearestClient, but the matched path looks up archetype by stored
+        // InferredClientType which on legacy fingerprints can still be a mode
+        // id. Swap to the client-only nearest so the dashboard never reads
+        // "Chrome XHR" in the identity slot.
+        if (archetype.IsMode)
+        {
+            var clientNearest = _archetypes.FindNearestClient(vector);
+            if (clientNearest is null
+                || clientNearest.Score < _options.Match.MinArchetypeMatchScore)
+                return null;
+            archetype = clientNearest.Archetype;
+            matchScore = clientNearest.Score;
+        }
 
         state.WriteSignal(SignalKeys.IdentityArchetypeName, archetype.Name);
         state.WriteSignal(SignalKeys.IdentityArchetypeKind, archetype.ArchetypeKind);
