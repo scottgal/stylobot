@@ -4443,7 +4443,12 @@ public class StyloBotDashboardMiddleware
         var visitorCache = context.RequestServices.GetService<VisitorListCache>();
         var visitor = visitorCache?.Get(decodedSignature);
         List<string> paths = [];
-        string? userAgent = null;
+        // Seed UA from the latest detection event so remote-mode dashboard
+        // hosts (whose VisitorListCache freezes at startup) still surface the
+        // raw UA on the signature-detail h1. Without this the h1 falls back
+        // to "GB User N" even though the persisted row has the full UA -- the
+        // same hide-what-we-know pattern that motivated task #110.
+        string? userAgent = detections[0].UserAgentRaw ?? detections[0].UserAgent;
         string? protocol = null;
         DateTime firstSeen = detections[^1].Timestamp;
         // Reverse detections (DESC -> ASC) so the history chart renders oldest -> newest,
@@ -4706,21 +4711,26 @@ public class StyloBotDashboardMiddleware
                 var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
                 if (fp is not null)
                 {
+                    // ArchetypeOrigin can be a mode-shaped id on legacy fingerprints
+                    // allocated before the client/mode role split landed. If it is,
+                    // resolve to the current nearest CLIENT archetype so the radar
+                    // and the drift banner present client identities, not modes.
+                    // Per docs/architecture/composite-browser-mode-fingerprints.md
+                    // -- one identity plays many modes; mode shifts are not drift.
                     var archetype = archetypes.TryGetById(fp.ArchetypeOrigin);
+                    if (archetype is { IsMode: true })
+                        archetype = archetypes.FindNearestClient(fp.Centroid)?.Archetype;
                     var effectiveWeights = globalWeights?.Compose(fp.Weights) ?? fp.Weights;
                     var shape = FingerprintRadarProjection.Project(fp, archetype, layout, effectiveWeights);
 
                     // Categorical drift label: which archetype is the centroid CLOSEST
                     // to right now? The view reads this for the "Drifted A → B" text
                     // (A = ArchetypeOrigin from above, B = NearestArchetypeName here).
-                    // The cosine scores that used to live here (OriginScore against
-                    // the seed archetype, NearestScore against the current-nearest)
-                    // were replaced by the truthful SelfDriftScore further down --
-                    // both were misleading: the seed cosine wasn't a self-drift
-                    // metric, and the nearest cosine was near-trivially high by
-                    // construction. Cleanup of 5bfe7551 left them computed but
-                    // unread; deleted now.
-                    var nearest = archetypes.FindNearest(fp.Centroid);
+                    // Use the client-only nearest so the banner stays apples-to-apples:
+                    // "Chrome Desktop -> Chrome XHR" is a mode shift, not an identity
+                    // drift, and surfacing it as one is the category error the
+                    // composite-browser-mode-fingerprints spec was designed to fix.
+                    var nearest = archetypes.FindNearestClient(fp.Centroid);
                     string? nearestName = nearest?.Archetype.Name;
 
                     // Adaptation-loop drift: cosine of live centroid vs the active
