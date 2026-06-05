@@ -60,8 +60,8 @@ public class SqliteUaAggregateTests
         await using var fx = await SqliteDashboardStoreFixture.NewAsync("ua-bytes-split");
 
         // Two distinct families — bytes must not bleed across
-        await fx.Store.AddDetectionAsync(MakeDetection("Firefox/120", isBot: false, bytes: 400));
-        await fx.Store.AddDetectionAsync(MakeDetection("Firefox/120", isBot: false, bytes: 600));
+        await fx.Store.AddDetectionAsync(MakeDetection("Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0", isBot: false, bytes: 400));
+        await fx.Store.AddDetectionAsync(MakeDetection("Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0", isBot: false, bytes: 600));
         await fx.Store.AddDetectionAsync(MakeDetection("curl/7.88",   isBot: true,  bytes: 9999));
 
         var broadcaster = MakeBroadcaster(fx.Store);

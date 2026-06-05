@@ -82,7 +82,7 @@ public class DashboardUserAgentAggregatorTests
         // Old detection: outside the window
         await fx.Store.AddDetectionAsync(MakeDetection("curl/7.88", isBot: true, bytes: 9999) with { Timestamp = old });
         // Recent detection: inside the window
-        await fx.Store.AddDetectionAsync(MakeDetection("Firefox/120", isBot: false, bytes: 300) with { Timestamp = recent });
+        await fx.Store.AddDetectionAsync(MakeDetection("Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0", isBot: false, bytes: 300) with { Timestamp = recent });
 
         var windowStart = DateTime.UtcNow.AddHours(-1);
         var windowEnd   = DateTime.UtcNow.AddMinutes(1); // slightly in future for clock skew

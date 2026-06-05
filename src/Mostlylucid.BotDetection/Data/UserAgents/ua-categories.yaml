@@ -41,6 +41,8 @@ families:
   Wget: tool
   Python Requests: tool
   Python-urllib: tool
+  Python: tool
+  python: tool
   Java: tool
   Go-http-client: tool
   HTTPie: tool
