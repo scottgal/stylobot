@@ -197,18 +197,45 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         {
             state.WriteSignal(SignalKeys.ReputationCanAbort, true);
 
-            // With browser attestation, downgrade to mild bias
+            // With browser attestation, the reputation latch is suppressed entirely
+            // (informational only, no confidence push).
+            //
+            // The previous "mild bias" path (ConfidenceDelta=min(BotScore, 0.35),
+            // Weight=0.7) still summed an effective ~0.245 bot push into the rollup,
+            // which combined with other contributors lands a real Chrome XHR at
+            // ~0.58 probability. The Composer's BrowserAttestationVerified carve-out
+            // then can't fire because per-request probability is too high, and the
+            // ConfirmedBad hostile-pin pins RiskBand=VeryHigh + BotType=MaliciousBot
+            // on the row -- the exact dashboard disconnect the carve-out is meant
+            // to prevent. Symmetry with the composer's hostile-pin suppression:
+            // browser attestation beats the UA-pattern latch ENTIRELY for this
+            // request. Reputation signals (state, score, support) are still written
+            // above so the dashboard can surface "reputation says bad, suppressed
+            // by attestation"; OTHER detectors (Heuristic, Header, Ip, etc.)
+            // remain authoritative.
+            //
+            // Operators who want the old downgrade-not-suppress behaviour can set
+            // BotDetection:Detectors:ReputationBiasContributor:browser_attestation_max_confidence
+            // to a non-zero value -- the param is read at GetParam below so the
+            // operator override path is preserved.
             if (hasBrowserAttestation)
             {
+                var residualBias = GetParam("browser_attestation_max_confidence", 0.0);
                 _logger.LogInformation(
-                    "Reputation bias downgraded: {PatternId} ({Category}) has Sec-Fetch-Site: same-origin - using mild bias",
-                    reputation.PatternId, category);
+                    "Reputation bias suppressed: {PatternId} ({Category}) has Sec-Fetch-Site: same-origin - browser attestation outweighs latch (residual_bias={ResidualBias:F2})",
+                    reputation.PatternId, category, residualBias);
+
+                if (residualBias <= 0.0)
+                    return DetectionContribution.Info(
+                        Name,
+                        $"Reputation:{category}",
+                        $"{reason} (suppressed - browser attestation present)");
 
                 return new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = $"Reputation:{category}",
-                    ConfidenceDelta = Math.Min(reputation.BotScore, GetParam("browser_attestation_max_confidence", 0.35)),
+                    ConfidenceDelta = Math.Min(reputation.BotScore, residualBias),
                     Weight = GetParam("browser_attestation_weight", 0.7),
                     Reason = $"{reason} (downgraded - browser attestation present)"
                 };
