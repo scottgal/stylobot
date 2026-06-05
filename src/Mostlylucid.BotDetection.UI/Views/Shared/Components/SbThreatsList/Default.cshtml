@@ -49,7 +49,8 @@
                             }
                             @foreach (var threat in Model.Threats)
                             {
-                                <tr class="@(threat.InHoneypot ? "bg-error/5" : "")">
+                                <tr class="hover:bg-base-300/40 cursor-pointer @(threat.InHoneypot ? "bg-error/5" : "")"
+                                    data-href="@bp/signature/@Uri.EscapeDataString(threat.Signature)">
                                     <td class="text-xs whitespace-nowrap">@threat.Timestamp.ToString("HH:mm:ss")</td>
                                     <td>
                                         @if (!string.IsNullOrEmpty(threat.CveId))
