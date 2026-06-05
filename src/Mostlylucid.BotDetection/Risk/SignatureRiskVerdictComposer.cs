@@ -57,20 +57,31 @@ public static class SignatureRiskVerdictComposer
         var hostilePin = false;
         string? hostileWhy = null;
 
-        // ConfirmedBad gate has an IP-verification carve-out: the UA-pattern
-        // reputation cache key is too coarse, so an earlier spoofer of "bingbot"
-        // from a residential IP latches the WHOLE bingbot UA pattern bad. When
-        // the next visitor uses that same UA from a real Microsoft IP (and the
-        // FediverseDomainContributor / IP-range contributor positively verifies
-        // it), the cache verdict is wrong for this specific request. IP
-        // verification is authoritative for this transport-level identity --
-        // it beats the UA-level cache. Without this carve-out the composer
-        // pins hostile on real Bingbot / Googlebot / Applebot the moment one
-        // impersonator visit poisons their UA pattern. (Honeypot hits and
-        // RawThreatScore are per-request behavioural signals and are NOT
-        // suppressed by IP verification -- behaviour still wins there.)
+        // ConfirmedBad gate has two transport-layer carve-outs because the UA-
+        // pattern reputation cache key is too coarse to identify a specific actor:
+        //   1. FriendlyIpVerified -- vendor-IP corroboration for declared good
+        //      bots (Googlebot, Bingbot, Applebot). Closes the case where an
+        //      earlier spoofer from a residential IP latched the WHOLE bingbot
+        //      UA pattern bad.
+        //   2. BrowserAttestationVerified -- per-request Sec-Fetch-Site
+        //      attestation present + raw threat score below the carve-out
+        //      ceiling (gates on RiskVerdictOptions). Real browsers can never
+        //      satisfy carve-out 1 because they have no published-CIDR identity
+        //      to verify against; this is their transport-layer analogue.
+        //
+        // The BrowserAttestationVerified gate is computed from DIRECTLY-
+        // OBSERVABLE request signals (Sec-Fetch header + threat score). It MUST
+        // NOT consult bot probability or confidence -- those are the rolled-up
+        // axes the carve-out is supposed to influence; coupling them would tie
+        // risk to probability, which is exactly the parallel-axis bug the
+        // unified verdict was designed to kill.
+        //
+        // Honeypot hits and high RawThreatScore are per-request behavioural
+        // signals and are NOT suppressed by either carve-out -- behaviour wins
+        // for negative signals.
         var ipVerifiedFriendly = inputs.FriendlyIpVerified == true;
-        if (inputs.ConfirmedBad && !ipVerifiedFriendly)
+        var browserAttestationVerified = inputs.BrowserAttestationVerified;
+        if (inputs.ConfirmedBad && !ipVerifiedFriendly && !browserAttestationVerified)
         {
             hostilePin = true;
             hostileWhy = "Confirmed bad: reputation abort or honeypot hit on this signature";
@@ -79,6 +90,10 @@ public static class SignatureRiskVerdictComposer
         else if (inputs.ConfirmedBad && ipVerifiedFriendly)
         {
             reasons.Add("hostile_pin_suppressed: ip_verified beats reputation cache");
+        }
+        else if (inputs.ConfirmedBad && browserAttestationVerified)
+        {
+            reasons.Add("hostile_pin_suppressed: browser_attestation outweighs reputation latch (per-request transport evidence)");
         }
         else if (inputs.RawThreatScore >= s.ThreatHostileThreshold)
         {

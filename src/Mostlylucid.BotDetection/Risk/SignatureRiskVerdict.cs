@@ -119,6 +119,31 @@ public sealed record SignatureRiskInputs
     /// +https://instance/ and the fediverse software-name was confirmed). Same
     /// bool? semantics as <see cref="FriendlyIpVerified"/>.</summary>
     public bool? FriendlyDomainVerified { get; init; }
+
+    /// <summary>
+    ///     Per-request transport-layer verification: Sec-Fetch-Site attestation
+    ///     present (same-origin) AND raw threat score below the carve-out ceiling
+    ///     (see <see cref="Models.RiskVerdictOptions"/>). When true, the composer
+    ///     suppresses the <see cref="ConfirmedBad"/>-driven hostile pin so a real
+    ///     browser sharing a UA pattern with an earlier abuser does NOT inherit
+    ///     <c>BotType=MaliciousBot</c> / <c>RiskBand=VeryHigh</c> from the
+    ///     UA-pattern reputation cache. Mirrors <see cref="FriendlyIpVerified"/>
+    ///     at the transport / header layer.
+    ///     <para>
+    ///     CRITICAL: this gate must NEVER read <see cref="BotProbability"/> or
+    ///     <see cref="Confidence"/> -- those are the rolled-up axes the carve-out
+    ///     itself influences; coupling them creates a self-reinforcing loop and
+    ///     ties the risk band to the probability, which is exactly the parallel-
+    ///     axis bug the unified verdict was meant to kill. The carve-out reads
+    ///     ONLY directly-observable signals from the request itself (Sec-Fetch
+    ///     header + per-request threat score).
+    ///     </para>
+    ///     <para>
+    ///     Does NOT suppress raw-threat-score or BotNetwork-cluster hostile pins
+    ///     -- crisp negative behaviour wins over identity claims either way.
+    ///     </para>
+    /// </summary>
+    public bool BrowserAttestationVerified { get; init; }
 }
 
 /// <summary>

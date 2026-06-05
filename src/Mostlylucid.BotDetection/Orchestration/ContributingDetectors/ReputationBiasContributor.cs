@@ -197,18 +197,43 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         {
             state.WriteSignal(SignalKeys.ReputationCanAbort, true);
 
-            // With browser attestation, downgrade to mild bias
+            // With browser attestation, suppress the reputation contribution
+            // entirely (informational only, zero confidence push) -- symmetric
+            // with the SignatureRiskVerdictComposer's hostile-pin carve-out
+            // gate. Reputation signals are still written to the blackboard
+            // above (state.WriteSignals) so the dashboard can surface
+            // "reputation says bad, suppressed by attestation"; OTHER detectors
+            // (Heuristic, Header, Ip) remain authoritative for the per-request
+            // probability rollup.
+            //
+            // The previous "downgrade to mild bias" path still summed an
+            // effective ~0.245 bot push (ConfidenceDelta = min(BotScore, 0.35)
+            // x Weight = 0.7), which combined with other contributors landed a
+            // real Chrome XHR at ~0.58 probability. Even with the composer
+            // carve-out, downstream callers reading the persisted row's
+            // BotProbability would still see the inflated value -- the
+            // "downgrade" was too weak. Operators who want the old behaviour
+            // can set the per-contributor
+            // BotDetection:Detectors:ReputationBiasContributor:browser_attestation_max_confidence
+            // param to a non-zero value; default is now 0 (suppress).
             if (hasBrowserAttestation)
             {
+                var residualBias = GetParam("browser_attestation_max_confidence", 0.0);
                 _logger.LogInformation(
-                    "Reputation bias downgraded: {PatternId} ({Category}) has Sec-Fetch-Site: same-origin - using mild bias",
-                    reputation.PatternId, category);
+                    "Reputation bias suppressed: {PatternId} ({Category}) has Sec-Fetch-Site: same-origin - browser attestation outweighs latch (residual_bias={ResidualBias:F2})",
+                    reputation.PatternId, category, residualBias);
+
+                if (residualBias <= 0.0)
+                    return DetectionContribution.Info(
+                        Name,
+                        $"Reputation:{category}",
+                        $"{reason} (suppressed - browser attestation present)");
 
                 return new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = $"Reputation:{category}",
-                    ConfidenceDelta = Math.Min(reputation.BotScore, GetParam("browser_attestation_max_confidence", 0.35)),
+                    ConfidenceDelta = Math.Min(reputation.BotScore, residualBias),
                     Weight = GetParam("browser_attestation_weight", 0.7),
                     Reason = $"{reason} (downgraded - browser attestation present)"
                 };
@@ -261,11 +286,18 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         // type null on Suspect so the UA contributor / matcher's classification
         // survives. The reputation evidence is already captured in Reason /
         // ConfidenceDelta / Weight.
-        string? botType = reputation.State switch
+        // ConfirmedBad / ManuallyBlocked carve-out: when browser attestation is
+        // present, the SignatureRiskVerdictComposer suppresses the hostile pin
+        // via BrowserAttestationVerified. Leaving BotType=MaliciousBot stamped
+        // here would override the matcher's archetype identity (a real Chrome
+        // XHR getting labelled MaliciousBot on the dashboard heading even
+        // after the composer correctly downgraded the row). Mirror the
+        // Suspect-skip rationale: leave the type null and let upstream survive.
+        string? botType = (reputation.State, hasBrowserAttestation) switch
         {
-            ReputationState.ConfirmedBad => BotType.MaliciousBot.ToString(),
-            ReputationState.ManuallyBlocked => BotType.MaliciousBot.ToString(),
-            _ => null
+            (ReputationState.ConfirmedBad, false)    => BotType.MaliciousBot.ToString(),
+            (ReputationState.ManuallyBlocked, false) => BotType.MaliciousBot.ToString(),
+            _                                        => null
         };
 
         return new DetectionContribution

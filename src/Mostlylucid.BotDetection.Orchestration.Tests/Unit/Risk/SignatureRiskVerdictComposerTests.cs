@@ -65,6 +65,78 @@ public sealed class SignatureRiskVerdictComposerTests
     }
 
     [Fact]
+    public void ConfirmedBad_WithBrowserAttestation_SuppressesHostilePin()
+    {
+        // Live repro from sig o9jGwItMMckqUIyrYxOMhA on staging.stylobot.net
+        // (bug U/V): a real Chrome XHR request whose UA pattern had been latched
+        // ConfirmedBad in the reputation cache by an earlier abuser. Per-request
+        // signals (Sec-Fetch-Site attestation, heuristic = human, threat = none)
+        // unambiguously identify this visit as human, but with no IP-vendor range
+        // to verify against the carve-out at <see cref="FriendlyIpVerified"/> can
+        // never fire. <see cref="BrowserAttestationVerified"/> is the transport-
+        // layer analogue and must suppress the hostile pin -- otherwise the
+        // composer pins RiskBand=VeryHigh + the ledger overrides PrimaryBotType
+        // to MaliciousBot on the persisted row.
+        var inputs = Base(probability: 0.06, confidence: 0.68) with
+        {
+            ConfirmedBad = true,
+            BrowserAttestationVerified = true,
+        };
+
+        var verdict = SignatureRiskVerdictComposer.Compose(inputs);
+
+        Assert.False(verdict.HostilePinFired);
+        Assert.NotEqual(RiskBand.VeryHigh, verdict.RiskBand);
+        Assert.Contains(verdict.Reasons, r => r.Contains("hostile_pin_suppressed: browser_attestation"));
+    }
+
+    [Fact]
+    public void BrowserAttestationCarveOut_DoesNotDependOnBotProbability()
+    {
+        // Architectural invariant: the BrowserAttestationVerified gate is fed
+        // from directly-observable transport-layer signals (Sec-Fetch + raw
+        // threat), NOT from the rolled-up botProbability. The composer must
+        // honour that even when probability is high -- if the caller decides
+        // browser attestation is verified, the carve-out fires regardless of
+        // probability. (The caller / DetectionLedgerExtensions is responsible
+        // for the gate logic; the composer just trusts the field.)
+        //
+        // Without this property: a moderately-bot-shaped probability (0.55)
+        // would silently break the carve-out and the verdict re-couples to
+        // bot probability via "if (prob < threshold) suppress else pin" --
+        // exactly the parallel-axis bug the unified verdict was designed to
+        // kill. This test pins the contract.
+        var inputs = Base(probability: 0.55, confidence: 0.50) with
+        {
+            ConfirmedBad = true,
+            BrowserAttestationVerified = true,
+        };
+
+        var verdict = SignatureRiskVerdictComposer.Compose(inputs);
+
+        Assert.False(verdict.HostilePinFired);
+        Assert.Contains(verdict.Reasons, r => r.Contains("hostile_pin_suppressed: browser_attestation"));
+    }
+
+    [Fact]
+    public void HostilePin_FromRawThreat_NotSuppressedByBrowserAttestation()
+    {
+        // Carve-out is reputation-cache-specific. Raw threat score above the
+        // hostile gate is per-request behavioural evidence -- a human running
+        // SQLi scans from a browser still trips hostile even with Sec-Fetch
+        // present. Behaviour wins for crisp negative signals.
+        var inputs = Base(probability: 0.06, confidence: 0.68, rawThreat: 0.85) with
+        {
+            BrowserAttestationVerified = true,
+        };
+
+        var verdict = SignatureRiskVerdictComposer.Compose(inputs);
+
+        Assert.True(verdict.HostilePinFired);
+        Assert.Equal(RiskBand.VeryHigh, verdict.RiskBand);
+    }
+
+    [Fact]
     public void HostilePin_FromConfirmedBad_OverridesFriendlyVerification()
     {
         // A verified Googlebot UA that has previously tripped a honeypot or reputation

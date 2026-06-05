@@ -417,6 +417,14 @@ public class BotDetectionOptions
     /// </summary>
     public ReputationOptions Reputation { get; set; } = new();
 
+    /// <summary>
+    ///     Risk-verdict composition + carve-outs. Owns the toggles + thresholds the
+    ///     <see cref="Risk.SignatureRiskVerdictComposer"/> consults when deciding
+    ///     whether per-request transport evidence (browser attestation) outweighs
+    ///     a UA-pattern reputation latch.
+    /// </summary>
+    public RiskVerdictOptions RiskVerdict { get; set; } = new();
+
     // ==========================================
     // Blackboard Orchestrator Settings
     // ==========================================
@@ -4372,4 +4380,45 @@ public class UapCoreOptions
     ///     subsequent re-binds would require restart to take effect.
     /// </summary>
     public int RegexMatchTimeoutMs { get; set; } = 100;
+}
+
+/// <summary>
+///     Settings for the unified <see cref="Risk.SignatureRiskVerdictComposer"/>.
+///     Binds under <c>BotDetection:RiskVerdict</c>.
+///     <para>
+///     The browser-attestation carve-out is the only knob today: it closes the
+///     parallel-axis bug where a real browser sharing a UA pattern with an
+///     earlier abuser inherited the UA-pattern reputation latch (ConfirmedBad)
+///     and got stamped <c>BotType=MaliciousBot</c> + <c>RiskBand=VeryHigh</c>.
+///     Mirrors the existing <see cref="Risk.SignatureRiskInputs.FriendlyIpVerified"/>
+///     carve-out at the transport / header layer, where vendor-published IP ranges
+///     are not a verification channel available to a browser.
+///     </para>
+///     <para>
+///     The carve-out gate reads ONLY directly-observable transport-layer
+///     signals: Sec-Fetch-Site attestation present + raw threat score below the
+///     <see cref="ThreatBand.None"/> ceiling. It does NOT read the rolled-up bot
+///     probability, because risk must not be coupled to the probability the
+///     carve-out is supposed to influence. The carve-out suppresses ONLY the
+///     <c>ConfirmedBad</c> hostile pin -- raw-threat-score and BotNetwork-cluster
+///     hostile pins remain independent (crisp negative behaviour still wins).
+///     </para>
+/// </summary>
+public class RiskVerdictOptions
+{
+    /// <summary>
+    ///     Master toggle for the browser-attestation carve-out. Default true.
+    ///     When false the composer reverts to the legacy gate
+    ///     (<c>ConfirmedBad &amp;&amp; !FriendlyIpVerified</c> only).
+    /// </summary>
+    public bool BrowserAttestationCarveOutEnabled { get; set; } = true;
+
+    /// <summary>
+    ///     Maximum raw threat score for the carve-out to fire. Above this, the
+    ///     per-request behaviour (honeypot hit, injection payload, etc.) is the
+    ///     dominant signal and the hostile pin stays. Default 0.15 (the
+    ///     <see cref="ThreatBand.None"/> ceiling shared with
+    ///     <see cref="Risk.SignatureRiskVerdictComposer.BucketThreat"/>).
+    /// </summary>
+    public double BrowserAttestationMaxThreatScore { get; set; } = 0.15;
 }

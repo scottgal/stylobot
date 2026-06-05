@@ -66,6 +66,26 @@ public static class DetectionLedgerExtensions
             ? (bool?)Convert.ToBoolean(fdv)
             : null;
 
+        // Browser-attestation carve-out for the composer's ConfirmedBad gate
+        // (see SignatureRiskVerdictComposer + RiskVerdictOptions). The gate
+        // reads ONLY directly-observable transport-layer signals: Sec-Fetch-Site
+        // attestation present + raw threat score below the no-threat ceiling.
+        // It MUST NOT consult botProbability / confidence: those are the rolled-
+        // up axes the carve-out is supposed to influence, and tying them in
+        // would re-introduce the parallel-axis bug -- risk becomes coupled to
+        // probability, the FastPath verdict cache then replays that coupled
+        // verdict on every subsequent same-fingerprint request, and a single
+        // bad first-hit pins the row hostile forever even though browser
+        // attestation is screaming "real Chrome" on every request that follows.
+        // Honeypot hits + injection payloads still trip the raw-threat hostile
+        // pin -- behaviour wins for crisp negative signals.
+        var rvOpts = options?.RiskVerdict ?? new RiskVerdictOptions();
+        var hasFetchAttestation = preSignals.TryGetValue(SignalKeys.ProgrammaticFetchAttestation, out var pfa)
+                                  && pfa is true;
+        var browserAttestationVerified = rvOpts.BrowserAttestationCarveOutEnabled
+                                         && hasFetchAttestation
+                                         && earlyThreatForBand <= rvOpts.BrowserAttestationMaxThreatScore;
+
         // Declared-bot override. When the UA self-identifies as a bot, the bot/human
         // verdict is categorical, not probabilistic -- nobody pretends to be a bot.
         // The sigmoid rollup + 0.90 AI-clamp would otherwise leave a clean Googlebot
@@ -122,7 +142,8 @@ public static class DetectionLedgerExtensions
         // Block. Compose marks HostilePinFired correctly; we now use it.
         var (verdict, friendlyPinTrace) = DetermineRiskVerdict(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
-            ledgerBotType, ledgerBotName, friendlyIpVerified, friendlyDomainVerified);
+            ledgerBotType, ledgerBotName, friendlyIpVerified, friendlyDomainVerified,
+            browserAttestationVerified);
         var riskBand = verdict.RiskBand;
         var riskJustification = verdict.Justification;
 
@@ -463,7 +484,8 @@ public static class DetectionLedgerExtensions
         BotType? botType = null,
         string? botName = null,
         bool? friendlyIpVerified = null,
-        bool? friendlyDomainVerified = null)
+        bool? friendlyDomainVerified = null,
+        bool browserAttestationVerified = false)
     {
         // YAML fallback: ledger.BotType is last-writer-wins (HeuristicEarly often
         // overwrites the authoritative UA pattern's GoodBot with a generic
@@ -492,6 +514,7 @@ public static class DetectionLedgerExtensions
             IntentCategory = intentCategory,
             FriendlyIpVerified = friendlyIpVerified,
             FriendlyDomainVerified = friendlyDomainVerified,
+            BrowserAttestationVerified = browserAttestationVerified,
         };
 
         var verdict = Risk.SignatureRiskVerdictComposer.Compose(inputs);
