@@ -886,7 +886,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    threat_band,
                    country_code,
                    COALESCE(SUM(response_bytes), 0) AS bytes_out,
-                   is_bot
+                   is_bot,
+                   user_agent_raw
             FROM detections
             WHERE 1=1{audiencePredicate}{timeWhere}
             GROUP BY signature
@@ -916,6 +917,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 CountryCode      = reader.IsDBNull(9)  ? null : reader.GetString(9),
                 BytesOut         = reader.IsDBNull(10) ? 0L   : Convert.ToInt64(reader.GetValue(10)),
                 IsKnownBot       = reader.GetInt32(11) == 1,
+                UserAgent        = reader.IsDBNull(12) ? null : reader.GetString(12),
                 // narrative and top_reasons_json live on the signatures table, not detections;
                 // they are not available in the windowed path.
                 Narrative        = null,

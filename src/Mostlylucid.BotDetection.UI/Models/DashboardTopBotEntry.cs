@@ -60,6 +60,16 @@ public sealed record DashboardTopBotEntry
     public string? UaFamily { get; init; }
 
     /// <summary>
+    ///     Raw <c>User-Agent</c> string of the most-recent detection row in
+    ///     the aggregation window. Used by <see cref="Services.SignatureDisplayName.Resolve"/>
+    ///     to surface "Chrome 119 / macOS" -style client labels via uap-core
+    ///     parsing -- the dashboard's primary "show what we know" signal for
+    ///     identifying ordinary visitors. Null when the persisted detection
+    ///     captured no UA (rare; happens on internal stub callers).
+    /// </summary>
+    public string? UserAgent { get; init; }
+
+    /// <summary>
     ///     60-bucket per-minute hit count, oldest-first (index 0 = 59 minutes ago,
     ///     index 59 = current minute). Empty array when the ring buffer has no
     ///     observations yet. Used by the _Sparkline primitive for SSR svg paths.

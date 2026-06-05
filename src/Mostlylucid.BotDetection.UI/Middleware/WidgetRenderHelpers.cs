@@ -278,6 +278,7 @@ internal static class WidgetRenderHelpers
             Action = e.Action ?? "Allow",
             BotName = e.BotName,
             BotType = e.BotType,
+            UserAgent = e.UserAgent,
             CountryCode = e.CountryCode,
             UaFamily = e.UaFamily,
             ThreatScore = e.ThreatScore,
