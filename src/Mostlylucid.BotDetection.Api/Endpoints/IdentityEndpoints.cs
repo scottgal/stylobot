@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
 using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Identity.BrowserModes;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
@@ -26,8 +27,30 @@ public static class IdentityEndpoints
         group.MapGet("/unabsorbed-counts", HandleUnabsorbedCounts).WithName("GetFingerprintUnabsorbedCounts");
         group.MapGet("/{fingerprintId}", HandleGet).WithName("GetFingerprint");
         group.MapGet("/{fingerprintId}/unabsorbed-count", HandleUnabsorbedCount).WithName("GetFingerprintUnabsorbedCount");
+        group.MapGet("/{fingerprintId}/browser-modes", HandleBrowserModes).WithName("GetFingerprintBrowserModes");
 
         return endpoints;
+    }
+
+    /// <summary>
+    ///     Per-fingerprint browser-mode rows. Returns the persisted
+    ///     <c>fingerprint_modes</c> entries for one fingerprint (same browser,
+    ///     different modes — composite spec step 7 + 8). Surfaces the
+    ///     gateway-local store over REST so a remote-mode dashboard host can
+    ///     render the Modes panel without direct DB access. Returns
+    ///     <see cref="StatusCodes.Status503ServiceUnavailable"/> when the store
+    ///     isn't registered (identity disabled, or this gateway doesn't run
+    ///     persistence), and an empty list when the fingerprint exists but has
+    ///     no mode rows yet.
+    /// </summary>
+    private static async Task<Results<Ok<PaginatedResponse<FingerprintBrowserMode>>, ProblemHttpResult>> HandleBrowserModes(
+        string fingerprintId,
+        [FromServices] IFingerprintBrowserModeStore? modes,
+        CancellationToken ct = default)
+    {
+        if (modes is null) return ApiEndpointHelpers.StoreUnavailable("Browser-mode store");
+        var rows = await modes.GetModesAsync(fingerprintId, ct);
+        return ApiEndpointHelpers.Paginated(rows, rows.Count);
     }
 
     private static async Task<Results<Ok<PaginatedResponse<Fingerprint>>, ProblemHttpResult>> HandleList(

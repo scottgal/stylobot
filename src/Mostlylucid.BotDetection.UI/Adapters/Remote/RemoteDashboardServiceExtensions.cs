@@ -65,6 +65,8 @@ public static class RemoteDashboardServiceExtensions
         services.AddSingleton<IPinnedEndpointStore, RemotePinnedEndpointStore>();
         services.AddSingleton<IShapeSearchStore, RemoteShapeSearchStore>();
         services.AddSingleton<IFingerprintReader, RemoteFingerprintReader>();
+        services.AddSingleton<BotDetection.Identity.BrowserModes.IFingerprintBrowserModeStore,
+            RemoteFingerprintBrowserModeStore>();
         services.AddSingleton<IEntityReader, RemoteEntityReader>();
         services.AddSingleton<IConfigEditorService, RemoteConfigEditorService>();
         services.AddSingleton<IBotClusterReader, RemoteBotClusterReader>();
