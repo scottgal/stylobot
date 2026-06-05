@@ -4630,11 +4630,19 @@ public class StyloBotDashboardMiddleware
     private async Task<IReadOnlyList<SignatureBrowserModeRow>> ResolveBrowserModesAsync(
         HttpContext context, string decodedSignature)
     {
-        var idOpts = context.RequestServices
-            .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()?.Value.Identity;
-        if (idOpts is null || !idOpts.Enabled || !idOpts.BrowserMode.Enabled)
-            return Array.Empty<SignatureBrowserModeRow>();
-
+        // Service-presence-only gate. The previous IdentityOptions.Enabled +
+        // BrowserMode.Enabled checks were correct for the GATEWAY host (where
+        // identity is the in-process detection pipeline) but wrong for the
+        // REMOTE-MODE DASHBOARD HOST: the website's own IdentityOptions
+        // defaults to Enabled=false because it doesn't run a detection
+        // pipeline at all, even when the upstream gateway has identity fully
+        // enabled and is serving mode data over REST. With the options-gate
+        // active the modes panel hid itself on every remote-mode signature-
+        // detail render even though the gateway endpoint was returning rows.
+        // The actual gate is whether IFingerprintBrowserModeStore got
+        // registered: gateway registers a local store when identity is on;
+        // remote-mode registers the Remote* adapter unconditionally. Either
+        // way, presence means we can render.
         var reader = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
         if (reader is null) return Array.Empty<SignatureBrowserModeRow>();
 
