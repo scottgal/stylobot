@@ -13,6 +13,18 @@ public sealed record IdentityArchetype
     public required string ArchetypeKind { get; init; }
     public required float[] Centroid { get; init; }
     public required float[] DimensionMask { get; init; }
+
+    /// <summary>
+    ///     Per-dimension variance vector used for Mahalanobis-style scoring. Tight archetypes
+    ///     have small variance (penalize even small deviations); broad umbrella archetypes have
+    ///     large variance (tolerate larger deviations).
+    ///
+    ///     Null at construction time; populated either from YAML override
+    ///     (<see cref="IdentityArchetypeYaml.VariancePerDimension"/>) or via the default-from-confidence
+    ///     rule applied in <c>IdentityArchetypeRegistry.Compile</c>: variance[i] = max(epsilon, (1 - confidence[i])^2 * baseScale).
+    /// </summary>
+    public float[]? VarianceVector { get; init; }
+
     public int DescendantCount { get; init; }
     public DateTime LastRefinedAt { get; init; } = DateTime.UtcNow;
 

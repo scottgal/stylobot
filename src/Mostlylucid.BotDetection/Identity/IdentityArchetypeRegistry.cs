@@ -284,6 +284,12 @@ public sealed partial class IdentityArchetypeYaml
     /// </summary>
     public string? ArchetypeRole { get; set; }
     public Dictionary<string, IdentityArchetypeDimensionYaml>? Dimensions { get; set; }
+
+    /// <summary>
+    ///     Optional per-dimension variance override (length must equal identity vector dimension).
+    ///     When null, variance is derived from confidence values at compile time.
+    /// </summary>
+    public List<float>? VariancePerDimension { get; set; }
 }
 
 [VYaml.Annotations.YamlObject(VYaml.Annotations.NamingConvention.SnakeCase)]
