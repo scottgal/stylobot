@@ -4359,6 +4359,26 @@ public class StyloBotDashboardMiddleware
         // here so both model branches receive the same result.
         var looksLike = await ResolveLooksLikeAsync(context, decodedSignature);
 
+        // Per-signature endpoint stats. Powers the Endpoints Visited table on the
+        // detail page (replaces the old #/Path list with hit count + p95 + bot rate
+        // + risk band per endpoint). Cap at top-25 most-hit endpoints so a noisy
+        // crawler doesn't blow out the table; the view shows the count and an
+        // overflow chip when truncated. Failures here are swallowed because the
+        // view falls back to Model.Paths when this comes back empty.
+        List<SignatureEndpointStats> endpointStats;
+        try
+        {
+            endpointStats = await _eventStore.GetEndpointStatsForSignatureAsync(
+                decodedSignature, topN: 25, ct: context.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "GetEndpointStatsForSignatureAsync failed for {Signature}; falling back to Paths list",
+                decodedSignature);
+            endpointStats = new List<SignatureEndpointStats>();
+        }
+
         // Source of truth is the event store. The SignatureAggregateCache is a write-through
         // hot path on the gateway (where DetectionBroadcastMiddleware updates it on every
         // detection), but on a remote-mode dashboard host it freezes at startup-warm values
@@ -4525,6 +4545,7 @@ public class StyloBotDashboardMiddleware
             RiskJustification = latest.RiskJustification,
             SparklineData = sparkline,
             Paths = paths,
+            EndpointStats = endpointStats,
             UserAgent = userAgent,
             Protocol = protocol,
             FirstSeen = firstSeen,

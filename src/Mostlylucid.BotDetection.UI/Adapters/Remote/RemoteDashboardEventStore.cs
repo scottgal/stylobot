@@ -201,6 +201,19 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         });
     }
 
+    /// <summary>
+    ///     Remote stub. The gateway's <c>/api/v1</c> surface does not yet expose
+    ///     per-signature endpoint stats, so a remote-mode dashboard hosts an
+    ///     empty list for this signature. The signature detail page falls back
+    ///     to its existing Paths list when this returns empty, so no UI breaks.
+    ///     A future API addition (route shape:
+    ///     <c>/api/v1/signatures/{id}/endpoints</c>) can wire this through
+    ///     without changing the call site on the dashboard side.
+    /// </summary>
+    public Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(
+        string signature, int topN = 25, CancellationToken ct = default)
+        => Task.FromResult(new List<SignatureEndpointStats>());
+
     public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
     {
         var query = $"/api/v1/endpoints/{Uri.EscapeDataString(method)}/{path.TrimStart('/')}"

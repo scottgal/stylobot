@@ -113,14 +113,14 @@ else
                 _ => ("Human", "bg-success/20 text-success")
             };
         }
-        <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold @badgeBg">@badgeText</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold @badgeBg" sb-tooltip="header.bot_badge">@badgeText</span>
     </div>
 
     <!-- Intent & Threat (KEY info) -->
     <div class="flex items-center gap-3 mb-4 flex-wrap">
         @if (!string.IsNullOrEmpty(Model.BotType))
         {
-            <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border @ThreatBgColor(Model.ThreatBand)">
+            <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border @ThreatBgColor(Model.ThreatBand)" sb-tooltip="header.bot_type">
                 <span class="text-xs font-bold">@Model.BotType</span>
                 @if (!string.IsNullOrEmpty(Model.ThreatBand) && Model.ThreatBand != "None")
                 {
@@ -130,14 +130,14 @@ else
         }
         @if (Model.ThreatScore.HasValue && Model.ThreatScore.Value > 0)
         {
-            <div class="flex items-center gap-1.5 text-xs">
+            <div class="flex items-center gap-1.5 text-xs" sb-tooltip="header.threat_score">
                 <span class="text-base-content/50">Threat Score:</span>
                 <span class="font-bold @ThreatColor(Model.ThreatBand)">@($"{Model.ThreatScore.Value:F3}")</span>
             </div>
         }
         @if (!string.IsNullOrEmpty(Model.Action))
         {
-            <div class="flex items-center gap-1.5 text-xs">
+            <div class="flex items-center gap-1.5 text-xs" sb-tooltip="header.policy">
                 <span class="text-base-content/50">Policy:</span>
                 <span class="font-bold @ActionColor(Model.Action)">@ActionDisplayHelper.GetFriendlyName(Model.Action)</span>
             </div>
@@ -146,15 +146,15 @@ else
 
     <!-- Stats grid -->
     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
-        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="rounded-lg border p-3" sb-tooltip="stat.probability" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="text-[10px] font-semibold text-base-content/50 uppercase">Probability</div>
             <div class="text-lg font-bold @(Model.BotProbability >= 0.7 ? "text-error" : Model.BotProbability >= 0.4 ? "text-warning" : "text-success")">@($"{Model.BotProbability:P0}")</div>
         </div>
-        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="rounded-lg border p-3" sb-tooltip="stat.confidence" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="text-[10px] font-semibold text-base-content/50 uppercase">Confidence</div>
             <div class="text-lg font-bold text-base-content">@($"{Model.Confidence:P0}")</div>
         </div>
-        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="rounded-lg border p-3" sb-tooltip="stat.risk_profile" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="text-[10px] font-semibold text-base-content/50 uppercase">Risk Profile</div>
             <div class="text-lg font-bold @RiskColor(Model.RiskBand)">@(Model.RiskBand ?? "Unknown")</div>
             @if (!string.IsNullOrEmpty(Model.RiskJustification))
@@ -162,19 +162,27 @@ else
                 <div class="text-[10px] text-base-content/50 mt-1 leading-tight">@Model.RiskJustification</div>
             }
         </div>
-        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="rounded-lg border p-3" sb-tooltip="stat.threat" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="text-[10px] font-semibold text-base-content/50 uppercase">Threat</div>
             <div class="text-lg font-bold @ThreatColor(Model.ThreatBand)">@(Model.ThreatBand ?? "None")</div>
         </div>
-        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="rounded-lg border p-3" sb-tooltip="stat.hit_count" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="text-[10px] font-semibold text-base-content/50 uppercase">Hit Count</div>
             <div class="text-lg font-bold text-base-content">@Model.HitCount.ToString("N0")</div>
         </div>
-        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="rounded-lg border p-3" sb-tooltip="stat.last_seen" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="text-[10px] font-semibold text-base-content/50 uppercase">Last Seen</div>
             <div class="text-lg font-bold text-base-content">@timeAgo</div>
         </div>
     </div>
+
+    @* Radar + fingerprint profile share a single row at lg and up so the radar's
+       whitespace gets reclaimed by the profile detail next to it. Below the lg
+       breakpoint they stack vertically (radar on top, profile below) so the
+       mobile reading order stays sensible. The two outer cards keep their own
+       border/background; the wrapping grid handles spacing. The inner FP grid
+       drops to 1/2 columns instead of 2/4 because each half is now narrower. *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
 
     @* Behavioural fingerprint shape: 7-bucket centroid radar (Network / Locale /
        Headers / Tool / Transport / Session / Quality). Same FingerprintRadarProjection
@@ -183,14 +191,14 @@ else
        has not yet mapped this signature to a fingerprint).
        Full tilde-path -- RazorViewRenderer does not inject /Views/StyloBot/Dashboard/
        into the partial search list; same pattern other dashboard partials use. *@
-    <div class="rounded-xl border p-4 mb-4 flex items-center justify-center"
+    <div class="rounded-xl border p-4 flex items-center justify-center"
          style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
         @await Html.PartialAsync("~/Views/Shared/_FingerprintShape.cshtml",
             new FingerprintShapeViewModel(Model.FingerprintShape, Model.IsBot, 240))
     </div>
 
     <!-- Fingerprint Profile -->
-    <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+    <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
         <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">
             <i class="bx bx-fingerprint text-sm" style="color: var(--sb-accent);"></i>
             Fingerprint Profile
@@ -222,21 +230,30 @@ else
                 Math.Abs(det.Contribution) >= 0.3 ? "text-error" :
                 Math.Abs(det.Contribution) >= 0.1 ? "text-warning" : "text-success";
 
-            var fpItems = new (string Label, string Icon, string Value, string Color, string? Tooltip)[] {
-                ("TLS Version", "bx-lock-alt", tlsVersion, tlsVersion == "--" ? "text-base-content/40" : "text-info", "TLS version negotiated by the client. Old versions (1.0/1.1) flag automation tools."),
-                ("HTTP Protocol", "bx-globe", httpProtocol, httpProtocol == "--" ? "text-base-content/40" : "text-info", "HTTP protocol version observed. HTTP/1.1 from a 'modern browser' is suspicious."),
-                ("Protocol Client", "bx-transfer", protocolClient, protocolClient == "--" ? "text-base-content/40" : (fingerprintDetector != null ? FpColor(fingerprintDetector) : "text-info"), "TLS/JA3 client fingerprint consistency with declared User-Agent."),
-                ("TCP OS Hint", "bx-chip", consistencyDetector != null ? (FpValue(consistencyDetector) ?? "Flagged") : "--", FpColor(consistencyDetector), "TCP stack behaviour consistency with claimed OS. Mismatches indicate spoofing."),
-                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? (FpValue(fingerprintDetector) ?? "Checked") : "--", FpColor(fingerprintDetector), "Browser fingerprint cross-consistency check. High score = fingerprint spoofing detected."),
-                ("UA Consistency", "bx-badge-check", uaDetector != null ? (FpValue(uaDetector) ?? "Checked") : "--", FpColor(uaDetector), "User-Agent string matches actual client behaviour. Mismatches reveal bots."),
-                ("Headless Indicator", "bx-bot", headlessDetector != null ? (FpValue(headlessDetector) ?? "Detected") : "Clean", headlessDetector != null ? FpColor(headlessDetector) : "text-success", "Signals of headless browser (Playwright, Puppeteer, Selenium). Positive = automation tool detected."),
-                ("Datacenter IP", "bx-server", datacenterDetector != null ? (FpValue(datacenterDetector) ?? "Detected") : "Clean", datacenterDetector != null ? FpColor(datacenterDetector) : "text-success", "IP address belongs to a cloud/datacenter ASN. Real users typically browse from ISP IPs.")
+            // The tooltip text for each item lives in
+            // Definitions/Tooltips/dashboard-tooltips.yaml under fp.* keys; the
+            // view references the key only (per feedback_no_word_lists). The
+            // SbTooltipTagHelper resolves the key against DashboardTooltipRegistry
+            // at render time and only emits markup when EnableTooltips is true.
+            var fpItems = new (string Label, string Icon, string Value, string Color, string TooltipKey)[] {
+                ("TLS Version", "bx-lock-alt", tlsVersion, tlsVersion == "--" ? "text-base-content/40" : "text-info", "fp.tls_version"),
+                ("HTTP Protocol", "bx-globe", httpProtocol, httpProtocol == "--" ? "text-base-content/40" : "text-info", "fp.http_protocol"),
+                ("Protocol Client", "bx-transfer", protocolClient, protocolClient == "--" ? "text-base-content/40" : (fingerprintDetector != null ? FpColor(fingerprintDetector) : "text-info"), "fp.protocol_client"),
+                ("TCP OS Hint", "bx-chip", consistencyDetector != null ? (FpValue(consistencyDetector) ?? "Flagged") : "--", FpColor(consistencyDetector), "fp.tcp_os_hint"),
+                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? (FpValue(fingerprintDetector) ?? "Checked") : "--", FpColor(fingerprintDetector), "fp.fingerprint_integrity"),
+                ("UA Consistency", "bx-badge-check", uaDetector != null ? (FpValue(uaDetector) ?? "Checked") : "--", FpColor(uaDetector), "fp.ua_consistency"),
+                ("Headless Indicator", "bx-bot", headlessDetector != null ? (FpValue(headlessDetector) ?? "Detected") : "Clean", headlessDetector != null ? FpColor(headlessDetector) : "text-success", "fp.headless_indicator"),
+                ("Datacenter IP", "bx-server", datacenterDetector != null ? (FpValue(datacenterDetector) ?? "Detected") : "Clean", datacenterDetector != null ? FpColor(datacenterDetector) : "text-success", "fp.datacenter_ip")
             };
         }
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            @foreach (var (label, icon, value, color, tooltip) in fpItems)
+        @* Inner profile grid: 1 col on narrow, 2 cols once room exists. The outer
+           50/50 row means we have ~half the page to work with at lg, so two
+           columns is the comfortable density; below lg the radar stacks above
+           so we go single-column. *@
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            @foreach (var (label, icon, value, color, tooltipKey) in fpItems)
             {
-                <div class="flex items-center gap-2 rounded-lg border px-2 py-1.5 cursor-help" style="border-color: var(--sb-card-divider);" title="@tooltip">
+                <div class="flex items-center gap-2 rounded-lg border px-2 py-1.5" sb-tooltip="@tooltipKey" style="border-color: var(--sb-card-divider);">
                     <i class="bx @icon text-sm" style="color: var(--sb-accent);"></i>
                     <div>
                         <div class="text-[10px] text-base-content/50">@label</div>
@@ -250,6 +267,8 @@ else
             <p class="text-[10px] text-base-content/30 mt-2 italic">No detector signal data available for this signature.</p>
         }
     </div>
+
+    </div> @* /50-50 grid (radar + fingerprint profile) *@
 
     @* "Looks like" -- nearest centroid neighbours by vec0 KNN, computed per page
        load (the answer drifts with the population). Most useful when the visitor's
@@ -274,18 +293,19 @@ else
                     <li class="flex items-center justify-between gap-3 py-1 border-b border-base-content/5 last:border-b-0">
                         @* No drill-through link yet: there is no per-fingerprint-id UI
                            page (only the Identities tab list), and synthesising a route
-                           here would 404. The fingerprint id is in the row's title for
-                           copy/paste; if a dedicated fingerprint detail page lands later
-                           this becomes an anchor. *@
-                        <span class="truncate text-base-content/85" title="fingerprint_id: @n.FingerprintId">
+                           here would 404. If a dedicated fingerprint detail page lands
+                           later this becomes an anchor. The fingerprint_id is exposed
+                           via data-fp-id on the row so operators can grab it via
+                           DevTools copy-paste without the title= attribute the portal
+                           would strip on bind. *@
+                        <span class="truncate text-base-content/85" sb-tooltip="lookslike.row" data-fp-id="@n.FingerprintId">
                             @label
                             @if (!string.IsNullOrEmpty(n.InferredClientType) && !string.Equals(label, n.InferredClientType, StringComparison.Ordinal))
                             {
                                 <span class="text-[10px] text-base-content/40 ml-1">(@n.InferredClientType)</span>
                             }
                         </span>
-                        <span class="tabular-nums text-base-content/55 text-[10px] whitespace-nowrap"
-                              title="L2 distance from this visitor's centroid -- lower means more similar">
+                        <span class="tabular-nums text-base-content/55 text-[10px] whitespace-nowrap" sb-tooltip="lookslike.distance">
                             d = @n.Distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
                         </span>
                     </li>
@@ -329,8 +349,12 @@ else
                                         var bg = count == 0
                                             ? "var(--sb-card-bg)"
                                             : $"color-mix(in oklab, var(--sb-accent) {(int)(intensity * 90 + 10)}%, transparent)";
-                                        var title = $"{dayLabels[d]} {h:00}:00 UTC - {count} hits";
-                                        <td class="border" style="width: 14px; height: 14px; background: @bg; border-color: var(--sb-card-divider);" title="@title"></td>
+                                        @* Per-cell data is dynamic (day + hour + count) so the data-tip is
+                                           composed inline. The portal binds .tooltip[data-tip] and shows
+                                           the styled bubble on hover — same single rendering path the
+                                           rest of the page uses. *@
+                                        var cellTip = $"{dayLabels[d]} {h:00}:00 UTC — {count} hits";
+                                        <td class="border tooltip tooltip-bottom" style="width: 14px; height: 14px; background: @bg; border-color: var(--sb-card-divider);" data-tip="@cellTip"></td>
                                     }
                                 </tr>
                             }
@@ -338,26 +362,32 @@ else
                     </table>
                 </div>
                 <div class="mt-3 flex items-center gap-2 text-[10px] text-base-content/40">
-                    <span>Less</span>
+                    <span sb-tooltip="periodicity.legend">Less</span>
                     @for (var step = 0; step < 5; step++)
                     {
                         var pct = (int)(step * 22 + 10);
                         <span style="display:inline-block; width:14px; height:14px; background: color-mix(in oklab, var(--sb-accent) @(pct)%, transparent); border: 1px solid var(--sb-card-divider);"></span>
                     }
-                    <span>More</span>
-                    <span class="ml-3">Peak cell: @heatmap.MaxCellValue hits</span>
+                    <span sb-tooltip="periodicity.legend">More</span>
+                    <span class="ml-3" sb-tooltip="periodicity.peak">Peak cell: @heatmap.MaxCellValue hits</span>
                 </div>
             </div>
         </details>
     }
 
-    <!-- Endpoints Visited (collapsed) -->
-    @if (Model.Paths.Count > 0)
+    @* Endpoints Visited.
+       When per-signature endpoint stats are available (SQLite path), render the
+       richer table: hits + p95 + bot rate + risk band + status mix per endpoint.
+       When the store returned empty (remote-mode adapter, signature has no
+       persisted detections yet, or query failure), fall back to the historical
+       Paths list so the panel never disappears for a known visitor. The header
+       count and the "endpoint.col.*" tooltip keys cover both shapes. *@
+    @if (Model.EndpointStats.Count > 0)
     {
         <details class="rounded-xl border mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <summary class="p-4 cursor-pointer text-xs font-semibold text-base-content/70 uppercase">
                 <i class="bx bx-link text-sm" style="color: var(--sb-accent);"></i>
-                Endpoints Visited <span class="text-base-content/40 font-normal">(@Model.Paths.Count)</span>
+                Endpoints Visited <span class="text-base-content/40 font-normal">(@Model.EndpointStats.Count)</span>
                 <span class="text-[10px] font-normal text-base-content/40 ml-2">Click to expand</span>
             </summary>
             <div class="p-4 pt-0">
@@ -365,8 +395,66 @@ else
                     <table class="table table-xs w-full">
                         <thead>
                             <tr class="text-[10px] uppercase tracking-wider text-base-content/40">
+                                <th class="py-1 text-left"      sb-tooltip="endpoint.col.path">Path</th>
+                                <th class="py-1 text-left"      sb-tooltip="endpoint.col.method">Method</th>
+                                <th class="py-1 text-right"     sb-tooltip="endpoint.col.hits">Hits</th>
+                                <th class="py-1 text-right"     sb-tooltip="endpoint.col.avg_ms">Avg ms</th>
+                                <th class="py-1 text-right"     sb-tooltip="endpoint.col.p95_ms">P95 ms</th>
+                                <th class="py-1 text-right"     sb-tooltip="endpoint.col.max_ms">Max ms</th>
+                                <th class="py-1 text-right"     sb-tooltip="endpoint.col.bot_rate">Bot %</th>
+                                <th class="py-1 text-left"      sb-tooltip="endpoint.col.risk">Risk</th>
+                                <th class="py-1 text-left"      sb-tooltip="endpoint.col.action">Action</th>
+                                <th class="py-1 text-right"     sb-tooltip="endpoint.col.status_mix">2xx/4xx/5xx</th>
+                                <th class="py-1 text-right"     sb-tooltip="endpoint.col.last_seen">Last seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var e in Model.EndpointStats)
+                            {
+                                var shortPath = e.Path.Length > 60 ? e.Path[..60] + "…" : e.Path;
+                                var botPct = (int)Math.Round(e.BotRate * 100);
+                                var lastAgo = e.LastSeen == default ? "" : FormatTimeAgo(DateTime.UtcNow - e.LastSeen);
+                                <tr class="hover:bg-base-200/50">
+                                    <td class="py-1 text-xs font-mono text-base-content/80 max-w-[28ch] truncate" title="@e.Path">@shortPath</td>
+                                    <td class="py-1 text-[10px] font-mono text-base-content/60 uppercase">@e.Method</td>
+                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/90">@e.HitCount.ToString("N0")</td>
+                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/70">@e.AvgProcessingTimeMs.ToString("F1")</td>
+                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/70">@e.P95ProcessingTimeMs.ToString("F1")</td>
+                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/50">@e.MaxProcessingTimeMs.ToString("F1")</td>
+                                    <td class="py-1 text-right text-xs tabular-nums @(botPct >= 70 ? "text-error" : botPct >= 30 ? "text-warning" : "text-success")">@botPct%</td>
+                                    <td class="py-1 text-xs @RiskColor(e.DominantRiskBand)">@(e.DominantRiskBand ?? "—")</td>
+                                    <td class="py-1 text-xs @ActionColor(e.DominantAction)">@(e.DominantAction ?? "—")</td>
+                                    <td class="py-1 text-right text-[10px] tabular-nums font-mono text-base-content/60">
+                                        <span class="text-success">@e.Status2xx</span>/<span class="text-warning">@e.Status4xx</span>/<span class="text-error">@e.Status5xx</span>
+                                    </td>
+                                    <td class="py-1 text-right text-[10px] text-base-content/50">@lastAgo</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+    }
+    else if (Model.Paths.Count > 0)
+    {
+        @* Fallback: the in-memory visitor cache has paths but the store query
+           returned no rows (e.g. remote-mode dashboard, fresh signature whose
+           detections haven't persisted yet). Show the simple list rather than
+           hiding the panel entirely. *@
+        <details class="rounded-xl border mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <summary class="p-4 cursor-pointer text-xs font-semibold text-base-content/70 uppercase">
+                <i class="bx bx-link text-sm" style="color: var(--sb-accent);"></i>
+                Endpoints Visited <span class="text-base-content/40 font-normal">(@Model.Paths.Count)</span>
+                <span class="text-[10px] font-normal text-base-content/40 ml-2">Click to expand · stats unavailable</span>
+            </summary>
+            <div class="p-4 pt-0">
+                <div class="overflow-x-auto">
+                    <table class="table table-xs w-full">
+                        <thead>
+                            <tr class="text-[10px] uppercase tracking-wider text-base-content/40">
                                 <th class="py-1">#</th>
-                                <th class="py-1">Path</th>
+                                <th class="py-1" sb-tooltip="endpoint.col.path">Path</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -398,15 +486,15 @@ else
                     <table class="table table-xs w-full">
                         <thead>
                             <tr class="text-[10px] uppercase tracking-wider text-base-content/40">
-                                <th class="py-1">Time</th>
-                                <th class="py-1">Method</th>
-                                <th class="py-1">Path</th>
-                                <th class="py-1 text-center">Status</th>
-                                <th class="py-1 text-right">Prob</th>
-                                <th class="py-1 text-right">Conf</th>
-                                <th class="py-1">Risk Profile</th>
-                                <th class="py-1">Action</th>
-                                <th class="py-1 text-right">Time</th>
+                                <th class="py-1"              sb-tooltip="raw.col.time">Time</th>
+                                <th class="py-1"              sb-tooltip="raw.col.method">Method</th>
+                                <th class="py-1"              sb-tooltip="raw.col.path">Path</th>
+                                <th class="py-1 text-center"  sb-tooltip="raw.col.status">Status</th>
+                                <th class="py-1 text-right"   sb-tooltip="raw.col.prob">Prob</th>
+                                <th class="py-1 text-right"   sb-tooltip="raw.col.conf">Conf</th>
+                                <th class="py-1"              sb-tooltip="raw.col.risk">Risk Profile</th>
+                                <th class="py-1"              sb-tooltip="raw.col.action">Action</th>
+                                <th class="py-1 text-right"   sb-tooltip="raw.col.time_ms">Time</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -653,6 +741,17 @@ else
 }
 
     </main>
+
+    @* SbLiveUpdates emits the sb-tooltip-portal.js + sb-live-updates.js script
+       tags. The portal script binds every `.tooltip[data-tip]` element on the
+       page to a body-level portal renderer so the tooltips on this detail view
+       (Probability, Confidence, etc.) appear visibly on hover instead of being
+       clipped by ancestor `overflow: hidden` cards. show-status="false" keeps
+       the connection-status pill out of the layout — the dashboard navbar
+       already owns it. The TagHelper is a no-op when EnableTooltips is false
+       (it still emits the live-updates script, which is what the dashboard
+       needs anyway). *@
+    <sb-live-updates show-status="false" />
 
     <!-- ApexCharts rendering -->
     @if (Model.Found && Model.BotProbabilityHistory.Count > 1)

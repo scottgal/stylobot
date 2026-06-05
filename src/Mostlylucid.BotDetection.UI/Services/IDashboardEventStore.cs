@@ -84,6 +84,22 @@ public interface IDashboardEventStore
     Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
 
     /// <summary>
+    ///     Per-endpoint stats restricted to a single signature, grouped by
+    ///     (method, path) and ordered by hit count descending. Powers the
+    ///     Endpoints Visited table on the signature detail page.
+    ///     <para>
+    ///     Returns an empty list when the signature is unknown or has no
+    ///     persisted detections yet. P95 is approximated on SQLite via
+    ///     <c>avg + 0.9 * (max - avg)</c>; the Postgres mirror returns the real
+    ///     percentile.
+    ///     </para>
+    /// </summary>
+    Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(
+        string signature,
+        int topN = 25,
+        CancellationToken ct = default);
+
+    /// <summary>
     ///     Get detailed statistics for a single endpoint.
     /// </summary>
     Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null);

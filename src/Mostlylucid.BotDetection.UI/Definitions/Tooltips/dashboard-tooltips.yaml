@@ -1,0 +1,183 @@
+# Dashboard tooltip inventory.
+#
+# Source of truth for every tooltip rendered by the StyloBot dashboard. Edit
+# this file to change a tooltip; do NOT add tooltip strings to C# or Razor.
+# See docs/architecture/dashboard-tooltips.md for the rationale + how to add a
+# new tooltip.
+#
+# Keys are symbolic, namespaced by region (stat, radar, fp, endpoint, etc.).
+# `text` is a string today; when localisation lands it becomes a dict keyed by
+# locale code. The loader accepts both shapes so unmigrated rows stay valid
+# during the rollout.
+#
+# Order is irrelevant; the registry indexes on key. Duplicate keys log a
+# warning at startup and the first wins.
+
+tooltips:
+  # ── Top header chips ────────────────────────────────────────────────────
+  - key: header.bot_badge
+    text: "Bot / Human / Uncertain badge derived from the aggregated probability. Bot >= 80%, Suspicious 50-79%, Uncertain 30-49%, Human < 30%."
+
+  - key: header.bot_type
+    text: "Best-guess intent category for the bot (Scraper, Crawler, Attacker, etc.). Empty for human traffic. The colour matches the threat band below."
+
+  - key: header.threat_score
+    text: "Numeric 0.000 - 1.000 threat score from the IntentContributor. Higher = stronger evidence of malicious intent (attack signatures, credential probes, CVE scans)."
+
+  - key: header.policy
+    text: "Detection policy that resolved for this signature's request (Allow, Throttle, Challenge, Block, etc.). The action the gateway took or would take."
+
+  # ── Top stat grid (6 cards) ─────────────────────────────────────────────
+  - key: stat.probability
+    text: "Aggregated bot probability across this signature's recent hits. 0% almost certainly human, 100% almost certainly bot."
+
+  - key: stat.confidence
+    text: "How sure StyloBot is about the probability above. High confidence + low probability = a clear human. Low confidence either way means the signature hasn't accumulated enough evidence yet."
+
+  - key: stat.risk_profile
+    text: "Risk band derived from probability, threat indicators, and persistence. VeryLow/Low = pass through, Elevated/Medium = consider throttling, High/VeryHigh = strong evidence the request should be blocked or challenged."
+
+  - key: stat.threat
+    text: "Threat band measures malicious intent (attack signatures, CVE probing, credential stuffing), independent of bot probability. A bot can be benign (search engine) or malicious (vulnerability scanner)."
+
+  - key: stat.hit_count
+    text: "Number of requests this signature has made within the cache retention window. High counts on a malicious signature concentrate operator attention."
+
+  - key: stat.last_seen
+    text: "When this signature most recently hit any endpoint on the site. Stale signatures fall out of the in-memory cache; the DB keeps them around for trend analysis."
+
+  # ── Behavioural radar axes ──────────────────────────────────────────────
+  # Each axis maps to one bucket of the FingerprintRadarProjection (7 buckets total).
+  # The polygon's distance from the centre = how strongly this signature exercises
+  # that bucket. Bot polygons fan toward Tool / Transport / Quality; human polygons
+  # fan toward Headers / Locale / Session.
+  - key: radar.network
+    text: "Network bucket: ASN, IP subnet, country, datacenter / VPN / Tor flags. Datacenter-heavy signatures pull this axis outward."
+
+  - key: radar.locale
+    text: "Locale bucket: Accept-Language primary code, language count, Save-Data flag. Real browsers carry meaningful values here; bots often leave it empty or stub."
+
+  - key: radar.headers
+    text: "Header bag bucket: Accept, Accept-Encoding, Sec-CH-UA family, Sec-Fetch pattern, header order hash. Browser fingerprints concentrate here."
+
+  - key: radar.tool
+    text: "Tool bucket: X-Requested-With, custom-header signature. HTTP libraries (curl, requests, node-fetch) and automation frameworks pull this axis outward."
+
+  - key: radar.transport
+    text: "Transport bucket: TLS JA4, HTTP/2 settings hash, ALPN list, TCP p0f signature. Legacy / non-browser TLS stacks pull this axis outward."
+
+  - key: radar.session
+    text: "Session bucket: cookie count, returning-cookie flag, entry page family, referer host family, request rate, path entropy. Real sessions concentrate here."
+
+  - key: radar.quality
+    text: "Quality bucket: how many of the layout's expected feature slots actually had data on this request, plus transport-quality and cleartext flags. Sparse signatures have low quality."
+
+  - key: radar.closest_to
+    text: "The nearest known archetype centroid by weighted-cosine distance. Lower distance = stronger match. This signature's polygon shape is most similar to the named archetype."
+
+  - key: radar.distance
+    text: "Weighted-cosine distance from the closest archetype centroid. 0.0 means exact match; higher numbers mean the signature drifts further from any known archetype shape."
+
+  # ── Fingerprint profile (8 items) ───────────────────────────────────────
+  - key: fp.tls_version
+    text: "TLS version negotiated by the client. Legacy TLS 1.0 / 1.1 strongly correlates with automation tools; modern browsers always negotiate 1.2 or 1.3."
+
+  - key: fp.http_protocol
+    text: "HTTP protocol version the client used. A 'modern browser' claim paired with HTTP/1.1 is suspicious; real browsers prefer HTTP/2 or HTTP/3."
+
+  - key: fp.protocol_client
+    text: "Cross-check of the TLS / JA3 client fingerprint against the declared User-Agent. Mismatch = the TLS stack doesn't match what the UA claims to be."
+
+  - key: fp.tcp_os_hint
+    text: "TCP stack behaviour (p0f-style) consistency with the OS the client claims to run. Mismatches indicate OS spoofing."
+
+  - key: fp.fingerprint_integrity
+    text: "Aggregate browser-fingerprint integrity check across TLS + HTTP/2 + headers. High score = signs of fingerprint spoofing or anti-detect frameworks."
+
+  - key: fp.ua_consistency
+    text: "Does the User-Agent string match the actual client behaviour (TLS, header order, Accept patterns)? Mismatches reveal bots impersonating real browsers."
+
+  - key: fp.headless_indicator
+    text: "Signals of a headless browser (Playwright, Puppeteer, Selenium, headless Chrome). 'Clean' means no automation tells were found in this signature's surface."
+
+  - key: fp.datacenter_ip
+    text: "Whether the source IP belongs to a known cloud / datacenter ASN. Real users typically browse from ISP-assigned consumer IPs; datacenter IPs strongly correlate with bots."
+
+  # ── Endpoints Visited table columns ────────────────────────────────────
+  - key: endpoint.col.path
+    text: "Request path the signature hit. Truncated at 60 characters when long; the full path is preserved in the row's title tooltip for copy / paste."
+
+  - key: endpoint.col.method
+    text: "HTTP method (GET, POST, PUT, DELETE, …). Mixed-method runs on the same path usually indicate API traffic; GET-only crawls usually indicate scraping."
+
+  - key: endpoint.col.hits
+    text: "Number of times this signature hit the endpoint within the persisted detection window. The table is sorted by this column, descending."
+
+  - key: endpoint.col.avg_ms
+    text: "Mean StyloBot processing latency for the endpoint, across every hit from this signature. Doesn't include downstream rendering time — purely the detection pipeline."
+
+  - key: endpoint.col.p95_ms
+    text: "Approximate 95th-percentile processing latency. SQLite lacks PERCENTILE_CONT so this is avg + 0.9 × (max - avg); the Postgres mirror returns the true percentile."
+
+  - key: endpoint.col.max_ms
+    text: "Slowest single hit for this endpoint. Useful for spotting cold-cache misses, slow-path escalations, or watchdog trips."
+
+  - key: endpoint.col.bot_rate
+    text: "Fraction of hits the orchestrator scored as bot (probability >= 50%). 100% means every visit on this path was flagged; lower numbers mean inconsistent verdicts to investigate."
+
+  - key: endpoint.col.risk
+    text: "Most-frequent risk band recorded for this signature on this path. Reveals endpoints where the same signature drifts into a higher risk band than its overall profile."
+
+  - key: endpoint.col.action
+    text: "Most-frequent action taken for this signature on this path. Tells you at a glance whether the policy stack consistently allows, throttles, challenges, or blocks here."
+
+  - key: endpoint.col.status_mix
+    text: "Response status breakdown: 2xx / 4xx / 5xx counts. A 4xx-heavy endpoint hit by a single signature usually means scanning / probing; 5xx spikes mean the request shape is breaking the backend."
+
+  - key: endpoint.col.last_seen
+    text: "Time of the most recent hit on this endpoint from this signature. Use it to tell whether activity is ongoing or historical."
+
+  # ── Looks-like panel (vec0 KNN over centroid population) ───────────────
+  - key: lookslike.row
+    text: "A known fingerprint whose centroid is close to this signature's centroid in the layout-dim feature space. The closer the distance, the more this visitor's shape resembles the named identity."
+
+  - key: lookslike.distance
+    text: "Euclidean (L2) distance between this visitor's centroid and the named fingerprint's centroid. Lower numbers mean more similar; the panel ranks neighbours closest-first."
+
+  # ── Periodicity heatmap (7×24 day × hour) ──────────────────────────────
+  - key: periodicity.cell
+    text: "Hit count in a single day-of-week × hour-of-day bucket (UTC). Hover any cell on the chart for the exact count and the day/hour it represents."
+
+  - key: periodicity.legend
+    text: "Cell shading scales with the count relative to the peak cell. Empty cells are background; the most-trafficked hour fills the highest-opacity swatch."
+
+  - key: periodicity.peak
+    text: "Highest hit count in any single day × hour bucket over the trailing window. Tells you the signature's peak burst rate within an hour."
+
+  # ── Raw requests (per-request detection log) ───────────────────────────
+  - key: raw.col.time
+    text: "Local timestamp of the request. Useful for correlating with backend logs."
+
+  - key: raw.col.method
+    text: "HTTP method recorded on the request."
+
+  - key: raw.col.path
+    text: "Request path. Truncated in the view; the full path is in the row's title attribute for copy / paste."
+
+  - key: raw.col.status
+    text: "HTTP status code the request resolved with after the policy stack applied. 4xx = policy block / challenge / not-found, 5xx = backend error."
+
+  - key: raw.col.prob
+    text: "Bot probability this individual request scored. Differs from the aggregated header probability because it has no smoothing — the row is the raw verdict for that single request."
+
+  - key: raw.col.conf
+    text: "Confidence in the per-request probability. Low confidence usually means the request hit a fast-path early-exit before enough evidence accumulated."
+
+  - key: raw.col.risk
+    text: "Risk band assigned to this individual request after policy and threat scoring. The header band reflects aggregated history; this row reflects what the gateway sent back at the time."
+
+  - key: raw.col.action
+    text: "Action the policy stack took on this request (Allow, Throttle, Challenge, Block, etc.)."
+
+  - key: raw.col.time_ms
+    text: "Total StyloBot processing latency for this single request, in milliseconds. Doesn't include downstream rendering time."

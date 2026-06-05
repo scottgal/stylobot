@@ -322,6 +322,16 @@ public sealed class SignatureDetailModel
 
     // From CachedVisitor
     public List<string> Paths { get; init; } = [];
+
+    /// <summary>
+    ///     Per-endpoint stats restricted to this signature (HitCount, Avg/P95/Max
+    ///     latency, BotRate, threat, status mix, dominant action / risk). Powers
+    ///     the Endpoints Visited table on the detail page. Empty list when the
+    ///     store query failed, the remote adapter cannot supply the data, or this
+    ///     signature has no persisted detections yet; the view falls back to
+    ///     <see cref="Paths"/> in that case.
+    /// </summary>
+    public List<SignatureEndpointStats> EndpointStats { get; init; } = [];
     public string? UserAgent { get; init; }
     public string? Protocol { get; init; }
     public DateTime FirstSeen { get; init; }

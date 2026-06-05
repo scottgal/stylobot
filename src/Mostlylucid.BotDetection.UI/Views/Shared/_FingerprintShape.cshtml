@@ -1,6 +1,27 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
+@using Mostlylucid.BotDetection.UI.Configuration
+@using Microsoft.Extensions.DependencyInjection
 @model FingerprintShapeViewModel
+@inject IServiceProvider Sp
+@{
+    var sbDashboardOptions = Sp.GetService<StyloBotDashboardOptions>();
+    var sbTooltipRegistry  = Sp.GetService<DashboardTooltipRegistry>();
+    var sbTooltipsOn       = sbDashboardOptions?.EnableTooltips == true && sbTooltipRegistry != null;
+
+    // SVG label tooltips can't go through the sb-tooltip TagHelper because the
+    // labels are appended into a StringBuilder as raw <text> markup (the radar
+    // axis points are computed in code, not declared as Razor elements). We
+    // resolve the tooltip text inline against the same registry and wrap the
+    // <text> in a <g class="tooltip tooltip-bottom" data-tip="..."> so the
+    // sb-tooltip-portal.js script picks it up identically to the HTML call
+    // sites — one rendering path, same registry, no string list in C#.
+    string? SbSvgTooltip(string key)
+    {
+        if (!sbTooltipsOn) return null;
+        return sbTooltipRegistry!.TryGet(key, out var t) ? t : null;
+    }
+}
 @{
     // Render source: a FingerprintRadarShape projected by FingerprintRadarProjection
     // (Network / Locale / Headers / Tool / Transport / Session / Quality). Solid
@@ -46,7 +67,23 @@
 
         var lx = 50 + Math.Cos(angle) * 44;
         var ly = 50 + Math.Sin(angle) * 44 + 1.2;
-        radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{bucketLabels[i]}</text>");
+        var label = bucketLabels[i];
+        // Tooltip key is derived from the axis label so adding a new bucket only
+        // requires a YAML row, never a C# table. The portal binds .tooltip[data-tip]
+        // on any element including SVG <g> so this contract matches the HTML one.
+        var labelKey = "radar." + label.ToLowerInvariant();
+        var labelTip = SbSvgTooltip(labelKey);
+        if (labelTip is not null)
+        {
+            // pointer-events="bounding-box" makes the entire <g> hit-testable, not
+            // just the rendered glyph shapes, so hovering anywhere in the label's
+            // bbox triggers mouseenter.
+            radarLabelSvg.AppendLine($"<g class=\"tooltip tooltip-bottom\" data-tip=\"{System.Net.WebUtility.HtmlEncode(labelTip)}\" pointer-events=\"bounding-box\"><text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{label}</text></g>");
+        }
+        else
+        {
+            radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{label}</text>");
+        }
     }
 
     var hasOrigin = hasRadar && shape!.OriginBuckets is { Length: > 0 };

@@ -80,3 +80,34 @@ public sealed record EndpointPackCoverage(
     string Scope,
     int CurrentLevel,
     string? CurrentPolicy);
+
+/// <summary>
+///     Per-endpoint stats scoped to a single signature, surfaced on the signature
+///     detail page's Endpoints Visited table. Mirrors the shape of
+///     <see cref="DashboardEndpointStats"/> with the additions of the response
+///     status mix and a "dominant" action so the operator can read at a glance
+///     whether this signature gets allowed / throttled / blocked on each path.
+///
+///     <para>
+///     P95 is approximated as <c>avg + 0.9 * (max - avg)</c> on SQLite (same
+///     convention as every other p95 column in the dashboard); the Postgres
+///     mirror returns the real percentile.
+///     </para>
+/// </summary>
+public sealed record SignatureEndpointStats
+{
+    public required string Method { get; init; }
+    public required string Path { get; init; }
+    public int HitCount { get; init; }
+    public double AvgProcessingTimeMs { get; init; }
+    public double MaxProcessingTimeMs { get; init; }
+    public double P95ProcessingTimeMs { get; init; }
+    public double BotRate { get; init; }            // 0..1, fraction of hits that scored as bot
+    public double AvgThreatScore { get; init; }     // 0..1
+    public string? DominantRiskBand { get; init; }
+    public string? DominantAction { get; init; }
+    public int Status2xx { get; init; }
+    public int Status4xx { get; init; }
+    public int Status5xx { get; init; }
+    public DateTime LastSeen { get; init; }
+}

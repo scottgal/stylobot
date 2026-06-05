@@ -1111,6 +1111,96 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return results;
     }
 
+    public async Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(
+        string signature,
+        int topN = 25,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(signature)) return new List<SignatureEndpointStats>();
+        if (topN <= 0) topN = 25;
+        await EnsureInitializedAsync();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // Aggregate every persisted detection for this signature by (method, path).
+        // DominantAction / DominantRiskBand come from a per-row MAX(COUNT) over the
+        // grouped slice — SQLite doesn't have MODE() so we approximate with the
+        // most-frequent label via a sub-aggregate per row. For a typical visitor
+        // hitting <= 25 distinct endpoints this is cheap; the LIMIT caps worst-case.
+        //
+        // P95 uses the same avg + 0.9 * (max - avg) approximation as the existing
+        // p95 columns elsewhere in this file. PostgreSQL gets the real percentile.
+        //
+        // Status mix is summed from status_code; 0 (not yet captured on legacy rows)
+        // falls through all three buckets, which is fine — the operator sees zeros
+        // and can ignore the column.
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                method,
+                path,
+                COUNT(*)                                                                    AS hits,
+                AVG(processing_time_ms)                                                     AS avg_ms,
+                MAX(processing_time_ms)                                                     AS max_ms,
+                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*)                AS bot_rate,
+                AVG(COALESCE(threat_score, 0))                                              AS avg_threat,
+                MAX(timestamp)                                                              AS last_seen,
+                SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END)            AS s2xx,
+                SUM(CASE WHEN status_code BETWEEN 400 AND 499 THEN 1 ELSE 0 END)            AS s4xx,
+                SUM(CASE WHEN status_code BETWEEN 500 AND 599 THEN 1 ELSE 0 END)            AS s5xx,
+                (SELECT risk_band FROM detections d2
+                  WHERE d2.signature = detections.signature
+                    AND d2.method = detections.method
+                    AND d2.path = detections.path
+                    AND risk_band IS NOT NULL
+                  GROUP BY risk_band
+                  ORDER BY COUNT(*) DESC, risk_band ASC
+                  LIMIT 1)                                                                  AS dominant_risk,
+                (SELECT action FROM detections d3
+                  WHERE d3.signature = detections.signature
+                    AND d3.method = detections.method
+                    AND d3.path = detections.path
+                    AND action IS NOT NULL
+                  GROUP BY action
+                  ORDER BY COUNT(*) DESC, action ASC
+                  LIMIT 1)                                                                  AS dominant_action
+            FROM detections
+            WHERE signature = @sig
+            GROUP BY method, path
+            ORDER BY hits DESC
+            LIMIT @top
+            """;
+        cmd.Parameters.AddWithValue("@sig", signature);
+        cmd.Parameters.AddWithValue("@top", topN);
+
+        var rows = new List<SignatureEndpointStats>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var avgMs = reader.IsDBNull(3) ? 0.0 : reader.GetDouble(3);
+            var maxMs = reader.IsDBNull(4) ? 0.0 : reader.GetDouble(4);
+            var p95   = avgMs + (maxMs - avgMs) * 0.9;
+            rows.Add(new SignatureEndpointStats
+            {
+                Method              = reader.IsDBNull(0) ? "" : reader.GetString(0),
+                Path                = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                HitCount            = reader.GetInt32(2),
+                AvgProcessingTimeMs = avgMs,
+                MaxProcessingTimeMs = maxMs,
+                P95ProcessingTimeMs = p95,
+                BotRate             = reader.IsDBNull(5) ? 0 : reader.GetDouble(5),
+                AvgThreatScore      = reader.IsDBNull(6) ? 0 : reader.GetDouble(6),
+                LastSeen            = reader.IsDBNull(7) ? default : DateTime.Parse(reader.GetString(7)),
+                Status2xx           = reader.GetInt32(8),
+                Status4xx           = reader.GetInt32(9),
+                Status5xx           = reader.GetInt32(10),
+                DominantRiskBand    = reader.IsDBNull(11) ? null : reader.GetString(11),
+                DominantAction      = reader.IsDBNull(12) ? null : reader.GetString(12),
+            });
+        }
+        return rows;
+    }
+
     public async Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
     {
         await EnsureInitializedAsync();

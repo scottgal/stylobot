@@ -204,6 +204,12 @@ public static class StyloBotDashboardServiceExtensions
         // Dashboard help system (Markdig-rendered markdown)
         services.AddSingleton<DashboardHelpService>();
 
+        // Dashboard tooltip registry — loads Definitions/Tooltips/*.yaml at
+        // startup. Cheap to register unconditionally; the helper short-circuits
+        // when StyloBotDashboardOptions.EnableTooltips is false so the resolved
+        // registry never gets queried on FOSS hosts that haven't opted in.
+        services.AddSingleton<DashboardTooltipRegistry>();
+
         // Static detection-side data the dashboard renders need. Registered as
         // TryAddSingleton so that hosts which also call AddBotDetection get
         // those richer registrations instead. Pure dashboard-viewer hosts

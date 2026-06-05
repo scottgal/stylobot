@@ -73,6 +73,10 @@ builder.Services.AddStyloBotDashboard(builder.Configuration, options =>
     // base FOSS binary defaults to MonitoringPack.Enabled = false; operators
     // opt in via appsettings or by setting this property programmatically.
     options.MonitoringPack.Enabled = true;
+    // Demo runs with tooltips on so the showcase reads as a glossary of every
+    // signal surface; the FOSS default is off (compact for operators who already
+    // know the dashboard).
+    options.EnableTooltips = true;
 });
 
 // Add StyloBot Public API (detect, read, me endpoints + API key auth)

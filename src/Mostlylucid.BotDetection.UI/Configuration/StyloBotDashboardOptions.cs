@@ -89,6 +89,21 @@ public sealed class StyloBotDashboardOptions
     public string? RequireAuthorizationPolicy { get; set; }
 
     /// <summary>
+    ///     Render daisyUI tooltips next to dashboard elements (stat cards, radar axes,
+    ///     fingerprint profile items, endpoint columns, etc.). Tooltip text lives in
+    ///     <c>Definitions/Tooltips/dashboard-tooltips.yaml</c> per the
+    ///     <c>feedback_no_word_lists</c> rule; this option only controls whether the
+    ///     markup is emitted at the call sites.
+    ///     <para>
+    ///     Default false — the FOSS dashboard stays compact for operators who already
+    ///     know the surface. stylobot.net flips this to true in its
+    ///     <c>appsettings.json</c> so visitors get inline glossary copy without a
+    ///     separate docs page.
+    ///     </para>
+    /// </summary>
+    public bool EnableTooltips { get; set; } = false;
+
+    /// <summary>
     ///     Maximum number of events to keep in memory for history.
     ///     Default: 1000
     /// </summary>
