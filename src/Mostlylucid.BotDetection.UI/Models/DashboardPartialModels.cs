@@ -380,6 +380,44 @@ public sealed class SignatureDetailModel
     /// </summary>
     public IReadOnlyList<Mostlylucid.BotDetection.Identity.NearestFingerprint> LooksLike { get; init; }
         = Array.Empty<Mostlylucid.BotDetection.Identity.NearestFingerprint>();
+
+    /// <summary>
+    ///     Browser modes the signature's fingerprint has played (composite-spec
+    ///     step 7). Each row is one persisted entry from
+    ///     <c>fingerprint_modes</c> — same browser, different modes. Empty when
+    ///     identity is disabled, the signature is unbound, the mode store isn't
+    ///     registered (remote-mode dashboard host), or the fingerprint hasn't
+    ///     accumulated any post-step-2 observations yet.
+    /// </summary>
+    public IReadOnlyList<SignatureBrowserModeRow> BrowserModes { get; init; }
+        = Array.Empty<SignatureBrowserModeRow>();
+}
+
+/// <summary>
+///     One browser-mode row rendered on the signature detail page (composite
+///     spec step 7). Replaces the legacy "Drifted Chrome Desktop → Chrome XHR"
+///     misnomer with an honest per-mode list: this fingerprint plays these
+///     modes, with this many observations each, last seen at these timestamps.
+/// </summary>
+public sealed record SignatureBrowserModeRow
+{
+    /// <summary>YAML mode id (navigation / xhr / sub-resource / signalr-negotiate / websocket-upgrade / prefetch / bot-raw / unknown).</summary>
+    public required string ModeId { get; init; }
+
+    /// <summary>EWMA centroid maturity for this mode — N observations folded in.</summary>
+    public required int CentroidMaturity { get; init; }
+
+    /// <summary>Total observation count (including unabsorbed, before the next drain tick).</summary>
+    public required int ObservationCount { get; init; }
+
+    /// <summary>Nearest archetype id (chrome-xhr / chrome-desktop / googlebot / ...). Null until the mode crosses MinModeMaturityForArchetypeMatch.</summary>
+    public string? InferredArchetype { get; init; }
+
+    /// <summary>Score of the inferred archetype match (presence-aware similarity).</summary>
+    public double? InferredConfidence { get; init; }
+
+    public required DateTime FirstSeen { get; init; }
+    public required DateTime LastSeen { get; init; }
 }
 
 /// <summary>

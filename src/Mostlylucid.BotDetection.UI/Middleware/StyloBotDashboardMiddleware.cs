@@ -4558,7 +4558,8 @@ public class StyloBotDashboardMiddleware
             TunerEnabled = _options.EnableTuner,
             PeriodicityHeatmap = heatmap,
             LooksLike = looksLike,
-            FingerprintShape = fingerprintShape
+            FingerprintShape = fingerprintShape,
+            BrowserModes = await ResolveBrowserModesAsync(context, decodedSignature),
         };
 
         context.Response.ContentType = "text/html";
@@ -4604,6 +4605,68 @@ public class StyloBotDashboardMiddleware
                 "Looks-like KNN failed for {Signature}; rendering signature detail without it",
                 decodedSignature);
             return Array.Empty<BotDetection.Identity.NearestFingerprint>();
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the per-mode rows for the signature's fingerprint
+    ///     (composite-spec step 7). Powers the Browser Modes panel — replaces
+    ///     the legacy "Drifted Chrome Desktop → Chrome XHR" misnomer that
+    ///     conflated multi-mode evolution with identity drift. Returns an
+    ///     empty list when identity is off, the reader is absent (remote-mode
+    ///     dashboard host without a SignalR pull yet), the signature is
+    ///     unbound to a fingerprint, the mode store isn't registered, or the
+    ///     fingerprint has no mode rows persisted yet (cold post-deploy);
+    ///     the view hides the panel header in that case so the page never
+    ///     renders an empty box. Per <c>feedback_remote_mode_optional_di</c>:
+    ///     every service is resolved as optional and missing-on-purpose paths
+    ///     fall through quietly.
+    /// </summary>
+    private async Task<IReadOnlyList<SignatureBrowserModeRow>> ResolveBrowserModesAsync(
+        HttpContext context, string decodedSignature)
+    {
+        var idOpts = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()?.Value.Identity;
+        if (idOpts is null || !idOpts.Enabled || !idOpts.BrowserMode.Enabled)
+            return Array.Empty<SignatureBrowserModeRow>();
+
+        var reader = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
+        if (reader is null) return Array.Empty<SignatureBrowserModeRow>();
+
+        var modeStore = context.RequestServices
+            .GetService<BotDetection.Identity.BrowserModes.IFingerprintBrowserModeStore>();
+        if (modeStore is null) return Array.Empty<SignatureBrowserModeRow>();
+
+        try
+        {
+            var fpId = await reader.LookupFingerprintIdAsync(decodedSignature, context.RequestAborted);
+            if (string.IsNullOrEmpty(fpId)) return Array.Empty<SignatureBrowserModeRow>();
+
+            var modes = await modeStore.GetModesAsync(fpId, context.RequestAborted);
+            if (modes.Count == 0) return Array.Empty<SignatureBrowserModeRow>();
+
+            // Project to the view-row record; sort by last_seen descending so
+            // the most-recently-played mode renders first.
+            return modes
+                .OrderByDescending(m => m.LastSeen)
+                .Select(m => new SignatureBrowserModeRow
+                {
+                    ModeId             = m.ModeId,
+                    CentroidMaturity   = m.CentroidMaturity,
+                    ObservationCount   = m.ObservationCount,
+                    InferredArchetype  = m.InferredArchetype,
+                    InferredConfidence = m.InferredConfidence,
+                    FirstSeen          = m.FirstSeen,
+                    LastSeen           = m.LastSeen,
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "Browser-mode lookup failed for {Signature}; rendering signature detail without modes panel",
+                decodedSignature);
+            return Array.Empty<SignatureBrowserModeRow>();
         }
     }
 

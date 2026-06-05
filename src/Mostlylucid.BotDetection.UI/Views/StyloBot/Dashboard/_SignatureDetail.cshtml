@@ -314,6 +314,72 @@ else
         </div>
     }
 
+    @* Browser Modes -- composite-spec step 7. One row per persisted
+       fingerprint_modes entry. Same browser, different modes: a real Chrome
+       user emits navigation on page load, xhr on /api/*, sub-resource on
+       /static/*, signalr-negotiate on /hub/negotiate. Replaces the legacy
+       "Drifted Chrome Desktop → Chrome XHR" misnomer that conflated multi-
+       mode evolution with identity drift. The panel hides itself when the
+       fingerprint has no mode rows (cold post-deploy or remote-mode host
+       without an IFingerprintBrowserModeStore in DI). *@
+    @if (Model.BrowserModes.Count > 0)
+    {
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2 flex items-center gap-1">
+                <i class="bx bx-layer text-sm" style="color: var(--sb-accent);"></i>
+                Browser modes
+                <span class="text-[10px] font-normal text-base-content/40 normal-case ml-1">
+                    same browser, different modes — one row per persisted mode
+                </span>
+            </h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="text-[10px] uppercase text-base-content/40">
+                        <tr>
+                            <th class="text-left py-1 pr-2">Mode</th>
+                            <th class="text-right py-1 px-2 tabular-nums" sb-tooltip="modes.observations">Observations</th>
+                            <th class="text-right py-1 px-2 tabular-nums" sb-tooltip="modes.maturity">Maturity</th>
+                            <th class="text-left py-1 px-2" sb-tooltip="modes.archetype">Nearest archetype</th>
+                            <th class="text-right py-1 pl-2 whitespace-nowrap">Last seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in Model.BrowserModes)
+                        {
+                            <tr class="border-b border-base-content/5 last:border-b-0">
+                                <td class="py-1 pr-2 font-mono text-[11px]" sb-tooltip="modes.id">@m.ModeId</td>
+                                <td class="py-1 px-2 text-right tabular-nums text-base-content/85">@m.ObservationCount</td>
+                                <td class="py-1 px-2 text-right tabular-nums text-base-content/85">@m.CentroidMaturity</td>
+                                <td class="py-1 px-2 text-base-content/70">
+                                    @if (!string.IsNullOrEmpty(m.InferredArchetype))
+                                    {
+                                        @m.InferredArchetype
+                                        @if (m.InferredConfidence is { } conf)
+                                        {
+                                            <span class="text-[10px] text-base-content/40 ml-1">(@conf.ToString("F2", System.Globalization.CultureInfo.InvariantCulture))</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="text-base-content/30">—</span>
+                                    }
+                                </td>
+                                <td class="py-1 pl-2 text-right text-[11px] text-base-content/50 tabular-nums whitespace-nowrap">@m.LastSeen.ToString("HH:mm:ss")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @{
+                var modeCount = Model.BrowserModes.Count;
+                var totalObs = Model.BrowserModes.Sum(m => m.ObservationCount);
+            }
+            <div class="text-[10px] text-base-content/40 mt-2">
+                @modeCount mode@(modeCount == 1 ? "" : "s") across @totalObs observation@(totalObs == 1 ? "" : "s") — see <a class="underline decoration-dotted" href="https://github.com/scottgal/stylobot/blob/main/docs/architecture/composite-browser-mode-fingerprints.md" target="_blank" rel="noopener">composite browser-mode fingerprints</a>.
+            </div>
+        </div>
+    }
+
     <!-- Periodicity heatmap: 7×24 day-of-week × hour-of-day hit counts over the
          trailing 30 days, aggregated from the requests table. Renders nothing
          when there's no data yet (short-lived signature, first-touch visitor). -->
