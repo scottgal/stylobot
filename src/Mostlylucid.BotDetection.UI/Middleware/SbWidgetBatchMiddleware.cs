@@ -431,6 +431,7 @@ public sealed class SbWidgetBatchMiddleware
         var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
 
         var sigLookup = await _eventStore.LoadSignatureLookupAsync();
+        var uaLookup  = await _eventStore.LoadUserAgentLookupAsync();
 
         var entries = sessions
             .Skip((page - 1) * pageSize)
@@ -449,6 +450,7 @@ public sealed class SbWidgetBatchMiddleware
             Action = s.Action,
             BotName = sigLookup.ResolveBotName(_signatureCache, s.Signature, s.BotName),
             CountryCode = s.CountryCode,
+            UserAgent = uaLookup.ResolveUserAgent(_signatureCache, s.Signature),
             ErrorCount = s.ErrorCount,
             TimingEntropy = s.TimingEntropy,
             Maturity = s.Maturity,

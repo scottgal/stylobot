@@ -640,6 +640,18 @@ public sealed record SessionListEntry
     public string? Action { get; init; }
     public string? BotName { get; init; }
     public string? CountryCode { get; init; }
+
+    /// <summary>
+    ///     Raw User-Agent of the most-recent detection for this session's
+    ///     signature, resolved at render time via
+    ///     <see cref="Services.SessionEnrichmentExtensions.ResolveUserAgent"/>.
+    ///     Feeds the dashboard's "Chrome 148 / macOS" rich identity label via
+    ///     <see cref="Services.SignatureDisplayName.Resolve"/>. Null when no
+    ///     UA was captured (the row then falls through to the legacy
+    ///     country/family composite).
+    /// </summary>
+    public string? UserAgent { get; init; }
+
     public int ErrorCount { get; init; }
     public float TimingEntropy { get; init; }
     public float Maturity { get; init; }

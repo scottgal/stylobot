@@ -53,4 +53,55 @@ public static class SessionEnrichmentExtensions
             return agg.BotName;
         return signatureLookup.TryGetValue(signature, out var name) ? name : null;
     }
+
+    /// <summary>
+    ///     Fetch the most-recent top-N signatures (24h window) and build a
+    ///     primarySignature -> raw User-Agent lookup. Sources from
+    ///     <c>GetTopBotsAsync</c> because <c>GetSignaturesAsync</c>'s
+    ///     <see cref="DashboardSignatureEvent"/> projection doesn't carry UA --
+    ///     the signatures table schema has no <c>user_agent_raw</c> column;
+    ///     detections does, and TopBotsAsync's per-signature aggregation
+    ///     already surfaces the latest UA per row after the identity-display
+    ///     plumbing. Used by the sessions list to render "Chrome 148 / macOS"
+    ///     instead of "GB User N" -- same identity-display fix the visitor
+    ///     list got in <see cref="WidgetRenderHelpers.ProjectAsVisitors"/>.
+    /// </summary>
+    public static async Task<Dictionary<string, string?>> LoadUserAgentLookupAsync(
+        this IDashboardEventStore store,
+        int limit = 500)
+    {
+        var lookup = new Dictionary<string, string?>(StringComparer.Ordinal);
+        try
+        {
+            var top = await store.GetTopBotsAsync(
+                count: limit,
+                startTime: DateTime.UtcNow.AddHours(-24),
+                endTime: DateTime.UtcNow,
+                audienceFilter: "all");
+            foreach (var entry in top)
+                lookup[entry.PrimarySignature] = entry.UserAgent;
+        }
+        catch
+        {
+            // store unavailable -- caller falls through to cache-only resolution
+        }
+        return lookup;
+    }
+
+    /// <summary>
+    ///     Resolve a session's raw UA in order of preference: the in-memory
+    ///     aggregate cache (write-through, freshest), then the precomputed
+    ///     <see cref="LoadUserAgentLookupAsync"/> dictionary. Returns null
+    ///     when no UA is known anywhere -- SignatureDisplayName.Resolve then
+    ///     falls back to the legacy country/family composite.
+    /// </summary>
+    public static string? ResolveUserAgent(
+        this Dictionary<string, string?> userAgentLookup,
+        SignatureAggregateCache? cache,
+        string signature)
+    {
+        if (cache is not null && cache.TryGet(signature, out var agg) && !string.IsNullOrEmpty(agg?.UserAgent))
+            return agg.UserAgent;
+        return userAgentLookup.TryGetValue(signature, out var ua) ? ua : null;
+    }
 }

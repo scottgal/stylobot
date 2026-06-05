@@ -31,6 +31,7 @@ public class SbSessionsListViewComponent(
         var allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
 
         var sigLookup = await eventStore.LoadSignatureLookupAsync();
+        var uaLookup  = await eventStore.LoadUserAgentLookupAsync();
 
         // GetRecentSessionsAsync returns DESC by StartedAt. To compute a per-row
         // score-delta we need the *next* (older) session for the same signature.
@@ -78,6 +79,7 @@ public class SbSessionsListViewComponent(
                 Action = s.Action,
                 BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
                 CountryCode = s.CountryCode,
+                UserAgent = uaLookup.ResolveUserAgent(signatureCache, s.Signature),
                 ErrorCount = s.ErrorCount,
                 TimingEntropy = s.TimingEntropy,
                 Maturity = s.Maturity,
