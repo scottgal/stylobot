@@ -1463,7 +1463,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var cmd = conn.CreateCommand();
         var sql = """
             SELECT timestamp, signature, path, bot_name, bot_type, bot_probability,
-                   threat_score, threat_band, country_code, action, status_code
+                   threat_score, threat_band, country_code, action, status_code, user_agent_raw
             FROM detections
             WHERE (action = 'simulation-pack'
                    OR threat_band IN ('Critical', 'High'))
@@ -1497,6 +1497,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var tOrdThreatBand  = reader.GetOrdinal("threat_band");
         var tOrdCountry     = reader.GetOrdinal("country_code");
         var tOrdAction      = reader.GetOrdinal("action");
+        var tOrdUserAgent   = reader.GetOrdinal("user_agent_raw");
 
         while (await reader.ReadAsync())
         {
@@ -1551,7 +1552,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 CveId          = cveId,
                 CveSeverity    = cveSeverity,
                 PackId         = packId,
-                InHoneypot     = inHoneypot
+                InHoneypot     = inHoneypot,
+                UserAgent      = reader.IsDBNull(tOrdUserAgent) ? null : reader.GetString(tOrdUserAgent),
             });
         }
 

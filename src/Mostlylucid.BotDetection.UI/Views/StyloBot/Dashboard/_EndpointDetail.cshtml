@@ -215,7 +215,7 @@
                                 "Medium" or "Elevated" => "text-warning",
                                 _ => "text-success"
                             };
-                            var visitorName = SignatureDisplayName.Resolve(bot.PrimarySignature, bot.BotName, bot.BotType, bot.CustomBotName, bot.CountryCode, isBot: true, uaFamily: null, seen: seenNames);
+                            var visitorName = SignatureDisplayName.Resolve(bot.PrimarySignature, bot.BotName, bot.BotType, bot.CustomBotName, bot.CountryCode, isBot: true, uaFamily: bot.UaFamily, seen: seenNames, userAgent: bot.UserAgent);
                             <tr class="hover:bg-base-300/40">
                                 <td class="py-1 w-5">
                                     @if (HasFlag(bot.CountryCode))

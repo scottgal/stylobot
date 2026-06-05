@@ -780,6 +780,16 @@ public sealed class ThreatEntry
     public string? CountryCode { get; init; }
     public DateTime Timestamp { get; init; }
     public bool InHoneypot { get; init; }
+
+    /// <summary>
+    ///     Raw User-Agent of the detection that triggered the threat. Feeds the
+    ///     dashboard's "Chrome 119 / macOS" rich identity label via
+    ///     <see cref="Services.SignatureDisplayName.Resolve"/>. Without it the
+    ///     threats row falls through to "GB Bot N" synth labels even when the
+    ///     event store has the UA parsed and available -- the same hide-what-
+    ///     we-know pattern that motivated [[task #110]].
+    /// </summary>
+    public string? UserAgent { get; init; }
 }
 
 /// <summary>
