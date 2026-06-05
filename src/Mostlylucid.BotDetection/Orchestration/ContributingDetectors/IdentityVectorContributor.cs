@@ -72,7 +72,9 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
 
         var raw = ComposeRawValues(state);
         var vector = _encoder.Encode(raw);
+        var rawVector = _encoder.EncodeRaw(raw);
         state.WriteSignal(SignalKeys.IdentityVector, vector);
+        state.WriteSignal(SignalKeys.IdentityVectorRaw, rawVector);
         state.WriteSignal(SignalKeys.IdentityRawValues, raw);
 
         var presenceSlot = _encoder.Layout.FindSlot("quality.dimension_presence_ratio");

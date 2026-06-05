@@ -406,7 +406,18 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         // appears as the client identity and "Chrome Desktop -> Chrome XHR"
         // never appears as a drift banner. Per the composite-browser-mode-
         // fingerprints spec, mode shifts are orthogonal to identity drift.
-        var nearestArchetype = _archetypes.FindNearest(vector);
+        //
+        // The archetype seeding pick uses the RAW (unnormalized) channel so per-dim
+        // diffs are computed in raw signal space, not on the unit hypersphere where
+        // umbrella centroids (sparse) and dense observations land at structurally
+        // divergent positions. Falls back to the normalized vector when the raw
+        // signal is missing (encoder cache-hit fast path doesn't republish it).
+        var rawVector = state.Signals.TryGetValue(SignalKeys.IdentityVectorRaw, out var rawObj)
+            ? rawObj as float[]
+            : null;
+        var nearestArchetype = rawVector is not null
+            ? _archetypes.FindNearestRaw(rawVector)
+            : _archetypes.FindNearest(vector);
         var nearestClient = nearestArchetype is { Archetype.IsMode: true }
             ? _archetypes.FindNearestClient(vector)
             : nearestArchetype;

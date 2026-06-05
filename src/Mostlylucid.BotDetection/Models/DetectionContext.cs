@@ -490,6 +490,15 @@ public static class SignalKeys
     /// <summary>float[D]: composed identity feature vector. Written by IdentityVectorContributor.</summary>
     public const string IdentityVector = "identity.vector";
 
+    /// <summary>
+    ///     float[D]: the raw, unnormalized identity feature vector. Use this when comparing per-dim
+    ///     signal magnitudes against archetype raw centroids (variance-aware scoring). The
+    ///     L2-normalized variant lives in <see cref="IdentityVector"/> and is preferred by cosine
+    ///     consumers. Written by IdentityVectorContributor alongside the normalized vector; absent
+    ///     on the encoder cache-hit fast path (consumers fall back to <see cref="IdentityVector"/>).
+    /// </summary>
+    public const string IdentityVectorRaw = "identity.vector.raw";
+
     /// <summary>double in [0,1]: average dimension-presence ratio for the composed vector.</summary>
     public const string IdentityVectorQuality = "identity.vector_quality";
 
