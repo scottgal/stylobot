@@ -111,6 +111,20 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         return _globalSignals.Sense();
     }
 
+    /// <inheritdoc />
+    public IDisposable SubscribeToSignals(Action<SignalEvent> listener)
+    {
+        ArgumentNullException.ThrowIfNull(listener);
+        return _globalSignals.Subscribe(listener);
+    }
+
+    /// <inheritdoc />
+    public void RaiseSignalForObservability(string signal, string? key = null)
+    {
+        if (string.IsNullOrEmpty(signal)) return;
+        _globalSignals.Raise(signal, key);
+    }
+
 
     /// <summary>
     ///     Run the full detection pipeline and aggregate results.

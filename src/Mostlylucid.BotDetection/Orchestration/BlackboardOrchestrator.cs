@@ -15,6 +15,7 @@ using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration;
@@ -258,6 +259,9 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     private readonly ISessionStore? _sessionStore;
     private readonly RequestPersistenceService? _requestPersistence;
 
+    // Global signal sink for cross-host observability subscribers.
+    private readonly SignalSink _globalSignals;
+
     [ThreadStatic] private static Random? t_random;
 
     public BlackboardOrchestrator(
@@ -293,6 +297,24 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         _markovTracker = markovTracker;
         _sessionStore = sessionStore;
         _requestPersistence = requestPersistence;
+
+        _globalSignals = new SignalSink(
+            _options.SignalSinkMaxCapacity,
+            _options.SignalSinkMaxAge);
+    }
+
+    /// <inheritdoc />
+    public IDisposable SubscribeToSignals(Action<SignalEvent> listener)
+    {
+        ArgumentNullException.ThrowIfNull(listener);
+        return _globalSignals.Subscribe(listener);
+    }
+
+    /// <inheritdoc />
+    public void RaiseSignalForObservability(string signal, string? key = null)
+    {
+        if (string.IsNullOrEmpty(signal)) return;
+        _globalSignals.Raise(signal, key);
     }
 
     /// <summary>
