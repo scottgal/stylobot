@@ -184,6 +184,23 @@ public sealed class IdentityVectorEncoder
     /// </summary>
     public float[] Encode(IReadOnlyDictionary<string, object?> rawValues)
     {
+        var v = EncodeCore(rawValues);
+        L2Normalise(v);
+        return v;
+    }
+
+    /// <summary>
+    ///     Encode without the terminal L2 normalization. Use when comparing raw signal magnitudes
+    ///     between an observation and a centroid is more meaningful than comparing positions on
+    ///     the unit hypersphere. Required for variance-aware scoring in IdentityArchetypeRegistry.
+    /// </summary>
+    public float[] EncodeRaw(IReadOnlyDictionary<string, object?> rawValues)
+    {
+        return EncodeCore(rawValues);
+    }
+
+    private float[] EncodeCore(IReadOnlyDictionary<string, object?> rawValues)
+    {
         var v = new float[_layout.Dimension];
         var presentSlotCount = 0;
 
@@ -265,7 +282,6 @@ public sealed class IdentityVectorEncoder
         if (versionSlot is not null)
             v[versionSlot.Offset] = _layout.Version;
 
-        L2Normalise(v);
         return v;
     }
 

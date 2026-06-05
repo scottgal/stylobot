@@ -12,6 +12,18 @@ public sealed record IdentityArchetype
     public string? Description { get; init; }
     public required string ArchetypeKind { get; init; }
     public required float[] Centroid { get; init; }
+
+    /// <summary>
+    ///     The pre-L2-normalisation centroid built directly from the YAML's raw dimension values.
+    ///     <see cref="Centroid"/> is unit-length for cosine matching; <c>CentroidRaw</c> preserves
+    ///     the original magnitudes for variance-aware scoring.
+    ///
+    ///     Null on archetypes built before this property was added (backwards-compat); callers
+    ///     fall back to <see cref="Centroid"/> when null. Always populated by
+    ///     <c>IdentityArchetypeRegistry.Compile</c> from this commit forward.
+    /// </summary>
+    public float[]? CentroidRaw { get; init; }
+
     public required float[] DimensionMask { get; init; }
 
     /// <summary>

@@ -424,6 +424,112 @@ public sealed class ArchetypeMatchScoringTests
     }
 
     // --------------------------------------------------------------------
+    // Raw-channel scoring tests (Task 3 of the encoder-raw-channel sub-plan).
+    // The contract: a raw observation that matches a raw centroid on every
+    // claimed dim must score materially higher under ScoreAgainstRaw than the
+    // same pair compared via the L2-normalized Centroid + ScoreAgainst, because
+    // L2 normalization re-positions both vectors on the unit hypersphere based
+    // on their populated-dim count -- a centroid built from 3 claims and an
+    // observation built from 13 populated dims land at structurally different
+    // positions even when their raw values agree.
+    // --------------------------------------------------------------------
+
+    [Fact]
+    public void MaskedSimilarity_RawCentroidMatchesRawObservation_OnSubsetOfDims_ScoresHighRegardlessOfPopulationDensity()
+    {
+        var dim = _encoder.Layout.Dimension;
+
+        // Centroid: encode just 3 booleans. After L2Normalise the magnitudes contract toward one
+        // unit-sphere position; before normalization they're 1.0 on each populated dim.
+        var centroidRawValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["network.is_datacenter"] = true,
+            ["network.is_vpn"] = true,
+            ["network.is_tor"] = true
+        };
+        var centroid = _encoder.Encode(centroidRawValues);
+        var centroidRaw = _encoder.EncodeRaw(centroidRawValues);
+
+        var mask = new float[dim];
+        foreach (var slotName in new[] { "network.is_datacenter", "network.is_vpn", "network.is_tor" })
+        {
+            var slot = _encoder.Layout.Slots.First(s => string.Equals(s.Name, slotName, StringComparison.OrdinalIgnoreCase));
+            mask[slot.Offset] = 0.9f;
+        }
+
+        // Tight variance (0.01) so the diff=0 on the raw channel translates into a high
+        // (>=0.85) sigmoid score; a broader variance (e.g. 0.05) caps the maximum achievable
+        // score around 0.82, which would make the raw-vs-normalized delta hard to see even
+        // when the raw channel is correctly perfectly matched.
+        var variance = new float[dim];
+        Array.Fill(variance, 0.01f);
+
+        var archetype = BuildArchetypeWithRaw("perfect-match", centroid, centroidRaw, mask, variance);
+
+        // Observation: SAME three slot values PLUS 10 more populated signals.
+        var observationRawValues = new Dictionary<string, object?>(centroidRawValues, StringComparer.OrdinalIgnoreCase)
+        {
+            ["hdr.ua_family"] = "Chrome",
+            ["hdr.accept"] = "*/*",
+            ["hdr.accept_encoding_ordered"] = "gzip, deflate, br",
+            ["hdr.sec_ch_ua_mobile"] = false,
+            ["hdr.upgrade_insecure_requests"] = true,
+            ["network.country"] = "US",
+            ["network.asn"] = "AS15169",
+            ["hdr.dnt"] = true,
+            ["hdr.sec_fetch_pattern"] = 15,
+            ["session.path_entropy"] = 0.5
+        };
+
+        var observationNormalized = _encoder.Encode(observationRawValues);
+        var observationRaw = _encoder.EncodeRaw(observationRawValues);
+
+        var rawScore = ScoreAgainstRaw(observationRaw, archetype);
+        var normalizedScore = ScoreAgainst(observationNormalized, archetype);
+
+        _output.WriteLine($"raw-channel score:        {rawScore:F4}");
+        _output.WriteLine($"normalized-channel score: {normalizedScore:F4}");
+        var dcSlot = _encoder.Layout.Slots.First(s => string.Equals(s.Name, "network.is_datacenter", StringComparison.OrdinalIgnoreCase));
+        _output.WriteLine($"centroidRaw[{dcSlot.Offset}]={centroidRaw[dcSlot.Offset]:F4}  observationRaw[{dcSlot.Offset}]={observationRaw[dcSlot.Offset]:F4}");
+        _output.WriteLine($"centroid   [{dcSlot.Offset}]={centroid[dcSlot.Offset]:F4}  observation   [{dcSlot.Offset}]={observationNormalized[dcSlot.Offset]:F4}");
+
+        Assert.True(rawScore > normalizedScore + 0.05,
+            $"raw-channel score ({rawScore:F4}) must materially exceed normalized-channel score " +
+            $"({normalizedScore:F4}) when the observation populates strictly more dims than the centroid claims");
+
+        Assert.True(rawScore >= 0.85,
+            $"raw-channel score ({rawScore:F4}) must be high when raw centroid and observation " +
+            $"agree exactly on every claimed dim");
+    }
+
+    [Fact]
+    public void ScoreAgainstRaw_FallsBackToCentroid_WhenCentroidRawIsNull()
+    {
+        var dim = _encoder.Layout.Dimension;
+
+        var rawValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["network.is_datacenter"] = true
+        };
+        var centroid = _encoder.Encode(rawValues);
+
+        var mask = new float[dim];
+        var slot = _encoder.Layout.Slots.First(s => string.Equals(s.Name, "network.is_datacenter", StringComparison.OrdinalIgnoreCase));
+        mask[slot.Offset] = 0.9f;
+
+        var variance = new float[dim];
+        Array.Fill(variance, 0.05f);
+
+        var archetype = BuildArchetypeWithRaw("legacy", centroid, centroidRaw: null, mask, variance);
+
+        var observationNormalized = _encoder.Encode(rawValues);
+
+        // Must not throw; must return a value in [0, 1].
+        var score = ScoreAgainstRaw(observationNormalized, archetype);
+        Assert.InRange(score, 0.0, 1.0);
+    }
+
+    // --------------------------------------------------------------------
     // Test helpers. BuildArchetype mirrors the YAML compile path's object
     // initializer but lets the test set centroid / mask / variance directly,
     // bypassing the encoder. ScoreAgainst delegates to the registry's public
@@ -443,8 +549,25 @@ public sealed class ArchetypeMatchScoringTests
             VarianceVector = variance
         };
 
+    private static IdentityArchetype BuildArchetypeWithRaw(
+        string id, float[] centroid, float[]? centroidRaw, float[] mask, float[]? variance)
+        => new()
+        {
+            ArchetypeId = id,
+            Name = id,
+            Description = "test",
+            ArchetypeKind = "test",
+            Centroid = centroid,
+            CentroidRaw = centroidRaw,
+            DimensionMask = mask,
+            VarianceVector = variance
+        };
+
     private double ScoreAgainst(float[] observation, IdentityArchetype archetype)
         => _registry.ScoreAgainst(observation, archetype)
            ?? throw new InvalidOperationException(
                $"ScoreAgainst returned null for archetype '{archetype.ArchetypeId}'");
+
+    private double ScoreAgainstRaw(float[] rawObservation, IdentityArchetype archetype)
+        => _registry.ScoreAgainstRaw(rawObservation, archetype);
 }

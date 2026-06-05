@@ -96,6 +96,26 @@ public sealed class IdentityArchetypeRegistry
     }
 
     /// <summary>
+    ///     Same as <see cref="FindNearest"/> but uses <see cref="ScoreAgainstRaw"/> for scoring.
+    /// </summary>
+    public ArchetypeMatch? FindNearestRaw(float[] rawVector)
+    {
+        if (_archetypes.Count == 0 || rawVector is null) return null;
+        IdentityArchetype? best = null;
+        var bestScore = double.NegativeInfinity;
+        foreach (var a in _archetypes)
+        {
+            var s = ScoreAgainstRaw(rawVector, a);
+            if (s > bestScore)
+            {
+                bestScore = s;
+                best = a;
+            }
+        }
+        return best is null ? null : new ArchetypeMatch(best, bestScore);
+    }
+
+    /// <summary>
     ///     Per-archetype similarity score for <paramref name="vector"/>. Same scale
     ///     as <see cref="FindNearest"/>; the dashboard's drift surface reads this
     ///     for the fingerprint's <c>ArchetypeOrigin</c> alongside the current-nearest.
@@ -105,6 +125,20 @@ public sealed class IdentityArchetypeRegistry
         if (archetype is null || vector is null) return null;
         if (vector.Length != archetype.Centroid.Length) return null;
         return MaskedSimilarity(vector, archetype);
+    }
+
+    /// <summary>
+    ///     Score a raw (unnormalized) observation vector against an archetype using its raw
+    ///     centroid (<see cref="IdentityArchetype.CentroidRaw"/>). Falls back to the normalized
+    ///     centroid for backwards-compatibility when CentroidRaw is null.
+    /// </summary>
+    public double ScoreAgainstRaw(float[] rawVector, IdentityArchetype archetype)
+    {
+        if (rawVector is null) throw new ArgumentNullException(nameof(rawVector));
+        if (archetype is null) throw new ArgumentNullException(nameof(archetype));
+        var centroidForScoring = archetype.CentroidRaw ?? archetype.Centroid;
+        return MaskedSimilarityCore(rawVector, centroidForScoring, archetype.DimensionMask,
+            archetype.VarianceVector ?? DefaultVarianceFor(archetype));
     }
 
     /// <summary>
@@ -134,9 +168,12 @@ public sealed class IdentityArchetypeRegistry
     /// </summary>
     private double MaskedSimilarity(float[] vector, IdentityArchetype archetype)
     {
-        var centroid = archetype.Centroid;
-        var mask = archetype.DimensionMask;
-        var variance = archetype.VarianceVector ?? DefaultVarianceFor(archetype);
+        return MaskedSimilarityCore(vector, archetype.Centroid, archetype.DimensionMask,
+            archetype.VarianceVector ?? DefaultVarianceFor(archetype));
+    }
+
+    private double MaskedSimilarityCore(float[] vector, float[] centroid, float[] mask, float[] variance)
+    {
         const float presenceEpsilon = 1e-6f;
         const double varianceFloor = 1e-4; // prevents div-by-zero and log(0)
 
@@ -251,6 +288,7 @@ public sealed class IdentityArchetypeRegistry
             rawValues[name] = entry.Value;
 
         var centroid = _encoder.Encode(rawValues);
+        var centroidRaw = _encoder.EncodeRaw(rawValues);
 
         // Mask: for every dim the YAML asserts, set the slot's full width to that confidence.
         // Anything the YAML doesn't mention stays at 0 (the archetype makes no claim about it).
@@ -272,6 +310,7 @@ public sealed class IdentityArchetypeRegistry
             ArchetypeKind = dto.ArchetypeKind ?? "unknown",
             ArchetypeRole = dto.ArchetypeRole ?? "client",
             Centroid = centroid,
+            CentroidRaw = centroidRaw,
             DimensionMask = mask,
             DescendantCount = 0,
             LastRefinedAt = DateTime.UtcNow
