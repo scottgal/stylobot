@@ -76,6 +76,7 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         var modes = new BrowserModeRegistry(
             NullLogger<BrowserModeRegistry>.Instance,
             fallbackModeId: "unknown");
+        var modeResolver = new CachingBrowserModeResolver(modes);
 
         _matcher = new FingerprintMatchContributor(
             NullLogger<FingerprintMatchContributor>.Instance,
@@ -86,7 +87,7 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
             _coordinator,
             new IdentityVectorEncoder(_layout),
             modeStore,
-            modes,
+            modeResolver,
             options);
     }
 

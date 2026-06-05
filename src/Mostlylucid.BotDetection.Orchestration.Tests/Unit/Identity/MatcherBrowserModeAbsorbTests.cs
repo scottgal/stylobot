@@ -75,11 +75,12 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
             NullLogger<FingerprintModeAbsorptionService>.Instance, _modeStore, options);
         var modes = new BrowserModeRegistry(
             NullLogger<BrowserModeRegistry>.Instance, fallbackModeId: "unknown");
+        var modeResolver = new CachingBrowserModeResolver(modes);
 
         _matcher = new FingerprintMatchContributor(
             NullLogger<FingerprintMatchContributor>.Instance,
             _store, index, archetypes, globalWeights, _coordinator,
-            new IdentityVectorEncoder(_layout), _modeStore, modes, options);
+            new IdentityVectorEncoder(_layout), _modeStore, modeResolver, options);
     }
 
     private Task<int> DrainAsync() =>

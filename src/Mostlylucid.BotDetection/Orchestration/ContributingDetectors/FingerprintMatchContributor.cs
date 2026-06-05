@@ -31,7 +31,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     private readonly IdentityProcessingCoordinator _coordinator;
     private readonly IdentityVectorEncoder _encoder;
     private readonly IFingerprintBrowserModeStore _modeStore;
-    private readonly BrowserModeRegistry _modes;
+    private readonly IBrowserModeResolver _modeResolver;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
     private readonly bool _modeAbsorbEnabled;
@@ -45,7 +45,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         IdentityProcessingCoordinator coordinator,
         IdentityVectorEncoder encoder,
         IFingerprintBrowserModeStore modeStore,
-        BrowserModeRegistry modes,
+        IBrowserModeResolver modeResolver,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
@@ -56,7 +56,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         _coordinator = coordinator;
         _encoder = encoder;
         _modeStore = modeStore;
-        _modes = modes;
+        _modeResolver = modeResolver;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
         _modeAbsorbEnabled = _options.Enabled && _options.BrowserMode.Enabled;
@@ -640,34 +640,20 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     /// <summary>
     ///     Resolve the request's browser mode id. Prefer the
     ///     <c>identity.browser_mode</c> signal written by
-    ///     <see cref="BrowserModeClassifierContributor"/>; fall back to
-    ///     self-classifying via the registry when the signal hasn't landed yet
-    ///     (the foundation wave runs both contributors in parallel — same
-    ///     pattern this contributor uses for the raw-values dict).
+    ///     <see cref="BrowserModeClassifierContributor"/>; fall back to the
+    ///     request-scoped <see cref="IBrowserModeResolver"/> when the signal
+    ///     hasn't landed yet (BrowserModeClassifierContributor lost its wave,
+    ///     or this contributor is the first thing to ask). Composite spec
+    ///     step 5 made the resolver request-cached, so a fallback call here
+    ///     hits the same <see cref="HttpContext.Items"/> entry the
+    ///     classifier and endpoint policy already populated — single source
+    ///     of truth, no recomputation, no race.
     /// </summary>
     private string ResolveBrowserModeId(BlackboardState state)
     {
         var signal = state.GetSignal<string>(SignalKeys.IdentityBrowserMode);
         if (!string.IsNullOrEmpty(signal)) return signal;
-
-        IReadOnlyDictionary<string, object?>? raw = null;
-        if (state.Signals.TryGetValue(SignalKeys.IdentityRawValues, out var rawObj))
-            raw = rawObj as IReadOnlyDictionary<string, object?>;
-        raw ??= IdentityVectorContributor.ComposeRawValues(state);
-
-        var probe = new MatcherRequestProbe(state.HttpContext);
-        return _modes.Classify(raw, probe);
-    }
-
-    private sealed class MatcherRequestProbe : IRequestProbe
-    {
-        private readonly HttpContext _ctx;
-        public MatcherRequestProbe(HttpContext ctx) => _ctx = ctx;
-        public string Method => _ctx.Request.Method ?? string.Empty;
-        public string Path => _ctx.Request.Path.Value ?? string.Empty;
-        public bool HasHeader(string name) => _ctx.Request.Headers.ContainsKey(name);
-        public string HeaderOrDefault(string name, string fallback)
-            => _ctx.Request.Headers.TryGetValue(name, out var v) ? v.ToString() : fallback;
+        return _modeResolver.Resolve(state.HttpContext);
     }
 
     private void EmitConfirmedSignals(

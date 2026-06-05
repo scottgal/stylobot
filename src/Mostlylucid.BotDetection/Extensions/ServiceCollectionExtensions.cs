@@ -874,6 +874,13 @@ public static class ServiceCollectionExtensions
             new Identity.BrowserModes.BrowserModeRegistry(
                 sp.GetRequiredService<ILogger<Identity.BrowserModes.BrowserModeRegistry>>(),
                 sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.Identity.BrowserMode.FallbackModeId));
+        // Request-scoped BrowserMode resolver: lazy-classifies on first call,
+        // caches in HttpContext.Items. EndpointPolicy (early in the pipeline)
+        // and BrowserModeClassifierContributor / FingerprintMatchContributor
+        // (mid-pipeline, after BotDetection wave starts) all consult the same
+        // resolver, so a request is classified at most once.
+        services.TryAddSingleton<Identity.BrowserModes.IBrowserModeResolver,
+            Identity.BrowserModes.CachingBrowserModeResolver>();
         services.AddSingleton<IContributingDetector, BrowserModeClassifierContributor>();
         // Per-fingerprint browser-mode store (step 2 of the composite spec).
         // Surface the interface so commercial Postgres can swap in its impl;

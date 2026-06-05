@@ -1,6 +1,8 @@
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Identity.BrowserModes;
 
 namespace Mostlylucid.BotDetection.EndpointPolicies;
 
@@ -29,6 +31,7 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
 {
     private readonly IOptionsMonitor<EndpointPolicyOptions> _options;
     private readonly ILogger<ConfigEndpointPolicyResolver> _logger;
+    private readonly IBrowserModeResolver? _modes;
 
     // Compiled matchers in declaration order. Recomputed when options
     // change (cheap; rule list is small).
@@ -37,10 +40,16 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
 
     public ConfigEndpointPolicyResolver(
         IOptionsMonitor<EndpointPolicyOptions> options,
-        ILogger<ConfigEndpointPolicyResolver> logger)
+        ILogger<ConfigEndpointPolicyResolver> logger,
+        IBrowserModeResolver? modes = null)
     {
         _options = options;
         _logger = logger;
+        // Optional so existing test rigs that don't register the BrowserMode
+        // resolver keep working — rules without mode_in: skip the lookup,
+        // rules with mode_in: but no resolver fail closed (no match) and
+        // log on compile so the misconfiguration is loud at startup.
+        _modes = modes;
         Recompile(options.CurrentValue);
         options.OnChange(Recompile);
     }
@@ -59,6 +68,7 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         // Lazily computed -- only evaluated when at least one rule needs them.
         string? transport = null;
         string? protocolVersion = null;
+        string? browserMode = null;
 
         foreach (var compiled in _compiled)
         {
@@ -78,6 +88,17 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                 protocolVersion ??= TransportClassifier.ClassifyProtocolVersion(request);
                 if (!string.Equals(pv, protocolVersion, StringComparison.OrdinalIgnoreCase))
                     continue;
+            }
+            if (compiled.ModeIn is { } modes)
+            {
+                // Browser-mode allowlist (composite-spec step 5). The classifier
+                // is lazy + request-cached so the same call from the late
+                // BrowserModeClassifierContributor won't repeat the work. When
+                // the resolver isn't registered (config drift), the rule fails
+                // closed: no mode → not in any allowlist → skip the rule.
+                if (_modes is null) continue;
+                browserMode ??= _modes.Resolve(context);
+                if (!modes.Contains(browserMode)) continue;
             }
 
             return new EndpointPolicyMatch(
@@ -108,13 +129,27 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                 continue;
             }
 
+            var modeIn = rule.ModeIn is { Count: > 0 }
+                ? FrozenSet.ToFrozenSet(rule.ModeIn, StringComparer.OrdinalIgnoreCase)
+                : null;
+            if (modeIn is not null && _modes is null)
+            {
+                // Loud once at compile time so the operator sees the gap during
+                // a Recompile -- mode_in: in YAML is meaningless without the
+                // BrowserMode resolver in DI.
+                _logger.LogWarning(
+                    "EndpointPolicy rule (host={Host}, path={Path}) declares mode_in but IBrowserModeResolver is not registered — rule will never match",
+                    rule.Host, rule.Path);
+            }
+
             list.Add(new CompiledRule(
                 rule,
                 CompileHost(rule.Host),
                 NormaliseMethod(rule.Method),
                 CompilePath(rule.Path),
                 NormaliseAny(rule.Transport),
-                NormaliseAny(rule.ProtocolVersion)));
+                NormaliseAny(rule.ProtocolVersion),
+                modeIn));
         }
         _compiled = list.ToArray();
 
@@ -164,7 +199,8 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         string? Method,
         PathMatcher? PathMatcher,
         string? Transport,
-        string? ProtocolVersion);
+        string? ProtocolVersion,
+        FrozenSet<string>? ModeIn);
 
     private sealed class HostMatcher
     {

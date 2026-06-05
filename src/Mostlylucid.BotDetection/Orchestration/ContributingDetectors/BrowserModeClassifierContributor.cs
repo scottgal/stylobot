@@ -26,27 +26,22 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 public sealed class BrowserModeClassifierContributor : ContributingDetectorBase, IFoundationContributor
 {
     private readonly ILogger<BrowserModeClassifierContributor> _logger;
-    private readonly BrowserModeRegistry _registry;
+    private readonly IBrowserModeResolver _resolver;
     private readonly bool _enabled;
 
     public BrowserModeClassifierContributor(
         ILogger<BrowserModeClassifierContributor> logger,
-        BrowserModeRegistry registry,
+        IBrowserModeResolver resolver,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
-        _registry = registry;
+        _resolver = resolver;
         // Dormant unless identity is on AND browser-mode is on. Identity off
         // means there is no raw-values signal to classify against.
         _enabled = options.Value.Identity.Enabled && options.Value.Identity.BrowserMode.Enabled;
     }
 
     public override string Name => "BrowserModeClassifier";
-
-    // Priority 6 — runs in the same foundation wave as IdentityVectorContributor
-    // (priority 5). The orchestrator does not gate on priority for the wave;
-    // we read raw values from the signal if present and self-compose only if
-    // not, the same pattern FingerprintMatchContributor uses for the vector.
     public override int Priority => 6;
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
     public override bool IsEnabled => _enabled;
@@ -55,36 +50,13 @@ public sealed class BrowserModeClassifierContributor : ContributingDetectorBase,
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        IReadOnlyDictionary<string, object?>? raw = null;
-        if (state.Signals.TryGetValue(SignalKeys.IdentityRawValues, out var rawObj))
-            raw = rawObj as IReadOnlyDictionary<string, object?>;
-
-        // Fallback path: if IdentityVectorContributor lost the wave (e.g.
-        // identity-off-but-mode-on misconfig), self-compose. Same pattern the
-        // fingerprint matcher uses.
-        raw ??= IdentityVectorContributor.ComposeRawValues(state);
-
-        var probe = new HttpContextRequestProbe(state.HttpContext);
-        var modeId = _registry.Classify(raw, probe);
+        // Single source of truth: the request-scoped resolver. If endpoint
+        // policy already classified this request at policy-eval time (composite
+        // spec step 5), the HttpContext.Items cache returns the same id with no
+        // recomputation; otherwise the resolver computes it now.
+        var modeId = _resolver.Resolve(state.HttpContext);
         state.WriteSignal(SignalKeys.IdentityBrowserMode, modeId);
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
-    }
-
-    private sealed class HttpContextRequestProbe : IRequestProbe
-    {
-        private readonly HttpContext _ctx;
-
-        public HttpContextRequestProbe(HttpContext ctx) => _ctx = ctx;
-
-        public string Method => _ctx.Request.Method ?? string.Empty;
-        public string Path => _ctx.Request.Path.Value ?? string.Empty;
-
-        public bool HasHeader(string name) => _ctx.Request.Headers.ContainsKey(name);
-
-        public string HeaderOrDefault(string name, string fallback)
-            => _ctx.Request.Headers.TryGetValue(name, out var value)
-                ? value.ToString()
-                : fallback;
     }
 }

@@ -73,6 +73,20 @@ public sealed class EndpointPolicyRule
     /// </summary>
     public string? ProtocolVersion { get; set; }
 
+    /// <summary>
+    ///     Browser-mode allowlist. When set, the rule matches only when the
+    ///     request's classified browser mode (composite-spec step 5: same
+    ///     browser, different modes — <c>navigation / xhr / sub-resource /
+    ///     signalr-negotiate / websocket-upgrade / prefetch / bot-raw /
+    ///     unknown</c>) is in the list. Example: <c>mode_in: [navigation]</c>
+    ///     on <c>/admin/**</c> rejects bare-API hits that didn't come from a
+    ///     real page load; <c>mode_in: [xhr, signalr-negotiate]</c> on
+    ///     <c>/api/**</c> rejects navigations to API endpoints. Empty/null
+    ///     matches any mode (the legacy behaviour). Membership is case-
+    ///     insensitive.
+    /// </summary>
+    public List<string>? ModeIn { get; set; }
+
     /// <summary>Named action policy to dispatch on match (block / throttle-stealth / challenge / logonly).</summary>
     public string Action { get; set; } = "";
 
