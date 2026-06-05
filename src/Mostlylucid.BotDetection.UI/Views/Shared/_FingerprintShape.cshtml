@@ -121,9 +121,46 @@
             // headless-chrome".
             var originName    = shape!.ArchetypeName;
             var nearestName   = shape.NearestArchetypeName;
-            var hasDrift      = !string.IsNullOrEmpty(originName)
+            // Suppress the categorical drift labels when the matcher's archetype
+            // disagrees with the UA family we already parsed -- e.g. radar says
+            // "curl -> Googlebot" on a Chrome+macOS visitor because the matcher's
+            // CLIENT centroid search picked the closest available shape and
+            // chrome-desktop's centroid was sized for navigation requests, not
+            // XHRs. The drift banner is matcher-internal telemetry; surfacing
+            // it when it contradicts ground truth (uap-core says Chrome) is
+            // the same parallel-axis category error the composite-browser-mode
+            // spec ruled out. The radar polygon itself still renders; only the
+            // misleading "Drifted A -> B" line goes away.
+            string? uaFamily = null;
+            if (!string.IsNullOrWhiteSpace(Model.UserAgent))
+            {
+                var (parsedFamily, _) = Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(Model.UserAgent);
+                if (!string.IsNullOrWhiteSpace(parsedFamily)
+                    && !parsedFamily.Equals("Other", System.StringComparison.OrdinalIgnoreCase)
+                    && !parsedFamily.Equals("Unknown", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    uaFamily = parsedFamily;
+                }
+            }
+            bool ArchetypeMatchesUaFamily(string? name)
+                => name is not null && uaFamily is not null
+                   && name.Contains(uaFamily, System.StringComparison.OrdinalIgnoreCase);
+            var matcherAgreesWithUa = uaFamily is null
+                                      || ArchetypeMatchesUaFamily(originName)
+                                      || ArchetypeMatchesUaFamily(nearestName);
+            var hasDrift      = matcherAgreesWithUa
+                                && !string.IsNullOrEmpty(originName)
                                 && !string.IsNullOrEmpty(nearestName)
                                 && !string.Equals(originName, nearestName, System.StringComparison.OrdinalIgnoreCase);
+            if (!matcherAgreesWithUa)
+            {
+                // Drop the categorical-drift labels entirely. The radar still
+                // shows shape; the operator gets the rich h1 label up-top
+                // ("Chrome 148.0.0 / macOS") instead of contradictory archetype
+                // names that confuse more than they help.
+                originName  = null;
+                nearestName = null;
+            }
 
             // QUANTITATIVE drift (adaptation-loop): cosine of live centroid vs
             // the current root_centroid. 1.0 = aligned with the reference;

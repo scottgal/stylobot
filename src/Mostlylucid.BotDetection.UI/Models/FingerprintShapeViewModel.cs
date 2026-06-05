@@ -11,4 +11,5 @@ namespace Mostlylucid.BotDetection.UI.Models;
 public sealed record FingerprintShapeViewModel(
     FingerprintRadarShape? Shape,
     bool IsBot,
-    int Size = 140);
+    int Size = 140,
+    string? UserAgent = null);

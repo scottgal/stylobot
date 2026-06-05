@@ -194,7 +194,7 @@ else
     <div class="rounded-xl border p-4 flex items-center justify-center"
          style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
         @await Html.PartialAsync("~/Views/Shared/_FingerprintShape.cshtml",
-            new FingerprintShapeViewModel(Model.FingerprintShape, Model.IsBot, 240))
+            new FingerprintShapeViewModel(Model.FingerprintShape, Model.IsBot, 240, Model.UserAgent))
     </div>
 
     <!-- Fingerprint Profile -->
