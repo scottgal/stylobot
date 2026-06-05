@@ -18,6 +18,7 @@
         </PackageReference>
         <PackageReference Include="FluentAssertions" Version="8.9.0" />
         <PackageReference Include="Serilog.Sinks.InMemory" Version="0.11.0" />
+        <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
     </ItemGroup>
 
     <ItemGroup>
