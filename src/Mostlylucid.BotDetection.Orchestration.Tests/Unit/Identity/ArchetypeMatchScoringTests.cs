@@ -20,8 +20,17 @@ namespace Mostlylucid.BotDetection.Orchestration.Tests.Unit.Identity;
 public sealed class ArchetypeMatchScoringTests
 {
     private readonly ITestOutputHelper _output;
+    private readonly IdentityVectorEncoder _encoder;
+    private readonly IdentityArchetypeRegistry _registry;
 
-    public ArchetypeMatchScoringTests(ITestOutputHelper output) => _output = output;
+    public ArchetypeMatchScoringTests(ITestOutputHelper output)
+    {
+        _output = output;
+        var layout = IdentityVectorLayout.DefaultV1();
+        _encoder = new IdentityVectorEncoder(layout);
+        _registry = new IdentityArchetypeRegistry(
+            NullLogger<IdentityArchetypeRegistry>.Instance, _encoder);
+    }
 
     [Fact]
     public void ComposeRawValues_WritesUaFamily_FromHttpContextHeaders_LikeTheBdfRigDoes()
@@ -215,4 +224,227 @@ public sealed class ArchetypeMatchScoringTests
             "(chrome-desktop / chrome-xhr / chrome-privacy / mobile-chrome / headless-chrome). " +
             "Top scores: " + string.Join(", ", scored.Select(x => $"{x.ArchetypeId}={x.Score:F3}")));
     }
+
+    // --------------------------------------------------------------------
+    // Mahalanobis-style scoring contract tests (Task 2 of the
+    // BDF umbrella-centroid fix plan). These tests will FAIL until Task 3
+    // rewrites MaskedSimilarity to consume VarianceVector. The contract:
+    //   - Tight archetypes (small variance) penalize deviations more strongly
+    //   - Broad archetypes (large variance) tolerate larger deviations
+    //   - Sparse observations near a tight centroid must NOT lose to an umbrella
+    //   - Default-from-confidence variance fallback when VarianceVector is null
+    //   - Numerical hygiene (epsilon floor) for zero-variance slots
+    //   - Unpopulated observation dims remain skipped, not penalized
+    // Slot offsets below are chosen to align with width-1 slots in
+    // IdentityVectorLayout.DefaultV1 (network.is_datacenter=10, is_vpn=11,
+    // is_tor=12, sec_ch_ua_mobile=31, hdr.dnt=57) so that mask[offset] reads
+    // through MaskedSimilarity's slot iteration correctly.
+    // --------------------------------------------------------------------
+
+    [Fact]
+    public void TightArchetype_WithSmallVariance_BeatsUmbrellaArchetype_WithLargeVariance_ForSparseObservation()
+    {
+        var dim = _encoder.Layout.Dimension;
+        var centroid = new float[dim];
+        centroid[10] = 1.0f;
+        var mask = new float[dim];
+        mask[10] = 0.9f;
+
+        var tightVariance = new float[dim];
+        Array.Fill(tightVariance, 0.001f);
+
+        var broadVariance = new float[dim];
+        Array.Fill(broadVariance, 0.1f);
+
+        var tight = BuildArchetype("tight", centroid, mask, tightVariance);
+        var broad = BuildArchetype("broad", centroid, mask, broadVariance);
+
+        var observation = new float[dim];
+        observation[10] = 0.95f;
+
+        var tightScore = ScoreAgainst(observation, tight);
+        var broadScore = ScoreAgainst(observation, broad);
+
+        Assert.True(tightScore > broadScore,
+            $"small variance must penalize less for a near-centroid observation than large variance " +
+            $"(tight={tightScore:F4}, broad={broadScore:F4})");
+    }
+
+    [Fact]
+    public void BroadArchetype_WithLargeVariance_BeatsTightArchetype_ForDistantObservation()
+    {
+        var dim = _encoder.Layout.Dimension;
+        var centroid = new float[dim];
+        centroid[10] = 1.0f;
+        var mask = new float[dim];
+        mask[10] = 0.9f;
+
+        var tightVariance = new float[dim];
+        Array.Fill(tightVariance, 0.001f);
+        var broadVariance = new float[dim];
+        Array.Fill(broadVariance, 0.1f);
+
+        var tight = BuildArchetype("tight", centroid, mask, tightVariance);
+        var broad = BuildArchetype("broad", centroid, mask, broadVariance);
+
+        var observation = new float[dim];
+        observation[10] = 0.5f;
+
+        var tightScore = ScoreAgainst(observation, tight);
+        var broadScore = ScoreAgainst(observation, broad);
+
+        Assert.True(broadScore > tightScore,
+            $"large variance must tolerate large deviations better than small variance " +
+            $"(tight={tightScore:F4}, broad={broadScore:F4})");
+    }
+
+    [Fact]
+    public void ArchetypeWithoutVariance_FallsBackToDefaultFromConfidence_AndStillScoresCorrectly()
+    {
+        var dim = _encoder.Layout.Dimension;
+
+        var tightCentroid = new float[dim];
+        tightCentroid[10] = 1.0f;
+        tightCentroid[11] = 1.0f;
+        var tightMask = new float[dim];
+        tightMask[10] = 0.95f;
+        tightMask[11] = 0.9f;
+
+        var broadCentroid = new float[dim];
+        broadCentroid[10] = 0.5f;
+        var broadMask = new float[dim];
+        broadMask[10] = 0.6f;
+
+        var tight = BuildArchetype("tight", tightCentroid, tightMask, variance: null);
+        var broad = BuildArchetype("broad", broadCentroid, broadMask, variance: null);
+
+        var observation = new float[dim];
+        observation[10] = 1.0f;
+        observation[11] = 1.0f;
+
+        var tightScore = ScoreAgainst(observation, tight);
+        var broadScore = ScoreAgainst(observation, broad);
+
+        Assert.True(tightScore > broadScore,
+            "with no learned variance, the default-from-confidence rule must still favor " +
+            $"tight high-confidence archetypes (tight={tightScore:F4}, broad={broadScore:F4})");
+    }
+
+    [Fact]
+    public void ChromeXhrLikeObservation_LandsOnTightArchetype_NotOnUmbrella()
+    {
+        var dim = _encoder.Layout.Dimension;
+
+        var chromeCentroid = new float[dim];
+        chromeCentroid[10] = 1.0f;
+        chromeCentroid[11] = 1.0f;
+        chromeCentroid[12] = 1.0f;
+        var chromeMask = new float[dim];
+        chromeMask[10] = 0.9f;
+        chromeMask[11] = 0.9f;
+        chromeMask[12] = 0.95f;
+        var chromeVariance = new float[dim];
+        Array.Fill(chromeVariance, 0.05f);
+        chromeVariance[10] = 0.005f;
+        chromeVariance[11] = 0.005f;
+        chromeVariance[12] = 0.005f;
+
+        var umbrellaCentroid = new float[dim];
+        umbrellaCentroid[10] = 0.0f;
+        var umbrellaMask = new float[dim];
+        umbrellaMask[10] = 0.6f;
+        var umbrellaVariance = new float[dim];
+        Array.Fill(umbrellaVariance, 0.2f);
+
+        var chrome = BuildArchetype("chrome-tight", chromeCentroid, chromeMask, chromeVariance);
+        var umbrella = BuildArchetype("umbrella", umbrellaCentroid, umbrellaMask, umbrellaVariance);
+
+        var observation = new float[dim];
+        observation[10] = 0.9f;
+        // slots 11 and 12 left at 0 (XHR didn't populate them)
+
+        var chromeScore = ScoreAgainst(observation, chrome);
+        var umbrellaScore = ScoreAgainst(observation, umbrella);
+
+        Assert.True(chromeScore > umbrellaScore,
+            "sparse observations near a tight archetype's centroid must NOT lose to broad umbrella claims " +
+            $"(chrome={chromeScore:F4}, umbrella={umbrellaScore:F4})");
+    }
+
+    [Fact]
+    public void Mahalanobis_HandlesZeroVariance_WithEpsilonFloor()
+    {
+        var dim = _encoder.Layout.Dimension;
+        var centroid = new float[dim];
+        centroid[10] = 1.0f;
+        var mask = new float[dim];
+        mask[10] = 0.9f;
+        var zeroVariance = new float[dim];
+        var archetype = BuildArchetype("zero-variance", centroid, mask, zeroVariance);
+
+        var observation = new float[dim];
+        observation[10] = 0.5f;
+
+        // Must not throw -- if epsilon floor isn't applied, division by zero will produce
+        // NaN/Infinity rather than throw, but the score should still be finite.
+        var score = ScoreAgainst(observation, archetype);
+
+        Assert.True(!double.IsNaN(score) && !double.IsInfinity(score),
+            $"epsilon floor must keep the score finite when variance is zero (got {score})");
+        Assert.InRange(score, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void Mahalanobis_AgainstUnpopulatedObservationDims_DoesNotPenalize()
+    {
+        var dim = _encoder.Layout.Dimension;
+        var centroid = new float[dim];
+        centroid[10] = 1.0f;
+        centroid[57] = 1.0f;
+        var mask = new float[dim];
+        mask[10] = 0.9f;
+        mask[57] = 0.9f;
+        var variance = new float[dim];
+        Array.Fill(variance, 0.05f);
+        var archetype = BuildArchetype("multi-dim", centroid, mask, variance);
+
+        var fullyPopulated = new float[dim];
+        fullyPopulated[10] = 1.0f;
+        fullyPopulated[57] = 1.0f;
+
+        var partiallyPopulated = new float[dim];
+        partiallyPopulated[10] = 1.0f;
+        // slot at offset 57 left at 0
+
+        var fullScore = ScoreAgainst(fullyPopulated, archetype);
+        var partialScore = ScoreAgainst(partiallyPopulated, archetype);
+
+        Assert.True(partialScore > 0.0, $"partial observation must not score zero (got {partialScore})");
+        Assert.Equal(fullScore, partialScore, precision: 6);
+    }
+
+    // --------------------------------------------------------------------
+    // Test helpers. BuildArchetype mirrors the YAML compile path's object
+    // initializer but lets the test set centroid / mask / variance directly,
+    // bypassing the encoder. ScoreAgainst delegates to the registry's public
+    // ScoreAgainst (which the existing tests also drive) so the new tests pin
+    // the SAME public surface the BDF rig and dashboard read through.
+    // --------------------------------------------------------------------
+
+    private static IdentityArchetype BuildArchetype(string id, float[] centroid, float[] mask, float[]? variance)
+        => new()
+        {
+            ArchetypeId = id,
+            Name = id,
+            Description = "test",
+            ArchetypeKind = "test",
+            Centroid = centroid,
+            DimensionMask = mask,
+            VarianceVector = variance
+        };
+
+    private double ScoreAgainst(float[] observation, IdentityArchetype archetype)
+        => _registry.ScoreAgainst(observation, archetype)
+           ?? throw new InvalidOperationException(
+               $"ScoreAgainst returned null for archetype '{archetype.ArchetypeId}'");
 }
