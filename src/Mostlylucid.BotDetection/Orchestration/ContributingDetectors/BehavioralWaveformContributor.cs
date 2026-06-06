@@ -1,7 +1,6 @@
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -24,23 +23,21 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 /// </summary>
 public partial class BehavioralWaveformContributor : ConfiguredContributorBase
 {
-    // Cache request history per signature for waveform analysis
-    private const string CacheKeyPrefix = "waveform:";
-    private const int MaxHistorySize = 100; // Keep last 100 requests per signature
-    private static readonly TimeSpan HistoryExpiration = TimeSpan.FromMinutes(30);
-    private readonly IMemoryCache _cache;
+    // WriteBehindLfuStore subclass holds the per-signature request history.
+    // Replaces the previous IMemoryCache + per-signature lock pattern --
+    // see WaveformHistoryStore for the rationale (canonical pattern + SQLite
+    // backing for cross-restart durability + PII-aware UA hashing).
+    private readonly WaveformHistoryStore _store;
     private readonly ILogger<BehavioralWaveformContributor> _logger;
-    // Per-signature locks to prevent concurrent List<T> mutation
-    private readonly ConcurrentDictionary<string, object> _signatureLocks = new();
 
     public BehavioralWaveformContributor(
         ILogger<BehavioralWaveformContributor> logger,
-        IMemoryCache cache,
+        WaveformHistoryStore store,
         IDetectorConfigProvider configProvider)
         : base(configProvider)
     {
         _logger = logger;
-        _cache = cache;
+        _store = store;
     }
 
     public override string Name => "BehavioralWaveform";
@@ -66,26 +63,26 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
             // unusual custom pipelines that run waveform analysis before signatures.
             var signature = state.GetSignal<string>(SignalKeys.PrimarySignature) ?? GetClientSignature(state);
 
-            // Lock per-signature to prevent concurrent List<T> mutation
-            var signatureLock = _signatureLocks.GetOrAdd(signature, _ => new object());
-            lock (signatureLock)
+            // No external lock needed: WaveformHistoryStore.Record uses
+            // ConcurrentDictionary.AddOrUpdate, and the value (WaveformHistory)
+            // is an immutable record so analysis methods can read without locks.
+            var currentRequest = new RequestSnapshot
             {
-                // Get request history for this signature
-                var history = GetOrCreateHistory(signature);
+                Timestamp = DateTimeOffset.UtcNow,
+                Path = state.HttpContext.Request.Path.ToString(),
+                Method = state.HttpContext.Request.Method,
+                StatusCode = state.HttpContext.Response.StatusCode,
+                UserAgent = state.HttpContext.Request.Headers.UserAgent.ToString(),
+                RefererHash = GetRefererHash(state.HttpContext.Request.Headers.Referer.ToString()),
+                ContentClass = ClassifyRequest(state.HttpContext)
+            };
 
-                // Add current request to history
-                var currentRequest = new RequestSnapshot
-                {
-                    Timestamp = DateTimeOffset.UtcNow,
-                    Path = state.HttpContext.Request.Path.ToString(),
-                    Method = state.HttpContext.Request.Method,
-                    StatusCode = state.HttpContext.Response.StatusCode,
-                    UserAgent = state.HttpContext.Request.Headers.UserAgent.ToString(),
-                    RefererHash = GetRefererHash(state.HttpContext.Request.Headers.Referer.ToString()),
-                    ContentClass = ClassifyRequest(state.HttpContext)
-                };
+            // Record returns the post-merge immutable history. The block below
+            // operates on this snapshot without further locks.
+            var historyValue = _store.Record(signature, currentRequest);
+            var history = historyValue.Snapshots;
 
-                history.Add(currentRequest);
+            {
 
                 // Analyze timing patterns
                 AnalyzeTimingPatterns(state, history, contributions);
@@ -102,8 +99,8 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
                 // Analyze session behavior
                 AnalyzeSessionBehavior(state, history, contributions);
 
-                // Update cache with new history
-                UpdateHistory(signature, history);
+                // No explicit cache update -- the store's MergeIntoExisting hook
+                // already pruned + persisted via the drainer when Record was called.
             }
 
             // Analyze mouse/keyboard interaction signals (if available from client-side - no history needed)
@@ -131,7 +128,7 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
 
-    private void AnalyzeTimingPatterns(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
+    private void AnalyzeTimingPatterns(BlackboardState state, IReadOnlyList<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 3) return; // Need at least 3 requests for timing analysis
 
@@ -264,7 +261,7 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
         }
     }
 
-    private void AnalyzePathPatterns(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
+    private void AnalyzePathPatterns(BlackboardState state, IReadOnlyList<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 5) return;
 
@@ -332,7 +329,7 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
             });
     }
 
-    private void AnalyzeRequestRate(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
+    private void AnalyzeRequestRate(BlackboardState state, IReadOnlyList<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 2) return;
 
@@ -405,7 +402,7 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
         }
     }
 
-    private void AnalyzeSessionBehavior(BlackboardState state, List<RequestSnapshot> history,
+    private void AnalyzeSessionBehavior(BlackboardState state, IReadOnlyList<RequestSnapshot> history,
         List<DetectionContribution> contributions)
     {
         // Check if User-Agent changes across requests (suspicious)
@@ -483,30 +480,11 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
     public void UpdateResponseContentType(string clientSignature, string? responseContentType)
     {
         if (string.IsNullOrEmpty(responseContentType)) return;
-
-        var signatureLock = _signatureLocks.GetOrAdd(clientSignature, _ => new object());
-        lock (signatureLock)
-        {
-            var cacheKey = CacheKeyPrefix + clientSignature;
-            if (!_cache.TryGetValue(cacheKey, out List<RequestSnapshot>? history) || history == null || history.Count == 0)
-                return;
-
-            var last = history[^1];
-            var actualClass = ClassifyResponseContentType(responseContentType);
-            if (actualClass != last.ContentClass)
-            {
-                history[^1] = new RequestSnapshot
-                {
-                    Timestamp = last.Timestamp,
-                    Path = last.Path,
-                    Method = last.Method,
-                    StatusCode = last.StatusCode,
-                    UserAgent = last.UserAgent,
-                    RefererHash = last.RefererHash,
-                    ContentClass = actualClass
-                };
-            }
-        }
+        var actualClass = ClassifyResponseContentType(responseContentType);
+        // Store handles the concurrency. UpdateLastContentClass is a no-op
+        // when no hot entry exists (e.g. when LFU evicted the signature
+        // between Record and the response landing).
+        _store.UpdateLastContentClass(clientSignature, actualClass);
     }
 
     private static ContentClass ClassifyResponseContentType(string contentType)
@@ -523,24 +501,10 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
         return ContentClass.Asset;
     }
 
-    private List<RequestSnapshot> GetOrCreateHistory(string signature)
-    {
-        var cacheKey = CacheKeyPrefix + signature;
-        return _cache.GetOrCreate(cacheKey, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = HistoryExpiration;
-            return new List<RequestSnapshot>();
-        })!;
-    }
-
-    private void UpdateHistory(string signature, List<RequestSnapshot> history)
-    {
-        // Keep only last N requests
-        while (history.Count > MaxHistorySize) history.RemoveAt(0);
-
-        var cacheKey = CacheKeyPrefix + signature;
-        _cache.Set(cacheKey, history, HistoryExpiration);
-    }
+    // GetOrCreateHistory / UpdateHistory removed: WaveformHistoryStore.Record
+    // returns the post-merge immutable history; pruning + per-signature cap +
+    // 30-min sliding window are all handled inside the store's
+    // MergeIntoExisting hook.
 
     private bool DetectSequentialPattern(List<string> paths)
     {
@@ -603,7 +567,7 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
     ///     Scrapers: Page → Page (high), missing Page → Asset transitions.
     ///     API bots: Api → Api (high), no Page requests.
     /// </summary>
-    private void AnalyzeRequestTransitions(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
+    private void AnalyzeRequestTransitions(BlackboardState state, IReadOnlyList<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 5) return;
 
@@ -691,30 +655,8 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
         }
     }
 
-    private class RequestSnapshot
-    {
-        public DateTimeOffset Timestamp { get; init; }
-        public string Path { get; init; } = string.Empty;
-        public string Method { get; init; } = string.Empty;
-        public int StatusCode { get; init; }
-        public string UserAgent { get; init; } = string.Empty;
-        public string RefererHash { get; init; } = string.Empty;
-        public ContentClass ContentClass { get; init; }
-    }
-
-    /// <summary>
-    ///     Content class for request transition analysis.
-    ///     Ordered as enum for use as transition matrix index.
-    /// </summary>
-    private enum ContentClass
-    {
-        Page = 0,      // text/html navigation requests
-        Asset = 1,     // JS, CSS, images, fonts, etc.
-        Api = 2,       // JSON/XML API endpoints
-        WebSocket = 3, // WebSocket upgrade requests
-        SSE = 4,       // Server-Sent Events (Accept: text/event-stream)
-        SignalR = 5    // SignalR negotiate/connect/long-poll requests
-    }
+    // RequestSnapshot + ContentClass extracted to WaveformTypes.cs so the
+    // WaveformHistoryStore can share the types. Same shape, same ordinals.
 
     /// <summary>
     ///     Classify a request by its content class using Sec-Fetch-Dest, Accept header, and path extension.

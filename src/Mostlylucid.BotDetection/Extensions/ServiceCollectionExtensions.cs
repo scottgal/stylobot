@@ -1042,7 +1042,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, HeuristicContributor>();
         // Multi-layer correlation - runs after fingerprinting to cross-check consistency
         services.AddSingleton<IContributingDetector, MultiLayerCorrelationContributor>();
-        // Behavioral waveform analysis - analyzes patterns across multiple requests
+        // Behavioral waveform analysis - analyzes patterns across multiple requests.
+        // WaveformHistoryStore replaces the previous IMemoryCache pattern with the
+        // canonical WriteBehindLfuStore subclass (hot ConcurrentDictionary tier +
+        // SQLite-backed durable tier in waveform_history.db).
+        services.TryAddSingleton<WaveformHistoryStore>();
+        services.AddHostedService<WaveformHistoryInitService>();
         services.AddSingleton<BehavioralWaveformContributor>();
         services.AddSingleton<IContributingDetector>(sp => sp.GetRequiredService<BehavioralWaveformContributor>());
         // Header hash collector for progressive identity resolution
