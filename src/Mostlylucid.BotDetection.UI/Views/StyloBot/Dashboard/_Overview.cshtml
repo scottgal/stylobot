@@ -1,0 +1,96 @@
+@model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
+@{
+    var bp = Model.BasePath;
+    var highRiskEndpoints = Model.Endpoints.Endpoints.Count(e => e.BotRate > 0.5 && e.TotalCount >= 5);
+    var botPct = Model.Summary.Summary.BotPercentage;
+    var activeBotCount = Model.TopBots.TotalCount;
+}
+
+@if (highRiskEndpoints > 0 || botPct > 30 || activeBotCount > 0)
+{
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 mb-4 rounded-xl text-xs"
+         style="background: color-mix(in oklab, var(--sb-signal-danger) 10%, var(--sb-card-bg)); border: 1px solid color-mix(in oklab, var(--sb-signal-danger) 25%, transparent);">
+        <i class="bx bx-shield-x text-error text-base shrink-0"></i>
+        @if (highRiskEndpoints > 0)
+        {
+            <a href="@bp/endpoints" class="hover:underline"><span class="font-bold text-error">@highRiskEndpoints</span> endpoint@(highRiskEndpoints != 1 ? "s" : "") under high bot pressure</a>
+            <span class="text-base-content/20">|</span>
+        }
+        @if (activeBotCount > 0)
+        {
+            <a href="@bp/visitors?filter=bots" class="hover:underline"><span class="font-bold">@activeBotCount</span> bot signature@(activeBotCount != 1 ? "s" : "") active</a>
+        }
+        @if (botPct > 10)
+        {
+            <span class="text-base-content/20">|</span>
+            <a href="@bp/activity" class="hover:underline @(botPct > 30 ? "text-error font-bold" : "")">@botPct.ToString("F0")% bot traffic</a>
+        }
+        <a href="@bp/threats" class="ml-auto text-base-content/50 hover:text-base-content">Threats &gt;</a>
+    </div>
+}
+
+@* Overview header row: two equal columns. World map lives on the Countries tab
+   only -- it ate too much space here without delivering operator value. *@
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+
+    <!-- LEFT: Traffic Over Time, half-page width. -->
+    <div class="rounded-xl border overflow-hidden flex flex-col" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+            <div class="flex items-center gap-1">
+                <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
+            </div>
+            <div id="time-chart-windows" class="flex items-center gap-0.5 bg-base-300/50 rounded-md p-0.5"
+                 data-active="1h">
+                <button type="button" data-window="15m" data-bucket="60"
+                        class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">15m</button>
+                <button type="button" data-window="1h" data-bucket="60"
+                        class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-primary text-primary-content shadow ring-1 ring-primary/40">1h</button>
+                <button type="button" data-window="6h" data-bucket="300"
+                        class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">6h</button>
+                <button type="button" data-window="24h" data-bucket="1800"
+                        class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">24h</button>
+            </div>
+        </div>
+        <div class="p-2 flex-1">
+            <div id="time-chart" style="height: 100%; min-height: 240px;"></div>
+            @* SSR seed for first-paint data. initTimeChart() reads this before
+               calling chart.render() so the lines are drawn immediately instead
+               of after the first /api/timeseries fetch resolves (which left the
+               chart showing empty axes for ~0.5-2s on every page load). *@
+            <script type="application/json" id="time-chart-seed" nonce="@Model.CspNonce">@Html.Raw(ViewBag.TrafficSeedJson ?? "[]")</script>
+        </div>
+    </div>
+
+    <!-- RIGHT: Live Activity, half-page width with shared toolbar + pagination. -->
+    <div class="flex">
+        <sb-top-bots filter="all" sort="lastseen" page-size="10" widget-id="live-activity" />
+    </div>
+</div>
+
+<!-- BELOW THE CHARTS: full-width endpoints list. Each row links to the endpoint
+     detail page (not the endpoints tab) so the operator drills into the rich
+     detail panel directly. -->
+<div class="mt-4 rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+        <div class="flex items-center gap-2">
+            @* Single "Endpoints" label. The Bot Pressure column is the
+               graphical signal, the default sort is `botrate desc` (set
+               on the <sb-endpoints-list /> below), and the operator can
+               re-sort by clicking any column header. No separate
+               "Endpoints by Bot Pressure" widget -- it was the same list
+               with a sticky preset. *@
+            <span class="text-[10px] font-semibold text-base-content/70">ENDPOINTS</span>
+            <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
+            @* The aggregate cache rolls the last 24h of detection events into the
+               endpoint stats; the Bot% column is therefore "bots / total requests
+               in the last 24h". Without this label the rate's denominator is invisible. *@
+            <span class="text-[9px] text-base-content/40">trailing 24h</span>
+        </div>
+        <a href="@bp/endpoints" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints &gt;</a>
+    </div>
+    @* SSR-first: server-renders the endpoints data on initial paint and registers a
+       data-sb-widget so the SignalR coordinator OOB-swaps fresh data when 'endpoints'
+       invalidations fire. No hx-trigger="every Xs" polling; no "Loading..." flash. *@
+    <sb-endpoints-list sort="botrate" dir="desc" page-size="10" exclude-static="true" />
+</div>

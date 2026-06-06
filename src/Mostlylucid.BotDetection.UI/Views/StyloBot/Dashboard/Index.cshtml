@@ -1,6 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @using System.Text.Json
+@using Microsoft.Extensions.DependencyInjection
 @inject IDashboardEventStore EventStore
 @model DashboardShellModel
 @{
@@ -10,18 +11,14 @@
     // CSS vars and supplemental scripts stay because they are content-specific.
     ViewData["Title"] = "StyloBot Detection Dashboard";
     var bp = Model.BasePath;
-    var tab = Model.ActiveTab;
-    string TabUrl(string t) => $"{bp}?tab={t}";
-    string TabClass(string t) => tab == t
-        ? "bg-base-100 shadow-sm text-base-content font-semibold"
-        : "text-base-content/40 hover:text-base-content/60";
+    var rowRef = Model.ActiveRow;
 
     // SSR-seed the Traffic Over Time chart with the default 1h window so the first
     // paint shows real data instead of empty axes (the chart's refreshChart() still
     // runs on load + every 15s to refresh, but the empty-axes flicker the user
     // perceived as 'broken graphs' is gone).
     List<DashboardTimeSeriesPoint>? __trafficSeed = null;
-    if (tab == "overview")
+    if (rowRef.Area == "overview")
     {
         try
         {
@@ -41,6 +38,10 @@
             b = p.BotCount
         }))
         : "[]";
+    // Surface the seed JSON to the _Overview partial via ViewBag (PartialAsync
+    // inherits the parent's ViewData/ViewBag, so the partial picks this up
+    // without an explicit model change).
+    ViewBag.TrafficSeedJson = __trafficSeedJson;
 }
 <script nonce="@Model.CspNonce">
     (function() {
@@ -184,45 +185,11 @@
             </div>
         }
 
-        <!-- Tab navigation. Consolidated from 15 → 9 user-visible top-level tabs:
-             - Identities folded into Visitors (sub-filter pill inside)
-             - Threat Intel folded into Threats (sub-filter "Detected" / "Feed")
-             - Clusters surfaces as a tab inside Activity (deferred) -- removed for now to fit one row
-             - User Agents folded into Visitors (sub-filter)
-             - Static Routes tab removed; ASP.NET pack still contributes its own Routes via
-               Model.MonitoringPacks below, so hosts that load the pack see it dynamically.
-        -->
-        <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit flex-wrap">
-            <a href="@TabUrl("overview")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("overview")">Overview</a>
-            <a href="@TabUrl("activity")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("activity")">Activity</a>
-            <a href="@TabUrl("visitors")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("visitors")">Visitors</a>
-            <a href="@TabUrl("countries")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("countries")">Countries</a>
-            <a href="@TabUrl("endpoints")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("endpoints")">Endpoints</a>
-            <a href="@TabUrl("sessions")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("sessions")">Sessions</a>
-            <a href="@TabUrl("threats")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threats")">Threats</a>
-            <a href="@TabUrl("policies")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("policies")">Policies</a>
-            @foreach (var pack in Model.MonitoringPacks)
-            {
-                <a href="@TabUrl(pack.Id)" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass(pack.Id)">@pack.TabName</a>
-            }
-            @* Configuration tab is now read-only for every dashboard user (sections + per-detector
-               YAML/JSON viewer + full-config download). The commercial control-plane editor still
-               loads in-place when the operator is licensed - the gating happens inside the partial. *@
-            <a href="@TabUrl("configuration")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("configuration")">Configuration</a>
-            @if (Model.IsCommercial)
-            {
-                <a href="@TabUrl("compliance")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("compliance")">Compliance</a>
-                <a href="@TabUrl("investigate")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("investigate")">Investigate</a>
-            }
-        </div>
-
-        @* StatusStrip belongs on the configuration surface only -- it's noise on every
-           other tab (Pack/Detection/Services/Guardians/Tunnels are setup signals, not
-           operator situational awareness). *@
-        @if (tab == "configuration" && Model.StatusStrip is not null)
-        {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_StatusStrip.cshtml", Model.StatusStrip)
-        }
+        @* Top-of-page navigation now lives entirely in the left drawer
+           (_LeftNav.cshtml). The horizontal tab pill block + StatusStrip preamble
+           were deleted in favour of the registry-driven dispatch chain below --
+           the dispatch invokes _StatusStrip itself when the configuration row is
+           active so the strip stays scoped to that surface. *@
 
         @* Tunnel-without-enrichment banner. Auto-detected at startup by
            ITunnelEnvironmentInspector after MinSamples requests. Dismissable
@@ -281,220 +248,59 @@
             </script>
         }
 
-        @if (tab == "overview")
+        @{
+            var registry = Context.RequestServices
+                .GetRequiredService<Mostlylucid.BotDetection.UI.Dashboard.IDashboardRowRegistry>();
+            var match = registry.Resolve(rowRef.Area, rowRef.Sub);
+        }
+        @if (match is null)
         {
-            var highRiskEndpoints = Model.Endpoints.Endpoints.Count(e => e.BotRate > 0.5 && e.TotalCount >= 5);
-            var botPct = Model.Summary.Summary.BotPercentage;
-            var activeBotCount = Model.TopBots.TotalCount;
-
-            @if (highRiskEndpoints > 0 || botPct > 30 || activeBotCount > 0)
+            <div class="rounded-xl border p-6 text-sm text-base-content/60"
+                 style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                Unknown dashboard section. <a href="@bp/overview" class="sb-link">Back to Overview</a>.
+            </div>
+        }
+        else if (match.IsCommercialOnly && !Model.IsCommercial)
+        {
+            <div class="rounded-xl border p-6 text-sm text-base-content/60"
+                 style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                This section is part of the commercial dashboard.
+                <a href="https://stylobot.net/pricing" class="sb-link">View licensing</a>.
+            </div>
+        }
+        else if (match.ViewComponentName is not null)
+        {
+            @await Component.InvokeAsync(match.ViewComponentName)
+        }
+        else if (match.PartialPath is not null)
+        {
+            @* StatusStrip belongs on the configuration row only. *@
+            @if (rowRef.Area == "configuration" && Model.StatusStrip is not null)
             {
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 mb-4 rounded-xl text-xs"
-                     style="background: color-mix(in oklab, var(--sb-signal-danger) 10%, var(--sb-card-bg)); border: 1px solid color-mix(in oklab, var(--sb-signal-danger) 25%, transparent);">
-                    <i class="bx bx-shield-x text-error text-base shrink-0"></i>
-                    @if (highRiskEndpoints > 0)
-                    {
-                        <a href="@TabUrl("endpoints")" class="hover:underline"><span class="font-bold text-error">@highRiskEndpoints</span> endpoint@(highRiskEndpoints != 1 ? "s" : "") under high bot pressure</a>
-                        <span class="text-base-content/20">|</span>
-                    }
-                    @if (activeBotCount > 0)
-                    {
-                        <a href="@TabUrl("visitors")&filter=bots" class="hover:underline"><span class="font-bold">@activeBotCount</span> bot signature@(activeBotCount != 1 ? "s" : "") active</a>
-                    }
-                    @if (botPct > 10)
-                    {
-                        <span class="text-base-content/20">|</span>
-                        <a href="@TabUrl("activity")" class="hover:underline @(botPct > 30 ? "text-error font-bold" : "")">@botPct.ToString("F0")% bot traffic</a>
-                    }
-                    <a href="@TabUrl("threats")" class="ml-auto text-base-content/50 hover:text-base-content">Threats →</a>
-                </div>
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_StatusStrip.cshtml", Model.StatusStrip)
             }
-
-            @* Overview header row: two equal columns. World map lives on the Countries tab
-               only -- it ate too much space here without delivering operator value. *@
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-
-                <!-- LEFT: Traffic Over Time, half-page width. -->
-                <div class="rounded-xl border overflow-hidden flex flex-col" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                        <div class="flex items-center gap-1">
-                            <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
-                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
-                        </div>
-                        <div id="time-chart-windows" class="flex items-center gap-0.5 bg-base-300/50 rounded-md p-0.5"
-                             data-active="1h">
-                            <button type="button" data-window="15m" data-bucket="60"
-                                    class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">15m</button>
-                            <button type="button" data-window="1h" data-bucket="60"
-                                    class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-primary text-primary-content shadow ring-1 ring-primary/40">1h</button>
-                            <button type="button" data-window="6h" data-bucket="300"
-                                    class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">6h</button>
-                            <button type="button" data-window="24h" data-bucket="1800"
-                                    class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">24h</button>
-                        </div>
-                    </div>
-                    <div class="p-2 flex-1">
-                        <div id="time-chart" style="height: 100%; min-height: 240px;"></div>
-                        @* SSR seed for first-paint data. initTimeChart() reads this before
-                           calling chart.render() so the lines are drawn immediately instead
-                           of after the first /api/timeseries fetch resolves (which left the
-                           chart showing empty axes for ~0.5-2s on every page load). *@
-                        <script type="application/json" id="time-chart-seed" nonce="@Model.CspNonce">@Html.Raw(__trafficSeedJson)</script>
-                    </div>
-                </div>
-
-                <!-- RIGHT: Live Activity, half-page width with shared toolbar + pagination. -->
-                <div class="flex">
-                    <sb-top-bots filter="all" sort="lastseen" page-size="10" widget-id="live-activity" />
-                </div>
-            </div>
-
-            <!-- BELOW THE CHARTS: full-width endpoints list. Each row links to the endpoint
-                 detail page (not the endpoints tab) so the operator drills into the rich
-                 detail panel directly. -->
-            <div class="mt-4 rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                    <div class="flex items-center gap-2">
-                        @* Single "Endpoints" label. The Bot Pressure column is the
-                           graphical signal, the default sort is `botrate desc` (set
-                           on the <sb-endpoints-list /> below), and the operator can
-                           re-sort by clicking any column header. No separate
-                           "Endpoints by Bot Pressure" widget -- it was the same list
-                           with a sticky preset. *@
-                        <span class="text-[10px] font-semibold text-base-content/70">ENDPOINTS</span>
-                        <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
-                        @* The aggregate cache rolls the last 24h of detection events into the
-                           endpoint stats; the Bot% column is therefore "bots / total requests
-                           in the last 24h". Without this label the rate's denominator is invisible. *@
-                        <span class="text-[9px] text-base-content/40">trailing 24h</span>
-                    </div>
-                    <a href="@TabUrl("endpoints")" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
-                </div>
-                @* SSR-first: server-renders the endpoints data on initial paint and registers a
-                   data-sb-widget so the SignalR coordinator OOB-swaps fresh data when 'endpoints'
-                   invalidations fire. No hx-trigger="every Xs" polling; no "Loading..." flash. *@
-                <sb-endpoints-list sort="botrate" dir="desc" page-size="10" exclude-static="true" />
-            </div>
-        }
-        else if (tab == "activity")
-        {
-            <!-- Full activity view: the same sb-top-bots widget the overview uses, sized up
-                 to 25 rows and rendered as the "live-activity" variant. Replaces the older
-                 _RecentActivity partial whose paging + filtering quietly stopped working and
-                 whose row count drifted downward over time. Same widget id ("live-activity")
-                 means the data-sb-depends wiring already SignalR-refreshes correctly. -->
-            <!-- 50/50 split. Both panels own half the page width; left fills its half
-                 (page-size="25" gives Live Activity the room it needs), right does NOT
-                 horizontally scroll (compact=true on the endpoints partial drops the
-                 wide columns so everything fits inside the column). -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-                <div class="h-full min-w-0">
-                    <sb-top-bots filter="all" sort="lastseen" page-size="25" widget-id="live-activity" />
-                </div>
-                <div class="h-full min-w-0">
-                    <!-- Match the DaisyUI card chrome the sb-top-bots component renders so both
-                         panels look identical (same background, same padding, same header weight). -->
-                    <div class="card bg-base-200 transition-colors duration-200 h-full w-full">
-                        <div class="card-body p-3 overflow-hidden flex flex-col">
-                            <div class="flex items-center gap-1 mb-1">
-                                <h3 class="text-sm font-bold text-base-content">Active Endpoints</h3>
-                                <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
-                                <a href="@TabUrl("endpoints")" class="ml-auto text-[10px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
-                            </div>
-                            @* SSR-first endpoints widget; SignalR-driven OOB updates via data-sb-widget. *@
-                            @* page-size matches the sb-top-bots panel on the left
-                               so the two cards have the same row count and end at
-                               the same vertical line; operators see a balanced
-                               split instead of the endpoints card visibly shorter. *@
-                            <sb-endpoints-list sort="total" dir="desc" page-size="25" exclude-static="true" compact="true" />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        }
-        else if (tab == "visitors")
-        {
-            <sb-visitor-list />
-        }
-        else if (tab == "countries")
-        {
-            <!-- Country map + table -->
-            <div class="rounded-xl border overflow-hidden mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
-                        <span class="text-[9px] px-1 py-0.5 rounded status-badge-danger font-medium">LIVE</span>
-                    </div>
-                </div>
-                <div id="countries-map" class="relative" style="height: 440px;"></div>
-            </div>
-            <sb-countries-list />
-        }
-        else if (tab == "endpoints")
-        {
-            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
-                <div class="lg:col-span-3">
-                    <sb-endpoints-list />
-                </div>
-                <div class="lg:col-span-2">
-                    <div id="endpoint-detail-panel"
-                         class="rounded-xl border sticky top-4"
-                         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                        <div class="p-4 text-xs text-base-content/40 text-center py-12">
-                            Click an endpoint to inspect traffic mix, top bots, and recent requests
-                        </div>
-                    </div>
-                </div>
-            </div>
-        }
-        else if (tab == "sessions")
-        {
-            <sb-sessions-list />
-        }
-        else if (tab == "identities")
-        {
-            <sb-identities-list />
-        }
-        else if (tab == "clusters")
-        {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_ClustersList.cshtml", Model.Clusters)
-        }
-        else if (tab == "policies")
-        {
-            <sb-policies-tab />
-        }
-        else if (tab == "threats")
-        {
-            <sb-threats-list />
-        }
-        else if (tab == "threat-intel")
-        {
-            <sb-threat-intel-tab />
-        }
-        else if (tab == "useragents")
-        {
-            <sb-useragents-list />
-        }
-        else if (tab == "routes")
-        {
-            <sb-routes-tab />
-        }
-        else if (Model.MonitoringPacks.FirstOrDefault(p => p.Id == tab) is { } activePack)
-        {
-            <sb-metrics-tab pack-id="@activePack.Id" />
-        }
-        else if (tab == "compliance" && Model.Compliance is not null)
-        {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_ComplianceTab.cshtml", Model.Compliance)
-        }
-        else if (tab == "configuration" && Model.Configuration is not null)
-        {
-            ViewBag.CspNonce = Model.CspNonce;
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_ConfigurationEditor.cshtml", Model.Configuration)
-        }
-        else if (tab == "investigate" && Model.Investigation is not null)
-        {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Investigate.cshtml", Model.Investigation)
+            @* configuration partial needs the CspNonce on ViewBag (legacy contract). *@
+            @if (rowRef.Area == "configuration" && Model.Configuration is not null)
+            {
+                ViewBag.CspNonce = Model.CspNonce;
+                @await Html.PartialAsync(match.PartialPath, Model.Configuration)
+            }
+            else if (rowRef.Area == "compliance" && Model.Compliance is not null)
+            {
+                @await Html.PartialAsync(match.PartialPath, Model.Compliance)
+            }
+            else if (rowRef.Area == "investigate" && Model.Investigation is not null)
+            {
+                @await Html.PartialAsync(match.PartialPath, Model.Investigation)
+            }
+            else if (rowRef.Area == "clusters")
+            {
+                @await Html.PartialAsync(match.PartialPath, Model.Clusters)
+            }
+            else
+            {
+                @await Html.PartialAsync(match.PartialPath, Model)
+            }
         }
 
         </main>

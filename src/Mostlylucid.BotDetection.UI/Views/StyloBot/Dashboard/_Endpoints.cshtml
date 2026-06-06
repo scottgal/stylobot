@@ -1,0 +1,18 @@
+@model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
+@{
+    var bp = Model.BasePath;
+}
+<div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+    <div class="lg:col-span-3">
+        <sb-endpoints-list />
+    </div>
+    <div class="lg:col-span-2">
+        <div id="endpoint-detail-panel"
+             class="rounded-xl border sticky top-4"
+             style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="p-4 text-xs text-base-content/40 text-center py-12">
+                Click an endpoint to inspect traffic mix, top bots, and recent requests
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,15 @@
+@model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
+@{
+    var bp = Model.BasePath;
+}
+<!-- Country map + table -->
+<div class="rounded-xl border overflow-hidden mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+        <div class="flex items-center gap-2">
+            <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
+            <span class="text-[9px] px-1 py-0.5 rounded status-badge-danger font-medium">LIVE</span>
+        </div>
+    </div>
+    <div id="countries-map" class="relative" style="height: 440px;"></div>
+</div>
+<sb-countries-list />
