@@ -258,6 +258,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     private readonly SignatureCoordinator? _signatureCoordinator;
     private readonly ISessionStore? _sessionStore;
     private readonly RequestPersistenceService? _requestPersistence;
+    private readonly Identity.IFingerprintStore? _fingerprintStore;
 
     // Global signal sink for cross-host observability subscribers.
     private readonly SignalSink _globalSignals;
@@ -279,7 +280,8 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         BackgroundEnrichmentService? enrichmentService = null,
         MarkovTracker? markovTracker = null,
         ISessionStore? sessionStore = null,
-        RequestPersistenceService? requestPersistence = null)
+        RequestPersistenceService? requestPersistence = null,
+        Identity.IFingerprintStore? fingerprintStore = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -297,6 +299,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         _markovTracker = markovTracker;
         _sessionStore = sessionStore;
         _requestPersistence = requestPersistence;
+        _fingerprintStore = fingerprintStore;
 
         _globalSignals = new SignalSink(
             _options.SignalSinkMaxCapacity,
@@ -815,6 +818,32 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 // in the same batch write inside AddRequestBatchAsync (coordinator thread),
                 // so no separate IncrementBucketAsync call is needed here.
                 TryPersistRequest(httpContext, result, httpContext.Request.Path.ToString(), httpContext.Response.StatusCode);
+
+                // Architecture spec (docs/architecture/fingerprint-match.md): the request-path
+                // verdict EWMA-updates the matched fingerprint row, in-line, every request.
+                // Closes the L1 verdict-cache gap where same-visitor bursts within the
+                // FingerprintDriftService tick interval (default 5s) miss the cache and
+                // re-run the full pipeline. Dict-authoritative write so the next L1 lookup
+                // sees the new value immediately.
+                if (_fingerprintStore is not null &&
+                    signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpVal) &&
+                    fpVal is string fpId &&
+                    !string.IsNullOrEmpty(fpId))
+                {
+                    try
+                    {
+                        await _fingerprintStore.RecordVerdictAsync(
+                            fpId,
+                            result.BotProbability,
+                            result.RiskBand.ToString(),
+                            cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Fail-closed: a persistence failure must not abort the request.
+                        _logger.LogWarning(ex, "RecordVerdict failed for fingerprint {FpId}", fpId);
+                    }
+                }
             }
 
             _logger.LogDebug(

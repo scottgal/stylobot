@@ -80,7 +80,8 @@ public class BotDetectionMiddlewareTests
             null, // enrichmentService
             null, // markovTracker
             null, // sessionStore
-            null  // requestPersistence
+            null, // requestPersistence
+            null  // fingerprintStore
         );
 
         var evidence = result ?? CreateEvidence();
@@ -801,7 +802,8 @@ public class BotDetectionMiddlewareTests
             null, // enrichmentService
             null, // markovTracker
             null, // sessionStore
-            null  // requestPersistence
+            null, // requestPersistence
+            null  // fingerprintStore
         );
 
         mockOrchestrator.Setup(o => o.DetectWithPolicyAsync(

@@ -59,6 +59,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     private readonly RequestPersistenceService? _requestPersistence;
     private readonly Services.BackgroundEnrichmentService? _enrichmentService;
     private readonly Dashboard.PiiHasher? _piiHasher;
+    private readonly Identity.IFingerprintStore? _fingerprintStore;
 
     public EphemeralDetectionOrchestrator(
         ILogger<EphemeralDetectionOrchestrator> logger,
@@ -69,7 +70,8 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         IPolicyEvaluator? policyEvaluator = null,
         RequestPersistenceService? requestPersistence = null,
         Services.BackgroundEnrichmentService? enrichmentService = null,
-        Dashboard.PiiHasher? piiHasher = null)
+        Dashboard.PiiHasher? piiHasher = null,
+        Identity.IFingerprintStore? fingerprintStore = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -81,6 +83,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         _requestPersistence = requestPersistence;
         _enrichmentService = enrichmentService;
         _piiHasher = piiHasher;
+        _fingerprintStore = fingerprintStore;
 
         // Global signal sink for observability (configurable)
         _globalSignals = new SignalSink(
@@ -437,6 +440,32 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
         TryPersistRequest(httpContext, result);
         TryEnqueueBackgroundEnrichment(httpContext, result);
+
+        // Architecture spec (docs/architecture/fingerprint-match.md): the request-path
+        // verdict EWMA-updates the matched fingerprint row, in-line, every request.
+        // Closes the L1 verdict-cache gap where same-visitor bursts within the
+        // FingerprintDriftService tick interval (default 5s) miss the cache and
+        // re-run the full pipeline. Dict-authoritative write so the next L1 lookup
+        // sees the new value immediately.
+        if (_fingerprintStore is not null &&
+            result.Signals.TryGetValue(Models.SignalKeys.IdentityFingerprintId, out var fpVal) &&
+            fpVal is string fpId &&
+            !string.IsNullOrEmpty(fpId))
+        {
+            try
+            {
+                await _fingerprintStore.RecordVerdictAsync(
+                    fpId,
+                    result.BotProbability,
+                    result.RiskBand.ToString(),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                // Fail-closed: a persistence failure must not abort the request.
+                _logger.LogWarning(ex, "RecordVerdict failed for fingerprint {FpId}", fpId);
+            }
+        }
 
         _logger.LogDebug(
             "Ephemeral detection complete for {RequestId}: {RiskBand} (prob={Probability:F2}) in {Elapsed}ms, {Waves} waves, quorum: {Completed}/{Total}",

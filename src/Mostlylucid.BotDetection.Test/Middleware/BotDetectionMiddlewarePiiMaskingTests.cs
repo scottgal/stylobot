@@ -34,6 +34,7 @@ public class BotDetectionMiddlewarePiiMaskingTests
             null,
             null,
             null,
+            null,
             null);
 
         mock.Setup(o => o.DetectWithPolicyAsync(
