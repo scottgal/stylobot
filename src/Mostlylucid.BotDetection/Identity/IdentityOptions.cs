@@ -184,6 +184,14 @@ public sealed class IdentityVectorOptions
     public double ObservationSamplingRate { get; set; } = 1.0;
 
     /// <summary>
+    ///     Observation-count thresholds the matcher announces via
+    ///     <see cref="SignalKeys.IdentityFingerprintObservationCountCrossed"/>. Async absorption
+    ///     fires on each crossing instead of polling on a fixed interval.
+    ///     Default: 1, 3, 10, 30, 100. Empty array disables emission.
+    /// </summary>
+    public int[] NotifyOnCountCrossings { get; set; } = new[] { 1, 3, 10, 30, 100 };
+
+    /// <summary>
     ///     Amortise the per-request encoder cost across sub-resource requests in a page load.
     ///     When enabled (default), <see cref="EncoderResultCache"/> short-circuits the encode
     ///     step for any request whose <c>primary_signature</c> was seen within the TTL window.

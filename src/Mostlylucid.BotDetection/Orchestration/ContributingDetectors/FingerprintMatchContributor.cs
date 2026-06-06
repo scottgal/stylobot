@@ -180,6 +180,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             {
                 EmitConfirmedSignals(state, vector, l1Candidate, confirmScore, primarySig);
                 await _store.RecordObservationAsync(l1Candidate.FingerprintId, vector, cancellationToken);
+                await EmitPostObservationSignalsAsync(state, l1Candidate.FingerprintId, l1Candidate.CentroidMaturity, cancellationToken);
                 await AbsorbIntoBrowserModeAsync(state, l1Candidate.FingerprintId, vector, cancellationToken);
                 // Clean L1 confirm = non-ambiguity event; pulls EWMA toward 0.
                 await BumpAmbiguityAsync(state, l1Candidate.FingerprintId, isAmbiguous: false, cancellationToken);
@@ -353,6 +354,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
                 && !string.Equals(l1Candidate.FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, isCorrection: isCorrection);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+            await EmitPostObservationSignalsAsync(state, best.FingerprintId, best.CentroidMaturity, cancellationToken);
             await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
 
             if (isCorrection)
@@ -385,6 +387,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Rotation candidate band: assign to the candidate, observe-and-drift, signal it.
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, rotationCandidate: true);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+            await EmitPostObservationSignalsAsync(state, best.FingerprintId, best.CentroidMaturity, cancellationToken);
             await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
             // Rotation-band match = ambiguity event by definition.
             await BumpAmbiguityAsync(state, best.FingerprintId, isAmbiguous: true, cancellationToken);
@@ -491,6 +494,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         // drift signals it depends on.
         state.WriteSignal(SignalKeys.IdentityFingerprintId, newId);
         state.WriteSignal(SignalKeys.IdentityIsNewFingerprint, true);
+        state.WriteSignal(SignalKeys.IdentityFingerprintFirstSeen, true);
         state.WriteSignal(SignalKeys.IdentityMatchScore, 0.0);
         state.WriteSignal(SignalKeys.IdentityClientType, inferredType);
         state.WriteSignal(SignalKeys.IdentityClientTypeConfidence, inferredConfidence);
@@ -817,6 +821,56 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Fire-and-forget. Consistent with other matcher writes that avoid blocking the
             // request path. freshName is non-null inside this branch (checked above).
             _ = _store.UpdateDisplayNameAsync(matched.FingerprintId, freshName!, DateTime.UtcNow, CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    ///     After a successful <see cref="IFingerprintStore.RecordObservationAsync"/> call,
+    ///     emits the observation-count-crossed and (on matched paths) maturity-crossed signals.
+    ///     <para>
+    ///     Observation count crossed: fires when the new durable count exactly matches one of
+    ///     <see cref="IdentityVectorOptions.NotifyOnCountCrossings"/>. The downstream absorption
+    ///     service subscribes to wake on each threshold rather than polling on a fixed interval.
+    ///     </para>
+    ///     <para>
+    ///     Maturity crossed: fires on every request where the matched fingerprint's centroid_maturity
+    ///     exactly equals <see cref="IdentityVectorOptions.AbsorptionMaturityThreshold"/>. Idempotence
+    ///     under repeated emissions is the subscriber's responsibility.
+    ///     </para>
+    /// </summary>
+    private async Task EmitPostObservationSignalsAsync(
+        BlackboardState state,
+        string fingerprintId,
+        int? priorMaturity,
+        CancellationToken ct)
+    {
+        try
+        {
+            var crossings = _options.Vector.NotifyOnCountCrossings;
+            if (crossings is { Length: > 0 })
+            {
+                var newCount = await _store.GetObservationCountAsync(fingerprintId, ct);
+                foreach (var threshold in crossings)
+                {
+                    if (newCount == threshold)
+                    {
+                        state.WriteSignal(SignalKeys.IdentityFingerprintObservationCountCrossed, threshold);
+                        break;
+                    }
+                }
+            }
+
+            if (priorMaturity.HasValue
+                && priorMaturity.Value == _options.Vector.AbsorptionMaturityThreshold)
+            {
+                state.WriteSignal(SignalKeys.IdentityFingerprintMaturityCrossed, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Post-observation signals are best-effort; never break the matcher's primary contract.
+            _logger.LogWarning(ex,
+                "Post-observation signal emission failed for fingerprint {Id}", fingerprintId);
         }
     }
 

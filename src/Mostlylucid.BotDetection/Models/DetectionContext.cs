@@ -587,7 +587,7 @@ public static class SignalKeys
 
     /// <summary>
     ///     int: the configured threshold the fingerprint's `observation_count` just
-    ///     crossed on this request (one of IdentityOptions.Absorption.NotifyOnCountCrossings).
+    ///     crossed on this request (one of IdentityOptions.Vector.NotifyOnCountCrossings).
     ///     Written by FingerprintMatchContributor after RecordObservationAsync returns.
     ///     Wakes FingerprintAbsorptionService when a hot fingerprint accumulates enough
     ///     new observations to be worth folding into the centroid.
@@ -595,10 +595,11 @@ public static class SignalKeys
     public const string IdentityFingerprintObservationCountCrossed = "identity.fingerprint_observation_count_crossed";
 
     /// <summary>
-    ///     bool: true on the first request where the matched fingerprint's centroid
-    ///     maturity has just crossed IdentityOptions.Absorption.MaturityThreshold.
-    ///     Written by FingerprintMatchContributor. Wakes drift verification because a
-    ///     matured fingerprint's centroid is now load-bearing for display / verdict reads.
+    ///     bool: true on every request where the matched fingerprint's centroid_maturity
+    ///     exactly equals IdentityOptions.Vector.AbsorptionMaturityThreshold. Written by
+    ///     FingerprintMatchContributor. Subscribers (drift verifier, Task 7) use this as
+    ///     a wake signal; idempotence under repeated emissions is the subscriber's
+    ///     responsibility -- this fires on every matching request, not only the first.
     /// </summary>
     public const string IdentityFingerprintMaturityCrossed = "identity.fingerprint_maturity_crossed";
 

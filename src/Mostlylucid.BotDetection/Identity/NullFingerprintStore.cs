@@ -69,6 +69,9 @@ public sealed class NullFingerprintStore : IFingerprintStore
     public Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default)
         => Task.CompletedTask;
 
+    public Task<long> GetObservationCountAsync(string fingerprintId, CancellationToken ct = default)
+        => Task.FromResult(0L);
+
     public Task RecordCorrectionAsync(
         string requestId, string primarySignature, string? pass1FingerprintId, string pass2FingerprintId,
         float[] differentiator, float[] updatedPass2Weights, CancellationToken ct = default)
