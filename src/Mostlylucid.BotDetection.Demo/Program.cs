@@ -8,6 +8,7 @@ using Mostlylucid.BotDetection.Demo.Services;
 using Mostlylucid.BotDetection.Endpoints;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Observability;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Api;
 using Mostlylucid.BotDetection.UI.Extensions;
@@ -45,6 +46,11 @@ builder.Services.AddBotDetection(options =>
         Enabled = true
     };
 });
+
+// Wire StyloBot observability: structured DetectionEvent log line per request,
+// blackboard signal log stream, and OpenTelemetry export. Configured via the
+// BotDetection:Observability section in appsettings.
+builder.Services.AddStyloBotObservability(builder.Configuration);
 
 // Add telemetry instrumentation (required by BotDetectionMiddleware)
 builder.Services.AddBotDetectionTelemetry();

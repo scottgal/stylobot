@@ -20,6 +20,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Observability\Mostlylucid.BotDetection.Observability.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.ApiHolodeck\Mostlylucid.BotDetection.ApiHolodeck.csproj"/>
         <ProjectReference Include="..\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj"/>
         <ProjectReference Include="..\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj"/>
