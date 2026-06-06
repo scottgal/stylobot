@@ -123,24 +123,6 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
                 state.WriteSignal("tls.behind_proxy", true);
             }
 
-            // Forwarded JA3/JA4 fingerprint headers are independent evidence that
-            // an upstream terminated TLS and computed the fingerprint. If we trust
-            // the headers enough to honour the fingerprint, we trust them enough
-            // to know TLS happened upstream. Without this, the BDF replay rig and
-            // any test setup that exercises the contributor over plain HTTP early-
-            // returns before the JA3 read at line ~158, so subset / version-delta
-            // / known-fingerprint checks never fire.
-            if (!isHttps
-                && (state.HttpContext.Request.Headers.ContainsKey("X-JA3-Hash")
-                    || state.HttpContext.Request.Headers.ContainsKey("X-JA3-String")
-                    || state.HttpContext.Request.Headers.ContainsKey("X-JA4")
-                    || state.HttpContext.Request.Headers.ContainsKey("X-JA4-Fingerprint")
-                    || state.HttpContext.Request.Headers.ContainsKey("X-JA4-Hash")))
-            {
-                isHttps = true;
-                state.WriteSignal("tls.behind_proxy", true);
-            }
-
             state.WriteSignal("tls.is_https", isHttps);
 
             if (!isHttps)
