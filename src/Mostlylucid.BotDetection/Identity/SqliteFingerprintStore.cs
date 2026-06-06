@@ -1018,6 +1018,70 @@ public class SqliteFingerprintStore : IFingerprintStore
         }
     }
 
+    /// <summary>
+    ///     Request-path verdict write. EWMA-blends the incoming bot probability with the
+    ///     fingerprint's existing cached value, writes through the in-memory dict so the
+    ///     next L1 verdict lookup sees the new value immediately, and persists to SQLite
+    ///     for restart-survival. First-ever write is a direct assignment so a brand-new
+    ///     fingerprint's first detection lands its real probability, not an attenuated
+    ///     blend against the default 0.0.
+    /// </summary>
+    public async Task RecordVerdictAsync(
+        string fingerprintId,
+        double botProbability,
+        string? riskBand,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+
+        var alpha = Math.Clamp(_engineOptions.VerdictEwmaAlpha, 0.0, 1.0);
+
+        // Dict-authoritative write: update the in-memory fingerprint so the next L1
+        // verdict lookup sees it immediately. Cold path: load from SQLite first.
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var existing))
+        {
+            existing = await GetFingerprintAsync(fingerprintId, ct);
+            if (existing is null) return;
+        }
+
+        // First-ever write (CachedScoreUpdatedAt is null) is a direct assignment so a
+        // brand-new fingerprint's first detection lands its real probability, not an
+        // alpha-attenuated 0.3 * something.
+        var blended = existing.CachedScoreUpdatedAt is null
+            ? botProbability
+            : existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
+
+        var now = DateTime.UtcNow;
+        var updated = existing with
+        {
+            CachedBotProbability = blended,
+            CachedRiskBand       = riskBand ?? existing.CachedRiskBand,
+            CachedScoreUpdatedAt = now
+        };
+
+        // Atomic replace in the dict. Source of truth on the hot read path; the SQL
+        // write below is durability only. Order matters: even if SQLite throws, the
+        // next L1 lookup hits the new value.
+        _fingerprintById[fingerprintId] = updated;
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprints
+               SET cached_bot_probability  = @prob,
+                   cached_risk_band        = @band,
+                   cached_score_updated_at = @ts
+             WHERE fingerprint_id = @id
+            """;
+        cmd.Parameters.AddWithValue("@prob", blended);
+        cmd.Parameters.AddWithValue("@band", (object?)updated.CachedRiskBand ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ts", now.ToString("O"));
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<IReadOnlyList<RootHistoryEntry>> GetRootHistoryAsync(
         string fingerprintId, int limit = 20, CancellationToken ct = default)
     {

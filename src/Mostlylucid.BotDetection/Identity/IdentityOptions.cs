@@ -361,9 +361,18 @@ public sealed class IdentityEngineOptions
     ///     on macOS). Set to an absolute path (e.g. <c>/usr/local/lib/vec0.dylib</c>) when
     ///     the binary lives somewhere the search path doesn't cover.
     ///
-    ///     Get the binary from https://github.com/asg017/sqlite-vec/releases — there is no
-    ///     in-tree native dependency, so the brute-force engine remains the FOSS default
-    ///     and operators opt into the perf path by installing the extension themselves.
+    ///     Get the binary from https://github.com/asg017/sqlite-vec/releases (no in-tree
+    ///     native dependency, so the brute-force engine remains the FOSS default and
+    ///     operators opt into the perf path by installing the extension themselves).
     /// </summary>
     public string? SqliteVecExtensionPath { get; set; }
+
+    /// <summary>
+    ///     EWMA smoothing factor for the fingerprint's cached bot probability. Each
+    ///     request-path verdict blends in at <c>blend = old * (1 - alpha) + new * alpha</c>.
+    ///     Default 0.3 favours stability over single-request swings. Higher values track
+    ///     the latest request more closely; lower values resist noise. The very first
+    ///     write to a fingerprint is a direct assignment regardless of alpha.
+    /// </summary>
+    public double VerdictEwmaAlpha { get; set; } = 0.3;
 }

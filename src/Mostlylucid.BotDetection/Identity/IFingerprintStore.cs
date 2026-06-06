@@ -28,6 +28,25 @@ public interface IFingerprintStore : IFingerprintReader
     Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Request-path verdict write. EWMA-blends <paramref name="botProbability"/> with
+    ///     the fingerprint's existing <c>cached_bot_probability</c> (or assigns directly
+    ///     when no prior write exists), writes through the in-memory dict so the next L1
+    ///     verdict lookup sees the new value immediately, and persists to SQLite for
+    ///     restart-survival. The very first write is a direct assignment; subsequent
+    ///     writes blend at <c>VerdictEwmaAlpha</c>.
+    ///
+    ///     Distinct from <see cref="UpdateCachedVerdictAsync"/>: that method is for the
+    ///     manual operator AI-opinion path (direct overwrite, authoritative, evicts the
+    ///     dict entry on completion). This method is for every detection's verdict
+    ///     (smoothed, dict-authoritative, no eviction).
+    /// </summary>
+    Task RecordVerdictAsync(
+        string fingerprintId,
+        double botProbability,
+        string? riskBand,
+        CancellationToken ct = default);
+
     Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default);
 
     // ── Matcher write path ───────────────────────────────────────────────────
