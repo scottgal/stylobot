@@ -1,0 +1,47 @@
+namespace Mostlylucid.BotDetection.UI.Dashboard;
+
+/// <summary>
+///     Pure-function helpers used by <c>StyloBotDashboardMiddleware</c> to
+///     parse the left-nav routes. Extracted from the middleware so they can
+///     be unit-tested without the WebApplicationFactory dance.
+/// </summary>
+public static class DashboardRoutingHelpers
+{
+    public static DashboardRowRef ParseRowRef(string relativePath)
+    {
+        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length switch
+        {
+            0    => DashboardRowRef.Default,
+            1    => new DashboardRowRef(segments[0].ToLowerInvariant()),
+            >= 2 => new DashboardRowRef(
+                       segments[0].ToLowerInvariant(),
+                       segments[1].ToLowerInvariant()),
+            _    => DashboardRowRef.Default,
+        };
+    }
+
+    public static bool IsDashboardRowPath(string relLower)
+    {
+        if (string.IsNullOrEmpty(relLower)) return false;
+        if (relLower.StartsWith("api/",      StringComparison.Ordinal)) return false;
+        if (relLower.StartsWith("auth/",     StringComparison.Ordinal)) return false;
+        if (relLower.StartsWith("setup",     StringComparison.Ordinal)) return false;
+        if (relLower.StartsWith("login",     StringComparison.Ordinal)) return false;
+        if (relLower.StartsWith("hub",       StringComparison.Ordinal)) return false;
+        if (relLower.StartsWith("partials/", StringComparison.Ordinal)) return false;
+        if (relLower.StartsWith("static/",   StringComparison.Ordinal)) return false;
+        var segments = relLower.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length is 1 or 2;
+    }
+
+    public static string StripTabParam(string queryString)
+    {
+        if (string.IsNullOrEmpty(queryString)) return "";
+        var qs = queryString.StartsWith('?') ? queryString[1..] : queryString;
+        var kept = qs.Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => !p.StartsWith("tab=", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return kept.Count == 0 ? "" : "?" + string.Join('&', kept);
+    }
+}

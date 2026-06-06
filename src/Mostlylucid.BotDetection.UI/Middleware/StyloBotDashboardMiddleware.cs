@@ -142,8 +142,6 @@ public class StyloBotDashboardMiddleware
         !string.Equals(context.Request.Query["mode"].FirstOrDefault(), "foss", StringComparison.OrdinalIgnoreCase);
 
     private readonly IWebHostEnvironment _env;
-    private readonly IReadOnlyList<PackTabInfo> _packTabs;
-    private readonly IReadOnlyList<Mostlylucid.BotDetection.UI.Dashboard.IDashboardPack> _dashboardPacks;
 
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
@@ -154,8 +152,6 @@ public class StyloBotDashboardMiddleware
         RazorViewRenderer razorViewRenderer,
         IMemoryCache widgetCache,
         IWebHostEnvironment env,
-        IEnumerable<IMonitoringPack> monitoringPacks,
-        IEnumerable<Mostlylucid.BotDetection.UI.Dashboard.IDashboardPack> dashboardPacks,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
@@ -166,10 +162,6 @@ public class StyloBotDashboardMiddleware
         _razorViewRenderer = razorViewRenderer;
         _widgetCache = widgetCache;
         _env = env;
-        _packTabs = monitoringPacks
-            .Select(p => new PackTabInfo(p.Id, p.TabName))
-            .ToList();
-        _dashboardPacks = dashboardPacks.ToList();
         _logger = logger;
     }
 
@@ -595,6 +587,21 @@ public class StyloBotDashboardMiddleware
                     context.Response.StatusCode = 405;
                 break;
 
+            // Left-nav routes: /{BasePath}/{area} or /{BasePath}/{area}/{sub}.
+            // Resolved against IDashboardRowRegistry inside ServeDashboardPageAsync;
+            // unknown areas/subs yield 404 from inside the page handler.
+            // Placed last so all specific named cases above take precedence.
+            case var p when UI.Dashboard.DashboardRoutingHelpers.IsDashboardRowPath(p):
+                if (_options.RenderPage)
+                {
+                    await ServeDashboardPageAsync(context);
+                }
+                else
+                {
+                    await _next(context);
+                }
+                break;
+
             default:
                 // Static assets are served by static files middleware
                 await _next(context);
@@ -874,9 +881,52 @@ public class StyloBotDashboardMiddleware
         context.Response.Headers["Content-Security-Policy"] = dashboardCsp;
 
         var basePath = _options.BasePath.TrimEnd('/');
-        var tab = context.Request.Query["tab"].FirstOrDefault() ?? "overview";
-        // "metrics" was the hardcoded tab name before pack-driven tabs; redirect old bookmarks.
-        if (tab == "metrics") tab = _packTabs.Count > 0 ? _packTabs[0].Id : "overview";
+
+        // Back-compat: old ?tab=X URLs 301 to /{BasePath}/{X}. Only applies on
+        // a bare /{BasePath} request (segmented path requests already carry
+        // their own area in the URL).
+        var rawRelative = (context.Request.Path.Value ?? "")
+            .Substring(_options.BasePath.Length).TrimStart('/');
+        var rawRelLower = rawRelative.ToLowerInvariant();
+        var registry = context.RequestServices
+            .GetRequiredService<UI.Dashboard.IDashboardRowRegistry>();
+
+        if (string.IsNullOrEmpty(rawRelLower) || rawRelLower is "index" or "index.html")
+        {
+            var legacyTab = context.Request.Query["tab"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(legacyTab))
+            {
+                // "metrics" was the hardcoded pack tab before id-driven packs.
+                if (legacyTab.Equals("metrics", StringComparison.OrdinalIgnoreCase))
+                {
+                    legacyTab = registry.Packs.Count > 0 ? registry.Packs[0].Id : "overview";
+                }
+                var qs = UI.Dashboard.DashboardRoutingHelpers.StripTabParam(
+                    context.Request.QueryString.Value ?? "");
+                context.Response.Redirect($"{basePath}/{legacyTab}{qs}", permanent: true);
+                return;
+            }
+        }
+
+        var rowRef = UI.Dashboard.DashboardRoutingHelpers.ParseRowRef(rawRelative);
+
+        // Pack bare-id: 301 to the pack's first sub-row.
+        if (rowRef.Sub is null)
+        {
+            var pack = registry.Packs.FirstOrDefault(p =>
+                string.Equals(p.Id, rowRef.Area, StringComparison.OrdinalIgnoreCase));
+            if (pack is not null && pack.SubRows.Count > 0)
+            {
+                context.Response.Redirect(
+                    $"{basePath}/{pack.Id}/{pack.SubRows[0].Id}{context.Request.QueryString.Value}",
+                    permanent: true);
+                return;
+            }
+        }
+
+        // tab is the legacy local variable used by many string compares further down.
+        // Keep it as an alias of rowRef.Area to minimize touched lines below.
+        var tab = rowRef.Area;
 
         // Build all partial models server-side - fully rendered, no JSON serialization needed.
         // Visitor list reads through the event store (audience=all) instead of the local
@@ -962,7 +1012,7 @@ public class StyloBotDashboardMiddleware
             CspNonce = cspNonce,
             BasePath = basePath,
             HubPath = _options.HubPath,
-            ActiveRow = new Mostlylucid.BotDetection.UI.Dashboard.DashboardRowRef(tab),
+            ActiveRow = rowRef,
             Version = DashboardVersion,
             RenderShell = _options.RenderShell,
             Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, visitorCache),
@@ -993,7 +1043,7 @@ public class StyloBotDashboardMiddleware
             Compliance = tab.Equals("compliance", StringComparison.OrdinalIgnoreCase)
                 ? BuildComplianceTabModel(context)
                 : null,
-            Packs = _dashboardPacks,
+            Packs = registry.Packs,
             TunnelEnvironment = context.RequestServices
                 .GetService<BotDetection.Proxy.ITunnelEnvironmentInspector>()?.GetSnapshot(),
             TunnelDocsUrl = context.RequestServices
