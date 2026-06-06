@@ -39,6 +39,9 @@ public class SqliteFingerprintStore : IFingerprintStore
     private const int FingerprintIdCacheMaxEntries = 50_000;
     private const int FingerprintCacheMaxEntries = 10_000;
 
+    // Raised after RecordObservationAsync commits; Task 4 subscriber wakes on this.
+    public event Action<string>? ObservationAppended;
+
     private readonly ConcurrentDictionary<string, string> _fingerprintIdByPrimarySig
         = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Fingerprint> _fingerprintById
@@ -568,6 +571,15 @@ public class SqliteFingerprintStore : IFingerprintStore
         }
 
         InvalidateFingerprintCache(fingerprintId);
+
+        try
+        {
+            ObservationAppended?.Invoke(fingerprintId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ObservationAppended handler threw for {FingerprintId}", fingerprintId);
+        }
     }
 
     /// <summary>Record a Pass-2-corrects-Pass-1 disagreement and persist Pass 2's updated weights.</summary>
