@@ -509,8 +509,15 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
             // per session and voices stay at 0 until first user gesture. Gated
             // on UA containing "Android" -- iOS Safari has its own voice
             // lifecycle and zero-at-first-paint is not bot-indicative there.
-            var ttsCount = state.GetSignal<int?>(SignalKeys.ClientSideTtsVoiceCount);
-            if (ttsCount == 0 && userAgent.Contains("Android", StringComparison.OrdinalIgnoreCase))
+            //
+            // TryGetValue here is deliberate: an absent signal means "no beacon
+            // received" and must NOT be treated the same as count == 0. A naive
+            // GetSignal<int>() would return 0 in both cases and false-positive
+            // on every Android-UA request that hasn't yet beaconed.
+            var hasTts = state.Signals.TryGetValue(SignalKeys.ClientSideTtsVoiceCount, out var ttsRaw)
+                         && ttsRaw is int ttsCount
+                         && ttsCount == 0;
+            if (hasTts && userAgent.Contains("Android", StringComparison.OrdinalIgnoreCase))
                 contributions.Add(BotContribution(
                     "Inconsistency",
                     "Android UA with empty speechSynthesis voice list at first paint",

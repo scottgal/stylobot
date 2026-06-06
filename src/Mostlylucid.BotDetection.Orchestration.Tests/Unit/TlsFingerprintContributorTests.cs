@@ -81,7 +81,9 @@ public class TlsFingerprintContributorTests
     private const string DamruSubsetOfChrome120Ja3String =
         "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0";
 
-    private const string Chrome118DesktopJa3Hash = "1118abc0deadbeef00000000c0118c0c0";
+    // Test-fixture MD5-shaped hashes: exactly 32 hex chars, recognisably
+    // synthetic so they can't be confused with real corpus entries.
+    private const string Chrome118DesktopJa3Hash = "1118abcdeadbeef0000000000c118c0c0";
 
     private static readonly Ja3Reference Chrome120Desktop = new()
     {
@@ -194,6 +196,67 @@ public class TlsFingerprintContributorTests
 
         Assert.DoesNotContain(contributions, c =>
             c.Reason != null && c.Reason.Contains("TLS matches", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task DamruSubsetJa3_AgainstFirefoxUa_DoesNotFire()
+    {
+        // damru produces Chrome-shaped JA3s, not Firefox-shaped ones. A Chrome
+        // subset JA3 paired with a Firefox UA should NOT trigger the subset
+        // check -- the corpus has no Firefox entry that the observed JA3 could
+        // possibly be a subset of, so the contributor must skip cleanly. Catches
+        // regressions in ParseUaBrowserClaim that miscategorise Firefox as Chrome.
+        var contributor = CreateContributor(BuildIndex(Chrome120Desktop));
+        var firefoxUa = "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0";
+        var state = CreateState(
+            headers: new Dictionary<string, string> { ["X-JA3-String"] = DamruSubsetOfChrome120Ja3String },
+            userAgent: firefoxUa);
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c =>
+            c.Reason != null && c.Reason.Contains("subset", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SubsetCheck_DifferentExtensionOrder_DoesNotFire()
+    {
+        // The subset rule requires EXACT match on extensions / curves / formats
+        // and a strict subset only on the cipher list. A JA3 that differs in
+        // the extension order isn't a damru-style cipher blacklist -- could be
+        // a different browser or a Chromium fork with feature flag drift.
+        var contributor = CreateContributor(BuildIndex(Chrome120Desktop));
+        // Same cipher subset as the damru fixture, but extensions reordered
+        // (45 and 27 swapped).
+        var differentExtensions =
+            "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-27-43-45-17513,29-23-24,0";
+        var state = CreateState(
+            headers: new Dictionary<string, string> { ["X-JA3-String"] = differentExtensions },
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/145.0.0.0 Safari/537.36");
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c =>
+            c.Reason != null && c.Reason.Contains("subset", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SubsetCheck_TooManyMissingCiphers_DoesNotFire()
+    {
+        // Subset rule caps at cipher_subset_max_missing (default 4). A
+        // fingerprint with 8+ missing ciphers is too different to be a
+        // deliberate blacklist -- more likely a different browser entirely.
+        var contributor = CreateContributor(BuildIndex(Chrome120Desktop));
+        // Only 4 ciphers remain -- 11 missing from Chrome 120's 15.
+        var tooFew = "771,4865-4866-4867-49195,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0";
+        var state = CreateState(
+            headers: new Dictionary<string, string> { ["X-JA3-String"] = tooFew },
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/145.0.0.0 Safari/537.36");
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c =>
+            c.Reason != null && c.Reason.Contains("subset", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
