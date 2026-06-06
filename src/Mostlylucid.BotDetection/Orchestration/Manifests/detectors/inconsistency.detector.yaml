@@ -139,6 +139,11 @@ defaults:
       - Firefox
       - Safari
       - Edge
+    # Mobile UA-CH paired with non-mobile connection class (damru / Redroid pattern).
+    # Fires when sec-ch-ua-mobile is ?1 AND the beacon-collected navigator.connection.type
+    # is ethernet/wimax/mixed.
+    mobile_connection_mismatch_confidence: 0.85
+    mobile_connection_mismatch_weight: 1.5
 
 tags:
   - correlation

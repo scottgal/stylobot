@@ -274,11 +274,46 @@
         // Coarse non-PII preferences
         try { b.dark = matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 0; } catch (e) { b.dark = -1; }
         try { b.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 0; } catch (e) { b.reduced = -1; }
-        // Network hints (coarse: effectiveType only, not bandwidth)
+        // Network hints (coarse: effectiveType only, not bandwidth).
+        // connType is the connection class (wifi/cellular/ethernet/...) used by
+        // InconsistencyContributor to flag mobile UA-CH paired with non-mobile
+        // links (the damru / Redroid pattern: real Android Chrome inside a Linux
+        // container reports "ethernet" because Network.overrideNetworkState is
+        // skipped). Only Chrome on Android / Chrome OS / secure contexts expose
+        // .type; empty string elsewhere is fine (the server-side check requires
+        // a real value to fire).
         try {
             var conn = n.connection || n.mozConnection || n.webkitConnection;
             b.net = conn ? (conn.effectiveType || '') : '';
-        } catch (e) { b.net = ''; }
+            b.connType = conn ? (conn.type || '') : '';
+        } catch (e) { b.net = ''; b.connType = ''; }
+        // Chrome family detection: window.chrome exists on Chrome / Chromium /
+        // Edge / Brave / Opera; absent on Firefox / Safari / WebKit. Gates the
+        // headless-Chrome "no plugins + no chrome.runtime" check server-side so
+        // it doesn't false-positive on iPhone Safari (which also reports zero
+        // plugins and no chrome.runtime, but those defaults are correct for it).
+        try { b.hasChrome = (typeof window.chrome !== 'undefined') ? 1 : 0; } catch (e) { b.hasChrome = 0; }
+
+        // === [PRIMARY] CDP Runtime.enable probe ==============================
+        // When CDP Runtime.enable is attached, Chromium serialises console.*
+        // arguments for the Console.messageAdded protocol event. We pass an
+        // object whose toString() increments a counter; after console.debug
+        // returns, a non-zero counter means CDP serialised our probe -- i.e.
+        // CDP Runtime.enable is attached. Catches Bright Data Scraping Browser
+        // (stock Chromium via remote CDP), damru's patched Playwright during
+        // the Runtime.enable window, vanilla Puppeteer / Playwright. Distinct
+        // from the cdpHit getter trap at the top of this file: that one fires
+        // when CDP reads the .debug property descriptor (init-time); this one
+        // fires when CDP calls toString on call-time arguments (call-time).
+        // Both being positive is near-certain CDP; only one is suggestive.
+        // -1 sentinel = probe errored; treated as no-signal server-side.
+        try {
+            var cdpToStringCalls = 0;
+            var cdpProbe = { toString: function () { cdpToStringCalls++; return ''; } };
+            console.debug(cdpProbe);
+            b.cdpRuntime = cdpToStringCalls;
+        } catch (e) { b.cdpRuntime = -1; }
+
         return b;
     }
 

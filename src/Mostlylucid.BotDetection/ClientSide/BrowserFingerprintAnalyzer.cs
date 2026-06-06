@@ -37,6 +37,7 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             // translates this into the ClientSideAdblockerDetected signal.
             Adblocker = data.Adblocker,
             AdblockerProvider = data.AdblockerProvider,
+            ConnectionType = data.Basics?.ConnectionType,
         };
 
         // Handle error case
@@ -77,48 +78,54 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
         // Order matters: check specific frameworks before falling back to generic WebDriver.
         // Each framework leaves distinct markers that let us name the exact tool.
 
+        var tail = data.Tail;
+        var headless = data.Headless;
+        var basics = data.Basics;
+
         // PhantomJS (window.callPhantom / window._phantom)
-        if (data.Phantom == 1)
+        if (tail?.Phantom == 1)
         {
             headlessScore += 0.5;
             reasons.Add("PhantomJS markers detected");
             result.DetectedAutomation = "PhantomJS";
         }
 
-        // Nightmare.js (window.__nightmare)
-        if (data.Nightmare)
-        {
-            headlessScore += 0.5;
-            reasons.Add("Nightmare.js markers detected");
-            result.DetectedAutomation ??= "Nightmare";
-        }
-
-        // Selenium (document.$cdc_ / document.$wdc_ / __selenium_unwrapped)
-        if (data.Selenium)
+        // Selenium ('webdriver' in window or '__selenium_unwrapped' in window)
+        if (tail?.Selenium == 1)
         {
             headlessScore += 0.5;
             reasons.Add("Selenium markers detected");
             result.DetectedAutomation ??= "Selenium";
         }
 
-        // Playwright (__playwright / __pw_* globals)
-        if (data.Playwright == 1)
-        {
-            headlessScore += 0.5;
-            reasons.Add("Playwright markers detected");
-            result.DetectedAutomation ??= "Playwright";
-        }
-
-        // Chrome DevTools Protocol (CDP markers - Puppeteer or other CDP-based tools)
-        if (data.ChromeDevTools == 1)
+        // CDP getter trap (cdpHit): set when CDP read the console.debug property
+        // descriptor while the script was loading. Init-time signal -- Puppeteer,
+        // Playwright, Selenium, Bright Data all visible this way.
+        if (data.CdpGetterHit == 1)
         {
             headlessScore += 0.4;
-            reasons.Add("Chrome DevTools Protocol markers detected");
+            reasons.Add("CDP getter trap on console.debug fired (init-time CDP read)");
             result.DetectedAutomation ??= "CDP/Puppeteer";
         }
 
-        // WebDriver flag (navigator.webdriver = true) - generic fallback with framework inference
-        if (data.WebDriver == 1)
+        // CDP Runtime.enable probe (call-time): client called console.debug(probe)
+        // where probe's toString() increments a counter. Chromium serialises
+        // console.* args for the Console.messageAdded protocol event ONLY when
+        // Runtime.enable is attached -- so a non-zero toString count is a
+        // near-deterministic CDP-attached signal. Catches Bright Data Scraping
+        // Browser (stock Chromium via remote CDP), damru's patched Playwright
+        // during the Runtime.enable window, vanilla Puppeteer / Playwright.
+        // -1 = probe errored; treat as no-signal.
+        if (basics?.CdpRuntimeProbe > 0)
+        {
+            headlessScore += 0.4;
+            integrityDeductions += 20;
+            reasons.Add("CDP Runtime.enable attached (Console.messageAdded triggered probe serialisation)");
+            result.DetectedAutomation ??= "CDP-attached browser";
+        }
+
+        // WebDriver flag (navigator.webdriver === true) - generic fallback with framework inference
+        if (tail?.WebDriver == 1)
         {
             headlessScore += 0.5;
             reasons.Add("navigator.webdriver is true");
@@ -126,15 +133,15 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             // If no specific framework detected yet, infer from secondary signals
             if (result.DetectedAutomation == null)
             {
-                if (data.Playwright == 1)
-                    result.DetectedAutomation = "Playwright";
-                else if (data.Selenium)
+                if (tail.Selenium == 1)
                     result.DetectedAutomation = "Selenium";
-                else if (data.ChromeDevTools == 1)
-                    // CDP + webdriver + no chrome.runtime = likely Puppeteer
+                else if (data.CdpGetterHit == 1 || basics?.CdpRuntimeProbe > 0)
+                    // CDP + webdriver = likely Puppeteer / Playwright
                     result.DetectedAutomation = "Puppeteer";
-                else if (data.HasChromeObject && data.HasChromeRuntime == 0)
-                    // Chrome without chrome.runtime = likely Puppeteer (it removes runtime)
+                else if (basics?.HasChromeObject == 1 && headless?.HasChromeRuntime == 0)
+                    // window.chrome exists but chrome.runtime missing = likely Puppeteer
+                    // (it strips runtime to look stealthy). Gated on hasChrome so Safari/
+                    // Firefox with webdriver=1 don't mis-attribute to Puppeteer.
                     result.DetectedAutomation = "Puppeteer";
                 else
                     result.DetectedAutomation = "WebDriver (unknown framework)";
@@ -143,8 +150,10 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
 
         // ===== Browser Consistency Checks =====
 
-        // Chrome without plugins (highly suspicious)
-        if (data.HasChromeObject && data.PluginCount == 0)
+        // window.chrome exists (Chrome family) but zero plugins is the canonical
+        // headless / Puppeteer pattern. Gated on hasChrome so Safari and Firefox
+        // (which report zero plugins because they have none) don't false-positive.
+        if (basics?.HasChromeObject == 1 && headless?.PluginCount == 0)
         {
             headlessScore += 0.3;
             integrityDeductions += 20;
@@ -152,7 +161,7 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
         }
 
         // Zero outer dimensions (headless indicator)
-        if (data.OuterWidth == 0 || data.OuterHeight == 0)
+        if (basics != null && (basics.OuterWidth == 0 || basics.OuterHeight == 0))
         {
             headlessScore += 0.3;
             integrityDeductions += 30;
@@ -160,35 +169,18 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
         }
 
         // Inner equals outer (no browser chrome)
-        if (data.InnerWidth > 0 &&
-            data.InnerWidth == data.OuterWidth &&
-            data.InnerHeight == data.OuterHeight)
+        if (basics != null &&
+            basics.InnerWidth > 0 &&
+            basics.InnerWidth == basics.OuterWidth &&
+            basics.InnerHeight == basics.OuterHeight)
         {
             headlessScore += 0.15;
             integrityDeductions += 10;
             reasons.Add("Window has no browser chrome (inner == outer)");
         }
 
-        // ===== Function Integrity =====
-
-        // Non-native bind function (prototype pollution)
-        if (data.BindIsNative == 0)
-        {
-            headlessScore += 0.2;
-            integrityDeductions += 20;
-            reasons.Add("Function.prototype.bind is not native");
-        }
-
-        // Suspicious eval length (normal is ~33-37 chars)
-        if (data.EvalLength > 0 && (data.EvalLength < 30 || data.EvalLength > 50))
-        {
-            headlessScore += 0.15;
-            integrityDeductions += 15;
-            reasons.Add($"Suspicious eval.toString() length: {data.EvalLength}");
-        }
-
         // ===== Permission Consistency =====
-        if (data.NotificationPermission == "suspicious")
+        if (headless?.NotificationPermission == "suspicious")
         {
             headlessScore += 0.25;
             integrityDeductions += 25;
@@ -259,11 +251,10 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
 
         // ===== Platform Consistency =====
 
-        // Check platform vs other signals
-        var platformLower = data.Platform?.ToLowerInvariant() ?? "";
+        var platformLower = basics?.Platform?.ToLowerInvariant() ?? "";
 
         // No hardware concurrency (uncommon for real browsers)
-        if (data.HardwareConcurrency == 0)
+        if (basics != null && basics.HardwareConcurrency == 0)
         {
             headlessScore += 0.1;
             integrityDeductions += 10;
@@ -271,7 +262,8 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
         }
 
         // No device memory (older API but still an indicator)
-        if (data.DeviceMemory == 0 && !platformLower.Contains("iphone") && !platformLower.Contains("ipad"))
+        if (basics != null && basics.DeviceMemory == 0
+            && !platformLower.Contains("iphone") && !platformLower.Contains("ipad"))
             integrityDeductions += 5;
 
         // ===== Generate Fingerprint Hash =====
@@ -304,23 +296,25 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
 
     private static string GenerateFingerprintHash(BrowserFingerprintData data)
     {
-        // Create a stable hash from key fingerprint components
+        // Create a stable hash from key fingerprint components.
+        var basics = data.Basics;
+        var webgl = data.Webgl;
         var components = new StringBuilder();
-        components.Append(data.Platform ?? "");
+        components.Append(basics?.Platform ?? "");
         components.Append('|');
-        components.Append(data.ScreenResolution ?? "");
+        components.Append(basics?.ScreenResolution ?? "");
         components.Append('|');
-        components.Append(data.Timezone ?? "");
+        components.Append(basics?.Timezone ?? "");
         components.Append('|');
-        components.Append(data.Language ?? "");
+        components.Append(basics?.Language ?? "");
         components.Append('|');
-        components.Append(data.HardwareConcurrency);
+        components.Append(basics?.HardwareConcurrency ?? 0);
         components.Append('|');
-        components.Append(data.DevicePixelRatio);
+        components.Append(basics?.DevicePixelRatio ?? 0.0);
         components.Append('|');
-        components.Append(data.WebGLVendor ?? "");
+        components.Append(webgl?.Vendor ?? "");
         components.Append('|');
-        components.Append(data.WebGLRenderer ?? "");
+        components.Append(webgl?.Renderer ?? "");
         components.Append('|');
         components.Append(data.CanvasHash ?? "");
 
@@ -331,16 +325,19 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
 
     private static int CalculateConsistencyScore(BrowserFingerprintData data)
     {
+        var basics = data.Basics;
+        if (basics == null) return 100;
+
         var score = 100;
-        var platformLower = data.Platform?.ToLowerInvariant() ?? "";
+        var platformLower = basics.Platform?.ToLowerInvariant() ?? "";
 
         // Check for inconsistencies
 
         // Mobile platform but large screen
         if ((platformLower.Contains("iphone") || platformLower.Contains("android")) &&
-            !string.IsNullOrEmpty(data.ScreenResolution))
+            !string.IsNullOrEmpty(basics.ScreenResolution))
         {
-            var parts = data.ScreenResolution.Split('x');
+            var parts = basics.ScreenResolution.Split('x');
             if (parts.Length >= 2 &&
                 int.TryParse(parts[0], out var width) &&
                 width > 2000)
@@ -348,24 +345,25 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
         }
 
         // Desktop platform but has touch
+        var hasTouch = (data.Touch?.MaxTouchPoints ?? 0) > 0
+                       || (data.Touch?.HasOnTouchStart ?? 0) == 1;
         if ((platformLower.Contains("win") || platformLower.Contains("mac") || platformLower.Contains("linux")) &&
             !platformLower.Contains("arm") &&
-            data.HasTouch == 1 &&
-            data.DevicePixelRatio == 1)
+            hasTouch &&
+            basics.DevicePixelRatio == 1)
             // Touch on desktop with DPR 1 is uncommon but not impossible
             score -= 5;
 
         // Missing timezone (very unusual)
-        if (string.IsNullOrEmpty(data.Timezone)) score -= 15;
+        if (string.IsNullOrEmpty(basics.Timezone)) score -= 15;
 
         // Missing language (very unusual)
-        if (string.IsNullOrEmpty(data.Language)) score -= 15;
+        if (string.IsNullOrEmpty(basics.Language)) score -= 15;
 
         // DPR of exactly 1 with high-res screen (unusual for modern displays)
-        if (data.DevicePixelRatio == 1 &&
-            !string.IsNullOrEmpty(data.ScreenResolution))
+        if (basics.DevicePixelRatio == 1 && !string.IsNullOrEmpty(basics.ScreenResolution))
         {
-            var parts = data.ScreenResolution.Split('x');
+            var parts = basics.ScreenResolution.Split('x');
             if (parts.Length >= 2 &&
                 int.TryParse(parts[0], out var width) &&
                 width > 2560)

@@ -396,6 +396,8 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
     private double MissingClientHintsConfidence => GetParam("missing_client_hints_confidence", 0.2);
     private double OutdatedBrowserConfidence => GetParam("outdated_browser_confidence", 0.3);
     private int MinChromeVersion => GetParam("min_chrome_version", 90);
+    private double MobileConnectionMismatchConfidence => GetParam("mobile_connection_mismatch_confidence", 0.85);
+    private double MobileConnectionMismatchWeight => GetParam("mobile_connection_mismatch_weight", 1.5);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -464,6 +466,26 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
                 confidenceOverride: OutdatedBrowserConfidence,
                 botType: BotType.Unknown.ToString()));
 
+        // Mobile UA-CH paired with non-mobile connection class (damru / Redroid pattern).
+        // navigator.connection.type comes from the client-side beacon. damru runs real
+        // Android Chrome inside a Linux container and skips Network.overrideNetworkState,
+        // so the beacon reports "ethernet" while sec-ch-ua-mobile is "?1". Real mobile
+        // Chrome reports "cellular" or "wifi". Only fires when both pieces of evidence
+        // are present (mobile claim AND a real connection-type value from the beacon).
+        var claimsMobile = headers.TryGetValue("Sec-CH-UA-Mobile", out var mobileHeader)
+                           && mobileHeader.ToString() == "?1";
+        if (claimsMobile)
+        {
+            var connectionType = state.GetSignal<string>(SignalKeys.ClientSideConnectionType);
+            if (!string.IsNullOrEmpty(connectionType) && IsNonMobileConnection(connectionType))
+                contributions.Add(BotContribution(
+                    "Inconsistency",
+                    $"Mobile UA-CH with non-mobile connection class ({connectionType})",
+                    confidenceOverride: MobileConnectionMismatchConfidence,
+                    weightMultiplier: MobileConnectionMismatchWeight,
+                    botType: BotType.Scraper.ToString()));
+        }
+
         if (contributions.Count == 0)
             // No inconsistencies found - add negative signal (human indicator)
             contributions.Add(HumanContribution(
@@ -489,6 +511,16 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
 
         return false;
     }
+
+    // navigator.connection.type values that are incompatible with a mobile-claiming UA.
+    // "ethernet" is the damru tell; "wimax" and "mixed" are similarly non-mobile.
+    // "none" is excluded -- offline state is transient and would false-positive on
+    // brief network drops. "wifi" is excluded -- real mobiles routinely connect via
+    // wifi. "cellular"/"bluetooth"/"other"/"unknown" are excluded as plausible mobile.
+    private static bool IsNonMobileConnection(string connectionType) =>
+        connectionType.Equals("ethernet", StringComparison.OrdinalIgnoreCase)
+        || connectionType.Equals("wimax", StringComparison.OrdinalIgnoreCase)
+        || connectionType.Equals("mixed", StringComparison.OrdinalIgnoreCase);
 
     [GeneratedRegex(@"Chrome/(\d+)")]
     private static partial Regex InconsistencyChromeVersionRegex();

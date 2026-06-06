@@ -175,6 +175,8 @@ public class ClientSideContributor : ConfiguredContributorBase
                     state.WriteSignal(SignalKeys.JsTimingAnomaly, true);
                 if (!string.IsNullOrEmpty(fp.DetectedAutomation))
                     state.WriteSignal(SignalKeys.HeadlessFramework, fp.DetectedAutomation);
+                if (!string.IsNullOrEmpty(fp.ConnectionType))
+                    state.WriteSignal(SignalKeys.ClientSideConnectionType, fp.ConnectionType);
             }
         }
         catch (Exception ex)

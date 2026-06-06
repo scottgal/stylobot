@@ -1618,6 +1618,21 @@ public static class SignalKeys
     /// </summary>
     public const string ClientSideAdblockerProvider = "clientside.adblocker_provider";
 
+    /// <summary>
+    ///     String: value of <c>navigator.connection.type</c> from the client-side
+    ///     beacon (one of <c>wifi</c>, <c>cellular</c>, <c>ethernet</c>, <c>none</c>,
+    ///     <c>bluetooth</c>, <c>wimax</c>, <c>mixed</c>, <c>other</c>, <c>unknown</c>;
+    ///     empty when the API is unavailable). Set by
+    ///     <see cref="ContributingDetectors.ClientSideContributor"/> from the stored
+    ///     <see cref="ClientSide.BrowserFingerprintResult.ConnectionType"/>.
+    ///     Consumed by <see cref="ContributingDetectors.InconsistencyContributor"/>
+    ///     to flag mobile-claiming UAs paired with non-mobile connection classes
+    ///     (the damru / Redroid-emulator pattern: real Android Chrome on a container
+    ///     reports <c>ethernet</c> because <c>Network.overrideNetworkState</c> is
+    ///     skipped).
+    /// </summary>
+    public const string ClientSideConnectionType = "clientside.connection_type";
+
 
     // ==========================================
     // Cookie behavior signals
