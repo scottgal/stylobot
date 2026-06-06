@@ -192,6 +192,22 @@ public sealed class IdentityVectorOptions
     public int[] NotifyOnCountCrossings { get; set; } = new[] { 1, 3, 10, 30, 100 };
 
     /// <summary>
+    ///     Per-fingerprint debounce window for the <see cref="IFingerprintStore.ObservationAppended"/>
+    ///     subscription. A second event for the same fingerprint within this window collapses
+    ///     into a single absorption run. Prevents storms when a hot visitor floods observations
+    ///     faster than absorption can drain. Default 250ms.
+    /// </summary>
+    public int SubscriptionDebounceMs { get; set; } = 250;
+
+    /// <summary>
+    ///     Safety-net backstop sweep cadence for absorption. Subscribes to ObservationAppended
+    ///     for the hot path; this loop catches any fingerprints missed by the subscription
+    ///     (event handler failure, crash recovery, late SQLite rows). Default 300s (5min).
+    ///     Was 5s when the loop was the only mechanism (driven by Drift.DriftCheckIntervalSeconds).
+    /// </summary>
+    public int BackstopSweepIntervalSeconds { get; set; } = 300;
+
+    /// <summary>
     ///     Amortise the per-request encoder cost across sub-resource requests in a page load.
     ///     When enabled (default), <see cref="EncoderResultCache"/> short-circuits the encode
     ///     step for any request whose <c>primary_signature</c> was seen within the TTL window.
