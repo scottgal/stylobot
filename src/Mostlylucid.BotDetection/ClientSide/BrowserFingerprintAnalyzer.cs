@@ -43,6 +43,13 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             var n => n
         };
 
+        // BotD verdict: only treat as positive evidence when bot=1 AND no error.
+        // A null Kind on bot=1 is rare (BotD usually labels) but possible; we
+        // surface "automated" as a generic catch-all kind.
+        string? botdKind = data.Botd is { Bot: 1, Errored: 0 } botd
+            ? (string.IsNullOrEmpty(botd.Kind) ? "automated" : botd.Kind)
+            : null;
+
         var result = new BrowserFingerprintResult
         {
             RequestId = requestId,
@@ -57,6 +64,7 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             ConnectionType = data.Basics?.ConnectionType,
             IceNoSrflx = iceNoSrflx,
             TtsVoiceCount = ttsVoiceCount,
+            BotdKind = botdKind,
         };
 
         // Handle error case. data.Error is attacker-controlled (JSON body);
@@ -107,12 +115,28 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
         var headless = data.Headless;
         var basics = data.Basics;
 
+        // FingerprintJS BotD verdict. BotD has its own marker dictionary
+        // covering Selenium, Puppeteer, Playwright, PhantomJS, CefSharp,
+        // Awesomium, Nightmare, plus ~40 distinctive-property fingerprints.
+        // We trust it on positive (bot=1) verdicts; on bot=0 it carries no
+        // information (could be a real human OR a sophisticated cloak that
+        // BotD doesn't recognise -- our own probes pick those up). Confidence
+        // is high because BotD's false-positive rate on real browsers is
+        // documented as low and the framework name is informative.
+        if (botdKind != null)
+        {
+            headlessScore += 0.5;
+            integrityDeductions += 20;
+            reasons.Add($"BotD verdict: {botdKind}");
+            result.DetectedAutomation ??= botdKind;
+        }
+
         // PhantomJS (window.callPhantom / window._phantom)
         if (tail?.Phantom == 1)
         {
             headlessScore += 0.5;
             reasons.Add("PhantomJS markers detected");
-            result.DetectedAutomation = "PhantomJS";
+            result.DetectedAutomation ??= "PhantomJS";
         }
 
         // Selenium ('webdriver' in window or '__selenium_unwrapped' in window)

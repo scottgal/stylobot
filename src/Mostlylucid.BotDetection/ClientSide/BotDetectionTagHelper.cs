@@ -118,7 +118,10 @@ public class BotDetectionTagHelper : TagHelper
         var deferAttr = Defer ? " defer" : "";
         var asyncAttr = Async ? " async" : "";
 
-        var bootstrap = $"window.MLBotD={{t:'{JsEscape(token)}',e:'{JsEscape(Endpoint)}',cfg:{{collectWebGL:{B(opts.CollectWebGL)},collectCanvas:{B(opts.CollectCanvas)},collectAudio:{B(opts.CollectAudio)},collectInteraction:{B(true)},timeout:{opts.CollectionTimeoutMs},iceStun:'{JsEscape(opts.IceStunServerUrl ?? "")}'}}}};";
+        // BotD URL only ships in the bootstrap when enabled; default off so
+        // existing CSP setups don't suddenly attempt a cross-origin fetch.
+        var botdUrl = opts.Botd.Enabled ? opts.Botd.ScriptUrl ?? "" : "";
+        var bootstrap = $"window.MLBotD={{t:'{JsEscape(token)}',e:'{JsEscape(Endpoint)}',cfg:{{collectWebGL:{B(opts.CollectWebGL)},collectCanvas:{B(opts.CollectCanvas)},collectAudio:{B(opts.CollectAudio)},collectInteraction:{B(true)},timeout:{opts.CollectionTimeoutMs},iceStun:'{JsEscape(opts.IceStunServerUrl ?? "")}',botdUrl:'{JsEscape(botdUrl)}'}}}};";
 
         var html =
             $"<script{nonceAttr}>{bootstrap}</script>" +

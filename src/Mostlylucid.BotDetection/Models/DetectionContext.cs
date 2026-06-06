@@ -1657,6 +1657,16 @@ public static class SignalKeys
     /// </summary>
     public const string ClientSideTtsVoiceCount = "clientside.tts_voice_count";
 
+    /// <summary>
+    ///     String: FingerprintJS BotD verdict kind ("selenium", "puppeteer",
+    ///     "phantomjs", "headless_chrome", "cefsharp", "awesomium", "nightmare",
+    ///     etc.) when BotD classified the visitor as automated; null otherwise.
+    ///     Written by <see cref="ContributingDetectors.ClientSideContributor"/>
+    ///     from the stored fingerprint result for downstream consumers (cluster
+    ///     attribution, dashboard "detected as X" surface, learning triggers).
+    /// </summary>
+    public const string ClientSideBotdKind = "clientside.botd_kind";
+
 
     // ==========================================
     // Cookie behavior signals

@@ -181,6 +181,8 @@ public class ClientSideContributor : ConfiguredContributorBase
                     state.WriteSignal(SignalKeys.ClientSideIceNoSrflx, fp.IceNoSrflx.Value);
                 if (fp.TtsVoiceCount.HasValue)
                     state.WriteSignal(SignalKeys.ClientSideTtsVoiceCount, fp.TtsVoiceCount.Value);
+                if (!string.IsNullOrEmpty(fp.BotdKind))
+                    state.WriteSignal(SignalKeys.ClientSideBotdKind, fp.BotdKind);
             }
         }
         catch (Exception ex)

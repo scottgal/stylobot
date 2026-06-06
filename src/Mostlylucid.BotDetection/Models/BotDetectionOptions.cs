@@ -1559,6 +1559,18 @@ public class ClientSideOptions
     public string IceStunServerUrl { get; set; } = "stun:stun.l.google.com:19302";
 
     /// <summary>
+    ///     Integration with FingerprintJS BotD (https://github.com/fingerprintjs/BotD).
+    ///     BotD is an MIT-licensed bot detection library covering automation
+    ///     framework markers (Selenium, Puppeteer, Playwright, PhantomJS,
+    ///     CefSharp, Awesomium, Nightmare, plus 40+ distinctive-property
+    ///     fingerprints). StyloBot's probes catch the modern cloak ecosystem
+    ///     (damru, Bright Data, Multilogin, Kameleo) that BotD doesn't address;
+    ///     enabling BotD adds breadth on the long tail without us maintaining
+    ///     our own marker dictionary.
+    /// </summary>
+    public BotdOptions Botd { get; set; } = new();
+
+    /// <summary>
     ///     Minimum browser integrity score to consider "trusted".
     ///     Scores below this contribute to bot confidence.
     ///     Range: 0-100. Default: 70
@@ -4433,4 +4445,37 @@ public class RiskVerdictOptions
     ///     <see cref="Risk.SignatureRiskVerdictComposer.BucketThreat"/>).
     /// </summary>
     public double BrowserAttestationMaxThreatScore { get; set; } = 0.15;
+}
+
+/// <summary>
+///     FingerprintJS BotD integration. Opt-in so existing CSP rules don't
+///     break: enabling BotD requires the operator to either add the BotD
+///     CDN origin to their <c>script-src</c> directive or self-host the
+///     bundle under their own static-asset CSP allowlist.
+///     <para>
+///     BotD is MIT-licensed; redistribution under AGPLv3 (the planned v7
+///     FOSS license) is permitted. We do not bundle BotD; the operator
+///     points <see cref="ScriptUrl"/> at the CDN or at their self-hosted
+///     copy. Privacy: BotD's NPM build phones home to fingerprint.com
+///     for 0.1%-sampled telemetry; the CDN build does not. Our integration
+///     passes <c>monitoring: false</c> when calling <c>load()</c> regardless.
+///     </para>
+/// </summary>
+public class BotdOptions
+{
+    /// <summary>
+    ///     Whether the client-side script should dynamic-import BotD and
+    ///     include its verdict in the beacon payload. Default false so
+    ///     existing deployments don't suddenly attempt a cross-origin fetch.
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    ///     URL the client-side script should <c>import()</c> to load BotD.
+    ///     Default is the FingerprintJS CDN (<c>https://openfpcdn.io/botd/v2</c>).
+    ///     Self-hosting recommendation: vendor the bundle into your
+    ///     <c>wwwroot/lib/botd.min.js</c> and set this to <c>/lib/botd.min.js</c>
+    ///     so no third-party origin appears in your CSP.
+    /// </summary>
+    public string ScriptUrl { get; set; } = "https://openfpcdn.io/botd/v2";
 }

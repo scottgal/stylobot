@@ -121,6 +121,16 @@ public class BrowserFingerprintData
     /// </summary>
     [JsonPropertyName("tts")] public TtsProbeBlock? TtsProbe { get; set; }
 
+    /// <summary>
+    ///     FingerprintJS BotD verdict (MIT-licensed, dynamic-imported by the
+    ///     client when configured). Covers the long tail of automation framework
+    ///     markers (Selenium, Puppeteer, Playwright, PhantomJS, CefSharp,
+    ///     Awesomium, Nightmare, plus distinctive-property fingerprints) that
+    ///     would otherwise be ours to maintain. Null when BotD is not enabled
+    ///     or the load failed.
+    /// </summary>
+    [JsonPropertyName("botd")] public BotdBlock? Botd { get; set; }
+
     // === Legacy server-side timing probes ==================================
     // The modern botdetection.js does NOT emit these. They are reachable via
     // alternate beacon paths and via test-only construction. The analyser
@@ -319,6 +329,20 @@ public class TtsProbeBlock
 }
 
 /// <summary>
+///     FingerprintJS BotD verdict from the dynamic-imported BotD bundle.
+///     <see cref="Bot"/> = 1 when BotD identified the visitor as automated.
+///     <see cref="Kind"/> names the framework (selenium, puppeteer, phantomjs,
+///     headless_chrome, etc.) when known. <see cref="Errored"/> = 1 when the
+///     load or detect call threw.
+/// </summary>
+public class BotdBlock
+{
+    [JsonPropertyName("bot")] public int Bot { get; set; }
+    [JsonPropertyName("kind")] public string? Kind { get; set; }
+    [JsonPropertyName("errored")] public int Errored { get; set; }
+}
+
+/// <summary>
 ///     Processed browser fingerprint result with server-side analysis.
 /// </summary>
 public class BrowserFingerprintResult
@@ -420,6 +444,15 @@ public class BrowserFingerprintResult
     ///     the probe was absent or unsupported.
     /// </summary>
     public int? TtsVoiceCount { get; set; }
+
+    /// <summary>
+    ///     BotD verdict: null when not configured or load errored, otherwise
+    ///     a short kind string ("selenium", "puppeteer", "headless_chrome",
+    ///     "phantomjs", "cefsharp", "awesomium", "nightmare", "fminer",
+    ///     "geb", "phantomas", "rhino", "webdriverio", ...) when BotD
+    ///     classified the visitor as automated.
+    /// </summary>
+    public string? BotdKind { get; set; }
 }
 
 /// <summary>

@@ -135,6 +135,77 @@ public class BrowserFingerprintAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_BotdVerdictBot_FlagsAndPopulatesDetectedAutomation()
+    {
+        // BotD said the visitor is automated as "selenium". Analyser must
+        // flag headless, populate DetectedAutomation, and surface the kind.
+        var data = CreateRealChromeBrowserData();
+        data.Botd = new BotdBlock { Bot = 1, Kind = "selenium", Errored = 0 };
+
+        var result = _analyzer.Analyze(data, "test-botd-selenium");
+
+        Assert.True(result.HeadlessLikelihood >= 0.4);
+        Assert.Equal("selenium", result.BotdKind);
+        Assert.Contains(result.Reasons, r => r.Contains("BotD", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("selenium", result.DetectedAutomation);
+    }
+
+    [Fact]
+    public void Analyze_BotdVerdictNotBot_NoFlag()
+    {
+        // BotD said the visitor is NOT automated. No reason, no DetectedAutomation.
+        var data = CreateRealChromeBrowserData();
+        data.Botd = new BotdBlock { Bot = 0, Kind = null, Errored = 0 };
+
+        var result = _analyzer.Analyze(data, "test-botd-clean");
+
+        Assert.Null(result.BotdKind);
+        Assert.Null(result.DetectedAutomation);
+        Assert.DoesNotContain(result.Reasons, r => r.Contains("BotD", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Analyze_BotdErrored_TreatedAsNoSignal()
+    {
+        // Probe errored (network failed, CSP block, etc). Analyser must not
+        // treat the absent verdict as positive evidence of either bot or human.
+        var data = CreateRealChromeBrowserData();
+        data.Botd = new BotdBlock { Bot = 0, Kind = null, Errored = 1 };
+
+        var result = _analyzer.Analyze(data, "test-botd-errored");
+
+        Assert.Null(result.BotdKind);
+        Assert.DoesNotContain(result.Reasons, r => r.Contains("BotD", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Analyze_ProductionPayloadShape_PipesBotdThroughToResult()
+    {
+        const string json = """
+            {
+              "t": "token", "v": "2.0.0", "ts": 1700000000000, "cdp": 0, "interacted": 0,
+              "basics":   { "platform": "Win32", "hasChrome": 1, "cores": 8,
+                            "screen": "1920x1080x24", "dpr": 1.25,
+                            "outerW": 1920, "outerH": 1040, "innerW": 1903, "innerH": 969,
+                            "tz": "America/New_York", "lang": "en-US" },
+              "tail":     { "webdriver": 0, "phantom": 0, "selenium": 0, "iframe": 0 },
+              "headless": { "plugins": 5, "chromeRt": 1 },
+              "touch":    { "maxTouch": 0 },
+              "botd":     { "bot": 1, "kind": "puppeteer", "errored": 0 }
+            }
+            """;
+        var data = JsonSerializer.Deserialize<BrowserFingerprintData>(json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        Assert.NotNull(data);
+        Assert.NotNull(data!.Botd);
+
+        var result = _analyzer.Analyze(data, "test-prod-shape-botd");
+
+        Assert.Equal("puppeteer", result.BotdKind);
+        Assert.Equal("puppeteer", result.DetectedAutomation);
+    }
+
+    [Fact]
     public void Analyze_ProductionPayloadShape_PipesIceAndTtsThroughToResult()
     {
         // Wire format: ice + tts are top-level objects in the JS payload.

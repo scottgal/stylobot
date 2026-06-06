@@ -452,6 +452,52 @@
         });
     }
 
+    // === [PRIMARY] FingerprintJS BotD integration ============================
+    // Dynamic-import the BotD bundle (MIT-licensed, ~12KB) when configured.
+    // BotD covers the long tail of automation framework markers we'd otherwise
+    // have to maintain ourselves (Selenium, Puppeteer, Playwright, PhantomJS,
+    // CefSharp, Awesomium, Nightmare, plus 40+ distinctive-property
+    // fingerprints). StyloBot's own probes (CDP getter trap, CDP Runtime,
+    // ICE, TTS, mobile-UA / connection-type) target the modern cloak
+    // ecosystem BotD doesn't address; the two are complementary.
+    //
+    // Returns null when disabled (no URL configured), {bot, kind, errored}
+    // otherwise. The probe always passes monitoring:false to BotD so neither
+    // the NPM nor the CDN telemetry path fires. License attribution lives in
+    // the BotD bundle the operator serves; we don't bundle it.
+    function botdProbe() {
+        return new Promise(function (resolve) {
+            try {
+                var url = c.botdUrl;
+                if (!url) return resolve(null);
+                // 2s budget for the whole BotD load+detect. Slow-network
+                // operators can increase the script timeout via cfg.timeout;
+                // here we just want to ensure ICE+TTS+the rest don't get
+                // dropped if BotD is the laggard.
+                var settled = false;
+                var settle = function (v) { if (!settled) { settled = true; resolve(v); } };
+                setTimeout(function () { settle({ bot: 0, kind: null, errored: 1 }); }, 2000);
+                import(/* @vite-ignore */ url)
+                    .then(function (mod) {
+                        if (!mod || typeof mod.load !== 'function')
+                            return settle({ bot: 0, kind: null, errored: 1 });
+                        return mod.load({ monitoring: false });
+                    })
+                    .then(function (detector) {
+                        if (!detector) return;
+                        return detector.detect();
+                    })
+                    .then(function (result) {
+                        if (!result) return;
+                        settle({ bot: result.bot ? 1 : 0, kind: result.botKind || null, errored: 0 });
+                    })
+                    .catch(function () { settle({ bot: 0, kind: null, errored: 1 }); });
+            } catch (e) {
+                resolve({ bot: 0, kind: null, errored: 1 });
+            }
+        });
+    }
+
     // === [PRIMARY] speechSynthesis voice-list probe ==========================
     // Real Android Chrome populates getVoices() before the page script runs
     // (the TTS engine starts at boot). Fresh Redroid containers (damru's
@@ -521,7 +567,8 @@
             audioHash(),
             legitimacyMarkers(),
             iceProbe(),
-            ttsProbe()
+            ttsProbe(),
+            botdProbe()
         ]);
         var asyncOrTimeout = Promise.race([asyncPart, deadline.then(function () { return null; })]);
         var asyncResult = await asyncOrTimeout || [];
@@ -539,6 +586,7 @@
             legit: asyncResult[4] || { brave: 0, lockdown: 0 },
             ice: asyncResult[5] || { count: 0, srflx: 0, host: 0, errored: 1 },
             tts: asyncResult[6] || { count: -1 },
+            botd: asyncResult[7] || null,
             clamp: clampProbe(),
             triple: chromiumTriple(),
             headless: headlessMarkers(),
