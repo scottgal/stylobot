@@ -1688,6 +1688,24 @@ public static class SignalKeys
     /// </summary>
     public const string ClientSidePoolCollisionContexts = "clientside.pool_collision_contexts";
 
+    /// <summary>
+    ///     Bool: every sampled mousemove event had integer client x/y
+    ///     coordinates (the Kameleo Chroma CDP-synthesised pattern). Real
+    ///     mice produce sub-pixel float coords on any DPR &gt; 1. Consumed by
+    ///     <see cref="ContributingDetectors.InconsistencyContributor"/> gated
+    ///     on a desktop UA + non-trivial sample count.
+    /// </summary>
+    public const string ClientSideMouseAllIntegerCoords = "clientside.mouse_all_integer_coords";
+
+    /// <summary>
+    ///     Double: coefficient of variation of inter-mouse-event timing
+    ///     deltas (stddev / mean). Synthesised events show low CV; humans
+    ///     run &gt; 0.5. Consumed alongside
+    ///     <see cref="ClientSideMouseAllIntegerCoords"/> for Kameleo
+    ///     detection.
+    /// </summary>
+    public const string ClientSideMouseTimingCv = "clientside.mouse_timing_cv";
+
 
     // ==========================================
     // Cookie behavior signals

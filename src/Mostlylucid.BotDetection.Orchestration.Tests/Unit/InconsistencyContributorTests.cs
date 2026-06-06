@@ -42,6 +42,9 @@ public class InconsistencyContributorTests
         string? connectionType = null,
         bool? iceNoSrflx = null,
         int? ttsVoiceCount = null,
+        int? mouseSamples = null,
+        bool? mouseAllInt = null,
+        double? mouseTimingCv = null,
         bool addLanguageHeader = true,
         bool addClientHints = true)
     {
@@ -56,6 +59,9 @@ public class InconsistencyContributorTests
         if (connectionType != null) signalDict[SignalKeys.ClientSideConnectionType] = connectionType;
         if (iceNoSrflx.HasValue) signalDict[SignalKeys.ClientSideIceNoSrflx] = iceNoSrflx.Value;
         if (ttsVoiceCount.HasValue) signalDict[SignalKeys.ClientSideTtsVoiceCount] = ttsVoiceCount.Value;
+        if (mouseSamples.HasValue) signalDict[SignalKeys.ClientMouseEvents] = mouseSamples.Value;
+        if (mouseAllInt.HasValue) signalDict[SignalKeys.ClientSideMouseAllIntegerCoords] = mouseAllInt.Value;
+        if (mouseTimingCv.HasValue) signalDict[SignalKeys.ClientSideMouseTimingCv] = mouseTimingCv.Value;
 
         return new BlackboardState
         {
@@ -219,6 +225,81 @@ public class InconsistencyContributorTests
 
         Assert.DoesNotContain(contributions, c =>
             c.Reason != null && c.Reason.Contains("voice", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ===== Bonus B: Kameleo Chroma mouse-synthesis pattern ================
+    // Integer-only coordinates + low timing CV across N+ samples. Per
+    // Kameleo's own masking-audit page they modify CDP synthetic mouse
+    // events with characteristic coordinate normalisation.
+
+    [Fact]
+    public async Task ContributeAsync_KameleoMousePattern_EmitsBotContribution()
+    {
+        var contributor = CreateContributor();
+        var state = CreateState(AndroidChromeUa,
+            mouseSamples: 30,        // >= min samples
+            mouseAllInt: true,       // every coord integer
+            mouseTimingCv: 0.18);    // synthetic-low CV
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        var hit = contributions.FirstOrDefault(c =>
+            c.Reason != null && c.Reason.Contains("Kameleo", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(hit);
+        Assert.True(hit.ConfidenceDelta > 0.6,
+            $"Expected confidence > 0.6 for Kameleo mouse-synthesis pattern, got {hit.ConfidenceDelta}");
+    }
+
+    [Fact]
+    public async Task ContributeAsync_HumanLikeMouseTiming_NoKameleoHit()
+    {
+        // Same all-integer flag (rare but possible on integer-DPR displays)
+        // but human-realistic CV. Must not fire on timing alone.
+        var contributor = CreateContributor();
+        var state = CreateState(AndroidChromeUa,
+            mouseSamples: 30,
+            mouseAllInt: true,
+            mouseTimingCv: 0.62);
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c =>
+            c.Reason != null && c.Reason.Contains("Kameleo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ContributeAsync_SubpixelMouseCoords_NoKameleoHit()
+    {
+        // Low CV but sub-pixel coords (the real-mouse-on-DPR>1 case). Must
+        // not fire -- both signals are required.
+        var contributor = CreateContributor();
+        var state = CreateState(AndroidChromeUa,
+            mouseSamples: 30,
+            mouseAllInt: false,
+            mouseTimingCv: 0.18);
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c =>
+            c.Reason != null && c.Reason.Contains("Kameleo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ContributeAsync_BelowMinSampleThreshold_NoKameleoHit()
+    {
+        // Visitor barely moved the mouse (3 samples). Both other flags
+        // would fire but we require >= 10 samples to avoid false-positiving
+        // on users who didn't interact much.
+        var contributor = CreateContributor();
+        var state = CreateState(AndroidChromeUa,
+            mouseSamples: 3,
+            mouseAllInt: true,
+            mouseTimingCv: 0.18);
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c =>
+            c.Reason != null && c.Reason.Contains("Kameleo", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

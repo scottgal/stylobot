@@ -544,14 +544,73 @@
 
     // === Interaction tracking (boolean, no PII) ==============================
     var interacted = 0;
+    // === [SUPPORTING] Mouse-event distribution sampling =====================
+    // Samples up to N mousemove events to extract distribution features that
+    // catch Kameleo Chroma's synthesised mouse traces. Kameleo modifies CDP
+    // synthetic mouse events with characteristic coordinate normalisation
+    // (per their published audit at kameleo.io/masking-audit): integer-only
+    // coordinates (no sub-pixel drift) plus artificially regular timing.
+    // Real human mouse movement has sub-pixel float coords and irregular dt.
+    //
+    // Privacy: we keep counts and statistical aggregates only. Raw coords
+    // never leave the browser. Sample cap (50) bounds CPU + payload size.
+    var mouseSampleCap = 50;
+    var mouseMoveCount = 0;
+    var mouseDownCount = 0;
+    var mouseAllInt = 1;  // 1 = every sampled coord was integer; 0 = saw a sub-pixel
+    var mouseSamples = []; // ms timestamps only (no coords)
     if (c.collectInteraction !== false) {
         try {
-            var mark = function () { interacted = 1; };
-            window.addEventListener('mousemove', mark, { once: true, passive: true });
-            window.addEventListener('mousedown', mark, { once: true, passive: true });
-            window.addEventListener('touchstart', mark, { once: true, passive: true });
-            window.addEventListener('keydown', mark, { once: true, passive: true });
+            var markInteracted = function () { interacted = 1; };
+            window.addEventListener('mousedown', function () { interacted = 1; mouseDownCount++; }, { passive: true });
+            window.addEventListener('touchstart', markInteracted, { once: true, passive: true });
+            window.addEventListener('keydown', markInteracted, { once: true, passive: true });
+            var sampleMove = function (e) {
+                interacted = 1;
+                mouseMoveCount++;
+                if (mouseSamples.length < mouseSampleCap) {
+                    mouseSamples.push(performance.now());
+                    // Integer-coord check: Kameleo's CDP-synthesised events
+                    // produce whole-pixel coordinates. Real mice drift via
+                    // sub-pixel device-pixel ratios when DPR != 1.
+                    if (mouseAllInt === 1
+                        && (e.clientX !== Math.floor(e.clientX) || e.clientY !== Math.floor(e.clientY)))
+                        mouseAllInt = 0;
+                }
+            };
+            window.addEventListener('mousemove', sampleMove, { passive: true });
         } catch (e) {}
+    }
+
+    // Compute distribution aggregates over the captured samples.
+    // dtMean, dtStddev describe inter-event timing regularity. Coefficient
+    // of variation (stddev / mean) below ~0.3 indicates Kameleo-like
+    // synthesised timing; real humans run > 0.5.
+    function mouseStats() {
+        var out = {
+            count: mouseMoveCount,
+            downs: mouseDownCount,
+            // Sentinels: -1 means "no samples captured"; allInt is only
+            // meaningful when we have samples to judge.
+            allInt: mouseSamples.length > 0 ? mouseAllInt : -1,
+            dtMean: -1,
+            dtStddev: -1
+        };
+        var n = mouseSamples.length;
+        if (n < 3) return out;  // need >= 3 samples for a meaningful stddev
+        var deltas = [];
+        for (var i = 1; i < n; i++) deltas.push(mouseSamples[i] - mouseSamples[i - 1]);
+        var sum = 0;
+        for (var j = 0; j < deltas.length; j++) sum += deltas[j];
+        var mean = sum / deltas.length;
+        var sqSum = 0;
+        for (var k = 0; k < deltas.length; k++) {
+            var d = deltas[k] - mean;
+            sqSum += d * d;
+        }
+        out.dtMean = mean;
+        out.dtStddev = Math.sqrt(sqSum / deltas.length);
+        return out;
     }
 
     // === Orchestration =======================================================
@@ -595,6 +654,7 @@
             canvas: canvasHash(),
             webgl: webglRenderer(),
             tail: longTail(),
+            mouse: mouseStats(),
             interacted: interacted
         };
         return payload;

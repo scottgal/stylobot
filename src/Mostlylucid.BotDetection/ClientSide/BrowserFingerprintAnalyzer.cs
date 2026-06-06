@@ -50,6 +50,21 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             ? (string.IsNullOrEmpty(botd.Kind) ? "automated" : botd.Kind)
             : null;
 
+        // Mouse stats: pipe the count into the existing ClientMouseEvents
+        // signal slot (until now a ghost signal nothing wrote to). Kameleo-
+        // specific features (all-integer coords, timing CV) ride alongside.
+        var mouse = data.Mouse;
+        int? mouseMoves = mouse?.MoveCount;
+        bool? mouseAllInt = mouse?.AllIntegerCoords switch
+        {
+            null or -1 => null,
+            0 => false,
+            _ => true
+        };
+        double? mouseCv = null;
+        if (mouse is { DtMean: > 0, DtStddev: >= 0 })
+            mouseCv = mouse.DtStddev / mouse.DtMean;
+
         var result = new BrowserFingerprintResult
         {
             RequestId = requestId,
@@ -65,6 +80,9 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             IceNoSrflx = iceNoSrflx,
             TtsVoiceCount = ttsVoiceCount,
             BotdKind = botdKind,
+            MouseMoveCount = mouseMoves,
+            MouseAllIntegerCoords = mouseAllInt,
+            MouseTimingCv = mouseCv,
         };
 
         // Handle error case. data.Error is attacker-controlled (JSON body);

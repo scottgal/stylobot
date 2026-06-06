@@ -402,6 +402,11 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
     private double MobileIceNoSrflxWeight => GetParam("mobile_ice_no_srflx_weight", 1.3);
     private double AndroidEmptyVoicesConfidence => GetParam("android_empty_voices_confidence", 0.5);
     private double AndroidEmptyVoicesWeight => GetParam("android_empty_voices_weight", 1.2);
+    // Kameleo Chroma mouse-synthesis pattern: integer-only coords + low CV.
+    private int KameleoMouseMinSamples => GetParam("kameleo_mouse_min_samples", 10);
+    private double KameleoMouseCvCeiling => GetParam("kameleo_mouse_cv_ceiling", 0.3);
+    private double KameleoMouseConfidence => GetParam("kameleo_mouse_confidence", 0.7);
+    private double KameleoMouseWeight => GetParam("kameleo_mouse_weight", 1.3);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -469,6 +474,28 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
                 "Outdated browser version in User-Agent",
                 confidenceOverride: OutdatedBrowserConfidence,
                 botType: BotType.Unknown.ToString()));
+
+        // Kameleo Chroma mouse-synthesis pattern: integer-only mouse
+        // coordinates across N+ samples paired with a low coefficient of
+        // variation in inter-event timing. Per kameleo.io/masking-audit they
+        // modify CDP synthetic mouse events with characteristic coordinate
+        // normalisation; real mice on any DPR > 1 produce sub-pixel float
+        // coords. Requires both signals AND a minimum sample count so a
+        // user who barely moved the mouse doesn't false-positive.
+        var mouseSamples = state.GetSignal<int?>(SignalKeys.ClientMouseEvents);
+        if (mouseSamples.HasValue && mouseSamples.Value >= KameleoMouseMinSamples
+            && state.Signals.TryGetValue(SignalKeys.ClientSideMouseAllIntegerCoords, out var allIntRaw)
+            && allIntRaw is bool allInt && allInt
+            && state.Signals.TryGetValue(SignalKeys.ClientSideMouseTimingCv, out var cvRaw)
+            && cvRaw is double cv && cv < KameleoMouseCvCeiling)
+        {
+            contributions.Add(BotContribution(
+                "Inconsistency",
+                $"Mouse trace shows Kameleo-style synthesis (all-integer coords across {mouseSamples} samples, timing CV {cv:F2})",
+                confidenceOverride: KameleoMouseConfidence,
+                weightMultiplier: KameleoMouseWeight,
+                botType: BotType.Scraper.ToString()));
+        }
 
         // Mobile UA-CH paired with non-mobile connection class (damru / Redroid pattern).
         // navigator.connection.type comes from the client-side beacon. damru runs real

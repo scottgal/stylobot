@@ -131,6 +131,16 @@ public class BrowserFingerprintData
     /// </summary>
     [JsonPropertyName("botd")] public BotdBlock? Botd { get; set; }
 
+    /// <summary>
+    ///     Mouse-event distribution sampled by the client over the page
+    ///     lifetime. Drives Kameleo Chroma detection (integer-only coords +
+    ///     low timing CV) plus fills the existing
+    ///     <see cref="Models.SignalKeys.ClientMouseEvents"/> ghost signal so
+    ///     <c>BehavioralWaveformContributor</c>'s zero-mouse-events check
+    ///     fires for the first time.
+    /// </summary>
+    [JsonPropertyName("mouse")] public MouseStatsBlock? Mouse { get; set; }
+
     // === Legacy server-side timing probes ==================================
     // The modern botdetection.js does NOT emit these. They are reachable via
     // alternate beacon paths and via test-only construction. The analyser
@@ -343,6 +353,31 @@ public class BotdBlock
 }
 
 /// <summary>
+///     Mouse-event distribution aggregates sampled by the client. Raw coords
+///     never leave the browser; only counts and statistical aggregates.
+///     <para>
+///     <see cref="AllIntegerCoords"/> = 1 when every sampled mousemove had
+///     integer client x/y (the Kameleo Chroma CDP-synthesised pattern; real
+///     mice produce sub-pixel float coords on any DPR &gt; 1). -1 sentinel
+///     when no samples were captured.
+///     </para>
+///     <para>
+///     <see cref="DtMean"/> + <see cref="DtStddev"/> describe inter-event
+///     timing. Coefficient of variation (stddev/mean) below ~0.3 is Kameleo-
+///     like synthetic regularity; real humans run &gt; 0.5. -1 sentinel when
+///     fewer than 3 samples were captured (insufficient for stddev).
+///     </para>
+/// </summary>
+public class MouseStatsBlock
+{
+    [JsonPropertyName("count")] public int MoveCount { get; set; }
+    [JsonPropertyName("downs")] public int DownCount { get; set; }
+    [JsonPropertyName("allInt")] public int AllIntegerCoords { get; set; }
+    [JsonPropertyName("dtMean")] public double DtMean { get; set; }
+    [JsonPropertyName("dtStddev")] public double DtStddev { get; set; }
+}
+
+/// <summary>
 ///     Processed browser fingerprint result with server-side analysis.
 /// </summary>
 public class BrowserFingerprintResult
@@ -463,6 +498,29 @@ public class BrowserFingerprintResult
     ///     sessions / network conditions.
     /// </summary>
     public string? ShapeHash { get; set; }
+
+    /// <summary>
+    ///     Mouse-event count from the beacon, populated into the existing
+    ///     <see cref="Models.SignalKeys.ClientMouseEvents"/> signal slot
+    ///     (which prior to this commit was a ghost signal: declared and
+    ///     consumed by <c>BehavioralWaveformContributor</c> but never
+    ///     produced). Null when the beacon carries no mouse block.
+    /// </summary>
+    public int? MouseMoveCount { get; set; }
+
+    /// <summary>
+    ///     True when the mouse-event sample showed every coord at integer
+    ///     positions (Kameleo synthesised pattern); null when no samples or
+    ///     probe absent.
+    /// </summary>
+    public bool? MouseAllIntegerCoords { get; set; }
+
+    /// <summary>
+    ///     Coefficient of variation (stddev / mean) of inter-event timing
+    ///     deltas. Synthesised events show low CV (&lt; 0.3); humans &gt; 0.5.
+    ///     Null when fewer than 3 samples were captured.
+    /// </summary>
+    public double? MouseTimingCv { get; set; }
 }
 
 /// <summary>

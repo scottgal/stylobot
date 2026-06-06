@@ -185,6 +185,15 @@ public class ClientSideContributor : ConfiguredContributorBase
                     state.WriteSignal(SignalKeys.ClientSideBotdKind, fp.BotdKind);
                 if (!string.IsNullOrEmpty(fp.ShapeHash))
                     state.WriteSignal(SignalKeys.ClientSideShapeHash, fp.ShapeHash);
+                // Feeds the existing ClientMouseEvents ghost signal that
+                // BehavioralWaveformContributor has been consuming without
+                // producer since detection's modern JS shipped.
+                if (fp.MouseMoveCount.HasValue)
+                    state.WriteSignal(SignalKeys.ClientMouseEvents, fp.MouseMoveCount.Value);
+                if (fp.MouseAllIntegerCoords.HasValue)
+                    state.WriteSignal(SignalKeys.ClientSideMouseAllIntegerCoords, fp.MouseAllIntegerCoords.Value);
+                if (fp.MouseTimingCv.HasValue)
+                    state.WriteSignal(SignalKeys.ClientSideMouseTimingCv, fp.MouseTimingCv.Value);
             }
         }
         catch (Exception ex)
