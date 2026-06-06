@@ -570,23 +570,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         InvalidateFingerprintCache(fingerprintId);
     }
 
-    /// <summary>
-    ///     Returns the current persisted observation_count for the fingerprint, or 0 if the
-    ///     fingerprint id is unknown. Used by FingerprintMatchContributor to emit
-    ///     <see cref="SignalKeys.IdentityFingerprintObservationCountCrossed"/> after a write.
-    /// </summary>
-    public async Task<long> GetObservationCountAsync(string fingerprintId, CancellationToken ct = default)
-    {
-        await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT observation_count FROM fingerprints WHERE fingerprint_id = @id";
-        cmd.Parameters.AddWithValue("@id", fingerprintId);
-        var result = await cmd.ExecuteScalarAsync(ct);
-        return result is null or DBNull ? 0L : Convert.ToInt64(result);
-    }
-
     /// <summary>Record a Pass-2-corrects-Pass-1 disagreement and persist Pass 2's updated weights.</summary>
     public async Task RecordCorrectionAsync(
         string requestId,

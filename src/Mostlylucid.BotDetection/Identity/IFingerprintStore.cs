@@ -53,13 +53,6 @@ public interface IFingerprintStore : IFingerprintReader
 
     Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default);
 
-    /// <summary>
-    ///     Returns the current persisted observation_count for the fingerprint, or 0 if the
-    ///     fingerprint id is unknown. Used by FingerprintMatchContributor to emit
-    ///     <see cref="SignalKeys.IdentityFingerprintObservationCountCrossed"/> after a write.
-    /// </summary>
-    Task<long> GetObservationCountAsync(string fingerprintId, CancellationToken ct = default);
-
     Task RecordCorrectionAsync(
         string requestId,
         string primarySignature,

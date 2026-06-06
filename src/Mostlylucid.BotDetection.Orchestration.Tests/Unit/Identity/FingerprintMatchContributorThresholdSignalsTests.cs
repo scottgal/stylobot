@@ -203,9 +203,10 @@ public sealed class FingerprintMatchContributorThresholdSignalsTests : IAsyncLif
         // Manually absorb to bump centroid_maturity from 2 to 3 so the next L1 read
         // sees maturity == threshold. We use AbsorbObservationAsync to simulate the
         // absorption service tick without starting a real hosted service.
-        var obsVector = (float[])vector.Clone();
+        // The fingerprint_observations row is not seeded here; the maturity bump happens
+        // via the UpdateFingerprints fixture path keyed on fingerprint_id.
         await _store.AbsorbObservationAsync(
-            observationId: 1,   // dummy id, AbsorbObservationAsync updates by fp-id
+            observationId: 1,
             fingerprintId: fpId,
             newCentroid: centroid,
             newMaturity: 3,
@@ -243,7 +244,7 @@ public sealed class FingerprintMatchContributorThresholdSignalsTests : IAsyncLif
     /// <summary>
     ///     Runs the matcher for one request and returns the resulting signal dictionary.
     ///     When <paramref name="matcherOverride"/> is supplied, uses it instead of the
-    ///     fixture-level matcher — lets individual tests use a locally configured matcher
+    ///     fixture-level matcher; lets individual tests use a locally configured matcher
     ///     without rebuilding the entire fixture.
     /// </summary>
     private async Task<ConcurrentDictionary<string, object>> RunMatcherAsync(

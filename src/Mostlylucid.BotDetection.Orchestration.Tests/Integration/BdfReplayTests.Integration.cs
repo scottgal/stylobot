@@ -56,14 +56,13 @@ public sealed class BdfReplayTests
         Assert.NotEmpty(response.Results);
 
         // Aggregate across the scenario: the LAST request reflects the matured verdict.
-        var first = response.Results[0];
         var last = response.Results[^1];
         Assert.NotNull(last.Actual);
 
         Assert.True(last.Actual!.IsBot,
             $"{response.ScenarioName}: last request scored {last.Actual.BotProbability:F2}, expected bot");
 
-        AssertSignalsFlowed(response.ScenarioName, first, last, response, _output);
+        AssertSignalsFlowed(response.ScenarioName, last, response, _output);
         AssertFingerprintStableWithinScenario(response.ScenarioName, response);
 
         _output.WriteLine(
@@ -81,7 +80,6 @@ public sealed class BdfReplayTests
         Assert.NotNull(response);
         Assert.NotEmpty(response.Results);
 
-        var first = response.Results[0];
         var last = response.Results[^1];
         Assert.NotNull(last.Actual);
 
@@ -92,7 +90,7 @@ public sealed class BdfReplayTests
             $"{response.ScenarioName}: {botCount}/{response.Results.Count} requests classified as bot, " +
             $"expected majority human. Last verdict: {last.Actual!.RiskBand} prob={last.Actual.BotProbability:F2}");
 
-        AssertSignalsFlowed(response.ScenarioName, first, last, response, _output);
+        AssertSignalsFlowed(response.ScenarioName, last, response, _output);
         AssertFingerprintStableWithinScenario(response.ScenarioName, response);
         AssertArchetypeMatchesScenarioUaFamily(response, last);
 
@@ -208,7 +206,6 @@ public sealed class BdfReplayTests
     ///     than on a total signal count) keeps failures self-documenting; when this trips it
     ///     names the missing key and the consumer that breaks.
     ///
-    ///     <paramref name="first"/> is the first request in the scenario.
     ///     <paramref name="last"/> is the last request; signals that reflect the matured verdict
     ///     (e.g. UA family, primary signature) are checked there.
     ///     <paramref name="response"/> is the full scenario response, used for cross-request
@@ -216,7 +213,7 @@ public sealed class BdfReplayTests
     ///     <paramref name="output"/> surfaces soft warnings (paths legitimately not exercised by a
     ///     given scenario) without failing the build.
     /// </summary>
-    private static void AssertSignalsFlowed(string scenarioName, BdfReplayResult first, BdfReplayResult last,
+    private static void AssertSignalsFlowed(string scenarioName, BdfReplayResult last,
         BdfReplayResponse? response = null, ITestOutputHelper? output = null)
     {
         var probes = last.Actual!.SignalProbes;
@@ -261,7 +258,7 @@ public sealed class BdfReplayTests
                 Assert.True(
                     newFpResult.Actual!.SignalProbes?.TryGetValue(SignalKeys.IdentityFingerprintFirstSeen, out var v) == true && v,
                     $"{scenarioName}: request {newFpResult.RequestIndex} has IdentityIsNewFingerprint=true but " +
-                    $"{SignalKeys.IdentityFingerprintFirstSeen} is absent — the two writes in RunPass2InternalAsync are out of sync.");
+                    $"{SignalKeys.IdentityFingerprintFirstSeen} is absent; the two writes in RunPass2InternalAsync are out of sync.");
             }
 
             // Part 2: IdentityFingerprintFirstSeen co-occurrence with IdentityIsNewFingerprint.
