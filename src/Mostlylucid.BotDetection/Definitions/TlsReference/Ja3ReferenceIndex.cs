@@ -64,8 +64,8 @@ public sealed class Ja3ReferenceIndex : IJa3ReferenceIndex
                 var browser = browserName.ToLowerInvariant();
                 foreach (var (version, platforms) in perVersion)
                 {
-                    Index(platforms.Desktop, browser, version, mobile: false, byBrowser, byHash);
-                    Index(platforms.Mobile, browser, version, mobile: true, byBrowser, byHash);
+                    IndexEntry(platforms.Desktop, browser, version, mobile: false, byBrowser, byHash);
+                    IndexEntry(platforms.Mobile, browser, version, mobile: true, byBrowser, byHash);
                 }
             }
         }
@@ -85,7 +85,7 @@ public sealed class Ja3ReferenceIndex : IJa3ReferenceIndex
             corpus.Version, corpus.GeneratedAt ?? "unknown");
     }
 
-    private static void Index(
+    private void IndexEntry(
         Ja3CorpusEntry? entry, string browser, int version, bool mobile,
         Dictionary<(string, bool), List<Ja3Reference>> byBrowser,
         Dictionary<string, Ja3Reference> byHash)
@@ -112,11 +112,15 @@ public sealed class Ja3ReferenceIndex : IJa3ReferenceIndex
         }
         list.Add(reference);
 
-        // First write wins on hash collisions (corpus shouldn't have any;
-        // log so the refresh pipeline can catch corruption).
+        // First write wins on hash collisions (corpus shouldn't have any).
+        // A collision typically means a botched refresh or a YAML edit that
+        // duplicated an entry; logging surfaces it for the operator while
+        // leaving detection working with the earlier-loaded reference.
         if (!byHash.TryAdd(entry.Ja3, reference))
         {
-            // Hash collision is corpus corruption -- don't try to be clever.
+            _logger?.LogWarning(
+                "TLS reference corpus hash collision for JA3 {Hash}: dropping {Browser} {Version} ({Platform}); retaining earlier entry",
+                entry.Ja3, browser, version, mobile ? "mobile" : "desktop");
         }
     }
 

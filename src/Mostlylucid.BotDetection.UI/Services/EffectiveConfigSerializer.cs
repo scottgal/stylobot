@@ -29,13 +29,19 @@ public static class EffectiveConfigSerializer
 {
     public const string RootSectionId = "root";
 
-    // Matches property names ending in any of these tokens (case-insensitive). The
-    // suffix anchor catches both compound names (apiKey, signatureHashKey, accessToken)
-    // and the bare property names that appear on ApiKey entries (Key, Secret). Using
-    // a suffix anchor avoids over-masking neutral identifiers like "keyName" or
-    // "keystoneServer".
+    // Matches property names ending in any of these tokens (case-insensitive,
+    // with optional plural "s"). The suffix anchor catches both compound names
+    // (apiKey, signatureHashKey, accessToken) and the bare property names that
+    // appear on ApiKey entries (Key, Secret). The optional trailing s catches
+    // ApiBypassKeys / ApiKeys / Tokens / Passwords / Secrets -- the original
+    // regex missed all of those because key$ doesn't match keys$.
+    //
+    // Defence in depth: properties holding sensitive material should also be
+    // marked with [Secret] (see SecretAttribute) which redacts regardless of
+    // name. The regex catches author oversight; [Secret] is the explicit
+    // contract.
     private static readonly Regex SecretNameRegex =
-        new("(?i)(secret|password|token|key)$", RegexOptions.Compiled);
+        new("(?i)(secret|password|token|key)s?$", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions RedactedOptions = new()
     {
@@ -120,14 +126,52 @@ public static class EffectiveConfigSerializer
             // properties. Once we hand the serializer a Dictionary<string, object?>
             // the type info is "object" and the modifier never fires. So apply the
             // mask here, at the moment we still know the underlying property name.
-            if (value is not null
-                && SecretNameRegex.IsMatch(prop.Name)
-                && IsSensitiveValueType(prop.PropertyType))
-                value = "***";
+            if (value is not null && IsSecretProperty(prop))
+                value = RedactValue(value, prop.PropertyType);
 
             dict[key] = value;
         }
         return dict;
+    }
+
+    /// <summary>
+    ///     True when the property is sensitive: it carries <see cref="SecretAttribute"/>,
+    ///     OR its name matches the suffix regex AND its type is a credential-bearing
+    ///     scalar (string, byte[], Guid) or a collection of one. The name+type combination
+    ///     was the original rule; the attribute is the explicit contract that survives
+    ///     renames and catches the plural-collection case the regex used to miss.
+    /// </summary>
+    private static bool IsSecretProperty(PropertyInfo prop)
+    {
+        if (prop.GetCustomAttribute<SecretAttribute>() is not null) return true;
+        if (!SecretNameRegex.IsMatch(prop.Name)) return false;
+        return IsSensitiveValueType(prop.PropertyType)
+               || IsSensitiveCollectionType(prop.PropertyType);
+    }
+
+    /// <summary>
+    ///     Replace a sensitive value with a redaction sentinel. Scalars become
+    ///     <c>"***"</c>. Collections become a same-shape collection of <c>"***"</c>
+    ///     entries so the operator can still see "how many keys are configured"
+    ///     without exposing what they are. Dictionary values follow the same rule.
+    /// </summary>
+    private static object RedactValue(object value, Type propertyType)
+    {
+        var t = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+        if (IsSensitiveValueType(t)) return "***";
+        if (value is IDictionary dict)
+        {
+            var masked = new Dictionary<string, string>(dict.Count, StringComparer.Ordinal);
+            foreach (var key in dict.Keys) masked[key?.ToString() ?? ""] = "***";
+            return masked;
+        }
+        if (value is IEnumerable enumerable && value is not string)
+        {
+            var list = new List<string>();
+            foreach (var _ in enumerable) list.Add("***");
+            return list;
+        }
+        return "***";
     }
 
     /// <summary>
@@ -183,16 +227,22 @@ public static class EffectiveConfigSerializer
     {
         foreach (var prop in ti.Properties)
         {
+            var member = prop.AttributeProvider as MemberInfo;
+            var hasSecretAttr = member?.GetCustomAttribute<SecretAttribute>() is not null;
             // prop.Name has already been through the naming policy. Match against the
             // underlying member name as a defensive belt-and-braces.
-            var underlying = (prop.AttributeProvider as MemberInfo)?.Name ?? prop.Name;
-            if (!SecretNameRegex.IsMatch(prop.Name) && !SecretNameRegex.IsMatch(underlying))
-                continue;
+            var underlying = member?.Name ?? prop.Name;
+            var nameMatches = SecretNameRegex.IsMatch(prop.Name) || SecretNameRegex.IsMatch(underlying);
 
-            // Only mask types that could actually hold a credential. Boolean flags
-            // like RequireApiKey end in "Key" but are not secrets - rendering them
-            // as "***" loses information for no security gain.
-            if (!IsSensitiveValueType(prop.PropertyType))
+            if (!hasSecretAttr && !nameMatches) continue;
+
+            // [Secret] is the explicit contract: redact regardless of type. The
+            // name-regex path is defence in depth and still requires a credential-
+            // bearing type so that boolean flags ("RequireApiKey") don't get masked
+            // to "***" -- that loses information for no security gain.
+            if (!hasSecretAttr
+                && !IsSensitiveValueType(prop.PropertyType)
+                && !IsSensitiveCollectionType(prop.PropertyType))
                 continue;
 
             prop.CustomConverter = MaskingConverters.ForType(prop.PropertyType);
@@ -203,6 +253,31 @@ public static class EffectiveConfigSerializer
     {
         t = Nullable.GetUnderlyingType(t) ?? t;
         return t == typeof(string) || t == typeof(byte[]) || t == typeof(Guid);
+    }
+
+    /// <summary>
+    ///     True when <paramref name="t"/> is a collection of sensitive scalars:
+    ///     <c>List&lt;string&gt;</c>, <c>string[]</c>, <c>IEnumerable&lt;string&gt;</c>,
+    ///     <c>Dictionary&lt;string, string&gt;</c>, etc. Catches the
+    ///     <c>ApiBypassKeys</c> / <c>ApiKeys</c> shape that bypassed the
+    ///     scalar-only regex check before this fix.
+    /// </summary>
+    private static bool IsSensitiveCollectionType(Type t)
+    {
+        t = Nullable.GetUnderlyingType(t) ?? t;
+        if (t == typeof(string)) return false; // string is enumerable; don't recurse into chars
+        if (typeof(IDictionary).IsAssignableFrom(t))
+        {
+            var args = t.IsGenericType ? t.GetGenericArguments() : null;
+            // Mask dictionaries whose value type is sensitive scalar.
+            return args is { Length: 2 } && IsSensitiveValueType(args[1]);
+        }
+        if (typeof(IEnumerable).IsAssignableFrom(t))
+        {
+            var elem = GetEnumerableElement(t);
+            return elem is not null && IsSensitiveValueType(elem);
+        }
+        return false;
     }
 }
 
@@ -228,8 +303,9 @@ internal static class MaskingConverters
 
 /// <summary>
 ///     Replaces the serialized value of a sensitive property with the literal
-///     <c>"***"</c>. Reads pass through to the default reader because the dashboard
-///     never round-trips redacted JSON back into options.
+///     <c>"***"</c> for scalars, or with a same-shape collection of <c>"***"</c>
+///     entries for lists / dictionaries. Reads pass through to the default reader
+///     because the dashboard never round-trips redacted JSON back into options.
 /// </summary>
 internal sealed class MaskingConverter<T> : JsonConverter<T>
 {
@@ -240,5 +316,24 @@ internal sealed class MaskingConverter<T> : JsonConverter<T>
     }
 
     public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
-        => writer.WriteStringValue("***");
+    {
+        // Collections become a same-shape mask so operators can see "n keys
+        // configured" without exposing what they are.
+        if (value is System.Collections.IDictionary dict)
+        {
+            writer.WriteStartObject();
+            foreach (var key in dict.Keys)
+                writer.WriteString(key?.ToString() ?? "", "***");
+            writer.WriteEndObject();
+            return;
+        }
+        if (value is System.Collections.IEnumerable enumerable && value is not string)
+        {
+            writer.WriteStartArray();
+            foreach (var _ in enumerable) writer.WriteStringValue("***");
+            writer.WriteEndArray();
+            return;
+        }
+        writer.WriteStringValue("***");
+    }
 }

@@ -59,10 +59,16 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             TtsVoiceCount = ttsVoiceCount,
         };
 
-        // Handle error case
+        // Handle error case. data.Error is attacker-controlled (JSON body);
+        // truncate to a fixed cap so a malicious payload cannot grow log lines
+        // or downstream rendering surfaces (dashboards iterate Reasons).
         if (!string.IsNullOrEmpty(data.Error))
         {
-            result.Reasons.Add($"Client-side collection error: {data.Error}");
+            const int maxErrorLen = 200;
+            var truncated = data.Error.Length <= maxErrorLen
+                ? data.Error
+                : data.Error[..maxErrorLen] + "…";
+            result.Reasons.Add($"Client-side collection error: {truncated}");
             result.BrowserIntegrityScore = 0;
             result.HeadlessLikelihood = 0.5; // Unknown
             result.FingerprintHash = "error";

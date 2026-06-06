@@ -30,6 +30,64 @@ public class EffectiveConfigSerializerTests
     }
 
     [Fact]
+    public void SerializeFull_MasksApiBypassKeysList()
+    {
+        // ApiBypassKeys is List<string>. Before the fix this leaked: the regex
+        // didn't match the plural "Keys" suffix, and even when it did the value-
+        // type filter rejected collections. The [Secret] attribute on the property
+        // now forces redaction regardless of name shape or type. Operators see
+        // the COUNT of configured keys (so "are bypass keys configured?" is still
+        // answerable) but never the values.
+        var opts = new BotDetectionOptions
+        {
+            ApiBypassKeys = ["real-bypass-key-1", "real-bypass-key-2", "real-bypass-key-3"]
+        };
+
+        var json = EffectiveConfigSerializer.SerializeFull(opts);
+
+        json.Should().NotContain("real-bypass-key-1");
+        json.Should().NotContain("real-bypass-key-2");
+        json.Should().NotContain("real-bypass-key-3");
+
+        var doc = ParseJson(json);
+        var keys = doc.RootElement.GetProperty("apiBypassKeys");
+        keys.GetArrayLength().Should().Be(3);
+        foreach (var element in keys.EnumerateArray())
+            element.GetString().Should().Be("***");
+    }
+
+    [Fact]
+    public void SerializeFull_MasksTrainingEndpointsApiKeysList()
+    {
+        // Same bug class as ApiBypassKeys; same fix via [Secret] on the property.
+        var opts = new BotDetectionOptions();
+        opts.TrainingEndpoints.ApiKeys = ["training-key-A", "training-key-B"];
+
+        var json = EffectiveConfigSerializer.SerializeFull(opts);
+
+        json.Should().NotContain("training-key-A");
+        json.Should().NotContain("training-key-B");
+    }
+
+    [Fact]
+    public void SerializeSection_RootBucket_MasksApiBypassKeysList()
+    {
+        // The root bucket uses BuildRootBucket which serialises as a
+        // Dictionary<string, object?> -- the JsonTypeInfo modifier never sees
+        // the property name. The value-time guard inside BuildRootBucket must
+        // catch the collection too.
+        var opts = new BotDetectionOptions
+        {
+            ApiBypassKeys = ["root-bucket-leak-1", "root-bucket-leak-2"]
+        };
+
+        var json = EffectiveConfigSerializer.SerializeSection(opts, EffectiveConfigSerializer.RootSectionId)!;
+
+        json.Should().NotContain("root-bucket-leak-1");
+        json.Should().NotContain("root-bucket-leak-2");
+    }
+
+    [Fact]
     public void SerializeFull_DoesNotMaskBooleanFlagsNamedLikeSecrets()
     {
         // RequireApiKey exists on ApiKeyConfig as a bool flag - it ends in "Key" but

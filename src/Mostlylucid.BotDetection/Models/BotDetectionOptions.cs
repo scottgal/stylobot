@@ -1221,7 +1221,7 @@ public class BotDetectionOptions
     ///     BotDetection__ApiBypassKeys__0=my-secret-key-123
     ///     </code>
     /// </example>
-    public List<string> ApiBypassKeys { get; set; } = [];
+    [Secret] public List<string> ApiBypassKeys { get; set; } = [];
 
     /// <summary>
     ///     Whether legacy <see cref="ApiBypassKeys"/> are honored.
@@ -1545,6 +1545,18 @@ public class ClientSideOptions
     ///     Default: false
     /// </summary>
     public bool CollectAudio { get; set; } = false;
+
+    /// <summary>
+    ///     STUN server URL used by the client-side WebRTC ICE probe to detect
+    ///     UDP-egress blocking (the damru / Bright Data Scraping Browser pattern).
+    ///     Default: <c>stun:stun.l.google.com:19302</c> (Google's public STUN).
+    ///     Privacy-sensitive deployments (finance, healthcare) should override
+    ///     this with a self-hosted coturn or a STUN server inside their
+    ///     compliance boundary; every visitor leaks a UDP connection attempt
+    ///     to whatever URL is configured here. Set to empty string to disable
+    ///     the probe entirely.
+    /// </summary>
+    public string IceStunServerUrl { get; set; } = "stun:stun.l.google.com:19302";
 
     /// <summary>
     ///     Minimum browser integrity score to consider "trusted".
@@ -3501,7 +3513,7 @@ public class TrainingEndpointsOptions
     ///     Allowed API keys for training endpoint access. Checked against X-Training-Api-Key header.
     ///     Set via config or BOTDETECTION_TRAINING_API_KEYS (comma-separated).
     /// </summary>
-    public List<string> ApiKeys { get; set; } = [];
+    [Secret] public List<string> ApiKeys { get; set; } = [];
 
     /// <summary>
     ///     Maximum requests per minute per client IP. Default: 30.

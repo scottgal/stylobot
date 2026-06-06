@@ -414,10 +414,17 @@
     function iceProbe() {
         return new Promise(function (resolve) {
             try {
+                // Empty cfg.iceStun = probe disabled (privacy-conscious operators
+                // who'd rather not phone a STUN server at all). The "errored" flag
+                // tells the server to treat this as no-signal, not as positive
+                // evidence of UDP blocking.
+                var stunUrl = c.iceStun;
+                if (!stunUrl)
+                    return resolve({ count: 0, srflx: 0, host: 0, errored: 1 });
                 if (typeof RTCPeerConnection !== 'function')
                     return resolve({ count: 0, srflx: 0, host: 0, errored: 1 });
                 var pc = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                    iceServers: [{ urls: stunUrl }]
                 });
                 var count = 0, srflx = 0, host = 0;
                 pc.onicecandidate = function (e) {
