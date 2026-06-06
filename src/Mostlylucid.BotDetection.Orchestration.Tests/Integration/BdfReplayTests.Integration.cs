@@ -63,7 +63,7 @@ public sealed class BdfReplayTests
         Assert.True(last.Actual!.IsBot,
             $"{response.ScenarioName}: last request scored {last.Actual.BotProbability:F2}, expected bot");
 
-        AssertSignalsFlowed(response.ScenarioName, first, last, response);
+        AssertSignalsFlowed(response.ScenarioName, first, last, response, _output);
         AssertFingerprintStableWithinScenario(response.ScenarioName, response);
 
         _output.WriteLine(
@@ -92,7 +92,7 @@ public sealed class BdfReplayTests
             $"{response.ScenarioName}: {botCount}/{response.Results.Count} requests classified as bot, " +
             $"expected majority human. Last verdict: {last.Actual!.RiskBand} prob={last.Actual.BotProbability:F2}");
 
-        AssertSignalsFlowed(response.ScenarioName, first, last, response);
+        AssertSignalsFlowed(response.ScenarioName, first, last, response, _output);
         AssertFingerprintStableWithinScenario(response.ScenarioName, response);
         AssertArchetypeMatchesScenarioUaFamily(response, last);
 
@@ -205,7 +205,7 @@ public sealed class BdfReplayTests
     /// <summary>
     ///     The contract this rig actively defends: every detection must surface the signals
     ///     downstream display consumers read from <c>ev.Signals</c>. Asserting per-key (rather
-    ///     than on a total signal count) keeps failures self-documenting — when this trips it
+    ///     than on a total signal count) keeps failures self-documenting; when this trips it
     ///     names the missing key and the consumer that breaks.
     ///
     ///     <paramref name="first"/> is the first request in the scenario.
@@ -213,9 +213,11 @@ public sealed class BdfReplayTests
     ///     (e.g. UA family, primary signature) are checked there.
     ///     <paramref name="response"/> is the full scenario response, used for cross-request
     ///     assertions (e.g. IdentityFingerprintFirstSeen must appear on at least one request).
+    ///     <paramref name="output"/> surfaces soft warnings (paths legitimately not exercised by a
+    ///     given scenario) without failing the build.
     /// </summary>
     private static void AssertSignalsFlowed(string scenarioName, BdfReplayResult first, BdfReplayResult last,
-        BdfReplayResponse? response = null)
+        BdfReplayResponse? response = null, ITestOutputHelper? output = null)
     {
         var probes = last.Actual!.SignalProbes;
 
@@ -281,8 +283,9 @@ public sealed class BdfReplayTests
             {
                 // Not a hard failure: named-bot convergence and quorum-cancelled scenarios
                 // legitimately never reach the RunPass2InternalAsync allocate path.
-                // Recorded here so the test output surface makes this visible.
-                _ = $"{scenarioName}: IdentityFingerprintFirstSeen not observed (named-bot convergence or quorum-exit; expected for high-confidence bot scenarios)";
+                // Surfaced so a regression that silently drops the emission across human
+                // scenarios is observable in CI output without blocking the build.
+                output?.WriteLine($"{scenarioName}: IdentityFingerprintFirstSeen not observed (named-bot convergence or quorum-exit; expected for high-confidence bot scenarios)");
             }
         }
     }
