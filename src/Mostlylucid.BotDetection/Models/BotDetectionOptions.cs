@@ -168,6 +168,16 @@ public class BotDetectionOptions
     public Proxy.TunnelEnvironmentOptions TunnelEnvironment { get; set; } = new();
 
     /// <summary>
+    ///     Configuration for the opt-in TLS reference corpus refresh service.
+    ///     When <see cref="Definitions.TlsReference.TlsCorpusOptions.Enabled"/> is true,
+    ///     a background service periodically downloads a signed corpus update,
+    ///     verifies the Ed25519 signature, and atomically replaces the in-memory
+    ///     reference index used by the JA3 subset / version-delta checks.
+    ///     Off by default; the embedded baseline corpus serves unless this is on.
+    /// </summary>
+    public Definitions.TlsReference.TlsCorpusOptions TlsCorpus { get; set; } = new();
+
+    /// <summary>
     ///     When true, detections from local/private IPs are excluded from SignalR broadcasts
     ///     and the live feed. Prevents self-detection from contaminating production data.
     ///     Default: true (set to false for local development/testing).
@@ -3563,7 +3573,7 @@ public class BdfReplayOptions
     ///     Allowed API keys for BDF replay endpoint access.
     ///     Checked against X-BdfReplay-Api-Key header.
     /// </summary>
-    public List<string> ApiKeys { get; set; } = [];
+    [Secret] public List<string> ApiKeys { get; set; } = [];
 
     /// <summary>
     ///     Maximum requests per minute per client IP. Default: 10.

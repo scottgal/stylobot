@@ -986,7 +986,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, ResourceWaterfallContributor>();
         // Behavioral (basic + advanced statistical) pattern detection - merged single contributor
         // Advanced fingerprinting detectors (Wave 0 - network/protocol layer)
-        services.TryAddSingleton<IJa3ReferenceIndex, Ja3ReferenceIndex>();
+        services.TryAddSingleton<Ja3ReferenceIndex>();
+        services.TryAddSingleton<IJa3ReferenceIndex>(sp => sp.GetRequiredService<Ja3ReferenceIndex>());
+        services.TryAddSingleton<Ja3CorpusEnvelopeVerifier>();
+        // TLS corpus refresh service: opt-in. Registers an HttpClient via the
+        // factory and a BackgroundService that periodically refreshes the
+        // in-memory Ja3ReferenceIndex from a signed envelope. The service
+        // self-aborts at runtime if URL or public key are empty, so this
+        // registration is safe to include unconditionally; the operator
+        // controls activation via TlsCorpus:Enabled.
+        services.AddHttpClient(Ja3CorpusRefreshService.HttpClientName);
+        services.AddHostedService<Ja3CorpusRefreshService>();
         services.AddSingleton<IContributingDetector, TlsFingerprintContributor>();
         services.AddSingleton<IContributingDetector, TcpIpFingerprintContributor>();
         services.AddSingleton<IContributingDetector, Http2FingerprintContributor>();

@@ -70,6 +70,8 @@
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Batching" Version="2.6.3" />
         <PackageReference Include="HNSW" Version="26.4.177" />
         <PackageReference Include="System.Numerics.Tensors" Version="10.0.8" />
+        <!-- NSec.Cryptography: native Ed25519 / X25519 / ChaCha20-Poly1305 -->
+        <PackageReference Include="NSec.Cryptography" Version="25.4.0" />
         <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
         <PackageReference Include="Microsoft.Recognizers.Text" Version="1.8.13" />
         <PackageReference Include="Microsoft.Recognizers.Text.DateTime" Version="1.8.13" />
