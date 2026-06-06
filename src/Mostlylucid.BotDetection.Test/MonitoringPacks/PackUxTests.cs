@@ -53,7 +53,7 @@ public class PackUxTests
             CspNonce      = "test",
             BasePath      = "/stylobot",
             HubPath       = "/stylobot/hub",
-            ActiveTab     = "overview",
+            ActiveRow     = Mostlylucid.BotDetection.UI.Dashboard.DashboardRowRef.Default,
             Summary       = null!,
             Visitors      = null!,
             YourDetection = null!,
@@ -65,6 +65,14 @@ public class PackUxTests
             Sessions      = null!,
             Threats       = null!,
             License       = null!,
-            MonitoringPacks = packs,
+            Packs         = packs.Select(p => (Mostlylucid.BotDetection.UI.Dashboard.IDashboardPack)
+                new ShimPack(p.Id, p.TabName)).ToList(),
         };
+
+    private sealed record ShimPack(string Id, string Label) : Mostlylucid.BotDetection.UI.Dashboard.IDashboardPack
+    {
+        public string Icon => "bx bx-cube";
+        public IReadOnlyList<Mostlylucid.BotDetection.UI.Dashboard.DashboardSubRow> SubRows =>
+            Array.Empty<Mostlylucid.BotDetection.UI.Dashboard.DashboardSubRow>();
+    }
 }

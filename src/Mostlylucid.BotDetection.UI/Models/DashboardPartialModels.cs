@@ -502,7 +502,20 @@ public sealed class DashboardShellModel
     public required string CspNonce { get; init; }
     public required string BasePath { get; init; }
     public required string HubPath { get; init; }
-    public required string ActiveTab { get; init; }
+    /// <summary>
+    ///     Active row reference parsed off the request path
+    ///     (<c>/stylobot/{area}[/{sub}]</c>). The view dispatches its content
+    ///     section by inspecting <c>ActiveRow.Area</c> + <c>ActiveRow.Sub</c>.
+    /// </summary>
+    public required UI.Dashboard.DashboardRowRef ActiveRow { get; init; }
+
+    /// <summary>
+    ///     Back-compat shim. Returns <c>ActiveRow.Area</c> so any external
+    ///     reflection / serialisation that depended on the old string-typed
+    ///     "ActiveTab" still resolves. Internal call sites read
+    ///     <see cref="ActiveRow" /> directly.
+    /// </summary>
+    public string ActiveTab => ActiveRow.Area;
 
     public string? Version { get; init; }
 
@@ -565,11 +578,22 @@ public sealed class DashboardShellModel
     /// <summary>Compliance tab model. Only set when active tab is "compliance".</summary>
     public ComplianceTabModel? Compliance { get; init; }
 
-    /// <summary>Monitoring packs registered in DI. Empty when monitoring is disabled.</summary>
-    public IReadOnlyList<PackTabInfo> MonitoringPacks { get; init; } = Array.Empty<PackTabInfo>();
+    /// <summary>
+    ///     Dashboard-contributing packs registered in DI. Empty when no packs
+    ///     are loaded. Drives the PACKS section of the left nav.
+    /// </summary>
+    public IReadOnlyList<UI.Dashboard.IDashboardPack> Packs { get; init; } = [];
 
-    public bool HasPackTabs => MonitoringPacks.Count > 0;
-    public bool IsPackTab(string tab) => MonitoringPacks.Any(p => p.Id == tab);
+    /// <summary>
+    ///     Back-compat shim. Projects the new <see cref="Packs" /> list down
+    ///     to the old <see cref="PackTabInfo" /> shape so the existing
+    ///     PackUxTests keep passing during the migration window.
+    /// </summary>
+    public IReadOnlyList<PackTabInfo> MonitoringPacks =>
+        Packs.Select(p => new PackTabInfo(p.Id, p.Label)).ToList();
+
+    public bool HasPackTabs => Packs.Count > 0;
+    public bool IsPackTab(string id) => Packs.Any(p => p.Id == id);
 }
 
 /// <summary>

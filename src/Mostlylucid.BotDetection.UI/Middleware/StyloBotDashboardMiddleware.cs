@@ -143,6 +143,7 @@ public class StyloBotDashboardMiddleware
 
     private readonly IWebHostEnvironment _env;
     private readonly IReadOnlyList<PackTabInfo> _packTabs;
+    private readonly IReadOnlyList<Mostlylucid.BotDetection.UI.Dashboard.IDashboardPack> _dashboardPacks;
 
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
@@ -154,6 +155,7 @@ public class StyloBotDashboardMiddleware
         IMemoryCache widgetCache,
         IWebHostEnvironment env,
         IEnumerable<IMonitoringPack> monitoringPacks,
+        IEnumerable<Mostlylucid.BotDetection.UI.Dashboard.IDashboardPack> dashboardPacks,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
@@ -167,6 +169,7 @@ public class StyloBotDashboardMiddleware
         _packTabs = monitoringPacks
             .Select(p => new PackTabInfo(p.Id, p.TabName))
             .ToList();
+        _dashboardPacks = dashboardPacks.ToList();
         _logger = logger;
     }
 
@@ -959,7 +962,7 @@ public class StyloBotDashboardMiddleware
             CspNonce = cspNonce,
             BasePath = basePath,
             HubPath = _options.HubPath,
-            ActiveTab = tab,
+            ActiveRow = new Mostlylucid.BotDetection.UI.Dashboard.DashboardRowRef(tab),
             Version = DashboardVersion,
             RenderShell = _options.RenderShell,
             Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, visitorCache),
@@ -990,7 +993,7 @@ public class StyloBotDashboardMiddleware
             Compliance = tab.Equals("compliance", StringComparison.OrdinalIgnoreCase)
                 ? BuildComplianceTabModel(context)
                 : null,
-            MonitoringPacks = _packTabs,
+            Packs = _dashboardPacks,
             TunnelEnvironment = context.RequestServices
                 .GetService<BotDetection.Proxy.ITunnelEnvironmentInspector>()?.GetSnapshot(),
             TunnelDocsUrl = context.RequestServices
