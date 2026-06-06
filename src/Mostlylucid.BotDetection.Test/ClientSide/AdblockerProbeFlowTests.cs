@@ -75,10 +75,13 @@ public class AdblockerProbeFlowTests
             Adblocker = true,
             AdblockerProvider = "adsense",
             Timestamp = 1700000000,
-            Platform = "Win32",
-            HardwareConcurrency = 8,
-            Languages = "en-US,en",
-            ScreenResolution = "1920x1080",
+            Basics = new BasicsBlock
+            {
+                Platform = "Win32",
+                HardwareConcurrency = 8,
+                Languages = "en-US,en",
+                ScreenResolution = "1920x1080",
+            },
         };
 
         var result = analyzer.Analyze(data, requestId: "req-test-2");
