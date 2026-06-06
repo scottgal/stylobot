@@ -241,6 +241,39 @@ public partial class DetectionBroadcastMiddleware
         // try block; skip write-behind persist too so loopback noise stays out of the DB.
         if (excludeLocal) return;
 
+        // === POST-_NEXT REHYDRATION (in-process detection path) ===
+        // When this middleware is wired BEFORE BotDetectionMiddleware (the
+        // standard UseStyloBot ordering, so blocked requests are still recorded),
+        // context.Items is empty on the pre-_next read above and `detection`
+        // stays null. The detector populates it during _next, so retry the read
+        // here. Upstream-trusted path already populated `detection`, so skip.
+        if (detection is null)
+        {
+            try
+            {
+                if (!context.Items.ContainsKey(BotDetectionMiddleware.AggregatedEvidenceKey) &&
+                    context.Items.TryGetValue(BotDetectionMiddleware.BotDetectionResultKey, out var upstreamObj) &&
+                    upstreamObj is BotDetectionResult upstreamResult)
+                {
+                    detection = BuildDetectionFromUpstream(context, upstreamResult);
+                    isUpstreamPath = true;
+                }
+                else if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+                         && evObj is AggregatedEvidence evidence)
+                {
+                    if (!(evidence.Confidence == 0 && evidence.TotalProcessingTimeMs < 0.5))
+                    {
+                        detection = BuildDetectionFromEvidence(context, evidence, recordOptionsAccessor?.Value);
+                        evidenceCapture = evidence;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Post-_next broadcast rehydration failed");
+            }
+        }
+
         // === WRITE-BEHIND PERSIST (fire-and-forget; never blocks the request) ===
         // The dict is already correct via the synchronous update above; this batch
         // brings the DB up to date for durability and cold restore. Failures are
