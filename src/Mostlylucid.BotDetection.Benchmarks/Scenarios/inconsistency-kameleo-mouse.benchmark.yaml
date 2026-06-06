@@ -1,0 +1,21 @@
+name: Inconsistency_KameleoMouseSynthesis
+description: Integer-only mouse coords + low timing CV (Kameleo Chroma synth pattern)
+detector: Inconsistency
+request:
+  method: GET
+  path: /
+  ip: 198.51.100.13
+  headers:
+    user-agent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36"
+    sec-ch-ua: "\"Chromium\";v=\"145\", \"Google Chrome\";v=\"145\""
+    sec-ch-ua-mobile: "?1"
+    accept-language: "en-US,en;q=0.9"
+signals:
+  ua.raw: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36"
+  client.mouse_events: 30
+  clientside.mouse_all_integer_coords: true
+  clientside.mouse_timing_cv: 0.18
+thresholds:
+  max_mean_ns: 12000
+  max_allocated_bytes: 3072
+tags: [inconsistency, cloak, kameleo, mouse]

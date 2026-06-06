@@ -1,0 +1,15 @@
+name: TlsFingerprint_VersionDelta
+description: UA claims Chrome 145 but JA3 hash maps to Chrome 120 (Multilogin / Kameleo TLS lag)
+detector: TlsFingerprint
+request:
+  method: GET
+  path: /
+  protocol: https
+  ip: 198.51.100.21
+  headers:
+    user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+    x-ja3-hash: "cd08e31494f9531f560d64c695473da9"
+thresholds:
+  max_mean_ns: 12000
+  max_allocated_bytes: 3072
+tags: [tls, cloak, multilogin, kameleo, ja3]
