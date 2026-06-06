@@ -12,6 +12,7 @@ using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
+using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Detectors;
 // LlmDetector removed - now in Mostlylucid.BotDetection.Llm.Ollama/LlamaSharp packages
 using Mostlylucid.BotDetection.Events;
@@ -985,6 +986,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, ResourceWaterfallContributor>();
         // Behavioral (basic + advanced statistical) pattern detection - merged single contributor
         // Advanced fingerprinting detectors (Wave 0 - network/protocol layer)
+        services.TryAddSingleton<IJa3ReferenceIndex, Ja3ReferenceIndex>();
         services.AddSingleton<IContributingDetector, TlsFingerprintContributor>();
         services.AddSingleton<IContributingDetector, TcpIpFingerprintContributor>();
         services.AddSingleton<IContributingDetector, Http2FingerprintContributor>();

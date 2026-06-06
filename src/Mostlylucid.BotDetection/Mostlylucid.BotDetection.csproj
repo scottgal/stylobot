@@ -109,6 +109,7 @@
         <EmbeddedResource Include="Definitions\IdentityArchetypes\*.yaml" />
         <EmbeddedResource Include="Definitions\BrowserModes\*.yaml" />
         <EmbeddedResource Include="Definitions\VendorHomeHosts\*.yaml" />
+        <EmbeddedResource Include="Definitions\TlsReference\*.yaml" />
         <EmbeddedResource Include="Data\UserAgents\*.yaml" />
     </ItemGroup>
 

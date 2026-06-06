@@ -196,6 +196,19 @@ defaults:
     weak_cipher_penalty: 0.4
     # Client cert present (uncommon for browsers)
     client_cert_penalty: 0.3
+    # Cipher-list subset detection (damru pattern): the observed JA3 string
+    # has the same TLS version + extensions + curves + formats as the canonical
+    # Chrome reference for the UA-claimed version, but the cipher list is a
+    # strict subset with 1..cipher_subset_max_missing ciphers removed.
+    cipher_subset_max_missing: 4
+    cipher_subset_confidence: 0.85
+    cipher_subset_weight: 1.5
+    # UA-vs-TLS version delta (Multilogin / Kameleo Chroma pattern): the
+    # observed JA3 hash maps to a Chrome version >= version_delta_min_delta
+    # releases behind what the UA claims. Patched Chromium forks lag stable.
+    version_delta_min_delta: 2
+    version_delta_confidence: 0.55
+    version_delta_weight: 1.1
     # Headers to check for JA3 data (from reverse proxy)
     ja3_headers:
       - "X-JA3-Hash"

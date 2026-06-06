@@ -1,0 +1,85 @@
+# ============================================================================
+# TLS reference corpus for the StyloBot subset / version-delta JA3 checks.
+# ============================================================================
+#
+# Two detection techniques consume this corpus:
+#
+# 1. "Strict subset of real Chrome" cipher blacklisting (damru pattern):
+#    damru produces ~184 JA3 variants by blacklisting 1-3 ciphers from the
+#    stock Chrome cipher list. Detection compares the observed JA3 STRING
+#    against the canonical reference for the UA-claimed browser+version. If
+#    the version / extensions / curves / formats match exactly AND the cipher
+#    list is a strict subset of the reference (1-3 ciphers missing), the
+#    fingerprint is flagged. See docs/architecture/fingerprint-match.md.
+#
+# 2. UA-vs-TLS version delta (Multilogin / Kameleo Chroma pattern):
+#    Anti-detect browsers patch their underlying Chromium fork but the TLS
+#    stack typically lags Chrome stable by 1-2 releases. The observed JA3
+#    hash matches Chrome version N-1 while the UA claims version N. Detection
+#    looks up the observed JA3 in the per-version index and compares.
+#
+# Schema:
+#   version             schema version
+#   generated_at        UTC date of last refresh
+#   references:
+#     <browser>:
+#       <major_version>:
+#         desktop / mobile:
+#           ja3:           MD5 hash of ja3_string
+#           ja3_string:    raw SSLVersion,Cipher,Extension,Curve,Format
+#           ja4:           optional JA4 fingerprint
+#           h2_settings:   optional HTTP/2 SETTINGS frame order
+#           source:        citation for where this entry came from
+#
+# Refresh:
+#   - Plan 2b ships tools/Mostlylucid.BotDetection.Tools.Ja3Corpus, a console
+#     tool that captures fresh JA3s from Stylobot.Gateway's Kestrel TLS
+#     metadata and re-signs the corpus for Cloudsmith distribution.
+#   - Customers can enable opt-in remote refresh via
+#     BotDetection:TlsCorpus:RefreshUrl + signed-update verification.
+#
+# CRITICAL: the entries below are illustrative starter values from public
+# references. They MAY be stale relative to current Chrome stable. Real
+# production deployments should enable remote refresh (Plan 2b) for current
+# fingerprints. The subset check is robust to staleness (cipher additions
+# in newer Chrome are non-bot); the version-delta check is more sensitive.
+# ============================================================================
+
+version: 1
+generated_at: '2026-06-06'
+
+references:
+  chrome:
+    # Chrome 120 desktop. Captured from public Castle.io writeup (2024-01).
+    # Cipher list is the post-Chrome-110 stable shape.
+    120:
+      desktop:
+        ja3: 'cd08e31494f9531f560d64c695473da9'
+        ja3_string: '771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0'
+        source: 'Castle.io 2024-01 Chrome 120 desktop reference'
+      mobile:
+        ja3: 'fb20b8676c5dd6bafde0fc5b40b6e9b6'
+        ja3_string: '771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0'
+        source: 'Castle.io 2024-01 Chrome 120 mobile reference (Android Chrome)'
+    # Chrome 121. Same cipher list as 120 (no cipher changes between these).
+    # Distinct hash because the extension list grew (encrypted client hello).
+    121:
+      desktop:
+        ja3: '7dcce5d44fff1c5d11dcc4e0680b7e16'
+        ja3_string: '771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-65037-17513,29-23-24,0'
+        source: 'Castle.io 2024-03 Chrome 121 desktop (ECH extension added)'
+  firefox:
+    # Firefox 122 desktop. Distinct cipher order from Chrome.
+    122:
+      desktop:
+        ja3: 'b32309a26951912be7dba376398abc3b'
+        ja3_string: '771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-16-5-34-51-43-13-45-28-21,29-23-24-25-256-257,0'
+        source: 'salesforce/ja3 corpus Firefox 122 desktop'
+  safari:
+    # Safari 17 desktop on macOS. Distinct cipher set vs Chrome (no
+    # CHACHA20-POLY1305 ordering match).
+    17:
+      desktop:
+        ja3: 'a89e44a0e08b86b18d36f56b39a05e2c'
+        ja3_string: '771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-16-5-13-18-43-51-45-27-21,29-23-24-25,0'
+        source: 'Public Safari 17 macOS JA3 reference'

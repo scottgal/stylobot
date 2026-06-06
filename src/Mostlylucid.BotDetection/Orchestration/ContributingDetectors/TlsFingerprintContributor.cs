@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -25,7 +27,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Configuration loaded from: tls.detector.yaml
 ///     Override via: appsettings.json → BotDetection:Detectors:TlsFingerprintContributor:*
 /// </summary>
-public class TlsFingerprintContributor : ConfiguredContributorBase
+public partial class TlsFingerprintContributor : ConfiguredContributorBase
 {
     // Known bot TLS fingerprints (JA3 MD5 hashes)
     // These are sample fingerprints - in production, maintain a database
@@ -64,13 +66,16 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
     };
 
     private readonly ILogger<TlsFingerprintContributor> _logger;
+    private readonly IJa3ReferenceIndex? _referenceIndex;
 
     public TlsFingerprintContributor(
         ILogger<TlsFingerprintContributor> logger,
-        IDetectorConfigProvider configProvider)
+        IDetectorConfigProvider configProvider,
+        IJa3ReferenceIndex? referenceIndex = null)
         : base(configProvider)
     {
         _logger = logger;
+        _referenceIndex = referenceIndex;
     }
 
     public override string Name => "TlsFingerprint";
@@ -87,6 +92,15 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
     private double ClientCertPenalty => GetParam("client_cert_penalty", 0.3);
     private double OutdatedSslPenalty => GetParam("outdated_ssl_penalty", 0.7);
     private double OldTlsPenalty => GetParam("old_tls_penalty", 0.2);
+    // damru cipher-blacklist subset detection: how many missing ciphers we accept
+    // before treating the subset as "too different to be a deliberate blacklist".
+    private int CipherSubsetMaxMissing => GetParam("cipher_subset_max_missing", 4);
+    private double CipherSubsetConfidence => GetParam("cipher_subset_confidence", 0.85);
+    private double CipherSubsetWeight => GetParam("cipher_subset_weight", 1.5);
+    // UA-vs-TLS version delta: how many versions behind the UA claim before flagging.
+    private int VersionDeltaMinDelta => GetParam("version_delta_min_delta", 2);
+    private double VersionDeltaConfidence => GetParam("version_delta_confidence", 0.55);
+    private double VersionDeltaWeight => GetParam("version_delta_weight", 1.1);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -177,6 +191,11 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
                 else
                     state.WriteSignal("tls.fingerprint_known", false);
             }
+
+            // Corpus-driven checks: cipher-subset (damru) + version-delta
+            // (Multilogin / Kameleo Chroma). Only run when a corpus is loaded
+            // and we have at least a JA3 string or hash to compare.
+            RunCorpusChecks(state, contributions);
 
             // Check for client certificate (uncommon for browsers)
             var tlsFeature = state.HttpContext.Features.Get<ITlsConnectionFeature>();
@@ -306,4 +325,128 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
         var hash = MD5.HashData(bytes);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    // === Corpus-driven checks: subset + version-delta =======================
+
+    private void RunCorpusChecks(BlackboardState state, List<DetectionContribution> contributions)
+    {
+        if (_referenceIndex == null || _referenceIndex.Count == 0) return;
+
+        var ua = state.HttpContext.Request.Headers.UserAgent.ToString();
+        if (string.IsNullOrEmpty(ua)) return;
+
+        var claim = ParseUaBrowserClaim(ua);
+        if (claim == null) return;
+
+        // Subset check: needs the observed JA3 STRING (parts split).
+        var observedJa3String = state.GetSignal<string>("tls.ja3_string");
+        if (!string.IsNullOrEmpty(observedJa3String))
+        {
+            var reference = _referenceIndex.GetReference(claim.Browser, claim.Version, claim.Mobile);
+            if (reference != null && IsStrictCipherSubset(observedJa3String, reference.Ja3String, out var missing))
+            {
+                state.WriteSignal("tls.cipher_subset_of_real_chrome", true);
+                state.WriteSignal("tls.cipher_subset_missing_count", missing);
+                contributions.Add(BotContribution(
+                    "TLS",
+                    $"TLS cipher list is strict subset of real {claim.Browser} {reference.Version} ({missing} ciphers missing)",
+                    confidenceOverride: CipherSubsetConfidence,
+                    weightMultiplier: CipherSubsetWeight,
+                    botType: BotType.Scraper.ToString()));
+            }
+        }
+
+        // Version-delta check: needs the observed JA3 HASH for the corpus lookup.
+        var observedJa3Hash = state.GetSignal<string>("tls.ja3_hash");
+        if (!string.IsNullOrEmpty(observedJa3Hash))
+        {
+            var match = _referenceIndex.MatchAnyVersion(observedJa3Hash);
+            if (match != null
+                && match.Browser.Equals(claim.Browser, StringComparison.OrdinalIgnoreCase)
+                && match.Mobile == claim.Mobile
+                && (claim.Version - match.Version) >= VersionDeltaMinDelta)
+            {
+                state.WriteSignal("tls.version_delta_from_ua", claim.Version - match.Version);
+                contributions.Add(BotContribution(
+                    "TLS",
+                    $"TLS version delta: UA claims {claim.Browser} {claim.Version} but TLS matches {claim.Browser} {match.Version}",
+                    confidenceOverride: VersionDeltaConfidence,
+                    weightMultiplier: VersionDeltaWeight,
+                    botType: BotType.Scraper.ToString()));
+            }
+        }
+    }
+
+    private sealed record UaBrowserClaim(string Browser, int Version, bool Mobile);
+
+    private static UaBrowserClaim? ParseUaBrowserClaim(string userAgent)
+    {
+        // Order matters: Edge identifies as both Edg and Chrome; check it first.
+        // Same for Opera (OPR). Returns null for UAs we don't recognise; the
+        // corpus checks gracefully skip those.
+        var mobile = userAgent.Contains("Mobile", StringComparison.OrdinalIgnoreCase)
+                     || userAgent.Contains("Android", StringComparison.OrdinalIgnoreCase);
+        var edge = EdgeRegex().Match(userAgent);
+        if (edge.Success && int.TryParse(edge.Groups[1].Value, out var edgeVer))
+            return new UaBrowserClaim("edge", edgeVer, mobile);
+        var opera = OperaRegex().Match(userAgent);
+        if (opera.Success && int.TryParse(opera.Groups[1].Value, out var operaVer))
+            return new UaBrowserClaim("opera", operaVer, mobile);
+        var chrome = ChromeRegex().Match(userAgent);
+        if (chrome.Success && int.TryParse(chrome.Groups[1].Value, out var chromeVer))
+            return new UaBrowserClaim("chrome", chromeVer, mobile);
+        var firefox = FirefoxRegex().Match(userAgent);
+        if (firefox.Success && int.TryParse(firefox.Groups[1].Value, out var firefoxVer))
+            return new UaBrowserClaim("firefox", firefoxVer, mobile);
+        // Safari version lives in the Version/ token before "Safari/", not in Safari/.
+        var safari = SafariVersionRegex().Match(userAgent);
+        if (safari.Success && userAgent.Contains("Safari", StringComparison.Ordinal)
+            && !userAgent.Contains("Chrome", StringComparison.Ordinal)
+            && int.TryParse(safari.Groups[1].Value, out var safariVer))
+            return new UaBrowserClaim("safari", safariVer, mobile);
+        return null;
+    }
+
+    /// <summary>
+    ///     Decides whether <paramref name="observed"/> is a strict cipher-list
+    ///     subset of <paramref name="reference"/>: the TLS version (part 0),
+    ///     extensions (part 2), curves (part 3), and formats (part 4) all match
+    ///     exactly, AND the observed cipher list (part 1) is a strict subset
+    ///     of the reference cipher list with 1..<see cref="CipherSubsetMaxMissing"/>
+    ///     entries missing. Returns the missing count in <paramref name="missingCount"/>.
+    /// </summary>
+    private bool IsStrictCipherSubset(string observed, string reference, out int missingCount)
+    {
+        missingCount = 0;
+        var oParts = observed.Split(',');
+        var rParts = reference.Split(',');
+        if (oParts.Length != 5 || rParts.Length != 5) return false;
+        // Non-cipher parts must match exactly (no GREASE / extension drift).
+        if (oParts[0] != rParts[0] || oParts[2] != rParts[2]
+            || oParts[3] != rParts[3] || oParts[4] != rParts[4]) return false;
+
+        var oSet = oParts[1].Split('-').ToHashSet();
+        var rSet = rParts[1].Split('-').ToHashSet();
+        // Strict subset: observed ciphers all appear in reference, AND reference
+        // has at least one cipher the observed doesn't.
+        foreach (var c in oSet)
+            if (!rSet.Contains(c)) return false;
+        missingCount = rSet.Count - oSet.Count;
+        return missingCount >= 1 && missingCount <= CipherSubsetMaxMissing;
+    }
+
+    [GeneratedRegex(@"Edg(?:e)?/(\d+)")]
+    private static partial Regex EdgeRegex();
+
+    [GeneratedRegex(@"OPR/(\d+)")]
+    private static partial Regex OperaRegex();
+
+    [GeneratedRegex(@"Chrome/(\d+)")]
+    private static partial Regex ChromeRegex();
+
+    [GeneratedRegex(@"Firefox/(\d+)")]
+    private static partial Regex FirefoxRegex();
+
+    [GeneratedRegex(@"Version/(\d+)")]
+    private static partial Regex SafariVersionRegex();
 }
