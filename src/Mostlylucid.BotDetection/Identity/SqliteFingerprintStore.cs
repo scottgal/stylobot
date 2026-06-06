@@ -36,12 +36,9 @@ public class SqliteFingerprintStore : IFingerprintStore
     // null. The caches are bounded and entries are invalidated by the write
     // paths so a row update is visible to the next read.
     // ----------------------------------------------------------------------
-    private const int VerdictCacheMaxEntries = 10_000;
     private const int FingerprintIdCacheMaxEntries = 50_000;
     private const int FingerprintCacheMaxEntries = 10_000;
 
-    private readonly ConcurrentDictionary<string, IdentityCachedVerdict> _verdictByPrimarySig
-        = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _fingerprintIdByPrimarySig
         = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Fingerprint> _fingerprintById
@@ -52,7 +49,6 @@ public class SqliteFingerprintStore : IFingerprintStore
     // read, the populate is skipped so a stale value can never overwrite a
     // freshly-invalidated slot. Pattern closes the classic
     // read-populate-vs-write-invalidate race that plain TryAdd would leave open.
-    private long _verdictEpoch;
     private long _fingerprintIdEpoch;
     private long _fingerprintEpoch;
 
@@ -61,20 +57,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (string.IsNullOrEmpty(fingerprintId)) return;
         _fingerprintById.TryRemove(fingerprintId, out _);
         System.Threading.Interlocked.Increment(ref _fingerprintEpoch);
-        // Verdict entries for this fingerprint are now stale too. Scan-drop is
-        // bounded by VerdictCacheMaxEntries (10k); a reverse index would be O(1)
-        // but adds bookkeeping for negligible win at this size.
-        var bumpedVerdict = false;
-        foreach (var kv in _verdictByPrimarySig)
-        {
-            if (kv.Value.FingerprintId == fingerprintId)
-            {
-                _verdictByPrimarySig.TryRemove(kv.Key, out _);
-                bumpedVerdict = true;
-            }
-        }
-        if (bumpedVerdict)
-            System.Threading.Interlocked.Increment(ref _verdictEpoch);
     }
 
     private static void EvictOldest<TKey, TValue>(
@@ -255,60 +237,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         insert.Parameters.AddWithValue("@json", BuildLayoutJson(_layout.Slots));
         insert.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         await insert.ExecuteNonQueryAsync(ct);
-    }
-
-    /// <summary>
-    ///     Single-roundtrip cached-verdict lookup by primary signature. Joins
-    ///     <c>fingerprint_keys</c> to <c>fingerprints</c> and projects only the columns
-    ///     the verdict gate consumes (no <c>centroid</c> blob). Returns null when no
-    ///     fingerprint is bound to this signature, or when it has never had its cached
-    ///     score written.
-    /// </summary>
-    public async Task<IdentityCachedVerdict?> GetCachedVerdictForSignatureAsync(
-        string primarySignature, CancellationToken ct = default)
-    {
-        if (string.IsNullOrEmpty(primarySignature)) return null;
-
-        // L0 cache: dict is truth on the hot path. Bug O: parallel HTTP/2 asset
-        // fetches for the same primarySig were each opening a fresh SqliteConnection
-        // and racing the WAL writes from concurrent observations.
-        if (_verdictByPrimarySig.TryGetValue(primarySignature, out var cached))
-            return cached;
-
-        var epochBefore = System.Threading.Volatile.Read(ref _verdictEpoch);
-
-        await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT f.fingerprint_id, f.cached_bot_probability, f.cached_risk_band,
-                   f.cached_score_updated_at, f.observation_count, f.inferred_client_type
-              FROM fingerprint_keys k
-              JOIN fingerprints f ON f.fingerprint_id = k.fingerprint_id
-             WHERE k.primary_signature = @sig
-               AND f.cached_score_updated_at IS NOT NULL
-            """;
-        cmd.Parameters.AddWithValue("@sig", primarySignature);
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return null;
-        var verdict = new IdentityCachedVerdict(
-            FingerprintId: reader.GetString(0),
-            BotProbability: reader.GetDouble(1),
-            RiskBand: reader.IsDBNull(2) ? null : reader.GetString(2),
-            UpdatedAtUtc: DateTime.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind),
-            ObservationCount: reader.GetInt32(4),
-            InferredClientType: reader.GetString(5));
-
-        // Only populate if no writer invalidated this cache while the DB read
-        // was in flight; otherwise we'd poison the slot with a pre-invalidation value.
-        if (System.Threading.Volatile.Read(ref _verdictEpoch) == epochBefore)
-        {
-            _verdictByPrimarySig[primarySignature] = verdict;
-            if (_verdictByPrimarySig.Count > VerdictCacheMaxEntries)
-                EvictOldest(_verdictByPrimarySig, VerdictCacheMaxEntries);
-        }
-        return verdict;
     }
 
     /// <summary>Count of unabsorbed observation rows for a single fingerprint.</summary>
@@ -515,10 +443,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         // LFU façade: keep the dict authoritative even when rebinding an existing signature.
         _fingerprintIdByPrimarySig[primarySignature] = fingerprintId;
         System.Threading.Interlocked.Increment(ref _fingerprintIdEpoch);
-        // The associated verdict and fingerprint row may now resolve differently; drop both
-        // so the next read re-fetches against the new binding rather than serving the prior id's verdict.
-        if (_verdictByPrimarySig.TryRemove(primarySignature, out _))
-            System.Threading.Interlocked.Increment(ref _verdictEpoch);
     }
 
     private static async Task UpsertKeyAsync(
@@ -701,8 +625,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         // Drop any cached binding so the next read re-resolves to the current truth.
         if (_fingerprintIdByPrimarySig.TryRemove(primarySignature, out _))
             System.Threading.Interlocked.Increment(ref _fingerprintIdEpoch);
-        if (_verdictByPrimarySig.TryRemove(primarySignature, out _))
-            System.Threading.Interlocked.Increment(ref _verdictEpoch);
     }
 
     /// <summary>
@@ -1006,16 +928,9 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
 
-        // LFU façade invalidation: drop stale rows so the next read reloads the row
-        // we just rewrote. Verdict cache is keyed by primarySig (we don't have it
-        // here cheaply), so we scrub by fingerprintId match -- the dict is small
-        // (capped at VerdictCacheMaxEntries) so the linear scan is fine.
+        // LFU façade invalidation: drop the fingerprint row so the next read reloads
+        // the row we just rewrote. Manual-operator AI button "force re-read" semantics.
         _fingerprintById.TryRemove(fingerprintId, out _);
-        foreach (var kv in _verdictByPrimarySig)
-        {
-            if (kv.Value.FingerprintId == fingerprintId)
-                _verdictByPrimarySig.TryRemove(kv.Key, out _);
-        }
     }
 
     /// <summary>
@@ -1361,10 +1276,8 @@ public class SqliteFingerprintStore : IFingerprintStore
 
         await tx.CommitAsync(ct);
 
-        _verdictByPrimarySig.Clear();
         _fingerprintIdByPrimarySig.Clear();
         _fingerprintById.Clear();
-        System.Threading.Interlocked.Increment(ref _verdictEpoch);
         System.Threading.Interlocked.Increment(ref _fingerprintIdEpoch);
         System.Threading.Interlocked.Increment(ref _fingerprintEpoch);
 

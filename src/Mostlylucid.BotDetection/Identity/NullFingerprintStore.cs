@@ -48,10 +48,6 @@ public sealed class NullFingerprintStore : IFingerprintStore
         => Task.FromResult<IReadOnlyList<RootHistoryEntry>>(Array.Empty<RootHistoryEntry>());
 
     // ── Verdict cache ────────────────────────────────────────────────────────
-    public Task<IdentityCachedVerdict?> GetCachedVerdictForSignatureAsync(
-        string primarySignature, CancellationToken ct = default)
-        => Task.FromResult<IdentityCachedVerdict?>(null);
-
     public Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default)
         => Task.CompletedTask;

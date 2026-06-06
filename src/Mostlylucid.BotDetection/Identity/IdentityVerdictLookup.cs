@@ -42,9 +42,29 @@ public sealed class IdentityVerdictLookup
     public async Task<IdentityCachedVerdict?> TryGetAsync(string primarySignature, CancellationToken ct = default)
     {
         if (!_enabled) return null;
+        if (string.IsNullOrEmpty(primarySignature)) return null;
+
         try
         {
-            return await _store.GetCachedVerdictForSignatureAsync(primarySignature, ct);
+            // Two dict hits served by the existing LFU caches inside SqliteFingerprintStore:
+            //   primarySig -> fingerprintId  (via _fingerprintIdByPrimarySig)
+            //   fingerprintId -> Fingerprint (via _fingerprintById, includes cached_* columns)
+            // The fingerprint row IS the verdict cache. No parallel verdict-by-signature dict.
+            // No "cached_score_updated_at IS NOT NULL" SQL gate.
+            var fingerprintId = await _store.LookupFingerprintIdAsync(primarySignature, ct);
+            if (string.IsNullOrEmpty(fingerprintId)) return null;
+
+            var fp = await _store.GetFingerprintAsync(fingerprintId, ct);
+            if (fp is null) return null;
+            if (fp.CachedScoreUpdatedAt is null) return null; // not yet matured
+
+            return new IdentityCachedVerdict(
+                FingerprintId:       fp.FingerprintId,
+                BotProbability:      fp.CachedBotProbability,
+                RiskBand:            fp.CachedRiskBand,
+                UpdatedAtUtc:        fp.CachedScoreUpdatedAt.Value,
+                ObservationCount:    fp.ObservationCount,
+                InferredClientType:  fp.InferredClientType ?? string.Empty);
         }
         catch (Exception ex)
         {

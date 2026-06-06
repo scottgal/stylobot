@@ -22,9 +22,6 @@ public interface IFingerprintStore : IFingerprintReader
     Task EnsureInitialisedAsync(CancellationToken ct = default);
 
     // ── Verdict cache ────────────────────────────────────────────────────────
-    Task<IdentityCachedVerdict?> GetCachedVerdictForSignatureAsync(
-        string primarySignature, CancellationToken ct = default);
-
     Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default);
 
