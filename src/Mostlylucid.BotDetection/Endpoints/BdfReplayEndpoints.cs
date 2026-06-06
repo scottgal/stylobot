@@ -319,7 +319,15 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.RiskUaFamilyChanged] = signals.ContainsKey(Models.SignalKeys.RiskUaFamilyChanged),
                 [Models.SignalKeys.RiskInfrastructureIntroduced] = signals.ContainsKey(Models.SignalKeys.RiskInfrastructureIntroduced),
                 [Models.SignalKeys.RiskSuspiciousChangeScore] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeScore),
-                [Models.SignalKeys.RiskSuspiciousChangeReason] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeReason)
+                [Models.SignalKeys.RiskSuspiciousChangeReason] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeReason),
+                // Async coordination signals. FingerprintFirstSeen fires on the allocate path
+                // (brand-new fingerprint row); FingerprintObservationCountCrossed fires when
+                // observation_count crosses a configured threshold; FingerprintMaturityThreshold
+                // fires when centroid maturity crosses the configured gate. Absorption /
+                // drift subscribers wake on these instead of polling the durable tier.
+                [Models.SignalKeys.FingerprintFirstSeen] = signals.ContainsKey(Models.SignalKeys.FingerprintFirstSeen),
+                [Models.SignalKeys.FingerprintObservationCountCrossed] = signals.ContainsKey(Models.SignalKeys.FingerprintObservationCountCrossed),
+                [Models.SignalKeys.FingerprintMaturityThreshold] = signals.ContainsKey(Models.SignalKeys.FingerprintMaturityThreshold)
             };
 
             // Identity match outputs (null when Identity.Enabled = false)

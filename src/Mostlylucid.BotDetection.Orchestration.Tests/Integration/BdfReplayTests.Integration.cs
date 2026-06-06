@@ -227,6 +227,13 @@ public sealed class BdfReplayTests
         // production traffic with full identity dims behaves correctly. The probe stays in
         // the response dict so the dashboard / response inspector can still see it.
         _ = probes.TryGetValue(SignalKeys.IdentityArchetypeName, out _);
+
+        // FingerprintFirstSeen: probed and asserted. A new-visitor scenario in the BDF rig
+        // must allocate a fingerprint exactly once and emit this signal; absorption /
+        // warmup subscribers wake on it.
+        Assert.True(probes.TryGetValue(SignalKeys.FingerprintFirstSeen, out var hasFirstSeen) && hasFirstSeen,
+            $"{scenarioName}: {SignalKeys.FingerprintFirstSeen} missing from ev.Signals -- " +
+            "FingerprintAbsorptionService and downstream warmup subscribers won't wake on new fingerprints");
     }
 
     /// <summary>
