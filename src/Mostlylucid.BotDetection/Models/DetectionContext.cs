@@ -600,7 +600,7 @@ public static class SignalKeys
     ///     Written by FingerprintMatchContributor. Wakes drift verification because a
     ///     matured fingerprint's centroid is now load-bearing for display / verdict reads.
     /// </summary>
-    public const string IdentityFingerprintMaturityCrossed = "identity.fingerprint_maturity_threshold";
+    public const string IdentityFingerprintMaturityCrossed = "identity.fingerprint_maturity_crossed";
 
     /// <summary>double in [0,1]: EWMA of post-detection bot probability over recent observations of this fingerprint.</summary>
     public const string IdentityCachedBotProbability = "identity.cached_bot_probability";
