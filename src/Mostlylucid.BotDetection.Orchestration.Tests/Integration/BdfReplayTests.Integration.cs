@@ -211,11 +211,11 @@ public sealed class BdfReplayTests
         var probes = last.Actual!.SignalProbes;
 
         Assert.True(probes.TryGetValue(SignalKeys.PrimarySignature, out var hasSig) && hasSig,
-            $"{scenarioName}: {SignalKeys.PrimarySignature} missing from ev.Signals — " +
+            $"{scenarioName}: {SignalKeys.PrimarySignature} missing from ev.Signals; " +
             "RequestPersistenceService skips persistence, dashboard fingerprint table goes blank");
 
         Assert.True(probes.TryGetValue(SignalKeys.UserAgentFamily, out var hasUaFamily) && hasUaFamily,
-            $"{scenarioName}: {SignalKeys.UserAgentFamily} missing from ev.Signals — " +
+            $"{scenarioName}: {SignalKeys.UserAgentFamily} missing from ev.Signals; " +
             "DeterministicBotNameSynthesizer falls back to 'analysing' placeholder");
 
         // IdentityArchetypeName: probed but not asserted. The signal is written by
@@ -228,11 +228,11 @@ public sealed class BdfReplayTests
         // the response dict so the dashboard / response inspector can still see it.
         _ = probes.TryGetValue(SignalKeys.IdentityArchetypeName, out _);
 
-        // FingerprintFirstSeen: probed and asserted. A new-visitor scenario in the BDF rig
+        // IdentityFingerprintFirstSeen: probed and asserted. A new-visitor scenario in the BDF rig
         // must allocate a fingerprint exactly once and emit this signal; absorption /
         // warmup subscribers wake on it.
-        Assert.True(probes.TryGetValue(SignalKeys.FingerprintFirstSeen, out var hasFirstSeen) && hasFirstSeen,
-            $"{scenarioName}: {SignalKeys.FingerprintFirstSeen} missing from ev.Signals -- " +
+        Assert.True(probes.TryGetValue(SignalKeys.IdentityFingerprintFirstSeen, out var hasFirstSeen) && hasFirstSeen,
+            $"{scenarioName}: {SignalKeys.IdentityFingerprintFirstSeen} missing from ev.Signals; " +
             "FingerprintAbsorptionService and downstream warmup subscribers won't wake on new fingerprints");
     }
 

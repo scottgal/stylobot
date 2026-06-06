@@ -583,7 +583,7 @@ public static class SignalKeys
     ///     allocate path. Async absorption / drift subscribers wake on this to warm
     ///     their per-fp state without polling the durable tier.
     /// </summary>
-    public const string FingerprintFirstSeen = "identity.fingerprint_first_seen";
+    public const string IdentityFingerprintFirstSeen = "identity.fingerprint_first_seen";
 
     /// <summary>
     ///     int: the configured threshold the fingerprint's `observation_count` just
@@ -592,7 +592,7 @@ public static class SignalKeys
     ///     Wakes FingerprintAbsorptionService when a hot fingerprint accumulates enough
     ///     new observations to be worth folding into the centroid.
     /// </summary>
-    public const string FingerprintObservationCountCrossed = "identity.fingerprint_observation_count_crossed";
+    public const string IdentityFingerprintObservationCountCrossed = "identity.fingerprint_observation_count_crossed";
 
     /// <summary>
     ///     bool: true on the first request where the matched fingerprint's centroid
@@ -600,7 +600,7 @@ public static class SignalKeys
     ///     Written by FingerprintMatchContributor. Wakes drift verification because a
     ///     matured fingerprint's centroid is now load-bearing for display / verdict reads.
     /// </summary>
-    public const string FingerprintMaturityThreshold = "identity.fingerprint_maturity_threshold";
+    public const string IdentityFingerprintMaturityCrossed = "identity.fingerprint_maturity_threshold";
 
     /// <summary>double in [0,1]: EWMA of post-detection bot probability over recent observations of this fingerprint.</summary>
     public const string IdentityCachedBotProbability = "identity.cached_bot_probability";
