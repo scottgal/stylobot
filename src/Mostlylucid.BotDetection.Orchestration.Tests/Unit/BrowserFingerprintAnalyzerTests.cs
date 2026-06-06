@@ -135,6 +135,38 @@ public class BrowserFingerprintAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_ProductionPayloadShape_PipesIceAndTtsThroughToResult()
+    {
+        // Wire format: ice + tts are top-level objects in the JS payload.
+        // Asserts both blocks deserialise and the analyser exposes
+        // IceNoSrflx + TtsVoiceCount on the result for downstream consumers.
+        const string json = """
+            {
+              "t": "token", "v": "2.0.0", "ts": 1700000000000, "cdp": 0, "interacted": 0,
+              "basics":   { "platform": "Linux armv8l", "hasChrome": 1, "cores": 8,
+                            "screen": "412x915x24", "dpr": 2.625,
+                            "outerW": 412, "outerH": 915, "innerW": 412, "innerH": 819,
+                            "tz": "Asia/Tokyo", "lang": "ja-JP" },
+              "tail":     { "webdriver": 0, "phantom": 0, "selenium": 0, "iframe": 0 },
+              "headless": { "plugins": 0, "notif": "default", "chromeRt": 1 },
+              "touch":    { "maxTouch": 5, "ontouch": 1, "pointerEvt": 1 },
+              "ice":      { "count": 1, "srflx": 0, "host": 1, "errored": 0 },
+              "tts":      { "count": 0 }
+            }
+            """;
+        var data = JsonSerializer.Deserialize<BrowserFingerprintData>(json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        Assert.NotNull(data);
+        Assert.NotNull(data!.IceProbe);
+        Assert.NotNull(data.TtsProbe);
+
+        var result = _analyzer.Analyze(data, "test-prod-shape-ice-tts");
+
+        Assert.True(result.IceNoSrflx);
+        Assert.Equal(0, result.TtsVoiceCount);
+    }
+
+    [Fact]
     public void Analyze_ProductionPayloadShape_FlagsCdpRuntimeFromNestedBasics()
     {
         const string json = """

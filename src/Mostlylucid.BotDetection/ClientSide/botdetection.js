@@ -403,6 +403,82 @@
         return out;
     }
 
+    // === [PRIMARY] WebRTC ICE-gathering probe ================================
+    // Creates an RTCPeerConnection with a STUN server, calls createOffer(),
+    // and waits ~2.5s collecting ICE candidates. On a real mobile network a
+    // STUN probe always produces at least one srflx (server-reflexive)
+    // candidate. Absence indicates UDP egress is blocked at the OS or proxy
+    // layer -- damru (iptables drop on Chrome UID), Bright Data Scraping
+    // Browser (restricted egress), locked-down VMs. Server-side check is
+    // gated on mobile UA-CH because desktop network policy is too variable.
+    function iceProbe() {
+        return new Promise(function (resolve) {
+            try {
+                if (typeof RTCPeerConnection !== 'function')
+                    return resolve({ count: 0, srflx: 0, host: 0, errored: 1 });
+                var pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                var count = 0, srflx = 0, host = 0;
+                pc.onicecandidate = function (e) {
+                    if (!e.candidate) return;
+                    count++;
+                    if (e.candidate.type === 'srflx') srflx = 1;
+                    else if (e.candidate.type === 'host') host = 1;
+                };
+                pc.createDataChannel('p');
+                pc.createOffer()
+                    .then(function (offer) { return pc.setLocalDescription(offer); })
+                    .catch(function () {});
+                // 2s window: STUN responses on healthy networks come in <500ms;
+                // 2s gives slow-network headroom while staying well inside the
+                // 3s overall fingerprint-collection deadline so the rest of the
+                // async pipeline (audio/legit/perms) doesn't get dropped if ICE
+                // is the laggard.
+                setTimeout(function () {
+                    try { pc.close(); } catch (e) {}
+                    resolve({ count: count, srflx: srflx, host: host, errored: 0 });
+                }, 2000);
+            } catch (e) {
+                resolve({ count: 0, srflx: 0, host: 0, errored: 1 });
+            }
+        });
+    }
+
+    // === [PRIMARY] speechSynthesis voice-list probe ==========================
+    // Real Android Chrome populates getVoices() before the page script runs
+    // (the TTS engine starts at boot). Fresh Redroid containers (damru's
+    // session pattern) report 0 until first user gesture. Brief 200ms wait
+    // for `voiceschanged` to handle real Android devices where the list is
+    // populated asynchronously after a cold start.
+    function ttsProbe() {
+        return new Promise(function (resolve) {
+            try {
+                if (typeof speechSynthesis === 'undefined'
+                    || typeof speechSynthesis.getVoices !== 'function')
+                    return resolve({ count: -1 });
+                var first = speechSynthesis.getVoices().length;
+                if (first > 0) return resolve({ count: first });
+                var settled = false;
+                var settle = function (n) {
+                    if (settled) return;
+                    settled = true;
+                    resolve({ count: n });
+                };
+                try {
+                    speechSynthesis.onvoiceschanged = function () {
+                        settle(speechSynthesis.getVoices().length);
+                    };
+                } catch (e) {}
+                setTimeout(function () {
+                    settle(speechSynthesis.getVoices().length);
+                }, 200);
+            } catch (e) {
+                resolve({ count: -1 });
+            }
+        });
+    }
+
     // === Long-tail signals (collected for completeness; not load-bearing) ====
     function longTail() {
         var t = {};
@@ -436,7 +512,9 @@
             permissionsVector(),
             broadcastEcho(),
             audioHash(),
-            legitimacyMarkers()
+            legitimacyMarkers(),
+            iceProbe(),
+            ttsProbe()
         ]);
         var asyncOrTimeout = Promise.race([asyncPart, deadline.then(function () { return null; })]);
         var asyncResult = await asyncOrTimeout || [];
@@ -452,6 +530,8 @@
             bcast: asyncResult[2] || null,
             audio: asyncResult[3] || null,
             legit: asyncResult[4] || { brave: 0, lockdown: 0 },
+            ice: asyncResult[5] || { count: 0, srflx: 0, host: 0, errored: 1 },
+            tts: asyncResult[6] || { count: -1 },
             clamp: clampProbe(),
             triple: chromiumTriple(),
             headless: headlessMarkers(),

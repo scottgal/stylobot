@@ -177,6 +177,10 @@ public class ClientSideContributor : ConfiguredContributorBase
                     state.WriteSignal(SignalKeys.HeadlessFramework, fp.DetectedAutomation);
                 if (!string.IsNullOrEmpty(fp.ConnectionType))
                     state.WriteSignal(SignalKeys.ClientSideConnectionType, fp.ConnectionType);
+                if (fp.IceNoSrflx.HasValue)
+                    state.WriteSignal(SignalKeys.ClientSideIceNoSrflx, fp.IceNoSrflx.Value);
+                if (fp.TtsVoiceCount.HasValue)
+                    state.WriteSignal(SignalKeys.ClientSideTtsVoiceCount, fp.TtsVoiceCount.Value);
             }
         }
         catch (Exception ex)

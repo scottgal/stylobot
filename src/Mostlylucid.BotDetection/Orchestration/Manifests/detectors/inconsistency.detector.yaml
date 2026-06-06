@@ -144,6 +144,17 @@ defaults:
     # is ethernet/wimax/mixed.
     mobile_connection_mismatch_confidence: 0.85
     mobile_connection_mismatch_weight: 1.5
+    # Mobile UA-CH but the client-side WebRTC ICE probe produced no srflx
+    # candidate -- UDP egress is blocked. Catches damru (iptables drop on Chrome
+    # UID), Bright Data Scraping Browser (restricted egress), locked-down VMs.
+    mobile_ice_no_srflx_confidence: 0.7
+    mobile_ice_no_srflx_weight: 1.3
+    # Android UA with empty speechSynthesis.getVoices() at first paint. Real
+    # Android Chrome populates the voice list before the script runs; damru
+    # runs fresh Redroid containers per session and voices stay empty until
+    # first user gesture.
+    android_empty_voices_confidence: 0.5
+    android_empty_voices_weight: 1.2
 
 tags:
   - correlation

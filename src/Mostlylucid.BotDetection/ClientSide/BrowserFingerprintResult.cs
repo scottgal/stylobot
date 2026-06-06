@@ -107,6 +107,20 @@ public class BrowserFingerprintData
     /// <summary>WebGL UNMASKED_VENDOR / UNMASKED_RENDERER strings; null when WebGL unavailable.</summary>
     [JsonPropertyName("webgl")] public WebglBlock? Webgl { get; set; }
 
+    /// <summary>
+    ///     WebRTC ICE-gathering probe result. Drives the mobile-UA × no-srflx
+    ///     inconsistency check that catches damru's iptables UDP block, Bright
+    ///     Data's restricted-egress hosting, and locked-down VMs.
+    /// </summary>
+    [JsonPropertyName("ice")] public IceProbeBlock? IceProbe { get; set; }
+
+    /// <summary>
+    ///     <c>speechSynthesis.getVoices()</c> count at first paint. Drives the
+    ///     Android-UA × empty-voice-list inconsistency check that catches
+    ///     damru's fresh-Redroid-container pattern (TTS engine hasn't booted).
+    /// </summary>
+    [JsonPropertyName("tts")] public TtsProbeBlock? TtsProbe { get; set; }
+
     // === Legacy server-side timing probes ==================================
     // The modern botdetection.js does NOT emit these. They are reachable via
     // alternate beacon paths and via test-only construction. The analyser
@@ -271,6 +285,40 @@ public class WebglBlock
 }
 
 /// <summary>
+///     WebRTC ICE-gathering probe from <c>iceProbe()</c>. Client creates an
+///     <c>RTCPeerConnection</c> with a STUN server, calls <c>createOffer()</c>,
+///     and waits ~2.5s while ICE candidates accumulate. <see cref="HasSrflx"/>
+///     reports whether at least one server-reflexive candidate materialised
+///     (the canonical "you can reach the internet via UDP" signal).
+/// </summary>
+public class IceProbeBlock
+{
+    /// <summary>Total candidate count observed during the gathering window.</summary>
+    [JsonPropertyName("count")] public int CandidateCount { get; set; }
+
+    /// <summary>1 = at least one srflx (server-reflexive) candidate observed; 0 = none.</summary>
+    [JsonPropertyName("srflx")] public int HasSrflx { get; set; }
+
+    /// <summary>1 = at least one host (local-interface) candidate observed; 0 = none.</summary>
+    [JsonPropertyName("host")] public int HasHost { get; set; }
+
+    /// <summary>1 = probe errored (RTCPeerConnection unavailable, createOffer threw). Treat as no-signal.</summary>
+    [JsonPropertyName("errored")] public int Errored { get; set; }
+}
+
+/// <summary>
+///     <c>speechSynthesis.getVoices()</c> probe from <c>ttsProbe()</c>. The
+///     client reads the voice list at first paint. Real Android Chrome
+///     populates it before the script runs; emulated Android (damru / fresh
+///     Redroid) reports zero until first user gesture.
+/// </summary>
+public class TtsProbeBlock
+{
+    /// <summary>Voice count at first paint. -1 sentinel = speechSynthesis unsupported.</summary>
+    [JsonPropertyName("count")] public int VoiceCount { get; set; }
+}
+
+/// <summary>
 ///     Processed browser fingerprint result with server-side analysis.
 /// </summary>
 public class BrowserFingerprintResult
@@ -359,6 +407,19 @@ public class BrowserFingerprintResult
     ///     can publish it as a blackboard signal on the next request from the same IP.
     /// </summary>
     public string? ConnectionType { get; set; }
+
+    /// <summary>
+    ///     True when the client-side WebRTC ICE probe completed (no error) and
+    ///     observed no srflx candidate. Drives the mobile-UA × ICE inconsistency
+    ///     check. Null when the probe was absent or errored.
+    /// </summary>
+    public bool? IceNoSrflx { get; set; }
+
+    /// <summary>
+    ///     <c>speechSynthesis.getVoices().length</c> at first paint. Null when
+    ///     the probe was absent or unsupported.
+    /// </summary>
+    public int? TtsVoiceCount { get; set; }
 }
 
 /// <summary>

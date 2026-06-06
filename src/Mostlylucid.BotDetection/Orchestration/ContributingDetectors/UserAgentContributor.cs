@@ -398,6 +398,10 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
     private int MinChromeVersion => GetParam("min_chrome_version", 90);
     private double MobileConnectionMismatchConfidence => GetParam("mobile_connection_mismatch_confidence", 0.85);
     private double MobileConnectionMismatchWeight => GetParam("mobile_connection_mismatch_weight", 1.5);
+    private double MobileIceNoSrflxConfidence => GetParam("mobile_ice_no_srflx_confidence", 0.7);
+    private double MobileIceNoSrflxWeight => GetParam("mobile_ice_no_srflx_weight", 1.3);
+    private double AndroidEmptyVoicesConfidence => GetParam("android_empty_voices_confidence", 0.5);
+    private double AndroidEmptyVoicesWeight => GetParam("android_empty_voices_weight", 1.2);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -483,6 +487,35 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
                     $"Mobile UA-CH with non-mobile connection class ({connectionType})",
                     confidenceOverride: MobileConnectionMismatchConfidence,
                     weightMultiplier: MobileConnectionMismatchWeight,
+                    botType: BotType.Scraper.ToString()));
+
+            // Mobile UA-CH with WebRTC ICE probe that completed but produced no
+            // srflx candidate. On a real mobile network a STUN probe always
+            // produces at least one srflx; absence indicates UDP egress blocked
+            // (damru iptables, Bright Data restricted egress, locked-down VM).
+            // Gated on mobile UA because desktop network policy is too variable
+            // (corporate NATs, VPNs, restrictive firewalls) to fire on its own.
+            if (state.GetSignal<bool>(SignalKeys.ClientSideIceNoSrflx))
+                contributions.Add(BotContribution(
+                    "Inconsistency",
+                    "Mobile UA-CH but WebRTC ICE probe produced no srflx candidate (UDP egress blocked)",
+                    confidenceOverride: MobileIceNoSrflxConfidence,
+                    weightMultiplier: MobileIceNoSrflxWeight,
+                    botType: BotType.Scraper.ToString()));
+
+            // Android UA with empty TTS voice list at first paint. Real Android
+            // Chrome populates speechSynthesis.getVoices() before the script
+            // runs (engine starts at boot). damru runs a fresh Redroid container
+            // per session and voices stay at 0 until first user gesture. Gated
+            // on UA containing "Android" -- iOS Safari has its own voice
+            // lifecycle and zero-at-first-paint is not bot-indicative there.
+            var ttsCount = state.GetSignal<int?>(SignalKeys.ClientSideTtsVoiceCount);
+            if (ttsCount == 0 && userAgent.Contains("Android", StringComparison.OrdinalIgnoreCase))
+                contributions.Add(BotContribution(
+                    "Inconsistency",
+                    "Android UA with empty speechSynthesis voice list at first paint",
+                    confidenceOverride: AndroidEmptyVoicesConfidence,
+                    weightMultiplier: AndroidEmptyVoicesWeight,
                     botType: BotType.Scraper.ToString()));
         }
 

@@ -1633,6 +1633,30 @@ public static class SignalKeys
     /// </summary>
     public const string ClientSideConnectionType = "clientside.connection_type";
 
+    /// <summary>
+    ///     Bool: the client-side WebRTC ICE probe completed (<c>createOffer()</c>
+    ///     succeeded, gathering ran to timeout) without observing any <c>srflx</c>
+    ///     candidate. On a real mobile network a STUN probe always produces at
+    ///     least one srflx; absence indicates UDP egress is blocked at the OS or
+    ///     proxy layer. Catches damru (iptables drops Chrome's UID), Bright Data
+    ///     Scraping Browser (restricted egress in their hosted environment), and
+    ///     locked-down corporate VMs. Consumed by
+    ///     <see cref="ContributingDetectors.InconsistencyContributor"/> gated on
+    ///     mobile UA-CH.
+    /// </summary>
+    public const string ClientSideIceNoSrflx = "clientside.ice_no_srflx";
+
+    /// <summary>
+    ///     Int: count of voices reported by <c>speechSynthesis.getVoices()</c> at
+    ///     first paint. Real Android Chrome populates the list before the script
+    ///     runs (the TTS engine starts at boot); damru runs a fresh Redroid
+    ///     container per session and the voice list stays at 0 until first user
+    ///     gesture. Consumed by <see cref="ContributingDetectors.InconsistencyContributor"/>
+    ///     gated on a UA that contains "Android" (iOS Safari has its own voice
+    ///     lifecycle so the check is Android-only to avoid false positives).
+    /// </summary>
+    public const string ClientSideTtsVoiceCount = "clientside.tts_voice_count";
+
 
     // ==========================================
     // Cookie behavior signals

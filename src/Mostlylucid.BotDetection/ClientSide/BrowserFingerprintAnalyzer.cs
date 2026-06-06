@@ -26,6 +26,23 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
 
     public BrowserFingerprintResult Analyze(BrowserFingerprintData data, string requestId)
     {
+        // ICE probe: "no srflx" is only meaningful when the probe ran
+        // successfully (errored = 0). Errored means the API was unavailable
+        // or threw -- treat as no-signal rather than as positive evidence.
+        var iceProbe = data.IceProbe;
+        bool? iceNoSrflx = iceProbe is { Errored: 0 }
+            ? iceProbe.HasSrflx == 0
+            : null;
+
+        // TTS voice count: -1 is the sentinel for "speechSynthesis unsupported"
+        // (older browsers, restricted contexts). Treat as no-signal.
+        var ttsProbe = data.TtsProbe;
+        int? ttsVoiceCount = ttsProbe?.VoiceCount switch
+        {
+            null or -1 => null,
+            var n => n
+        };
+
         var result = new BrowserFingerprintResult
         {
             RequestId = requestId,
@@ -38,6 +55,8 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             Adblocker = data.Adblocker,
             AdblockerProvider = data.AdblockerProvider,
             ConnectionType = data.Basics?.ConnectionType,
+            IceNoSrflx = iceNoSrflx,
+            TtsVoiceCount = ttsVoiceCount,
         };
 
         // Handle error case
