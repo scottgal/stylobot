@@ -320,14 +320,14 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.RiskInfrastructureIntroduced] = signals.ContainsKey(Models.SignalKeys.RiskInfrastructureIntroduced),
                 [Models.SignalKeys.RiskSuspiciousChangeScore] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeScore),
                 [Models.SignalKeys.RiskSuspiciousChangeReason] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeReason),
-                // Async coordination signals. FingerprintFirstSeen fires on the allocate path
-                // (brand-new fingerprint row); FingerprintObservationCountCrossed fires when
-                // observation_count crosses a configured threshold; FingerprintMaturityThreshold
+                // Async coordination signals. IdentityFingerprintFirstSeen fires on the allocate path
+                // (brand-new fingerprint row); IdentityFingerprintObservationCountCrossed fires when
+                // observation_count crosses a configured threshold; IdentityFingerprintMaturityCrossed
                 // fires when centroid maturity crosses the configured gate. Absorption /
                 // drift subscribers wake on these instead of polling the durable tier.
-                [Models.SignalKeys.FingerprintFirstSeen] = signals.ContainsKey(Models.SignalKeys.FingerprintFirstSeen),
-                [Models.SignalKeys.FingerprintObservationCountCrossed] = signals.ContainsKey(Models.SignalKeys.FingerprintObservationCountCrossed),
-                [Models.SignalKeys.FingerprintMaturityThreshold] = signals.ContainsKey(Models.SignalKeys.FingerprintMaturityThreshold)
+                [Models.SignalKeys.IdentityFingerprintFirstSeen] = signals.ContainsKey(Models.SignalKeys.IdentityFingerprintFirstSeen),
+                [Models.SignalKeys.IdentityFingerprintObservationCountCrossed] = signals.ContainsKey(Models.SignalKeys.IdentityFingerprintObservationCountCrossed),
+                [Models.SignalKeys.IdentityFingerprintMaturityCrossed] = signals.ContainsKey(Models.SignalKeys.IdentityFingerprintMaturityCrossed)
             };
 
             // Identity match outputs (null when Identity.Enabled = false)

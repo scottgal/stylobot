@@ -18,6 +18,15 @@ public interface IFingerprintStore : IFingerprintReader
     /// <summary>The vector layout this store was bootstrapped against.</summary>
     IdentityVectorLayout Layout { get; }
 
+    /// <summary>
+    ///     Raised after a successful <see cref="RecordObservationAsync"/> durable write
+    ///     commits. The string is the fingerprint id whose <c>observation_count</c> just
+    ///     incremented. Subscribers (FingerprintAbsorptionService in Task 4) wake on this
+    ///     event instead of polling the fingerprints table. Invocation is synchronous on
+    ///     the call-site thread; subscribers must not block.
+    /// </summary>
+    event Action<string>? ObservationAppended;
+
     /// <summary>Idempotent schema bootstrap; safe to call on every operation.</summary>
     Task EnsureInitialisedAsync(CancellationToken ct = default);
 

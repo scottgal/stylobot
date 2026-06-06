@@ -21,6 +21,10 @@ public sealed class NullFingerprintStore : IFingerprintStore
 
     public IdentityVectorLayout Layout { get; } = IdentityVectorLayout.DefaultV1();
 
+#pragma warning disable CS0067 // Event is never used; null store never raises it.
+    public event Action<string>? ObservationAppended;
+#pragma warning restore CS0067
+
     public Task EnsureInitialisedAsync(CancellationToken ct = default) => Task.CompletedTask;
 
     // ── IFingerprintReader ───────────────────────────────────────────────────
