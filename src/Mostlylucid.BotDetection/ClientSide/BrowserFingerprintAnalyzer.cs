@@ -317,6 +317,7 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
 
         // ===== Generate Fingerprint Hash =====
         result.FingerprintHash = GenerateFingerprintHash(data);
+        result.ShapeHash = GenerateShapeHash(data);
 
         // ===== Populate timing probe results =====
         result.LayoutTimeMs = data.LayoutTimeMs;
@@ -341,6 +342,31 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             result.FingerprintConsistencyScore, result.DetectedAutomation ?? "none");
 
         return result;
+    }
+
+    /// <summary>
+    ///     Narrow "shape" hash: canvas + WebGL vendor + WebGL renderer. Excludes
+    ///     the volatile fields (cores, memory, DPR, screen) that change per
+    ///     session for the same visitor. Used as the lookup key in
+    ///     <see cref="Identity.IFingerprintPoolCollisionTracker"/> so collisions
+    ///     across distinct IP+session contexts surface Multilogin / Kameleo
+    ///     curated-profile reuse.
+    /// </summary>
+    private static string? GenerateShapeHash(BrowserFingerprintData data)
+    {
+        var webgl = data.Webgl;
+        var canvas = data.CanvasHash;
+        if (string.IsNullOrEmpty(canvas) && webgl == null) return null;
+
+        var components = new StringBuilder();
+        components.Append(canvas ?? "");
+        components.Append('|');
+        components.Append(webgl?.Vendor ?? "");
+        components.Append('|');
+        components.Append(webgl?.Renderer ?? "");
+        var bytes = Encoding.UTF8.GetBytes(components.ToString());
+        var hash = XxHash64.Hash(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static string GenerateFingerprintHash(BrowserFingerprintData data)

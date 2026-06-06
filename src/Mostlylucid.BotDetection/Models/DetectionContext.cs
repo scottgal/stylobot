@@ -1667,6 +1667,27 @@ public static class SignalKeys
     /// </summary>
     public const string ClientSideBotdKind = "clientside.botd_kind";
 
+    /// <summary>
+    ///     String: narrow "shape" hash of the fingerprint (canvas + WebGL
+    ///     vendor + renderer). Stable per visitor, varies per Multilogin /
+    ///     Kameleo curated profile. Consumed by
+    ///     <c>PoolCollisionContributor</c> as the lookup key for
+    ///     <see cref="Identity.IFingerprintPoolCollisionTracker"/>: same shape
+    ///     observed under N+ distinct (IP, session) contexts within a sliding
+    ///     window = fingerprint-pool collision.
+    /// </summary>
+    public const string ClientSideShapeHash = "clientside.shape_hash";
+
+    /// <summary>
+    ///     Int: count of distinct (IP-hash, session-id) contexts that have
+    ///     produced the same fingerprint shape hash as the current request
+    ///     within the configured window. Written by
+    ///     <c>PoolCollisionContributor</c>. Above the threshold it emits a
+    ///     bot contribution; the raw count surfaces for dashboard and learning
+    ///     trigger consumption.
+    /// </summary>
+    public const string ClientSidePoolCollisionContexts = "clientside.pool_collision_contexts";
+
 
     // ==========================================
     // Cookie behavior signals

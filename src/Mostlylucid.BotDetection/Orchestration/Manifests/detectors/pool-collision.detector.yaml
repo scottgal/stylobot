@@ -1,0 +1,64 @@
+# Pool Collision Detector - catches anti-detect browsers reusing curated
+# fingerprint profiles across customers (Multilogin Mimic, Kameleo Chroma).
+name: PoolCollisionContributor
+priority: 55
+enabled: true
+description: Detects fingerprint pool collisions across distinct IP+session contexts
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: pool_collision
+
+taxonomy:
+  kind: correlator
+  determinism: probabilistic
+  persistence: ephemeral
+
+input:
+  required_signals:
+    - clientside.shape_hash
+  optional_signals:
+    - ip.address
+
+output:
+  signals:
+    - key: clientside.pool_collision_contexts
+      entity_type: integer
+      salience: 0.9
+      description: Number of distinct (IP, session) contexts that have produced the same shape hash in the window
+  produces:
+    - type: botdetection.contribution
+      description: Pool-collision bot contribution above threshold
+
+defaults:
+  weights:
+    bot_signal: 1.4
+
+  confidence:
+    minimum: 0.0
+    maximum: 1.0
+
+  timing:
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Sliding window for the collision count, in minutes. Long enough that a
+    # Multilogin operator running multiple sessions in parallel hits the
+    # threshold (their profile rotates faster than this), short enough that
+    # the in-memory tracker doesn't grow unbounded.
+    window_minutes: 60.0
+    # Distinct-context count above which the collision fires. 3 catches the
+    # typical "two customers ran the same profile" case while staying clear
+    # of "one user across phone + laptop + tablet" (each device produces a
+    # different shape hash).
+    collision_threshold: 3
+    collision_confidence: 0.75
+    collision_weight: 1.4
+
+tags:
+  - identity
+  - collision
+  - cloak

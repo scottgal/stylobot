@@ -453,6 +453,16 @@ public class BrowserFingerprintResult
     ///     classified the visitor as automated.
     /// </summary>
     public string? BotdKind { get; set; }
+
+    /// <summary>
+    ///     Narrow stable "shape" hash for fingerprint-pool collision detection.
+    ///     Composed of canvas hash + WebGL vendor + WebGL renderer -- the high-
+    ///     entropy fields that are stable per user but vary per Multilogin /
+    ///     Kameleo profile. Volatile fields (cores, memory, DPR) deliberately
+    ///     excluded so the hash doesn't drift on the same visitor across
+    ///     sessions / network conditions.
+    /// </summary>
+    public string? ShapeHash { get; set; }
 }
 
 /// <summary>

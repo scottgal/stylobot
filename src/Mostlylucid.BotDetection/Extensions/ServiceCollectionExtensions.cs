@@ -14,6 +14,7 @@ using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Detectors;
+using Mostlylucid.BotDetection.Identity;
 // LlmDetector removed - now in Mostlylucid.BotDetection.Llm.Ollama/LlamaSharp packages
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Licensing;
@@ -985,6 +986,16 @@ public static class ServiceCollectionExtensions
         // Resource waterfall detection - document-to-asset ratio analysis (priority 22)
         services.AddSingleton<IContributingDetector, ResourceWaterfallContributor>();
         // Behavioral (basic + advanced statistical) pattern detection - merged single contributor
+        // Identity-layer fingerprint-pool collision tracker (Bonus A).
+        // Subclass of WriteBehindLfuStore<TKey, TValue, TWriteOp>: hot
+        // ConcurrentDictionary tier + SQLite-backed durable tier in a
+        // separate pool_collisions.db file. The init service creates the
+        // schema at startup; the store itself is the singleton everyone
+        // injects via IFingerprintPoolCollisionTracker.
+        services.TryAddSingleton<SqlitePoolCollisionStore>();
+        services.TryAddSingleton<IFingerprintPoolCollisionTracker>(sp => sp.GetRequiredService<SqlitePoolCollisionStore>());
+        services.AddHostedService<PoolCollisionInitService>();
+        services.AddSingleton<IContributingDetector, PoolCollisionContributor>();
         // Advanced fingerprinting detectors (Wave 0 - network/protocol layer)
         services.TryAddSingleton<Ja3ReferenceIndex>();
         services.TryAddSingleton<IJa3ReferenceIndex>(sp => sp.GetRequiredService<Ja3ReferenceIndex>());
