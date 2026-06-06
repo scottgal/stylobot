@@ -90,7 +90,13 @@
    middleware injects elsewhere; it no longer drives a banner here. *@
 
 <!-- Main content -->
-<main class="max-w-7xl mx-auto px-2 py-4">
+<div class="drawer lg:drawer-open">
+    <input id="sb-nav-drawer" type="checkbox" class="drawer-toggle" />
+    <div class="drawer-content flex flex-col">
+        <label for="sb-nav-drawer" class="btn btn-ghost btn-sm self-start lg:hidden m-2" aria-label="Open dashboard navigation">
+            <i class="bx bx-menu text-lg"></i>
+        </label>
+        <main class="max-w-7xl mx-auto px-2 py-4 w-full">
 
         <!-- Compact metric strip + Your Detection pill (single row, ~48px instead of ~360px).
              The old two-column grid (sb-summary-stats card + license/your-detection card) ate the
@@ -491,7 +497,13 @@
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Investigate.cshtml", Model.Investigation)
         }
 
-    </main>
+        </main>
+    </div>
+    <div class="drawer-side z-40">
+        <label for="sb-nav-drawer" class="drawer-overlay" aria-label="Close navigation"></label>
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_LeftNav.cshtml", Model)
+    </div>
+</div>
 
     <!-- Policy modal: FOSS config snippet (globally available, triggered from endpoint rows and detail panel) -->
     <dialog id="sb-policy-modal" class="modal">
