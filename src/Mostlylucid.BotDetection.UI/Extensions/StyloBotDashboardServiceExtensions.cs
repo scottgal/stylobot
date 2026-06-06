@@ -352,6 +352,13 @@ public static class StyloBotDashboardServiceExtensions
             }
         }
 
+        // Left-nav row registry. Composes FossDashboardGroups + any IDashboardPack
+        // singletons that packs (commercial or otherwise) register alongside their
+        // IMonitoringPack registration. Singleton because the row set is stable
+        // for the process lifetime.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.IDashboardRowRegistry,
+            Mostlylucid.BotDetection.UI.Dashboard.DashboardRowRegistry>();
+
         // LLM result callback for background classification coordinator
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
 
