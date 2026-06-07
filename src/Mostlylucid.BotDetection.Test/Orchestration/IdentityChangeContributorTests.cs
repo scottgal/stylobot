@@ -31,7 +31,9 @@ public class IdentityChangeContributorTests
         string asn,
         string uaFamily,
         bool isDatacenter = false,
-        bool isVpn = false)
+        bool isVpn = false,
+        string? shapeHash = null,
+        string? botdKind = null)
     {
         var ctx = new DefaultHttpContext();
         ctx.Connection.RemoteIpAddress = IPAddress.Parse("1.2.3.4");
@@ -44,6 +46,8 @@ public class IdentityChangeContributorTests
             [SignalKeys.IpIsDatacenter] = isDatacenter,
             [SignalKeys.GeoIsVpn] = isVpn
         };
+        if (shapeHash != null) signals[SignalKeys.ClientSideShapeHash] = shapeHash;
+        if (botdKind != null) signals[SignalKeys.ClientSideBotdKind] = botdKind;
         return new BlackboardState
         {
             HttpContext = ctx,
@@ -153,6 +157,87 @@ public class IdentityChangeContributorTests
     }
 
     [Fact]
+    public async Task ShapeHashChanged_FiresRiskSignalAndReason()
+    {
+        // Multilogin / Kameleo profile swap: same fingerprint id (cookie /
+        // session-derived) but the canvas+WebGL triple flipped because the
+        // operator rotated to a different profile in the anti-detect browser's
+        // database. This is the strongest single drift signal.
+        var cache = new FingerprintDimSnapshotCache();
+        var c = BuildContributor(cache);
+
+        await c.ContributeAsync(NewState("fp-1", "US", "AS15169", "Chrome", shapeHash: "aaaaaaaabbbbbbbb"), default);
+        var state2 = NewState("fp-1", "US", "AS15169", "Chrome", shapeHash: "ccccccccdddddddd");
+        var contributions = await c.ContributeAsync(state2, default);
+
+        Assert.NotEmpty(contributions);
+        Assert.True((bool)state2.Signals[SignalKeys.RiskShapeHashChanged]);
+        Assert.Contains("shape hash", (string)state2.Signals[SignalKeys.RiskSuspiciousChangeReason]);
+    }
+
+    [Fact]
+    public async Task BotdKindChanged_FiresRiskSignalAndReason()
+    {
+        // Same identity but BotD's verdict shifted: framework swap under the
+        // same account is rare for legitimate operators.
+        var cache = new FingerprintDimSnapshotCache();
+        var c = BuildContributor(cache);
+
+        await c.ContributeAsync(NewState("fp-1", "US", "AS15169", "Chrome", botdKind: "selenium"), default);
+        var state2 = NewState("fp-1", "US", "AS15169", "Chrome", botdKind: "puppeteer");
+        var contributions = await c.ContributeAsync(state2, default);
+
+        Assert.NotEmpty(contributions);
+        Assert.True((bool)state2.Signals[SignalKeys.RiskBotdKindChanged]);
+        Assert.Contains("BotD kind", (string)state2.Signals[SignalKeys.RiskSuspiciousChangeReason]);
+    }
+
+    [Fact]
+    public async Task ShapeHashAbsentOnEitherSide_NoFalsePositiveDrift()
+    {
+        // The client-side beacon doesn't always fire (e.g. adblocker, slow
+        // tab close before beacon send). When EITHER the prior or the current
+        // observation lacks a shape hash, the drift check must skip cleanly
+        // -- absence is not a change. Same defensive pattern as the country /
+        // ASN / UA family checks.
+        var cache = new FingerprintDimSnapshotCache();
+        var c = BuildContributor(cache);
+
+        // Prior carries shape hash, current does not -- no fire.
+        await c.ContributeAsync(NewState("fp-1", "US", "AS15169", "Chrome", shapeHash: "aaaaaaaabbbbbbbb"), default);
+        var state2 = NewState("fp-1", "US", "AS15169", "Chrome");  // no shape hash
+        var contributions = await c.ContributeAsync(state2, default);
+
+        Assert.Empty(contributions);
+        Assert.False(state2.Signals.ContainsKey(SignalKeys.RiskShapeHashChanged));
+    }
+
+    [Fact]
+    public async Task ShapeHashDriftAlone_StrongerThanUaFamilyDriftAlone()
+    {
+        // Calibration assertion: shape hash drift weight (0.40) > UA family
+        // drift weight (0.30). If someone tunes them out of order, this test
+        // catches it. Reflects the durability argument: canvas+WebGL is
+        // hardware-derived; UA-CH is trivially spoofable.
+        var cacheShape = new FingerprintDimSnapshotCache();
+        var cShape = BuildContributor(cacheShape);
+        await cShape.ContributeAsync(NewState("fp-1", "US", "AS15169", "Chrome", shapeHash: "aaaaaaaabbbbbbbb"), default);
+        var sShape = NewState("fp-1", "US", "AS15169", "Chrome", shapeHash: "ccccccccdddddddd");
+        await cShape.ContributeAsync(sShape, default);
+        var shapeScore = (double)sShape.Signals[SignalKeys.RiskSuspiciousChangeScore];
+
+        var cacheUa = new FingerprintDimSnapshotCache();
+        var cUa = BuildContributor(cacheUa);
+        await cUa.ContributeAsync(NewState("fp-1", "US", "AS15169", "Chrome"), default);
+        var sUa = NewState("fp-1", "US", "AS15169", "Firefox");
+        await cUa.ContributeAsync(sUa, default);
+        var uaScore = (double)sUa.Signals[SignalKeys.RiskSuspiciousChangeScore];
+
+        Assert.True(shapeScore > uaScore,
+            $"Shape hash drift score {shapeScore} should exceed UA family drift score {uaScore}");
+    }
+
+    [Fact]
     public async Task IsolatedFingerprints_DoNotShareBaseline()
     {
         // fp-A baseline in US; fp-B's first request in RU must be treated as
@@ -181,6 +266,8 @@ public class IdentityChangeContributorTests
                 ["asn_change_weight"] = 0.20,
                 ["ua_family_change_weight"] = 0.30,
                 ["infra_introduced_weight"] = 0.25,
+                ["shape_hash_change_weight"] = 0.40,
+                ["botd_kind_change_weight"] = 0.20,
                 ["contribution_confidence"] = 0.2
             }
         };

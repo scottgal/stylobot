@@ -17,7 +17,15 @@ public sealed class FingerprintDimSnapshotCache
         string UaFamily,
         bool IsDatacenter,
         bool IsTorOrVpn,
-        DateTimeOffset LastSeenUtc);
+        DateTimeOffset LastSeenUtc,
+        // Bonus A: canvas + WebGL "shape" hash. Hardware-derived, effectively
+        // immutable for real users; under the same fingerprint id, a change
+        // is the canonical Multilogin / Kameleo profile-swap signal.
+        string ShapeHash = "",
+        // BotD verdict ("selenium", "puppeteer", "headless_chrome", ...).
+        // Drift here means the automation framework changed under the same
+        // identity, which is rare for legitimate operators.
+        string BotdKind = "");
 
     private readonly ConcurrentDictionary<string, DimSnapshot> _snapshots = new(StringComparer.Ordinal);
     private static readonly TimeSpan SnapshotTtl = TimeSpan.FromHours(24);

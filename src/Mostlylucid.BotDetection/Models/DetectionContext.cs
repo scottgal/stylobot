@@ -1552,6 +1552,28 @@ public static class SignalKeys
     /// <summary>Boolean: this request appears from a datacenter / Tor IP but prior observations did not - infrastructure shift on the same identity, often the first observable when an API key gets exfiltrated to a botnet.</summary>
     public const string RiskInfrastructureIntroduced = "risk.infrastructure_introduced";
 
+    /// <summary>
+    ///     Boolean: this request's <see cref="ClientSideShapeHash"/> differs
+    ///     from the matched fingerprint's prior observation. Stronger than
+    ///     <see cref="RiskUaFamilyChanged"/> because the canvas + WebGL triple
+    ///     is hardware-derived and effectively immutable for a real user --
+    ///     a change under the same fingerprint id is the canonical
+    ///     anti-detect-browser profile-swap signal (Multilogin Mimic and
+    ///     Kameleo Chroma cycle profiles per session, and the profile carries
+    ///     the canvas+WebGL identity).
+    /// </summary>
+    public const string RiskShapeHashChanged = "risk.shape_hash_changed";
+
+    /// <summary>
+    ///     Boolean: this request's <see cref="ClientSideBotdKind"/> differs
+    ///     from the matched fingerprint's prior observation. Medium-strength
+    ///     drift signal -- a fingerprint that BotD classified as
+    ///     <c>selenium</c> last session and <c>puppeteer</c> this session
+    ///     either swapped automation framework (rare for legitimate operators)
+    ///     or is being reused across accounts.
+    /// </summary>
+    public const string RiskBotdKindChanged = "risk.botd_kind_changed";
+
     /// <summary>Double in [0,1]: weighted aggregate of the above flags. Stays well under 1.0 even for "everything changed" - this is an indicator only; FOSS doesn't gate policy on it directly, commercial layers thresholds and alerting on top.</summary>
     public const string RiskSuspiciousChangeScore = "risk.suspicious_change_score";
 

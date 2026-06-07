@@ -26,6 +26,16 @@ public class IdentityChangeContributor : ConfiguredContributorBase, IFoundationC
     private double AsnChangeWeight => GetParam("asn_change_weight", 0.20);
     private double UaFamilyChangeWeight => GetParam("ua_family_change_weight", 0.30);
     private double InfraIntroducedWeight => GetParam("infra_introduced_weight", 0.25);
+    // Shape hash (canvas + WebGL) drift is the strongest single-dim signal --
+    // the value is hardware-derived and effectively immutable for real users.
+    // Under the same fingerprint id, a shift is the canonical anti-detect-
+    // browser profile-swap pattern (Multilogin Mimic / Kameleo Chroma cycle
+    // profiles per session).
+    private double ShapeHashChangeWeight => GetParam("shape_hash_change_weight", 0.40);
+    // BotD verdict drift -- automation framework swapped under the same
+    // identity. Rare for legitimate operators; common in account-shared
+    // scraping pools.
+    private double BotdKindChangeWeight => GetParam("botd_kind_change_weight", 0.20);
     private double ContributionConfidence => GetParam("contribution_confidence", 0.2);
 
     public IdentityChangeContributor(
@@ -62,7 +72,9 @@ public class IdentityChangeContributor : ConfiguredContributorBase, IFoundationC
             IsTorOrVpn: (state.GetSignal<bool?>(SignalKeys.GeoIsTor) ?? false)
                      || (state.GetSignal<bool?>(SignalKeys.GeoIsVpn) ?? false)
                      || (state.GetSignal<bool?>(SignalKeys.ThreatIntelTor) ?? false),
-            LastSeenUtc: DateTimeOffset.UtcNow);
+            LastSeenUtc: DateTimeOffset.UtcNow,
+            ShapeHash: state.GetSignal<string>(SignalKeys.ClientSideShapeHash) ?? string.Empty,
+            BotdKind: state.GetSignal<string>(SignalKeys.ClientSideBotdKind) ?? string.Empty);
 
         var prior = _cache.Get(fingerprintId);
 
@@ -89,12 +101,26 @@ public class IdentityChangeContributor : ConfiguredContributorBase, IFoundationC
         var infraIntroduced = (!prior.IsDatacenter && current.IsDatacenter)
                            || (!prior.IsTorOrVpn && current.IsTorOrVpn);
 
+        // Shape hash (canvas + WebGL) drift. Only meaningful when BOTH prior
+        // AND current carry a shape hash -- absence means the client-side
+        // beacon didn't fire on one of the requests, NOT that the shape
+        // changed. Same guard pattern as the country / asn / ua-family checks.
+        var shapeHashChanged = !string.IsNullOrEmpty(prior.ShapeHash)
+                            && !string.IsNullOrEmpty(current.ShapeHash)
+                            && !string.Equals(prior.ShapeHash, current.ShapeHash, StringComparison.Ordinal);
+
+        // BotD verdict drift -- automation framework swapped under the same id.
+        var botdKindChanged = !string.IsNullOrEmpty(prior.BotdKind)
+                           && !string.IsNullOrEmpty(current.BotdKind)
+                           && !string.Equals(prior.BotdKind, current.BotdKind, StringComparison.OrdinalIgnoreCase);
+
         // Refresh the snapshot under "transition becomes baseline" semantics: the
         // alert fires on the transition itself; subsequent requests on the new
         // dims won't refire until they shift again.
         _cache.Set(fingerprintId, current);
 
-        if (!countryChanged && !asnChanged && !uaFamilyChanged && !infraIntroduced)
+        if (!countryChanged && !asnChanged && !uaFamilyChanged && !infraIntroduced
+            && !shapeHashChanged && !botdKindChanged)
             return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
 
         var reasonParts = new List<string>(4);
@@ -131,6 +157,21 @@ public class IdentityChangeContributor : ConfiguredContributorBase, IFoundationC
             state.WriteSignal(SignalKeys.RiskInfrastructureIntroduced, true);
         }
 
+        if (shapeHashChanged)
+        {
+            score += ShapeHashChangeWeight;
+            // Truncate hashes for log readability; they're 16-hex xxhash64.
+            reasonParts.Add($"shape hash {Truncate(prior.ShapeHash)} -> {Truncate(current.ShapeHash)}");
+            state.WriteSignal(SignalKeys.RiskShapeHashChanged, true);
+        }
+
+        if (botdKindChanged)
+        {
+            score += BotdKindChangeWeight;
+            reasonParts.Add($"BotD kind {prior.BotdKind} -> {current.BotdKind}");
+            state.WriteSignal(SignalKeys.RiskBotdKindChanged, true);
+        }
+
         // Cap at 1.0 even if every dim shifted at once.
         score = Math.Min(1.0, score);
         var reason = string.Join("; ", reasonParts);
@@ -154,4 +195,7 @@ public class IdentityChangeContributor : ConfiguredContributorBase, IFoundationC
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(new[] { contribution });
     }
+
+    private static string Truncate(string s) =>
+        s.Length > 8 ? s[..8] : s;
 }

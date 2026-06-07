@@ -318,8 +318,34 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.RiskAsnChanged] = signals.ContainsKey(Models.SignalKeys.RiskAsnChanged),
                 [Models.SignalKeys.RiskUaFamilyChanged] = signals.ContainsKey(Models.SignalKeys.RiskUaFamilyChanged),
                 [Models.SignalKeys.RiskInfrastructureIntroduced] = signals.ContainsKey(Models.SignalKeys.RiskInfrastructureIntroduced),
+                // Bonus A + BotD drift dims added by IdentityChangeContributor.
+                // ShapeHash drift is the strongest single-dim signal (canvas+WebGL
+                // is hardware-derived). BotdKind drift catches automation-framework
+                // swap under the same identity.
+                [Models.SignalKeys.RiskShapeHashChanged] = signals.ContainsKey(Models.SignalKeys.RiskShapeHashChanged),
+                [Models.SignalKeys.RiskBotdKindChanged] = signals.ContainsKey(Models.SignalKeys.RiskBotdKindChanged),
                 [Models.SignalKeys.RiskSuspiciousChangeScore] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeScore),
                 [Models.SignalKeys.RiskSuspiciousChangeReason] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeReason),
+                // This session's client-side beacon signals. ClientSideContributor
+                // (priority 18) writes them from the stored BrowserFingerprintResult;
+                // probes here surface them in dashboards / rig responses so operators
+                // can audit which probes fired without reading the full Signals dict.
+                [Models.SignalKeys.ClientSideConnectionType] = signals.ContainsKey(Models.SignalKeys.ClientSideConnectionType),
+                [Models.SignalKeys.ClientSideIceNoSrflx] = signals.ContainsKey(Models.SignalKeys.ClientSideIceNoSrflx),
+                [Models.SignalKeys.ClientSideTtsVoiceCount] = signals.ContainsKey(Models.SignalKeys.ClientSideTtsVoiceCount),
+                [Models.SignalKeys.ClientSideBotdKind] = signals.ContainsKey(Models.SignalKeys.ClientSideBotdKind),
+                [Models.SignalKeys.ClientSideShapeHash] = signals.ContainsKey(Models.SignalKeys.ClientSideShapeHash),
+                [Models.SignalKeys.ClientSidePoolCollisionContexts] = signals.ContainsKey(Models.SignalKeys.ClientSidePoolCollisionContexts),
+                [Models.SignalKeys.ClientSideMouseAllIntegerCoords] = signals.ContainsKey(Models.SignalKeys.ClientSideMouseAllIntegerCoords),
+                [Models.SignalKeys.ClientSideMouseTimingCv] = signals.ContainsKey(Models.SignalKeys.ClientSideMouseTimingCv),
+                // ClientMouseEvents was a ghost signal until Bonus B; probe makes the
+                // fill explicit so a future regression that stops writing it is loud.
+                [Models.SignalKeys.ClientMouseEvents] = signals.ContainsKey(Models.SignalKeys.ClientMouseEvents),
+                // TLS subset / version-delta signals from Plan 2a. Probe-false when
+                // no JA3 forwarding is configured; probe-true confirms the corpus
+                // checks reached the comparison.
+                ["tls.cipher_subset_of_real_chrome"] = signals.ContainsKey("tls.cipher_subset_of_real_chrome"),
+                ["tls.version_delta_from_ua"] = signals.ContainsKey("tls.version_delta_from_ua"),
                 // Async coordination signals. IdentityFingerprintFirstSeen fires on the allocate path
                 // (brand-new fingerprint row); IdentityFingerprintObservationCountCrossed fires when
                 // observation_count crosses a configured threshold; IdentityFingerprintMaturityCrossed

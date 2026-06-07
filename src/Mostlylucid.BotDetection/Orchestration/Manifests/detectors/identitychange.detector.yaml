@@ -127,6 +127,17 @@ defaults:
     asn_change_weight: 0.20
     ua_family_change_weight: 0.30
     infra_introduced_weight: 0.25
+    # Shape hash (canvas + WebGL triple) drift. Highest single-dim weight because
+    # the value is hardware-derived and effectively immutable for real users; a
+    # shift under the same fingerprint id is the canonical anti-detect-browser
+    # profile-swap pattern (Multilogin Mimic / Kameleo Chroma cycle profiles per
+    # session, each profile owns a distinct canvas+WebGL identity).
+    shape_hash_change_weight: 0.40
+    # BotD verdict drift (automation framework swapped under the same identity).
+    # Medium weight: legitimate operators rarely swap BotD-flagged frameworks
+    # mid-session, but BotD does have non-trivial false-positive rates so the
+    # signal alone shouldn't tip policy.
+    botd_kind_change_weight: 0.20
     # Confidence scalar for the indicator contribution - final confidence is
     # contribution_confidence * suspicious_change_score, so even "everything
     # changed" caps the contribution at 0.2. FOSS deliberately does not block
