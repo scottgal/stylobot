@@ -236,10 +236,16 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     ///     on host bootstrapping order (DB connection pool, schema init).</summary>
     public virtual Task WarmFromDurableTierAsync(CancellationToken ct = default) => Task.CompletedTask;
 
+    private int _disposed;
+
     public void Dispose()
     {
+        // Idempotent: DI containers can dispose a singleton twice when scope and
+        // root-provider teardown overlap. The second Cancel() would throw
+        // ObjectDisposedException because the first call already disposed the CTS.
+        if (System.Threading.Interlocked.Exchange(ref _disposed, 1) != 0) return;
         try { _writeQueue.Writer.TryComplete(); } catch { }
-        _shutdownCts.Cancel();
+        try { _shutdownCts.Cancel(); } catch (ObjectDisposedException) { }
         try { _drainer.Wait(TimeSpan.FromSeconds(5)); } catch { }
         _shutdownCts.Dispose();
     }
