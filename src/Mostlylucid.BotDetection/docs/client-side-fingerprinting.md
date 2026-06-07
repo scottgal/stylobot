@@ -2,6 +2,8 @@
 
 JavaScript-based browser integrity checking that detects headless browsers and automation frameworks.
 
+> **For the full integration umbrella** (scripts, server-side tag helpers, SDKs, end-to-end wiring scenarios) see [client-integration.md](client-integration.md). This document focuses on the *fingerprinting mechanism itself*.
+
 ## How It Works
 
 1. Server generates a signed token (like XSRF) for each page load
