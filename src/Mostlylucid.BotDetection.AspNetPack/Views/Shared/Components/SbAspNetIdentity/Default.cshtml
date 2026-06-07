@@ -1,0 +1,30 @@
+@model Mostlylucid.BotDetection.AspNetPack.Ui.AspNetIdentityViewModel
+
+<div class="sb-aspnet-identity" data-testid="sb-aspnet-identity">
+    <div class="sb-aspnet-identity-header">
+        <h3>Identity</h3>
+    </div>
+    <dl class="sb-aspnet-identity-grid">
+        <dt>Authenticated</dt>
+        <dd>@(Model.IsAuthenticated ? "yes" : "no")</dd>
+        <dt>Name</dt>
+        <dd>@Model.Name</dd>
+        <dt>Auth type</dt>
+        <dd>@Model.AuthType</dd>
+    </dl>
+    @if (Model.Claims.Count > 0)
+    {
+        <details>
+            <summary>Claims (@Model.Claims.Count)</summary>
+            <table class="table table-sm">
+                <thead><tr><th>Type</th><th>Value</th></tr></thead>
+                <tbody>
+                @foreach (var c in Model.Claims)
+                {
+                    <tr><td><code>@c.Type</code></td><td>@c.Value</td></tr>
+                }
+                </tbody>
+            </table>
+        </details>
+    }
+</div>

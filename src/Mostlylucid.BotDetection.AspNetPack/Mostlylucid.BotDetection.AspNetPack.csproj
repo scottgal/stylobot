@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>preview</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+        <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+        <IsPackable>true</IsPackable>
+        <EnableDefaultContentItems>false</EnableDefaultContentItems>
+
+        <!-- Package metadata -->
+        <PackageId>Mostlylucid.BotDetection.AspNetPack</PackageId>
+        <MinVerTagPrefix>botdetection-aspnetpack-v</MinVerTagPrefix>
+        <Authors>Mostlylucid</Authors>
+        <Description>Read-only ASP.NET inventory + identity dashboard surfaces for the Stylobot FOSS dashboard. Ships IAspNetEndpointInventory (in-process EndpointDataSource enumeration), the SbAspNetEndpoints / SbAspNetIdentity view components, and an IDashboardPack contribution. No write surfaces -- those live in the commercial pack.</Description>
+        <PackageTags>bot-detection;ui;dashboard;aspnetcore;inventory</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+    </PropertyGroup>
+
+    <!-- Mirrors the UI csproj pattern for Razor view compilation in a symlink-tolerant way. -->
+    <ItemGroup>
+        <Content Include="$(MSBuildProjectDirectory)\Views\**\*.cshtml">
+            <TargetPath>Views\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+        </Content>
+    </ItemGroup>
+
+    <!-- Expose internals to the test project -->
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+            <_Parameter1>Mostlylucid.BotDetection.Test</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,32 @@
+@model Mostlylucid.BotDetection.AspNetPack.Ui.AspNetEndpointsViewModel
+
+<div class="sb-aspnet-endpoints" data-testid="sb-aspnet-endpoints">
+    <div class="sb-aspnet-endpoints-header">
+        <h3>Endpoints inventory</h3>
+        <span class="sb-aspnet-endpoints-count">@Model.Endpoints.Count routes</span>
+    </div>
+    @if (Model.Endpoints.Count == 0)
+    {
+        <p class="sb-empty">No endpoints registered in this process.</p>
+    }
+    else
+    {
+        <table class="table table-sm sb-aspnet-endpoints-table">
+            <thead>
+                <tr><th>Method</th><th>Route</th><th>Controller</th><th>Action</th><th>Authorize</th></tr>
+            </thead>
+            <tbody>
+            @foreach (var ep in Model.Endpoints)
+            {
+                <tr>
+                    <td><code>@ep.Method</code></td>
+                    <td><code>@ep.RoutePattern</code></td>
+                    <td>@ep.Controller</td>
+                    <td>@ep.Action</td>
+                    <td>@(ep.Authorize.Count == 0 ? "anonymous" : string.Join(", ", ep.Authorize))</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</div>
