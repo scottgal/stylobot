@@ -218,6 +218,27 @@ app.MapPost("/api/transfer", (HttpContext ctx) =>
 | `geo.locale_mismatch` | GeoContributor | Accept-Language doesn't match country |
 | `geo.timezone_mismatch` | GeoContributor | Client timezone doesn't match geo location |
 
+### Cloak-browser probes (client-side beacon + TLS)
+
+| Key | Source | Description |
+|-----|--------|-------------|
+| `clientside.connection_type` | ClientSideContributor | `navigator.connection.type` value (mobile UA + ethernet = damru) |
+| `clientside.ice_no_srflx` | ClientSideContributor | WebRTC ICE probe saw no srflx candidate (UDP egress blocked) |
+| `clientside.tts_voice_count` | ClientSideContributor | `speechSynthesis.getVoices()` count (zero on Android = fresh container) |
+| `clientside.botd_kind` | ClientSideContributor | FingerprintJS BotD verdict kind (opt-in; default off) |
+| `clientside.shape_hash` | ClientSideContributor | xxHash64 of canvas + WebGL vendor + renderer |
+| `clientside.pool_collision_contexts` | PoolCollisionContributor | Distinct (IP, session) count for the same shape hash in window |
+| `clientside.mouse_all_integer_coords` | ClientSideContributor | All sampled mousemoves had integer coords (Kameleo) |
+| `clientside.mouse_timing_cv` | ClientSideContributor | Coefficient of variation of mouse-event intervals |
+| `tls.cipher_subset_of_real_chrome` | TlsFingerprintContributor | Observed JA3 ciphers are a strict subset of the reference |
+| `tls.cipher_subset_missing_count` | TlsFingerprintContributor | How many ciphers are missing from the subset |
+| `tls.version_delta_from_ua` | TlsFingerprintContributor | UA-claim minus JA3-matched browser major version |
+| `risk.shape_hash_changed` | IdentityChangeContributor | Shape hash changed under the same fingerprint id (profile swap) |
+| `risk.botd_kind_changed` | IdentityChangeContributor | BotD kind changed under the same fingerprint id |
+| `risk.suspicious_change_score` | IdentityChangeContributor | Weighted aggregate of all risk dim changes |
+
+See [cloak-detection.md](cloak-detection.md) for the full probe-by-probe reference, thresholds, configuration, and what each probe targets.
+
 For a complete list of all signal keys, see the `SignalKeys` class in `Mostlylucid.BotDetection.Models.DetectionContext`.
 
 ## GeoDetection Integration

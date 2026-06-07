@@ -791,13 +791,30 @@ See [behavioral-analysis.md](behavioral-analysis.md) for details.
       "CollectCanvas": true,
       "CollectAudio": false,
       "MinIntegrityScore": 70,
-      "HeadlessThreshold": 0.5
+      "HeadlessThreshold": 0.5,
+      "IceStunServerUrl": "stun:stun.l.google.com:19302",
+      "Botd": {
+        "Enabled": false,
+        "ScriptUrl": "https://openfpcdn.io/botd/v2"
+      }
+    },
+    "TlsCorpus": {
+      "Enabled": false,
+      "RefreshUrl": "",
+      "PublicKey": "",
+      "RefreshInterval": "06:00:00",
+      "MaxEnvelopeBytes": 262144
     }
   }
 }
 ```
 
-See [client-side-fingerprinting.md](client-side-fingerprinting.md) for details.
+- `IceStunServerUrl`: STUN server used by the client-side WebRTC ICE probe. Default is Google's public STUN; privacy-sensitive deployments should self-host coturn. Empty string disables the probe.
+- `Botd.Enabled`: opt-in FingerprintJS BotD integration via dynamic import.
+- `Botd.ScriptUrl`: where the client-side script `import()`s BotD from; vendor as `/lib/botd.min.js` to keep your CSP free of third-party origins.
+- `TlsCorpus.*`: opt-in Ed25519-signed JA3 reference corpus refresh service. With `Enabled = false` the embedded baseline corpus is the only source. Service refuses to start without `RefreshUrl` *and* a public key (either `PublicKey` or `STYLOBOT_TLS_CORPUS_PUBLIC_KEY` env var). Refresh interval enforces a 5-minute floor.
+
+See [client-side-fingerprinting.md](client-side-fingerprinting.md) and [cloak-detection.md](cloak-detection.md) for details.
 
 ---
 
