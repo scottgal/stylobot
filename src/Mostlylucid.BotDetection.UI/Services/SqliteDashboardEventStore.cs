@@ -20,16 +20,22 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
     private readonly string _connectionString;
     private readonly ILogger<SqliteDashboardEventStore> _logger;
+    private readonly TimeSpan _detectionRetention;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _initialized;
 
     public SqliteDashboardEventStore(
         ILogger<SqliteDashboardEventStore> logger,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IOptions<Configuration.StyloBotDashboardOptions>? dashboardOptions = null)
     {
         _logger = logger;
         _connectionString = DashboardDbPath.GetConnectionString(options.Value);
+        // dashboardOptions is optional because some callers (notably the
+        // detection-only gateway path) don't bind StyloBotDashboardOptions.
+        // Default to the historical 7-day retention when absent.
+        _detectionRetention = dashboardOptions?.Value.DetectionRetention ?? TimeSpan.FromDays(7);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct = default)
@@ -241,10 +247,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 }
             }
 
-            // Prune old detections (keep last 7 days)
+            // Prune old detections per StyloBotDashboardOptions.DetectionRetention
+            // (default 7 days; configurable per host).
             await using var pruneCmd = conn.CreateCommand();
             pruneCmd.CommandText = "DELETE FROM detections WHERE timestamp < @cutoff";
-            pruneCmd.Parameters.AddWithValue("@cutoff", DateTime.UtcNow.AddDays(-7).ToString("O"));
+            pruneCmd.Parameters.AddWithValue("@cutoff",
+                DateTime.UtcNow.Subtract(_detectionRetention).ToString("O"));
             var pruned = await pruneCmd.ExecuteNonQueryAsync(ct);
             if (pruned > 0) _logger.LogDebug("Pruned {Count} old dashboard detections", pruned);
 
