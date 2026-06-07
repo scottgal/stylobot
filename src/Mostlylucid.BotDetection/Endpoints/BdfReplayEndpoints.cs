@@ -344,8 +344,8 @@ public static class BdfReplayEndpoints
                 // TLS subset / version-delta signals from Plan 2a. Probe-false when
                 // no JA3 forwarding is configured; probe-true confirms the corpus
                 // checks reached the comparison.
-                ["tls.cipher_subset_of_real_chrome"] = signals.ContainsKey("tls.cipher_subset_of_real_chrome"),
-                ["tls.version_delta_from_ua"] = signals.ContainsKey("tls.version_delta_from_ua"),
+                [Models.SignalKeys.TlsCipherSubsetOfRealChrome] = signals.ContainsKey(Models.SignalKeys.TlsCipherSubsetOfRealChrome),
+                [Models.SignalKeys.TlsVersionDeltaFromUa] = signals.ContainsKey(Models.SignalKeys.TlsVersionDeltaFromUa),
                 // Async coordination signals. IdentityFingerprintFirstSeen fires on the allocate path
                 // (brand-new fingerprint row); IdentityFingerprintObservationCountCrossed fires when
                 // observation_count crosses a configured threshold; IdentityFingerprintMaturityCrossed

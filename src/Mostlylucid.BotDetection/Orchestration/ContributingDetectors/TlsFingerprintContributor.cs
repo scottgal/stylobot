@@ -345,8 +345,8 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
             var reference = _referenceIndex.GetReference(claim.Browser, claim.Version, claim.Mobile);
             if (reference != null && IsStrictCipherSubset(observedJa3String, reference.Ja3String, out var missing))
             {
-                state.WriteSignal("tls.cipher_subset_of_real_chrome", true);
-                state.WriteSignal("tls.cipher_subset_missing_count", missing);
+                state.WriteSignal(SignalKeys.TlsCipherSubsetOfRealChrome, true);
+                state.WriteSignal(SignalKeys.TlsCipherSubsetMissingCount, missing);
                 contributions.Add(BotContribution(
                     "TLS",
                     $"TLS cipher list is strict subset of real {claim.Browser} {reference.Version} ({missing} ciphers missing)",
@@ -366,7 +366,7 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
                 && match.Mobile == claim.Mobile
                 && (claim.Version - match.Version) >= VersionDeltaMinDelta)
             {
-                state.WriteSignal("tls.version_delta_from_ua", claim.Version - match.Version);
+                state.WriteSignal(SignalKeys.TlsVersionDeltaFromUa, claim.Version - match.Version);
                 contributions.Add(BotContribution(
                     "TLS",
                     $"TLS version delta: UA claims {claim.Browser} {claim.Version} but TLS matches {claim.Browser} {match.Version}",

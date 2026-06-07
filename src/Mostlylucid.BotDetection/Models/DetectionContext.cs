@@ -1720,6 +1720,36 @@ public static class SignalKeys
     public const string ClientSideMouseAllIntegerCoords = "clientside.mouse_all_integer_coords";
 
     /// <summary>
+    ///     Bool: observed JA3 string is a strict cipher-list subset of the
+    ///     reference JA3 for the UA-claimed browser+version. Written by
+    ///     <see cref="ContributingDetectors.TlsFingerprintContributor"/>'s
+    ///     subset check. The damru cipher-blacklist signal -- catches the
+    ///     entire ~184-variant family with one rule.
+    /// </summary>
+    public const string TlsCipherSubsetOfRealChrome = "tls.cipher_subset_of_real_chrome";
+
+    /// <summary>
+    ///     Int: number of ciphers missing from the observed JA3 versus the
+    ///     reference JA3 for the UA-claimed browser+version. Only meaningful
+    ///     when <see cref="TlsCipherSubsetOfRealChrome"/> is true. Larger
+    ///     values = more aggressive blacklisting (damru ships up to 3
+    ///     missing per profile rotation).
+    /// </summary>
+    public const string TlsCipherSubsetMissingCount = "tls.cipher_subset_missing_count";
+
+    /// <summary>
+    ///     Int: difference between the UA-claimed browser major version and
+    ///     the JA3-matched browser major version (claim minus matched).
+    ///     Positive when UA claims newer Chrome than the TLS fingerprint
+    ///     supports -- the Multilogin Mimic / Kameleo Chroma pattern where
+    ///     the patched Chromium fork's TLS lags Chrome stable by 1-2
+    ///     releases. Written by
+    ///     <see cref="ContributingDetectors.TlsFingerprintContributor"/>'s
+    ///     version-delta check.
+    /// </summary>
+    public const string TlsVersionDeltaFromUa = "tls.version_delta_from_ua";
+
+    /// <summary>
     ///     Double: coefficient of variation of inter-mouse-event timing
     ///     deltas (stddev / mean). Synthesised events show low CV; humans
     ///     run &gt; 0.5. Consumed alongside

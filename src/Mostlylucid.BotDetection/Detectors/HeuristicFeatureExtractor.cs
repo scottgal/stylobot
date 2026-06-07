@@ -396,6 +396,66 @@ public static class HeuristicFeatureExtractor
         // Click fraud signals
         AddNumericSignalFeature(signals, features, SignalKeys.ClickFraudConfidence, "cf:click_fraud_score");
         AddBooleanSignalFeature(signals, features, SignalKeys.ClickFraudIsPaidTraffic, "cf:is_paid_traffic");
+
+        // --- Identity-change risk signals (IdentityChangeContributor) ----------
+        // Per-flag booleans + aggregate numeric. The aggregate is already 0-1
+        // normalised by the contributor's score clamp; the per-flag flags let
+        // the heuristic distinguish "everything drifted at once" (high
+        // suspicious_change_score AND multiple flag bits set) from "just
+        // country flipped" (single flag).
+        AddBooleanSignalFeature(signals, features, SignalKeys.RiskCountryChanged, "sigv:risk_country_changed");
+        AddBooleanSignalFeature(signals, features, SignalKeys.RiskAsnChanged, "sigv:risk_asn_changed");
+        AddBooleanSignalFeature(signals, features, SignalKeys.RiskUaFamilyChanged, "sigv:risk_ua_family_changed");
+        AddBooleanSignalFeature(signals, features, SignalKeys.RiskInfrastructureIntroduced, "sigv:risk_infra_introduced");
+        // Bonus A: shape hash (canvas+WebGL) drift -- strongest single-dim
+        // signal of Multilogin / Kameleo profile swap under stable identity.
+        AddBooleanSignalFeature(signals, features, SignalKeys.RiskShapeHashChanged, "sigv:risk_shape_hash_changed");
+        AddBooleanSignalFeature(signals, features, SignalKeys.RiskBotdKindChanged, "sigv:risk_botd_kind_changed");
+        AddNumericSignalFeature(signals, features, SignalKeys.RiskSuspiciousChangeScore, "sigv:risk_suspicious_change_score");
+
+        // --- Client-side beacon probes (Plans 1, 3a, 3b, 3c, Bonus A, Bonus B,
+        //     BotD integration) -------------------------------------------------
+        // The contributor-level aggregate flag (fp:received / fp:legitimate /
+        // fp:suspicious in ExtractClientSideFingerprintFeatures) collapses every
+        // probe into a single 3-state classifier. The structured features here
+        // let the late heuristic distinguish a Bright Data ICE-blocked headless
+        // verdict from a damru fresh-Redroid TTS-empty verdict, even though
+        // both produce the same fp:suspicious bit.
+        AddBooleanSignalFeature(signals, features, SignalKeys.ClientSideIceNoSrflx, "sigv:ice_no_srflx");
+        AddBooleanSignalFeature(signals, features, SignalKeys.ClientSideMouseAllIntegerCoords, "sigv:mouse_all_integer");
+        // Mouse timing CV: humans ~0.5-1.0, Kameleo synth ~0.0-0.3. AddNumeric
+        // clamps to [0,1] which is right -- a CV above 1.0 only confirms
+        // "definitely human jitter" and saturating there is fine.
+        AddNumericSignalFeature(signals, features, SignalKeys.ClientSideMouseTimingCv, "sigv:mouse_timing_cv");
+        // Mouse events: normalize by 50 (cap of the per-session sample cap in
+        // botdetection.js's mouseStats sampler).
+        AddNormalizedCountFeature(signals, features, SignalKeys.ClientMouseEvents, "sigv:mouse_events", 50f);
+        // TTS voice count: normalize by 20 (typical Android Chrome has 15-30
+        // voices once the TTS engine has booted; damru's fresh Redroid is 0).
+        AddNormalizedCountFeature(signals, features, SignalKeys.ClientSideTtsVoiceCount, "sigv:tts_voice_count", 20f);
+        // Pool collision contexts: distinct (ip, session) seen for the same
+        // shape in the window. Normalize by 5 so threshold-3 collisions land
+        // as 0.6 -- well above the ML's typical 0.3 attention bar.
+        AddNormalizedCountFeature(signals, features, SignalKeys.ClientSidePoolCollisionContexts, "sigv:pool_collision_contexts", 5f);
+        // String enums: BotD kind ("selenium", "puppeteer", "headless_chrome", ...)
+        // and connection type (wifi/cellular/ethernet) get one feature per
+        // observed value via AddStringEnumFeature so the model can learn
+        // per-framework / per-link-type priors.
+        AddStringEnumFeature(signals, features, SignalKeys.ClientSideBotdKind, "sigv:botd_kind");
+        AddStringEnumFeature(signals, features, SignalKeys.ClientSideConnectionType, "sigv:conn_type");
+        // Shape hash itself has too high a cardinality to learn priors over,
+        // but presence is informative: "did the beacon include canvas+WebGL?".
+        if (signals.ContainsKey(SignalKeys.ClientSideShapeHash))
+            features["sigv:shape_hash_present"] = 1f;
+
+        // --- TLS corpus checks (Plan 2a) --------------------------------------
+        // The damru cipher subset is a binary flag; the version delta is a
+        // count of versions behind (normalize by 10 -- delta beyond that is
+        // either a completely different browser or corpus staleness, neither
+        // of which we want to magnify).
+        AddBooleanSignalFeature(signals, features, SignalKeys.TlsCipherSubsetOfRealChrome, "sigv:tls_cipher_subset");
+        AddNormalizedCountFeature(signals, features, SignalKeys.TlsCipherSubsetMissingCount, "sigv:tls_cipher_subset_missing", 5f);
+        AddNormalizedCountFeature(signals, features, SignalKeys.TlsVersionDeltaFromUa, "sigv:tls_version_delta", 10f);
     }
 
     /// <summary>
