@@ -1,5 +1,35 @@
+@using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
+@*
+    B7: /dashboard/policies surface. Decode the scope from the URL (?scope=)
+    so deep-links round-trip; default to Wildcard for the bare URL. The
+    legacy SbPoliciesTab view component rendered a read-only summary of
+    detection + rate-limit options; SbPolicyStack subsumes that surface
+    with breadcrumb + filter + sort + explainer + live updates.
+
+    The filter / sort tokens ride the same query string the SbPolicyStack
+    rows-url builds, so a refresh of /dashboard/policies?scope=...&policystack-filter=...
+    re-renders with the same view the user left.
+*@
 @{
-    var bp = Model.BasePath;
+    var scopeParam = Context.Request.Query["scope"].ToString();
+    var scope = PolicyScopeUrl.Decode(scopeParam);
+    var filter = Context.Request.Query["policystack-filter"].ToString();
+    var sortKey = Context.Request.Query["policystack-sort"].ToString();
+    var sortDir = Context.Request.Query["policystack-dir"].ToString();
 }
-<sb-policies-tab />
+<section class="dashboard-policies">
+    @await Component.InvokeAsync("SbPolicyStack", new
+    {
+        scope = scope,
+        embed = PolicyStackEmbed.Full,
+        activeTab = "effective",
+        aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24),
+        canEdit = false,
+        filterExpression = string.IsNullOrWhiteSpace(filter) ? null : filter,
+        sortKey = string.IsNullOrWhiteSpace(sortKey) ? null : sortKey,
+        sortDir = string.IsNullOrWhiteSpace(sortDir) ? null : sortDir
+    })
+</section>

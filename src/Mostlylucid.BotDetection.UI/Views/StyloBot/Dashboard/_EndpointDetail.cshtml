@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @using System.Text.Json
@@ -401,5 +402,31 @@
                 </div>
             }
         </div>
+
+        @* B8a: Effective policy stack for this endpoint scope. Domain falls
+           back to the request host when the model doesn't carry one (the
+           detail page only resolves the verb + path; the rule scope on
+           the matcher side uses Host + PathTemplate). Wildcard fallback
+           keeps the panel rendering even on hosts where Request.Host is
+           empty (TestServer with no base address, etc.) so the section
+           never disappears silently. *@
+        {
+            var policyHost = Context?.Request?.Host.Host ?? string.Empty;
+            var pathTemplate = $"{Model.Method} {Model.Path}";
+            PolicyScope endpointScope = string.IsNullOrEmpty(policyHost)
+                ? new PolicyScope.Wildcard()
+                : new PolicyScope.Endpoint(policyHost, policyHost, pathTemplate);
+            <div class="mt-3 pt-3 border-t border-base-300/40 dashboard-endpoint-policy" data-endpoint="@pathTemplate">
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Effective policy stack</div>
+                @await Component.InvokeAsync("SbPolicyStack", new
+                {
+                    scope = endpointScope,
+                    embed = PolicyStackEmbed.Full,
+                    activeTab = "effective",
+                    aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24),
+                    canEdit = false
+                })
+            </div>
+        }
     }
 </div>

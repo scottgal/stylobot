@@ -1,10 +1,40 @@
+@using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @{
     var bp = Model.BasePath;
+    @* B8a: derive a wildcard-or-host-scoped policy stack for the page.
+       The endpoint rows below drill into _EndpointDetail.cshtml which now
+       carries its own per-endpoint SbPolicyStack; this top-of-page panel
+       is the "policies effective across every endpoint on this host" view
+       so the operator can see the inheritance chain before drilling. *@
+    var host = Context?.Request?.Host.Host ?? string.Empty;
+    PolicyScope pageScope = string.IsNullOrEmpty(host)
+        ? new PolicyScope.Wildcard()
+        : new PolicyScope.Domain(host);
+    var policyRowsUrl = $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(pageScope)}&tab=effective";
 }
 <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
     <div class="lg:col-span-3">
         <sb-endpoints-list />
+        @* Lazy-loaded host-scoped policy stack. <details>/hx-get pattern lets
+           operators open it without paying the render cost up-front. The
+           sibling marker classes are what the integration smoke tests grep
+           for. *@
+        <details class="dashboard-endpoint-policy mt-4" data-endpoint="@host">
+            <summary class="cursor-pointer text-xs font-semibold text-base-content/60 hover:text-base-content/80 py-2 px-3 rounded-lg border"
+                     style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                Show effective policy stack for this site
+            </summary>
+            <div class="lazy-policy-stack mt-2"
+                 hx-get="@policyRowsUrl"
+                 hx-trigger="toggle once from:closest details[open]"
+                 hx-swap="innerHTML"
+                 hx-target="this">
+                <em class="text-xs text-base-content/40">Loading policy…</em>
+            </div>
+        </details>
     </div>
     <div class="lg:col-span-2">
         <div id="endpoint-detail-panel"
