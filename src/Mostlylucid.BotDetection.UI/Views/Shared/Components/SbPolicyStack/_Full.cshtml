@@ -46,6 +46,9 @@
         }
     </header>
 
+    @await Html.PartialAsync("Components/SbPolicyStack/_FilterBar", Model)
+    @await Html.PartialAsync("Components/SbPolicyStack/_AggregateStrip", Model)
+
     <div class="sb-policy-stack-body">
         @if (effectiveActive)
         {

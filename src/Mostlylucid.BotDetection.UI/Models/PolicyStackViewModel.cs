@@ -22,6 +22,9 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="ScopeHash">Stable 16-hex-char SHA-256 prefix of the scope. B6 uses this as the SignalR group name.</param>
 /// <param name="StackGroups">Ancestor-first scope groupings for the Stack tab. Empty when the Stack tab isn't active.</param>
 /// <param name="Conflicts">Flat list of every conflict produced by the analyzer; per-group copies live on each <see cref="PolicyStackScopeGroupViewModel.Conflicts"/>.</param>
+/// <param name="Filter">Parsed filter state from <c>?policystack-filter=</c>; <see cref="PolicyStackFilter.Empty"/> when no filter is active.</param>
+/// <param name="Sort">Parsed sort state from <c>?policystack-sort=/?policystack-dir=</c>; <see cref="PolicyStackSort.Default"/> when not specified.</param>
+/// <param name="AggregateStrip">Aggregate strip summarising the post-filter visible row set; <c>null</c> for <see cref="PolicyStackEmbed.StatusBadge"/>.</param>
 public sealed record PolicyStackViewModel(
     PolicyScope Scope,
     IReadOnlyList<PolicyScope> BreadcrumbPath,
@@ -35,4 +38,7 @@ public sealed record PolicyStackViewModel(
     DateTimeOffset? LatestEditAt,
     string ScopeHash,
     IReadOnlyList<PolicyStackScopeGroupViewModel> StackGroups,
-    IReadOnlyList<PolicyConflictViewModel> Conflicts);
+    IReadOnlyList<PolicyConflictViewModel> Conflicts,
+    PolicyStackFilter Filter,
+    PolicyStackSort Sort,
+    PolicyStackAggregateStrip? AggregateStrip);

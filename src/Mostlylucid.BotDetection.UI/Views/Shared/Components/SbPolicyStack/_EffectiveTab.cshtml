@@ -1,13 +1,52 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model PolicyStackViewModel
+@*
+    Effective tab body. Sortable column headers render above the rule list;
+    they emit data-sort-key / data-sort-dir for B6 to pick up. The actual
+    hx-get wiring is deliberately NOT on the buttons -- B6 will attach it
+    once the URL contract is wired through the dashboard's HTMX layer.
+*@
 @if (Model.Rows.Count == 0)
 {
     <div class="sb-policy-stack-empty" data-policy-stack-empty="true">
-        No effective rules at this scope.
+        @(Model.Filter.IsActive
+            ? "No rules match the current filter."
+            : "No effective rules at this scope.")
     </div>
 }
 else
 {
+    <div class="sb-policy-stack-sort-headers" role="row" data-policy-stack-sort-headers="true">
+        @{
+            var headers = new (PolicyStackSortKey Key, string Label)[]
+            {
+                (PolicyStackSortKey.Priority, "Priority"),
+                (PolicyStackSortKey.Triggers, "Triggers"),
+                (PolicyStackSortKey.P99Latency, "p99"),
+                (PolicyStackSortKey.PercentBlocked, "% blocked"),
+                (PolicyStackSortKey.LastEdited, "Edited")
+            };
+        }
+        @foreach (var header in headers)
+        {
+            var isActive = Model.Sort.Key == header.Key;
+            // First click on a column header sorts ascending; subsequent
+            // clicks on the SAME column toggle direction. Other columns
+            // always reset to ascending.
+            var nextDir = isActive && Model.Sort.Direction == PolicyStackSortDir.Asc
+                ? PolicyStackSortDir.Desc
+                : PolicyStackSortDir.Asc;
+            var nextSort = new PolicyStackSort(header.Key, nextDir);
+            var indicator = isActive
+                ? (Model.Sort.Direction == PolicyStackSortDir.Asc ? " ↑" : " ↓")
+                : string.Empty;
+            <button type="button"
+                    class="sb-policy-stack-sort-header@(isActive ? " is-active" : "")"
+                    data-sort-key="@nextSort.KeyToken"
+                    data-sort-dir="@nextSort.DirToken"
+                    aria-pressed="@(isActive ? "true" : "false")">@header.Label@indicator</button>
+        }
+    </div>
     <ul class="sb-policy-stack-rows" role="list">
         @foreach (var row in Model.Rows)
         {

@@ -31,17 +31,20 @@ public sealed class PolicyStackPresenter
     private readonly IPolicyEffectivenessCache _effectiveness;
     private readonly ISignalCatalog _signalCatalog;
     private readonly PolicyConflictAnalyzer _conflictAnalyzer;
+    private readonly PolicyStackFilterOptions _filterOptions;
 
     public PolicyStackPresenter(
         IPolicyResolver resolver,
         IPolicyEffectivenessCache effectiveness,
         ISignalCatalog signalCatalog,
-        PolicyConflictAnalyzer conflictAnalyzer)
+        PolicyConflictAnalyzer conflictAnalyzer,
+        PolicyStackFilterOptions? filterOptions = null)
     {
         _resolver = resolver;
         _effectiveness = effectiveness;
         _signalCatalog = signalCatalog;
         _conflictAnalyzer = conflictAnalyzer;
+        _filterOptions = filterOptions ?? new PolicyStackFilterOptions();
     }
 
     /// <summary>
@@ -56,8 +59,13 @@ public sealed class PolicyStackPresenter
         string activeTab,
         TimeSpan aggregateWindow,
         bool canEdit,
+        PolicyStackFilter? filter = null,
+        PolicyStackSort? sort = null,
         CancellationToken ct = default)
     {
+        var effectiveFilter = filter ?? PolicyStackFilter.Empty;
+        var effectiveSort = sort ?? PolicyStackSort.Default;
+
         var effective = await _resolver.EffectiveAsync(scope, ct).ConfigureAwait(false);
         var breadcrumb = BuildBreadcrumb(scope);
         var scopeHash = ComputeScopeHash(scope);
@@ -84,7 +92,10 @@ public sealed class PolicyStackPresenter
                 LatestEditAt: latest,
                 ScopeHash: scopeHash,
                 StackGroups: Array.Empty<PolicyStackScopeGroupViewModel>(),
-                Conflicts: Array.Empty<PolicyConflictViewModel>());
+                Conflicts: Array.Empty<PolicyConflictViewModel>(),
+                Filter: effectiveFilter,
+                Sort: effectiveSort,
+                AggregateStrip: null);
         }
 
         // Bulk read all aggregates in a single hop. The cache serves these from
@@ -104,29 +115,60 @@ public sealed class PolicyStackPresenter
                 .ConfigureAwait(false);
         }
 
-        var rows = new List<PolicyStackRowViewModel>(effective.Count);
-        var triggeredInWindow = 0;
+        // Build EVERY row first, then filter + sort. Building all rows up front
+        // keeps row construction idempotent and lets the filter inspect signals
+        // that aren't on the rule itself (TriggerCount, p99, distribution).
+        var allRows = new List<PolicyStackRowViewModel>(effective.Count);
+        // Map row -> EffectiveRule so the Stack-tab grouping can recover the
+        // source scope after the filter has reordered things. Cheap because
+        // both lists are at most a few dozen entries even on busy scopes.
+        var effectiveByRuleId = new Dictionary<Guid, EffectiveRule>(effective.Count);
         DateTimeOffset? latestEdit = null;
         foreach (var entry in effective)
         {
             aggregates.TryGetValue(entry.Rule.Id, out var aggregate);
             var row = BuildRow(entry, aggregate, aggregateWindow);
-            rows.Add(row);
-            if (row.TriggerCount > 0) triggeredInWindow++;
+            allRows.Add(row);
+            effectiveByRuleId[entry.Rule.Id] = entry;
             if (latestEdit is null || entry.Rule.CreatedAt > latestEdit) latestEdit = entry.Rule.CreatedAt;
         }
+
+        // Apply filter -> sort -> strip. The order matters: the strip
+        // summarises the visible (post-filter) set so the operator sees their
+        // narrowed view reflected in the strip too.
+        var filteredRows = ApplyFilter(allRows, effectiveFilter);
+        var sortedRows = ApplySort(filteredRows, effectiveSort);
+
+        var triggeredInWindow = 0;
+        var totalRequests = 0;
+        var zeroHits = 0;
+        for (var i = 0; i < sortedRows.Count; i++)
+        {
+            var row = sortedRows[i];
+            if (row.TriggerCount > 0) triggeredInWindow++;
+            totalRequests += row.TotalEvaluations;
+            if (row.TriggerCount == 0) zeroHits++;
+        }
+        var strip = new PolicyStackAggregateStrip(
+            TotalRequestsInWindow: totalRequests,
+            RulesVisible: sortedRows.Count,
+            RulesTriggeredInWindow: triggeredInWindow,
+            RulesWithZeroHits: zeroHits,
+            Window: aggregateWindow);
 
         // Stack-tab fan-out: group + analyse only when the Stack tab is the
         // active surface AND we're rendering the Full embed. The Effective
         // tab path stays cost-free, and EffectiveOnly never shows the Stack
-        // tab so the activeTab hint is ignored.
+        // tab so the activeTab hint is ignored. Stack grouping consumes the
+        // FILTERED rows so the operator's filter narrows what shows inside
+        // each scope group too.
         IReadOnlyList<PolicyStackScopeGroupViewModel> stackGroups = Array.Empty<PolicyStackScopeGroupViewModel>();
         IReadOnlyList<PolicyConflictViewModel> conflicts = Array.Empty<PolicyConflictViewModel>();
         if (embed == PolicyStackEmbed.Full
             && string.Equals(activeTab, "stack", StringComparison.OrdinalIgnoreCase))
         {
             conflicts = _conflictAnalyzer.Analyse(effective);
-            stackGroups = BuildStackGroups(effective, rows, conflicts);
+            stackGroups = BuildStackGroups(effective, sortedRows, effectiveByRuleId, conflicts);
         }
 
         return new PolicyStackViewModel(
@@ -136,13 +178,138 @@ public sealed class PolicyStackPresenter
             ActiveTab: activeTab,
             AggregateWindow: aggregateWindow,
             CanEdit: canEdit,
-            Rows: rows,
-            TotalEffectiveRules: rows.Count,
+            Rows: sortedRows,
+            TotalEffectiveRules: sortedRows.Count,
             RulesTriggeredInWindow: triggeredInWindow,
             LatestEditAt: latestEdit,
             ScopeHash: scopeHash,
             StackGroups: stackGroups,
-            Conflicts: conflicts);
+            Conflicts: conflicts,
+            Filter: effectiveFilter,
+            Sort: effectiveSort,
+            AggregateStrip: strip);
+    }
+
+    // -------- Filter --------
+
+    private IReadOnlyList<PolicyStackRowViewModel> ApplyFilter(
+        IReadOnlyList<PolicyStackRowViewModel> rows,
+        PolicyStackFilter filter)
+    {
+        if (rows.Count == 0 || !filter.IsActive) return rows;
+
+        var pass = new List<PolicyStackRowViewModel>(rows.Count);
+        var now = DateTimeOffset.UtcNow;
+
+        // Pre-compute the @hot cutoff once -- the top-N row by trigger count.
+        // Cheap because the row count at a single scope is small (~tens).
+        HashSet<Guid>? hotIds = null;
+        if (filter.HotOnly)
+        {
+            hotIds = rows
+                .Where(r => r.TriggerCount > 0)
+                .OrderByDescending(r => r.TriggerCount)
+                .Take(_filterOptions.HotTopN)
+                .Select(r => r.RuleId)
+                .ToHashSet();
+        }
+
+        foreach (var row in rows)
+        {
+            if (filter.OnlyModified && !row.IsModified) continue;
+            if (filter.EditedSince is { } window && now - row.LastEditedAt > window) continue;
+            if (!string.IsNullOrEmpty(filter.OnlyScope)
+                && !string.Equals(row.ScopeKind, filter.OnlyScope, StringComparison.Ordinal))
+                continue;
+            if (!string.IsNullOrEmpty(filter.OnlyAction)
+                && !string.Equals(row.ActionKind, filter.OnlyAction, StringComparison.Ordinal))
+                continue;
+            if (filter.OnlyObserve && !row.IsObserveMode) continue;
+            if (filter.HotOnly && (hotIds is null || !hotIds.Contains(row.RuleId))) continue;
+            if (filter.SlowOnly && row.P99LatencyMicros <= _filterOptions.SlowP99Micros) continue;
+            if (filter.NoHitsOnly && (row.TriggerCount != 0 || row.TotalEvaluations != 0)) continue;
+            if (!string.IsNullOrEmpty(filter.FreeText)
+                && row.PredicateText.IndexOf(filter.FreeText, StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+
+            pass.Add(row);
+        }
+
+        return pass;
+    }
+
+    // -------- Sort --------
+
+    private static IReadOnlyList<PolicyStackRowViewModel> ApplySort(
+        IReadOnlyList<PolicyStackRowViewModel> rows,
+        PolicyStackSort sort)
+    {
+        // Default sort = resolver order ascending = the order the rows already
+        // arrive in. Skip the LINQ overhead on the hot path.
+        if (rows.Count <= 1) return rows;
+        if (sort.Key == PolicyStackSortKey.Priority && sort.Direction == PolicyStackSortDir.Asc)
+            return rows;
+
+        if (sort.Key == PolicyStackSortKey.Priority)
+        {
+            // Descending priority on the Effective tab: just flip.
+            var reversed = new List<PolicyStackRowViewModel>(rows);
+            reversed.Reverse();
+            return reversed;
+        }
+
+        // For Triggers / P99 / PercentBlocked: rows with zero evaluations sort
+        // to the END regardless of direction so an empty row never sits at the
+        // top of "sort by p99".
+        IComparer<PolicyStackRowViewModel> comparer = sort.Key switch
+        {
+            PolicyStackSortKey.Triggers => Comparer<PolicyStackRowViewModel>.Create(
+                (a, b) =>
+                {
+                    var cmp = a.TriggerCount.CompareTo(b.TriggerCount);
+                    return sort.Direction == PolicyStackSortDir.Asc ? cmp : -cmp;
+                }),
+            PolicyStackSortKey.P99Latency => Comparer<PolicyStackRowViewModel>.Create(
+                (a, b) =>
+                {
+                    if (a.TotalEvaluations == 0 && b.TotalEvaluations == 0) return 0;
+                    if (a.TotalEvaluations == 0) return 1;
+                    if (b.TotalEvaluations == 0) return -1;
+                    var cmp = a.P99LatencyMicros.CompareTo(b.P99LatencyMicros);
+                    return sort.Direction == PolicyStackSortDir.Asc ? cmp : -cmp;
+                }),
+            PolicyStackSortKey.PercentBlocked => Comparer<PolicyStackRowViewModel>.Create(
+                (a, b) =>
+                {
+                    if (a.TotalEvaluations == 0 && b.TotalEvaluations == 0) return 0;
+                    if (a.TotalEvaluations == 0) return 1;
+                    if (b.TotalEvaluations == 0) return -1;
+                    var aPct = PercentBlocked(a);
+                    var bPct = PercentBlocked(b);
+                    var cmp = aPct.CompareTo(bPct);
+                    return sort.Direction == PolicyStackSortDir.Asc ? cmp : -cmp;
+                }),
+            PolicyStackSortKey.LastEdited => Comparer<PolicyStackRowViewModel>.Create(
+                (a, b) =>
+                {
+                    // Ascending = oldest first, descending = newest first.
+                    var cmp = a.LastEditedAt.CompareTo(b.LastEditedAt);
+                    return sort.Direction == PolicyStackSortDir.Asc ? cmp : -cmp;
+                }),
+            _ => null!
+        };
+        if (comparer is null) return rows;
+
+        var sorted = new List<PolicyStackRowViewModel>(rows);
+        sorted.Sort(comparer);
+        return sorted;
+    }
+
+    private static double PercentBlocked(PolicyStackRowViewModel row)
+    {
+        if (row.TotalEvaluations == 0) return 0d;
+        row.WinDistribution.TryGetValue("block", out var blocks);
+        return (double)blocks / row.TotalEvaluations;
     }
 
     // -------- Stack-tab grouping --------
@@ -154,26 +321,23 @@ public sealed class PolicyStackPresenter
 
     private static IReadOnlyList<PolicyStackScopeGroupViewModel> BuildStackGroups(
         IReadOnlyList<EffectiveRule> effective,
-        IReadOnlyList<PolicyStackRowViewModel> rows,
+        IReadOnlyList<PolicyStackRowViewModel> filteredRows,
+        IReadOnlyDictionary<Guid, EffectiveRule> effectiveByRuleId,
         IReadOnlyList<PolicyConflictViewModel> conflicts)
     {
-        // Map RuleId -> row so we can reattach the already-built rows under
-        // their source scope without rebuilding aggregates / chips.
-        var rowById = new Dictionary<Guid, PolicyStackRowViewModel>(rows.Count);
-        for (var i = 0; i < rows.Count; i++) rowById[rows[i].RuleId] = rows[i];
-
-        // Group by source scope, preserving the resolver's per-scope order
-        // for rows inside each group.
+        // Group the FILTERED rows by their owning scope, preserving the
+        // order they arrive in (so the active sort drives the in-group order
+        // too). Rows that the filter dropped never appear in a group.
         var groupRows = new Dictionary<PolicyScope, List<PolicyStackRowViewModel>>();
-        foreach (var entry in effective)
+        foreach (var row in filteredRows)
         {
+            if (!effectiveByRuleId.TryGetValue(row.RuleId, out var entry)) continue;
             if (!groupRows.TryGetValue(entry.SourceScope, out var bucket))
             {
                 bucket = new List<PolicyStackRowViewModel>();
                 groupRows[entry.SourceScope] = bucket;
             }
-            if (rowById.TryGetValue(entry.Rule.Id, out var row))
-                bucket.Add(row);
+            bucket.Add(row);
         }
 
         // Attach conflicts to the OWNER scope.
@@ -273,6 +437,7 @@ public sealed class PolicyStackPresenter
         var metadataLine = RenderMetadataLine(entry.Rule);
         var isObserve = entry.Rule.Mode == PolicyMode.Observe;
         var hasNoHits = matched == 0 && window >= TimeSpan.FromDays(7);
+        var isModified = !entry.Rule.Source.StartsWith("embedded:", StringComparison.Ordinal);
 
         return new PolicyStackRowViewModel(
             RuleId: entry.Rule.Id,
@@ -295,7 +460,14 @@ public sealed class PolicyStackPresenter
             CreatedAt: entry.Rule.CreatedAt,
             MetadataLine: metadataLine,
             IsObserveMode: isObserve,
-            HasNoHits: hasNoHits);
+            HasNoHits: hasNoHits,
+            IsModified: isModified,
+            // Until A-tier edit telemetry lands LastEditedAt mirrors CreatedAt;
+            // it's a separate field so the sort + @since: filter can swap to a
+            // dedicated "last touched" column without re-threading rows.
+            LastEditedAt: entry.Rule.CreatedAt,
+            ActionKind: ActionKind(entry.Rule.Action),
+            ScopeKind: ScopeKindToken(entry.SourceScope));
     }
 
     private static string SourcePillFor(PolicyScope scope) => scope switch
@@ -305,6 +477,26 @@ public sealed class PolicyStackPresenter
         PolicyScope.Subdomain => "SUBDOMAIN",
         PolicyScope.Endpoint => "ENDPOINT",
         _ => "GLOBAL"
+    };
+
+    private static string ScopeKindToken(PolicyScope scope) => scope switch
+    {
+        PolicyScope.Wildcard => "wildcard",
+        PolicyScope.Domain => "domain",
+        PolicyScope.Subdomain => "subdomain",
+        PolicyScope.Endpoint => "endpoint",
+        _ => "wildcard"
+    };
+
+    private static string ActionKind(RuleAction action) => action switch
+    {
+        RuleAction.Block => "block",
+        RuleAction.Allow => "allow",
+        RuleAction.Observe => "observe",
+        RuleAction.Tag => "tag",
+        RuleAction.Challenge => "challenge",
+        RuleAction.RateLimit => "ratelimit",
+        _ => action.GetType().Name.ToLowerInvariant()
     };
 
     // Canonical dashboard verdict palette (feedback_dashboard_color_semantics):

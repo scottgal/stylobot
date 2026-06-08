@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
@@ -360,6 +361,258 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Empty(conflicts);
     }
 
+    // -------- B4: Filter + sort + aggregate strip --------
+
+    [Theory]
+    [InlineData("@modified",        true,  null, null, null, false, false, false, false, null)]
+    [InlineData("@since:7d",        false, "7d", null, null, false, false, false, false, null)]
+    [InlineData("@scope:endpoint",  false, null, "endpoint", null, false, false, false, false, null)]
+    [InlineData("@action:block",    false, null, null, "block", false, false, false, false, null)]
+    [InlineData("@observe",         false, null, null, null, true, false, false, false, null)]
+    [InlineData("@hot",             false, null, null, null, false, true, false, false, null)]
+    [InlineData("@slow",            false, null, null, null, false, false, true, false, null)]
+    [InlineData("@no-hits",         false, null, null, null, false, false, false, true, null)]
+    [InlineData("scraper",          false, null, null, null, false, false, false, false, "scraper")]
+    [InlineData("@modified scraper", true, null, null, null, false, false, false, false, "scraper")]
+    [InlineData("@unknown @modified", true, null, null, null, false, false, false, false, null)]
+    public void Filter_parses_tokens(string input, bool modified, string? since, string? scope, string? action,
+        bool observe, bool hot, bool slow, bool noHits, string? freeText)
+    {
+        var f = PolicyStackFilter.Parse(input);
+        Assert.Equal(modified, f.OnlyModified);
+        Assert.Equal(since is null ? null : TimeSpanParse(since), f.EditedSince);
+        Assert.Equal(scope, f.OnlyScope);
+        Assert.Equal(action, f.OnlyAction);
+        Assert.Equal(observe, f.OnlyObserve);
+        Assert.Equal(hot, f.HotOnly);
+        Assert.Equal(slow, f.SlowOnly);
+        Assert.Equal(noHits, f.NoHitsOnly);
+        Assert.Equal(freeText, f.FreeText);
+    }
+
+    [Fact]
+    public void Filter_empty_input_is_inactive()
+    {
+        Assert.False(PolicyStackFilter.Parse(null).IsActive);
+        Assert.False(PolicyStackFilter.Parse("").IsActive);
+        Assert.False(PolicyStackFilter.Parse("   ").IsActive);
+        Assert.Same(PolicyStackFilter.Empty, PolicyStackFilter.Parse(null));
+    }
+
+    [Fact]
+    public void Filter_canonical_round_trip()
+    {
+        var f1 = PolicyStackFilter.Parse("@modified @since:7d @action:block scraper");
+        var canonical = f1.ToCanonicalString();
+        var f2 = PolicyStackFilter.Parse(canonical);
+        Assert.Equal(f1, f2);
+    }
+
+    [Fact]
+    public void Filter_unknown_tokens_do_not_throw_and_are_silently_ignored()
+    {
+        // Forward-compatibility: future @-tokens must not break old URLs.
+        var f = PolicyStackFilter.Parse("@something-new:42 @also-new @modified");
+        Assert.True(f.OnlyModified);
+        Assert.False(f.IsActive == false, "modified token must still activate the filter");
+        Assert.Null(f.FreeText);
+    }
+
+    [Fact]
+    public void Sort_parse_handles_known_keys_and_falls_back_to_default()
+    {
+        Assert.Equal(PolicyStackSort.Default, PolicyStackSort.Parse(null, null));
+        Assert.Equal(PolicyStackSort.Default, PolicyStackSort.Parse("bogus", "asc"));
+
+        var triggers = PolicyStackSort.Parse("triggers", "desc");
+        Assert.Equal(PolicyStackSortKey.Triggers, triggers.Key);
+        Assert.Equal(PolicyStackSortDir.Desc, triggers.Direction);
+        Assert.Equal("triggers", triggers.KeyToken);
+        Assert.Equal("desc", triggers.DirToken);
+
+        var p99 = PolicyStackSort.Parse("p99", null);
+        Assert.Equal(PolicyStackSortKey.P99Latency, p99.Key);
+        Assert.Equal(PolicyStackSortDir.Asc, p99.Direction);
+    }
+
+    [Fact]
+    public async Task Filter_at_no_hits_drops_rules_with_triggers()
+    {
+        // Endpoint rule has 18 triggers after prewarm; @no-hits MUST drop it.
+        var client = await BuildClientAsync(prewarmEndpointHits: true);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            filterExpression: "@no-hits");
+
+        // The block-scraper rule (verdict-error) has triggers in the seeded cache;
+        // it MUST be filtered out. The DOMAIN Allow rule still has 0 hits.
+        Assert.DoesNotContain("verdict-error", html);
+    }
+
+    [Fact]
+    public async Task Filter_empty_match_renders_filter_empty_state_message()
+    {
+        // No effective rules have wildcard source scope -- @scope:wildcard
+        // must produce the dedicated empty-filter message, not the generic one.
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            filterExpression: "@scope:wildcard");
+        Assert.Contains("No rules match the current filter", html);
+    }
+
+    [Fact]
+    public async Task Sort_by_triggers_descending_reorders_visible_rules()
+    {
+        // Pre-warm so the endpoint rule has triggers while domain / subdomain do not.
+        var client = await BuildClientAsync(prewarmEndpointHits: true);
+
+        var htmlAsc = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            sortKey: "triggers", sortDir: "asc");
+        var htmlDesc = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            sortKey: "triggers", sortDir: "desc");
+
+        var ascOrder = ExtractRuleIdOrder(htmlAsc);
+        var descOrder = ExtractRuleIdOrder(htmlDesc);
+
+        Assert.NotEmpty(ascOrder);
+        Assert.NotEqual(ascOrder, descOrder);
+    }
+
+    [Fact]
+    public async Task Aggregate_strip_shows_visible_counts()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+        Assert.Contains("rules effective here", html);
+        Assert.Contains("triggered in 24h", html);
+    }
+
+    [Fact]
+    public async Task Aggregate_strip_no_hits_chip_applies_no_hits_filter()
+    {
+        // With no prewarm, every rule has 0 hits so the chip MUST render. We
+        // assert the data attribute the chip exposes for B6 to bind to.
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+        Assert.Contains("data-filter-apply=\"@no-hits\"", html);
+    }
+
+    [Fact]
+    public async Task Effective_tab_renders_five_sortable_headers()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+        Assert.Contains("data-sort-key=\"priority\"", html);
+        Assert.Contains("data-sort-key=\"triggers\"", html);
+        Assert.Contains("data-sort-key=\"p99\"", html);
+        Assert.Contains("data-sort-key=\"blocked-pct\"", html);
+        Assert.Contains("data-sort-key=\"edited\"", html);
+    }
+
+    [Fact]
+    public async Task EffectiveOnly_embed_does_not_render_filter_bar_or_strip()
+    {
+        // EffectiveOnly is the tight-pane shape: no chrome at all. The filter
+        // bar + strip live in _Full so they're absent here by construction.
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.EffectiveOnly);
+        Assert.DoesNotContain("sb-policy-stack-filter-bar", html);
+        Assert.DoesNotContain("sb-policy-stack-aggregate-strip", html);
+    }
+
+    [Fact]
+    public async Task Filter_bar_round_trips_active_filter_in_input_value()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            filterExpression: "@modified @scope:endpoint");
+
+        // The input MUST surface the canonical string so a refresh preserves
+        // the filter; the canonical order is fixed by ToCanonicalString.
+        Assert.Contains("value=\"@modified @scope:endpoint\"", html);
+        Assert.Contains("data-active-filters=\"true\"", html);
+    }
+
+    [Fact]
+    public async Task Sort_active_column_renders_indicator_arrow()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            sortKey: "triggers", sortDir: "asc");
+
+        // Razor's default HTML encoder emits non-ASCII chars as numeric entities,
+        // so "↑" arrives as "&#8593;". Either form means the indicator rendered.
+        Assert.True(
+            html.Contains("Triggers ↑", StringComparison.Ordinal)
+            || html.Contains("Triggers &#x2191;", StringComparison.Ordinal)
+            || html.Contains("Triggers &#8593;", StringComparison.Ordinal),
+            "Expected Triggers column to render the ascending arrow indicator");
+        Assert.Contains("is-active", html);
+    }
+
+    [Fact]
+    public async Task Filter_chips_show_dismissable_tokens_for_active_filter()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            filterExpression: "@modified");
+
+        // Chip carries the canonical token so B6 can compose a remove-action.
+        Assert.Contains("data-filter-chip=\"@modified\"", html);
+        Assert.Contains("Modified from default", html);
+    }
+
+    [Fact]
+    public async Task Aggregate_strip_total_requests_sums_visible_evaluations()
+    {
+        // With prewarm: endpoint rule sees 18 matches across 18 evaluations.
+        var client = await BuildClientAsync(prewarmEndpointHits: true);
+
+        // Scoped to the endpoint rule via @scope:endpoint -> only one row.
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            filterExpression: "@scope:endpoint");
+
+        // Strip must report 18 requests and 1 rule visible.
+        Assert.Contains("<strong>18</strong> requests", html);
+        Assert.Contains("<strong>1</strong> rules effective here", html);
+        Assert.Contains("<strong>1</strong> triggered in 24h", html);
+    }
+
+    [Fact]
+    public void Window_format_picks_canonical_label()
+    {
+        Assert.Equal("24h", PolicyStackWindowFormat.ForLabel(TimeSpan.FromHours(24)));
+        Assert.Equal("24h", PolicyStackWindowFormat.ForLabel(TimeSpan.FromHours(1)));
+        Assert.Equal("7d", PolicyStackWindowFormat.ForLabel(TimeSpan.FromDays(7)));
+        Assert.Equal("30d", PolicyStackWindowFormat.ForLabel(TimeSpan.FromDays(30)));
+    }
+
+    private static TimeSpan TimeSpanParse(string value)
+    {
+        // Mirrors PolicyStackFilter's @since: parser; the test theory uses this
+        // to assert the round-trip without exposing the private helper.
+        var unit = value[^1];
+        var n = int.Parse(value[..^1], CultureInfo.InvariantCulture);
+        return unit switch
+        {
+            'h' or 'H' => TimeSpan.FromHours(n),
+            'd' or 'D' => TimeSpan.FromDays(n),
+            _ => throw new FormatException($"unknown since-unit '{unit}'")
+        };
+    }
+
+    private static IReadOnlyList<string> ExtractRuleIdOrder(string html)
+    {
+        // data-rule-id appears once per _RuleRow. The match order in the
+        // rendered HTML reflects the visible row order, which is what the
+        // sort test asserts against.
+        var ids = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in Regex.Matches(html, @"data-rule-id=""(?<id>[0-9a-fA-F\-]+)"""))
+        {
+            ids.Add(m.Groups["id"].Value);
+        }
+        return ids;
+    }
+
     // -------- B3 helpers --------
 
     private static PolicyRule MakeRule(string predicate, PolicyAction action, int priority, PolicyScope scope) =>
@@ -511,7 +764,10 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         HttpClient client,
         PolicyScope scope,
         PolicyStackEmbed embed,
-        string? activeTab = null)
+        string? activeTab = null,
+        string? filterExpression = null,
+        string? sortKey = null,
+        string? sortDir = null)
     {
         var query = $"embed={embed}&scopeKind={ScopeKind(scope)}";
         switch (scope)
@@ -528,6 +784,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         }
         if (!string.IsNullOrEmpty(activeTab))
             query += $"&activeTab={Uri.EscapeDataString(activeTab)}";
+        if (!string.IsNullOrEmpty(filterExpression))
+            query += $"&filterExpression={Uri.EscapeDataString(filterExpression)}";
+        if (!string.IsNullOrEmpty(sortKey))
+            query += $"&sortKey={Uri.EscapeDataString(sortKey)}";
+        if (!string.IsNullOrEmpty(sortDir))
+            query += $"&sortDir={Uri.EscapeDataString(sortDir)}";
         var resp = await client.GetAsync($"/_test/policy-stack?{query}");
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync();
@@ -666,7 +928,10 @@ public sealed class PolicyStackTestController : Controller
         string? domain = null,
         string? sub = null,
         string? template = null,
-        string? activeTab = null)
+        string? activeTab = null,
+        string? filterExpression = null,
+        string? sortKey = null,
+        string? sortDir = null)
     {
         PolicyScope scope = scopeKind switch
         {
@@ -679,6 +944,7 @@ public sealed class PolicyStackTestController : Controller
             ? e
             : PolicyStackEmbed.Full;
 
-        return ViewComponent("SbPolicyStack", new { scope, embed = parsedEmbed, activeTab });
+        return ViewComponent("SbPolicyStack",
+            new { scope, embed = parsedEmbed, activeTab, filterExpression, sortKey, sortDir });
     }
 }

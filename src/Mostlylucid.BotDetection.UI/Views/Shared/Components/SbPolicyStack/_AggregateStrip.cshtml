@@ -1,0 +1,34 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+@*
+    One-line summary of the currently-visible rule set. Strip always reflects
+    the POST-FILTER row set so the operator sees their narrowed view here too.
+    The "N rules with 0 hits" pill is itself a filter trigger; clicking it
+    applies @no-hits (B6 wires the click to the URL update).
+*@
+@if (Model.AggregateStrip is { } strip)
+{
+    <div class="sb-policy-stack-aggregate-strip" data-policy-stack-aggregate-strip="true">
+        <span class="sb-policy-stack-aggregate-item">
+            <strong>@strip.TotalRequestsInWindow</strong> requests
+        </span>
+        <span class="sb-policy-stack-aggregate-sep" aria-hidden="true">·</span>
+        <span class="sb-policy-stack-aggregate-item">
+            <strong>@strip.RulesVisible</strong> rules effective here
+        </span>
+        <span class="sb-policy-stack-aggregate-sep" aria-hidden="true">·</span>
+        <span class="sb-policy-stack-aggregate-item">
+            <strong>@strip.RulesTriggeredInWindow</strong> triggered in @PolicyStackWindowFormat.ForLabel(strip.Window)
+        </span>
+        @if (strip.RulesWithZeroHits > 0)
+        {
+            <span class="sb-policy-stack-aggregate-sep" aria-hidden="true">·</span>
+            <button type="button"
+                    class="link sb-policy-stack-aggregate-link"
+                    data-filter-apply="@@no-hits"
+                    aria-label="Filter to rules with no hits in the current window">
+                <strong>@strip.RulesWithZeroHits</strong> rules with 0 hits
+            </button>
+        }
+    </div>
+}

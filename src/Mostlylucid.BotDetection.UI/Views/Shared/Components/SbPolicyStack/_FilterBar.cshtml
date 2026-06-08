@@ -1,0 +1,32 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+@*
+    VS-Code-style @-token filter input. The value round-trips through
+    PolicyStackFilter.ToCanonicalString so a refresh preserves whatever the
+    operator typed. Active filter tokens render as dismissable chips next to
+    the input. The actual submit-on-change wiring is B6; this partial is
+    static so the URL contract is testable without HTMX in the loop.
+*@
+<div class="sb-policy-stack-filter-bar" data-policy-stack-filter-bar="true">
+    <label class="sb-policy-stack-filter-label">
+        <span class="sb-policy-stack-filter-label-text">Filter</span>
+        <input type="text"
+               name="policystack-filter"
+               class="sb-policy-stack-filter-input"
+               value="@Model.Filter.ToCanonicalString()"
+               placeholder="@@modified @@since:7d @@scope:endpoint @@no-hits ___"
+               aria-label="Policy filter expression"
+               autocomplete="off" />
+    </label>
+    @if (Model.Filter.IsActive)
+    {
+        <div class="sb-policy-stack-filter-chips" data-active-filters="true">
+            @foreach (var chip in PolicyStackFilterChips.FromFilter(Model.Filter))
+            {
+                <span class="badge sb-policy-stack-filter-chip"
+                      data-filter-chip="@chip.Token"
+                      title="@chip.Token">@chip.Label</span>
+            }
+        </div>
+    }
+</div>

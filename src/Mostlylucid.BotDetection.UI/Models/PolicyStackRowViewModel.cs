@@ -28,6 +28,10 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="MetadataLine">Pre-rendered metadata text -- <c>"default"</c> or <c>"edited Nd ago"</c>.</param>
 /// <param name="IsObserveMode">True when the rule's mode is Observe -- prepends "would " to verdict.</param>
 /// <param name="HasNoHits">True when the row has not triggered across a 7d+ window.</param>
+/// <param name="IsModified">True when the rule's source is NOT an <c>embedded:</c> seed -- powers the <c>@modified</c> filter.</param>
+/// <param name="LastEditedAt">When the rule was last edited; equal to <paramref name="CreatedAt"/> for default rules. Powers the <c>@since:</c> filter + the <see cref="PolicyStackSortKey.LastEdited"/> sort.</param>
+/// <param name="ActionKind">Lowercase canonical action kind (<c>"block"</c>, <c>"challenge"</c>, ...) for the <c>@action:</c> filter.</param>
+/// <param name="ScopeKind">Lowercase canonical source-scope kind (<c>"endpoint"</c>, <c>"subdomain"</c>, <c>"domain"</c>, <c>"wildcard"</c>) for the <c>@scope:</c> filter.</param>
 public sealed record PolicyStackRowViewModel(
     Guid RuleId,
     Policies.Rules.PolicyScope SourceScope,
@@ -49,7 +53,11 @@ public sealed record PolicyStackRowViewModel(
     DateTimeOffset CreatedAt,
     string MetadataLine,
     bool IsObserveMode,
-    bool HasNoHits);
+    bool HasNoHits,
+    bool IsModified,
+    DateTimeOffset LastEditedAt,
+    string ActionKind,
+    string ScopeKind);
 
 /// <summary>
 ///     One predicate chip on the compact rule row. Either a real term
