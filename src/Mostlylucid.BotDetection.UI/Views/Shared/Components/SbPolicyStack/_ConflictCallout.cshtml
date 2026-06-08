@@ -1,0 +1,19 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyConflictViewModel
+@{
+    // Map the canonical severity to dashboard alert tokens. "warning" and
+    // "info" mirror the rest of the dashboard's text-* / alert-* vocabulary;
+    // the wrapper class is enough for the existing tokens to colour the
+    // callout without us introducing new CSS.
+    var alertClass = string.Equals(Model.Severity, "warning", StringComparison.OrdinalIgnoreCase)
+        ? "alert text-warning"
+        : "alert text-info";
+}
+<div class="sb-policy-stack-conflict sb-conflict-@Model.Severity @alertClass"
+     role="note"
+     data-owner-rule-id="@Model.OwnerRuleId"
+     data-overridden-rule-id="@Model.OverriddenRuleId"
+     title="@Model.Detail">
+    <span class="sb-conflict-icon" aria-hidden="true">⚠</span>
+    <span class="sb-conflict-headline">@Model.Headline</span>
+</div>

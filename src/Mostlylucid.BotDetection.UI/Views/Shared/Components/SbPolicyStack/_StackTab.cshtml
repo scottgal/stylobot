@@ -1,0 +1,17 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+@if (Model.StackGroups.Count == 0)
+{
+    <div class="sb-policy-stack-empty" data-policy-stack-empty="true">
+        No effective rules at this scope.
+    </div>
+}
+else
+{
+    <div class="sb-policy-stack-stack-tab" data-policy-stack-tab="stack">
+        @foreach (var group in Model.StackGroups)
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_StackScopeGroup", group)
+        }
+    </div>
+}

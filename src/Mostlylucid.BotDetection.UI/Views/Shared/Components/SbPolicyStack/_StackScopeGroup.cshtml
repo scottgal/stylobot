@@ -1,0 +1,33 @@
+@using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackScopeGroupViewModel
+@{
+    var scopeKind = Model.Scope switch
+    {
+        PolicyScope.Wildcard => "wildcard",
+        PolicyScope.Domain => "domain",
+        PolicyScope.Subdomain => "subdomain",
+        PolicyScope.Endpoint => "endpoint",
+        _ => "wildcard"
+    };
+}
+<section class="sb-policy-stack-scope-group"
+         data-scope-kind="@scopeKind"
+         data-specificity="@Model.Specificity">
+    <header class="sb-policy-stack-scope-header">@Model.ScopeLabel</header>
+    @if (Model.Rows.Count > 0)
+    {
+        <ul class="sb-policy-stack-rows" role="list">
+            @foreach (var row in Model.Rows)
+            {
+                <li>
+                    @await Html.PartialAsync("Components/SbPolicyStack/_RuleRow", row)
+                </li>
+            }
+        </ul>
+    }
+    @foreach (var conflict in Model.Conflicts)
+    {
+        @await Html.PartialAsync("Components/SbPolicyStack/_ConflictCallout", conflict)
+    }
+</section>

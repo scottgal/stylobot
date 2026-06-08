@@ -30,15 +30,18 @@ public sealed class PolicyStackPresenter
     private readonly IPolicyResolver _resolver;
     private readonly IPolicyEffectivenessCache _effectiveness;
     private readonly ISignalCatalog _signalCatalog;
+    private readonly PolicyConflictAnalyzer _conflictAnalyzer;
 
     public PolicyStackPresenter(
         IPolicyResolver resolver,
         IPolicyEffectivenessCache effectiveness,
-        ISignalCatalog signalCatalog)
+        ISignalCatalog signalCatalog,
+        PolicyConflictAnalyzer conflictAnalyzer)
     {
         _resolver = resolver;
         _effectiveness = effectiveness;
         _signalCatalog = signalCatalog;
+        _conflictAnalyzer = conflictAnalyzer;
     }
 
     /// <summary>
@@ -79,7 +82,9 @@ public sealed class PolicyStackPresenter
                 TotalEffectiveRules: effective.Count,
                 RulesTriggeredInWindow: 0,
                 LatestEditAt: latest,
-                ScopeHash: scopeHash);
+                ScopeHash: scopeHash,
+                StackGroups: Array.Empty<PolicyStackScopeGroupViewModel>(),
+                Conflicts: Array.Empty<PolicyConflictViewModel>());
         }
 
         // Bulk read all aggregates in a single hop. The cache serves these from
@@ -111,6 +116,19 @@ public sealed class PolicyStackPresenter
             if (latestEdit is null || entry.Rule.CreatedAt > latestEdit) latestEdit = entry.Rule.CreatedAt;
         }
 
+        // Stack-tab fan-out: group + analyse only when the Stack tab is the
+        // active surface AND we're rendering the Full embed. The Effective
+        // tab path stays cost-free, and EffectiveOnly never shows the Stack
+        // tab so the activeTab hint is ignored.
+        IReadOnlyList<PolicyStackScopeGroupViewModel> stackGroups = Array.Empty<PolicyStackScopeGroupViewModel>();
+        IReadOnlyList<PolicyConflictViewModel> conflicts = Array.Empty<PolicyConflictViewModel>();
+        if (embed == PolicyStackEmbed.Full
+            && string.Equals(activeTab, "stack", StringComparison.OrdinalIgnoreCase))
+        {
+            conflicts = _conflictAnalyzer.Analyse(effective);
+            stackGroups = BuildStackGroups(effective, rows, conflicts);
+        }
+
         return new PolicyStackViewModel(
             Scope: scope,
             BreadcrumbPath: breadcrumb,
@@ -122,8 +140,81 @@ public sealed class PolicyStackPresenter
             TotalEffectiveRules: rows.Count,
             RulesTriggeredInWindow: triggeredInWindow,
             LatestEditAt: latestEdit,
-            ScopeHash: scopeHash);
+            ScopeHash: scopeHash,
+            StackGroups: stackGroups,
+            Conflicts: conflicts);
     }
+
+    // -------- Stack-tab grouping --------
+    //
+    // The Effective tab is most-specific-first so the operator sees the
+    // winning rule at the top. The Stack tab is ancestor-first so the
+    // reader walks the hierarchy left-to-right exactly the way the
+    // resolver built it.
+
+    private static IReadOnlyList<PolicyStackScopeGroupViewModel> BuildStackGroups(
+        IReadOnlyList<EffectiveRule> effective,
+        IReadOnlyList<PolicyStackRowViewModel> rows,
+        IReadOnlyList<PolicyConflictViewModel> conflicts)
+    {
+        // Map RuleId -> row so we can reattach the already-built rows under
+        // their source scope without rebuilding aggregates / chips.
+        var rowById = new Dictionary<Guid, PolicyStackRowViewModel>(rows.Count);
+        for (var i = 0; i < rows.Count; i++) rowById[rows[i].RuleId] = rows[i];
+
+        // Group by source scope, preserving the resolver's per-scope order
+        // for rows inside each group.
+        var groupRows = new Dictionary<PolicyScope, List<PolicyStackRowViewModel>>();
+        foreach (var entry in effective)
+        {
+            if (!groupRows.TryGetValue(entry.SourceScope, out var bucket))
+            {
+                bucket = new List<PolicyStackRowViewModel>();
+                groupRows[entry.SourceScope] = bucket;
+            }
+            if (rowById.TryGetValue(entry.Rule.Id, out var row))
+                bucket.Add(row);
+        }
+
+        // Attach conflicts to the OWNER scope.
+        var groupConflicts = new Dictionary<PolicyScope, List<PolicyConflictViewModel>>();
+        foreach (var conflict in conflicts)
+        {
+            if (!groupConflicts.TryGetValue(conflict.OwnerScope, out var bucket))
+            {
+                bucket = new List<PolicyConflictViewModel>();
+                groupConflicts[conflict.OwnerScope] = bucket;
+            }
+            bucket.Add(conflict);
+        }
+
+        var groups = new List<PolicyStackScopeGroupViewModel>(groupRows.Count);
+        foreach (var (scope, scopeRows) in groupRows)
+        {
+            groupConflicts.TryGetValue(scope, out var scopeConflicts);
+            groups.Add(new PolicyStackScopeGroupViewModel(
+                Scope: scope,
+                ScopeLabel: StackGroupLabel(scope),
+                Specificity: scope.Specificity,
+                Rows: scopeRows,
+                Conflicts: (IReadOnlyList<PolicyConflictViewModel>?)scopeConflicts
+                    ?? Array.Empty<PolicyConflictViewModel>()));
+        }
+
+        // Ancestor-first ordering. The resolver hands us most-specific-first;
+        // OrderBy specificity ascending flips that to wildcard -> endpoint.
+        groups.Sort(static (a, b) => a.Specificity.CompareTo(b.Specificity));
+        return groups;
+    }
+
+    private static string StackGroupLabel(PolicyScope scope) => scope switch
+    {
+        PolicyScope.Wildcard => "GLOBAL",
+        PolicyScope.Domain d => $"DOMAIN  {d.DomainName}",
+        PolicyScope.Subdomain s => $"SUBDOMAIN  {s.SubdomainName}",
+        PolicyScope.Endpoint e => $"ENDPOINT  {e.PathTemplate}",
+        _ => "GLOBAL"
+    };
 
     // -------- Breadcrumb walk --------
 

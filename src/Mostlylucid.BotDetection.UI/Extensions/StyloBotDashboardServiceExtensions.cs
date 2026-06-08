@@ -247,6 +247,10 @@ public static class StyloBotDashboardServiceExtensions
         services.AddHostedService<Mostlylucid.BotDetection.UI.Services.PolicyEffectivenessCacheHostedService>();
 
         // SbPolicyStack view-component presenter. Pure read surface; stateless.
+        // The conflict analyzer is a peer singleton -- the presenter only runs
+        // it when the Stack tab is the active surface, so DI cost is one
+        // allocation regardless of how many call sites embed the control.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyConflictAnalyzer>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
 
         // Dashboard tooltip registry — loads Definitions/Tooltips/*.yaml at

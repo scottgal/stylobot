@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies.Decisions;
+using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Signals;
@@ -137,7 +138,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         var resolver = await BuildResolverAsync();
         var tracker = new CallTrackingEffectivenessCache();
         var catalog = await BuildSignalCatalogAsync();
-        var presenter = new PolicyStackPresenter(resolver, tracker, catalog);
+        var presenter = new PolicyStackPresenter(resolver, tracker, catalog, new PolicyConflictAnalyzer());
 
         var vm = await presenter.BuildAsync(
             scope: EndpointScope,
@@ -231,7 +232,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             P99LatencyMicros: 2100,
             ComputedAt: DateTimeOffset.UtcNow));
 
-        var presenter = new PolicyStackPresenter(resolver, prewarm, catalog);
+        var presenter = new PolicyStackPresenter(resolver, prewarm, catalog, new PolicyConflictAnalyzer());
         var vm = await presenter.BuildAsync(
             scope: EndpointScope,
             embed: PolicyStackEmbed.Full,
@@ -257,6 +258,157 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Equal(16, a.Length);
         Assert.Equal(a, b);
         Assert.NotEqual(a, c);
+    }
+
+    // -------- Stack-tab coverage (B3) --------
+
+    [Fact]
+    public async Task Stack_tab_groups_by_scope_and_orders_ancestor_first()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full, activeTab: "stack");
+
+        var domainIdx = html.IndexOf("DOMAIN", StringComparison.Ordinal);
+        var subdomainIdx = html.IndexOf("SUBDOMAIN", StringComparison.Ordinal);
+        var endpointIdx = html.IndexOf("ENDPOINT", StringComparison.Ordinal);
+
+        Assert.True(domainIdx >= 0 && subdomainIdx > domainIdx && endpointIdx > subdomainIdx,
+            "Stack tab orders DOMAIN, then SUBDOMAIN, then ENDPOINT (ancestor first)");
+    }
+
+    [Fact]
+    public async Task Stack_tab_renders_conflict_callout_when_endpoint_overrides_domain_allow()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full, activeTab: "stack");
+
+        Assert.Contains("sb-policy-stack-conflict", html);
+        Assert.Contains("overrides", html);
+
+        // The conflict is attributed to the ENDPOINT group (the override owner).
+        var endpointGroupStart = html.IndexOf("data-scope-kind=\"endpoint\"", StringComparison.Ordinal);
+        Assert.True(endpointGroupStart > 0, "expected an endpoint scope group");
+        var conflictIdx = html.IndexOf("sb-policy-stack-conflict", endpointGroupStart, StringComparison.Ordinal);
+        Assert.True(conflictIdx > endpointGroupStart,
+            "conflict callout must render INSIDE the endpoint scope group");
+    }
+
+    [Fact]
+    public async Task Stack_tab_does_not_run_analyzer_on_effective_tab_render()
+    {
+        var resolver = await BuildResolverAsync();
+        var catalog = await BuildSignalCatalogAsync();
+        var cache = new EmptyEffectivenessCache();
+        var counting = new CountingConflictAnalyzer();
+        var presenter = new PolicyStackPresenter(resolver, cache, catalog, counting);
+
+        await presenter.BuildAsync(EndpointScope, PolicyStackEmbed.Full,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+        Assert.Equal(0, counting.Calls);
+
+        await presenter.BuildAsync(EndpointScope, PolicyStackEmbed.Full,
+            activeTab: "stack",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+        Assert.Equal(1, counting.Calls);
+    }
+
+    [Fact]
+    public async Task EffectiveOnly_embed_does_not_render_stack_groupings_even_with_active_tab_set()
+    {
+        // EffectiveOnly never shows the Stack tab; activeTab is ignored.
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.EffectiveOnly, activeTab: "stack");
+
+        Assert.DoesNotContain("sb-policy-stack-scope-group", html);
+        Assert.DoesNotContain("sb-policy-stack-conflict", html);
+    }
+
+    [Fact]
+    public void ConflictAnalyzer_detects_block_overriding_allow_baseline()
+    {
+        var rules = SeedThreeRulesEndpointBlockSubdomainChallengeDomainAllow();
+        var conflicts = new PolicyConflictAnalyzer().Analyse(rules);
+
+        Assert.NotEmpty(conflicts);
+        Assert.Contains(conflicts, c => c.Severity == "warning"
+            && c.OwnerScope is PolicyScope.Endpoint
+            && c.OverriddenScope is PolicyScope.Domain);
+    }
+
+    [Fact]
+    public void ConflictAnalyzer_returns_empty_when_no_action_conflicts()
+    {
+        var rules = new List<EffectiveRule>
+        {
+            // Two Allow rules at different scopes -- no conflict.
+            new EffectiveRule(
+                MakeRule("is_human = true", new PolicyAction.Allow(), priority: 100,
+                    scope: new PolicyScope.Domain(DomainAcme)),
+                new PolicyScope.Domain(DomainAcme),
+                IsInherited: false),
+            new EffectiveRule(
+                MakeRule("ua.family = chrome", new PolicyAction.Allow(), priority: 50,
+                    scope: new PolicyScope.Subdomain(DomainAcme, SubDocs)),
+                new PolicyScope.Subdomain(DomainAcme, SubDocs),
+                IsInherited: false)
+        };
+
+        var conflicts = new PolicyConflictAnalyzer().Analyse(rules);
+        Assert.Empty(conflicts);
+    }
+
+    // -------- B3 helpers --------
+
+    private static PolicyRule MakeRule(string predicate, PolicyAction action, int priority, PolicyScope scope) =>
+        new(
+            Id: Guid.NewGuid(),
+            Scope: scope,
+            Priority: priority,
+            Predicate: PredicateParser.Parse(predicate),
+            Action: action,
+            Mode: PolicyMode.Live,
+            Notes: string.Empty,
+            Source: "test",
+            CreatedAt: DateTimeOffset.UtcNow,
+            RevisionId: Guid.NewGuid());
+
+    private static IReadOnlyList<EffectiveRule> SeedThreeRulesEndpointBlockSubdomainChallengeDomainAllow()
+    {
+        // Mirrors the seed YAML triple (most-specific-first, the order the
+        // resolver hands them to us).
+        var endpoint = MakeRule(
+            "bot.type in (scraper, crawler) and score.bot_probability >= 0.7",
+            new PolicyAction.Block(), priority: 10,
+            scope: new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload));
+        var subdomain = MakeRule(
+            "geo.country in (CN, RU)",
+            new PolicyAction.Challenge("turnstile"), priority: 50,
+            scope: new PolicyScope.Subdomain(DomainAcme, SubDocs));
+        var domain = MakeRule(
+            "is_human = true",
+            new PolicyAction.Allow(), priority: 100,
+            scope: new PolicyScope.Domain(DomainAcme));
+
+        return new[]
+        {
+            new EffectiveRule(endpoint, endpoint.Scope, IsInherited: false),
+            new EffectiveRule(subdomain, subdomain.Scope, IsInherited: true),
+            new EffectiveRule(domain, domain.Scope, IsInherited: true)
+        };
+    }
+
+    /// <summary>Counts <see cref="PolicyConflictAnalyzer.Analyse"/> calls.</summary>
+    private sealed class CountingConflictAnalyzer : PolicyConflictAnalyzer
+    {
+        public int Calls;
+        public override IReadOnlyList<PolicyConflictViewModel> Analyse(IReadOnlyList<EffectiveRule> effectiveRules)
+        {
+            Interlocked.Increment(ref Calls);
+            return base.Analyse(effectiveRules);
+        }
     }
 
     // -------- Render helpers --------
@@ -300,6 +452,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
                 sp.GetRequiredService<IPolicyDecisionLog>(),
                 Options.Create(new PolicyEffectivenessOptions()),
                 NullLogger<PolicyEffectivenessCache>.Instance));
+        builder.Services.AddSingleton<PolicyConflictAnalyzer>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
 
         var app = builder.Build();
@@ -357,7 +510,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     private static async Task<string> GetHtmlAsync(
         HttpClient client,
         PolicyScope scope,
-        PolicyStackEmbed embed)
+        PolicyStackEmbed embed,
+        string? activeTab = null)
     {
         var query = $"embed={embed}&scopeKind={ScopeKind(scope)}";
         switch (scope)
@@ -372,6 +526,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
                 query += $"&domain={e.DomainName}&sub={e.SubdomainName}&template={Uri.EscapeDataString(e.PathTemplate)}";
                 break;
         }
+        if (!string.IsNullOrEmpty(activeTab))
+            query += $"&activeTab={Uri.EscapeDataString(activeTab)}";
         var resp = await client.GetAsync($"/_test/policy-stack?{query}");
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync();
@@ -413,7 +569,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         var catalog = await BuildSignalCatalogAsync();
         // No-op cache stub for cheap presenter-only tests.
         var cache = new EmptyEffectivenessCache();
-        return new PolicyStackPresenter(resolver, cache, catalog);
+        return new PolicyStackPresenter(resolver, cache, catalog, new PolicyConflictAnalyzer());
     }
 
     private static async Task<Guid> GetEndpointRuleIdAsync(IPolicyResolver resolver)
@@ -509,7 +665,8 @@ public sealed class PolicyStackTestController : Controller
         string scopeKind = "wildcard",
         string? domain = null,
         string? sub = null,
-        string? template = null)
+        string? template = null,
+        string? activeTab = null)
     {
         PolicyScope scope = scopeKind switch
         {
@@ -522,6 +679,6 @@ public sealed class PolicyStackTestController : Controller
             ? e
             : PolicyStackEmbed.Full;
 
-        return ViewComponent("SbPolicyStack", new { scope, embed = parsedEmbed });
+        return ViewComponent("SbPolicyStack", new { scope, embed = parsedEmbed, activeTab });
     }
 }

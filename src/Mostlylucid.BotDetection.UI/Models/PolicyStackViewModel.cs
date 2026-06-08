@@ -20,6 +20,8 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="RulesTriggeredInWindow">Number of rows whose <see cref="PolicyStackRowViewModel.TriggerCount"/> &gt; 0.</param>
 /// <param name="LatestEditAt">Max <see cref="PolicyRule.CreatedAt"/> across the effective rules; null when no rules.</param>
 /// <param name="ScopeHash">Stable 16-hex-char SHA-256 prefix of the scope. B6 uses this as the SignalR group name.</param>
+/// <param name="StackGroups">Ancestor-first scope groupings for the Stack tab. Empty when the Stack tab isn't active.</param>
+/// <param name="Conflicts">Flat list of every conflict produced by the analyzer; per-group copies live on each <see cref="PolicyStackScopeGroupViewModel.Conflicts"/>.</param>
 public sealed record PolicyStackViewModel(
     PolicyScope Scope,
     IReadOnlyList<PolicyScope> BreadcrumbPath,
@@ -31,4 +33,6 @@ public sealed record PolicyStackViewModel(
     int TotalEffectiveRules,
     int RulesTriggeredInWindow,
     DateTimeOffset? LatestEditAt,
-    string ScopeHash);
+    string ScopeHash,
+    IReadOnlyList<PolicyStackScopeGroupViewModel> StackGroups,
+    IReadOnlyList<PolicyConflictViewModel> Conflicts);
