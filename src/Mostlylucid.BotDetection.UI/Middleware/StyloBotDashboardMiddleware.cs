@@ -495,10 +495,14 @@ public class StyloBotDashboardMiddleware
                 await ServeOobUpdateAsync(context);
                 break;
 
-            case "investigate":
-                await ServeInvestigationAsync(context);
-                break;
-
+            // NOTE: "investigate" deliberately has NO standalone case here. The full-page
+            // GET /{base}/investigate falls through to the IDashboardRowRegistry catch-all
+            // below so it renders inside Index.cshtml with the same drawer + left-nav + status
+            // strip every other area uses. Investigation data is built lazily inside
+            // ServeDashboardPageAsync when tab=="investigate" and rendered by the area's
+            // partial-path match (Index.cshtml ~line 292). The two sub-routes below stay
+            // because they ARE HTMX partial endpoints (tab content swap, preset reload) and
+            // must NOT be layout-wrapped.
             case var p when p.StartsWith("investigate/tab/", StringComparison.OrdinalIgnoreCase):
                 await ServeInvestigationTabAsync(context, relativePath["investigate/tab/".Length..]);
                 break;
