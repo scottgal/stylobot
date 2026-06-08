@@ -22,6 +22,17 @@ public sealed class InMemoryPolicyDecisionLog : IPolicyDecisionLog
 
     public Task FlushAsync(CancellationToken ct = default) => Task.CompletedTask;
 
+    /// <summary>
+    ///     Test helper: returns a defensive copy of every decision appended so
+    ///     far. Useful for asserting that the evaluator wrote the expected
+    ///     trace without round-tripping through the aggregate or fingerprint
+    ///     query paths.
+    /// </summary>
+    public IReadOnlyList<PolicyDecision> Snapshot()
+    {
+        lock (_lock) return _rows.ToList();
+    }
+
     public Task<PolicyDecisionAggregate> AggregateAsync(
         Guid ruleId,
         TimeSpan window,
