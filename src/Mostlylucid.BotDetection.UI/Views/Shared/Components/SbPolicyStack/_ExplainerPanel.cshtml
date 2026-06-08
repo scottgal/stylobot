@@ -1,0 +1,36 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+@*
+    Explainer panel host. Renders on the Full embed unconditionally so the
+    HTMX swap target is always present; on EffectiveOnly only when the panel
+    is locked (fingerprint detail pages). The locked variant hides the picker
+    and surfaces the fingerprint headline instead.
+*@
+@if (Model.Embed == PolicyStackEmbed.Full
+     || (Model.Embed == PolicyStackEmbed.EffectiveOnly && Model.Explainer?.Locked == true))
+{
+    <section class="sb-policy-stack-explainer"
+             id="sb-policy-stack-explainer"
+             data-locked="@(Model.Explainer?.Locked == true ? "true" : "false")">
+        @if (Model.Explainer is { Locked: true } locked)
+        {
+            <header>
+                <h3>Why did this happen?</h3>
+                <small>Replayed from fingerprint <code>@locked.FingerprintId</code> @locked.ReplayedAt?.ToString("u")</small>
+            </header>
+        }
+        else
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_ExplainerPicker", Model)
+        }
+
+        @if (Model.Explainer is { Rules.Count: > 0 } explainer)
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_DecisionTrace", explainer)
+        }
+        else
+        {
+            <div class="sb-policy-stack-empty">Pick a recent fingerprint or paste a custom context to replay.</div>
+        }
+    </section>
+}

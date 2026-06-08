@@ -57,4 +57,53 @@ public static class PolicyScopeUrl
         }
         return sb.ToString();
     }
+
+    // -------- Encode / Decode (round-trippable URL form for query strings) --------
+
+    private const char Separator = '|';
+
+    /// <summary>
+    ///     Encode a <see cref="PolicyScope"/> as a single URL-safe query token.
+    ///     Used by the explainer HTMX endpoint so the partial can pass the
+    ///     scope it's bound to without re-creating the breadcrumb.
+    /// </summary>
+    public static string Encode(PolicyScope scope) => scope switch
+    {
+        PolicyScope.Wildcard => "wildcard",
+        PolicyScope.Domain d => $"domain{Separator}{Uri.EscapeDataString(d.DomainName)}",
+        PolicyScope.Subdomain s =>
+            $"subdomain{Separator}{Uri.EscapeDataString(s.DomainName)}{Separator}{Uri.EscapeDataString(s.SubdomainName)}",
+        PolicyScope.Endpoint e =>
+            $"endpoint{Separator}{Uri.EscapeDataString(e.DomainName)}{Separator}{Uri.EscapeDataString(e.SubdomainName)}{Separator}{Uri.EscapeDataString(e.PathTemplate)}",
+        _ => "wildcard"
+    };
+
+    /// <summary>
+    ///     Decode a string previously produced by <see cref="Encode"/>. Unknown
+    ///     / malformed tokens degrade gracefully to <see cref="PolicyScope.Wildcard"/>
+    ///     so a stale URL never throws on the route handler.
+    /// </summary>
+    public static PolicyScope Decode(string? encoded)
+    {
+        if (string.IsNullOrWhiteSpace(encoded)) return new PolicyScope.Wildcard();
+        var parts = encoded.Split(Separator);
+        switch (parts[0])
+        {
+            case "wildcard":
+                return new PolicyScope.Wildcard();
+            case "domain" when parts.Length >= 2:
+                return new PolicyScope.Domain(Uri.UnescapeDataString(parts[1]));
+            case "subdomain" when parts.Length >= 3:
+                return new PolicyScope.Subdomain(
+                    Uri.UnescapeDataString(parts[1]),
+                    Uri.UnescapeDataString(parts[2]));
+            case "endpoint" when parts.Length >= 4:
+                return new PolicyScope.Endpoint(
+                    Uri.UnescapeDataString(parts[1]),
+                    Uri.UnescapeDataString(parts[2]),
+                    Uri.UnescapeDataString(parts[3]));
+            default:
+                return new PolicyScope.Wildcard();
+        }
+    }
 }

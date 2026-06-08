@@ -532,6 +532,16 @@ public class StyloBotDashboardMiddleware
                 await ServeSignalDetailAsync(context, relativePath["signals/".Length..]);
                 break;
 
+            // Policy stack explainer panel partial. Returns the rendered
+            // _ExplainerPanel HTML so HTMX can swap the panel without a
+            // full page reload. Anonymous-readable for the same reason
+            // /dashboard/signals/* is: the rules + decisions are not secrets,
+            // and gating the partial would block the editor without
+            // protecting anything.
+            case "policystack/explain":
+                await ServePolicyStackExplainAsync(context);
+                break;
+
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
                 if (_options.RenderPage)
                 {
@@ -2980,6 +2990,59 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "application/json; charset=utf-8";
         context.Response.Headers.CacheControl = SignalCatalogCacheControl;
         await JsonSerializer.SerializeAsync(context.Response.Body, payload, SignalCatalogJsonOptions);
+    }
+
+    /// <summary>
+    ///     B5 explainer-panel route. Renders the SbPolicyStack
+    ///     <c>_ExplainerPanel</c> partial for the requested scope + fingerprint
+    ///     and writes the HTML back so HTMX can outerHTML-swap the panel. The
+    ///     route is anonymous-readable; the same risk model that lets
+    ///     <c>/dashboard/signals/*</c> serve catalog data also lets the panel
+    ///     return decision-log replays.
+    /// </summary>
+    private async Task ServePolicyStackExplainAsync(HttpContext context)
+    {
+        var presenter = context.RequestServices
+            .GetService<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
+        if (presenter is null)
+        {
+            // Caller registered Dashboard middleware without AddStyloBotDashboard
+            // -- nothing to render. Surface a 404 rather than a 500 so HTMX
+            // operators can distinguish "wrong host" from "bad fingerprint".
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var scopeParam = context.Request.Query["scope"].ToString();
+        var fingerprint = context.Request.Query["fingerprint"].ToString();
+        var locked = string.Equals(
+            context.Request.Query["locked"].ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
+        // The ⓘ row buttons emit ?focusRule=<guid>. Today the explainer
+        // surfaces the most recent decision cycle regardless of which rule was
+        // clicked -- the cycle includes every rule the evaluator touched, so
+        // the focused rule is already in the rendered trace. The focusRule
+        // hint stays in the URL so B6 can scroll-into-view client-side
+        // without needing a second round-trip.
+        var scope = Mostlylucid.BotDetection.UI.Services.PolicyScopeUrl.Decode(scopeParam);
+
+        var vm = await presenter.BuildAsync(
+            scope: scope,
+            embed: Mostlylucid.BotDetection.UI.Models.PolicyStackEmbed.Full,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false,
+            filter: null,
+            sort: null,
+            explainerFingerprint: fingerprint ?? string.Empty,
+            explainerLocked: locked,
+            ct: context.RequestAborted);
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbPolicyStack/_ExplainerPanel.cshtml", vm, context);
+
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
     }
 
     private async Task ServeHelpAsync(HttpContext context, string sectionId)

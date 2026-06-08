@@ -1,10 +1,13 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @model PolicyStackRowViewModel
 @{
     var modeLower = Model.Mode.ToString().ToLowerInvariant();
     var sourcePillClasses = Model.IsInherited
         ? "badge source-pill is-inherited"
         : "badge source-pill";
+    var explainScope = PolicyScopeUrl.Encode(Model.SourceScope);
+    var explainUrl = $"/dashboard/policystack/explain?scope={explainScope}&focusRule={Model.RuleId}";
 }
 <article class="sb-policy-stack-row"
          data-rule-id="@Model.RuleId"
@@ -42,6 +45,9 @@
                 class="sb-policy-stack-row-explain"
                 data-action="explain"
                 data-rule-id="@Model.RuleId"
+                hx-get="@explainUrl"
+                hx-target="#sb-policy-stack-explainer"
+                hx-swap="outerHTML"
                 aria-label="Show rule explainer">ⓘ</button>
     </div>
 </article>

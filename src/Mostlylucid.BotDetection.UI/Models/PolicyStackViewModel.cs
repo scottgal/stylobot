@@ -25,6 +25,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="Filter">Parsed filter state from <c>?policystack-filter=</c>; <see cref="PolicyStackFilter.Empty"/> when no filter is active.</param>
 /// <param name="Sort">Parsed sort state from <c>?policystack-sort=/?policystack-dir=</c>; <see cref="PolicyStackSort.Default"/> when not specified.</param>
 /// <param name="AggregateStrip">Aggregate strip summarising the post-filter visible row set; <c>null</c> for <see cref="PolicyStackEmbed.StatusBadge"/>.</param>
+/// <param name="Explainer">Pre-built explainer panel state when the presenter was given a fingerprint to replay; <c>null</c> otherwise. Surfaced on the Full embed and on EffectiveOnly when <see cref="PolicyExplainerViewModel.Locked"/>.</param>
 public sealed record PolicyStackViewModel(
     PolicyScope Scope,
     IReadOnlyList<PolicyScope> BreadcrumbPath,
@@ -41,4 +42,5 @@ public sealed record PolicyStackViewModel(
     IReadOnlyList<PolicyConflictViewModel> Conflicts,
     PolicyStackFilter Filter,
     PolicyStackSort Sort,
-    PolicyStackAggregateStrip? AggregateStrip);
+    PolicyStackAggregateStrip? AggregateStrip,
+    PolicyExplainerViewModel? Explainer = null);

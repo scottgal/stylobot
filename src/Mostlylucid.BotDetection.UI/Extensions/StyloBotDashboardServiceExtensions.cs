@@ -251,6 +251,11 @@ public static class StyloBotDashboardServiceExtensions
         // it when the Stack tab is the active surface, so DI cost is one
         // allocation regardless of how many call sites embed the control.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyConflictAnalyzer>();
+        // Explainer presenter is registered before the stack presenter so the
+        // stack presenter's optional constructor parameter resolves to the
+        // real explainer rather than null. The explainer is a pure read
+        // surface, stateless, peer-singleton with the stack presenter.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyExplainerPresenter>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
 
         // Dashboard tooltip registry — loads Definitions/Tooltips/*.yaml at

@@ -32,19 +32,22 @@ public sealed class PolicyStackPresenter
     private readonly ISignalCatalog _signalCatalog;
     private readonly PolicyConflictAnalyzer _conflictAnalyzer;
     private readonly PolicyStackFilterOptions _filterOptions;
+    private readonly PolicyExplainerPresenter? _explainerPresenter;
 
     public PolicyStackPresenter(
         IPolicyResolver resolver,
         IPolicyEffectivenessCache effectiveness,
         ISignalCatalog signalCatalog,
         PolicyConflictAnalyzer conflictAnalyzer,
-        PolicyStackFilterOptions? filterOptions = null)
+        PolicyStackFilterOptions? filterOptions = null,
+        PolicyExplainerPresenter? explainerPresenter = null)
     {
         _resolver = resolver;
         _effectiveness = effectiveness;
         _signalCatalog = signalCatalog;
         _conflictAnalyzer = conflictAnalyzer;
         _filterOptions = filterOptions ?? new PolicyStackFilterOptions();
+        _explainerPresenter = explainerPresenter;
     }
 
     /// <summary>
@@ -61,6 +64,8 @@ public sealed class PolicyStackPresenter
         bool canEdit,
         PolicyStackFilter? filter = null,
         PolicyStackSort? sort = null,
+        string? explainerFingerprint = null,
+        bool explainerLocked = false,
         CancellationToken ct = default)
     {
         var effectiveFilter = filter ?? PolicyStackFilter.Empty;
@@ -95,7 +100,8 @@ public sealed class PolicyStackPresenter
                 Conflicts: Array.Empty<PolicyConflictViewModel>(),
                 Filter: effectiveFilter,
                 Sort: effectiveSort,
-                AggregateStrip: null);
+                AggregateStrip: null,
+                Explainer: null);
         }
 
         // Bulk read all aggregates in a single hop. The cache serves these from
@@ -171,6 +177,21 @@ public sealed class PolicyStackPresenter
             stackGroups = BuildStackGroups(effective, sortedRows, effectiveByRuleId, conflicts);
         }
 
+        // Build the explainer panel state when the caller supplied a fingerprint
+        // (Full embed always; EffectiveOnly only when locked). The presenter
+        // is optional in DI so older callers that don't register it keep
+        // working -- they just never get an explainer.
+        PolicyExplainerViewModel? explainer = null;
+        var wantsExplainer = explainerFingerprint is not null
+            && (embed == PolicyStackEmbed.Full
+                || (embed == PolicyStackEmbed.EffectiveOnly && explainerLocked));
+        if (wantsExplainer && _explainerPresenter is not null)
+        {
+            explainer = await _explainerPresenter
+                .BuildAsync(scope, explainerFingerprint ?? string.Empty, explainerLocked, ct)
+                .ConfigureAwait(false);
+        }
+
         return new PolicyStackViewModel(
             Scope: scope,
             BreadcrumbPath: breadcrumb,
@@ -187,7 +208,8 @@ public sealed class PolicyStackPresenter
             Conflicts: conflicts,
             Filter: effectiveFilter,
             Sort: effectiveSort,
-            AggregateStrip: strip);
+            AggregateStrip: strip,
+            Explainer: explainer);
     }
 
     // -------- Filter --------

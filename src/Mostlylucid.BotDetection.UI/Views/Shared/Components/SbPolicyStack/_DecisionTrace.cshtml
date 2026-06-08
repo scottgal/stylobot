@@ -1,0 +1,48 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyExplainerViewModel
+@*
+    Per-rule decision trace block. One <li> per rule in priority order. Rules
+    with WasEvaluated=false render a "not evaluated" notice and no term list
+    so the operator immediately sees which rules ran versus which were skipped
+    because an earlier rule won. The winning rule carries a "WOULD APPLY" badge.
+*@
+<div class="sb-policy-stack-decision-trace" data-fingerprint="@Model.FingerprintId">
+    <div class="sb-decision-trace-context">@Model.ContextSummary</div>
+    <ol class="sb-decision-trace-rules">
+        @foreach (var rule in Model.Rules)
+        {
+            <li class="sb-decision-trace-rule @(rule.IsWinner ? "winner" : "") @(rule.WasEvaluated ? "" : "skipped")"
+                data-rule-id="@rule.RuleId">
+                <header>
+                    <span class="badge source-pill">@rule.SourcePill</span>
+                    <span class="predicate">@rule.PredicateText</span>
+                    <span class="verdict @rule.ActionColorClass">@rule.ActionVerdict</span>
+                    @if (rule.IsWinner)
+                    {
+                        <span class="badge winner">WOULD APPLY</span>
+                    }
+                </header>
+                @if (rule.WasEvaluated)
+                {
+                    <ul class="sb-decision-trace-terms">
+                        @foreach (var term in rule.Terms)
+                        {
+                            <li class="term @(term.Matched ? "matched" : "missed")"
+                                title="@term.Tooltip">
+                                <span class="indicator" aria-hidden="true">@term.Indicator</span>
+                                <span class="description">@term.Description</span>
+                                <span class="detail">@term.Detail</span>
+                                <span class="latency">[@(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F1}ms", term.EvalMicros / 1000.0))]</span>
+                            </li>
+                        }
+                    </ul>
+                    <footer>total @(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F1}ms", rule.TotalEvalMicros / 1000.0))</footer>
+                }
+                else
+                {
+                    <div class="sb-decision-trace-skip">@rule.SkipReason</div>
+                }
+            </li>
+        }
+    </ol>
+</div>

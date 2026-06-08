@@ -40,7 +40,9 @@ public sealed class SbPolicyStackViewComponent : ViewComponent
         bool canEdit = false,
         string? filterExpression = null,
         string? sortKey = null,
-        string? sortDir = null)
+        string? sortDir = null,
+        string? explainerFingerprint = null,
+        bool lockedFingerprint = false)
     {
         var filter = PolicyStackFilter.Parse(filterExpression);
         var sort = PolicyStackSort.Parse(sortKey, sortDir);
@@ -53,6 +55,8 @@ public sealed class SbPolicyStackViewComponent : ViewComponent
             canEdit: canEdit,
             filter: filter,
             sort: sort,
+            explainerFingerprint: explainerFingerprint,
+            explainerLocked: lockedFingerprint,
             ct: HttpContext?.RequestAborted ?? CancellationToken.None);
 
         // Default.cshtml is the single entry point -- it dispatches to the

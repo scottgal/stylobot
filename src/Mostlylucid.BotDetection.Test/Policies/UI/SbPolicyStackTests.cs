@@ -586,6 +586,195 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Equal("30d", PolicyStackWindowFormat.ForLabel(TimeSpan.FromDays(30)));
     }
 
+    // -------- B5: Explainer panel + decision trace --------
+
+    [Fact]
+    public async Task RuleRow_explain_button_has_htmx_explain_attributes()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        // The ⓘ button must carry the HTMX wiring the panel expects: a hx-get
+        // pointing at /dashboard/policystack/explain with a scope + focusRule,
+        // plus the swap target. Razor encodes & as &amp; inside attributes so
+        // the regex tolerates either form.
+        Assert.Matches(
+            new Regex("hx-get=\"/dashboard/policystack/explain\\?scope=[^\"]+(&|&amp;)focusRule=[0-9a-fA-F\\-]+\""),
+            html);
+        Assert.Contains("hx-target=\"#sb-policy-stack-explainer\"", html);
+        Assert.Contains("hx-swap=\"outerHTML\"", html);
+    }
+
+    [Fact]
+    public async Task Explainer_panel_renders_picker_when_not_locked_and_no_fingerprint()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        // Full embed always paints the panel host so HTMX swaps land. With no
+        // fingerprint the picker is the visible affordance.
+        Assert.Contains("id=\"sb-policy-stack-explainer\"", html);
+        Assert.Contains("sb-policy-stack-explainer-picker", html);
+        Assert.Contains("data-locked=\"false\"", html);
+        // Placeholder copy renders when there's nothing to replay.
+        Assert.Contains("Pick a recent fingerprint", html);
+    }
+
+    [Fact]
+    public async Task Explainer_panel_renders_locked_header_when_locked()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            explainerFingerprint: "fp-X", lockedFingerprint: true);
+
+        Assert.Contains("data-locked=\"true\"", html);
+        Assert.DoesNotContain("sb-policy-stack-explainer-picker", html);
+        Assert.Contains("Why did this happen?", html);
+    }
+
+    [Fact]
+    public async Task EffectiveOnly_embed_only_renders_explainer_when_locked()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        // Without locking, EffectiveOnly stays compact -- no panel host.
+        var withoutLock = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.EffectiveOnly);
+        Assert.DoesNotContain("id=\"sb-policy-stack-explainer\"", withoutLock);
+
+        // With locking, the panel host appears (this is the fingerprint detail
+        // page embed used by future call sites).
+        var withLock = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.EffectiveOnly,
+            explainerFingerprint: "fp-X", lockedFingerprint: true);
+        Assert.Contains("id=\"sb-policy-stack-explainer\"", withLock);
+        Assert.Contains("data-locked=\"true\"", withLock);
+    }
+
+    [Fact]
+    public async Task Explainer_panel_renders_decision_trace_for_known_fingerprint()
+    {
+        // Seed a decision cycle on a real endpoint rule so the explainer has
+        // something to replay. The decision log is wired through DI; we grab
+        // the same singleton the presenter consumes.
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        await SeedDecisionsForFingerprintAsync(fingerprint: "fp-scrape-test");
+
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            explainerFingerprint: "fp-scrape-test", lockedFingerprint: true);
+
+        Assert.Contains("sb-policy-stack-decision-trace", html);
+        Assert.Contains("WOULD APPLY", html);
+    }
+
+    [Fact]
+    public async Task Explainer_panel_renders_empty_state_when_fingerprint_unknown()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            explainerFingerprint: "fp-never-seen");
+
+        Assert.Contains("Pick a recent fingerprint", html);
+        Assert.DoesNotContain("WOULD APPLY", html);
+    }
+
+    [Fact]
+    public async Task Explainer_presenter_returns_placeholder_when_fingerprint_empty()
+    {
+        var resolver = await BuildResolverAsync();
+        var catalog = await BuildSignalCatalogAsync();
+        var decisionLog = new InMemoryPolicyDecisionLog();
+        var explainer = new PolicyExplainerPresenter(resolver, decisionLog, catalog);
+
+        var vm = await explainer.BuildAsync(EndpointScope, fingerprint: string.Empty, locked: false);
+
+        Assert.Empty(vm.Rules);
+        Assert.Null(vm.WinnerRuleId);
+        Assert.Equal(string.Empty, vm.FingerprintId);
+        Assert.False(vm.Locked);
+    }
+
+    [Fact]
+    public async Task Explainer_presenter_marks_winner_rule_with_is_winner()
+    {
+        var resolver = await BuildResolverAsync();
+        var catalog = await BuildSignalCatalogAsync();
+        var decisionLog = new InMemoryPolicyDecisionLog();
+        var explainer = new PolicyExplainerPresenter(resolver, decisionLog, catalog);
+
+        var endpointRuleId = await GetEndpointRuleIdAsync(resolver);
+        var observedAt = DateTimeOffset.UtcNow;
+        const string fp = "fp-winner-test";
+
+        // The cycle's winner is the endpoint Block rule. The other rules sat
+        // in the cycle as zero-latency skipped rows (an earlier rule won).
+        var effective = await resolver.EffectiveAsync(EndpointScope);
+        foreach (var entry in effective)
+        {
+            var isWinner = entry.Rule.Id == endpointRuleId;
+            await decisionLog.AppendAsync(new PolicyDecision(
+                RuleId: entry.Rule.Id,
+                WinnerRuleId: endpointRuleId,
+                Matched: isWinner,
+                RequestFingerprint: fp,
+                Action: entry.Rule.Action,
+                Mode: entry.Rule.Mode,
+                EvalLatencyTicks: isWinner ? 5000 : 0,
+                ObservedAt: observedAt));
+        }
+
+        var vm = await explainer.BuildAsync(EndpointScope, fingerprint: fp, locked: false);
+
+        Assert.NotEmpty(vm.Rules);
+        Assert.Equal(endpointRuleId, vm.WinnerRuleId);
+        var winnerRow = vm.Rules.Single(r => r.RuleId == endpointRuleId);
+        Assert.True(winnerRow.IsWinner);
+        Assert.True(winnerRow.WasEvaluated);
+
+        // Non-winners that the cycle marked as zero-latency skips render with
+        // WasEvaluated=false + the canonical skip-reason string.
+        var skipped = vm.Rules.Where(r => r.RuleId != endpointRuleId).ToList();
+        Assert.NotEmpty(skipped);
+        Assert.All(skipped, r =>
+        {
+            Assert.False(r.IsWinner);
+            Assert.False(r.WasEvaluated);
+            Assert.NotNull(r.SkipReason);
+            Assert.Contains("earlier rule won", r.SkipReason!);
+        });
+    }
+
+    /// <summary>
+    ///     Append a full decision cycle for <paramref name="fingerprint"/> --
+    ///     one row per effective rule, with the endpoint Block rule as the
+    ///     winner. The InMemory log is exposed directly (no drainer), so the
+    ///     explainer sees the rows on its next read.
+    /// </summary>
+    private async Task SeedDecisionsForFingerprintAsync(string fingerprint)
+    {
+        // Grab the most recently built TestServer's services. Every test that
+        // calls this seeds AFTER BuildClientAsync, so _apps.Last() is the
+        // right host.
+        var app = _apps[^1];
+        var resolver = app.Services.GetRequiredService<IPolicyResolver>();
+        var decisionLog = app.Services.GetRequiredService<IPolicyDecisionLog>();
+        var endpointRuleId = await GetEndpointRuleIdAsync(resolver);
+        var observedAt = DateTimeOffset.UtcNow;
+
+        var effective = await resolver.EffectiveAsync(EndpointScope);
+        foreach (var entry in effective)
+        {
+            var isWinner = entry.Rule.Id == endpointRuleId;
+            await decisionLog.AppendAsync(new PolicyDecision(
+                RuleId: entry.Rule.Id,
+                WinnerRuleId: endpointRuleId,
+                Matched: isWinner,
+                RequestFingerprint: fingerprint,
+                Action: entry.Rule.Action,
+                Mode: entry.Rule.Mode,
+                EvalLatencyTicks: isWinner ? 5000 : 0,
+                ObservedAt: observedAt));
+        }
+    }
+
     private static TimeSpan TimeSpanParse(string value)
     {
         // Mirrors PolicyStackFilter's @since: parser; the test theory uses this
@@ -706,6 +895,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
                 Options.Create(new PolicyEffectivenessOptions()),
                 NullLogger<PolicyEffectivenessCache>.Instance));
         builder.Services.AddSingleton<PolicyConflictAnalyzer>();
+        builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
 
         var app = builder.Build();
@@ -767,7 +957,9 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         string? activeTab = null,
         string? filterExpression = null,
         string? sortKey = null,
-        string? sortDir = null)
+        string? sortDir = null,
+        string? explainerFingerprint = null,
+        bool lockedFingerprint = false)
     {
         var query = $"embed={embed}&scopeKind={ScopeKind(scope)}";
         switch (scope)
@@ -790,6 +982,10 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             query += $"&sortKey={Uri.EscapeDataString(sortKey)}";
         if (!string.IsNullOrEmpty(sortDir))
             query += $"&sortDir={Uri.EscapeDataString(sortDir)}";
+        if (explainerFingerprint is not null)
+            query += $"&explainerFingerprint={Uri.EscapeDataString(explainerFingerprint)}";
+        if (lockedFingerprint)
+            query += "&lockedFingerprint=true";
         var resp = await client.GetAsync($"/_test/policy-stack?{query}");
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync();
@@ -931,7 +1127,9 @@ public sealed class PolicyStackTestController : Controller
         string? activeTab = null,
         string? filterExpression = null,
         string? sortKey = null,
-        string? sortDir = null)
+        string? sortDir = null,
+        string? explainerFingerprint = null,
+        bool lockedFingerprint = false)
     {
         PolicyScope scope = scopeKind switch
         {
@@ -945,6 +1143,11 @@ public sealed class PolicyStackTestController : Controller
             : PolicyStackEmbed.Full;
 
         return ViewComponent("SbPolicyStack",
-            new { scope, embed = parsedEmbed, activeTab, filterExpression, sortKey, sortDir });
+            new
+            {
+                scope, embed = parsedEmbed, activeTab,
+                filterExpression, sortKey, sortDir,
+                explainerFingerprint, lockedFingerprint
+            });
     }
 }

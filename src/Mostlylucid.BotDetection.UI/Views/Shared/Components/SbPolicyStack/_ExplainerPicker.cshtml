@@ -1,0 +1,23 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@model PolicyStackViewModel
+@*
+    Explainer panel input picker. Operator either pastes a fingerprint id or
+    selects a recent one (B6 lands the dropdown of recent fingerprints; today
+    the picker is paste-only). The form posts to the explainer route which
+    rewrites the panel via hx-target=#sb-policy-stack-explainer.
+*@
+<div class="sb-policy-stack-explainer-picker">
+    <form hx-get="/dashboard/policystack/explain"
+          hx-target="#sb-policy-stack-explainer"
+          hx-swap="outerHTML">
+        <input type="hidden" name="scope" value="@PolicyScopeUrl.Encode(Model.Scope)" />
+        <label>
+            Replay
+            <input type="text" name="fingerprint"
+                   placeholder="paste fingerprint id"
+                   value="@(Model.Explainer?.FingerprintId ?? string.Empty)" />
+        </label>
+        <button type="submit">Run</button>
+    </form>
+</div>
