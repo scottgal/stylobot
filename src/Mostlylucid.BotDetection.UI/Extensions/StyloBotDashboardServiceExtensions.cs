@@ -217,6 +217,38 @@ public static class StyloBotDashboardServiceExtensions
 #pragma warning restore IL2026
         });
 
+        // Policy Stack control read surface (FOSS default). Commercial Postgres
+        // pack overrides IPolicyRuleStore / IPolicyDecisionLog via TryAdd-loses
+        // wiring; these registrations only land if no commercial pack provided
+        // one first. The YamlPolicyRuleStore InitializeAsync() pulls embedded
+        // seed YAML synchronously at boot -- the corpus is fixed for the
+        // process lifetime, so blocking on .GetResult() is intentional.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Rules.IPolicyRuleStore>(_ =>
+        {
+            var asm = typeof(Mostlylucid.BotDetection.Policies.Rules.PolicyRule).Assembly;
+            var store = Mostlylucid.BotDetection.Policies.Rules.YamlPolicyRuleStore.FromEmbeddedResources(
+                asm,
+                "Mostlylucid.BotDetection.Policies.Rules.SeedRules.");
+            store.InitializeAsync().GetAwaiter().GetResult();
+            return store;
+        });
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Resolution.IPolicyResolver,
+            Mostlylucid.BotDetection.Policies.Resolution.DefaultPolicyResolver>();
+        // FOSS default: in-process log. Commercial SQLite / Postgres impls slot
+        // in via TryAdd from their respective packs. Operators that want SQLite
+        // durability on FOSS can replace this registration explicitly.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Decisions.IPolicyDecisionLog,
+            Mostlylucid.BotDetection.Policies.Decisions.InMemoryPolicyDecisionLog>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Telemetry.IPolicyEffectivenessCache,
+            Mostlylucid.BotDetection.Policies.Telemetry.PolicyEffectivenessCache>();
+        // Hosted-service lifecycle: start the cache drainer. Cast through the
+        // interface so the singleton resolution wins -- the PolicyEffectivenessCache
+        // singleton needs to be the SAME instance the hosted service uses.
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.PolicyEffectivenessCacheHostedService>();
+
+        // SbPolicyStack view-component presenter. Pure read surface; stateless.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
+
         // Dashboard tooltip registry — loads Definitions/Tooltips/*.yaml at
         // startup. Cheap to register unconditionally; the helper short-circuits
         // when StyloBotDashboardOptions.EnableTooltips is false so the resolved

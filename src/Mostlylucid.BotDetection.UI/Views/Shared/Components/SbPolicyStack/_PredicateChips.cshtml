@@ -1,0 +1,27 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model IReadOnlyList<PolicyStackChipViewModel>
+<div class="predicate-chips" data-chips="@Model.Count">
+    <span class="kw kw-when" aria-hidden="true">WHEN</span>
+    @for (var i = 0; i < Model.Count; i++)
+    {
+        var chip = Model[i];
+        if (chip.IsStructural)
+        {
+            <span class="kw kw-@chip.Facet.ToLowerInvariant()" aria-hidden="true">@chip.Facet</span>
+        }
+        else
+        {
+            @* Implicit AND between adjacent term chips, but skip when the
+               previous chip was structural so we don't double up. *@
+            if (i > 0 && !Model[i - 1].IsStructural)
+            {
+                <span class="kw kw-and" aria-hidden="true">AND</span>
+            }
+            <span class="chip" title="@chip.Tooltip" data-facet="@chip.Facet">
+                <span class="chip-facet">@chip.Facet</span>
+                <span class="chip-op">@chip.Op</span>
+                <span class="chip-value">@chip.ValueText</span>
+            </span>
+        }
+    }
+</div>

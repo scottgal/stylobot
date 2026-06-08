@@ -1,0 +1,23 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+@*
+    Default dispatcher: pick the embed-shape partial. View component
+    InvokeAsync already calls View("Full"|"EffectiveOnly"|"StatusBadge")
+    directly, but Default.cshtml is required so the engine resolves the
+    component even when callers invoke without a view name.
+*@
+@switch (Model.Embed)
+{
+    case PolicyStackEmbed.Full:
+        @await Html.PartialAsync("Components/SbPolicyStack/_Full", Model)
+        break;
+    case PolicyStackEmbed.EffectiveOnly:
+        @await Html.PartialAsync("Components/SbPolicyStack/_EffectiveOnly", Model)
+        break;
+    case PolicyStackEmbed.StatusBadge:
+        @await Html.PartialAsync("Components/SbPolicyStack/_StatusBadge", Model)
+        break;
+    default:
+        @await Html.PartialAsync("Components/SbPolicyStack/_Full", Model)
+        break;
+}

@@ -1,0 +1,59 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@model PolicyStackViewModel
+@{
+    var effectiveActive = !string.Equals(Model.ActiveTab, "stack", StringComparison.OrdinalIgnoreCase);
+}
+<section class="sb-policy-stack"
+         data-policy-stack-embed="full"
+         data-policy-stack-scope="@Model.ScopeHash"
+         data-policy-stack-active-tab="@(effectiveActive ? "effective" : "stack")">
+    <header class="sb-policy-stack-header">
+        <nav class="sb-policy-stack-breadcrumb" aria-label="Policy scope breadcrumb">
+            @for (var i = 0; i < Model.BreadcrumbPath.Count; i++)
+            {
+                if (i > 0)
+                {
+                    <span class="sb-policy-stack-breadcrumb-sep" aria-hidden="true">›</span>
+                }
+                var segment = Model.BreadcrumbPath[i];
+                var isCurrent = segment.Equals(Model.Scope);
+                <a class="sb-policy-stack-breadcrumb-link@(isCurrent ? " is-current" : "")"
+                   href="@PolicyScopeUrl.For(segment)"
+                   aria-current="@(isCurrent ? "page" : null)">@PolicyScopeUrl.Label(segment)</a>
+            }
+        </nav>
+
+        <div class="sb-policy-stack-tabs" role="tablist" aria-label="Policy stack views">
+            <button type="button"
+                    class="sb-policy-stack-tab@(effectiveActive ? " is-active" : "")"
+                    role="tab"
+                    data-tab="effective"
+                    aria-selected="@(effectiveActive ? "true" : "false")">Effective</button>
+            <button type="button"
+                    class="sb-policy-stack-tab@(!effectiveActive ? " is-active" : "")"
+                    role="tab"
+                    data-tab="stack"
+                    aria-selected="@(!effectiveActive ? "true" : "false")">Stack</button>
+        </div>
+
+        @if (Model.CanEdit)
+        {
+            @* canEdit threaded through but not rendered in B1+B2 -- B6+C land
+               the actual add-rule button. The marker stays so the layout
+               doesn't shift when the affordance returns. *@
+            <span class="sb-policy-stack-edit-affordance" data-can-edit="true" hidden></span>
+        }
+    </header>
+
+    <div class="sb-policy-stack-body">
+        @if (effectiveActive)
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_EffectiveTab", Model)
+        }
+        else
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_StackTabPlaceholder", Model)
+        }
+    </div>
+</section>

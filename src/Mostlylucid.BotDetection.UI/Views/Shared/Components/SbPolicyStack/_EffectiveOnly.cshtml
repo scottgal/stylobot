@@ -1,0 +1,7 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+<section class="sb-policy-stack sb-policy-stack--effective-only"
+         data-policy-stack-embed="effective-only"
+         data-policy-stack-scope="@Model.ScopeHash">
+    @await Html.PartialAsync("Components/SbPolicyStack/_EffectiveTab", Model)
+</section>

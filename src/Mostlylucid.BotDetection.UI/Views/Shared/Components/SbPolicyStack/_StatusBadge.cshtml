@@ -1,0 +1,14 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+<aside class="sb-policy-stack-status-badge"
+       data-policy-stack-embed="status-badge"
+       data-policy-stack-scope="@Model.ScopeHash">
+    <span class="sb-policy-stack-status-count">
+        @Model.TotalEffectiveRules rules effective here
+    </span>
+    @if (Model.LatestEditAt is { } latest)
+    {
+        <span class="sb-policy-stack-status-sep" aria-hidden="true">·</span>
+        <span class="sb-policy-stack-status-edit">last edit @latest.ToString("u")</span>
+    }
+</aside>

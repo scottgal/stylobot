@@ -1,0 +1,47 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackRowViewModel
+@{
+    var modeLower = Model.Mode.ToString().ToLowerInvariant();
+    var sourcePillClasses = Model.IsInherited
+        ? "badge source-pill is-inherited"
+        : "badge source-pill";
+}
+<article class="sb-policy-stack-row"
+         data-rule-id="@Model.RuleId"
+         data-source-pill="@Model.SourcePill"
+         data-mode="@modeLower"
+         data-no-hits="@(Model.HasNoHits ? "true" : "false")">
+    <header class="sb-policy-stack-row-head">
+        <span class="@sourcePillClasses"
+              data-source="@Model.SourcePill.ToLowerInvariant()">@Model.SourcePill</span>
+        <span class="badge mode-pill mode-@modeLower">@Model.ModePill</span>
+        @await Html.PartialAsync("Components/SbPolicyStack/_PredicateChips", Model.Chips)
+        <span class="verdict @Model.ActionColorClass" data-verdict="@Model.ActionColorClass">
+            @(Model.IsObserveMode ? "would " : "")@Model.ActionVerdict
+        </span>
+    </header>
+
+    <div class="sb-policy-stack-row-signals">
+        <span class="triggers" title="Matched / Total evaluations in window">
+            @Model.TriggerCount/@Model.TotalEvaluations
+        </span>
+        @if (!string.IsNullOrEmpty(Model.DistributionLine))
+        {
+            <span class="distribution">@Model.DistributionLine</span>
+        }
+        else if (Model.HasNoHits)
+        {
+            <span class="distribution sb-policy-stack-no-hits text-base-content/40">no hits in window</span>
+        }
+        @if (!string.IsNullOrEmpty(Model.LatencyLine))
+        {
+            <span class="latency">@Model.LatencyLine</span>
+        }
+        <span class="metadata text-base-content/40">@Model.MetadataLine</span>
+        <button type="button"
+                class="sb-policy-stack-row-explain"
+                data-action="explain"
+                data-rule-id="@Model.RuleId"
+                aria-label="Show rule explainer">ⓘ</button>
+    </div>
+</article>

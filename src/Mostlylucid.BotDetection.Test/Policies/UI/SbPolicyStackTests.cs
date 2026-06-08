@@ -1,0 +1,527 @@
+using System.Reflection;
+using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Policies.Decisions;
+using Mostlylucid.BotDetection.Policies.Resolution;
+using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.Policies.Signals;
+using Mostlylucid.BotDetection.Policies.Telemetry;
+using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
+using Mostlylucid.BotDetection.UI.ViewComponents;
+using Xunit;
+
+namespace Mostlylucid.BotDetection.Test.Policies.UI;
+
+/// <summary>
+///     Coverage for the SbPolicyStack view component + its presenter. The
+///     real-render tests spin up a TestServer with a one-shot controller that
+///     calls the view component via <c>ViewComponent</c> result -- that's
+///     enough to drive the full Razor pipeline against the real partials.
+///     The presenter-only tests verify the view-model shape directly without
+///     the engine in the way.
+/// </summary>
+public sealed class SbPolicyStackTests : IAsyncDisposable
+{
+    private const string SeedPrefix = "Mostlylucid.BotDetection.Policies.Rules.SeedRules.";
+    private const string DomainAcme = "acme.com";
+    private const string SubDocs = "docs.acme.com";
+    private const string EpUpload = "GET /api/upload";
+
+    private static readonly PolicyScope WildcardScope = new PolicyScope.Wildcard();
+    private static readonly PolicyScope DomainScope = new PolicyScope.Domain(DomainAcme);
+    private static readonly PolicyScope SubdomainScope = new PolicyScope.Subdomain(DomainAcme, SubDocs);
+    private static readonly PolicyScope EndpointScope = new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
+
+    private readonly List<WebApplication> _apps = new();
+
+    // -------- Real-render fan-out via TestServer --------
+
+    [Fact]
+    public async Task ViewComponent_renders_three_embed_shapes()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        var full = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+        Assert.Contains("data-policy-stack-embed=\"full\"", full);
+        Assert.Contains("data-tab=\"effective\"", full);
+        Assert.Contains("data-tab=\"stack\"", full);
+
+        var only = await GetHtmlAsync(client, WildcardScope, PolicyStackEmbed.EffectiveOnly);
+        Assert.DoesNotContain("data-tab=\"stack\"", only);
+        Assert.Contains("data-policy-stack-embed=\"effective-only\"", only);
+
+        var badge = await GetHtmlAsync(client, DomainScope, PolicyStackEmbed.StatusBadge);
+        Assert.Contains("rules effective here", badge);
+        Assert.DoesNotContain("WHEN", badge);
+        Assert.Contains("data-policy-stack-embed=\"status-badge\"", badge);
+    }
+
+    [Fact]
+    public async Task RuleRow_renders_trigger_count_distribution_and_latency()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: true);
+
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        // 18 matched / 18 total on the endpoint Block rule. (16 blocks won, 2 were overridden.)
+        Assert.Contains("18/18", html);
+        Assert.Contains("p50", html);
+        Assert.Contains("p99", html);
+        Assert.Contains("LIVE", html);
+        Assert.Contains("verdict-error", html); // Block
+    }
+
+    [Fact]
+    public async Task RuleRow_renders_predicate_chips_with_signal_tooltip()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        Assert.Contains("score.bot_probability", html);
+        Assert.Contains("&gt;=", html); // HTML-encoded >=
+        // Every chip carries a title= attribute even when the SignalCatalog
+        // doesn't know the facet (seed-rule facets like "bot.type" are not
+        // SignalKeys constants); the wire-up itself is what matters here.
+        Assert.Matches(new Regex(@"<span class=""chip""[^>]*title="""), html);
+    }
+
+    [Fact]
+    public async Task EffectiveTab_orders_most_specific_first_with_inherited_badge()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        var endpointIdx = html.IndexOf("ENDPOINT", StringComparison.Ordinal);
+        var subdomainIdx = html.IndexOf("SUBDOMAIN", StringComparison.Ordinal);
+        var domainIdx = html.IndexOf("DOMAIN", StringComparison.Ordinal);
+
+        Assert.True(endpointIdx >= 0, "expected an ENDPOINT row");
+        Assert.True(subdomainIdx > endpointIdx, "SUBDOMAIN must follow ENDPOINT");
+        Assert.True(domainIdx > subdomainIdx, "DOMAIN must follow SUBDOMAIN");
+        Assert.Contains("is-inherited", html);
+    }
+
+    [Fact]
+    public async Task ScopeHash_is_stable_across_renders()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        var a = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+        var b = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        var hashA = ExtractScopeHash(a);
+        var hashB = ExtractScopeHash(b);
+
+        Assert.False(string.IsNullOrEmpty(hashA), "hash A should be present");
+        Assert.Equal(hashA, hashB);
+    }
+
+    // -------- StatusBadge fan-out guard (presenter-only) --------
+
+    [Fact]
+    public async Task StatusBadge_does_not_fan_out_aggregate_reads()
+    {
+        var resolver = await BuildResolverAsync();
+        var tracker = new CallTrackingEffectivenessCache();
+        var catalog = await BuildSignalCatalogAsync();
+        var presenter = new PolicyStackPresenter(resolver, tracker, catalog);
+
+        var vm = await presenter.BuildAsync(
+            scope: EndpointScope,
+            embed: PolicyStackEmbed.StatusBadge,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+
+        Assert.Equal(0, tracker.GetManyCalls);
+        Assert.True(vm.TotalEffectiveRules > 0,
+            "StatusBadge must still surface the rule count without aggregate reads");
+    }
+
+    // -------- Presenter shape coverage (cheap, no TestServer) --------
+
+    [Fact]
+    public async Task Presenter_breadcrumb_walks_wildcard_to_endpoint_for_endpoint_scope()
+    {
+        var presenter = await BuildPresenterAsync();
+        var vm = await presenter.BuildAsync(
+            scope: EndpointScope,
+            embed: PolicyStackEmbed.Full,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+
+        Assert.Equal(4, vm.BreadcrumbPath.Count);
+        Assert.IsType<PolicyScope.Wildcard>(vm.BreadcrumbPath[0]);
+        Assert.IsType<PolicyScope.Domain>(vm.BreadcrumbPath[1]);
+        Assert.IsType<PolicyScope.Subdomain>(vm.BreadcrumbPath[2]);
+        Assert.IsType<PolicyScope.Endpoint>(vm.BreadcrumbPath[3]);
+    }
+
+    [Fact]
+    public async Task Presenter_action_color_classes_follow_dashboard_palette()
+    {
+        var presenter = await BuildPresenterAsync();
+        var vm = await presenter.BuildAsync(
+            scope: EndpointScope,
+            embed: PolicyStackEmbed.Full,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+
+        var endpointRow = vm.Rows.Single(r => r.SourcePill == "ENDPOINT");
+        Assert.Equal("verdict-error", endpointRow.ActionColorClass); // Block
+
+        var subdomainRow = vm.Rows.Single(r => r.SourcePill == "SUBDOMAIN");
+        Assert.Equal("verdict-warning", subdomainRow.ActionColorClass); // Challenge
+
+        var domainRow = vm.Rows.Single(r => r.SourcePill == "DOMAIN");
+        Assert.Equal("verdict-success", domainRow.ActionColorClass); // Allow
+    }
+
+    [Fact]
+    public async Task Presenter_empty_scope_returns_no_rows_and_no_throws()
+    {
+        var presenter = await BuildPresenterAsync();
+        var emptyScope = new PolicyScope.Endpoint("unknown.example", "api.unknown.example", "GET /none");
+
+        var vm = await presenter.BuildAsync(
+            scope: emptyScope,
+            embed: PolicyStackEmbed.Full,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+
+        Assert.Empty(vm.Rows);
+        Assert.Equal(0, vm.TotalEffectiveRules);
+        Assert.Null(vm.LatestEditAt);
+    }
+
+    [Fact]
+    public async Task Presenter_distribution_line_renders_overridden_split()
+    {
+        var resolver = await BuildResolverAsync();
+        var catalog = await BuildSignalCatalogAsync();
+        var prewarm = new PrewarmedEffectivenessCache();
+        var endpointRuleId = await GetEndpointRuleIdAsync(resolver);
+        prewarm.Set(endpointRuleId, new PolicyDecisionAggregate(
+            RuleId: endpointRuleId,
+            Window: TimeSpan.FromHours(24),
+            Matched: 18,
+            TotalEvaluations: 20,
+            WinDistribution: new Dictionary<string, int>
+            {
+                ["block"] = 16,
+                ["allow"] = 2
+            },
+            P50LatencyMicros: 400,
+            P99LatencyMicros: 2100,
+            ComputedAt: DateTimeOffset.UtcNow));
+
+        var presenter = new PolicyStackPresenter(resolver, prewarm, catalog);
+        var vm = await presenter.BuildAsync(
+            scope: EndpointScope,
+            embed: PolicyStackEmbed.Full,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+
+        var row = vm.Rows.Single(r => r.RuleId == endpointRuleId);
+        Assert.Equal(18, row.TriggerCount);
+        Assert.Equal(20, row.TotalEvaluations);
+        Assert.Contains("block", row.DistributionLine);
+        Assert.Contains("allow", row.DistributionLine);
+        Assert.Equal("p50 0.4ms · p99 2.1ms", row.LatencyLine);
+    }
+
+    [Fact]
+    public void ScopeHash_helper_is_deterministic()
+    {
+        var a = PolicyStackPresenter.ComputeScopeHash(EndpointScope);
+        var b = PolicyStackPresenter.ComputeScopeHash(EndpointScope);
+        var c = PolicyStackPresenter.ComputeScopeHash(WildcardScope);
+
+        Assert.Equal(16, a.Length);
+        Assert.Equal(a, b);
+        Assert.NotEqual(a, c);
+    }
+
+    // -------- Render helpers --------
+
+    private async Task<HttpClient> BuildClientAsync(bool prewarmEndpointHits)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+
+        // View components need the MVC + Razor pipelines. AddApplicationPart is
+        // required because the test controller lives in this test assembly, and
+        // the view component + Razor partials live in the UI assembly; default
+        // ApplicationParts scanning misses both in the TestServer setup.
+        builder.Services
+            .AddControllersWithViews()
+            .AddApplicationPart(typeof(SbPolicyStackTests).Assembly)
+            .AddApplicationPart(typeof(SbPolicyStackViewComponent).Assembly);
+
+        // Mirror the production registrations from
+        // StyloBotDashboardServiceExtensions.AddStyloBotDashboard so we hit the
+        // real DI path.
+        builder.Services.AddSingleton<ISignalCatalog>(_ =>
+        {
+            var asm = typeof(Mostlylucid.BotDetection.Models.SignalKeys).Assembly;
+#pragma warning disable IL2026
+            return SignalCatalog.LoadAsync(asm).GetAwaiter().GetResult();
+#pragma warning restore IL2026
+        });
+        builder.Services.AddSingleton<IPolicyRuleStore>(_ =>
+        {
+            var asm = typeof(PolicyRule).Assembly;
+            var store = YamlPolicyRuleStore.FromEmbeddedResources(asm, SeedPrefix);
+            store.InitializeAsync().GetAwaiter().GetResult();
+            return store;
+        });
+        builder.Services.AddSingleton<IPolicyResolver, DefaultPolicyResolver>();
+        builder.Services.AddSingleton<IPolicyDecisionLog, InMemoryPolicyDecisionLog>();
+        builder.Services.AddSingleton<IPolicyEffectivenessCache>(sp =>
+            new PolicyEffectivenessCache(
+                sp.GetRequiredService<IPolicyDecisionLog>(),
+                Options.Create(new PolicyEffectivenessOptions()),
+                NullLogger<PolicyEffectivenessCache>.Instance));
+        builder.Services.AddSingleton<PolicyStackPresenter>();
+
+        var app = builder.Build();
+        app.UseRouting();
+        app.MapControllers();
+        await app.StartAsync();
+        _apps.Add(app);
+
+        // Pre-warm the effectiveness cache directly (without the hosted-service
+        // shim) so the trigger-count test has something deterministic to assert.
+        if (prewarmEndpointHits)
+        {
+            var resolver = app.Services.GetRequiredService<IPolicyResolver>();
+            var cache = app.Services.GetRequiredService<IPolicyEffectivenessCache>();
+            var endpointRuleId = await GetEndpointRuleIdAsync(resolver);
+            var observedAt = DateTimeOffset.UtcNow;
+
+            for (var i = 0; i < 16; i++)
+            {
+                await cache.OnDecisionAsync(new PolicyDecision(
+                    RuleId: endpointRuleId,
+                    WinnerRuleId: endpointRuleId,
+                    Matched: true,
+                    RequestFingerprint: $"fp-{i}",
+                    Action: new PolicyAction.Block(),
+                    Mode: PolicyMode.Live,
+                    EvalLatencyTicks: 5000,
+                    ObservedAt: observedAt));
+            }
+            // Two more matched but where some other rule actually "won" -- this
+            // is what the overridden split surfaces in the row aggregate.
+            for (var i = 0; i < 2; i++)
+            {
+                await cache.OnDecisionAsync(new PolicyDecision(
+                    RuleId: endpointRuleId,
+                    WinnerRuleId: Guid.NewGuid(),
+                    Matched: true,
+                    RequestFingerprint: $"fp-override-{i}",
+                    Action: new PolicyAction.Allow(),
+                    Mode: PolicyMode.Live,
+                    EvalLatencyTicks: 5000,
+                    ObservedAt: observedAt));
+            }
+        }
+
+        return app.GetTestClient();
+    }
+
+    /// <summary>
+    ///     The TestServer renders the view component via a controller-action shim
+    ///     that <c>InvokeAsync</c>s it directly. Going through the controller
+    ///     exercises the real view-engine pipeline (locator, partial fan-out,
+    ///     model binding) without the cost of standing up the full dashboard.
+    /// </summary>
+    private static async Task<string> GetHtmlAsync(
+        HttpClient client,
+        PolicyScope scope,
+        PolicyStackEmbed embed)
+    {
+        var query = $"embed={embed}&scopeKind={ScopeKind(scope)}";
+        switch (scope)
+        {
+            case PolicyScope.Domain d:
+                query += $"&domain={d.DomainName}";
+                break;
+            case PolicyScope.Subdomain s:
+                query += $"&domain={s.DomainName}&sub={s.SubdomainName}";
+                break;
+            case PolicyScope.Endpoint e:
+                query += $"&domain={e.DomainName}&sub={e.SubdomainName}&template={Uri.EscapeDataString(e.PathTemplate)}";
+                break;
+        }
+        var resp = await client.GetAsync($"/_test/policy-stack?{query}");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync();
+    }
+
+    private static string ScopeKind(PolicyScope scope) => scope switch
+    {
+        PolicyScope.Wildcard => "wildcard",
+        PolicyScope.Domain => "domain",
+        PolicyScope.Subdomain => "subdomain",
+        PolicyScope.Endpoint => "endpoint",
+        _ => "wildcard"
+    };
+
+    private static string ExtractScopeHash(string html)
+    {
+        var match = Regex.Match(html, @"data-policy-stack-scope=""(?<h>[0-9a-fA-F]+)""");
+        return match.Success ? match.Groups["h"].Value : string.Empty;
+    }
+
+    private static async Task<DefaultPolicyResolver> BuildResolverAsync()
+    {
+        var store = YamlPolicyRuleStore.FromEmbeddedResources(typeof(PolicyRule).Assembly, SeedPrefix);
+        await store.InitializeAsync();
+        return new DefaultPolicyResolver(store);
+    }
+
+    private static async Task<ISignalCatalog> BuildSignalCatalogAsync()
+    {
+        var asm = typeof(Mostlylucid.BotDetection.Models.SignalKeys).Assembly;
+#pragma warning disable IL2026
+        return await SignalCatalog.LoadAsync(asm);
+#pragma warning restore IL2026
+    }
+
+    private static async Task<PolicyStackPresenter> BuildPresenterAsync()
+    {
+        var resolver = await BuildResolverAsync();
+        var catalog = await BuildSignalCatalogAsync();
+        // No-op cache stub for cheap presenter-only tests.
+        var cache = new EmptyEffectivenessCache();
+        return new PolicyStackPresenter(resolver, cache, catalog);
+    }
+
+    private static async Task<Guid> GetEndpointRuleIdAsync(IPolicyResolver resolver)
+    {
+        var effective = await resolver.EffectiveAsync(EndpointScope);
+        return effective.First(r => r.SourceScope is PolicyScope.Endpoint).Rule.Id;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var app in _apps)
+            try { await app.DisposeAsync(); } catch { /* test cleanup */ }
+        _apps.Clear();
+    }
+
+    // -------- Test doubles --------
+
+    /// <summary>Always returns empty aggregates -- presenter renders rows with 0 hits.</summary>
+    private sealed class EmptyEffectivenessCache : IPolicyEffectivenessCache
+    {
+        public ValueTask OnDecisionAsync(PolicyDecision decision, CancellationToken ct = default) => ValueTask.CompletedTask;
+
+        public ValueTask<PolicyDecisionAggregate> GetAsync(Guid ruleId, TimeSpan window, CancellationToken ct = default) =>
+            new(new PolicyDecisionAggregate(ruleId, window, 0, 0,
+                new Dictionary<string, int>(), 0, 0, DateTimeOffset.UtcNow));
+
+        public ValueTask<IReadOnlyDictionary<Guid, PolicyDecisionAggregate>> GetManyAsync(
+            IReadOnlyCollection<Guid> ruleIds, TimeSpan window, CancellationToken ct = default) =>
+            new((IReadOnlyDictionary<Guid, PolicyDecisionAggregate>)new Dictionary<Guid, PolicyDecisionAggregate>());
+
+        public Task StartAsync(CancellationToken ct) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
+    /// <summary>Counts GetMany calls so the StatusBadge fan-out guard test can assert zero.</summary>
+    private sealed class CallTrackingEffectivenessCache : IPolicyEffectivenessCache
+    {
+        public int GetManyCalls;
+
+        public ValueTask OnDecisionAsync(PolicyDecision decision, CancellationToken ct = default) => ValueTask.CompletedTask;
+
+        public ValueTask<PolicyDecisionAggregate> GetAsync(Guid ruleId, TimeSpan window, CancellationToken ct = default) =>
+            new(new PolicyDecisionAggregate(ruleId, window, 0, 0,
+                new Dictionary<string, int>(), 0, 0, DateTimeOffset.UtcNow));
+
+        public ValueTask<IReadOnlyDictionary<Guid, PolicyDecisionAggregate>> GetManyAsync(
+            IReadOnlyCollection<Guid> ruleIds, TimeSpan window, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref GetManyCalls);
+            return new((IReadOnlyDictionary<Guid, PolicyDecisionAggregate>)new Dictionary<Guid, PolicyDecisionAggregate>());
+        }
+
+        public Task StartAsync(CancellationToken ct) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
+    /// <summary>Lets a test pre-seed aggregates without spinning up the ring buffer drainer.</summary>
+    private sealed class PrewarmedEffectivenessCache : IPolicyEffectivenessCache
+    {
+        private readonly Dictionary<Guid, PolicyDecisionAggregate> _store = new();
+        public void Set(Guid id, PolicyDecisionAggregate agg) => _store[id] = agg;
+
+        public ValueTask OnDecisionAsync(PolicyDecision decision, CancellationToken ct = default) => ValueTask.CompletedTask;
+        public ValueTask<PolicyDecisionAggregate> GetAsync(Guid ruleId, TimeSpan window, CancellationToken ct = default) =>
+            new(_store.TryGetValue(ruleId, out var agg)
+                ? agg
+                : new PolicyDecisionAggregate(ruleId, window, 0, 0, new Dictionary<string, int>(), 0, 0, DateTimeOffset.UtcNow));
+        public ValueTask<IReadOnlyDictionary<Guid, PolicyDecisionAggregate>> GetManyAsync(
+            IReadOnlyCollection<Guid> ruleIds, TimeSpan window, CancellationToken ct = default)
+        {
+            var result = new Dictionary<Guid, PolicyDecisionAggregate>(ruleIds.Count);
+            foreach (var id in ruleIds)
+                if (_store.TryGetValue(id, out var agg)) result[id] = agg;
+            return new((IReadOnlyDictionary<Guid, PolicyDecisionAggregate>)result);
+        }
+        public Task StartAsync(CancellationToken ct) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+}
+
+/// <summary>
+///     One-shot controller used by the render tests. Maps query-string params to
+///     <see cref="PolicyScope"/> + <see cref="PolicyStackEmbed"/>, then invokes
+///     the view component. Lives in this file so the test class can register
+///     it inline without polluting production controllers.
+/// </summary>
+[Route("/_test/policy-stack")]
+public sealed class PolicyStackTestController : Controller
+{
+    [HttpGet]
+    public IActionResult Get(
+        string embed = "Full",
+        string scopeKind = "wildcard",
+        string? domain = null,
+        string? sub = null,
+        string? template = null)
+    {
+        PolicyScope scope = scopeKind switch
+        {
+            "domain" => new PolicyScope.Domain(domain ?? "unknown"),
+            "subdomain" => new PolicyScope.Subdomain(domain ?? "unknown", sub ?? "unknown"),
+            "endpoint" => new PolicyScope.Endpoint(domain ?? "unknown", sub ?? "unknown", template ?? "GET /"),
+            _ => new PolicyScope.Wildcard()
+        };
+        var parsedEmbed = Enum.TryParse<PolicyStackEmbed>(embed, ignoreCase: true, out var e)
+            ? e
+            : PolicyStackEmbed.Full;
+
+        return ViewComponent("SbPolicyStack", new { scope, embed = parsedEmbed });
+    }
+}

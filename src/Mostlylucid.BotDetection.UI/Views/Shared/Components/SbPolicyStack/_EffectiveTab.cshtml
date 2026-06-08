@@ -1,0 +1,19 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackViewModel
+@if (Model.Rows.Count == 0)
+{
+    <div class="sb-policy-stack-empty" data-policy-stack-empty="true">
+        No effective rules at this scope.
+    </div>
+}
+else
+{
+    <ul class="sb-policy-stack-rows" role="list">
+        @foreach (var row in Model.Rows)
+        {
+            <li>
+                @await Html.PartialAsync("Components/SbPolicyStack/_RuleRow", row)
+            </li>
+        }
+    </ul>
+}
