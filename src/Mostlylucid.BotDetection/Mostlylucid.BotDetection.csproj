@@ -22,6 +22,13 @@
         <TargetFrameworks>net10.0</TargetFrameworks>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 
+        <!-- Emit XML doc file next to the DLL. SignalCatalog reflects SignalKeys at
+             runtime AND reads this XML for descriptions; without it, SignalDescriptor.Short
+             / Long stay empty. CS1591 is suppressed broadly because the public surface
+             far predates the catalog and we don't want a churn-the-world XML-doc commit. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
+
         <!-- AOT/trim posture: every own-code call site is either source-generated or
              explicitly annotated with [RequiresUnreferencedCode] / [RequiresDynamicCode] /
              UnconditionalSuppressMessage at the function that opts into reflective behaviour
@@ -146,6 +153,13 @@
     <!-- Embed compliance pack YAML definitions -->
     <ItemGroup>
         <EmbeddedResource Include="Compliance\CompliancePacks\*.yaml" />
+    </ItemGroup>
+
+    <!-- Embed signal overlay YAML definitions (SignalCatalog enriches reflected
+         SignalKeys constants with operator constraints, value domains, and
+         worked examples from these files). -->
+    <ItemGroup>
+        <EmbeddedResource Include="Policies\Signals\Overlays\*.yaml" />
     </ItemGroup>
 
     <!-- Include README in NuGet package (icon comes from Directory.Build.props shared root) -->

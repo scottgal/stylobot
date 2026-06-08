@@ -1,0 +1,28 @@
+# Overlay for risk.band -- the operator's risk-tier verdict.
+#
+# DetermineRiskBand emits one of a known closed set, so the editor benefits
+# from EnumOf-typed autocomplete on the value side. Operators stay set-based
+# (in / not in) because every real predicate against this signal is going
+# to want to talk about multiple bands at once.
+key: risk.band
+kind: EnumOf
+values:
+  - VeryLow
+  - Low
+  - Medium
+  - High
+  - VeryHigh
+operators:
+  - "="
+  - "!="
+  - "in"
+  - "not in"
+examples:
+  - expr: "risk.band in [\"High\", \"VeryHigh\"]"
+    reads: "Top two risk tiers -- gate hard."
+  - expr: "risk.band = \"VeryLow\""
+    reads: "Pinned-friendly tier -- never block."
+related:
+  - risk.score
+  - risk.justification
+  - risk.friendly_pin_trace

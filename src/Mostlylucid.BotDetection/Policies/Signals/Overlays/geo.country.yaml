@@ -1,0 +1,22 @@
+# Overlay for geo.country_code -- two-letter ISO 3166-1 alpha-2.
+#
+# Country code is a string but its operator surface is set-membership in
+# practice (allowlist / blocklist a region). Examples lean on `in` / `not in`
+# so the autocomplete-inserted snippet matches what real policies look like.
+key: geo.country_code
+kind: String
+operators:
+  - "="
+  - "!="
+  - "in"
+  - "not in"
+examples:
+  - expr: "geo.country_code in [\"CN\", \"RU\", \"KP\"]"
+    reads: "Visitor's resolved country sits in the high-risk allow-list."
+  - expr: "geo.country_code != \"GB\""
+    reads: "Anything outside the home market."
+related:
+  - geo.is_vpn
+  - geo.is_proxy
+  - geo.is_tor
+  - geo.country_bot_rate

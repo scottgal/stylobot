@@ -1,0 +1,25 @@
+# Overlay for score.bot_probability.
+#
+# This key is not declared on SignalKeys at the time of writing -- the overlay
+# is registered defensively so when the probability-scoring detector lands its
+# constant, autocomplete already has the right operator set and examples.
+# Until the SignalKeys constant exists the catalogue silently ignores this
+# entry (the reflector is the source of truth for which keys exist).
+key: score.bot_probability
+kind: Number
+operators:
+  - "="
+  - "!="
+  - ">="
+  - ">"
+  - "<="
+  - "<"
+  - "between"
+examples:
+  - expr: "score.bot_probability >= 0.7"
+    reads: "Bot probability at or above 0.7 -- treat as likely bot."
+  - expr: "score.bot_probability between [0.4, 0.7]"
+    reads: "Uncertain band -- escalate to LLM if budget allows."
+related:
+  - risk.band
+  - risk.score

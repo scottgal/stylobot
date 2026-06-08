@@ -4,6 +4,7 @@ using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Definitions.VendorHomeHosts;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.Policies.Signals;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.SimulationPacks;
 using VYaml.Serialization;
@@ -73,6 +74,10 @@ internal static class VYamlBootstrap
         SiteProfiles.HoneypotProfile.__RegisterVYamlFormatter();
         SiteProfiles.SuggestedPack.__RegisterVYamlFormatter();
 
+        // Policy Stack signal overlays
+        SignalOverlay.__RegisterVYamlFormatter();
+        SignalOverlayExample.__RegisterVYamlFormatter();
+
         // Detector / pipeline manifests
         DetectorManifest.__RegisterVYamlFormatter();
         SignalScope.__RegisterVYamlFormatter();
@@ -114,6 +119,7 @@ internal static class VYamlBootstrap
         GeneratedResolver.Register(new ListFormatter<PackResponseTemplate>());
         GeneratedResolver.Register(new ListFormatter<PackCveModule>());
         GeneratedResolver.Register(new ListFormatter<SiteProfiles.SuggestedPack>());
+        GeneratedResolver.Register(new ListFormatter<SignalOverlayExample>());
         GeneratedResolver.Register(new DictionaryFormatter<string, CentroidDimensionEntry>());
         GeneratedResolver.Register(new DictionaryFormatter<string, IdentityArchetypeDimensionYaml>());
         GeneratedResolver.Register(new DictionaryFormatter<string, EscalationRule>());
