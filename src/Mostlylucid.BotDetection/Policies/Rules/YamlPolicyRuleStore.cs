@@ -399,6 +399,16 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
             handler.Invoke(this, new PolicyRuleStoreChangedEventArgs(scope));
     }
 
+    /// <summary>
+    ///     Test seam: raise <see cref="Changed"/> with an arbitrary scope
+    ///     without going through the file-watcher debounce. Production code
+    ///     never calls this -- the file watcher path is the real lifecycle.
+    ///     Kept public so unit tests can drive
+    ///     <c>PolicyChangeNotificationHostedService</c> deterministically.
+    /// </summary>
+    public void RaiseChangedForTest(PolicyScope scope)
+        => Changed?.Invoke(this, new PolicyRuleStoreChangedEventArgs(scope));
+
     /// <inheritdoc />
     public void Dispose()
     {

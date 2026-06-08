@@ -542,6 +542,16 @@ public class StyloBotDashboardMiddleware
                 await ServePolicyStackExplainAsync(context);
                 break;
 
+            // B6 -- Policy Stack row swap. Targets ONLY the rule list (the
+            // _EffectiveTab or _StackTab body, wrapped in the envelope id the
+            // browser's hx-swap=outerHTML aims at). No header chrome. Drives
+            // both the SignalR-beacon invalidation refresh and the sort-header
+            // click pattern B4 laid the data attributes for. Anonymous-readable
+            // for the same reason policystack/explain is.
+            case "policystack/rows":
+                await ServePolicyStackRowsAsync(context);
+                break;
+
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
                 if (_options.RenderPage)
                 {
@@ -3040,6 +3050,79 @@ public class StyloBotDashboardMiddleware
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbPolicyStack/_ExplainerPanel.cshtml", vm, context);
+
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    // B6 -- Policy Stack row partial. Returns ONLY the tab body wrapped in the
+    // envelope id the browser's hx-swap=outerHTML targets. Both the SignalR
+    // beacon refresh AND the B4 sort-header / filter-bar clicks land here so
+    // the rule list mutates without disturbing the header / breadcrumb /
+    // explainer panel above it.
+    private async Task ServePolicyStackRowsAsync(HttpContext context)
+    {
+        var presenter = context.RequestServices
+            .GetService<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
+        if (presenter is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var scopeParam = context.Request.Query["scope"].ToString();
+        var tabParam = context.Request.Query["tab"].ToString();
+        var filterExpression = context.Request.Query["policystack-filter"].ToString();
+        var sortKey = context.Request.Query["policystack-sort"].ToString();
+        var sortDir = context.Request.Query["policystack-dir"].ToString();
+
+        var scope = Mostlylucid.BotDetection.UI.Services.PolicyScopeUrl.Decode(scopeParam);
+
+        // tab=badge refreshes the StatusBadge envelope; tab=stack renders the
+        // Stack tab; everything else (including the absent param) falls through
+        // to the Effective tab -- matches the data-policy-stack-rows-url
+        // emitted by each embed shape.
+        var tabKind = string.IsNullOrWhiteSpace(tabParam)
+            ? "effective"
+            : tabParam.Trim().ToLowerInvariant();
+
+        var filter = Mostlylucid.BotDetection.UI.Models.PolicyStackFilter.Parse(filterExpression);
+        var sort = Mostlylucid.BotDetection.UI.Models.PolicyStackSort.Parse(sortKey, sortDir);
+
+        var embed = tabKind == "badge"
+            ? Mostlylucid.BotDetection.UI.Models.PolicyStackEmbed.StatusBadge
+            : Mostlylucid.BotDetection.UI.Models.PolicyStackEmbed.Full;
+        var activeTab = tabKind == "stack" ? "stack" : "effective";
+
+        var vm = await presenter.BuildAsync(
+            scope: scope,
+            embed: embed,
+            activeTab: activeTab,
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false,
+            filter: filter,
+            sort: sort,
+            ct: context.RequestAborted);
+
+        // Pick the partial that lives inside the envelope. The envelope id is
+        // rebuilt here so the HTMX outerHTML swap target matches the section
+        // partial's id-of-the-same-name.
+        string partialPath = tabKind switch
+        {
+            "stack" => "/Views/Shared/Components/SbPolicyStack/_StackTab.cshtml",
+            "badge" => "/Views/Shared/Components/SbPolicyStack/_StatusBadge.cshtml",
+            _ => "/Views/Shared/Components/SbPolicyStack/_EffectiveTab.cshtml"
+        };
+
+        var inner = await _razorViewRenderer.RenderViewToStringAsync(partialPath, vm, context);
+
+        // Wrap in the envelope envelope so the outerHTML swap replaces the
+        // div with the same id. The StatusBadge embed renders its own outer
+        // wrapper inside _StatusBadge.cshtml; the other embeds want the
+        // envelope explicitly. Either way the id matches.
+        string html = tabKind == "badge"
+            ? inner
+            : $"<div id=\"sb-policy-stack-rows-{vm.ScopeHash}\" class=\"sb-policy-stack-rows-envelope\">{inner}</div>";
 
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);

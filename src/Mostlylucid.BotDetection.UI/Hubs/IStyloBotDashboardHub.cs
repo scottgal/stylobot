@@ -26,4 +26,15 @@ public interface IStyloBotDashboardHub
     ///     This is the ONLY method that carries a data payload.
     /// </summary>
     Task BroadcastAttackArc(string countryCode, string riskBand);
+
+    /// <summary>
+    ///     Policy Stack live-update beacon (B6). Tells every browser viewing
+    ///     a SbPolicyStack rooted at -- or under -- <paramref name="scopeKey"/>
+    ///     that the rule corpus at that scope changed. Clients re-fetch the
+    ///     affected row partial via HTMX <c>hx-swap-oob</c>; the beacon itself
+    ///     carries only the scope key so no rule data leaves the server over
+    ///     SignalR. The corresponding group join/leave methods are
+    ///     <c>JoinPolicyGroup</c> / <c>LeavePolicyGroup</c> on the hub.
+    /// </summary>
+    Task PolicyChanged(string scopeKey);
 }

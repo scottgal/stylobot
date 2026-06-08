@@ -34,7 +34,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="ScopeKind">Lowercase canonical source-scope kind (<c>"endpoint"</c>, <c>"subdomain"</c>, <c>"domain"</c>, <c>"wildcard"</c>) for the <c>@scope:</c> filter.</param>
 public sealed record PolicyStackRowViewModel(
     Guid RuleId,
-    Policies.Rules.PolicyScope SourceScope,
+    PolicyScope SourceScope,
     bool IsInherited,
     string SourcePill,
     PolicyMode Mode,

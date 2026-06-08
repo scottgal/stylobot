@@ -1,8 +1,20 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Policies
+@using Mostlylucid.BotDetection.UI.Services
 @model PolicyStackViewModel
+@{
+    var ancestorHashes = string.Join(",", PolicyScopeKeys.AncestorHashes(Model.Scope));
+    var rowsUrl = $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab=effective";
+}
 <section class="sb-policy-stack sb-policy-stack--effective-only"
          data-policy-stack-embed="effective-only"
-         data-policy-stack-scope="@Model.ScopeHash">
-    @await Html.PartialAsync("Components/SbPolicyStack/_EffectiveTab", Model)
+         data-policy-stack-scope="@Model.ScopeHash"
+         data-policy-stack-ancestors="@ancestorHashes"
+         data-policy-stack-rows-url="@rowsUrl">
+    @* B6 envelope: hx-swap=outerHTML targets this div so the live-update beacon
+       refreshes the rule list without disturbing the explainer panel below. *@
+    <div id="sb-policy-stack-rows-@Model.ScopeHash" class="sb-policy-stack-rows-envelope">
+        @await Html.PartialAsync("Components/SbPolicyStack/_EffectiveTab", Model)
+    </div>
     @await Html.PartialAsync("Components/SbPolicyStack/_ExplainerPanel", Model)
 </section>

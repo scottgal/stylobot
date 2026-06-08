@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Predicate;
@@ -689,26 +688,11 @@ public sealed class PolicyStackPresenter
 
     // -------- Scope hash --------
     //
-    // SHA-256 of a canonical "kind|domain|subdomain|template" string. The
-    // first 16 hex characters give the room for B6's SignalR group names
-    // (collision risk on 16 hex = 64 bits is irrelevant for an in-process
-    // group dictionary).
+    // Delegates to PolicyScopeKeys.ScopeHash so the broadcaster, the view
+    // component, and the middleware all agree on the same canonical pre-image.
+    // SHA-256 of a "kind|domain|subdomain|template" string; first 16 hex chars
+    // (64 bits) is wide enough for an in-process SignalR group dictionary.
 
     internal static string ComputeScopeHash(PolicyScope scope)
-    {
-        var canonical = scope switch
-        {
-            PolicyScope.Wildcard => "wildcard||||",
-            PolicyScope.Domain d => $"domain|{d.DomainName}|||",
-            PolicyScope.Subdomain s => $"subdomain|{s.DomainName}|{s.SubdomainName}||",
-            PolicyScope.Endpoint e => $"endpoint|{e.DomainName}|{e.SubdomainName}|{e.PathTemplate}|",
-            _ => "unknown||||"
-        };
-        var bytes = Encoding.UTF8.GetBytes(canonical);
-        var hash = SHA256.HashData(bytes);
-        // First 8 bytes -> 16 hex chars.
-        var sb = new StringBuilder(16);
-        for (var i = 0; i < 8; i++) sb.Append(hash[i].ToString("x2"));
-        return sb.ToString();
-    }
+        => Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(scope);
 }

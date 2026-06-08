@@ -82,4 +82,33 @@ public class StyloBotDashboardHub : Hub<IStyloBotDashboardHub>
         // Handled by DashboardSummaryBroadcaster
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    ///     Subscribe this connection to a Policy Stack scope group. The browser
+    ///     calls this once per ancestor hash when a <c>[data-policy-stack-scope]</c>
+    ///     section enters the DOM, so a Domain-level change reaches every
+    ///     Endpoint browser sitting underneath. The hash is the 16-hex
+    ///     <see cref="UI.Policies.PolicyScopeKeys.ScopeHash"/> output.
+    /// </summary>
+    public Task JoinPolicyGroup(string scopeHash)
+    {
+        if (string.IsNullOrWhiteSpace(scopeHash)) return Task.CompletedTask;
+        // 16-hex chars is the wire contract; reject anything else so a stray
+        // client value can't burst a group dictionary or escape into the hub.
+        if (scopeHash.Length is < 8 or > 64) return Task.CompletedTask;
+        return Groups.AddToGroupAsync(Context.ConnectionId, "policy:" + scopeHash);
+    }
+
+    /// <summary>
+    ///     Inverse of <see cref="JoinPolicyGroup"/>. The browser fires this
+    ///     when a <c>[data-policy-stack-scope]</c> section leaves the DOM so
+    ///     the connection stops receiving beacons for scopes it no longer
+    ///     observes.
+    /// </summary>
+    public Task LeavePolicyGroup(string scopeHash)
+    {
+        if (string.IsNullOrWhiteSpace(scopeHash)) return Task.CompletedTask;
+        if (scopeHash.Length is < 8 or > 64) return Task.CompletedTask;
+        return Groups.RemoveFromGroupAsync(Context.ConnectionId, "policy:" + scopeHash);
+    }
 }

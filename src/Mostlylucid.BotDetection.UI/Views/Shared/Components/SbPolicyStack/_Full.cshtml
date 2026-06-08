@@ -1,13 +1,21 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Policies
 @using Mostlylucid.BotDetection.UI.Services
 @model PolicyStackViewModel
 @{
     var effectiveActive = !string.Equals(Model.ActiveTab, "stack", StringComparison.OrdinalIgnoreCase);
+    var activeTabToken = effectiveActive ? "effective" : "stack";
+    // Ancestor hashes the client glue joins on mount. A Domain-level change
+    // reaches every Subdomain / Endpoint browser through these joins.
+    var ancestorHashes = string.Join(",", PolicyScopeKeys.AncestorHashes(Model.Scope));
+    var rowsUrl = $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab={activeTabToken}";
 }
 <section class="sb-policy-stack"
          data-policy-stack-embed="full"
          data-policy-stack-scope="@Model.ScopeHash"
-         data-policy-stack-active-tab="@(effectiveActive ? "effective" : "stack")">
+         data-policy-stack-ancestors="@ancestorHashes"
+         data-policy-stack-rows-url="@rowsUrl"
+         data-policy-stack-active-tab="@activeTabToken">
     <header class="sb-policy-stack-header">
         <nav class="sb-policy-stack-breadcrumb" aria-label="Policy scope breadcrumb">
             @for (var i = 0; i < Model.BreadcrumbPath.Count; i++)
@@ -50,14 +58,20 @@
     @await Html.PartialAsync("Components/SbPolicyStack/_AggregateStrip", Model)
 
     <div class="sb-policy-stack-body">
-        @if (effectiveActive)
-        {
-            @await Html.PartialAsync("Components/SbPolicyStack/_EffectiveTab", Model)
-        }
-        else
-        {
-            @await Html.PartialAsync("Components/SbPolicyStack/_StackTab", Model)
-        }
+        @* B6: outerHTML target for the SignalR-driven row swap. The /dashboard/
+           policystack/rows endpoint returns the same div with the same id so an
+           hx-swap=outerHTML targeting #sb-policy-stack-rows-<hash> refreshes the
+           rule list in place without touching header / breadcrumb / tabs. *@
+        <div id="sb-policy-stack-rows-@Model.ScopeHash" class="sb-policy-stack-rows-envelope">
+            @if (effectiveActive)
+            {
+                @await Html.PartialAsync("Components/SbPolicyStack/_EffectiveTab", Model)
+            }
+            else
+            {
+                @await Html.PartialAsync("Components/SbPolicyStack/_StackTab", Model)
+            }
+        </div>
     </div>
 
     @await Html.PartialAsync("Components/SbPolicyStack/_ExplainerPanel", Model)

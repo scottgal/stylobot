@@ -742,6 +742,62 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         });
     }
 
+    // -------- B6: SignalR-driven live update beacon + HTMX OOB swap envelope --------
+
+    [Fact]
+    public async Task Full_embed_section_emits_ancestor_hashes_and_rows_url_data_attributes()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        // Four ancestors at Endpoint scope: Wildcard, Domain, Subdomain, Endpoint.
+        // The data-* attribute is a comma-separated list of 16-hex hashes.
+        Assert.Matches(
+            new Regex("data-policy-stack-ancestors=\"[0-9a-f]{16},[0-9a-f]{16},[0-9a-f]{16},[0-9a-f]{16}\""),
+            html);
+        Assert.Matches(
+            new Regex("data-policy-stack-rows-url=\"/dashboard/policystack/rows[^\"]*\""),
+            html);
+        Assert.Matches(new Regex("id=\"sb-policy-stack-rows-[0-9a-f]{16}\""), html);
+    }
+
+    [Fact]
+    public async Task EffectiveOnly_embed_emits_envelope_div_with_scope_hash_id()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, WildcardScope, PolicyStackEmbed.EffectiveOnly);
+
+        // EffectiveOnly only has Wildcard in its ancestor list (one entry).
+        Assert.Matches(new Regex("data-policy-stack-ancestors=\"[0-9a-f]{16}\""), html);
+        Assert.Matches(new Regex("data-policy-stack-rows-url=\"[^\"]*tab=effective\""), html);
+        Assert.Matches(new Regex("id=\"sb-policy-stack-rows-[0-9a-f]{16}\""), html);
+    }
+
+    [Fact]
+    public async Task StatusBadge_emits_ancestor_hashes_for_badge_tab()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, DomainScope, PolicyStackEmbed.StatusBadge);
+
+        // Domain scope -> two ancestor hashes (Wildcard, Domain).
+        Assert.Matches(new Regex("data-policy-stack-ancestors=\"[0-9a-f]{16},[0-9a-f]{16}\""), html);
+        Assert.Matches(new Regex("data-policy-stack-rows-url=\"[^\"]*tab=badge\""), html);
+    }
+
+    [Fact]
+    public void Ancestor_hashes_at_endpoint_scope_match_breadcrumb_path_hashes()
+    {
+        var hashes = Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.AncestorHashes(EndpointScope);
+
+        Assert.Equal(4, hashes.Count);
+        // Re-derive each hash from the canonical scope key and confirm
+        // membership; this is what the broadcaster + the client glue agree on.
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Wildcard()), hashes);
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Domain(DomainAcme)), hashes);
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Subdomain(DomainAcme, SubDocs)), hashes);
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload)), hashes);
+    }
+
     /// <summary>
     ///     Append a full decision cycle for <paramref name="fingerprint"/> --
     ///     one row per effective rule, with the endpoint Block rule as the

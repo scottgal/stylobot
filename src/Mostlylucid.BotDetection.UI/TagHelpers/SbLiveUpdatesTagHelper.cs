@@ -35,6 +35,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
     private const string AssetJsPath        = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
     private const string IdiomorphScriptPath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/idiomorph-ext.min.js";
     private const string TooltipPortalPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-tooltip-portal.js";
+    private const string PolicyStackRealtimePath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-realtime.js";
 
     // Module Version Id changes every build, so appending it as a query string
     // forces CDNs and browser caches to fetch the new asset after a deploy.
@@ -149,5 +150,13 @@ public class SbLiveUpdatesTagHelper : TagHelper
             $@" data-debounce=""{DebounceMs}""" +
             $@" data-cooldown=""{cooldownMs}""" +
             $@" data-refresh-interval=""{refreshMs}""{nonceAttr}></script>");
+
+        // B6 -- Policy Stack live-update glue. Independent of sb-live-updates
+        // so pages that opt into the policy stack control get the realtime
+        // beacon even without the broader BroadcastInvalidation coordinator
+        // (and vice versa). Self-hosted under the same /_content/ root.
+        output.Content.AppendHtml(
+            $@"<script src=""{PolicyStackRealtimePath}?v={AssetVersion}""" +
+            $@" data-hub-url=""{hubUrlAttr}""{nonceAttr}></script>");
     }
 }

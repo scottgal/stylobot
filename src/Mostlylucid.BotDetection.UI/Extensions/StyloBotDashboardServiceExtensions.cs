@@ -258,6 +258,15 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyExplainerPresenter>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
 
+        // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
+        // packs replace this with a Redis-fanned implementation so an edit on
+        // one node reaches every other node's connected browsers. The hosted
+        // service bridges the rule store's Changed event into the broadcaster
+        // and stays running for the host lifetime.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Policies.IPolicyChangeBroadcaster,
+            Mostlylucid.BotDetection.UI.Policies.SignalRPolicyChangeBroadcaster>();
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Policies.PolicyChangeNotificationHostedService>();
+
         // Dashboard tooltip registry — loads Definitions/Tooltips/*.yaml at
         // startup. Cheap to register unconditionally; the helper short-circuits
         // when StyloBotDashboardOptions.EnableTooltips is false so the resolved
