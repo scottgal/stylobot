@@ -54,9 +54,18 @@ public static class PolicyScopeKeys
     ///     (8 bytes / 64 bits). Collision risk on a per-process group dictionary
     ///     is negligible at this width.
     /// </summary>
-    public static string ScopeHash(PolicyScope scope)
+    public static string ScopeHash(PolicyScope scope) => HashScopeKey(ScopeKey(scope));
+
+    /// <summary>
+    ///     Hash an already-encoded scope key string -- same algorithm as
+    ///     <see cref="ScopeHash(PolicyScope)"/> but takes the canonical string
+    ///     directly. Commercial cross-process invalidation (Redis pub/sub)
+    ///     ships the scope key over the wire, so subscribers re-hash from the
+    ///     string without re-parsing it back to a <see cref="PolicyScope"/>.
+    /// </summary>
+    public static string HashScopeKey(string scopeKey)
     {
-        var bytes = Encoding.UTF8.GetBytes(ScopeKey(scope));
+        var bytes = Encoding.UTF8.GetBytes(scopeKey);
         var hash = SHA256.HashData(bytes);
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++) sb.Append(hash[i].ToString("x2"));
