@@ -204,6 +204,19 @@ public static class StyloBotDashboardServiceExtensions
         // Dashboard help system (Markdig-rendered markdown)
         services.AddSingleton<DashboardHelpService>();
 
+        // Signal vocabulary catalogue. Backs /dashboard/signals/* autocomplete
+        // for the Policy Stack expression editor. Reflects SignalKeys constants
+        // + XML doc summaries + embedded VYaml overlays; immutable post-load,
+        // so a blocking GetAwaiter().GetResult() at boot is intentional.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Signals.ISignalCatalog>(_ =>
+        {
+            var asm = typeof(Mostlylucid.BotDetection.Models.SignalKeys).Assembly;
+#pragma warning disable IL2026 // SignalCatalog.LoadAsync reflects const fields; overlays are pre-registered for AOT.
+            return Mostlylucid.BotDetection.Policies.Signals.SignalCatalog
+                .LoadAsync(asm).GetAwaiter().GetResult();
+#pragma warning restore IL2026
+        });
+
         // Dashboard tooltip registry — loads Definitions/Tooltips/*.yaml at
         // startup. Cheap to register unconditionally; the helper short-circuits
         // when StyloBotDashboardOptions.EnableTooltips is false so the resolved

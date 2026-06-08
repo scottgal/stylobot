@@ -515,6 +515,23 @@ public class StyloBotDashboardMiddleware
                 await ServeHelpAsync(context, relativePath["help/".Length..]);
                 break;
 
+            // Policy Stack signal vocabulary (autocomplete + tooltip surface).
+            // Anonymous-readable: the catalogue is compile-time public; gating it
+            // would only frustrate the editor without protecting anything secret.
+            case "signals/namespaces":
+                await ServeSignalNamespacesAsync(context);
+                break;
+
+            case "signals/search":
+                await ServeSignalSearchAsync(context);
+                break;
+
+            case var p when p.StartsWith("signals/", StringComparison.OrdinalIgnoreCase):
+                // Use original relativePath (not lowercased) so a future mixed-case
+                // signal key still resolves; today's catalogue is all lowercase.
+                await ServeSignalDetailAsync(context, relativePath["signals/".Length..]);
+                break;
+
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
                 if (_options.RenderPage)
                 {
@@ -2824,6 +2841,146 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private LicenseCardModel BuildLicenseCardModel(HttpContext context) =>
         LicenseCardModelBuilder.Build(context, _options.BasePath.TrimEnd('/'));
+
+    // ----- Policy Stack signal catalogue API -----
+    //
+    // Three JSON routes the expression editor binds to for autocomplete + signal
+    // description tooltips. The catalogue is immutable post-boot, so responses
+    // are public-cacheable for 5 minutes. Unknown keys 404 with a Levenshtein
+    // "did you mean" list pulled from ISignalCatalog.SuggestForUnknown.
+    private static readonly System.Text.Json.JsonSerializerOptions SignalCatalogJsonOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
+    };
+
+    private const string SignalCatalogCacheControl = "public, max-age=300";
+
+    private static Mostlylucid.BotDetection.Policies.Signals.ISignalCatalog? TryGetSignalCatalog(HttpContext context)
+        => context.RequestServices.GetService<Mostlylucid.BotDetection.Policies.Signals.ISignalCatalog>();
+
+    private async Task ServeSignalNamespacesAsync(HttpContext context)
+    {
+        var catalog = TryGetSignalCatalog(context);
+        if (catalog is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        // Catalog.Namespaces is already sorted ordinal-ascending. Counts come
+        // from a single pass over All -- O(n) and called once per editor session.
+        var counts = new Dictionary<string, int>(catalog.Namespaces.Count, StringComparer.Ordinal);
+        foreach (var ns in catalog.Namespaces) counts[ns] = 0;
+        foreach (var d in catalog.All)
+        {
+            var dot = d.Key.IndexOf('.');
+            var ns = dot > 0 ? d.Key[..dot] : d.Key;
+            if (counts.TryGetValue(ns, out var c)) counts[ns] = c + 1;
+        }
+
+        var items = new List<UI.Models.SignalNamespaceDto>(catalog.Namespaces.Count);
+        foreach (var ns in catalog.Namespaces)
+            items.Add(new UI.Models.SignalNamespaceDto(ns, counts[ns]));
+
+        var payload = new UI.Models.SignalNamespacesResponseDto(items);
+
+        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.Headers.CacheControl = SignalCatalogCacheControl;
+        await JsonSerializer.SerializeAsync(context.Response.Body, payload, SignalCatalogJsonOptions);
+    }
+
+    private async Task ServeSignalSearchAsync(HttpContext context)
+    {
+        var catalog = TryGetSignalCatalog(context);
+        if (catalog is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var q = context.Request.Query["q"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync("{\"error\":\"query parameter 'q' is required\"}");
+            return;
+        }
+
+        var n = 20;
+        var nRaw = context.Request.Query["n"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(nRaw) && int.TryParse(nRaw, out var parsed))
+            n = parsed;
+        // Clamp [1, 100] -- silent (per spec) so an over-eager editor can pass
+        // n=999 without seeing a 400. 0 / negative falls through to 1.
+        if (n < 1) n = 1;
+        if (n > 100) n = 100;
+
+        var hits = new List<UI.Models.SignalSearchHitDto>(n);
+        foreach (var d in catalog.Search(q, n))
+        {
+            hits.Add(new UI.Models.SignalSearchHitDto(
+                Key: d.Key,
+                Kind: d.Kind.ToString(),
+                Short: d.Short,
+                Operators: d.Operators));
+        }
+        var payload = new UI.Models.SignalSearchResponseDto(hits);
+
+        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.Headers.CacheControl = SignalCatalogCacheControl;
+        await JsonSerializer.SerializeAsync(context.Response.Body, payload, SignalCatalogJsonOptions);
+    }
+
+    private async Task ServeSignalDetailAsync(HttpContext context, string rawKey)
+    {
+        var catalog = TryGetSignalCatalog(context);
+        if (catalog is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        // Strip any trailing slash + URL-decode so callers can use either
+        // /signals/risk.justification or /signals/risk.justification/.
+        var key = rawKey.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        key = Uri.UnescapeDataString(key);
+
+        var sig = catalog.TryGet(key);
+        if (sig is null)
+        {
+            var suggestions = catalog.SuggestForUnknown(key, 3);
+            var err = new UI.Models.SignalUnknownErrorDto("unknown signal", suggestions);
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await JsonSerializer.SerializeAsync(context.Response.Body, err, SignalCatalogJsonOptions);
+            return;
+        }
+
+        var examples = new List<UI.Models.SignalExampleDto>(sig.Examples.Count);
+        foreach (var e in sig.Examples)
+            examples.Add(new UI.Models.SignalExampleDto(e.Expr, e.Reads));
+
+        var payload = new UI.Models.SignalFullDto(
+            Key: sig.Key,
+            Kind: sig.Kind.ToString(),
+            Short: sig.Short,
+            Long: sig.Long,
+            Operators: sig.Operators,
+            Examples: examples,
+            Related: sig.Related,
+            DeclaringType: sig.DeclaringType);
+
+        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.Headers.CacheControl = SignalCatalogCacheControl;
+        await JsonSerializer.SerializeAsync(context.Response.Body, payload, SignalCatalogJsonOptions);
+    }
 
     private async Task ServeHelpAsync(HttpContext context, string sectionId)
     {
