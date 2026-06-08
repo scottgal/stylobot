@@ -4,6 +4,7 @@ using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Definitions.VendorHomeHosts;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Signals;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.SimulationPacks;
@@ -77,6 +78,11 @@ internal static class VYamlBootstrap
         // Policy Stack signal overlays
         SignalOverlay.__RegisterVYamlFormatter();
         SignalOverlayExample.__RegisterVYamlFormatter();
+
+        // Policy Stack rule files
+        YamlRuleFile.__RegisterVYamlFormatter();
+        YamlRuleScope.__RegisterVYamlFormatter();
+        YamlRuleAction.__RegisterVYamlFormatter();
 
         // Detector / pipeline manifests
         DetectorManifest.__RegisterVYamlFormatter();

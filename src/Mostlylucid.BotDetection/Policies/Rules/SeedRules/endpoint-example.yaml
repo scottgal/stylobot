@@ -1,0 +1,12 @@
+id: 33333333-3333-3333-3333-333333333333
+scope:
+  kind: endpoint
+  domain: acme.com
+  subdomain: docs.acme.com
+  path_template: "GET /api/upload"
+priority: 10
+predicate: "bot.type in (scraper, crawler) and score.bot_probability >= 0.7"
+action:
+  kind: block
+mode: live
+notes: "Block scrapers on upload endpoint"

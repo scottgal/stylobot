@@ -1,0 +1,10 @@
+id: 11111111-1111-1111-1111-111111111111
+scope:
+  kind: domain
+  domain: acme.com
+priority: 100
+predicate: "is_human = true"
+action:
+  kind: allow
+mode: live
+notes: "Default allow for human visitors"

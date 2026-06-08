@@ -162,6 +162,12 @@
         <EmbeddedResource Include="Policies\Signals\Overlays\*.yaml" />
     </ItemGroup>
 
+    <!-- Embed seed policy rule YAML files (YamlPolicyRuleStore loads these at
+         boot so the FOSS dashboard has rules to render out of the box). -->
+    <ItemGroup>
+        <EmbeddedResource Include="Policies\Rules\SeedRules\*.yaml" />
+    </ItemGroup>
+
     <!-- Include README in NuGet package (icon comes from Directory.Build.props shared root) -->
     <ItemGroup>
         <None Include=".\README.md" Pack="true" PackagePath="">

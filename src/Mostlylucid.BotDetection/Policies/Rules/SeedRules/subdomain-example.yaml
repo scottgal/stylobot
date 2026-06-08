@@ -1,0 +1,12 @@
+id: 22222222-2222-2222-2222-222222222222
+scope:
+  kind: subdomain
+  domain: acme.com
+  subdomain: docs.acme.com
+priority: 50
+predicate: "geo.country in (CN, RU)"
+action:
+  kind: challenge
+  challenge_kind: turnstile
+mode: live
+notes: "Challenge from heavy abuse origins"
