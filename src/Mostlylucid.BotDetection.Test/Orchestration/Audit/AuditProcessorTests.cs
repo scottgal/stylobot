@@ -203,7 +203,7 @@ public class AuditProcessorTests
 
         var evidence = CreateEvidence(
             riskBand: RiskBand.High,
-            policyAction: PolicyAction.Challenge,
+            policyAction: DetectionPolicyAction.Challenge,
             ledger: ledger,
             signals: new Dictionary<string, object>
             {
@@ -278,7 +278,7 @@ public class AuditProcessorTests
 
     private static AggregatedEvidence CreateEvidence(
         RiskBand riskBand = RiskBand.Low,
-        PolicyAction? policyAction = null,
+        DetectionPolicyAction? policyAction = null,
         DetectionLedger? ledger = null,
         IReadOnlyDictionary<string, object>? signals = null)
     {

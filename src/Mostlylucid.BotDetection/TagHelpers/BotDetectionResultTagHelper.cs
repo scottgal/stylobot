@@ -92,7 +92,7 @@ public class BotDetectionResultTagHelper : TagHelper
         var aggregated = httpContext.Items[BotDetectionMiddleware.AggregatedEvidenceKey] as AggregatedEvidence;
         var legacy = httpContext.Items[BotDetectionMiddleware.BotDetectionResultKey] as BotDetectionResult;
         var policyName = httpContext.Items[BotDetectionMiddleware.PolicyNameKey] as string ?? "unknown";
-        var policyAction = httpContext.Items[BotDetectionMiddleware.PolicyActionKey] as PolicyAction?;
+        var policyAction = httpContext.Items[BotDetectionMiddleware.PolicyActionKey] as DetectionPolicyAction?;
 
         object resultObject;
 
@@ -130,7 +130,7 @@ public class BotDetectionResultTagHelper : TagHelper
     private object CreateResultFromAggregated(
         AggregatedEvidence evidence,
         string policyName,
-        PolicyAction? policyAction)
+        DetectionPolicyAction? policyAction)
     {
         if (FullResult)
             return new

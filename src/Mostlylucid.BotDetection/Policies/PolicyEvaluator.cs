@@ -35,7 +35,7 @@ public sealed record PolicyEvaluationResult
     public string? NextPolicy { get; init; }
 
     /// <summary>Action to take (if not continuing or transitioning)</summary>
-    public PolicyAction? Action { get; init; }
+    public DetectionPolicyAction? Action { get; init; }
 
     /// <summary>
     ///     Name of the action policy to execute (if specified in transition).
@@ -68,7 +68,7 @@ public sealed record PolicyEvaluationResult
     }
 
     /// <summary>Take an immediate action</summary>
-    public static PolicyEvaluationResult TakeAction(PolicyAction action, PolicyTransition triggeredBy)
+    public static PolicyEvaluationResult TakeAction(DetectionPolicyAction action, PolicyTransition triggeredBy)
     {
         return new PolicyEvaluationResult
         {
@@ -174,11 +174,11 @@ public class PolicyEvaluator : IPolicyEvaluator
                 policy.Name, policy.ImmediateBlockThreshold, state.CurrentRiskScore);
 
             return PolicyEvaluationResult.TakeAction(
-                PolicyAction.Block,
+                DetectionPolicyAction.Block,
                 new PolicyTransition
                 {
                     WhenRiskExceeds = policy.ImmediateBlockThreshold,
-                    Action = PolicyAction.Block,
+                    Action = DetectionPolicyAction.Block,
                     Description = "Immediate block threshold exceeded"
                 });
         }
@@ -200,11 +200,11 @@ public class PolicyEvaluator : IPolicyEvaluator
                 policy.Name, state.CurrentRiskScore, policy.AiEscalationThreshold);
 
             return PolicyEvaluationResult.TakeAction(
-                PolicyAction.EscalateToAi,
+                DetectionPolicyAction.EscalateToAi,
                 new PolicyTransition
                 {
                     WhenRiskExceeds = policy.AiEscalationThreshold,
-                    Action = PolicyAction.EscalateToAi,
+                    Action = DetectionPolicyAction.EscalateToAi,
                     Description = "Escalate to AI analysis"
                 });
         }
@@ -217,11 +217,11 @@ public class PolicyEvaluator : IPolicyEvaluator
                 policy.Name, policy.EarlyExitThreshold, state.CurrentRiskScore);
 
             return PolicyEvaluationResult.TakeAction(
-                PolicyAction.Allow,
+                DetectionPolicyAction.Allow,
                 new PolicyTransition
                 {
                     WhenRiskBelow = policy.EarlyExitThreshold,
-                    Action = PolicyAction.Allow,
+                    Action = DetectionPolicyAction.Allow,
                     Description = "Early exit threshold met"
                 });
         }
@@ -246,17 +246,17 @@ public class PolicyEvaluator : IPolicyEvaluator
         return state.Contributions.FirstOrDefault(c => c.TriggerEarlyExit && !string.IsNullOrEmpty(c.EarlyExitVerdict));
     }
 
-    private static PolicyAction? MapEarlyExitVerdictToAction(EarlyExitVerdict verdict)
+    private static DetectionPolicyAction? MapEarlyExitVerdictToAction(EarlyExitVerdict verdict)
     {
         return verdict switch
         {
             EarlyExitVerdict.VerifiedGoodBot or
                 EarlyExitVerdict.Whitelisted or
-                EarlyExitVerdict.PolicyAllowed => PolicyAction.Allow,
+                EarlyExitVerdict.PolicyAllowed => DetectionPolicyAction.Allow,
 
             EarlyExitVerdict.VerifiedBadBot or
                 EarlyExitVerdict.Blacklisted or
-                EarlyExitVerdict.PolicyBlocked => PolicyAction.Block,
+                EarlyExitVerdict.PolicyBlocked => DetectionPolicyAction.Block,
 
             _ => null
         };

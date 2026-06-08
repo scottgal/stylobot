@@ -372,7 +372,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             var completedDetectors = pooledState.CompletedDetectors;
             var failedDetectors = pooledState.FailedDetectors;
             var ranDetectors = pooledState.RanDetectors;
-            PolicyAction? finalAction = null;
+            DetectionPolicyAction? finalAction = null;
             string? triggeredActionPolicyName = null;
 
             // Wire up zero-allocation key set wrappers for BuildState
@@ -535,7 +535,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                             if (evalResult.Action.HasValue)
                             {
                                 // Handle EscalateToAi specially - run AI detectors then continue
-                                if (evalResult.Action.Value == PolicyAction.EscalateToAi)
+                                if (evalResult.Action.Value == DetectionPolicyAction.EscalateToAi)
                                 {
                                     // Default AI detectors if none specified in policy
                                     var aiDetectorNames = policy.AiPathDetectors.Count > 0
@@ -642,7 +642,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             // Apply policy action and timing to result
             // Mark EarlyExit=true when policy triggered an early action (Allow/Block before full pipeline)
             var wasEarlyExit = finalAction.HasValue &&
-                               (finalAction.Value == PolicyAction.Allow || finalAction.Value == PolicyAction.Block) &&
+                               (finalAction.Value == DetectionPolicyAction.Allow || finalAction.Value == DetectionPolicyAction.Block) &&
                                result.ContributingDetectors.Count < availableDetectors.Count;
 
             // Check for contributor-triggered action policy (fail2ban-style escalation).
@@ -711,7 +711,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                     TotalProcessingTimeMs = actualProcessingTimeMs,
                     EarlyExit = wasEarlyExit || result.EarlyExit,
                     EarlyExitVerdict = wasEarlyExit
-                        ? (finalAction!.Value == PolicyAction.Allow ? EarlyExitVerdict.PolicyAllowed : EarlyExitVerdict.PolicyBlocked)
+                        ? (finalAction!.Value == DetectionPolicyAction.Allow ? EarlyExitVerdict.PolicyAllowed : EarlyExitVerdict.PolicyBlocked)
                         : result.EarlyExitVerdict
                 };
             else

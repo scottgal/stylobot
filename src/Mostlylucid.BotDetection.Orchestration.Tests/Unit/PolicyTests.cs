@@ -82,7 +82,7 @@ public class PolicyTests
         Assert.Equal("allowVerifiedBots", policy.Name);
         Assert.Single(policy.Transitions);
         Assert.Equal("VerifiedGoodBot", policy.Transitions[0].WhenSignal);
-        Assert.Equal(PolicyAction.Allow, policy.Transitions[0].Action);
+        Assert.Equal(DetectionPolicyAction.Allow, policy.Transitions[0].Action);
     }
 
     #endregion
@@ -102,10 +102,10 @@ public class PolicyTests
     [Fact]
     public void PolicyTransition_OnSignalWithAction_CreatesCorrectTransition()
     {
-        var transition = PolicyTransition.OnSignal("VerifiedBot", PolicyAction.Allow);
+        var transition = PolicyTransition.OnSignal("VerifiedBot", DetectionPolicyAction.Allow);
 
         Assert.Equal("VerifiedBot", transition.WhenSignal);
-        Assert.Equal(PolicyAction.Allow, transition.Action);
+        Assert.Equal(DetectionPolicyAction.Allow, transition.Action);
         Assert.Null(transition.GoToPolicy);
     }
 
@@ -310,7 +310,7 @@ public class PolicyTests
         var result = evaluator.Evaluate(policy, state);
 
         Assert.False(result.ShouldContinue);
-        Assert.Equal(PolicyAction.Block, result.Action);
+        Assert.Equal(DetectionPolicyAction.Block, result.Action);
     }
 
     [Fact]
@@ -329,7 +329,7 @@ public class PolicyTests
         var result = evaluator.Evaluate(policy, state);
 
         Assert.False(result.ShouldContinue);
-        Assert.Equal(PolicyAction.Allow, result.Action);
+        Assert.Equal(DetectionPolicyAction.Allow, result.Action);
     }
 
     [Fact]
@@ -342,7 +342,7 @@ public class PolicyTests
             FastPathDetectors = ["UserAgent"],
             Transitions =
             [
-                PolicyTransition.OnSignal("VerifiedGoodBot", PolicyAction.Allow)
+                PolicyTransition.OnSignal("VerifiedGoodBot", DetectionPolicyAction.Allow)
             ]
         };
         var state = CreateState(0.5, new Dictionary<string, object>
@@ -353,7 +353,7 @@ public class PolicyTests
         var result = evaluator.Evaluate(policy, state);
 
         Assert.False(result.ShouldContinue);
-        Assert.Equal(PolicyAction.Allow, result.Action);
+        Assert.Equal(DetectionPolicyAction.Allow, result.Action);
     }
 
     [Fact]

@@ -453,17 +453,17 @@ public static class RouteBuilderExtensions
         return new { action, reason };
     }
 
-    private static string GetPolicyActionReason(PolicyAction action, AggregatedEvidence evidence)
+    private static string GetPolicyActionReason(DetectionPolicyAction action, AggregatedEvidence evidence)
     {
         var probStr = FormatProbability(evidence.BotProbability);
         return action switch
         {
-            PolicyAction.Block => $"Policy triggered block at probability {probStr}",
-            PolicyAction.Allow => "Policy allowed request",
-            PolicyAction.Challenge => $"Policy triggered challenge at probability {probStr}",
-            PolicyAction.Throttle => $"Policy triggered throttle at probability {probStr}",
-            PolicyAction.EscalateToAi => $"Policy recommends AI escalation at probability {probStr}",
-            PolicyAction.LogOnly => "Policy set to log only",
+            DetectionPolicyAction.Block => $"Policy triggered block at probability {probStr}",
+            DetectionPolicyAction.Allow => "Policy allowed request",
+            DetectionPolicyAction.Challenge => $"Policy triggered challenge at probability {probStr}",
+            DetectionPolicyAction.Throttle => $"Policy triggered throttle at probability {probStr}",
+            DetectionPolicyAction.EscalateToAi => $"Policy recommends AI escalation at probability {probStr}",
+            DetectionPolicyAction.LogOnly => "Policy set to log only",
             _ => $"Policy action: {action}"
         };
     }

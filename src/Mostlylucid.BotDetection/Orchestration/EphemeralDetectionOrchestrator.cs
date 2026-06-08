@@ -177,7 +177,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
 
         var aggregator = new DetectionLedger(requestId);
         var signals = new ConcurrentDictionary<string, object>();
-        PolicyAction? finalAction = null;
+        DetectionPolicyAction? finalAction = null;
         string? triggeredActionPolicyName = null;
 
         // Build detector lists based on policy
@@ -353,7 +353,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
 
                         if (evalResult.Action.HasValue)
                         {
-                            if (evalResult.Action.Value == PolicyAction.EscalateToAi)
+                            if (evalResult.Action.Value == DetectionPolicyAction.EscalateToAi)
                             {
                                 // Run AI detectors
                                 var aiDetectors = GetAiDetectors(policy, ranDetectors);
@@ -412,7 +412,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         var actualProcessingTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 
         var wasEarlyExit = finalAction.HasValue &&
-                           (finalAction.Value == PolicyAction.Allow || finalAction.Value == PolicyAction.Block) &&
+                           (finalAction.Value == DetectionPolicyAction.Allow || finalAction.Value == DetectionPolicyAction.Block) &&
                            result.ContributingDetectors.Count < 9;
 
         if (finalAction.HasValue || !string.IsNullOrEmpty(triggeredActionPolicyName))

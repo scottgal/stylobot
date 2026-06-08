@@ -16,7 +16,7 @@ public static class DetectionLedgerExtensions
     public static AggregatedEvidence ToAggregatedEvidence(
         this DetectionLedger ledger,
         string? policyName = null,
-        PolicyAction? policyAction = null,
+        DetectionPolicyAction? policyAction = null,
         string? actionPolicyName = null,
         bool aiRan = false,
         IReadOnlyDictionary<string, object>? premergedSignals = null,

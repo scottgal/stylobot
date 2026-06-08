@@ -512,8 +512,8 @@ public class TransitionConfig
     /// </summary>
     public PolicyTransition ToTransition()
     {
-        PolicyAction? action = null;
-        if (!string.IsNullOrEmpty(Action) && Enum.TryParse<PolicyAction>(Action, true, out var parsedAction))
+        DetectionPolicyAction? action = null;
+        if (!string.IsNullOrEmpty(Action) && Enum.TryParse<DetectionPolicyAction>(Action, true, out var parsedAction))
             action = parsedAction;
 
         return new PolicyTransition

@@ -45,7 +45,7 @@ public class BotDetectionMiddlewareTests
         RiskBand riskBand = RiskBand.Low,
         BotType? botType = null,
         string? botName = null,
-        PolicyAction? policyAction = null)
+        DetectionPolicyAction? policyAction = null)
     {
         return new AggregatedEvidence
         {
@@ -763,7 +763,7 @@ public class BotDetectionMiddlewareTests
             1.0,
             1.0,
             RiskBand.VeryHigh,
-            policyAction: PolicyAction.Block));
+            policyAction: DetectionPolicyAction.Block));
         var mockPolicyRegistry = CreateMockPolicyRegistry();
         var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
 
@@ -984,7 +984,7 @@ public class BotDetectionMiddlewareTests
             contentType: "text/html",
             processingTimeMs: 5.0,
             requestBotProbability: 0.9,
-            action: PolicyAction.Block);
+            action: DetectionPolicyAction.Block);
 
         Assert.Null(signal);
     }

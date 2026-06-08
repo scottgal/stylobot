@@ -140,7 +140,7 @@ public sealed record AggregatedEvidence
     /// <summary>
     /// Action determined by policy (if any).
     /// </summary>
-    public PolicyAction? PolicyAction { get; init; }
+    public DetectionPolicyAction? PolicyAction { get; init; }
 
     /// <summary>
     /// Name of the action policy to execute (if specified by a transition).

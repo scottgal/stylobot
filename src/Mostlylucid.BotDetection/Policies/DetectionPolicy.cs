@@ -385,7 +385,7 @@ public sealed record DetectionPolicy
         UseFastPath = true,
         Transitions =
         [
-            PolicyTransition.OnSignal("VerifiedGoodBot", PolicyAction.Allow)
+            PolicyTransition.OnSignal("VerifiedGoodBot", DetectionPolicyAction.Allow)
         ]
     };
 
@@ -598,7 +598,7 @@ public sealed record PolicyTransition
     public string? GoToPolicy { get; init; }
 
     /// <summary>Action to take instead of transitioning to another policy</summary>
-    public PolicyAction? Action { get; init; }
+    public DetectionPolicyAction? Action { get; init; }
 
     /// <summary>Description of this transition for logging/debugging</summary>
     public string? Description { get; init; }
@@ -617,7 +617,7 @@ public sealed record PolicyTransition
     }
 
     /// <summary>Creates a transition triggered by a signal that takes an action</summary>
-    public static PolicyTransition OnSignal(string signalKey, PolicyAction action)
+    public static PolicyTransition OnSignal(string signalKey, DetectionPolicyAction action)
     {
         return new PolicyTransition { WhenSignal = signalKey, Action = action };
     }
@@ -635,7 +635,7 @@ public sealed record PolicyTransition
     }
 
     /// <summary>Creates a transition triggered by high risk that takes an action</summary>
-    public static PolicyTransition OnHighRisk(double threshold, PolicyAction action)
+    public static PolicyTransition OnHighRisk(double threshold, DetectionPolicyAction action)
     {
         return new PolicyTransition { WhenRiskExceeds = threshold, Action = action };
     }
@@ -644,7 +644,15 @@ public sealed record PolicyTransition
 /// <summary>
 ///     Actions that can be taken by a policy transition.
 /// </summary>
-public enum PolicyAction
+/// <remarks>
+///     Renamed from <c>PolicyAction</c> to <c>DetectionPolicyAction</c> so the
+///     bare name <c>PolicyAction</c> is unambiguous inside the
+///     <c>Mostlylucid.BotDetection.Policies.*</c> namespace tree -- the new
+///     authored-rule action lives at
+///     <c>Mostlylucid.BotDetection.Policies.Rules.PolicyAction</c> and would
+///     otherwise be shadowed by this legacy enum via C# parent-namespace lookup.
+/// </remarks>
+public enum DetectionPolicyAction
 {
     /// <summary>Continue with current policy</summary>
     Continue,

@@ -201,7 +201,7 @@ The middleware stores results in `HttpContext.Items` using these keys:
 | `BotDetection.Category` | `string?` | Primary detection category |
 | `BotDetection.Reasons` | `IReadOnlyList<DetectionReason>` | All detection reasons |
 | `BotDetection.PolicyName` | `string` | Policy used |
-| `BotDetection.PolicyAction` | `PolicyAction?` | Action taken |
+| `BotDetection.PolicyAction` | `DetectionPolicyAction?` | Action taken |
 
 ---
 
@@ -745,7 +745,7 @@ public sealed record AggregatedEvidence
     public IReadOnlyDictionary<string, CategoryScore> CategoryBreakdown { get; init; }
     public IReadOnlyList<DetectionContribution> Contributions { get; init; }
     public string? PolicyName { get; init; }
-    public PolicyAction? PolicyAction { get; init; }
+    public DetectionPolicyAction? PolicyAction { get; init; }
     public string? TriggeredActionPolicyName { get; init; }
 }
 ```
@@ -795,10 +795,10 @@ public enum RecommendedAction
 }
 ```
 
-### PolicyAction
+### DetectionPolicyAction
 
 ```csharp
-public enum PolicyAction
+public enum DetectionPolicyAction
 {
     Continue,
     Allow,
@@ -810,6 +810,11 @@ public enum PolicyAction
     EscalateToAi
 }
 ```
+
+> Renamed from the bare name `PolicyAction` so the new authored-rule
+> action record at `Mostlylucid.BotDetection.Policies.Rules.PolicyAction`
+> is unambiguous inside the `Mostlylucid.BotDetection.Policies.*`
+> namespace tree.
 
 ### EarlyExitVerdict
 
@@ -1253,10 +1258,10 @@ Define automatic escalation and routing rules.
 PolicyTransition.OnHighRisk(0.6, "full-analysis")
 
 // Block immediately when risk exceeds 95%
-PolicyTransition.OnHighRisk(0.95, PolicyAction.Block)
+PolicyTransition.OnHighRisk(0.95, DetectionPolicyAction.Block)
 
 // Allow when risk is below 10%
-PolicyTransition.OnLowRisk(0.1, PolicyAction.Allow)
+PolicyTransition.OnLowRisk(0.1, DetectionPolicyAction.Allow)
 
 // Escalate when specific signal is present
 PolicyTransition.OnSignal("ip.is_datacenter", "datacenter-policy")

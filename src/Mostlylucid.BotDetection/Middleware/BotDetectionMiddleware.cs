@@ -1491,15 +1491,15 @@ public class BotDetectionMiddleware(
         }
 
         // Check if policy action says to block
-        if (aggregated.PolicyAction == PolicyAction.Block)
+        if (aggregated.PolicyAction == DetectionPolicyAction.Block)
             return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
 
         // Check if policy action says to throttle
-        if (aggregated.PolicyAction == PolicyAction.Throttle)
+        if (aggregated.PolicyAction == DetectionPolicyAction.Throttle)
             return (true, BotBlockAction.Throttle);
 
         // Check if policy action says to challenge
-        if (aggregated.PolicyAction == PolicyAction.Challenge)
+        if (aggregated.PolicyAction == DetectionPolicyAction.Challenge)
             return (true, BotBlockAction.Challenge);
 
         // Check for verified bad bot (bypasses confidence gate - verified bots are always high confidence)
@@ -2810,11 +2810,11 @@ public class BotDetectionMiddleware(
         string? contentType,
         double processingTimeMs,
         double requestBotProbability,
-        Policies.PolicyAction? action)
+        Policies.DetectionPolicyAction? action)
     {
-        if (action is Policies.PolicyAction.Block
-            or Policies.PolicyAction.Challenge
-            or Policies.PolicyAction.Throttle)
+        if (action is Policies.DetectionPolicyAction.Block
+            or Policies.DetectionPolicyAction.Challenge
+            or Policies.DetectionPolicyAction.Throttle)
             return null;
 
         return new ResponseSignal
@@ -2844,7 +2844,7 @@ public class BotDetectionMiddleware(
     internal static ResponseSignal? BuildResponseSignalForTest(
         string clientId, string requestId, string path, string method,
         int statusCode, long contentLength, string? contentType,
-        double processingTimeMs, double requestBotProbability, Policies.PolicyAction? action)
+        double processingTimeMs, double requestBotProbability, Policies.DetectionPolicyAction? action)
         => BuildResponseSignal(clientId, requestId, path, method,
             statusCode, contentLength, contentType,
             processingTimeMs, requestBotProbability, action);
