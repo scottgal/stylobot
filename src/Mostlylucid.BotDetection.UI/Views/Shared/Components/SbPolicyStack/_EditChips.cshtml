@@ -1,0 +1,16 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyEditRowViewModel
+@*
+    C6 chip pane. Razor ships a no-JS-meaningful render of the current
+    predicate text; once policy-stack-edit.js mounts it replaces the
+    content with live, editable chips driven off the parsed AST. The
+    chip pane is ALWAYS visible alongside the textarea -- there is no
+    advanced/simple flip per the hard constraints on this task.
+*@
+<div class="sb-edit-chip-pane" data-edit-chip-pane>
+    <em class="sb-edit-chip-placeholder">@(string.IsNullOrEmpty(Model.PredicateText) ? "Add a term to begin" : Model.PredicateText)</em>
+</div>
+<div class="sb-edit-chip-controls">
+    <button type="button" data-edit-chip-add="and">+ AND</button>
+    <button type="button" data-edit-chip-add="or">+ OR</button>
+</div>

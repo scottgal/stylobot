@@ -47,10 +47,17 @@
 
         @if (Model.CanEdit)
         {
-            @* canEdit threaded through but not rendered in B1+B2 -- B6+C land
-               the actual add-rule button. The marker stays so the layout
-               doesn't shift when the affordance returns. *@
+            @* C6 -- the + Add rule button targets the section's afterbegin so
+               the new edit row appears at the top of the visible rule list.
+               The marker span stays for backwards compatibility with B6 glue
+               that may already be probing for [data-can-edit]. *@
             <span class="sb-policy-stack-edit-affordance" data-can-edit="true" hidden></span>
+            <button type="button"
+                    class="sb-policy-stack-add-rule"
+                    data-action="add-rule"
+                    hx-get="/dashboard/policystack/edit/new?scope=@PolicyScopeUrl.Encode(Model.Scope)"
+                    hx-target="closest section"
+                    hx-swap="afterbegin">+ Add rule</button>
         }
     </header>
 

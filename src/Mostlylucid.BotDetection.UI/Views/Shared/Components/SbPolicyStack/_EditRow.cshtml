@@ -1,0 +1,61 @@
+@using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@model PolicyEditRowViewModel
+@{
+    var ruleIdAttr = Model.RuleId?.ToString() ?? "new";
+    var scopeEncoded = PolicyScopeUrl.Encode(Model.Scope);
+}
+@*
+    C6 expression editor row. Both panes (chip builder + raw textarea)
+    are ALWAYS visible AND editable. There is no "switch to advanced"
+    button -- the chips and the textarea are two views of the same
+    predicate, kept in sync by policy-stack-edit.js.
+
+    Edit affordances themselves (the pencil on _RuleRow, the + Add rule
+    on _Full) only render when canEdit. The _EditRow itself is only ever
+    reached by an HTMX swap from one of those buttons, so it does not
+    re-check the canEdit gate here.
+*@
+<article class="sb-policy-stack-edit-row"
+         data-rule-id="@ruleIdAttr"
+         data-edit-scope="@scopeEncoded"
+         data-edit-submit-url="@Model.SubmitUrl"
+         data-edit-http-method="@Model.HttpMethod">
+    <form class="sb-policy-stack-edit-form">
+        <fieldset class="sb-edit-predicate">
+            <legend>WHEN</legend>
+            <div class="sb-edit-panes">
+                @await Html.PartialAsync("Components/SbPolicyStack/_EditChips", Model)
+                @await Html.PartialAsync("Components/SbPolicyStack/_EditExpression", Model)
+            </div>
+            <div class="sb-edit-validation" data-edit-validation aria-live="polite"></div>
+        </fieldset>
+
+        @await Html.PartialAsync("Components/SbPolicyStack/_EditAction", Model)
+
+        <fieldset class="sb-edit-mode">
+            <legend>Mode</legend>
+            <select name="mode" data-edit-mode>
+                <option value="draft"    selected="@(Model.Mode == PolicyMode.Draft    ? "selected" : null)">Draft</option>
+                <option value="observe"  selected="@(Model.Mode == PolicyMode.Observe  ? "selected" : null)">Observe</option>
+                <option value="live"     selected="@(Model.Mode == PolicyMode.Live     ? "selected" : null)">Live</option>
+                <option value="disabled" selected="@(Model.Mode == PolicyMode.Disabled ? "selected" : null)">Disabled</option>
+            </select>
+        </fieldset>
+
+        <fieldset class="sb-edit-notes">
+            <legend>Notes</legend>
+            <input type="text" name="notes" value="@Model.Notes" maxlength="280" />
+        </fieldset>
+
+        <footer class="sb-edit-actions">
+            <button type="button"
+                    data-edit-cancel
+                    hx-get="@Model.CancelUrl"
+                    hx-target="closest article"
+                    hx-swap="outerHTML">Cancel</button>
+            <button type="submit" data-edit-save disabled>Save</button>
+        </footer>
+    </form>
+</article>

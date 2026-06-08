@@ -36,6 +36,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
     private const string IdiomorphScriptPath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/idiomorph-ext.min.js";
     private const string TooltipPortalPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-tooltip-portal.js";
     private const string PolicyStackRealtimePath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-realtime.js";
+    private const string PolicyStackEditPath     = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-edit.js";
 
     // Module Version Id changes every build, so appending it as a query string
     // forces CDNs and browser caches to fetch the new asset after a deploy.
@@ -158,5 +159,13 @@ public class SbLiveUpdatesTagHelper : TagHelper
         output.Content.AppendHtml(
             $@"<script src=""{PolicyStackRealtimePath}?v={AssetVersion}""" +
             $@" data-hub-url=""{hubUrlAttr}""{nonceAttr}></script>");
+
+        // C6 -- Policy Stack expression editor. The script is a no-op when
+        // no .sb-policy-stack-edit-row elements are present on the page, so
+        // it's safe to emit unconditionally alongside the realtime beacon.
+        // Self-mounts on DOMContentLoaded + on every htmx:afterSwap so the
+        // pencil-button HTMX swaps pick up edit affordances automatically.
+        output.Content.AppendHtml(
+            $@"<script src=""{PolicyStackEditPath}?v={AssetVersion}""{nonceAttr}></script>");
     }
 }

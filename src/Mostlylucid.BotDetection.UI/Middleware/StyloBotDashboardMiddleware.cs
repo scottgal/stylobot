@@ -2,6 +2,7 @@
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Middleware;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -550,6 +551,26 @@ public class StyloBotDashboardMiddleware
             // for the same reason policystack/explain is.
             case "policystack/rows":
                 await ServePolicyStackRowsAsync(context);
+                break;
+
+            // C6 -- expression editor. The two GET routes return rendered
+            // _EditRow.cshtml partials so HTMX can outerHTML-swap the
+            // compact row in for the edit form. The POST /parse route
+            // serves the bidirectional editor: it parses the text the
+            // user typed and returns a canonical lowercase AST the JS
+            // renders as chips. Anonymous-readable for the same reason
+            // /dashboard/signals/* is -- the parse surface doesn't
+            // disclose anything the SignalCatalog hasn't already exposed.
+            case "policystack/edit":
+                await ServePolicyStackEditExistingAsync(context);
+                break;
+
+            case "policystack/edit/new":
+                await ServePolicyStackEditNewAsync(context);
+                break;
+
+            case "policystack/parse":
+                await ServePolicyStackParseAsync(context);
                 break;
 
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
@@ -3126,6 +3147,104 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
+    }
+
+    // C6 -- GET /dashboard/policystack/edit?ruleId=<guid>
+    // Returns the rendered _EditRow.cshtml partial for an existing rule.
+    // HTMX swaps the compact row out for this. 404 when the rule is unknown
+    // or the editor presenter is not registered.
+    private async Task ServePolicyStackEditExistingAsync(HttpContext context)
+    {
+        var presenter = context.RequestServices
+            .GetService<Mostlylucid.BotDetection.UI.Services.PolicyEditPresenter>();
+        if (presenter is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var ruleIdRaw = context.Request.Query["ruleId"].ToString();
+        if (!Guid.TryParse(ruleIdRaw, out var ruleId))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        var vm = await presenter.BuildForExistingRuleAsync(ruleId, context.RequestAborted);
+        if (vm is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbPolicyStack/_EditRow.cshtml", vm, context);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    // C6 -- GET /dashboard/policystack/edit/new?scope=<encoded>
+    // Returns the rendered _EditRow.cshtml partial with empty defaults so
+    // the operator can fill in a new rule at the requested scope.
+    private async Task ServePolicyStackEditNewAsync(HttpContext context)
+    {
+        var presenter = context.RequestServices
+            .GetService<Mostlylucid.BotDetection.UI.Services.PolicyEditPresenter>();
+        if (presenter is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var scopeParam = context.Request.Query["scope"].ToString();
+        var scope = Mostlylucid.BotDetection.UI.Services.PolicyScopeUrl.Decode(scopeParam);
+        var vm = presenter.BuildForNewRule(scope);
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbPolicyStack/_EditRow.cshtml", vm, context);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    // C6 -- POST /dashboard/policystack/parse  (text/plain body)
+    // Parses the supplied predicate text via PredicateParser, then returns
+    // a canonical lowercase-discriminator AST JSON the policy-stack-edit.js
+    // chip-renderer consumes. Lowercase keys + no $ prefix keeps the wire
+    // format identical to the mutation API DTO. Bad input returns 400
+    // with { message, position } so the editor can anchor the inline
+    // error indicator.
+    private async Task ServePolicyStackParseAsync(HttpContext context)
+    {
+        if (!HttpMethods.IsPost(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+            return;
+        }
+
+        string text;
+        using (var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true))
+        {
+            text = await reader.ReadToEndAsync(context.RequestAborted);
+        }
+
+        Mostlylucid.BotDetection.Policies.Predicate.Predicate ast;
+        try
+        {
+            ast = Mostlylucid.BotDetection.Policies.Predicate.PredicateParser.Parse(text);
+        }
+        catch (Mostlylucid.BotDetection.Policies.Predicate.PredicateParseException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync(
+                $"{{\"message\":{JsonSerializer.Serialize(ex.Message)},\"position\":{ex.Position.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+            return;
+        }
+
+        var canonical = PolicyStackParseSerialiser.SerialiseAst(ast);
+
+        context.Response.ContentType = "application/json; charset=utf-8";
+        await context.Response.WriteAsync($"{{\"ast\":{canonical}}}");
     }
 
     private async Task ServeHelpAsync(HttpContext context, string sectionId)

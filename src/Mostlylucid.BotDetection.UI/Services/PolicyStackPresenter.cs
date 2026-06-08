@@ -132,7 +132,7 @@ public sealed class PolicyStackPresenter
         foreach (var entry in effective)
         {
             aggregates.TryGetValue(entry.Rule.Id, out var aggregate);
-            var row = BuildRow(entry, aggregate, aggregateWindow);
+            var row = BuildRow(entry, aggregate, aggregateWindow, canEdit);
             allRows.Add(row);
             effectiveByRuleId[entry.Rule.Id] = entry;
             if (latestEdit is null || entry.Rule.CreatedAt > latestEdit) latestEdit = entry.Rule.CreatedAt;
@@ -437,7 +437,8 @@ public sealed class PolicyStackPresenter
     private PolicyStackRowViewModel BuildRow(
         EffectiveRule entry,
         PolicyDecisionAggregate? aggregate,
-        TimeSpan window)
+        TimeSpan window,
+        bool canEdit)
     {
         var (verdict, color) = RenderAction(entry.Rule.Action);
         var sourcePill = SourcePillFor(entry.SourceScope);
@@ -488,7 +489,11 @@ public sealed class PolicyStackPresenter
             // dedicated "last touched" column without re-threading rows.
             LastEditedAt: entry.Rule.CreatedAt,
             ActionKind: ActionKind(entry.Rule.Action),
-            ScopeKind: ScopeKindToken(entry.SourceScope));
+            ScopeKind: ScopeKindToken(entry.SourceScope),
+            // C6 -- threaded from BuildAsync's canEdit parameter. The row
+            // doesn't decide gating; the call site does, and this flag is
+            // just what RuleRow's pencil affordance checks.
+            CanEdit: canEdit);
     }
 
     private static string SourcePillFor(PolicyScope scope) => scope switch

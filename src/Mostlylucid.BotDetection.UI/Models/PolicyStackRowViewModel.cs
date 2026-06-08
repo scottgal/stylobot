@@ -32,6 +32,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="LastEditedAt">When the rule was last edited; equal to <paramref name="CreatedAt"/> for default rules. Powers the <c>@since:</c> filter + the <see cref="PolicyStackSortKey.LastEdited"/> sort.</param>
 /// <param name="ActionKind">Lowercase canonical action kind (<c>"block"</c>, <c>"challenge"</c>, ...) for the <c>@action:</c> filter.</param>
 /// <param name="ScopeKind">Lowercase canonical source-scope kind (<c>"endpoint"</c>, <c>"subdomain"</c>, <c>"domain"</c>, <c>"wildcard"</c>) for the <c>@scope:</c> filter.</param>
+/// <param name="CanEdit">When <c>true</c>, the row renders the C6 pencil button that swaps the row in for the <c>_EditRow</c> partial. Threaded from the call-site canEdit flag, which itself is gated on the operator's <c>dashboard-write</c> role.</param>
 public sealed record PolicyStackRowViewModel(
     Guid RuleId,
     PolicyScope SourceScope,
@@ -57,7 +58,8 @@ public sealed record PolicyStackRowViewModel(
     bool IsModified,
     DateTimeOffset LastEditedAt,
     string ActionKind,
-    string ScopeKind);
+    string ScopeKind,
+    bool CanEdit = false);
 
 /// <summary>
 ///     One predicate chip on the compact rule row. Either a real term

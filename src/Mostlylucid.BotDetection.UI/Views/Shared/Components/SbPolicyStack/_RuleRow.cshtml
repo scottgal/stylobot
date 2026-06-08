@@ -49,5 +49,22 @@
                 hx-target="#sb-policy-stack-explainer"
                 hx-swap="outerHTML"
                 aria-label="Show rule explainer">ⓘ</button>
+        @* C6 -- pencil-shaped edit button. canEdit on the row VM is the
+           SAME flag the parent PolicyStackPresenter threads in from the
+           call site, which itself is whatever the host wires in (the
+           commercial dashboard plumbs it from the DashboardWrite policy
+           backstop). The button ONLY renders when canEdit is true so a
+           read-only viewer never sees the affordance. *@
+        @if (Model.CanEdit)
+        {
+            <button type="button"
+                    class="sb-policy-stack-row-edit"
+                    data-action="edit"
+                    data-rule-id="@Model.RuleId"
+                    aria-label="Edit rule"
+                    hx-get="/dashboard/policystack/edit?ruleId=@Model.RuleId"
+                    hx-target="closest article"
+                    hx-swap="outerHTML">&#x270e;</button>
+        }
     </div>
 </article>

@@ -1,0 +1,46 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyEditRowViewModel
+@{
+    var kinds = new[] { "allow", "observe", "tag", "challenge", "ratelimit", "block" };
+}
+@*
+    C6 action selector + per-kind metadata. The kind <select> drives which
+    metadata input is visible; policy-stack-edit.js toggles the `hidden`
+    attribute on each [data-edit-action-meta=*] element when the kind
+    changes. Razor seeds the initial visibility so the no-JS render is
+    correct.
+*@
+<fieldset class="sb-edit-action">
+    <legend>THEN</legend>
+    <select name="action_kind" data-edit-action-kind>
+        @foreach (var kind in kinds)
+        {
+            if (kind == Model.ActionKind)
+            {
+                <option value="@kind" selected="selected">@kind</option>
+            }
+            else
+            {
+                <option value="@kind">@kind</option>
+            }
+        }
+    </select>
+    <input type="text"
+           name="challenge_kind"
+           value="@Model.ChallengeKind"
+           placeholder="turnstile"
+           data-edit-action-meta="challenge"
+           hidden="@(Model.ActionKind == "challenge" ? null : "hidden")" />
+    <input type="text"
+           name="tag_name"
+           value="@Model.TagName"
+           placeholder="tag name"
+           data-edit-action-meta="tag"
+           hidden="@(Model.ActionKind == "tag" ? null : "hidden")" />
+    <input type="number"
+           name="requests_per_minute"
+           value="@Model.RequestsPerMinute"
+           placeholder="requests per minute"
+           data-edit-action-meta="ratelimit"
+           hidden="@(Model.ActionKind == "ratelimit" ? null : "hidden")" />
+</fieldset>

@@ -1,0 +1,24 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyEditRowViewModel
+@{
+    var ruleSlug = Model.RuleId?.ToString() ?? "new";
+}
+@*
+    C6 expression pane. Sits alongside the chip pane in _EditRow.cshtml;
+    both are editable at the same time. Typing here triggers a parse +
+    chip re-render (policy-stack-edit.js debounce 80ms). The autocomplete
+    list is hidden by default and filled from /dashboard/signals/search.
+*@
+<div class="sb-edit-expr-pane">
+    <label class="sr-only" for="sb-edit-expr-@ruleSlug">Expression</label>
+    <textarea id="sb-edit-expr-@ruleSlug"
+              name="predicate"
+              data-edit-expression
+              rows="3"
+              placeholder="bot.type in (scraper) and score.bot_probability >= 0.7"
+              spellcheck="false"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off">@Model.PredicateText</textarea>
+    <ul class="sb-edit-autocomplete" data-edit-autocomplete role="listbox" hidden></ul>
+</div>

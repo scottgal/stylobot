@@ -257,6 +257,11 @@ public static class StyloBotDashboardServiceExtensions
         // surface, stateless, peer-singleton with the stack presenter.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyExplainerPresenter>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
+        // C6 expression-editor presenter. Pure read surface; never mutates a
+        // rule. The actual write goes through the commercial mutation API
+        // (/api/v1/policies, C3); this presenter just shapes the existing
+        // rule (or empty defaults) into the edit-row view model.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyEditPresenter>();
 
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
         // packs replace this with a Redis-fanned implementation so an edit on
