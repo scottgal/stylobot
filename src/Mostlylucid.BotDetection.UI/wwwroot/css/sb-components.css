@@ -680,3 +680,18 @@
 .sb-meter-table__pill--gauge          { color: var(--sb-text-muted); border-color: var(--sb-border); }
 .sb-meter-table__pill--histogram      { color: var(--sb-color-risk-elevated); border-color: var(--sb-color-risk-elevated); }
 .sb-meter-table__pill--updowncounter  { color: var(--sb-text-faint); border-color: var(--sb-text-faint); }
+
+/* =============================================
+   Pack-health row (C1 -- dashboard overview front door)
+   ============================================= */
+
+.sb-pack-health-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.sb-pack-health-row__cell {
+    min-width: 0;
+}

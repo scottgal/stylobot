@@ -277,6 +277,20 @@ public static class StyloBotDashboardServiceExtensions
         // RequestServices on each call.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackSummaryBuilder>();
 
+        // Pack Metrics C1 -- dashboard overview pack-health row. The three FOSS
+        // providers ship here; each one wraps an existing summary builder in
+        // process (no HTTP loopback into the gateway's own JSON endpoints). The
+        // commercial overlay registers additional providers via the same
+        // IPackHealthSummaryProvider interface so its packs slot in alongside.
+        // Ordering: Policy (100, leftmost) -- AspNet (200) -- Metrics (300).
+        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
+            Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.PolicyStackHealthSummaryProvider>();
+        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
+            Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHealthSummaryProvider>();
+        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
+            Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthSummaryProvider>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();
+
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
         // packs replace this with a Redis-fanned implementation so an edit on
         // one node reaches every other node's connected browsers. The hosted

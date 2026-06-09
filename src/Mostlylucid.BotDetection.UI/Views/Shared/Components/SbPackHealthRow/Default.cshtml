@@ -1,0 +1,17 @@
+@model Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowViewModel
+@*
+    C1 -- Pack-health row rendered at the top of the dashboard overview body.
+    One SbStatTile cell per registered provider that returned a tile. Empty
+    Tiles list = nothing renders (the existing overview widgets take over).
+*@
+@if (Model.Tiles.Count > 0)
+{
+    <section class="sb-pack-health-row" aria-label="Pack health overview">
+        @foreach (var tile in Model.Tiles)
+        {
+            <div class="sb-pack-health-row__cell">
+                @await Component.InvokeAsync("SbStatTile", new { model = tile })
+            </div>
+        }
+    </section>
+}
