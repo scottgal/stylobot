@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Mostlylucid.BotDetection.UI.Models;
 
 /// <summary>
@@ -12,6 +14,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///         <item><description><see cref="Neutral"/> -> muted text (unknown / not configured)</description></item>
 ///     </list>
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<HealthBand>))]
 public enum HealthBand
 {
     Good,
