@@ -1,0 +1,38 @@
+@model SparklineViewModel
+@{
+    // All numbers go through InvariantCulture so a de-DE host can't slip a comma
+    // into the SVG points attribute (commas separate point pairs there).
+    var inv = System.Globalization.CultureInfo.InvariantCulture;
+    var values = Model.Values;
+    var w = Model.Width;
+    var h = Model.Height;
+}
+@if (values.Count == 0)
+{
+    <svg class="sb-sparkline @Model.ColorClass" viewBox="0 0 @w @h" preserveAspectRatio="none" aria-hidden="true" width="@w" height="@h"></svg>
+}
+else if (values.Count == 1)
+{
+    var midY = (h / 2.0).ToString("0.##", inv);
+    var endX = ((double)w).ToString("0.##", inv);
+    <svg class="sb-sparkline @Model.ColorClass" viewBox="0 0 @w @h" preserveAspectRatio="none" aria-hidden="true" width="@w" height="@h">
+        <polyline points="0,@midY @endX,@midY"
+                  fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+}
+else
+{
+    var min = Model.Min ?? values.Min();
+    var max = Model.Max ?? values.Max();
+    var range = max - min;
+    var points = string.Join(" ", values.Select((v, i) =>
+    {
+        var x = (double)i / (values.Count - 1) * w;
+        var y = range == 0 ? h / 2.0 : h - ((v - min) / range) * h;
+        return $"{x.ToString("0.##", inv)},{y.ToString("0.##", inv)}";
+    }));
+    <svg class="sb-sparkline @Model.ColorClass" viewBox="0 0 @w @h" preserveAspectRatio="none" aria-hidden="true" width="@w" height="@h">
+        <polyline points="@points"
+                  fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+}
