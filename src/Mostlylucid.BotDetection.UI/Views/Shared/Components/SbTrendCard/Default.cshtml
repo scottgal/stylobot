@@ -1,0 +1,75 @@
+@model TrendCardViewModel
+@{
+    // Border colour mirrors SbStatTile + SbHealthDot tokens; Warning aliases
+    // Caution so they share the same yellow accent until we decide to split them.
+    var bandSuffix = Model.HealthBand switch
+    {
+        HealthBand.Good    => "good",
+        HealthBand.Caution => "caution",
+        HealthBand.Warning => "caution",
+        HealthBand.Danger  => "danger",
+        _                  => "neutral"
+    };
+    var cardCls = $"sb-trend-card sb-trend-card--{bandSuffix}";
+}
+<article class="@cardCls" data-trend-card data-health="@Model.HealthBand">
+    <header class="sb-trend-card__head">
+        <div class="sb-trend-card__title-row">
+            @if (Model.HealthBand != HealthBand.Neutral)
+            {
+                @await Component.InvokeAsync("SbHealthDot",
+                    new { model = new HealthDotViewModel(Model.HealthBand, "") })
+            }
+            @if (!string.IsNullOrEmpty(Model.Icon))
+            {
+                <span class="sb-trend-card__icon @Model.Icon" aria-hidden="true"></span>
+            }
+            <h3 class="sb-trend-card__title">@Model.Title</h3>
+        </div>
+        @if (!string.IsNullOrEmpty(Model.Subtitle))
+        {
+            <p class="sb-trend-card__subtitle">@Model.Subtitle</p>
+        }
+    </header>
+
+    <div class="sb-trend-card__headline">
+        <span class="sb-trend-card__value">@Model.Value</span>
+        @if (!string.IsNullOrEmpty(Model.Unit))
+        {
+            <span class="sb-trend-card__unit">@Model.Unit</span>
+        }
+        @if (Model.HeadlineSparkline is not null)
+        {
+            <span class="sb-trend-card__spark-inline">
+                @await Component.InvokeAsync("SbSparkline", new { model = Model.HeadlineSparkline })
+            </span>
+        }
+        @if (!string.IsNullOrEmpty(Model.Delta))
+        {
+            <span class="sb-trend-card__delta">@Model.Delta</span>
+        }
+    </div>
+
+    @if (Model.TrendSparkline is not null)
+    {
+        <div class="sb-trend-card__trend">
+            @await Component.InvokeAsync("SbSparkline", new { model = Model.TrendSparkline })
+            @if (Model.AxisLabels is { Count: > 0 })
+            {
+                <div class="sb-trend-card__axis">
+                    @foreach (var lab in Model.AxisLabels)
+                    {
+                        <span class="sb-trend-card__axis-tick">@lab</span>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(Model.DrillHref))
+    {
+        <footer class="sb-trend-card__footer">
+            <a class="sb-trend-card__drill" href="@Model.DrillHref">@(Model.DrillLabel ?? "Details")</a>
+        </footer>
+    }
+</article>

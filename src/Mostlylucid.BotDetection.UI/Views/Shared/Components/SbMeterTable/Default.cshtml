@@ -1,0 +1,80 @@
+@model MeterTableViewModel
+@{
+    // Row variant mirrors the SbTrendCard / SbStatTile band mapping; Warning
+    // aliases Caution so the single yellow accent stays in lock-step.
+    string BandSuffix(HealthBand b) => b switch
+    {
+        HealthBand.Good    => "good",
+        HealthBand.Caution => "caution",
+        HealthBand.Warning => "caution",
+        HealthBand.Danger  => "danger",
+        _                  => "neutral"
+    };
+}
+<section class="sb-meter-table" data-meter-table>
+    <header class="sb-meter-table__head">
+        <h3 class="sb-meter-table__title">@Model.Title</h3>
+        @if (!string.IsNullOrEmpty(Model.Caption))
+        {
+            <p class="sb-meter-table__caption">@Model.Caption</p>
+        }
+    </header>
+
+    @if (Model.Rows.Count == 0)
+    {
+        <p class="sb-meter-table__empty">@(Model.EmptyMessage ?? "No meters")</p>
+    }
+    else
+    {
+        <table class="sb-meter-table__table">
+            <thead>
+                <tr>
+                    <th scope="col">Meter</th>
+                    <th scope="col">Kind</th>
+                    <th scope="col" class="sb-meter-table__num">Current</th>
+                    <th scope="col">Trend</th>
+                    <th scope="col"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Model.Rows)
+                {
+                    var rowCls = $"sb-meter-table__row sb-meter-table__row--{BandSuffix(row.HealthBand)}";
+                    var pillCls = $"sb-meter-table__pill sb-meter-table__pill--{row.Kind.ToLowerInvariant()}";
+                    <tr class="@rowCls" data-meter-row data-health="@row.HealthBand">
+                        <th scope="row" class="sb-meter-table__name" title="@row.Description">
+                            @if (row.HealthBand != HealthBand.Neutral)
+                            {
+                                @await Component.InvokeAsync("SbHealthDot",
+                                    new { model = new HealthDotViewModel(row.HealthBand, "") })
+                            }
+                            <span class="sb-meter-table__name-text">@row.Name</span>
+                        </th>
+                        <td class="sb-meter-table__kind">
+                            <span class="@pillCls">@row.Kind</span>
+                        </td>
+                        <td class="sb-meter-table__num">
+                            <span class="sb-meter-table__value">@row.Value</span>
+                            @if (!string.IsNullOrEmpty(row.Unit))
+                            {
+                                <span class="sb-meter-table__unit">@row.Unit</span>
+                            }
+                        </td>
+                        <td class="sb-meter-table__spark">
+                            @if (row.Sparkline is not null)
+                            {
+                                @await Component.InvokeAsync("SbSparkline", new { model = row.Sparkline })
+                            }
+                        </td>
+                        <td class="sb-meter-table__action">
+                            @if (!string.IsNullOrEmpty(row.DrillHref))
+                            {
+                                <a class="sb-meter-table__drill" href="@row.DrillHref">View</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>

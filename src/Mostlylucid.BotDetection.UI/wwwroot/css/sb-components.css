@@ -431,3 +431,252 @@
     color: var(--sb-text);
     text-decoration: underline;
 }
+
+/* =============================================
+   SbTrendCard -- medium-sized meter card.
+   Sits between SbStatTile (compact) and a full chart panel.
+   Reuses the same HealthBand left-border accent tokens as SbStatTile
+   + the muted text tokens for subtitle/delta/axis. No new palette.
+   ============================================= */
+.sb-trend-card {
+    font-family: var(--sb-font-family);
+    font-size: var(--sb-font-size);
+    background: var(--sb-surface-alt);
+    color: var(--sb-text);
+    border: 1px solid var(--sb-border);
+    border-radius: 8px;
+    padding: 0.85em 1em;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    min-width: 14rem;
+}
+.sb-trend-card--good     { border-left: 3px solid var(--sb-color-human); }
+.sb-trend-card--caution  { border-left: 3px solid var(--sb-color-risk-elevated); }
+.sb-trend-card--danger   { border-left: 3px solid var(--sb-color-bot); }
+.sb-trend-card--neutral  { border-left: 3px solid var(--sb-border); }
+
+.sb-trend-card__head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15em;
+}
+.sb-trend-card__title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+}
+.sb-trend-card__icon {
+    color: var(--sb-text-muted);
+    font-size: 1em;
+}
+.sb-trend-card__title {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--sb-text);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.sb-trend-card__subtitle {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--sb-text-faint);
+}
+
+.sb-trend-card__headline {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4em;
+    flex-wrap: wrap;
+}
+.sb-trend-card__value {
+    font-size: 1.65rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--sb-text);
+}
+.sb-trend-card__unit {
+    font-size: 0.85rem;
+    color: var(--sb-text-muted);
+}
+.sb-trend-card__spark-inline {
+    display: inline-flex;
+    align-items: center;
+    color: var(--sb-text-muted);
+}
+.sb-trend-card__delta {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--sb-text-muted);
+}
+
+.sb-trend-card__trend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2em;
+    color: var(--sb-text-muted);
+}
+.sb-trend-card__trend .sb-sparkline {
+    width: 100%;
+    height: 28px;
+}
+.sb-trend-card__axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--sb-text-faint);
+}
+.sb-trend-card__axis-tick {
+    line-height: 1;
+}
+
+.sb-trend-card__footer {
+    margin-top: 0.2em;
+    font-size: 0.8rem;
+}
+.sb-trend-card__drill {
+    color: var(--sb-text-muted);
+    text-decoration: none;
+}
+.sb-trend-card__drill:hover {
+    color: var(--sb-text);
+    text-decoration: underline;
+}
+
+/* =============================================
+   SbMeterTable -- tabular meter listing.
+   Borderless, dense; the Current column is monospace + right-aligned
+   so values line up across rows. Row variants use the same HealthBand
+   tokens as SbStatTile / SbTrendCard via a subtle 2px left border.
+   Kind pills reuse existing tokens: Counter=human-ish (accent), Gauge
+   neutral, Histogram=elevated, UpDownCounter=muted. No new palette.
+   ============================================= */
+.sb-meter-table {
+    font-family: var(--sb-font-family);
+    font-size: var(--sb-font-size);
+    color: var(--sb-text);
+    background: var(--sb-surface-alt);
+    border: 1px solid var(--sb-border);
+    border-radius: 8px;
+    padding: 0.75em 1em;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+}
+.sb-meter-table__head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15em;
+}
+.sb-meter-table__title {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--sb-text);
+}
+.sb-meter-table__caption {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--sb-text-faint);
+}
+.sb-meter-table__empty {
+    margin: 0;
+    padding: 0.75em 0;
+    font-size: 0.85rem;
+    color: var(--sb-text-faint);
+    font-style: italic;
+}
+
+.sb-meter-table__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+.sb-meter-table__table thead th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    color: var(--sb-text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.3em 0.5em;
+    border-bottom: 1px solid var(--sb-border);
+}
+.sb-meter-table__table tbody td,
+.sb-meter-table__table tbody th {
+    padding: 0.35em 0.5em;
+    border-bottom: 1px solid var(--sb-border);
+    vertical-align: middle;
+    text-align: left;
+    font-weight: 400;
+}
+.sb-meter-table__table tbody tr:last-child td,
+.sb-meter-table__table tbody tr:last-child th {
+    border-bottom: none;
+}
+
+.sb-meter-table__num {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    text-align: right;
+    white-space: nowrap;
+}
+.sb-meter-table__name {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-weight: 500;
+    color: var(--sb-text);
+}
+.sb-meter-table__name-text {
+    word-break: break-all;
+}
+.sb-meter-table__value {
+    font-weight: 600;
+    color: var(--sb-text);
+}
+.sb-meter-table__unit {
+    color: var(--sb-text-muted);
+    margin-left: 0.2em;
+}
+.sb-meter-table__spark {
+    vertical-align: middle;
+    color: var(--sb-text-muted);
+    width: 80px;
+}
+.sb-meter-table__action {
+    text-align: right;
+    white-space: nowrap;
+}
+.sb-meter-table__drill {
+    color: var(--sb-text-muted);
+    text-decoration: none;
+    font-size: 0.75rem;
+}
+.sb-meter-table__drill:hover {
+    color: var(--sb-text);
+    text-decoration: underline;
+}
+
+.sb-meter-table__row--good > .sb-meter-table__name     { box-shadow: inset 2px 0 0 var(--sb-color-human); }
+.sb-meter-table__row--caution > .sb-meter-table__name  { box-shadow: inset 2px 0 0 var(--sb-color-risk-elevated); }
+.sb-meter-table__row--danger > .sb-meter-table__name   { box-shadow: inset 2px 0 0 var(--sb-color-bot); }
+.sb-meter-table__row--neutral > .sb-meter-table__name  { box-shadow: inset 2px 0 0 transparent; }
+
+.sb-meter-table__pill {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: var(--sb-pill-border-radius);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    background: var(--sb-surface);
+    color: var(--sb-text-muted);
+    border: 1px solid var(--sb-border);
+}
+.sb-meter-table__pill--counter        { color: var(--sb-color-human); border-color: var(--sb-color-human); }
+.sb-meter-table__pill--gauge          { color: var(--sb-text-muted); border-color: var(--sb-border); }
+.sb-meter-table__pill--histogram      { color: var(--sb-color-risk-elevated); border-color: var(--sb-color-risk-elevated); }
+.sb-meter-table__pill--updowncounter  { color: var(--sb-text-faint); border-color: var(--sb-text-faint); }
