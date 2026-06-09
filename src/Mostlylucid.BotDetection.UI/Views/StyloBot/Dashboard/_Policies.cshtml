@@ -3,11 +3,8 @@
 @using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @*
-    B7: /dashboard/policies surface. Decode the scope from the URL (?scope=)
-    so deep-links round-trip; default to Wildcard for the bare URL. The
-    legacy SbPoliciesTab view component rendered a read-only summary of
-    detection + rate-limit options; SbPolicyStack subsumes that surface
-    with breadcrumb + filter + sort + explainer + live updates.
+    /dashboard/policies surface. Decode the scope from the URL (?scope=)
+    so deep-links round-trip; default to Wildcard for the bare URL.
 
     The filter / sort tokens ride the same query string the SbPolicyStack
     rows-url builds, so a refresh of /dashboard/policies?scope=...&policystack-filter=...
