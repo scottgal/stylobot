@@ -355,3 +355,79 @@
 .sb-health-caution  { color: var(--sb-color-risk-elevated); }
 .sb-health-danger   { color: var(--sb-color-bot); }
 .sb-health-neutral  { color: var(--sb-text-muted); }
+
+/* =============================================
+   SbStatTile -- big-number rollup card.
+   Composes SbSparkline + a HealthBand-driven left-border accent
+   that matches the SbHealthDot tokens above. All optional props
+   collapse cleanly; a tile with just a title + value still
+   renders.
+   ============================================= */
+.sb-stat-tile {
+    font-family: var(--sb-font-family);
+    font-size: var(--sb-font-size);
+    background: var(--sb-surface-alt);
+    color: var(--sb-text);
+    border: 1px solid var(--sb-border);
+    border-radius: 8px;
+    padding: 0.75em 1em;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    min-width: 9rem;
+}
+.sb-stat-tile-good     { border-left: 3px solid var(--sb-color-human); }
+.sb-stat-tile-caution  { border-left: 3px solid var(--sb-color-risk-elevated); }
+.sb-stat-tile-danger   { border-left: 3px solid var(--sb-color-bot); }
+.sb-stat-tile-neutral  { border-left: 3px solid var(--sb-border); }
+
+.sb-stat-tile-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--sb-text-faint);
+}
+.sb-stat-tile-title { font-weight: 600; }
+
+.sb-stat-tile-body {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35em;
+}
+.sb-stat-tile-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--sb-text);
+}
+.sb-stat-tile-unit {
+    font-size: 0.85rem;
+    color: var(--sb-text-muted);
+}
+.sb-stat-tile-spark {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+}
+
+.sb-stat-tile-delta {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--sb-text-muted);
+}
+
+.sb-stat-tile-foot {
+    margin-top: 0.25em;
+    font-size: 0.8rem;
+}
+.sb-stat-tile-drill {
+    color: var(--sb-text-muted);
+    text-decoration: none;
+}
+.sb-stat-tile-drill:hover {
+    color: var(--sb-text);
+    text-decoration: underline;
+}

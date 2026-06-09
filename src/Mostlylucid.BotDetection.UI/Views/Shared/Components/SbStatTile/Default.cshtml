@@ -1,0 +1,45 @@
+@model StatTileViewModel
+@{
+    // Border colour mirrors SbHealthDot tokens; Warning aliases Caution so they
+    // share the same yellow accent until we decide to split them.
+    var borderCls = Model.HealthBand switch
+    {
+        HealthBand.Good     => "sb-stat-tile-good",
+        HealthBand.Caution  => "sb-stat-tile-caution",
+        HealthBand.Warning  => "sb-stat-tile-caution",
+        HealthBand.Danger   => "sb-stat-tile-danger",
+        _                   => "sb-stat-tile-neutral"
+    };
+}
+<article class="sb-stat-tile @borderCls" data-stat-tile data-health="@Model.HealthBand">
+    <header class="sb-stat-tile-head">
+        @if (!string.IsNullOrEmpty(Model.Icon))
+        {
+            <span class="@Model.Icon" aria-hidden="true"></span>
+        }
+        <span class="sb-stat-tile-title">@Model.Title</span>
+    </header>
+    <div class="sb-stat-tile-body">
+        <span class="sb-stat-tile-value">@Model.Value</span>
+        @if (!string.IsNullOrEmpty(Model.Unit))
+        {
+            <span class="sb-stat-tile-unit">@Model.Unit</span>
+        }
+        @if (Model.Sparkline is not null)
+        {
+            <span class="sb-stat-tile-spark">
+                @await Component.InvokeAsync("SbSparkline", new { model = Model.Sparkline })
+            </span>
+        }
+    </div>
+    @if (!string.IsNullOrEmpty(Model.Delta))
+    {
+        <p class="sb-stat-tile-delta">@Model.Delta</p>
+    }
+    @if (!string.IsNullOrEmpty(Model.DrillHref))
+    {
+        <footer class="sb-stat-tile-foot">
+            <a href="@Model.DrillHref" class="sb-stat-tile-drill">@(Model.DrillLabel ?? "View →")</a>
+        </footer>
+    }
+</article>
