@@ -1,0 +1,182 @@
+@using Microsoft.Extensions.DependencyInjection
+@using Mostlylucid.BotDetection.PrometheusPack.Telemetry
+@model DashboardShellModel
+@{
+    // /dashboard/insights -- global meter inventory vm (B1).
+    //
+    // Mini-grafana index: one row per published meter, with a small sparkline
+    // column driven by the window selector. Filter strip is a plain
+    // <form method="get"> so SSR-only renders the same surface regardless of
+    // whether HTMX is loaded (per feedback_ssr_signalr_pattern).
+    //
+    // The vm model is built per-request via InsightsPageBuilder; both the
+    // builder and IMeterStream resolve as optional services so a host that
+    // never called AddPrometheusPack (and has no meter source) gets a friendly
+    // "telemetry not configured" stub instead of a DI throw.
+    var basePath = Model.BasePath;
+    var meterStream = Context.RequestServices.GetService<IMeterStream>();
+    var builder = Context.RequestServices.GetService<InsightsPageBuilder>();
+
+    var q = Context.Request.Query;
+    string? Get(string key)
+    {
+        var v = q[key].ToString();
+        return string.IsNullOrWhiteSpace(v) ? null : v;
+    }
+    int? GetInt(string key)
+    {
+        var v = q[key].ToString();
+        return int.TryParse(v, out var n) ? n : null;
+    }
+
+    InsightsPageViewModel? vm = null;
+    if (meterStream is not null && builder is not null)
+    {
+        vm = await builder.BuildAsync(
+            meterStream,
+            kind:       Get("kind"),
+            @namespace: Get("namespace"),
+            query:      Get("q"),
+            sort:       Get("sort"),
+            window:     Get("window"),
+            buckets:    GetInt("buckets"),
+            ct:         Context.RequestAborted);
+    }
+
+    string FacetHref(string param, string? value, bool selected)
+    {
+        var pairs = q.Where(p => !string.Equals(p.Key, param, StringComparison.OrdinalIgnoreCase))
+                     .Select(p => $"{Uri.EscapeDataString(p.Key)}={Uri.EscapeDataString(p.Value.ToString())}")
+                     .ToList();
+        // A "selected" chip clears the filter on click; an unselected chip sets it.
+        if (!selected && !string.IsNullOrEmpty(value))
+            pairs.Add($"{Uri.EscapeDataString(param)}={Uri.EscapeDataString(value)}");
+        var qs = pairs.Count == 0 ? "" : "?" + string.Join('&', pairs);
+        return $"{basePath}/insights{qs}";
+    }
+}
+
+<section class="sb-insights" data-insights-vm>
+    <header class="sb-insights__head" style="display:flex; flex-direction:column; gap:0.25rem; margin-bottom:0.75rem;">
+        <h2 class="sb-insights__title" style="font-size:1.25rem; font-weight:600;">Insights</h2>
+        <p class="sb-insights__subtitle" style="font-size:0.8125rem; color: var(--sb-brand-muted);">
+            Every meter the gateway is currently publishing.
+        </p>
+    </header>
+
+    @if (vm is null)
+    {
+        <div class="sb-insights__unavailable rounded-xl border p-6 text-sm text-base-content/60"
+             style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            Telemetry source is not configured on this host. Add
+            <code>AddPrometheusPack(...)</code> to enable the meter inventory.
+        </div>
+    }
+    else
+    {
+        var f = vm.Filters;
+        <form method="get" action="@basePath/insights"
+              class="sb-insights__filters"
+              style="display:flex; flex-wrap:wrap; gap:0.75rem 1.25rem; align-items:flex-end; padding:0.75rem 1rem; border:1px solid var(--sb-card-border); border-radius:0.75rem; background: var(--sb-card-bg); margin-bottom:1rem;">
+
+            <label class="sb-insights__field" style="display:flex; flex-direction:column; gap:0.25rem; flex:1 1 220px; min-width:200px;">
+                <span class="sb-insights__field-label" style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color: var(--sb-brand-muted);">Search</span>
+                <input type="text"
+                       name="q"
+                       value="@(f.Query ?? "")"
+                       placeholder="Filter by name substring..."
+                       class="input input-sm input-bordered w-full"
+                       autocomplete="off"
+                       data-insights-q />
+            </label>
+
+            <div class="sb-insights__field" style="display:flex; flex-direction:column; gap:0.25rem;">
+                <span class="sb-insights__field-label" style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color: var(--sb-brand-muted);">Kind</span>
+                <div class="sb-insights__chips" style="display:flex; flex-wrap:wrap; gap:0.25rem;" data-insights-kinds>
+                    @foreach (var facet in vm.KindFacets)
+                    {
+                        var href = FacetHref("kind", facet.Value, facet.Selected);
+                        var cls = facet.Selected
+                            ? "badge badge-sm badge-primary"
+                            : "badge badge-sm badge-ghost";
+                        <a href="@href" class="@cls" data-insights-chip="kind" data-value="@facet.Value">
+                            @facet.Label
+                            <span style="opacity:0.6; margin-left:0.25rem;">@facet.Count</span>
+                        </a>
+                    }
+                </div>
+            </div>
+
+            @if (vm.NamespaceFacets.Count > 0)
+            {
+                <div class="sb-insights__field" style="display:flex; flex-direction:column; gap:0.25rem;">
+                    <span class="sb-insights__field-label" style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color: var(--sb-brand-muted);">Namespace</span>
+                    <div class="sb-insights__chips" style="display:flex; flex-wrap:wrap; gap:0.25rem;" data-insights-namespaces>
+                        @foreach (var facet in vm.NamespaceFacets)
+                        {
+                            var href = FacetHref("namespace", facet.Value, facet.Selected);
+                            var cls = facet.Selected
+                                ? "badge badge-sm badge-primary"
+                                : "badge badge-sm badge-ghost";
+                            <a href="@href" class="@cls" data-insights-chip="namespace" data-value="@facet.Value">
+                                @facet.Label
+                                <span style="opacity:0.6; margin-left:0.25rem;">@facet.Count</span>
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div class="sb-insights__field" style="display:flex; flex-direction:column; gap:0.25rem;">
+                <span class="sb-insights__field-label" style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color: var(--sb-brand-muted);">Window</span>
+                <div class="join">
+                    @foreach (var win in new[] { "5m", "15m", "1h" })
+                    {
+                        var winSelected = string.Equals(win, f.Window, StringComparison.OrdinalIgnoreCase);
+                        var btnCls = winSelected ? "join-item btn btn-xs btn-primary" : "join-item btn btn-xs";
+                        <button type="submit"
+                                name="window"
+                                value="@win"
+                                class="@btnCls"
+                                data-insights-window="@win">@win</button>
+                    }
+                </div>
+            </div>
+
+            <label class="sb-insights__field" style="display:flex; flex-direction:column; gap:0.25rem;">
+                <span class="sb-insights__field-label" style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color: var(--sb-brand-muted);">Sort</span>
+                <select name="sort" class="select select-sm select-bordered" onchange="this.form.submit()" data-insights-sort>
+                    <option value="name"         selected="@(f.Sort == "name")">Name</option>
+                    <option value="kind"         selected="@(f.Sort == "kind")">Kind</option>
+                    <option value="current_desc" selected="@(f.Sort == "current_desc")">Current (high to low)</option>
+                    <option value="current_asc"  selected="@(f.Sort == "current_asc")">Current (low to high)</option>
+                </select>
+            </label>
+
+            @* Persist non-active fields across submissions so a window-button submit
+               doesn't blow away the user's namespace / kind selection. The chip
+               anchors above already round-trip via their own hrefs; the form keeps
+               the typed query, the sort dropdown choice, and the buckets value. *@
+            @if (!string.IsNullOrEmpty(f.Kind))
+            {
+                <input type="hidden" name="kind" value="@f.Kind" />
+            }
+            @if (!string.IsNullOrEmpty(f.Namespace))
+            {
+                <input type="hidden" name="namespace" value="@f.Namespace" />
+            }
+            <input type="hidden" name="buckets" value="@f.Buckets" />
+
+            <div class="sb-insights__actions" style="display:flex; gap:0.5rem;">
+                <button type="submit" class="btn btn-sm btn-primary" data-insights-apply>Apply</button>
+                <a href="@basePath/insights" class="btn btn-sm btn-ghost">Reset</a>
+            </div>
+        </form>
+
+        @await Component.InvokeAsync("SbMeterTable", new { model = vm.Table })
+
+        <footer class="sb-insights__foot" style="margin-top:0.75rem; font-size:0.75rem; color: var(--sb-brand-muted);">
+            @vm.FilteredMeterCount of @vm.TotalMeterCount meters
+        </footer>
+    }
+</section>

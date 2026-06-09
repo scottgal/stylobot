@@ -263,6 +263,12 @@ public static class StyloBotDashboardServiceExtensions
         // rule (or empty defaults) into the edit-row view model.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyEditPresenter>();
 
+        // Pack Metrics B1 -- /dashboard/insights page composer. Pure read; goes
+        // through IMeterStream only (no DB). Stateless, peer-singleton with the
+        // other dashboard presenters above. The IMeterStream binding itself is
+        // owned by PrometheusPack (AddPrometheusPack registers Local or Remote).
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.InsightsPageBuilder>();
+
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
         // packs replace this with a Redis-fanned implementation so an edit on
         // one node reaches every other node's connected browsers. The hosted

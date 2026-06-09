@@ -30,6 +30,11 @@ public static class FossDashboardGroups
         new DashboardGroup("system", "System",
         [
             new DashboardRow("configuration", "Configuration", "~/Views/StyloBot/Dashboard/_ConfigurationEditor.cshtml"),
+            // B1: global meter inventory (mini-grafana index). Lives in System
+            // because it's an observability surface, not a Live/Investigation
+            // pivot. Sub-rows under /dashboard/insights/{meter-name} are
+            // reserved for B2+; the row dispatches the top-level page only.
+            new DashboardRow("insights",      "Insights",      "~/Views/StyloBot/Dashboard/_Insights.cshtml"),
             new DashboardRow("compliance",    "Compliance",    "~/Views/StyloBot/Dashboard/_ComplianceTab.cshtml",    IsCommercialOnly: true),
             new DashboardRow("investigate",   "Investigate",   "~/Views/StyloBot/Dashboard/_Investigate.cshtml",      IsCommercialOnly: true),
         ]),

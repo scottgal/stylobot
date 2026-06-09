@@ -26,6 +26,11 @@
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.OpenApi\Mostlylucid.BotDetection.OpenApi.csproj" />
+        <!-- IMeterStream + MeterCatalogEntry + MeterTimeSeries: source data for the
+             /dashboard/insights global page (B1) and per-pack hub pages (B2-B5). The
+             dashboard UI consumes the read surface only; PrometheusPack owns the data
+             plane (Local + Remote stream implementations) and never references UI back. -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.PrometheusPack\Mostlylucid.BotDetection.PrometheusPack.csproj" />
     </ItemGroup>
 
     <ItemGroup>
