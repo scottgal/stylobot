@@ -484,6 +484,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Telemetry.BotDetectionSignalMeter>();
         services.TryAddSingleton<Telemetry.BotDetectionInstrumentation>();
 
+        // Meter-signals extension point. Phase E ships the null sink; Phase F
+        // replaces it with a blackboard adapter via DI override.
+        services.TryAddSingleton<Telemetry.IMeterSignalSink, Telemetry.NullMeterSignalSink>();
+
         // Register setup services (bot list, ONNX model, setup resources, SetupService)
         services.AddBotDetectionSetupServices();
 
@@ -1442,6 +1446,10 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<BotDetectionSignalMeter>();
         services.TryAddSingleton<BotDetectionInstrumentation>();
+
+        // Meter-signals extension point. Phase E ships the null sink; Phase F
+        // replaces it with a blackboard adapter via DI override.
+        services.TryAddSingleton<IMeterSignalSink, NullMeterSignalSink>();
 
         return services;
     }
