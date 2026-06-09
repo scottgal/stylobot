@@ -407,6 +407,16 @@ public class StyloBotDashboardMiddleware
                 await ServeAspNetPackSummaryAsync(context);
                 break;
 
+            // Pack Metrics B8 -- rollup summary for the policy-stack pack.
+            // Mirrors the AspNet summary contract: per-mode rule counts +
+            // 15-minute decision count + a HealthBand the C1 dashboard
+            // overview row consumes to render a "Policy stack" SbStatTile.
+            // Anonymous-readable: counts only, no PII. 404 when no rule store
+            // is registered (viewer hosts that pull data via REST).
+            case "api/v1/packs/policystack/summary":
+                await ServePolicyStackSummaryAsync(context);
+                break;
+
             // --- HTMX partial endpoints (server-rendered HTML islands) ---
             case "partials/visitors":
                 await ServeVisitorListPartialAsync(context);
@@ -2658,6 +2668,51 @@ public class StyloBotDashboardMiddleware
         }
 
         var summary = await builder.BuildSummaryAsync(context.RequestAborted);
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, summary, CamelCaseJson);
+    }
+
+    /// <summary>
+    ///     Pack Metrics B8 -- <c>GET /api/v1/packs/policystack/summary</c>.
+    ///     Returns per-mode rule counts + a 15-minute decision count + the
+    ///     overall HealthBand for the policy stack. The C1 dashboard overview
+    ///     row consumes this as the source of truth for the "Policy stack"
+    ///     SbStatTile next to the AspNet one.
+    ///     <para>
+    ///         The builder degrades per <c>feedback_remote_mode_optional_di</c>:
+    ///         a null <see cref="Mostlylucid.BotDetection.Policies.Rules.IPolicyRuleStore"/>
+    ///         returns 404 ("not enabled on this host") so the dashboard can
+    ///         hard-hide the row instead of fabricating zeros; a null
+    ///         <see cref="Mostlylucid.BotDetection.Policies.Decisions.IPolicyDecisionLog"/>
+    ///         keeps the row visible but emits <c>decisionsLast15m: null</c>.
+    ///     </para>
+    /// </summary>
+    private async Task ServePolicyStackSummaryAsync(HttpContext context)
+    {
+        var builder = context.RequestServices
+            .GetService(typeof(UI.Services.PolicyStackSummaryBuilder)) as UI.Services.PolicyStackSummaryBuilder;
+        if (builder is null)
+        {
+            // Builder itself is missing: viewer host that never registered the
+            // dashboard service extensions at all. Treat the same as a missing
+            // rule store -- not enabled here.
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(
+                "{\"error\":\"Policy stack not enabled in this host\"}");
+            return;
+        }
+
+        var summary = await builder.BuildAsync(context.RequestAborted);
+        if (summary is null)
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(
+                "{\"error\":\"Policy stack not enabled in this host\"}");
+            return;
+        }
+
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, summary, CamelCaseJson);
     }

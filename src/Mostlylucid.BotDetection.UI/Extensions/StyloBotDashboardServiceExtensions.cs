@@ -269,6 +269,14 @@ public static class StyloBotDashboardServiceExtensions
         // owned by PrometheusPack (AddPrometheusPack registers Local or Remote).
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.InsightsPageBuilder>();
 
+        // Pack Metrics B8 -- policy-stack summary endpoint composer. Pure read;
+        // both dependencies (IPolicyRuleStore, IPolicyDecisionLog) are optional
+        // per feedback_remote_mode_optional_di: rule store null -> endpoint 404,
+        // decision log null -> DecisionsLast15m omitted. Stateless singleton
+        // peer of the other presenters; the middleware route resolves it via
+        // RequestServices on each call.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackSummaryBuilder>();
+
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
         // packs replace this with a Redis-fanned implementation so an edit on
         // one node reaches every other node's connected browsers. The hosted
