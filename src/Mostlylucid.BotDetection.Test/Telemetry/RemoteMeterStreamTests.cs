@@ -270,6 +270,13 @@ persist 200
         RemoteMeterStreamOptions opts,
         HttpMessageHandler handler)
     {
+        // Force the background PeriodicTimer to a cadence far longer than any
+        // test will ever live for. Combined with the removal of the boot poll
+        // inside StartAsync, every poll in these tests is driven explicitly by
+        // PumpPollForTesting -- no race with timer-driven scrapes.
+        opts.PollInterval = TimeSpan.FromHours(1);
+        opts.PollTimeout = TimeSpan.FromSeconds(4);
+
         var stream = new RemoteMeterStream(
             Options.Create(opts),
             NullLogger<RemoteMeterStream>.Instance,

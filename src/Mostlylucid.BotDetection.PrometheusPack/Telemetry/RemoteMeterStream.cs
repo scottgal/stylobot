@@ -221,18 +221,12 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
         var interval = _options.PollInterval;
         if (interval <= TimeSpan.Zero) interval = TimeSpan.FromSeconds(5);
 
-        // Initial scrape on a fast path so the dashboard isn't empty until the
-        // first interval elapses.
-        try
-        {
-            await PollOnceAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) { return; }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "RemoteMeterStream initial poll failed");
-        }
-
+        // No fire-and-forget initial scrape here: callers that wired the stream
+        // up via DI race with anything that mutates the canned response between
+        // StartAsync returning and the test driver invoking PumpPollForTesting.
+        // The PeriodicTimer below picks up the first real poll within PollInterval
+        // of StartAsync, which is fine for a dashboard data plane; tests drive
+        // every poll deterministically through PumpPollForTesting.
         using var timer = new PeriodicTimer(interval);
         while (!ct.IsCancellationRequested)
         {
