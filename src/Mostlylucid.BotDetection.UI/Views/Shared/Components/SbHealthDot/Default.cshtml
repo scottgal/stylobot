@@ -1,0 +1,20 @@
+@model HealthDotViewModel
+@{
+    // Warning is rendered identically to Caution today; keeping them as separate
+    // switch arms costs nothing and means a future divergence is a single-line CSS
+    // change rather than an enum/migration churn.
+    var cls = Model.Band switch
+    {
+        HealthBand.Good     => "sb-health-dot sb-health-good",
+        HealthBand.Caution  => "sb-health-dot sb-health-caution",
+        HealthBand.Warning  => "sb-health-dot sb-health-caution",
+        HealthBand.Danger   => "sb-health-dot sb-health-danger",
+        HealthBand.Neutral  => "sb-health-dot sb-health-neutral",
+        _                   => "sb-health-dot sb-health-neutral"
+    };
+
+    // Screen readers ignore role=img content; aria-label must carry the meaning.
+    // Fall back to the band name so an unlabeled dot still announces its state.
+    var aria = string.IsNullOrEmpty(Model.Tooltip) ? Model.Band.ToString() : Model.Tooltip;
+}
+<span class="@cls" role="img" title="@Model.Tooltip" aria-label="@aria">&#9679;</span>

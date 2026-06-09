@@ -333,3 +333,25 @@
 }
 [data-theme="dark"] .text-base-content\/40 { color: oklch(var(--bc) / 60%); }
 [data-theme="dark"] .text-base-content\/50 { color: oklch(var(--bc) / 68%); }
+
+/* =============================================
+   SbHealthDot -- single-glance status indicator.
+   Drives both the standalone dot (pack-hub headers) and the
+   left-border accent on SbStatTile through the colour tokens
+   below. Caution + Warning share a token deliberately; if they
+   ever need to diverge it is a single rule edit, not an enum
+   churn.
+   Tokens reuse the existing --sb-color-human / --sb-color-bot
+   palette so dot semantics stay in lock-step with the badge
+   semantics used throughout the dashboard.
+   ============================================= */
+.sb-health-dot {
+    display: inline-block;
+    line-height: 1;
+    font-size: 0.7em;
+    vertical-align: middle;
+}
+.sb-health-good     { color: var(--sb-color-human); }
+.sb-health-caution  { color: var(--sb-color-risk-elevated); }
+.sb-health-danger   { color: var(--sb-color-bot); }
+.sb-health-neutral  { color: var(--sb-text-muted); }
