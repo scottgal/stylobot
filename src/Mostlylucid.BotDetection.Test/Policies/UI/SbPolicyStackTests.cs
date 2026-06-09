@@ -197,7 +197,10 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     [Fact]
     public async Task Presenter_empty_scope_returns_no_rows_and_no_throws()
     {
-        var presenter = await BuildPresenterAsync();
+        // Empty rule store: the wildcard baseline seeds (allow-human +
+        // block-confirmed-bot) embedded in Mostlylucid.BotDetection.dll would
+        // otherwise inherit into any endpoint scope and break "no rows" here.
+        var presenter = await BuildPresenterAsync(new EmptyPolicyRuleStore());
         var emptyScope = new PolicyScope.Endpoint("unknown.example", "api.unknown.example", "GET /none");
 
         var vm = await presenter.BuildAsync(
@@ -439,7 +442,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     public async Task Filter_at_no_hits_drops_rules_with_triggers()
     {
         // Endpoint rule has 18 triggers after prewarm; @no-hits MUST drop it.
-        var client = await BuildClientAsync(prewarmEndpointHits: true);
+        // The wildcard baseline seeds (allow-human + block-confirmed-bot) are
+        // suppressed for this assertion -- the block-confirmed-bot rule is a
+        // Block (verdict-error) with zero hits and would survive @no-hits,
+        // defeating the "no verdict-error" check.
+        var client = await BuildClientAsync(prewarmEndpointHits: true,
+            ruleStoreOverride: new LegacySeedOnlyPolicyRuleStore());
         var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
             filterExpression: "@no-hits");
 
@@ -453,7 +461,11 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     {
         // No effective rules have wildcard source scope -- @scope:wildcard
         // must produce the dedicated empty-filter message, not the generic one.
-        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        // The wildcard baseline seeds are suppressed so @scope:wildcard has
+        // nothing to match against (the legacy three-rule corpus has no
+        // wildcard-scope rules of its own).
+        var client = await BuildClientAsync(prewarmEndpointHits: false,
+            ruleStoreOverride: new LegacySeedOnlyPolicyRuleStore());
         var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
             filterExpression: "@scope:wildcard");
         Assert.Contains("No rules match the current filter", html);
@@ -1029,7 +1041,10 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
 
     // -------- Render helpers --------
 
-    private async Task<HttpClient> BuildClientAsync(bool prewarmEndpointHits)
+    private Task<HttpClient> BuildClientAsync(bool prewarmEndpointHits)
+        => BuildClientAsync(prewarmEndpointHits, ruleStoreOverride: null);
+
+    private async Task<HttpClient> BuildClientAsync(bool prewarmEndpointHits, IPolicyRuleStore? ruleStoreOverride)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -1056,6 +1071,14 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         });
         builder.Services.AddSingleton<IPolicyRuleStore>(_ =>
         {
+            if (ruleStoreOverride is not null)
+            {
+                // Test-supplied stores still need their initial load before
+                // the resolver pulls rules; the override path mirrors the
+                // production behaviour (boot-time InitializeAsync).
+                ruleStoreOverride.InitializeAsync().GetAwaiter().GetResult();
+                return ruleStoreOverride;
+            }
             var asm = typeof(PolicyRule).Assembly;
             var store = YamlPolicyRuleStore.FromEmbeddedResources(asm, SeedPrefix);
             store.InitializeAsync().GetAwaiter().GetResult();
@@ -1190,6 +1213,18 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         return new DefaultPolicyResolver(store);
     }
 
+    /// <summary>
+    ///     Build a resolver around the supplied store. Used by the three
+    ///     "empty store" tests so the wildcard baseline seed rules embedded
+    ///     in <c>Mostlylucid.BotDetection.dll</c> don't leak in and flip
+    ///     "no rules" assertions.
+    /// </summary>
+    private static async Task<DefaultPolicyResolver> BuildResolverAsync(IPolicyRuleStore store)
+    {
+        await store.InitializeAsync();
+        return new DefaultPolicyResolver(store);
+    }
+
     private static async Task<ISignalCatalog> BuildSignalCatalogAsync()
     {
         var asm = typeof(Mostlylucid.BotDetection.Models.SignalKeys).Assembly;
@@ -1203,6 +1238,19 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         var resolver = await BuildResolverAsync();
         var catalog = await BuildSignalCatalogAsync();
         // No-op cache stub for cheap presenter-only tests.
+        var cache = new EmptyEffectivenessCache();
+        return new PolicyStackPresenter(resolver, cache, catalog, new PolicyConflictAnalyzer());
+    }
+
+    /// <summary>
+    ///     Presenter sitting on top of the supplied rule store. The empty-scope
+    ///     test uses this with <see cref="EmptyPolicyRuleStore"/> so the wildcard
+    ///     baseline seeds don't bleed into "no rows" assertions.
+    /// </summary>
+    private static async Task<PolicyStackPresenter> BuildPresenterAsync(IPolicyRuleStore store)
+    {
+        var resolver = await BuildResolverAsync(store);
+        var catalog = await BuildSignalCatalogAsync();
         var cache = new EmptyEffectivenessCache();
         return new PolicyStackPresenter(resolver, cache, catalog, new PolicyConflictAnalyzer());
     }
@@ -1221,6 +1269,89 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     }
 
     // -------- Test doubles --------
+
+    /// <summary>
+    ///     Read-path-only <see cref="IPolicyRuleStore"/> that owns zero rules.
+    ///     Used by the three tests that need a truly empty corpus -- the
+    ///     wildcard baseline seeds embedded in Mostlylucid.BotDetection.dll
+    ///     would otherwise leak in through <c>YamlPolicyRuleStore.FromEmbeddedResources</c>.
+    /// </summary>
+    private sealed class EmptyPolicyRuleStore : IPolicyRuleStore
+    {
+        private static readonly IReadOnlyList<PolicyRule> Empty = Array.Empty<PolicyRule>();
+
+        public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
+            => Task.FromResult(Empty);
+
+        public Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(IReadOnlyList<PolicyScope> scopePath, CancellationToken ct = default)
+            => Task.FromResult(Empty);
+
+        public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
+            => Task.FromResult<PolicyRule?>(null);
+
+        // No reloads ever fire from this store; the event is required by the
+        // interface but never raised in tests.
+#pragma warning disable CS0067
+        public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
+#pragma warning restore CS0067
+    }
+
+    /// <summary>
+    ///     Delegating <see cref="IPolicyRuleStore"/> that hides the wildcard
+    ///     baseline seed rules (allow-human + block-confirmed-bot) added in
+    ///     <c>54b41133</c>. Two of the existing render tests were written
+    ///     against the legacy three-rule corpus (domain Allow + subdomain
+    ///     Challenge + endpoint Block); filtering the wildcard seeds out
+    ///     keeps that contract without modifying production behaviour.
+    /// </summary>
+    private sealed class LegacySeedOnlyPolicyRuleStore : IPolicyRuleStore
+    {
+        private const string WildcardSeedTag = "wildcard-default-";
+        private readonly YamlPolicyRuleStore _inner;
+
+        public LegacySeedOnlyPolicyRuleStore()
+        {
+            _inner = YamlPolicyRuleStore.FromEmbeddedResources(typeof(PolicyRule).Assembly, SeedPrefix);
+            _inner.Changed += (_, e) => Changed?.Invoke(this, e);
+        }
+
+        public Task InitializeAsync(CancellationToken ct = default) => _inner.InitializeAsync(ct);
+
+        public async Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
+            => Filter(await _inner.GetRulesAtAsync(scope, ct));
+
+        public async Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(IReadOnlyList<PolicyScope> scopePath, CancellationToken ct = default)
+            => Filter(await _inner.GetEffectiveRulesAsync(scopePath, ct));
+
+        public async Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        {
+            var rule = await _inner.GetByIdAsync(id, ct);
+            return rule is not null && IsWildcardSeed(rule) ? null : rule;
+        }
+
+        public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
+
+        private static IReadOnlyList<PolicyRule> Filter(IReadOnlyList<PolicyRule> rules)
+        {
+            // Common case: nothing to drop.
+            var hasSeed = false;
+            for (var i = 0; i < rules.Count; i++)
+            {
+                if (IsWildcardSeed(rules[i])) { hasSeed = true; break; }
+            }
+            if (!hasSeed) return rules;
+
+            var filtered = new List<PolicyRule>(rules.Count);
+            foreach (var rule in rules)
+                if (!IsWildcardSeed(rule)) filtered.Add(rule);
+            return filtered;
+        }
+
+        private static bool IsWildcardSeed(PolicyRule rule)
+            => rule.Source.Contains(WildcardSeedTag, StringComparison.Ordinal);
+    }
 
     /// <summary>Always returns empty aggregates -- presenter renders rows with 0 hits.</summary>
     private sealed class EmptyEffectivenessCache : IPolicyEffectivenessCache
