@@ -1,0 +1,13 @@
+# Wildcard baseline: mirror the FOSS DetectionPolicy default --
+# block traffic that the foundation wave's score has flagged as
+# high-confidence bot. Ships in OBSERVE mode so operators see the
+# rule firing without enforcement until they explicitly promote it.
+id: 00000000-0000-0000-0000-000000000002
+scope:
+  kind: wildcard
+priority: 500
+predicate: "score.bot_probability >= 0.9"
+action:
+  kind: block
+mode: observe
+notes: "Default: high-confidence bot threshold (FOSS detection-policy baseline). Ships in OBSERVE mode -- promote to LIVE when ready."

@@ -1,0 +1,14 @@
+# Wildcard baseline: every site's defending posture starts with
+# "allow human traffic" as the floor. Lowest priority (highest number)
+# so every more-specific rule wins. Without this rule the policy stack
+# rendered "0 rules effective here" on a fresh install -- new operators
+# expect the default detection policy itself to appear as a rule.
+id: 00000000-0000-0000-0000-000000000001
+scope:
+  kind: wildcard
+priority: 1000
+predicate: "is_human = true"
+action:
+  kind: allow
+mode: live
+notes: "Default: allow human traffic. This is the floor every site starts with."
