@@ -18,6 +18,7 @@ using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Signals;
 using Mostlylucid.BotDetection.Policies.Telemetry;
+using Mostlylucid.BotDetection.Test.Policies.Support;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.ViewComponents;
@@ -1269,89 +1270,9 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     }
 
     // -------- Test doubles --------
-
-    /// <summary>
-    ///     Read-path-only <see cref="IPolicyRuleStore"/> that owns zero rules.
-    ///     Used by the three tests that need a truly empty corpus -- the
-    ///     wildcard baseline seeds embedded in Mostlylucid.BotDetection.dll
-    ///     would otherwise leak in through <c>YamlPolicyRuleStore.FromEmbeddedResources</c>.
-    /// </summary>
-    private sealed class EmptyPolicyRuleStore : IPolicyRuleStore
-    {
-        private static readonly IReadOnlyList<PolicyRule> Empty = Array.Empty<PolicyRule>();
-
-        public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-        public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
-            => Task.FromResult(Empty);
-
-        public Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(IReadOnlyList<PolicyScope> scopePath, CancellationToken ct = default)
-            => Task.FromResult(Empty);
-
-        public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
-            => Task.FromResult<PolicyRule?>(null);
-
-        // No reloads ever fire from this store; the event is required by the
-        // interface but never raised in tests.
-#pragma warning disable CS0067
-        public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
-#pragma warning restore CS0067
-    }
-
-    /// <summary>
-    ///     Delegating <see cref="IPolicyRuleStore"/> that hides the wildcard
-    ///     baseline seed rules (allow-human + block-confirmed-bot) added in
-    ///     <c>54b41133</c>. Two of the existing render tests were written
-    ///     against the legacy three-rule corpus (domain Allow + subdomain
-    ///     Challenge + endpoint Block); filtering the wildcard seeds out
-    ///     keeps that contract without modifying production behaviour.
-    /// </summary>
-    private sealed class LegacySeedOnlyPolicyRuleStore : IPolicyRuleStore
-    {
-        private const string WildcardSeedTag = "wildcard-default-";
-        private readonly YamlPolicyRuleStore _inner;
-
-        public LegacySeedOnlyPolicyRuleStore()
-        {
-            _inner = YamlPolicyRuleStore.FromEmbeddedResources(typeof(PolicyRule).Assembly, SeedPrefix);
-            _inner.Changed += (_, e) => Changed?.Invoke(this, e);
-        }
-
-        public Task InitializeAsync(CancellationToken ct = default) => _inner.InitializeAsync(ct);
-
-        public async Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
-            => Filter(await _inner.GetRulesAtAsync(scope, ct));
-
-        public async Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(IReadOnlyList<PolicyScope> scopePath, CancellationToken ct = default)
-            => Filter(await _inner.GetEffectiveRulesAsync(scopePath, ct));
-
-        public async Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
-        {
-            var rule = await _inner.GetByIdAsync(id, ct);
-            return rule is not null && IsWildcardSeed(rule) ? null : rule;
-        }
-
-        public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
-
-        private static IReadOnlyList<PolicyRule> Filter(IReadOnlyList<PolicyRule> rules)
-        {
-            // Common case: nothing to drop.
-            var hasSeed = false;
-            for (var i = 0; i < rules.Count; i++)
-            {
-                if (IsWildcardSeed(rules[i])) { hasSeed = true; break; }
-            }
-            if (!hasSeed) return rules;
-
-            var filtered = new List<PolicyRule>(rules.Count);
-            foreach (var rule in rules)
-                if (!IsWildcardSeed(rule)) filtered.Add(rule);
-            return filtered;
-        }
-
-        private static bool IsWildcardSeed(PolicyRule rule)
-            => rule.Source.Contains(WildcardSeedTag, StringComparison.Ordinal);
-    }
+    // EmptyPolicyRuleStore + LegacySeedOnlyPolicyRuleStore live in
+    // Mostlylucid.BotDetection.Test.Policies.Support so other test classes
+    // (PolicyResolverTests etc.) can share the same seed-leak primitives.
 
     /// <summary>Always returns empty aggregates -- presenter renders rows with 0 hits.</summary>
     private sealed class EmptyEffectivenessCache : IPolicyEffectivenessCache

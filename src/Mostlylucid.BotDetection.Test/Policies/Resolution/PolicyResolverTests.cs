@@ -1,21 +1,27 @@
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.Test.Policies.Support;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Resolution;
 
 public class PolicyResolverTests
 {
-    private const string SeedPrefix = "Mostlylucid.BotDetection.Policies.Rules.SeedRules.";
     private const string DomainAcme = "acme.com";
     private const string SubDocs = "docs.acme.com";
     private const string EpUpload = "GET /api/upload";
 
+    // These tests were written against the legacy three-rule seed corpus
+    // (domain Allow + subdomain Challenge + endpoint Block on acme.com).
+    // Commit 54b41133 added two wildcard baseline YAMLs that ship as
+    // embedded resources in Mostlylucid.BotDetection.dll; they leak into
+    // every scope path and broke the exact-count asserts here. Filter
+    // them out with the same LegacySeedOnlyPolicyRuleStore double the
+    // SbPolicyStackTests render tests use -- production behaviour is
+    // unchanged, the seeds stay on disk.
     private static async Task<DefaultPolicyResolver> BuildResolverAsync()
     {
-        var store = YamlPolicyRuleStore.FromEmbeddedResources(
-            typeof(PolicyRule).Assembly,
-            SeedPrefix);
+        var store = new LegacySeedOnlyPolicyRuleStore();
         await store.InitializeAsync();
         return new DefaultPolicyResolver(store);
     }
