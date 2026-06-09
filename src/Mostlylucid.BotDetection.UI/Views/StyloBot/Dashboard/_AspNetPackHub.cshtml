@@ -1,0 +1,76 @@
+@using Microsoft.Extensions.DependencyInjection
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@model DashboardShellModel
+@{
+    // /dashboard/aspnet-hub -- B2 of the Pack Metrics + Cohesive Views plan.
+    //
+    // Per-pack hub page for the FOSS AspNetPack: header card + four stat tiles
+    // + an ingest trend card + the full meter table for every
+    // aspnet-namespaced meter the gateway is publishing.
+    //
+    // The builder is resolved as an OPTIONAL service so a host that hasn't
+    // called AddAspNetPackReadOnly (no AspNetPack loaded) gets a friendly
+    // "pack not configured" message instead of a DI throw. Same defensive
+    // pattern the B1 _Insights.cshtml uses for IMeterStream + InsightsPageBuilder.
+    var basePath = Model.BasePath;
+    var builder = Context.RequestServices.GetService<IAspNetPackHubBuilder>();
+
+    AspNetPackHubViewModel? vm = null;
+    if (builder is not null)
+    {
+        vm = await builder.BuildAsync(Context.RequestAborted);
+    }
+}
+
+<section class="sb-aspnet-hub" data-aspnet-hub-vm>
+    @if (vm is null)
+    {
+        <div class="sb-aspnet-hub__unavailable rounded-xl border p-6 text-sm text-base-content/60"
+             style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            ASP.NET Pack is not configured on this host. Add
+            <code>AddAspNetPackReadOnly()</code> and <code>AddPrometheusPack(...)</code>
+            to enable the pack hub.
+        </div>
+    }
+    else
+    {
+        var healthTooltip = vm.OverallHealthBand switch
+        {
+            HealthBand.Good    => "Inventory + meters healthy",
+            HealthBand.Caution => "Inventory or meters not yet populated",
+            HealthBand.Warning => "Inventory + meters both empty",
+            _                  => "Pack health unknown",
+        };
+
+        <header class="sb-aspnet-hub__head"
+                style="display:flex; flex-direction:column; gap:0.25rem; margin-bottom:0.75rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+                @await Component.InvokeAsync("SbHealthDot",
+                    new { model = new HealthDotViewModel(vm.OverallHealthBand, healthTooltip) })
+                <h2 class="sb-aspnet-hub__title" style="font-size:1.25rem; font-weight:600;">@vm.Title</h2>
+            </div>
+            <p class="sb-aspnet-hub__subtitle"
+               style="font-size:0.8125rem; color: var(--sb-brand-muted);">
+                @vm.Subtitle
+            </p>
+        </header>
+
+        <div class="sb-aspnet-hub__tiles"
+             style="display:grid; gap:0.75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:1rem;">
+            @foreach (var tile in vm.TopTiles)
+            {
+                @await Component.InvokeAsync("SbStatTile", new { model = tile })
+            }
+        </div>
+
+        @if (vm.IngestTrend is not null)
+        {
+            <div class="sb-aspnet-hub__trend" style="margin-bottom:1rem;">
+                @await Component.InvokeAsync("SbTrendCard", new { model = vm.IngestTrend })
+            </div>
+        }
+
+        @await Component.InvokeAsync("SbMeterTable", new { model = vm.MeterTable })
+    }
+</section>

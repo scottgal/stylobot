@@ -35,6 +35,12 @@ public static class FossDashboardGroups
             // pivot. Sub-rows under /dashboard/insights/{meter-name} are
             // reserved for B2+; the row dispatches the top-level page only.
             new DashboardRow("insights",      "Insights",      "~/Views/StyloBot/Dashboard/_Insights.cshtml"),
+            // B2: per-pack hub page for the FOSS AspNetPack. One-glance summary
+            // of the pack's inventory + meter ingest; drills into the global
+            // insights page filtered to the aspnet namespace. Lives here next
+            // to Insights because the OtelMesh hub and the commercial-overlay
+            // enrichments will follow the same shape (B3+).
+            new DashboardRow("aspnet-hub",    "ASP.NET Pack",  "~/Views/StyloBot/Dashboard/_AspNetPackHub.cshtml"),
             new DashboardRow("compliance",    "Compliance",    "~/Views/StyloBot/Dashboard/_ComplianceTab.cshtml",    IsCommercialOnly: true),
             new DashboardRow("investigate",   "Investigate",   "~/Views/StyloBot/Dashboard/_Investigate.cshtml",      IsCommercialOnly: true),
         ]),

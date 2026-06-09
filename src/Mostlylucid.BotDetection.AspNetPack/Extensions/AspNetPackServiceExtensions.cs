@@ -1,8 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.AspNetPack.Inventory;
+using Mostlylucid.BotDetection.AspNetPack.Services;
 using Mostlylucid.BotDetection.AspNetPack.Ui;
 using Mostlylucid.BotDetection.UI.Dashboard;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.AspNetPack.Extensions;
 
@@ -21,6 +23,12 @@ public static class AspNetPackServiceExtensions
         services.TryAddSingleton<IAspNetEndpointInventory, AspNetEndpointInventory>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IDashboardPack, AspNetPackReadOnlyDashboardPack>());
+
+        // Pack Metrics B2 -- /dashboard/aspnet-hub page builder + JSON
+        // summary endpoint backing. Pure read; goes through IMeterStream
+        // (always required) + IAspNetEndpointInventory (optional --
+        // viewer hosts pull data via REST per feedback_remote_mode_optional_di).
+        services.TryAddSingleton<IAspNetPackHubBuilder, AspNetPackHubPageBuilder>();
         return services;
     }
 }
