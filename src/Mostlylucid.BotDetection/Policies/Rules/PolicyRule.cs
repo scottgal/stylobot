@@ -18,6 +18,15 @@ namespace Mostlylucid.BotDetection.Policies.Rules;
 /// <param name="Source">Provenance string -- e.g. <c>"yaml:domain-default.yaml"</c> or <c>"postgres"</c>.</param>
 /// <param name="CreatedAt">Wall-clock time the rule was first loaded into this process.</param>
 /// <param name="RevisionId">Re-issued on every reload so consumers can detect "this is the same logical rule, freshly loaded".</param>
+/// <param name="AutoPromoteAt">
+///     Optional pickup timestamp for OBSERVE-mode rules that should auto-promote to LIVE
+///     after a hold window. <c>null</c> for every non-OBSERVE rule and for OBSERVE rules
+///     held indefinitely. The commercial control plane runs a scheduled sweep that flips
+///     <see cref="PolicyMode.Observe"/> to <see cref="PolicyMode.Live"/> once
+///     <see cref="AutoPromoteAt"/> is in the past; the FOSS resolver never reads this
+///     field at evaluation time -- it is metadata on the row, not part of the decision.
+///     Defaults to <c>null</c> so every existing call site continues to compile unchanged.
+/// </param>
 public sealed record PolicyRule(
     Guid Id,
     PolicyScope Scope,
@@ -28,4 +37,5 @@ public sealed record PolicyRule(
     string Notes,
     string Source,
     DateTimeOffset CreatedAt,
-    Guid RevisionId);
+    Guid RevisionId,
+    DateTimeOffset? AutoPromoteAt = null);
