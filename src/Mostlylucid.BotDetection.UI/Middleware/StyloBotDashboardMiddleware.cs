@@ -573,6 +573,16 @@ public class StyloBotDashboardMiddleware
                 await ServePolicyStackParseAsync(context);
                 break;
 
+            // C8 -- backtest projection. POST body is JSON
+            // { predicate: "text", actionKind: "block", window: "24h" }.
+            // Returns the rendered _BacktestPanel.cshtml partial as
+            // text/html so the editor JS can swap it into the slot. 400 on
+            // an invalid predicate. Anonymous-readable for the same
+            // reason the parse route is.
+            case "policystack/backtest":
+                await ServePolicyStackBacktestAsync(context);
+                break;
+
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
                 if (_options.RenderPage)
                 {
@@ -3245,6 +3255,135 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsync($"{{\"ast\":{canonical}}}");
+    }
+
+    // C8 -- POST /dashboard/policystack/backtest (application/json body)
+    // Body: { predicate: "text", actionKind: "block", window: "24h" }.
+    // Parses the predicate, runs PolicyBacktestRunner over the chosen
+    // window, then returns the rendered _BacktestPanel.cshtml partial.
+    // The editor JS swaps the rendered HTML into the data-edit-backtest-slot
+    // wrapper inside the edit row. Bad predicate -> 400. Decision-log not
+    // registered (FOSS standalone with no SQLite store) -> 503 with a
+    // text/plain message; the JS leaves the placeholder in place.
+    private async Task ServePolicyStackBacktestAsync(HttpContext context)
+    {
+        if (!HttpMethods.IsPost(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+            return;
+        }
+
+        var log = context.RequestServices
+            .GetService<Mostlylucid.BotDetection.Policies.Decisions.IPolicyDecisionLog>();
+        if (log is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            context.Response.ContentType = "text/plain; charset=utf-8";
+            await context.Response.WriteAsync("decision log not registered");
+            return;
+        }
+
+        // Body envelope. The DTO is local to this handler since it's not
+        // shared with anything else; lowercase camelCase to match the
+        // editor JS's outbound shape.
+        BacktestRequestDto? body;
+        try
+        {
+            body = await JsonSerializer.DeserializeAsync<BacktestRequestDto>(
+                context.Request.Body,
+                BacktestJsonOptions,
+                context.RequestAborted);
+        }
+        catch (JsonException)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync("{\"message\":\"invalid JSON body\"}");
+            return;
+        }
+
+        if (body is null || string.IsNullOrWhiteSpace(body.Predicate))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync("{\"message\":\"predicate is required\"}");
+            return;
+        }
+
+        Mostlylucid.BotDetection.Policies.Predicate.Predicate ast;
+        try
+        {
+            ast = Mostlylucid.BotDetection.Policies.Predicate.PredicateParser.Parse(body.Predicate);
+        }
+        catch (Mostlylucid.BotDetection.Policies.Predicate.PredicateParseException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync(
+                $"{{\"message\":{JsonSerializer.Serialize(ex.Message)},\"position\":{ex.Position.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+            return;
+        }
+
+        var (window, label) = ParseBacktestWindow(body.Window);
+
+        var runner = new Mostlylucid.BotDetection.Policies.Decisions.PolicyBacktestRunner(log);
+        var result = await runner.RunAsync(ast, window, ct: context.RequestAborted);
+
+        var vm = new Mostlylucid.BotDetection.UI.Models.PolicyBacktestViewModel(
+            TotalRequests: result.TotalRequests,
+            WouldMatch: result.WouldMatch,
+            WouldEnforce: result.WouldEnforce,
+            OverriddenByHigherPriority: result.OverriddenByHigherPriority,
+            EstimatedAddedP50Micros: result.EstimatedAddedP50Micros,
+            EstimatedAddedP99Micros: result.EstimatedAddedP99Micros,
+            SampleMatchingFingerprints: result.SampleMatchingFingerprints,
+            Window: result.Window,
+            WindowLabel: label,
+            Caveat: result.Caveat);
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbPolicyStack/_BacktestPanel.cshtml", vm, context);
+
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     Map "24h" / "7d" / "30d" to a <see cref="TimeSpan"/> + canonical
+    ///     label echoed back into the rendered panel's data-window attr.
+    ///     Unknown inputs default to 24h so an empty/malformed window in
+    ///     the JS request doesn't fail the response.
+    /// </summary>
+    private static (TimeSpan window, string label) ParseBacktestWindow(string? raw)
+    {
+        var normalised = (raw ?? string.Empty).Trim().ToLowerInvariant();
+        return normalised switch
+        {
+            "7d" => (TimeSpan.FromDays(7), "7d"),
+            "30d" => (TimeSpan.FromDays(30), "30d"),
+            _ => (TimeSpan.FromHours(24), "24h"),
+        };
+    }
+
+    /// <summary>
+    ///     Reused JSON options for the C8 backtest request body. Sets
+    ///     <see cref="System.Text.Json.JsonSerializerOptions.PropertyNameCaseInsensitive"/>
+    ///     so the editor JS can post either camelCase or PascalCase without
+    ///     a server-side coupling.
+    /// </summary>
+    private static readonly JsonSerializerOptions BacktestJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
+
+    /// <summary>
+    ///     Inbound DTO for <c>POST /dashboard/policystack/backtest</c>.
+    /// </summary>
+    private sealed class BacktestRequestDto
+    {
+        public string Predicate { get; set; } = string.Empty;
+        public string? ActionKind { get; set; }
+        public string? Window { get; set; }
     }
 
     private async Task ServeHelpAsync(HttpContext context, string sectionId)

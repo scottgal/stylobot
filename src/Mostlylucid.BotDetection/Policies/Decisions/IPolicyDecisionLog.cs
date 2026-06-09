@@ -37,4 +37,20 @@ public interface IPolicyDecisionLog
         string fingerprint,
         int max = 100,
         CancellationToken ct = default);
+
+    /// <summary>
+    ///     Stream every decision row observed within the supplied
+    ///     <paramref name="window"/> ending now, ordered by
+    ///     <see cref="PolicyDecision.ObservedAt"/> ascending. Powers C8's
+    ///     backtest runner: the runner projects a candidate predicate over
+    ///     each row's <see cref="PolicyDecision.SignalsSnapshot"/> without
+    ///     pulling the entire window into memory.
+    /// </summary>
+    /// <param name="window">Sliding window ending now.</param>
+    /// <param name="maxRows">Hard cap on rows yielded. Defaults to 100k.</param>
+    /// <param name="ct">Cancellation token forwarded to the underlying reader.</param>
+    IAsyncEnumerable<PolicyDecision> StreamWindowAsync(
+        TimeSpan window,
+        int maxRows = 100_000,
+        CancellationToken ct = default);
 }

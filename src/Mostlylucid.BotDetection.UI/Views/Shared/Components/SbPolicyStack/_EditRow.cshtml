@@ -34,6 +34,18 @@
 
         @await Html.PartialAsync("Components/SbPolicyStack/_EditAction", Model)
 
+        @*
+            C8 backtest slot. Initial render shows the placeholder; the JS
+            replaces the inner HTML 500ms after each successful parse by
+            posting the candidate predicate to /dashboard/policystack/backtest.
+            The slot wrapper id is what the JS targets, so the populated
+            fieldset is dropped inside it (NOT a sibling) keeping the form
+            structure stable across swaps.
+        *@
+        <div class="sb-edit-backtest-slot" data-edit-backtest-slot>
+            @await Html.PartialAsync("Components/SbPolicyStack/_BacktestPanel", Model.Backtest)
+        </div>
+
         <fieldset class="sb-edit-mode">
             <legend>Mode</legend>
             <select name="mode" data-edit-mode>

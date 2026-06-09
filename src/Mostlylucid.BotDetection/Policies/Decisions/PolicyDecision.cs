@@ -36,6 +36,14 @@ namespace Mostlylucid.BotDetection.Policies.Decisions;
 /// <param name="Mode">The lifecycle mode of the rule at decision time.</param>
 /// <param name="EvalLatencyTicks">Stopwatch-tick cost of evaluating this rule's predicate.</param>
 /// <param name="ObservedAt">Wall-clock time the decision was recorded.</param>
+/// <param name="SignalsSnapshot">
+///     Optional serialised JSON snapshot of the signals dictionary the
+///     evaluator used for this request. Powers C8's backtest projection:
+///     given a candidate predicate, the runner needs the input the original
+///     decision was made against. Rows written before the C8 schema patch
+///     have <c>null</c> here and surface an inconclusive caveat from the
+///     backtest result.
+/// </param>
 public sealed record PolicyDecision(
     Guid RuleId,
     Guid WinnerRuleId,
@@ -44,4 +52,5 @@ public sealed record PolicyDecision(
     RuleAction Action,
     PolicyMode Mode,
     long EvalLatencyTicks,
-    DateTimeOffset ObservedAt);
+    DateTimeOffset ObservedAt,
+    string? SignalsSnapshot = null);

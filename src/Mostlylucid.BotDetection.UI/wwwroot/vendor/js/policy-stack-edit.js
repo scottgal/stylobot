@@ -92,6 +92,11 @@
                         renderChips(ast, /*greyedOut=*/false);
                         var n = countTerms(ast);
                         showValidation('valid -- ' + n + ' term' + (n === 1 ? '' : 's'), true);
+                        // C8: kick a debounced backtest so the panel
+                        // updates as the operator types. Only fire when
+                        // the parse succeeds -- there's no point asking
+                        // the server to project an unparseable predicate.
+                        scheduleBacktest(trimmed);
                     } else {
                         ast = null;
                         renderChips(lastGoodAst, /*greyedOut=*/true);
@@ -104,6 +109,107 @@
             }).catch(function () {
                 showValidation('parser unreachable', false);
             });
+        }
+
+        // C8 backtest -- 500ms debounced POST to /dashboard/policystack/backtest.
+        // The scheduler is held on closure-local state so a fast typist
+        // collapses the burst into a single request. We don't queue an
+        // initial request before the first successful parse -- the slot
+        // renders the placeholder until the operator types something
+        // valid.
+        var backtestTimer = null;
+        function scheduleBacktest(text) {
+            if (backtestTimer) clearTimeout(backtestTimer);
+            backtestTimer = setTimeout(function () { runBacktest(text); }, 500);
+        }
+
+        function runBacktest(text) {
+            var slot = article.querySelector('[data-edit-backtest-slot]');
+            if (!slot) return;
+            var currentWindow = readCurrentWindow();
+            var currentActionKind = actionKind ? actionKind.value : 'observe';
+            fetch('/dashboard/policystack/backtest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    predicate: text,
+                    actionKind: currentActionKind,
+                    window: currentWindow
+                }),
+                credentials: 'same-origin'
+            }).then(function (resp) {
+                if (!resp.ok) return null;
+                return resp.text();
+            }).then(function (html) {
+                if (html == null) return;
+                slot.innerHTML = html;
+                wireBacktestPanel(slot, text);
+            }).catch(function () {
+                // Quiet fail -- backtest is best-effort UI signal, not a
+                // correctness boundary.
+            });
+        }
+
+        function readCurrentWindow() {
+            var existing = article.querySelector('[data-edit-backtest][data-window]');
+            return existing ? (existing.getAttribute('data-window') || '24h') : '24h';
+        }
+
+        function wireBacktestPanel(slot, lastText) {
+            // Window picker -- click a button, re-run with the new window.
+            slot.querySelectorAll('[data-backtest-window]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var fieldset = slot.querySelector('[data-edit-backtest]');
+                    if (fieldset) fieldset.setAttribute('data-window', btn.getAttribute('data-backtest-window'));
+                    runBacktest(lastText);
+                });
+            });
+
+            // "Show matching requests" -- hand the comma-separated sample
+            // off to the explainer panel by appending a hash fragment the
+            // explainer already listens for. The actual hand-off is the
+            // explainer's responsibility; here we just dispatch a custom
+            // event so other listeners can react too.
+            var showMatchingBtn = slot.querySelector('[data-backtest-show-matching]');
+            if (showMatchingBtn) {
+                showMatchingBtn.addEventListener('click', function () {
+                    var sample = showMatchingBtn.getAttribute('data-fingerprint-sample') || '';
+                    var fingerprints = sample.split(',').filter(function (s) { return s.length > 0; });
+                    article.dispatchEvent(new CustomEvent('sb-policy-backtest-show-matching', {
+                        bubbles: true,
+                        detail: { fingerprints: fingerprints }
+                    }));
+                });
+            }
+
+            // "Promote to OBSERVE for 24h" -- override the form's mode +
+            // attach auto_promote_at so the submit body carries the C9
+            // marker. We update the in-form mode select so the existing
+            // onSubmit handler picks it up uniformly.
+            var promoteBtn = slot.querySelector('[data-backtest-promote-observe]');
+            if (promoteBtn) {
+                promoteBtn.addEventListener('click', function () {
+                    var modeSel = article.querySelector('[data-edit-mode]');
+                    if (modeSel) modeSel.value = 'observe';
+                    // 24h from now, ISO 8601 UTC. Stamped onto a hidden
+                    // input so the existing submit handler can pick it up
+                    // without bespoke handling here.
+                    var when = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                    var hidden = article.querySelector('input[name="auto_promote_at"]');
+                    if (!hidden) {
+                        hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'auto_promote_at';
+                        form.appendChild(hidden);
+                    }
+                    hidden.value = when;
+                    // Trigger the form submit so the operator doesn't
+                    // need to also hit Save -- the promote button IS the
+                    // save in this affordance.
+                    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                    else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                });
+            }
         }
 
         function showValidation(msg, ok) {
@@ -318,6 +424,14 @@
                 mode: (article.querySelector('[data-edit-mode]') || {}).value || 'draft',
                 notes: (article.querySelector('[name="notes"]') || {}).value || ''
             };
+            // C8 "Promote to OBSERVE for 24h" sets a hidden auto_promote_at
+            // input. When present, attach it so C9's scheduler can pick it
+            // up server-side. The mutation API tolerates the field even on
+            // standalone FOSS (it's nullable in the DTO).
+            var autoPromote = article.querySelector('input[name="auto_promote_at"]');
+            if (autoPromote && autoPromote.value) {
+                body.autoPromoteAt = autoPromote.value;
+            }
             fetch(article.dataset.editSubmitUrl, {
                 method: article.dataset.editHttpMethod || 'POST',
                 headers: { 'Content-Type': 'application/json' },

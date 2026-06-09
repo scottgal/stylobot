@@ -168,6 +168,14 @@
         <EmbeddedResource Include="Policies\Rules\SeedRules\*.yaml" />
     </ItemGroup>
 
+    <!-- Embed forward-only SQL schema patches for the SQLite policy decision
+         log. SqlitePolicyDecisionLog.InitialiseSchema applies the initial
+         CREATE TABLE inline then applies these patches, swallowing the
+         duplicate-column error so each patch is idempotent. -->
+    <ItemGroup>
+        <EmbeddedResource Include="Policies\Decisions\Schema\*.sql" />
+    </ItemGroup>
+
     <!-- Include README in NuGet package (icon comes from Directory.Build.props shared root) -->
     <ItemGroup>
         <None Include=".\README.md" Pack="true" PackagePath="">

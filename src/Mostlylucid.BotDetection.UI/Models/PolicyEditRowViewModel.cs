@@ -26,6 +26,12 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="SubmitUrl">URL the form posts/puts to (commercial mutation API).</param>
 /// <param name="HttpMethod">"POST" for create, "PUT" for update.</param>
 /// <param name="CancelUrl">Where the row swaps back to on Cancel.</param>
+/// <param name="Backtest">
+///     Optional C8 backtest panel data. <c>null</c> on the initial render
+///     (the placeholder copy renders); the JS posts the candidate to
+///     <c>/dashboard/policystack/backtest</c> 500ms after each successful
+///     parse and outerHTML-swaps the panel with a populated copy.
+/// </param>
 public sealed record PolicyEditRowViewModel(
     Guid? RuleId,
     PolicyScope Scope,
@@ -39,4 +45,5 @@ public sealed record PolicyEditRowViewModel(
     string Notes,
     string SubmitUrl,
     string HttpMethod,
-    string CancelUrl);
+    string CancelUrl,
+    PolicyBacktestViewModel? Backtest = null);

@@ -269,6 +269,63 @@ public sealed class PolicyEditTests : IAsyncDisposable
         Assert.Contains("\"position\":", body);
     }
 
+    // ---- C8 backtest panel coverage ----
+
+    [Fact]
+    public async Task EditRow_renders_empty_backtest_placeholder_on_initial_load()
+    {
+        var client = await BuildClientAsync();
+        var ruleId = await GetEndpointRuleIdAsync();
+
+        var html = await client.GetStringAsync(
+            $"/_test/policy-stack-edit?ruleId={ruleId}");
+
+        // Initial render: the Backtest property on the view model is null so
+        // the partial emits the placeholder copy + the data-edit-backtest-slot
+        // wrapper that the JS targets.
+        Assert.Contains("data-edit-backtest-slot", html);
+        Assert.Contains("sb-edit-backtest-placeholder", html);
+        Assert.Contains("Type a valid predicate to see impact", html);
+    }
+
+    [Fact]
+    public async Task BacktestRoute_returns_400_for_invalid_predicate()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.PostAsync("/_test/policy-stack-backtest",
+            new StringContent("{\"predicate\":\"bot.type =\",\"window\":\"24h\"}",
+                Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.Contains("\"message\":", body);
+    }
+
+    [Fact]
+    public async Task BacktestRoute_renders_populated_panel_with_window_picker()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.PostAsync("/_test/policy-stack-backtest",
+            new StringContent("{\"predicate\":\"bot.type = scraper\",\"window\":\"7d\"}",
+                Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var body = await resp.Content.ReadAsStringAsync();
+
+        // Populated panel: window-picker shows 24h / 7d / 30d buttons, and the
+        // 7d button is the one with aria-pressed=true because we asked for that
+        // window. The matching-requests and promote affordances both render.
+        Assert.Contains("data-backtest-window=\"24h\"", body);
+        Assert.Contains("data-backtest-window=\"7d\"", body);
+        Assert.Contains("data-backtest-window=\"30d\"", body);
+        Assert.Contains("data-backtest-show-matching", body);
+        Assert.Contains("data-backtest-promote-observe", body);
+        // The placeholder MUST NOT render when the panel is populated.
+        Assert.DoesNotContain("sb-edit-backtest-placeholder", body);
+    }
+
     // ---- Helpers ----
 
     private async Task<HttpClient> BuildClientAsync()
@@ -452,5 +509,67 @@ public sealed class PolicyEditTestController : Controller
                 Content = $"{{\"message\":{System.Text.Json.JsonSerializer.Serialize(ex.Message)},\"position\":{ex.Position}}}"
             };
         }
+    }
+
+    /// <summary>
+    ///     Mirror of the C8 backtest middleware handler. Parses the body,
+    ///     runs the runner against the DI-registered InMemoryPolicyDecisionLog
+    ///     (which the test fixture seeds with snapshot-bearing rows), and
+    ///     renders <c>_BacktestPanel.cshtml</c> with the populated view
+    ///     model. Bad predicate -> 400.
+    /// </summary>
+    [HttpPost("policy-stack-backtest")]
+    public async Task<IActionResult> Backtest(
+        [FromBody] BacktestDto body,
+        [FromServices] IPolicyDecisionLog log)
+    {
+        if (body is null || string.IsNullOrWhiteSpace(body.Predicate))
+            return BadRequest(new { message = "predicate is required" });
+
+        Mostlylucid.BotDetection.Policies.Predicate.Predicate ast;
+        try
+        {
+            ast = PredicateParser.Parse(body.Predicate);
+        }
+        catch (PredicateParseException ex)
+        {
+            return new ContentResult
+            {
+                StatusCode = 400,
+                ContentType = "application/json; charset=utf-8",
+                Content = $"{{\"message\":{System.Text.Json.JsonSerializer.Serialize(ex.Message)},\"position\":{ex.Position}}}"
+            };
+        }
+
+        var (window, label) = (body.Window ?? "24h").ToLowerInvariant() switch
+        {
+            "7d" => (TimeSpan.FromDays(7), "7d"),
+            "30d" => (TimeSpan.FromDays(30), "30d"),
+            _ => (TimeSpan.FromHours(24), "24h")
+        };
+
+        var runner = new Mostlylucid.BotDetection.Policies.Decisions.PolicyBacktestRunner(log);
+        var result = await runner.RunAsync(ast, window, ct: HttpContext.RequestAborted);
+
+        var vm = new PolicyBacktestViewModel(
+            TotalRequests: result.TotalRequests,
+            WouldMatch: result.WouldMatch,
+            WouldEnforce: result.WouldEnforce,
+            OverriddenByHigherPriority: result.OverriddenByHigherPriority,
+            EstimatedAddedP50Micros: result.EstimatedAddedP50Micros,
+            EstimatedAddedP99Micros: result.EstimatedAddedP99Micros,
+            SampleMatchingFingerprints: result.SampleMatchingFingerprints,
+            Window: result.Window,
+            WindowLabel: label,
+            Caveat: result.Caveat);
+
+        return PartialView("/Views/Shared/Components/SbPolicyStack/_BacktestPanel.cshtml", vm);
+    }
+
+    public sealed class BacktestDto
+    {
+        public string Predicate { get; set; } = string.Empty;
+        public string? ActionKind { get; set; }
+        public string? Window { get; set; }
     }
 }

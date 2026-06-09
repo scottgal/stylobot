@@ -1,0 +1,15 @@
+-- C8 -- forward-only schema patch.
+--
+-- Adds a JSON snapshot of the signals dictionary the evaluator used for
+-- each decision. The backtest runner projects a candidate predicate
+-- against this column to bucket rows into "would match" / "would enforce"
+-- / "overridden". Rows written before this column existed stay NULL and
+-- surface an inconclusive caveat in the result.
+--
+-- Idempotent: safe to re-run on every startup. SQLite's ALTER TABLE
+-- ADD COLUMN does not support IF NOT EXISTS pre-3.35, so callers are
+-- expected to swallow "duplicate column name" errors instead. The SQL
+-- itself is one statement; the loader wraps the execute in a try/catch
+-- that ignores the duplicate-column case so it acts IF-NOT-EXISTS in
+-- effect.
+ALTER TABLE policy_decisions ADD COLUMN signals_snapshot TEXT;

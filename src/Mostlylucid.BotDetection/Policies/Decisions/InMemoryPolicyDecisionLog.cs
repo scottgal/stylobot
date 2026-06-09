@@ -93,6 +93,35 @@ public sealed class InMemoryPolicyDecisionLog : IPolicyDecisionLog
         return Task.FromResult(rows);
     }
 
+    /// <summary>
+    ///     Snapshot the list under the lock, filter to the window, then
+    ///     yield. Matches the SQLite impl's behaviour: ascending observed_at
+    ///     ordering, capped at <paramref name="maxRows"/>.
+    /// </summary>
+    public async IAsyncEnumerable<PolicyDecision> StreamWindowAsync(
+        TimeSpan window,
+        int maxRows = 100_000,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var cutoff = DateTimeOffset.UtcNow - window;
+
+        PolicyDecision[] snapshot;
+        lock (_lock) snapshot = _rows.ToArray();
+
+        var ordered = snapshot
+            .Where(r => r.ObservedAt >= cutoff)
+            .OrderBy(r => r.ObservedAt)
+            .Take(maxRows);
+
+        foreach (var row in ordered)
+        {
+            ct.ThrowIfCancellationRequested();
+            yield return row;
+        }
+
+        await Task.CompletedTask;
+    }
+
     private static long Percentile(IReadOnlyList<long> sorted, double p)
     {
         if (sorted.Count == 0) return 0;

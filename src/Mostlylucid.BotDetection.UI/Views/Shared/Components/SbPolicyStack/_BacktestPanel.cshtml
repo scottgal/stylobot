@@ -1,0 +1,80 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyBacktestViewModel?
+@*
+    C8 backtest panel. Embedded into _EditRow.cshtml between the predicate
+    fieldset and the mode fieldset. Two render modes:
+
+    1. Model == null -- placeholder copy. The C6 editor starts here; the JS
+       debounce-fires a POST to /dashboard/policystack/backtest 500ms after
+       each successful parse and swaps the panel's inner HTML with a
+       populated version.
+
+    2. Model != null -- populated. Shows the bucket counts, percentages,
+       latency proxy, and the two affordances ("show matching requests"
+       and "promote to OBSERVE for 24h"). The "promote" action is wired
+       to a save-with-mode=observe + auto_promote_at body that C9 picks
+       up.
+*@
+@if (Model is null)
+{
+    <fieldset class="sb-edit-backtest" data-edit-backtest>
+        <legend>Backtest</legend>
+        <em class="sb-edit-backtest-placeholder">Type a valid predicate to see impact.</em>
+    </fieldset>
+}
+else
+{
+    <fieldset class="sb-edit-backtest"
+              data-edit-backtest
+              data-window="@Model.WindowLabel">
+        <legend>Backtest</legend>
+
+        <div class="sb-backtest-window-picker" data-backtest-window-picker>
+            @foreach (var label in new[] { "24h", "7d", "30d" })
+            {
+                <button type="button"
+                        data-backtest-window="@label"
+                        aria-pressed="@(string.Equals(Model.WindowLabel, label, StringComparison.OrdinalIgnoreCase) ? "true" : "false")">@label</button>
+            }
+        </div>
+
+        <p class="sb-backtest-headline">
+            Of <strong>@Model.TotalRequests.ToString("N0")</strong> requests in the last @Model.WindowLabel:
+        </p>
+
+        <ul class="sb-backtest-buckets">
+            <li><strong>@Model.WouldMatch.ToString("N0")</strong> would have matched this predicate</li>
+            <li>
+                <strong>@Model.WouldEnforce.ToString("N0")</strong> would be ENFORCED (this action)
+                <small>@Model.WouldEnforcePercent%</small>
+            </li>
+            <li>
+                <strong>@Model.OverriddenByHigherPriority.ToString("N0")</strong> would still pass (higher-priority rule wins)
+                <small>@Model.OverriddenPercent%</small>
+            </li>
+        </ul>
+
+        <p class="sb-backtest-latency">
+            Estimated added latency:
+            <strong>p50 +@($"{Model.EstimatedAddedP50Micros / 1000.0:F1}")ms</strong>
+            ·
+            <strong>p99 +@($"{Model.EstimatedAddedP99Micros / 1000.0:F1}")ms</strong>
+        </p>
+
+        <div class="sb-backtest-actions">
+            <button type="button"
+                    data-backtest-show-matching
+                    data-fingerprint-sample="@string.Join(",", Model.SampleMatchingFingerprints)">
+                Show the @Model.SampleMatchingFingerprints.Count matching requests ▾
+            </button>
+            <button type="button" data-backtest-promote-observe>
+                Promote to OBSERVE for 24h
+            </button>
+        </div>
+
+        @if (Model.Caveat is not null)
+        {
+            <small class="sb-backtest-caveat">@Model.Caveat</small>
+        }
+    </fieldset>
+}
