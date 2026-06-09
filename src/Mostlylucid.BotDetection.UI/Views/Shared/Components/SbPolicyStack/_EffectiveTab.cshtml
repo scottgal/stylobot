@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @model PolicyStackViewModel
 @*
     Effective tab body. Sortable column headers render above the rule list;
@@ -47,7 +48,13 @@ else
                     aria-pressed="@(isActive ? "true" : "false")">@header.Label@indicator</button>
         }
     </div>
-    <ul class="sb-policy-stack-rows" role="list">
+    @* C7 -- the encoded scope on the <ul> tells policy-stack-reorder.js
+       which scope to POST when the operator drops a row. Only rules at
+       this exact scope are reorderable; inherited rows render without a
+       drag handle so dragging them is impossible. *@
+    <ul class="sb-policy-stack-rows"
+        role="list"
+        data-policy-stack-reorder-scope="@PolicyScopeUrl.Encode(Model.Scope)">
         @foreach (var row in Model.Rows)
         {
             <li>

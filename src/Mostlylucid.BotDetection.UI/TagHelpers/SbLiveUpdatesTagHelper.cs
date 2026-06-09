@@ -37,6 +37,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
     private const string TooltipPortalPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-tooltip-portal.js";
     private const string PolicyStackRealtimePath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-realtime.js";
     private const string PolicyStackEditPath     = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-edit.js";
+    private const string PolicyStackReorderPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-reorder.js";
 
     // Module Version Id changes every build, so appending it as a query string
     // forces CDNs and browser caches to fetch the new asset after a deploy.
@@ -167,5 +168,14 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // pencil-button HTMX swaps pick up edit affordances automatically.
         output.Content.AppendHtml(
             $@"<script src=""{PolicyStackEditPath}?v={AssetVersion}""{nonceAttr}></script>");
+
+        // C7 -- Policy Stack drag-drop reorder + source-pill navigation.
+        // Same self-mount lifecycle as the edit script: no-op when no
+        // [data-policy-stack-reorder-scope] container is present, so the
+        // single tag here covers every page that opts into the stack
+        // control regardless of whether the operator has dashboard-write
+        // (the drag handle itself is server-gated by canEdit).
+        output.Content.AppendHtml(
+            $@"<script src=""{PolicyStackReorderPath}?v={AssetVersion}""{nonceAttr}></script>");
     }
 }

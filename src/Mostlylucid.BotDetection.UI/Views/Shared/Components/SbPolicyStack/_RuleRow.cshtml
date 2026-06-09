@@ -8,6 +8,14 @@
         : "badge source-pill";
     var explainScope = PolicyScopeUrl.Encode(Model.SourceScope);
     var explainUrl = $"/dashboard/policystack/explain?scope={explainScope}&focusRule={Model.RuleId}";
+    // C7 -- inherited rows are not reorderable from a descendant view; their
+    // source pill becomes a click target that navigates to the owning scope
+    // where the drag handle DOES render. PolicyScopeUrl.Encode handles the
+    // round-trip; the actual dashboard route picks the scope up from
+    // ?scope=<encoded>.
+    var sourcePillHref = Model.IsInherited
+        ? $"/dashboard/policies?scope={PolicyScopeUrl.Encode(Model.SourceScope)}"
+        : null;
 }
 <article class="sb-policy-stack-row"
          data-rule-id="@Model.RuleId"
@@ -15,13 +23,36 @@
          data-mode="@modeLower"
          data-no-hits="@(Model.HasNoHits ? "true" : "false")">
     <header class="sb-policy-stack-row-head">
-        <span class="@sourcePillClasses"
-              data-source="@Model.SourcePill.ToLowerInvariant()">@Model.SourcePill</span>
+        @if (sourcePillHref is not null)
+        {
+            <span class="@sourcePillClasses"
+                  data-source="@Model.SourcePill.ToLowerInvariant()"
+                  data-source-pill-href="@sourcePillHref"
+                  role="link"
+                  tabindex="0">@Model.SourcePill</span>
+        }
+        else
+        {
+            <span class="@sourcePillClasses"
+                  data-source="@Model.SourcePill.ToLowerInvariant()">@Model.SourcePill</span>
+        }
         <span class="badge mode-pill mode-@modeLower">@Model.ModePill</span>
         @await Html.PartialAsync("Components/SbPolicyStack/_PredicateChips", Model.Chips)
         <span class="verdict @Model.ActionColorClass" data-verdict="@Model.ActionColorClass">
             @(Model.IsObserveMode ? "would " : "")@Model.ActionVerdict
         </span>
+        @* C7 -- drag handle. Only renders when the operator has dashboard-
+           write (CanEdit) AND the rule lives at the current scope (not
+           inherited). Inherited rules must be reordered from their owning
+           scope; clicking the source pill walks the operator there. *@
+        @if (Model.CanEdit && !Model.IsInherited)
+        {
+            <button type="button"
+                    class="sb-policy-stack-drag-handle"
+                    aria-label="Drag to reorder"
+                    data-policy-stack-drag-handle
+                    draggable="true">⋮⋮</button>
+        }
     </header>
 
     <div class="sb-policy-stack-row-signals">

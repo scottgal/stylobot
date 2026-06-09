@@ -909,6 +909,124 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         }
     }
 
+    // -------- C7: Drag-drop reorder + source-pill navigation --------
+
+    [Fact]
+    public async Task DragHandle_renders_only_when_canEdit_and_not_inherited()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        // Without canEdit: no handle anywhere.
+        var htmlNoEdit = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            canEdit: false);
+        Assert.DoesNotContain("sb-policy-stack-drag-handle", htmlNoEdit);
+        Assert.DoesNotContain("data-policy-stack-drag-handle", htmlNoEdit);
+
+        // With canEdit: the ENDPOINT row (non-inherited at this scope) MUST
+        // render the handle; SUBDOMAIN/DOMAIN rows (inherited) MUST NOT.
+        var htmlEdit = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            canEdit: true);
+        Assert.Contains("sb-policy-stack-drag-handle", htmlEdit);
+        Assert.Contains("data-policy-stack-drag-handle", htmlEdit);
+
+        // There must be exactly one handle for the three effective rows
+        // because only one of them (the endpoint rule) sits at the queried
+        // scope. The other two are inherited and have no handle.
+        var handleCount = new Regex("data-policy-stack-drag-handle")
+            .Matches(htmlEdit).Count;
+        Assert.Equal(1, handleCount);
+    }
+
+    [Fact]
+    public async Task SourcePill_carries_href_when_inherited()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        // The SUBDOMAIN row at the endpoint scope is inherited; its source
+        // pill must carry data-source-pill-href so the JS can navigate to
+        // the owning scope. The DOMAIN row is also inherited.
+        Assert.Contains("data-source-pill-href=\"/dashboard/policies?scope=subdomain", html);
+        Assert.Contains("data-source-pill-href=\"/dashboard/policies?scope=domain", html);
+    }
+
+    [Fact]
+    public async Task SourcePill_omits_href_when_not_inherited()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        // Wildcard scope from the seed YAML actually has no rules attached
+        // directly; we render at the DOMAIN scope where its own rule lives
+        // and assert that the DOMAIN pill there is NOT inherited and does
+        // NOT carry the href. The wildcard/global rows at the same level
+        // would have no href either.
+        var html = await GetHtmlAsync(client, DomainScope, PolicyStackEmbed.Full);
+
+        // The DOMAIN row at the domain scope is the rule's OWN scope. Find
+        // the article tag for that row and confirm it lacks the href.
+        var domainRowMatch = Regex.Match(html,
+            "<article[^>]*data-source-pill=\"DOMAIN\"[\\s\\S]*?</article>");
+        Assert.True(domainRowMatch.Success, "expected a DOMAIN row in the rendered HTML");
+        Assert.DoesNotContain("data-source-pill-href", domainRowMatch.Value);
+    }
+
+    [Fact]
+    public async Task EffectiveTab_carries_reorder_scope_data_attribute()
+    {
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+
+        // The reorder JS keys off data-policy-stack-reorder-scope on the <ul>;
+        // PolicyScopeUrl.Encode for an endpoint scope produces the canonical
+        // "endpoint|<domain>|<sub>|<template>" form.
+        var encoded = Mostlylucid.BotDetection.UI.Services.PolicyScopeUrl.Encode(EndpointScope);
+        Assert.Contains($"data-policy-stack-reorder-scope=\"{System.Net.WebUtility.HtmlEncode(encoded)}\"", html);
+
+        // The attribute MUST live on the rule list (sb-policy-stack-rows),
+        // not on a stray container, so the JS can scope drag events to the
+        // correct list.
+        Assert.Matches(
+            new Regex("<ul[^>]*class=\"sb-policy-stack-rows\"[^>]*data-policy-stack-reorder-scope="),
+            html);
+    }
+
+    [Fact]
+    public void ReorderJs_script_is_emitted_alongside_realtime_script()
+    {
+        // Drive the SbLiveUpdates tag helper directly and confirm BOTH the
+        // realtime beacon (B6) and the new reorder script (C7) appear in
+        // the rendered output. The TagHelper carries the canonical asset
+        // path constants; this guards against future refactors silently
+        // dropping the reorder include.
+        var httpAccessor = new HttpContextAccessor
+        {
+            HttpContext = new DefaultHttpContext()
+        };
+        var tag = new Mostlylucid.BotDetection.UI.TagHelpers.SbLiveUpdatesTagHelper(
+            httpAccessor, options: null);
+        var context = new Microsoft.AspNetCore.Razor.TagHelpers.TagHelperContext(
+            tagName: "sb-live-updates",
+            allAttributes: new Microsoft.AspNetCore.Razor.TagHelpers.TagHelperAttributeList(),
+            items: new Dictionary<object, object>(),
+            uniqueId: "test");
+        var output = new Microsoft.AspNetCore.Razor.TagHelpers.TagHelperOutput(
+            tagName: "sb-live-updates",
+            attributes: new Microsoft.AspNetCore.Razor.TagHelpers.TagHelperAttributeList(),
+            getChildContentAsync: (_, _) =>
+                Task.FromResult<Microsoft.AspNetCore.Razor.TagHelpers.TagHelperContent>(
+                    new Microsoft.AspNetCore.Razor.TagHelpers.DefaultTagHelperContent()));
+
+        tag.Process(context, output);
+
+        using var sw = new StringWriter();
+        output.Content.WriteTo(sw, System.Text.Encodings.Web.HtmlEncoder.Default);
+        var html = sw.ToString();
+
+        Assert.Contains("policy-stack-realtime.js", html);
+        Assert.Contains("policy-stack-edit.js", html);
+        Assert.Contains("policy-stack-reorder.js", html);
+    }
+
     // -------- Render helpers --------
 
     private async Task<HttpClient> BuildClientAsync(bool prewarmEndpointHits)
@@ -1015,7 +1133,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         string? sortKey = null,
         string? sortDir = null,
         string? explainerFingerprint = null,
-        bool lockedFingerprint = false)
+        bool lockedFingerprint = false,
+        bool canEdit = false)
     {
         var query = $"embed={embed}&scopeKind={ScopeKind(scope)}";
         switch (scope)
@@ -1042,6 +1161,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             query += $"&explainerFingerprint={Uri.EscapeDataString(explainerFingerprint)}";
         if (lockedFingerprint)
             query += "&lockedFingerprint=true";
+        if (canEdit)
+            query += "&canEdit=true";
         var resp = await client.GetAsync($"/_test/policy-stack?{query}");
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync();
@@ -1185,7 +1306,8 @@ public sealed class PolicyStackTestController : Controller
         string? sortKey = null,
         string? sortDir = null,
         string? explainerFingerprint = null,
-        bool lockedFingerprint = false)
+        bool lockedFingerprint = false,
+        bool canEdit = false)
     {
         PolicyScope scope = scopeKind switch
         {
@@ -1203,7 +1325,8 @@ public sealed class PolicyStackTestController : Controller
             {
                 scope, embed = parsedEmbed, activeTab,
                 filterExpression, sortKey, sortDir,
-                explainerFingerprint, lockedFingerprint
+                explainerFingerprint, lockedFingerprint,
+                canEdit
             });
     }
 }
