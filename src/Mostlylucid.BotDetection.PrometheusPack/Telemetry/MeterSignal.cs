@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Telemetry;
+namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 /// <summary>
 ///     Materialised summary of a single meter at a point in time, emitted by

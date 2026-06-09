@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Telemetry;
+namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 /// <summary>
 ///     Read-side abstraction over the gateway's live metric instruments.

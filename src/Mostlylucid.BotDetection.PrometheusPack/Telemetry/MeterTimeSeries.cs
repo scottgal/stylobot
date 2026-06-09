@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Telemetry;
+namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 /// <summary>
 ///     A windowed time-series for a single instrument, sliced into evenly-spaced buckets.

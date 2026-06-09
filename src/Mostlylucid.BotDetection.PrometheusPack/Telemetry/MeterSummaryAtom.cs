@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Telemetry;
+namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 /// <summary>
 ///     Per-meter summary atom held by <see cref="LocalMeterStream" />. Holds

@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Telemetry;
+namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 /// <summary>
 ///     The OpenTelemetry-style instrument kind that produced the time-series.

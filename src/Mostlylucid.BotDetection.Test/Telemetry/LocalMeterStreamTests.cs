@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Telemetry;
+using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 namespace Mostlylucid.BotDetection.Test.Telemetry;
 

@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace Mostlylucid.BotDetection.Telemetry.Prometheus;
+namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry.Prometheus;
 
 /// <summary>
 ///     Targeted parser for the Prometheus / OpenMetrics text-format exposition

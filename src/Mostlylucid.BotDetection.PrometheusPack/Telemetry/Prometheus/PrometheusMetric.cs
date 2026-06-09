@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Telemetry.Prometheus;
+namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry.Prometheus;
 
 /// <summary>
 ///     The Prometheus / OpenMetrics text-format type the gateway exposition declared

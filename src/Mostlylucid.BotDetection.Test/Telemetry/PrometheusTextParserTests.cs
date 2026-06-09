@@ -1,4 +1,4 @@
-using Mostlylucid.BotDetection.Telemetry.Prometheus;
+using Mostlylucid.BotDetection.PrometheusPack.Telemetry.Prometheus;
 
 namespace Mostlylucid.BotDetection.Test.Telemetry;
 

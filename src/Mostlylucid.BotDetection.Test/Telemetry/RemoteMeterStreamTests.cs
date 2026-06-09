@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Telemetry;
+using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 namespace Mostlylucid.BotDetection.Test.Telemetry;
 
