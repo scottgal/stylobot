@@ -1000,6 +1000,19 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<SqlitePoolCollisionStore>();
         services.TryAddSingleton<IFingerprintPoolCollisionTracker>(sp => sp.GetRequiredService<SqlitePoolCollisionStore>());
         services.AddHostedService<PoolCollisionInitService>();
+
+        // Sticky-deny store: same WriteBehindLfuStore pattern. SQLite tier
+        // makes the block window durable across restarts so a bot can't
+        // escape its block by waiting for the process to recycle. The
+        // policy options come from configuration via IOptions; the ctor
+        // pulls the un-typed StickyDenyActionOptions so production
+        // deployments can tune ViolationThreshold / WindowSeconds /
+        // BlockTtlSeconds without touching code.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Actions.StickyDenyActionOptions>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.Actions.SqliteStickyDenyStore>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.Actions.IStickyDenyTracker>(
+            sp => sp.GetRequiredService<Mostlylucid.BotDetection.Actions.SqliteStickyDenyStore>());
+        services.AddHostedService<Mostlylucid.BotDetection.Actions.StickyDenyInitService>();
         services.AddSingleton<IContributingDetector, PoolCollisionContributor>();
         // Advanced fingerprinting detectors (Wave 0 - network/protocol layer)
         services.TryAddSingleton<Ja3ReferenceIndex>();

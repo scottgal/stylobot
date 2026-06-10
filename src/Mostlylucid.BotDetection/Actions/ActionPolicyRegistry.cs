@@ -47,6 +47,7 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
     private readonly BotDetectionOptions _options;
     private readonly Mostlylucid.BotDetection.RateLimit.ITokenBucketStore _tokenBucketStore;
     private readonly Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker? _adaptiveScaling;
+    private readonly IStickyDenyTracker _stickyDenyTracker;
     private readonly ConcurrentDictionary<string, IActionPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -71,7 +72,8 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         IEnumerable<IActionPolicy>? additionalPolicies = null,
         ILogger<ActionPolicyRegistry>? logger = null,
         Mostlylucid.BotDetection.RateLimit.ITokenBucketStore? tokenBucketStore = null,
-        Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker? adaptiveScaling = null)
+        Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker? adaptiveScaling = null,
+        IStickyDenyTracker? stickyDenyTracker = null)
     {
         _options = options.Value;
         _factories = factories;
@@ -79,6 +81,8 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         _tokenBucketStore = tokenBucketStore
             ?? new Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore();
         _adaptiveScaling = adaptiveScaling;
+        _stickyDenyTracker = stickyDenyTracker
+            ?? new InMemoryStickyDenyTracker(new StickyDenyActionOptions());
 
         // Register built-in defaults
         RegisterBuiltInPolicies();
@@ -196,6 +200,18 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
             RateLimitActionOptions.Social, _tokenBucketStore, this, _adaptiveScaling));
         RegisterPolicy(new RateLimitActionPolicy("rate-limit-monitoring",
             RateLimitActionOptions.Monitoring, _tokenBucketStore, this, _adaptiveScaling));
+
+        // Sticky-deny: per-key violation counter that escalates from the
+        // configured UnderThresholdAction (default throttle-status) to a hard
+        // 403 + opaque cookie after N violations in a window. Wires in cleanly
+        // as the OverLimitAction of a RateLimitActionPolicy. The default
+        // in-memory tracker is fine for single-process deployments; commercial
+        // / multi-instance deployments inject the SQLite-backed tracker.
+        RegisterPolicy(new StickyDenyActionPolicy(
+            "sticky-deny",
+            new StickyDenyActionOptions(),
+            _stickyDenyTracker,
+            this));
 
         // Redirect policies
         RegisterPolicy(new RedirectActionPolicy("redirect", RedirectActionOptions.BlockedPage));
