@@ -5,13 +5,13 @@ using Mostlylucid.BotDetection.Policies.Signals;
 namespace Mostlylucid.BotDetection.Policies.Resolution;
 
 /// <summary>
-///     Default <see cref="IPolicyResolver"/> implementation. Walks the scope
-///     chain (<see cref="PolicyScope.Endpoint"/> →
-///     <see cref="PolicyScope.Subdomain"/> →
-///     <see cref="PolicyScope.Domain"/> →
-///     <see cref="PolicyScope.Wildcard"/>) and asks the underlying
-///     <see cref="IPolicyRuleStore"/> for the concatenated stack. Predicate
-///     filtering is delegated to <see cref="PredicateEvaluator"/>.
+///     Default <see cref="IPolicyResolver"/> implementation. Walks the Host
+///     slot of a request-shaped <see cref="PolicyScope"/> from most-specific
+///     (Endpoint) to broadest (null) and assembles the merged rule list. The
+///     orthogonal slots (Method / Geo / Identity) are NOT filtered in
+///     <see cref="EffectiveAsync"/> -- they are evaluated by
+///     <see cref="EffectiveWithContextAsync"/> via <see cref="PolicyScopeMatcher"/>
+///     against the actual per-request signals.
 ///
 ///     <para>
 ///         Phase F: an optional <see cref="ISignalContributor" /> set is
@@ -74,18 +74,19 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
     {
         var all = await EffectiveAsync(scope, ct).ConfigureAwait(false);
 
-        // Build the merged signals map once: per-request signals first (they win),
-        // contributors add anything else with TryAdd semantics. When no contributor
-        // is wired we hand the original dict to PredicateEvaluator unchanged so the
-        // hot path stays allocation-equivalent to the pre-Phase-F behaviour.
-        IReadOnlyDictionary<string, object?> evalSignals;
-        if (_contributors.Count == 0)
+        // Build the merged signals map. Three layers, lowest-priority first:
+        //   1. Scope-derived request.* / geo.country / identity.* signals from
+        //      the `scope` argument (which describes the REQUEST -- Host slot
+        //      tells us domain/subdomain/path, orthogonal slots tell us method
+        //      / country / identity). These provide defaults so a caller can
+        //      omit per-request signals and still get sane scope matching.
+        //   2. ISignalContributor entries (Phase F) -- TryAdd semantics so the
+        //      contributor never overwrites a value already present.
+        //   3. Per-request signals -- always win.
+        var merged = new Dictionary<string, object?>(requestSignals.Count + 8);
+        FillFromScope(scope, merged);
+        if (_contributors.Count > 0)
         {
-            evalSignals = requestSignals;
-        }
-        else
-        {
-            var merged = new Dictionary<string, object?>(requestSignals);
             foreach (var contributor in _contributors)
             {
                 try
@@ -103,48 +104,120 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
                     // resolver stays a pure dependency graph.
                 }
             }
-            evalSignals = merged;
         }
+        // Per-request signals overlay last so they win.
+        foreach (var kv in requestSignals)
+            merged[kv.Key] = kv.Value;
+        IReadOnlyDictionary<string, object?> evalSignals = merged;
 
+        // Two-stage filter:
+        //   1. PolicyScopeMatcher narrows the URL-walked candidate set by the
+        //      orthogonal slots (Method / Geo / Identity). A rule with no
+        //      orthogonal slots populated passes through trivially.
+        //   2. PredicateEvaluator evaluates the predicate against the merged
+        //      signal map -- the existing Phase-F semantics.
+        // Output is sorted most-specific-first using PolicyScope.Specificity.
         var result = new List<EffectiveRule>(all.Count);
         foreach (var entry in all)
         {
-            if (PredicateEvaluator.Evaluate(entry.Rule.Predicate, evalSignals))
-                result.Add(entry);
+            if (!PolicyScopeMatcher.MatchesRequest(entry.Rule.Scope, evalSignals)) continue;
+            if (!PredicateEvaluator.Evaluate(entry.Rule.Predicate, evalSignals)) continue;
+            result.Add(entry);
         }
+
+        result.Sort(static (a, b) =>
+        {
+            // Descending specificity, then ascending priority within a tie.
+            var spec = b.Rule.Scope.Specificity.CompareTo(a.Rule.Scope.Specificity);
+            if (spec != 0) return spec;
+            return a.Rule.Priority.CompareTo(b.Rule.Priority);
+        });
+
         return result;
     }
 
     /// <summary>
-    ///     Derive the most-specific-first scope path for <paramref name="scope"/>.
-    ///     Order: Endpoint → Subdomain → Domain → Wildcard.
+    ///     Derive the most-specific-first Host-walk for <paramref name="scope"/>.
+    ///     The walk only varies on the Host slot; orthogonal slots travel along
+    ///     untouched so a request at <c>Endpoint(acme.com, docs, /api/upload)</c>
+    ///     pulls rules attached at <c>Endpoint</c>, <c>Subdomain</c>,
+    ///     <c>Domain</c>, AND wildcard (no Host slot).
     /// </summary>
-    private static IReadOnlyList<PolicyScope> WalkPath(PolicyScope scope) =>
-        scope switch
+    private static IReadOnlyList<PolicyScope> WalkPath(PolicyScope scope)
+    {
+        // The orthogonal slots on `scope` describe the REQUEST, not the rule.
+        // Rule-store lookups index purely by Host -- the orthogonal axes are
+        // resolved at predicate-evaluation time. Walk Host only.
+        return scope.Host switch
         {
-            PolicyScope.Endpoint e => new PolicyScope[]
+            HostScope.Endpoint e => new PolicyScope[]
             {
-                e,
-                new PolicyScope.Subdomain(e.DomainName, e.SubdomainName),
-                new PolicyScope.Domain(e.DomainName),
-                new PolicyScope.Wildcard()
+                PolicyScope.Endpoint(e.DomainName, e.SubdomainName, e.PathTemplate),
+                PolicyScope.Subdomain(e.DomainName, e.SubdomainName),
+                PolicyScope.Domain(e.DomainName),
+                PolicyScope.Wildcard()
             },
-            PolicyScope.Subdomain s => new PolicyScope[]
+            HostScope.Subdomain s => new PolicyScope[]
             {
-                s,
-                new PolicyScope.Domain(s.DomainName),
-                new PolicyScope.Wildcard()
+                PolicyScope.Subdomain(s.DomainName, s.SubdomainName),
+                PolicyScope.Domain(s.DomainName),
+                PolicyScope.Wildcard()
             },
-            PolicyScope.Domain d => new PolicyScope[]
+            HostScope.Domain d => new PolicyScope[]
             {
-                d,
-                new PolicyScope.Wildcard()
+                PolicyScope.Domain(d.Name),
+                PolicyScope.Wildcard()
             },
-            _ => new PolicyScope[] { new PolicyScope.Wildcard() }
+            _ => new PolicyScope[] { PolicyScope.Wildcard() }
         };
+    }
 
     // Records define value equality, but Equals(object?) on the abstract base
     // dispatches through the closed hierarchy correctly. Keep this as an
     // explicit helper so the intent at call sites stays obvious.
     private static bool ScopeEquals(PolicyScope a, PolicyScope b) => a == b;
+
+    /// <summary>
+    ///     Populate scope-derived request signals so PolicyScopeMatcher can
+    ///     filter rules with a Host / Method / Geo / Identity slot. The values
+    ///     come from the request-shaped <paramref name="scope"/> the resolver
+    ///     was called with. Per-request signals always overlay these later,
+    ///     so a caller that DOES populate request.* / geo.country / identity.*
+    ///     entries is not overridden.
+    /// </summary>
+    private static void FillFromScope(PolicyScope scope, IDictionary<string, object?> signals)
+    {
+        switch (scope.Host)
+        {
+            case HostScope.Domain d:
+                signals[PolicyScopeMatcher.RequestDomainKey] = d.Name;
+                break;
+            case HostScope.Subdomain s:
+                signals[PolicyScopeMatcher.RequestDomainKey] = s.DomainName;
+                signals[PolicyScopeMatcher.RequestSubdomainKey] = s.SubdomainName;
+                break;
+            case HostScope.Endpoint e:
+                signals[PolicyScopeMatcher.RequestDomainKey] = e.DomainName;
+                signals[PolicyScopeMatcher.RequestSubdomainKey] = e.SubdomainName;
+                signals[PolicyScopeMatcher.RequestPathKey] = e.PathTemplate;
+                break;
+        }
+        if (scope.Method is not null) signals[PolicyScopeMatcher.RequestMethodKey] = scope.Method;
+        if (scope.Geo is not null) signals[PolicyScopeMatcher.GeoCountryKey] = scope.Geo;
+        switch (scope.Identity)
+        {
+            case IdentityScope.NamedBot n:
+                signals[PolicyScopeMatcher.IdentityNamedBotKey] = n.Family;
+                break;
+            case IdentityScope.BotType b:
+                signals[PolicyScopeMatcher.IdentityBotTypeKey] = b.Category;
+                break;
+            case IdentityScope.HumanBrowser h:
+                signals[PolicyScopeMatcher.IdentityHumanBrowserKey] = h.Family;
+                break;
+            case IdentityScope.Fingerprint f:
+                signals[PolicyScopeMatcher.IdentityFingerprintIdKey] = f.Id;
+                break;
+        }
+    }
 }

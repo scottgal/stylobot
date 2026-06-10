@@ -20,17 +20,25 @@ namespace Mostlylucid.BotDetection.UI.Policies;
 ///       </description></item>
 ///       <item><description>
 ///         <see cref="WalkAncestors"/> + <see cref="AncestorHashes"/> --
-///         decompose any scope into its Wildcard/Domain/Subdomain/Endpoint
-///         ancestor chain so a browser viewing at Endpoint scope joins every
-///         enclosing group too. That way a Domain-level mutation reaches every
-///         dashboard sitting on a child Subdomain/Endpoint.
+///         decompose any scope's Host slot into its Wildcard/Domain/Subdomain/
+///         Endpoint ancestor chain so a browser viewing at Endpoint scope joins
+///         every enclosing group too. That way a Domain-level mutation reaches
+///         every dashboard sitting on a child Subdomain/Endpoint.
 ///       </description></item>
 ///     </list>
 ///
 ///     <para>
-///     Kept dependency-free so the broadcaster, the view component, the
-///     middleware, and the (FOSS or commercial) ChangeNotification host all
-///     share ONE source of truth on what group name encodes what scope.
+///         Kept dependency-free so the broadcaster, the view component, the
+///         middleware, and the (FOSS or commercial) ChangeNotification host all
+///         share ONE source of truth on what group name encodes what scope.
+///     </para>
+///
+///     <para>
+///         The composite <see cref="PolicyScope"/> shape carries optional
+///         orthogonal slots (Method / Geo / Identity); for the SignalR routing
+///         we collapse to the Host slot because that is the live-update
+///         ancestry the dashboard navigation walks. A rule attached at
+///         "Domain + Geo=RU" still fans out as a Domain-scoped change.
 ///     </para>
 /// </summary>
 public static class PolicyScopeKeys
@@ -40,12 +48,12 @@ public static class PolicyScopeKeys
     ///     pre-image so the hash matches whether you compute it from the
     ///     presenter or from here.
     /// </summary>
-    public static string ScopeKey(PolicyScope scope) => scope switch
+    public static string ScopeKey(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "wildcard||||",
-        PolicyScope.Domain d => $"domain|{d.DomainName}|||",
-        PolicyScope.Subdomain s => $"subdomain|{s.DomainName}|{s.SubdomainName}||",
-        PolicyScope.Endpoint e => $"endpoint|{e.DomainName}|{e.SubdomainName}|{e.PathTemplate}|",
+        null => "wildcard||||",
+        HostScope.Domain d => $"domain|{d.Name}|||",
+        HostScope.Subdomain s => $"subdomain|{s.DomainName}|{s.SubdomainName}||",
+        HostScope.Endpoint e => $"endpoint|{e.DomainName}|{e.SubdomainName}|{e.PathTemplate}|",
         _ => "unknown||||"
     };
 
@@ -83,22 +91,22 @@ public static class PolicyScopeKeys
         // Wildcard sits above every other scope by definition. We always
         // include it so a wildcard-level rule mutation reaches every browser
         // regardless of how deeply it was scoped at render time.
-        var ancestors = new List<PolicyScope> { new PolicyScope.Wildcard() };
-        switch (scope)
+        var ancestors = new List<PolicyScope> { PolicyScope.Wildcard() };
+        switch (scope.Host)
         {
-            case PolicyScope.Wildcard:
+            case null:
                 break;
-            case PolicyScope.Domain d:
-                ancestors.Add(d);
+            case HostScope.Domain d:
+                ancestors.Add(PolicyScope.Domain(d.Name));
                 break;
-            case PolicyScope.Subdomain s:
-                ancestors.Add(new PolicyScope.Domain(s.DomainName));
-                ancestors.Add(s);
+            case HostScope.Subdomain s:
+                ancestors.Add(PolicyScope.Domain(s.DomainName));
+                ancestors.Add(PolicyScope.Subdomain(s.DomainName, s.SubdomainName));
                 break;
-            case PolicyScope.Endpoint e:
-                ancestors.Add(new PolicyScope.Domain(e.DomainName));
-                ancestors.Add(new PolicyScope.Subdomain(e.DomainName, e.SubdomainName));
-                ancestors.Add(e);
+            case HostScope.Endpoint e:
+                ancestors.Add(PolicyScope.Domain(e.DomainName));
+                ancestors.Add(PolicyScope.Subdomain(e.DomainName, e.SubdomainName));
+                ancestors.Add(PolicyScope.Endpoint(e.DomainName, e.SubdomainName, e.PathTemplate));
                 break;
         }
         return ancestors;

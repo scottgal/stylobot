@@ -82,7 +82,7 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         var client = await BuildClientAsync();
 
         var encoded = PolicyScopeUrl.Encode(
-            new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload));
+            PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload));
         var html = await client.GetStringAsync(
             $"/_test/dashboard/policies?scope={Uri.EscapeDataString(encoded)}");
 
@@ -305,11 +305,11 @@ public sealed class DashboardIntegrationStubController : Controller
         // Mirrors _InvestigatePolicy.cshtml scope resolution.
         PolicyScope scope;
         if (!string.IsNullOrEmpty(endpointPath) && !string.IsNullOrEmpty(host))
-            scope = new PolicyScope.Endpoint(host, host, endpointPath);
+            scope = PolicyScope.Endpoint(host, host, endpointPath);
         else if (!string.IsNullOrEmpty(host))
-            scope = new PolicyScope.Domain(host);
+            scope = PolicyScope.Domain(host);
         else
-            scope = new PolicyScope.Wildcard();
+            scope = PolicyScope.Wildcard();
         return ViewComponent("SbPolicyStack", new
         {
             scope,
@@ -326,8 +326,8 @@ public sealed class DashboardIntegrationStubController : Controller
         // Mirrors _EndpointDetail.cshtml's PolicyScope.Endpoint construction.
         var template = $"{method} {path}";
         var scope = string.IsNullOrEmpty(host)
-            ? (PolicyScope)new PolicyScope.Wildcard()
-            : new PolicyScope.Endpoint(host, host, template);
+            ? (PolicyScope)PolicyScope.Wildcard()
+            : PolicyScope.Endpoint(host, host, template);
         return ViewComponent("SbPolicyStack", new
         {
             scope,
@@ -343,7 +343,7 @@ public sealed class DashboardIntegrationStubController : Controller
     {
         // Mirrors _SignatureDetail.cshtml: EffectiveOnly + locked explainer.
         var template = $"{method} {path}";
-        var scope = new PolicyScope.Endpoint(host, host, template);
+        var scope = PolicyScope.Endpoint(host, host, template);
         return ViewComponent("SbPolicyStack", new
         {
             scope,
@@ -358,7 +358,7 @@ public sealed class DashboardIntegrationStubController : Controller
     public IActionResult StatusBadge(string host)
     {
         // Mirrors Index.cshtml's status-badge invocation.
-        var scope = new PolicyScope.Domain(host);
+        var scope = PolicyScope.Domain(host);
         return ViewComponent("SbPolicyStack", new
         {
             scope,
@@ -374,8 +374,8 @@ public sealed class DashboardIntegrationStubController : Controller
         // We emit the same wrapper markup verbatim so the smoke test can
         // assert on the marker class + the rows URL the lazy-load points at.
         var pageScope = string.IsNullOrEmpty(host)
-            ? (PolicyScope)new PolicyScope.Wildcard()
-            : new PolicyScope.Domain(host);
+            ? (PolicyScope)PolicyScope.Wildcard()
+            : PolicyScope.Domain(host);
         var encoded = PolicyScopeUrl.Encode(pageScope);
         var rowsUrl = $"/dashboard/policystack/rows?scope={encoded}&tab=effective";
         var html = $"""

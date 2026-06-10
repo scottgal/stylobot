@@ -224,21 +224,21 @@ public class PolicyConflictAnalyzer
         _ => "info"
     };
 
-    private static string SourcePillFor(PolicyScope scope) => scope switch
+    private static string SourcePillFor(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "GLOBAL",
-        PolicyScope.Domain => "DOMAIN",
-        PolicyScope.Subdomain => "SUBDOMAIN",
-        PolicyScope.Endpoint => "ENDPOINT",
+        null => "GLOBAL",
+        HostScope.Domain => "DOMAIN",
+        HostScope.Subdomain => "SUBDOMAIN",
+        HostScope.Endpoint => "ENDPOINT",
         _ => "GLOBAL"
     };
 
-    private static string ScopeLabelFor(PolicyScope scope) => scope switch
+    private static string ScopeLabelFor(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "GLOBAL",
-        PolicyScope.Domain d => $"DOMAIN {d.DomainName}",
-        PolicyScope.Subdomain s => $"SUBDOMAIN {s.SubdomainName}",
-        PolicyScope.Endpoint e => $"ENDPOINT {e.PathTemplate}",
+        null => "GLOBAL",
+        HostScope.Domain d => $"DOMAIN {d.Name}",
+        HostScope.Subdomain s => $"SUBDOMAIN {s.SubdomainName}",
+        HostScope.Endpoint e => $"ENDPOINT {e.PathTemplate}",
         _ => "GLOBAL"
     };
 

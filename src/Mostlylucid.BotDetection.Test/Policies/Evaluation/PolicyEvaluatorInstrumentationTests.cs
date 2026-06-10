@@ -11,7 +11,7 @@ public class PolicyEvaluatorInstrumentationTests
         PolicyMode mode = PolicyMode.Live) =>
         new(
             Id: Guid.NewGuid(),
-            Scope: new PolicyScope.Wildcard(),
+            Scope: PolicyScope.Wildcard(),
             Priority: priority,
             Predicate: PredicateParser.Parse(predicate),
             Action: action,
@@ -138,7 +138,7 @@ public class PolicyEvaluatorInstrumentationTests
         var log = new InMemoryPolicyDecisionLog();
         var slowRule = new PolicyRule(
             Id: Guid.NewGuid(),
-            Scope: new PolicyScope.Wildcard(),
+            Scope: PolicyScope.Wildcard(),
             Priority: 0,
             Predicate: new Mostlylucid.BotDetection.Policies.Predicate.Predicate.Term("bot.type", PredicateOp.Matches, "scraper.*"),  // regex -> measurable cost
             Action: new PolicyAction.Block(),

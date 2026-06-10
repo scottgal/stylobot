@@ -41,10 +41,10 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     private const string SubDocs = "docs.acme.com";
     private const string EpUpload = "GET /api/upload";
 
-    private static readonly PolicyScope WildcardScope = new PolicyScope.Wildcard();
-    private static readonly PolicyScope DomainScope = new PolicyScope.Domain(DomainAcme);
-    private static readonly PolicyScope SubdomainScope = new PolicyScope.Subdomain(DomainAcme, SubDocs);
-    private static readonly PolicyScope EndpointScope = new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
+    private static readonly PolicyScope WildcardScope = PolicyScope.Wildcard();
+    private static readonly PolicyScope DomainScope = PolicyScope.Domain(DomainAcme);
+    private static readonly PolicyScope SubdomainScope = PolicyScope.Subdomain(DomainAcme, SubDocs);
+    private static readonly PolicyScope EndpointScope = PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
 
     private readonly List<WebApplication> _apps = new();
 
@@ -168,10 +168,10 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             canEdit: false);
 
         Assert.Equal(4, vm.BreadcrumbPath.Count);
-        Assert.IsType<PolicyScope.Wildcard>(vm.BreadcrumbPath[0]);
-        Assert.IsType<PolicyScope.Domain>(vm.BreadcrumbPath[1]);
-        Assert.IsType<PolicyScope.Subdomain>(vm.BreadcrumbPath[2]);
-        Assert.IsType<PolicyScope.Endpoint>(vm.BreadcrumbPath[3]);
+        Assert.Null(vm.BreadcrumbPath[0].Host);
+        Assert.IsType<HostScope.Domain>(vm.BreadcrumbPath[1].Host);
+        Assert.IsType<HostScope.Subdomain>(vm.BreadcrumbPath[2].Host);
+        Assert.IsType<HostScope.Endpoint>(vm.BreadcrumbPath[3].Host);
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         // block-confirmed-bot) embedded in Mostlylucid.BotDetection.dll would
         // otherwise inherit into any endpoint scope and break "no rows" here.
         var presenter = await BuildPresenterAsync(new EmptyPolicyRuleStore());
-        var emptyScope = new PolicyScope.Endpoint("unknown.example", "api.unknown.example", "GET /none");
+        var emptyScope = PolicyScope.Endpoint("unknown.example", "api.unknown.example", "GET /none");
 
         var vm = await presenter.BuildAsync(
             scope: emptyScope,
@@ -339,8 +339,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
 
         Assert.NotEmpty(conflicts);
         Assert.Contains(conflicts, c => c.Severity == "warning"
-            && c.OwnerScope is PolicyScope.Endpoint
-            && c.OverriddenScope is PolicyScope.Domain);
+            && c.OwnerScope.Host is HostScope.Endpoint
+            && c.OverriddenScope.Host is HostScope.Domain);
     }
 
     [Fact]
@@ -351,13 +351,13 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             // Two Allow rules at different scopes -- no conflict.
             new EffectiveRule(
                 MakeRule("is_human = true", new PolicyAction.Allow(), priority: 100,
-                    scope: new PolicyScope.Domain(DomainAcme)),
-                new PolicyScope.Domain(DomainAcme),
+                    scope: PolicyScope.Domain(DomainAcme)),
+                PolicyScope.Domain(DomainAcme),
                 IsInherited: false),
             new EffectiveRule(
                 MakeRule("ua.family = chrome", new PolicyAction.Allow(), priority: 50,
-                    scope: new PolicyScope.Subdomain(DomainAcme, SubDocs)),
-                new PolicyScope.Subdomain(DomainAcme, SubDocs),
+                    scope: PolicyScope.Subdomain(DomainAcme, SubDocs)),
+                PolicyScope.Subdomain(DomainAcme, SubDocs),
                 IsInherited: false)
         };
 
@@ -805,10 +805,10 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Equal(4, hashes.Count);
         // Re-derive each hash from the canonical scope key and confirm
         // membership; this is what the broadcaster + the client glue agree on.
-        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Wildcard()), hashes);
-        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Domain(DomainAcme)), hashes);
-        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Subdomain(DomainAcme, SubDocs)), hashes);
-        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload)), hashes);
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(PolicyScope.Wildcard()), hashes);
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(PolicyScope.Domain(DomainAcme)), hashes);
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(PolicyScope.Subdomain(DomainAcme, SubDocs)), hashes);
+        Assert.Contains(Mostlylucid.BotDetection.UI.Policies.PolicyScopeKeys.ScopeHash(PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload)), hashes);
     }
 
     /// <summary>
@@ -893,15 +893,15 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         var endpoint = MakeRule(
             "bot.type in (scraper, crawler) and score.bot_probability >= 0.7",
             new PolicyAction.Block(), priority: 10,
-            scope: new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload));
+            scope: PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload));
         var subdomain = MakeRule(
             "geo.country in (CN, RU)",
             new PolicyAction.Challenge("turnstile"), priority: 50,
-            scope: new PolicyScope.Subdomain(DomainAcme, SubDocs));
+            scope: PolicyScope.Subdomain(DomainAcme, SubDocs));
         var domain = MakeRule(
             "is_human = true",
             new PolicyAction.Allow(), priority: 100,
-            scope: new PolicyScope.Domain(DomainAcme));
+            scope: PolicyScope.Domain(DomainAcme));
 
         return new[]
         {
@@ -1161,15 +1161,15 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         bool canEdit = false)
     {
         var query = $"embed={embed}&scopeKind={ScopeKind(scope)}";
-        switch (scope)
+        switch (scope.Host)
         {
-            case PolicyScope.Domain d:
-                query += $"&domain={d.DomainName}";
+            case HostScope.Domain d:
+                query += $"&domain={d.Name}";
                 break;
-            case PolicyScope.Subdomain s:
+            case HostScope.Subdomain s:
                 query += $"&domain={s.DomainName}&sub={s.SubdomainName}";
                 break;
-            case PolicyScope.Endpoint e:
+            case HostScope.Endpoint e:
                 query += $"&domain={e.DomainName}&sub={e.SubdomainName}&template={Uri.EscapeDataString(e.PathTemplate)}";
                 break;
         }
@@ -1192,12 +1192,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         return await resp.Content.ReadAsStringAsync();
     }
 
-    private static string ScopeKind(PolicyScope scope) => scope switch
+    private static string ScopeKind(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "wildcard",
-        PolicyScope.Domain => "domain",
-        PolicyScope.Subdomain => "subdomain",
-        PolicyScope.Endpoint => "endpoint",
+        null => "wildcard",
+        HostScope.Domain => "domain",
+        HostScope.Subdomain => "subdomain",
+        HostScope.Endpoint => "endpoint",
         _ => "wildcard"
     };
 
@@ -1259,7 +1259,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     private static async Task<Guid> GetEndpointRuleIdAsync(IPolicyResolver resolver)
     {
         var effective = await resolver.EffectiveAsync(EndpointScope);
-        return effective.First(r => r.SourceScope is PolicyScope.Endpoint).Rule.Id;
+        return effective.First(r => r.SourceScope.Host is HostScope.Endpoint).Rule.Id;
     }
 
     public async ValueTask DisposeAsync()
@@ -1363,10 +1363,10 @@ public sealed class PolicyStackTestController : Controller
     {
         PolicyScope scope = scopeKind switch
         {
-            "domain" => new PolicyScope.Domain(domain ?? "unknown"),
-            "subdomain" => new PolicyScope.Subdomain(domain ?? "unknown", sub ?? "unknown"),
-            "endpoint" => new PolicyScope.Endpoint(domain ?? "unknown", sub ?? "unknown", template ?? "GET /"),
-            _ => new PolicyScope.Wildcard()
+            "domain" => PolicyScope.Domain(domain ?? "unknown"),
+            "subdomain" => PolicyScope.Subdomain(domain ?? "unknown", sub ?? "unknown"),
+            "endpoint" => PolicyScope.Endpoint(domain ?? "unknown", sub ?? "unknown", template ?? "GET /"),
+            _ => PolicyScope.Wildcard()
         };
         var parsedEmbed = Enum.TryParse<PolicyStackEmbed>(embed, ignoreCase: true, out var e)
             ? e

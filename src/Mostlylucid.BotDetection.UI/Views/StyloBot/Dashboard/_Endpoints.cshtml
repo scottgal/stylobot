@@ -11,8 +11,8 @@
        so the operator can see the inheritance chain before drilling. *@
     var host = Context?.Request?.Host.Host ?? string.Empty;
     PolicyScope pageScope = string.IsNullOrEmpty(host)
-        ? new PolicyScope.Wildcard()
-        : new PolicyScope.Domain(host);
+        ? PolicyScope.Wildcard()
+        : PolicyScope.Domain(host);
     var policyRowsUrl = $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(pageScope)}&tab=effective";
 }
 <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">

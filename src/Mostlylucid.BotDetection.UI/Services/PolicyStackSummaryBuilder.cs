@@ -54,7 +54,7 @@ public sealed class PolicyStackSummaryBuilder
     public static readonly TimeSpan ShortWindow = TimeSpan.FromMinutes(15);
 
     private static readonly IReadOnlyList<PolicyScope> WildcardPath =
-        new PolicyScope[] { new PolicyScope.Wildcard() };
+        new[] { PolicyScope.Wildcard() };
 
     private readonly IPolicyRuleStore? _ruleStore;
     private readonly IPolicyDecisionLog? _decisionLog;

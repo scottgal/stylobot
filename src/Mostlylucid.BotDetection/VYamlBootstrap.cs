@@ -82,6 +82,8 @@ internal static class VYamlBootstrap
         // Policy Stack rule files
         YamlRuleFile.__RegisterVYamlFormatter();
         YamlRuleScope.__RegisterVYamlFormatter();
+        YamlRuleHost.__RegisterVYamlFormatter();
+        YamlRuleIdentity.__RegisterVYamlFormatter();
         YamlRuleAction.__RegisterVYamlFormatter();
 
         // Detector / pipeline manifests

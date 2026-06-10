@@ -33,20 +33,20 @@ public class PolicyResolverTests
     {
         var resolver = await BuildResolverAsync();
         var effective = await resolver.EffectiveAsync(
-            new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload));
+            PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload));
 
         Assert.Equal(3, effective.Count);
 
         // Endpoint first, not inherited.
-        Assert.Equal(new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload), effective[0].SourceScope);
+        Assert.Equal(PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload), effective[0].SourceScope);
         Assert.False(effective[0].IsInherited);
 
         // Subdomain next, inherited.
-        Assert.Equal(new PolicyScope.Subdomain(DomainAcme, SubDocs), effective[1].SourceScope);
+        Assert.Equal(PolicyScope.Subdomain(DomainAcme, SubDocs), effective[1].SourceScope);
         Assert.True(effective[1].IsInherited);
 
         // Domain last, inherited.
-        Assert.Equal(new PolicyScope.Domain(DomainAcme), effective[2].SourceScope);
+        Assert.Equal(PolicyScope.Domain(DomainAcme), effective[2].SourceScope);
         Assert.True(effective[2].IsInherited);
     }
 
@@ -54,15 +54,15 @@ public class PolicyResolverTests
     public async Task Effective_at_subdomain_excludes_endpoint_specific_rules()
     {
         var resolver = await BuildResolverAsync();
-        var effective = await resolver.EffectiveAsync(new PolicyScope.Subdomain(DomainAcme, SubDocs));
+        var effective = await resolver.EffectiveAsync(PolicyScope.Subdomain(DomainAcme, SubDocs));
 
         Assert.DoesNotContain(effective, e => e.Rule.Action is PolicyAction.Block);
         Assert.Equal(2, effective.Count);   // subdomain + domain
 
-        Assert.Equal(new PolicyScope.Subdomain(DomainAcme, SubDocs), effective[0].SourceScope);
+        Assert.Equal(PolicyScope.Subdomain(DomainAcme, SubDocs), effective[0].SourceScope);
         Assert.False(effective[0].IsInherited);
 
-        Assert.Equal(new PolicyScope.Domain(DomainAcme), effective[1].SourceScope);
+        Assert.Equal(PolicyScope.Domain(DomainAcme), effective[1].SourceScope);
         Assert.True(effective[1].IsInherited);
     }
 
@@ -70,10 +70,10 @@ public class PolicyResolverTests
     public async Task Effective_at_domain_returns_only_domain_rule()
     {
         var resolver = await BuildResolverAsync();
-        var effective = await resolver.EffectiveAsync(new PolicyScope.Domain(DomainAcme));
+        var effective = await resolver.EffectiveAsync(PolicyScope.Domain(DomainAcme));
 
         Assert.Single(effective);
-        Assert.Equal(new PolicyScope.Domain(DomainAcme), effective[0].SourceScope);
+        Assert.Equal(PolicyScope.Domain(DomainAcme), effective[0].SourceScope);
         Assert.False(effective[0].IsInherited);
     }
 
@@ -93,7 +93,7 @@ public class PolicyResolverTests
             ["is_human"] = false
         };
         var matched = await resolver.EffectiveWithContextAsync(
-            new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload),
+            PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload),
             scraperSignals);
 
         Assert.Contains(matched, e => e.Rule.Action is PolicyAction.Block);
@@ -107,7 +107,7 @@ public class PolicyResolverTests
 
         // Empty signal bag -> every rule's term hits an unknown facet -> false.
         var matched = await resolver.EffectiveWithContextAsync(
-            new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload),
+            PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload),
             new Dictionary<string, object?>());
 
         Assert.Empty(matched);
@@ -273,7 +273,7 @@ public class PolicyResolverTests
         var resolver = new DefaultPolicyResolver(store, new[] { contributor });
 
         var matched = await resolver.EffectiveWithContextAsync(
-            new PolicyScope.Wildcard(),
+            PolicyScope.Wildcard(),
             new Dictionary<string, object?>
             {
                 ["score.bot_probability"] = 0.95m
@@ -298,7 +298,7 @@ public class PolicyResolverTests
         var resolver = new DefaultPolicyResolver(store, new[] { contributor });
 
         var matched = await resolver.EffectiveWithContextAsync(
-            new PolicyScope.Wildcard(),
+            PolicyScope.Wildcard(),
             new Dictionary<string, object?>
             {
                 ["meter.foo.current"] = 5.0
@@ -318,7 +318,7 @@ public class PolicyResolverTests
         var resolver = new DefaultPolicyResolver(store, new[] { contributor });
 
         var matched = await resolver.EffectiveWithContextAsync(
-            new PolicyScope.Wildcard(),
+            PolicyScope.Wildcard(),
             new Dictionary<string, object?>
             {
                 ["score.bot_probability"] = 0.95m
@@ -337,7 +337,7 @@ public class PolicyResolverTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => resolver.EffectiveWithContextAsync(
-                new PolicyScope.Wildcard(),
+                PolicyScope.Wildcard(),
                 new Dictionary<string, object?> { ["score.bot_probability"] = 0.95m }));
     }
 
@@ -359,7 +359,7 @@ public class PolicyResolverTests
             ["is_human"] = false
         };
         var matched = await resolverNoContrib.EffectiveWithContextAsync(
-            new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload),
+            PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload),
             scraperSignals);
 
         Assert.Contains(matched, e => e.Rule.Action is PolicyAction.Block);
@@ -376,7 +376,7 @@ public class PolicyResolverTests
         {
             var rule = new PolicyRule(
                 Id: Guid.NewGuid(),
-                Scope: new PolicyScope.Wildcard(),
+                Scope: PolicyScope.Wildcard(),
                 Priority: 100,
                 Predicate: PredicateParser.Parse(predicateText),
                 Action: new PolicyAction.Block(),
@@ -391,7 +391,7 @@ public class PolicyResolverTests
         public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
 
         public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
-            => Task.FromResult(scope is PolicyScope.Wildcard ? _rules : (IReadOnlyList<PolicyRule>)Array.Empty<PolicyRule>());
+            => Task.FromResult(scope.IsWildcard ? _rules : (IReadOnlyList<PolicyRule>)Array.Empty<PolicyRule>());
 
         public Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(IReadOnlyList<PolicyScope> scopePath, CancellationToken ct = default)
             => Task.FromResult(_rules);

@@ -361,12 +361,12 @@ public sealed class PolicyExplainerPresenter
 
     // -------- Source pill + action verdict (mirrors PolicyStackPresenter) --------
 
-    private static string SourcePillFor(PolicyScope scope) => scope switch
+    private static string SourcePillFor(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "GLOBAL",
-        PolicyScope.Domain => "DOMAIN",
-        PolicyScope.Subdomain => "SUBDOMAIN",
-        PolicyScope.Endpoint => "ENDPOINT",
+        null => "GLOBAL",
+        HostScope.Domain => "DOMAIN",
+        HostScope.Subdomain => "SUBDOMAIN",
+        HostScope.Endpoint => "ENDPOINT",
         _ => "GLOBAL"
     };
 

@@ -1862,6 +1862,42 @@ public static class SignalKeys
     public const string FingerprintPriorConfidence  = "fingerprint.prior.confidence";
     public const string FingerprintPriorAgeSeconds  = "fingerprint.prior.age_seconds";
     public const string FingerprintPriorRequestCount = "fingerprint.prior.request_count";
+
+    // ==========================================
+    // PolicyScope vocabulary
+    // Canonical per-request signals consulted by the composite PolicyScope
+    // (Host? Method? Geo? Identity?) and predicates that reference the same
+    // axes. These slots are matched by PolicyScopeMatcher; they double as
+    // first-class predicate keys for the policy editor autocomplete.
+    // ==========================================
+
+    /// <summary>String: HTTP verb on the inbound request, uppercase (e.g. <c>"GET"</c>, <c>"POST"</c>).</summary>
+    public const string RequestMethod = "request.method";
+
+    /// <summary>String: apex domain of the request host (e.g. <c>"acme.com"</c>).</summary>
+    public const string RequestDomain = "request.domain";
+
+    /// <summary>String: full host / subdomain of the request (e.g. <c>"docs.acme.com"</c>).</summary>
+    public const string RequestSubdomain = "request.subdomain";
+
+    /// <summary>String: request path component (e.g. <c>"/api/upload"</c>).</summary>
+    public const string RequestPath = "request.path";
+
+    /// <summary>
+    ///     String: ISO-3166 alpha-2 country code, uppercase (e.g. <c>"US"</c>, <c>"RU"</c>).
+    ///     Predicate-friendly alias of <see cref="GeoCountryCode"/> -- exposed under the
+    ///     shorter <c>geo.country</c> name the PolicyScope authoring surface uses.
+    /// </summary>
+    public const string GeoCountry = "geo.country";
+
+    /// <summary>String: named-bot family classification (e.g. <c>"googlebot"</c>, <c>"chatgpt"</c>).</summary>
+    public const string IdentityNamedBot = "identity.named_bot";
+
+    /// <summary>String: bot category classification (e.g. <c>"scraper"</c>, <c>"headless"</c>, <c>"crawler"</c>).</summary>
+    public const string IdentityBotType = "identity.bot_type";
+
+    /// <summary>String: human browser family (e.g. <c>"chrome"</c>, <c>"firefox"</c>, <c>"safari"</c>).</summary>
+    public const string IdentityHumanBrowser = "identity.human_browser";
 }
 
 /// <summary>Values written to <see cref="SignalKeys.TransportProtocolClass"/> by TransportProtocolContributor.</summary>

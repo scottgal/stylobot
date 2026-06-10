@@ -41,8 +41,8 @@ public interface IPolicyRuleStore
     /// <summary>
     ///     Raised after a reload changes the rule corpus. The supplied scope
     ///     is the broadest scope known to be affected -- a per-rule edit fires
-    ///     with that rule's own scope; a bulk reload may fire with
-    ///     <see cref="PolicyScope.Wildcard"/>.
+    ///     with that rule's own scope; a bulk reload may fire with the
+    ///     wildcard scope (<c>PolicyScope.Wildcard()</c>).
     /// </summary>
     event EventHandler<PolicyRuleStoreChangedEventArgs> Changed;
 }

@@ -795,11 +795,11 @@ else
         if (!string.IsNullOrEmpty(sigHost) && !string.IsNullOrEmpty(sigPath))
         {
             var sigTemplate = string.IsNullOrEmpty(sigMethod) ? sigPath : $"{sigMethod} {sigPath}";
-            sigScope = new PolicyScope.Endpoint(sigHost, sigHost, sigTemplate);
+            sigScope = PolicyScope.Endpoint(sigHost, sigHost, sigTemplate);
         }
         else if (!string.IsNullOrEmpty(sigHost))
         {
-            sigScope = new PolicyScope.Domain(sigHost);
+            sigScope = PolicyScope.Domain(sigHost);
         }
         if (sigScope is not null)
         {

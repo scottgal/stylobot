@@ -21,10 +21,10 @@ public sealed class PolicyChangeBroadcasterTests
     private const string SubDocs = "docs.acme.com";
     private const string EpUpload = "GET /api/upload";
 
-    private static readonly PolicyScope WildcardScope = new PolicyScope.Wildcard();
-    private static readonly PolicyScope DomainScope = new PolicyScope.Domain(DomainAcme);
-    private static readonly PolicyScope SubdomainScope = new PolicyScope.Subdomain(DomainAcme, SubDocs);
-    private static readonly PolicyScope EndpointScope = new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
+    private static readonly PolicyScope WildcardScope = PolicyScope.Wildcard();
+    private static readonly PolicyScope DomainScope = PolicyScope.Domain(DomainAcme);
+    private static readonly PolicyScope SubdomainScope = PolicyScope.Subdomain(DomainAcme, SubDocs);
+    private static readonly PolicyScope EndpointScope = PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
 
     // -------- Ancestor walk --------
 
@@ -34,10 +34,10 @@ public sealed class PolicyChangeBroadcasterTests
         var ancestors = PolicyScopeKeys.WalkAncestors(EndpointScope);
 
         Assert.Equal(4, ancestors.Count);
-        Assert.IsType<PolicyScope.Wildcard>(ancestors[0]);
-        Assert.IsType<PolicyScope.Domain>(ancestors[1]);
-        Assert.IsType<PolicyScope.Subdomain>(ancestors[2]);
-        Assert.IsType<PolicyScope.Endpoint>(ancestors[3]);
+        Assert.Null(ancestors[0].Host);
+        Assert.IsType<HostScope.Domain>(ancestors[1].Host);
+        Assert.IsType<HostScope.Subdomain>(ancestors[2].Host);
+        Assert.IsType<HostScope.Endpoint>(ancestors[3].Host);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class PolicyChangeBroadcasterTests
     {
         var ancestors = PolicyScopeKeys.WalkAncestors(WildcardScope);
         Assert.Single(ancestors);
-        Assert.IsType<PolicyScope.Wildcard>(ancestors[0]);
+        Assert.Null(ancestors[0].Host);
     }
 
     [Fact]
@@ -65,8 +65,8 @@ public sealed class PolicyChangeBroadcasterTests
     {
         var ancestors = PolicyScopeKeys.WalkAncestors(DomainScope);
         Assert.Equal(2, ancestors.Count);
-        Assert.IsType<PolicyScope.Wildcard>(ancestors[0]);
-        Assert.IsType<PolicyScope.Domain>(ancestors[1]);
+        Assert.Null(ancestors[0].Host);
+        Assert.IsType<HostScope.Domain>(ancestors[1].Host);
     }
 
     [Fact]
@@ -74,9 +74,9 @@ public sealed class PolicyChangeBroadcasterTests
     {
         var ancestors = PolicyScopeKeys.WalkAncestors(SubdomainScope);
         Assert.Equal(3, ancestors.Count);
-        Assert.IsType<PolicyScope.Wildcard>(ancestors[0]);
-        Assert.IsType<PolicyScope.Domain>(ancestors[1]);
-        Assert.IsType<PolicyScope.Subdomain>(ancestors[2]);
+        Assert.Null(ancestors[0].Host);
+        Assert.IsType<HostScope.Domain>(ancestors[1].Host);
+        Assert.IsType<HostScope.Subdomain>(ancestors[2].Host);
     }
 
     [Fact]

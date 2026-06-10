@@ -392,12 +392,12 @@ public sealed class PolicyStackPresenter
         return groups;
     }
 
-    private static string StackGroupLabel(PolicyScope scope) => scope switch
+    private static string StackGroupLabel(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "GLOBAL",
-        PolicyScope.Domain d => $"DOMAIN  {d.DomainName}",
-        PolicyScope.Subdomain s => $"SUBDOMAIN  {s.SubdomainName}",
-        PolicyScope.Endpoint e => $"ENDPOINT  {e.PathTemplate}",
+        null => "GLOBAL",
+        HostScope.Domain d => $"DOMAIN  {d.Name}",
+        HostScope.Subdomain s => $"SUBDOMAIN  {s.SubdomainName}",
+        HostScope.Endpoint e => $"ENDPOINT  {e.PathTemplate}",
         _ => "GLOBAL"
     };
 
@@ -408,27 +408,27 @@ public sealed class PolicyStackPresenter
         // Wildcard first, then narrow. The opposite order to the resolver's
         // scope-walk -- the resolver wants most-specific first to short-circuit
         // matching; the breadcrumb is read left-to-right by the operator.
-        return scope switch
+        return scope.Host switch
         {
-            PolicyScope.Endpoint e => new PolicyScope[]
+            HostScope.Endpoint e => new[]
             {
-                new PolicyScope.Wildcard(),
-                new PolicyScope.Domain(e.DomainName),
-                new PolicyScope.Subdomain(e.DomainName, e.SubdomainName),
-                e
+                PolicyScope.Wildcard(),
+                PolicyScope.Domain(e.DomainName),
+                PolicyScope.Subdomain(e.DomainName, e.SubdomainName),
+                PolicyScope.Endpoint(e.DomainName, e.SubdomainName, e.PathTemplate)
             },
-            PolicyScope.Subdomain s => new PolicyScope[]
+            HostScope.Subdomain s => new[]
             {
-                new PolicyScope.Wildcard(),
-                new PolicyScope.Domain(s.DomainName),
-                s
+                PolicyScope.Wildcard(),
+                PolicyScope.Domain(s.DomainName),
+                PolicyScope.Subdomain(s.DomainName, s.SubdomainName)
             },
-            PolicyScope.Domain d => new PolicyScope[]
+            HostScope.Domain d => new[]
             {
-                new PolicyScope.Wildcard(),
-                d
+                PolicyScope.Wildcard(),
+                PolicyScope.Domain(d.Name)
             },
-            _ => new PolicyScope[] { new PolicyScope.Wildcard() }
+            _ => new[] { PolicyScope.Wildcard() }
         };
     }
 
@@ -496,21 +496,21 @@ public sealed class PolicyStackPresenter
             CanEdit: canEdit);
     }
 
-    private static string SourcePillFor(PolicyScope scope) => scope switch
+    private static string SourcePillFor(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "GLOBAL",
-        PolicyScope.Domain => "DOMAIN",
-        PolicyScope.Subdomain => "SUBDOMAIN",
-        PolicyScope.Endpoint => "ENDPOINT",
+        null => "GLOBAL",
+        HostScope.Domain => "DOMAIN",
+        HostScope.Subdomain => "SUBDOMAIN",
+        HostScope.Endpoint => "ENDPOINT",
         _ => "GLOBAL"
     };
 
-    private static string ScopeKindToken(PolicyScope scope) => scope switch
+    private static string ScopeKindToken(PolicyScope scope) => scope.Host switch
     {
-        PolicyScope.Wildcard => "wildcard",
-        PolicyScope.Domain => "domain",
-        PolicyScope.Subdomain => "subdomain",
-        PolicyScope.Endpoint => "endpoint",
+        null => "wildcard",
+        HostScope.Domain => "domain",
+        HostScope.Subdomain => "subdomain",
+        HostScope.Endpoint => "endpoint",
         _ => "wildcard"
     };
 

@@ -25,10 +25,23 @@ namespace Mostlylucid.BotDetection.Policies.Rules;
 ///     </list>
 ///
 ///     <para>
-///     Rules are parsed with <see cref="PredicateParser.Parse"/>, kept in an
-///     immutable snapshot, and indexed by id and by scope. A malformed file
-///     (bad YAML, bad Guid, bad predicate) is logged at <c>Warning</c> and
-///     skipped; one rotten file never blocks host boot.
+///         Rules are parsed with <see cref="PredicateParser.Parse"/>, kept in
+///         an immutable snapshot, and indexed by id and by the
+///         <see cref="HostScope"/> slot of their <see cref="PolicyScope"/>. The
+///         orthogonal slots (Method / Geo / Identity) are NOT part of the
+///         index key -- they are evaluated at predicate-resolution time by
+///         <see cref="PolicyScopeMatcher"/>, so the store keys purely off the
+///         URL-hierarchy hook the resolver walks. A malformed file (bad YAML,
+///         bad Guid, bad predicate) is logged at <c>Warning</c> and skipped;
+///         one rotten file never blocks host boot.
+///     </para>
+///
+///     <para>
+///         Back-compat: the YAML on-disk format accepts BOTH the legacy
+///         single-kind shape (<c>scope: { kind: domain, domain: ... }</c>) and
+///         the new composite shape (<c>scope: { host: { kind: domain, name: ... },
+///         method: POST }</c>). The legacy shape is detected by the presence
+///         of a top-level <c>kind</c> field and mapped onto the composite shape.
 ///     </para>
 /// </summary>
 public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
@@ -124,9 +137,14 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
     public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
     {
         var snap = _snapshot;
-        if (snap.ByScope.TryGetValue(scope, out var list))
-            return Task.FromResult<IReadOnlyList<PolicyRule>>(list);
-        return Task.FromResult<IReadOnlyList<PolicyRule>>(Array.Empty<PolicyRule>());
+        // Equality lookups walk the full record (all four slots). Used by the
+        // dashboard "rules at exactly this scope" view -- not the resolver hot path.
+        var matches = new List<PolicyRule>();
+        foreach (var rule in snap.AllRules)
+        {
+            if (rule.Scope == scope) matches.Add(rule);
+        }
+        return Task.FromResult<IReadOnlyList<PolicyRule>>(matches);
     }
 
     /// <inheritdoc />
@@ -136,11 +154,19 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
     {
         var snap = _snapshot;
         var result = new List<PolicyRule>();
+        var seen = new HashSet<Guid>();
         foreach (var scope in scopePath)
         {
-            if (!snap.ByScope.TryGetValue(scope, out var atScope)) continue;
-            // Within a scope: ascending priority (already sorted in the snapshot).
-            result.AddRange(atScope);
+            // Resolver walks by Host-only scopes -- look up rules whose Host
+            // slot matches the walked scope's Host slot. Rules with extra
+            // orthogonal slots populated will be matched in the resolver via
+            // PolicyScopeMatcher AFTER the candidate set is assembled.
+            var key = HostKey.From(scope.Host);
+            if (!snap.ByHostKey.TryGetValue(key, out var atScope)) continue;
+            foreach (var rule in atScope)
+            {
+                if (seen.Add(rule.Id)) result.Add(rule);
+            }
         }
         return Task.FromResult<IReadOnlyList<PolicyRule>>(result);
     }
@@ -185,7 +211,7 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
     private void Reload(bool initialLoad)
     {
         var byId = new Dictionary<Guid, PolicyRule>();
-        var byScope = new Dictionary<PolicyScope, List<PolicyRule>>();
+        var byHostKey = new Dictionary<HostKey, List<PolicyRule>>();
 
         foreach (var (sourceLabel, bytes) in EnumerateYamlSources())
         {
@@ -250,27 +276,29 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
                 RevisionId: Guid.NewGuid());
 
             byId[rule.Id] = rule;
-            if (!byScope.TryGetValue(scope, out var atScope))
+            var hostKey = HostKey.From(scope.Host);
+            if (!byHostKey.TryGetValue(hostKey, out var atScope))
             {
                 atScope = new List<PolicyRule>();
-                byScope[scope] = atScope;
+                byHostKey[hostKey] = atScope;
             }
             atScope.Add(rule);
         }
 
-        // Sort each scope bucket by priority ascending, ties broken by id for determinism.
-        foreach (var bucket in byScope.Values)
+        // Sort each host-key bucket by priority ascending, ties broken by id for determinism.
+        foreach (var bucket in byHostKey.Values)
             bucket.Sort(static (a, b) =>
             {
                 var c = a.Priority.CompareTo(b.Priority);
                 return c != 0 ? c : a.Id.CompareTo(b.Id);
             });
 
-        var newScope = byScope.ToDictionary(
+        var newByHost = byHostKey.ToDictionary(
             kv => kv.Key,
             kv => (IReadOnlyList<PolicyRule>)kv.Value.ToArray());
 
-        _snapshot = new RuleSnapshot(byId, newScope);
+        var allRules = byId.Values.ToArray();
+        _snapshot = new RuleSnapshot(byId, newByHost, allRules);
 
         if (initialLoad)
             _logger.LogInformation("Loaded {Count} policy rule(s)", byId.Count);
@@ -325,28 +353,101 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
 
     // -------- Mapping helpers --------
 
-    private static PolicyScope MapScope(YamlRuleScope scope)
+    /// <summary>
+    ///     Accepts BOTH the legacy single-kind YAML scope shape (top-level
+    ///     <c>kind</c> field) AND the new composite shape (top-level
+    ///     <c>host</c>/<c>method</c>/<c>geo</c>/<c>identity</c> slots). The
+    ///     legacy shape is detected by a non-empty <c>kind</c> and mapped
+    ///     onto a composite-shape <see cref="PolicyScope"/> with only the Host
+    ///     slot populated.
+    /// </summary>
+    internal static PolicyScope MapScope(YamlRuleScope scope)
     {
-        var kind = (scope.Kind ?? "wildcard").Trim().ToLowerInvariant();
+        // Legacy shape: top-level `kind` set.
+        if (!string.IsNullOrWhiteSpace(scope.Kind))
+        {
+            var kind = scope.Kind!.Trim().ToLowerInvariant();
+            return kind switch
+            {
+                "wildcard" => PolicyScope.Wildcard(),
+
+                "domain" => PolicyScope.Domain(
+                    scope.Domain ?? throw new InvalidDataException("domain scope requires 'domain'")),
+
+                "subdomain" => PolicyScope.Subdomain(
+                    scope.Domain ?? throw new InvalidDataException("subdomain scope requires 'domain'"),
+                    scope.Subdomain ?? throw new InvalidDataException("subdomain scope requires 'subdomain'")),
+
+                "endpoint" => PolicyScope.Endpoint(
+                    scope.Domain ?? throw new InvalidDataException("endpoint scope requires 'domain'"),
+                    scope.Subdomain ?? throw new InvalidDataException("endpoint scope requires 'subdomain'"),
+                    scope.PathTemplate ?? throw new InvalidDataException("endpoint scope requires 'path_template'")),
+
+                _ => throw new InvalidDataException($"unknown scope kind '{scope.Kind}'")
+            };
+        }
+
+        // Composite shape: optional host + method + geo + identity slots.
+        return new PolicyScope(
+            Host: MapHost(scope.Host),
+            Method: NormalizeMethod(scope.Method),
+            Geo: NormalizeGeo(scope.Geo),
+            Identity: MapIdentity(scope.Identity));
+    }
+
+    private static HostScope? MapHost(YamlRuleHost? host)
+    {
+        if (host is null) return null;
+        if (string.IsNullOrWhiteSpace(host.Kind)) return null;
+        var kind = host.Kind!.Trim().ToLowerInvariant();
         return kind switch
         {
-            "wildcard" => new PolicyScope.Wildcard(),
+            "domain" => new HostScope.Domain(
+                host.Name ?? host.Domain
+                ?? throw new InvalidDataException("host domain requires 'name' (or legacy 'domain')")),
 
-            "domain" => new PolicyScope.Domain(
-                scope.Domain ?? throw new InvalidDataException("domain scope requires 'domain'")),
+            "subdomain" => new HostScope.Subdomain(
+                host.Domain ?? host.Name
+                ?? throw new InvalidDataException("host subdomain requires 'domain'"),
+                host.Subdomain ?? throw new InvalidDataException("host subdomain requires 'subdomain'")),
 
-            "subdomain" => new PolicyScope.Subdomain(
-                scope.Domain ?? throw new InvalidDataException("subdomain scope requires 'domain'"),
-                scope.Subdomain ?? throw new InvalidDataException("subdomain scope requires 'subdomain'")),
+            "endpoint" => new HostScope.Endpoint(
+                host.Domain ?? throw new InvalidDataException("host endpoint requires 'domain'"),
+                host.Subdomain ?? throw new InvalidDataException("host endpoint requires 'subdomain'"),
+                host.PathTemplate ?? throw new InvalidDataException("host endpoint requires 'path_template'")),
 
-            "endpoint" => new PolicyScope.Endpoint(
-                scope.Domain ?? throw new InvalidDataException("endpoint scope requires 'domain'"),
-                scope.Subdomain ?? throw new InvalidDataException("endpoint scope requires 'subdomain'"),
-                scope.PathTemplate ?? throw new InvalidDataException("endpoint scope requires 'path_template'")),
-
-            _ => throw new InvalidDataException($"unknown scope kind '{scope.Kind}'")
+            _ => throw new InvalidDataException($"unknown host kind '{host.Kind}'")
         };
     }
+
+    private static IdentityScope? MapIdentity(YamlRuleIdentity? identity)
+    {
+        if (identity is null) return null;
+        if (string.IsNullOrWhiteSpace(identity.Kind)) return null;
+        var kind = identity.Kind!.Trim().ToLowerInvariant();
+        return kind switch
+        {
+            "named_bot" => new IdentityScope.NamedBot(
+                identity.Family ?? throw new InvalidDataException("named_bot identity requires 'family'")),
+
+            "bot_type" => new IdentityScope.BotType(
+                identity.Category ?? throw new InvalidDataException("bot_type identity requires 'category'")),
+
+            "human_browser" => new IdentityScope.HumanBrowser(
+                identity.Family ?? throw new InvalidDataException("human_browser identity requires 'family'")),
+
+            "fingerprint" => new IdentityScope.Fingerprint(
+                identity.Id ?? throw new InvalidDataException("fingerprint identity requires 'id'")),
+
+            _ => throw new InvalidDataException($"unknown identity kind '{identity.Kind}'")
+        };
+    }
+
+    private static string? NormalizeMethod(string? raw) =>
+        string.IsNullOrWhiteSpace(raw) ? null : raw.Trim().ToUpperInvariant();
+
+    private static string? NormalizeGeo(string? raw) =>
+        string.IsNullOrWhiteSpace(raw) ? null : raw.Trim().ToUpperInvariant();
 
     private static PolicyAction MapAction(YamlRuleAction action)
     {
@@ -391,7 +492,7 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
         if (scopes.Count == 0)
         {
             // Brand-new file or deletion we can't pin -- fire wildcard so caches drop.
-            handler.Invoke(this, new PolicyRuleStoreChangedEventArgs(new PolicyScope.Wildcard()));
+            handler.Invoke(this, new PolicyRuleStoreChangedEventArgs(PolicyScope.Wildcard()));
             return;
         }
 
@@ -426,14 +527,33 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
         catch { /* best effort */ }
     }
 
+    // -------- Internal indexing --------
+
+    /// <summary>
+    ///     Equality key for the Host slot. Used to index rules in the snapshot
+    ///     so the resolver's URL-walk maps to a direct dictionary hit per step.
+    /// </summary>
+    internal readonly record struct HostKey(string Kind, string Domain, string Subdomain, string Template)
+    {
+        public static HostKey From(HostScope? host) => host switch
+        {
+            HostScope.Domain d => new HostKey("domain", d.Name, "", ""),
+            HostScope.Subdomain s => new HostKey("subdomain", s.DomainName, s.SubdomainName, ""),
+            HostScope.Endpoint e => new HostKey("endpoint", e.DomainName, e.SubdomainName, e.PathTemplate),
+            _ => new HostKey("wildcard", "", "", "")
+        };
+    }
+
     // -------- Immutable snapshot --------
 
     private sealed record RuleSnapshot(
         IReadOnlyDictionary<Guid, PolicyRule> ById,
-        IReadOnlyDictionary<PolicyScope, IReadOnlyList<PolicyRule>> ByScope)
+        IReadOnlyDictionary<HostKey, IReadOnlyList<PolicyRule>> ByHostKey,
+        IReadOnlyList<PolicyRule> AllRules)
     {
         public static RuleSnapshot Empty { get; } = new(
             new Dictionary<Guid, PolicyRule>(),
-            new Dictionary<PolicyScope, IReadOnlyList<PolicyRule>>());
+            new Dictionary<HostKey, IReadOnlyList<PolicyRule>>(),
+            Array.Empty<PolicyRule>());
     }
 }

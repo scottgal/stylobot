@@ -2,12 +2,12 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model PolicyStackScopeGroupViewModel
 @{
-    var scopeKind = Model.Scope switch
+    var scopeKind = Model.Scope.Host switch
     {
-        PolicyScope.Wildcard => "wildcard",
-        PolicyScope.Domain => "domain",
-        PolicyScope.Subdomain => "subdomain",
-        PolicyScope.Endpoint => "endpoint",
+        null => "wildcard",
+        HostScope.Domain => "domain",
+        HostScope.Subdomain => "subdomain",
+        HostScope.Endpoint => "endpoint",
         _ => "wildcard"
     };
 }

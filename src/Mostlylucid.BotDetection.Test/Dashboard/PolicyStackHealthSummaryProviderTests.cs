@@ -110,7 +110,7 @@ public sealed class PolicyStackHealthSummaryProviderTests
         var predicate = new Predicate.And(Array.Empty<Predicate>());
         return new PolicyRule(
             Id: Guid.NewGuid(),
-            Scope: new PolicyScope.Wildcard(),
+            Scope: PolicyScope.Wildcard(),
             Priority: 0,
             Predicate: predicate,
             Action: new RuleAction.Allow(),

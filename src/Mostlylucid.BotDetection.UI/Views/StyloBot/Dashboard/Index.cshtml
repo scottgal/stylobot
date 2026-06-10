@@ -175,7 +175,7 @@
            freshness without any aggregate-read fan-out. *@
         @{
             var statusHost = Context?.Request?.Host.Host ?? string.Empty;
-            PolicyScope? youScope = string.IsNullOrEmpty(statusHost) ? null : new PolicyScope.Domain(statusHost);
+            PolicyScope? youScope = string.IsNullOrEmpty(statusHost) ? null : PolicyScope.Domain(statusHost);
         }
         @if (youScope is not null)
         {

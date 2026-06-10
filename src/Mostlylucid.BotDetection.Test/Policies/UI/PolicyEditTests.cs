@@ -45,7 +45,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
     private const string EpUpload = "GET /api/upload";
 
     private static readonly PolicyScope EndpointScope =
-        new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
+        PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
 
     private readonly List<WebApplication> _apps = new();
 
@@ -401,7 +401,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
         await store.InitializeAsync();
         var resolver = new DefaultPolicyResolver(store);
         var effective = await resolver.EffectiveAsync(EndpointScope);
-        return effective.First(r => r.SourceScope is PolicyScope.Endpoint).Rule.Id;
+        return effective.First(r => r.SourceScope.Host is HostScope.Endpoint).Rule.Id;
     }
 
     public async ValueTask DisposeAsync()
@@ -451,10 +451,10 @@ public sealed class PolicyEditTestController : Controller
     {
         PolicyScope scope = scopeKind switch
         {
-            "domain" => new PolicyScope.Domain(domain ?? "unknown"),
-            "subdomain" => new PolicyScope.Subdomain(domain ?? "unknown", sub ?? "unknown"),
-            "endpoint" => new PolicyScope.Endpoint(domain ?? "unknown", sub ?? "unknown", template ?? "GET /"),
-            _ => new PolicyScope.Wildcard()
+            "domain" => PolicyScope.Domain(domain ?? "unknown"),
+            "subdomain" => PolicyScope.Subdomain(domain ?? "unknown", sub ?? "unknown"),
+            "endpoint" => PolicyScope.Endpoint(domain ?? "unknown", sub ?? "unknown", template ?? "GET /"),
+            _ => PolicyScope.Wildcard()
         };
         var parsedEmbed = Enum.TryParse<PolicyStackEmbed>(embed, ignoreCase: true, out var e)
             ? e
