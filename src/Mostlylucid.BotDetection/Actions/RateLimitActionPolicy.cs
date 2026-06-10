@@ -147,65 +147,6 @@ public sealed class RateLimitActionPolicy : IActionPolicy
     ///     (the policy treats that as "allow" rather than risk a global
     ///     bucket).
     /// </summary>
-    private string? ExtractKey(HttpContext context, AggregatedEvidence evidence) => _options.KeyBy switch
-    {
-        RateLimitKey.Signature => GetSignature(evidence),
-        RateLimitKey.Ip => context.Connection.RemoteIpAddress?.ToString(),
-        RateLimitKey.Subnet => ComputeSubnetKey(context.Connection.RemoteIpAddress),
-        RateLimitKey.Asn => GetAsn(evidence),
-        RateLimitKey.AsnAndSignature => ComposeAsnAndSignature(evidence),
-        _ => null,
-    };
-
-    private static string? GetSignature(AggregatedEvidence evidence)
-        => evidence.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig)
-            && sig is string s && s.Length > 0
-            ? s
-            : null;
-
-    private static string? GetAsn(AggregatedEvidence evidence)
-    {
-        if (!evidence.Signals.TryGetValue(SignalKeys.IpAsn, out var asnObj) || asnObj is null)
-            return null;
-        var asn = asnObj.ToString();
-        return string.IsNullOrWhiteSpace(asn) ? null : asn;
-    }
-
-    private static string? ComposeAsnAndSignature(AggregatedEvidence evidence)
-    {
-        // Composite key requires both halves -- "this signature within this
-        // ASN" loses meaning when either is missing. Returning null lets
-        // the policy fail open (no bucket, request allowed) instead of
-        // collapsing every blank-evidence visitor into one global bucket.
-        var asn = GetAsn(evidence);
-        var sig = GetSignature(evidence);
-        if (asn is null || sig is null) return null;
-        return $"AS{asn}:{sig}";
-    }
-
-    /// <summary>
-    ///     Truncate an IP to its rate-limit-bucket prefix: <c>/24</c> for
-    ///     IPv4, <c>/48</c> for IPv6. Returns the canonical string form
-    ///     (<c>"203.0.113.0/24"</c>, <c>"2001:db8:1::/48"</c>) so two
-    ///     addresses inside the same prefix hash to the same bucket key.
-    /// </summary>
-    private static string? ComputeSubnetKey(System.Net.IPAddress? ip)
-    {
-        if (ip is null) return null;
-        var bytes = ip.GetAddressBytes();
-        if (bytes.Length == 4)
-        {
-            return $"{bytes[0]}.{bytes[1]}.{bytes[2]}.0/24";
-        }
-        if (bytes.Length == 16)
-        {
-            // Zero everything past the first 6 bytes (the /48 prefix).
-            var truncated = new byte[16];
-            Array.Copy(bytes, 0, truncated, 0, 6);
-            return new System.Net.IPAddress(truncated).ToString() + "/48";
-        }
-        // Unknown address family (e.g. IPv6 link-local with zone id stripped
-        // to non-standard length). Fail open.
-        return null;
-    }
+    private string? ExtractKey(HttpContext context, AggregatedEvidence evidence)
+        => RateLimitKeyResolver.Resolve(context, evidence, _options.KeyBy);
 }

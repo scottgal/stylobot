@@ -165,51 +165,13 @@ public sealed class StickyDenyActionPolicy : IActionPolicy
     }
 
     /// <summary>
-    ///     Mirrors <see cref="RateLimitActionPolicy"/>'s ExtractKey but
-    ///     standalone so StickyDeny can be used outside the rate-limit
-    ///     overflow path (e.g. directly as a triggered action).
+    ///     Resolves the bucket key for the current request via the shared
+    ///     <see cref="RateLimitKeyResolver"/>. Surfaced as <c>internal
+    ///     static</c> because callers and tests pin the contract on the
+    ///     StickyDeny side (not just rate-limit).
     /// </summary>
-    internal static string? ResolveKey(HttpContext context, AggregatedEvidence evidence, RateLimitKey keyBy) => keyBy switch
-    {
-        RateLimitKey.Signature => evidence.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig)
-                                  && sig is string s && s.Length > 0 ? s : null,
-        RateLimitKey.Ip => context.Connection.RemoteIpAddress?.ToString(),
-        RateLimitKey.Subnet => ComputeSubnetKey(context.Connection.RemoteIpAddress),
-        RateLimitKey.Asn => evidence.Signals.TryGetValue(SignalKeys.IpAsn, out var asn)
-                            && asn is not null && !string.IsNullOrWhiteSpace(asn.ToString())
-                            ? asn.ToString() : null,
-        RateLimitKey.AsnAndSignature => ComposeAsnAndSig(evidence),
-        _ => null,
-    };
-
-    private static string? ComputeSubnetKey(IPAddress? ip)
-    {
-        if (ip is null) return null;
-        var bytes = ip.GetAddressBytes();
-        if (bytes.Length == 4) return $"{bytes[0]}.{bytes[1]}.{bytes[2]}.0/24";
-        if (bytes.Length == 16)
-        {
-            var truncated = new byte[16];
-            Array.Copy(bytes, 0, truncated, 0, 6);
-            return new IPAddress(truncated).ToString() + "/48";
-        }
-        return null;
-    }
-
-    private static string? ComposeAsnAndSig(AggregatedEvidence evidence)
-    {
-        string? asn = null;
-        if (evidence.Signals.TryGetValue(SignalKeys.IpAsn, out var a) && a is not null)
-        {
-            var s = a.ToString();
-            if (!string.IsNullOrWhiteSpace(s)) asn = s;
-        }
-        string? sig = null;
-        if (evidence.Signals.TryGetValue(SignalKeys.PrimarySignature, out var p)
-            && p is string ps && ps.Length > 0) sig = ps;
-        if (asn is null || sig is null) return null;
-        return $"AS{asn}:{sig}";
-    }
+    internal static string? ResolveKey(HttpContext context, AggregatedEvidence evidence, RateLimitKey keyBy)
+        => RateLimitKeyResolver.Resolve(context, evidence, keyBy);
 
     private static string HashForLog(string key)
     {

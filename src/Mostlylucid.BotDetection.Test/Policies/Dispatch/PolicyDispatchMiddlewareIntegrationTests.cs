@@ -207,6 +207,9 @@ public sealed class PolicyDispatchMiddlewareIntegrationTests : IAsyncDisposable
         public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
             => Task.FromResult(_rule?.Id == id ? _rule : null);
 
+        public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PolicyRule>>(_rule is null ? Array.Empty<PolicyRule>() : new[] { _rule });
+
 #pragma warning disable CS0067
         public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
 #pragma warning restore CS0067

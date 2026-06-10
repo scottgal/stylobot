@@ -399,6 +399,9 @@ public class PolicyResolverTests
         public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
             => Task.FromResult<PolicyRule?>(_rules[0].Id == id ? _rules[0] : null);
 
+        public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+            => Task.FromResult(_rules);
+
 #pragma warning disable CS0067
         public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
 #pragma warning restore CS0067

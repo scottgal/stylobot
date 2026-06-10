@@ -156,6 +156,9 @@ public sealed class PolicyStackHealthSummaryProviderTests
         public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
             => Task.FromResult<PolicyRule?>(_rules.FirstOrDefault(r => r.Id == id));
 
+        public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+            => Task.FromResult(_rules);
+
 #pragma warning disable CS0067
         public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
 #pragma warning restore CS0067

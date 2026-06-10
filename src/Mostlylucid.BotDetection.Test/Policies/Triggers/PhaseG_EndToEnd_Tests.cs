@@ -202,6 +202,74 @@ public sealed class PhaseG_EndToEnd_Tests
         Assert.Equal(regularRuleId, effective[1].Rule.Id);
     }
 
+    /// <summary>
+    ///     Wave 6: <see cref="MeterTriggerService"/> previously walked the rule
+    ///     corpus via <c>GetEffectiveRulesAsync([Wildcard])</c>, which silently
+    ///     dropped every trigger rule attached to a non-wildcard scope (a
+    ///     <see cref="PolicyScope.Domain"/> rule never appeared in the
+    ///     wildcard-only walk and so its meter predicate never armed). The fix
+    ///     added <see cref="IPolicyRuleStore.GetAllRulesAsync"/> + had
+    ///     <c>LoadRulesAsync</c> use it. This test pins the new behaviour: a
+    ///     trigger rule on a Domain scope, with a meter-only predicate, must
+    ///     be picked up by the trigger sweep and armed.
+    /// </summary>
+    [Fact]
+    public async Task MeterTriggerService_picks_up_non_wildcard_trigger_rules()
+    {
+        var sustain = TimeSpan.FromMilliseconds(50);
+        var recover = TimeSpan.FromMilliseconds(100);
+
+        var ruleId = Guid.NewGuid();
+        // Scope: a non-wildcard host. Pre-Wave-6, this never showed up in the
+        // trigger sweep -- the wildcard-only walk skipped it entirely.
+        var rule = new PolicyRule(
+            ruleId,
+            PolicyScope.Domain("x.com"),
+            Priority: 100,
+            Predicate: new PredicateNode.Term("meter.test.baz.current", PredicateOp.Gt, 10m),
+            Action: new PolicyAction.Block(),
+            Mode: PolicyMode.Live,
+            Notes: "non-wildcard trigger rule",
+            Source: "test",
+            CreatedAt: DateTimeOffset.UtcNow,
+            RevisionId: Guid.NewGuid(),
+            AutoPromoteAt: null,
+            Trigger: new RuleTriggerOptions(sustain, recover));
+
+        var store = new SingleRulePolicyRuleStore(rule);
+        var meterStream = new MutableFakeMeterStream();
+        // Above the predicate threshold.
+        meterStream.SetMeter("test.baz", current: 100d);
+
+        var atom = new MeterSignalsAtom(meterStream, NullScheduleCoordinator.Instance);
+        await atom.RebuildNowAsync();
+        var contributor = new MeterSnapshotSignalContributor(atom);
+        var registry = new ArmedRuleRegistry();
+        var clock = new ManualTimeProvider(DateTimeOffset.UnixEpoch);
+
+        var service = new MeterTriggerService(
+            registry,
+            NullLogger<MeterTriggerService>.Instance,
+            store,
+            contributor,
+            clock,
+            tickInterval: TimeSpan.FromMilliseconds(25),
+            ruleListCacheTtl: TimeSpan.FromMilliseconds(10));
+
+        // First tick: starts the sustain streak.
+        await service.TickOnceAsync(CancellationToken.None);
+        Assert.False(registry.GetOrAdd(ruleId).IsArmed);
+
+        // Advance the clock past sustain and tick again -- this is the moment
+        // the rule arms IF the trigger sweep saw it at all. Before the
+        // GetAllRulesAsync fix, the rule was never enumerated and the atom
+        // stayed unarmed forever.
+        clock.Advance(sustain + TimeSpan.FromMilliseconds(10));
+        await service.TickOnceAsync(CancellationToken.None);
+
+        Assert.True(registry.GetOrAdd(ruleId).IsArmed);
+    }
+
     // -------- Test doubles -----------------------------------------------------
 
     private sealed class ManualTimeProvider : TimeProvider
@@ -237,6 +305,9 @@ public sealed class PhaseG_EndToEnd_Tests
         public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
             => Task.FromResult<PolicyRule?>(id == _rule.Id ? _rule : null);
 
+        public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PolicyRule>>(new[] { _rule });
+
 #pragma warning disable CS0067
         public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
 #pragma warning restore CS0067
@@ -266,6 +337,9 @@ public sealed class PhaseG_EndToEnd_Tests
 
         public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
             => Task.FromResult(_rules.FirstOrDefault(r => r.Id == id));
+
+        public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PolicyRule>>(_rules.ToArray());
 
 #pragma warning disable CS0067
         public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
