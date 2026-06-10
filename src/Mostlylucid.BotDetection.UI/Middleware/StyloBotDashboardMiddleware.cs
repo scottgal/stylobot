@@ -905,7 +905,7 @@ public class StyloBotDashboardMiddleware
             if (result.Succeeded)
             {
                 _usersExist = true;
-                _logger.LogInformation("StyloBot Dashboard: first admin account created for {Email}", email);
+                _logger.LogInformation("StyloBot Dashboard: first admin account created.");
                 context.Response.Redirect($"{basePath}/auth-ui");
             }
             else
