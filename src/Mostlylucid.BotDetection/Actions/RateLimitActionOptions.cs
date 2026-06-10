@@ -125,4 +125,35 @@ public enum RateLimitKey
     ///     grey-area bot classes where signature evasion is a concern.
     /// </summary>
     Ip,
+
+    /// <summary>
+    ///     Bill against the network-prefix the request came from: <c>/24</c>
+    ///     for IPv4, <c>/48</c> for IPv6 (the HAProxy / Cloudflare
+    ///     conventions). Real botnets span thousands of IPs in a small
+    ///     number of CIDR ranges; subnet-keying aggregates them into one
+    ///     bucket so the burst capacity isn't multiplied by IP count.
+    /// </summary>
+    Subnet,
+
+    /// <summary>
+    ///     Bill against <see cref="Models.SignalKeys.IpAsn"/> from the
+    ///     geo-detection signals. One bucket per Autonomous System. Useful
+    ///     for hosting-network mitigation (cloud providers, datacenter
+    ///     ASNs) where individual IPs rotate but the AS is stable.
+    ///     Fails open when <see cref="Models.SignalKeys.IpAsn"/> is absent
+    ///     so deployments without the geo contributor don't accidentally
+    ///     route every visitor through one global bucket.
+    /// </summary>
+    Asn,
+
+    /// <summary>
+    ///     Composite of <see cref="Asn"/> and <see cref="Signature"/>.
+    ///     One bucket per (ASN, signature) pair. Discriminates fingerprint
+    ///     within an ASN while still aggregating IP rotation under one AS.
+    ///     The real-botnet-effective key: a single bot running across
+    ///     thousands of IPs in one cloud-hosting AS hits one bucket; a
+    ///     friendly bot in the same AS with a different signature has its
+    ///     own budget. Fails open when either ASN or signature is absent.
+    /// </summary>
+    AsnAndSignature,
 }
