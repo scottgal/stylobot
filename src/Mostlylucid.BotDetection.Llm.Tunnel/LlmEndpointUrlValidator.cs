@@ -30,10 +30,26 @@ public static class LlmEndpointUrlValidator
             throw new FormatException(
                 $"{description} must use http or https, got scheme '{uri.Scheme}'.");
 
-        if (IPAddress.TryParse(uri.Host, out var ip) && IsLinkLocal(ip))
-            throw new FormatException(
-                $"{description} points at a link-local address ('{uri.Host}'), which is never a valid tunnel target.");
+        if (IPAddress.TryParse(uri.Host, out var ip))
+        {
+            if (IsLinkLocal(ip))
+                throw new FormatException(
+                    $"{description} points at a link-local address ('{uri.Host}'), which is never a valid tunnel target.");
+        }
+        else
+        {
+            IPAddress[] resolved;
+            try { resolved = Dns.GetHostAddresses(uri.Host); }
+            catch (Exception ex)
+            {
+                throw new FormatException($"{description} host '{uri.Host}' could not be resolved: {ex.Message}", ex);
+            }
 
+            foreach (var addr in resolved)
+                if (IsLinkLocal(addr))
+                    throw new FormatException(
+                        $"{description} resolves to a link-local address ('{uri.Host}'), which is never a valid tunnel target.");
+        }
         return uri;
     }
 
