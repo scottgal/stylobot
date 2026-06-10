@@ -31,6 +31,14 @@ public sealed partial class YamlRuleFile
 
     /// <summary>Human notes; never user-facing on the request path.</summary>
     [YamlMember("notes")] public string Notes { get; init; } = "";
+
+    /// <summary>
+    ///     Optional oscilloscope-trigger metadata. When present, the rule is
+    ///     evaluated by the background MeterTriggerService against meter
+    ///     snapshots and walks an armed-state machine. See
+    ///     <see cref="YamlRuleTrigger"/> and <see cref="RuleTriggerOptions"/>.
+    /// </summary>
+    [YamlMember("trigger")] public YamlRuleTrigger? Trigger { get; init; }
 }
 
 /// <summary>
@@ -132,7 +140,7 @@ public sealed partial class YamlRuleIdentity
 [YamlObject]
 public sealed partial class YamlRuleAction
 {
-    /// <summary>One of <c>allow</c>, <c>observe</c>, <c>tag</c>, <c>challenge</c>, <c>rate_limit</c>, <c>block</c>. Case-insensitive.</summary>
+    /// <summary>One of <c>allow</c>, <c>observe</c>, <c>tag</c>, <c>challenge</c>, <c>rate_limit</c>, <c>throttle</c>, <c>block</c>. Case-insensitive.</summary>
     [YamlMember("kind")] public string Kind { get; init; } = "observe";
 
     /// <summary>Challenge implementation (e.g. <c>turnstile</c>, <c>captcha</c>). Read only for <c>challenge</c>.</summary>
@@ -143,4 +151,42 @@ public sealed partial class YamlRuleAction
 
     /// <summary>Rate-limit budget. Read only for <c>rate_limit</c>.</summary>
     [YamlMember("requests_per_minute")] public int? RequestsPerMinute { get; init; }
+
+    /// <summary>Throttle steady-state cap in requests per second. Read only for <c>throttle</c>.</summary>
+    [YamlMember("rps")] public int? RequestsPerSecond { get; init; }
+
+    /// <summary>Optional operator-facing label for throttle decisions. Read only for <c>throttle</c>.</summary>
+    [YamlMember("reason")] public string? Reason { get; init; }
+}
+
+/// <summary>
+///     YAML representation of <see cref="RuleTriggerOptions"/>. <see cref="SustainFor"/>
+///     and <see cref="RecoverAfter"/> accept the small human-duration grammar
+///     parsed by <see cref="DurationParser"/> (<c>30s</c>, <c>5m</c>, <c>1.5h</c>,
+///     <c>1d</c>) as well as the canonical <c>hh:mm:ss</c> shape.
+/// </summary>
+[YamlObject]
+public sealed partial class YamlRuleTrigger
+{
+    /// <summary>
+    ///     Sustain window: how long the predicate must stay continuously true
+    ///     before the rule arms. Missing / empty / unparseable values fall
+    ///     through to the <see cref="RuleTriggerOptions.DefaultSustainFor"/>
+    ///     spec floor.
+    /// </summary>
+    [YamlMember("sustain_for")] public string? SustainFor { get; init; }
+
+    /// <summary>
+    ///     Recovery window: how long the predicate must stay continuously
+    ///     false before the rule unarms. Missing / empty / unparseable values
+    ///     fall through to the <see cref="RuleTriggerOptions.DefaultRecoverAfter"/>
+    ///     spec floor. Should be &gt;= sustain to avoid flap.
+    /// </summary>
+    [YamlMember("recover_after")] public string? RecoverAfter { get; init; }
+
+    /// <summary>
+    ///     Optional override action engaged while the rule is ARMED. Same
+    ///     nested-action shape as the top-level <c>action</c> field.
+    /// </summary>
+    [YamlMember("action_while_armed")] public YamlRuleAction? ActionWhileArmed { get; init; }
 }

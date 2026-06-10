@@ -25,6 +25,47 @@ public abstract record PolicyAction
     /// <summary>Apply a rate limit of <paramref name="RequestsPerMinute"/> requests per minute on the matched cohort.</summary>
     public sealed record RateLimit(int RequestsPerMinute) : PolicyAction;
 
+    /// <summary>
+    ///     Process-wide rate cap keyed by the rule's <see cref="PolicyScope"/>.
+    ///     Unlike <see cref="RateLimit"/> (per-key, default fingerprint),
+    ///     Throttle's bucket is shared across every request that matches the
+    ///     rule's scope -- so a rule with scope <c>{ host: domain(x.com) }</c>
+    ///     + <c>Throttle(50)</c> caps total traffic on that domain at 50 req/s
+    ///     while armed.
+    ///
+    ///     <para>
+    ///         Pairs with the trigger machine: a meter-only predicate
+    ///         transitions the rule to ARMED when the meter sustains over
+    ///         threshold, the cap engages globally for the rule's scope, then
+    ///         lifts when the meter recovers.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         <see cref="RequestsPerSecond"/> must be &gt; 0; the constructor
+    ///         enforces this so callers don't accidentally arm a zero-cap that
+    ///         silently blocks every request.
+    ///     </para>
+    /// </summary>
+    public sealed record Throttle : PolicyAction
+    {
+        public Throttle(int requestsPerSecond, string? reason = null)
+        {
+            if (requestsPerSecond <= 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(requestsPerSecond),
+                    requestsPerSecond,
+                    "Throttle.RequestsPerSecond must be > 0.");
+            RequestsPerSecond = requestsPerSecond;
+            Reason = reason;
+        }
+
+        /// <summary>Steady-state cap in requests/sec. Always &gt; 0.</summary>
+        public int RequestsPerSecond { get; init; }
+
+        /// <summary>Optional operator-facing label surfaced in decision-log entries.</summary>
+        public string? Reason { get; init; }
+    }
+
     /// <summary>Block the request outright.</summary>
     public sealed record Block : PolicyAction;
 }

@@ -85,6 +85,7 @@ internal static class VYamlBootstrap
         YamlRuleHost.__RegisterVYamlFormatter();
         YamlRuleIdentity.__RegisterVYamlFormatter();
         YamlRuleAction.__RegisterVYamlFormatter();
+        YamlRuleTrigger.__RegisterVYamlFormatter();
 
         // Detector / pipeline manifests
         DetectorManifest.__RegisterVYamlFormatter();

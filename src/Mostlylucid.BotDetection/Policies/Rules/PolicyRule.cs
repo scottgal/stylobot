@@ -27,6 +27,17 @@ namespace Mostlylucid.BotDetection.Policies.Rules;
 ///     field at evaluation time -- it is metadata on the row, not part of the decision.
 ///     Defaults to <c>null</c> so every existing call site continues to compile unchanged.
 /// </param>
+/// <param name="Trigger">
+///     Optional oscilloscope-trigger metadata. <c>null</c> on every regular per-request
+///     rule (the default). When non-null AND the predicate references only meter signals,
+///     the runtime classifies the rule as a trigger rule and the MeterTriggerService walks
+///     the armed-state machine across <see cref="RuleTriggerOptions.EffectiveSustainFor"/>
+///     and <see cref="RuleTriggerOptions.EffectiveRecoverAfter"/>. See
+///     <see cref="RuleTriggerOptions"/> for the full state-machine description. The
+///     resolver hot path ignores this field at evaluation time -- it is metadata on the
+///     row, not part of the per-request decision. Trailing optional positional so every
+///     existing constructor call continues to compile unchanged.
+/// </param>
 public sealed record PolicyRule(
     Guid Id,
     PolicyScope Scope,
@@ -38,4 +49,5 @@ public sealed record PolicyRule(
     string Source,
     DateTimeOffset CreatedAt,
     Guid RevisionId,
-    DateTimeOffset? AutoPromoteAt = null);
+    DateTimeOffset? AutoPromoteAt = null,
+    RuleTriggerOptions? Trigger = null);

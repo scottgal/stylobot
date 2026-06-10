@@ -263,6 +263,14 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
 
             var mode = MapMode(yamlFile.Mode);
 
+            RuleTriggerOptions? trigger;
+            try { trigger = MapTrigger(yamlFile.Trigger); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping policy rule {Source} -- invalid trigger options", sourceLabel);
+                continue;
+            }
+
             var rule = new PolicyRule(
                 Id: id,
                 Scope: scope,
@@ -273,7 +281,8 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
                 Notes: yamlFile.Notes ?? string.Empty,
                 Source: sourceLabel,
                 CreatedAt: DateTimeOffset.UtcNow,
-                RevisionId: Guid.NewGuid());
+                RevisionId: Guid.NewGuid(),
+                Trigger: trigger);
 
             byId[rule.Id] = rule;
             var hostKey = HostKey.From(scope.Host);
@@ -463,8 +472,38 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
                 action.ChallengeKind ?? throw new InvalidDataException("challenge action requires 'challenge_kind'")),
             "rate_limit" or "ratelimit" => new PolicyAction.RateLimit(
                 action.RequestsPerMinute ?? throw new InvalidDataException("rate_limit action requires 'requests_per_minute'")),
+            "throttle" => new PolicyAction.Throttle(
+                action.RequestsPerSecond ?? throw new InvalidDataException("throttle action requires 'rps'"),
+                action.Reason),
             _ => throw new InvalidDataException($"unknown action kind '{action.Kind}'")
         };
+    }
+
+    /// <summary>
+    ///     Map the optional YAML <see cref="YamlRuleTrigger"/> shape onto
+    ///     <see cref="RuleTriggerOptions"/>. Returns <c>null</c> when the
+    ///     trigger block is absent so the rule round-trips as a regular
+    ///     per-request rule. Unparseable duration values fall through to the
+    ///     <see cref="TimeSpan"/> unset sentinel which
+    ///     <see cref="RuleTriggerOptions.EffectiveSustainFor"/> /
+    ///     <see cref="RuleTriggerOptions.EffectiveRecoverAfter"/> then coalesce
+    ///     to the spec defaults.
+    /// </summary>
+    internal static RuleTriggerOptions? MapTrigger(YamlRuleTrigger? trigger)
+    {
+        if (trigger is null) return null;
+
+        DurationParser.TryParse(trigger.SustainFor, out var sustain);
+        DurationParser.TryParse(trigger.RecoverAfter, out var recover);
+
+        PolicyAction? armedAction = trigger.ActionWhileArmed is null
+            ? null
+            : MapAction(trigger.ActionWhileArmed);
+
+        return new RuleTriggerOptions(
+            SustainFor: sustain,
+            RecoverAfter: recover,
+            ActionWhileArmed: armedAction);
     }
 
     private static PolicyMode MapMode(string? raw)
