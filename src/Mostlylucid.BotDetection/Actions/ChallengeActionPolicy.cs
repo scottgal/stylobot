@@ -203,18 +203,14 @@ public class ChallengeActionPolicy : IActionPolicy
             return XxHash64.HashToUInt64(Encoding.UTF8.GetBytes(ua)).ToString("x16");
         }
 
-        // Strict mode: bind to PrimarySignature when available, fall back
-        // to IP+UA when it isn't. Preserves the original behaviour.
+        // Strict mode: bind to the broadest signature the orchestrator
+        // produced (PrimarySignature -> SignatureMultifactor); fall back to
+        // IP+UA hash only when detection didn't run at all.
         if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj) &&
             evObj is Orchestration.AggregatedEvidence ev)
         {
-            if (ev.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigObj) &&
-                sigObj is string signature && !string.IsNullOrWhiteSpace(signature))
-                return signature;
-
-            if (ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj) &&
-                multiObj is MultiFactorSignatures multi && !string.IsNullOrWhiteSpace(multi.PrimarySignature))
-                return multi.PrimarySignature;
+            var sig = Orchestration.SignatureLookup.PrimaryOrMultifactor(ev);
+            if (sig is not null) return sig;
         }
 
         var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -354,9 +350,9 @@ public class ChallengeActionPolicy : IActionPolicy
 
         // Bind the challenge to whatever signature the orchestrator computed (or fall back to
         // the raw IP if detection didn't run, e.g. on a bypass path).
-        var signature = evidence.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig) && sig is string s
-            ? s
-            : context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var signature = Orchestration.SignatureLookup.Primary(evidence)
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
 
         // Transport-aware: API/SignalR/gRPC clients get 429 + JSON, not HTML
         var transportClass = GetSignalString(evidence, "transport.protocol_class");

@@ -39,10 +39,7 @@ internal static class RateLimitKeyResolver
     };
 
     public static string? GetSignature(AggregatedEvidence evidence)
-        => evidence.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig)
-            && sig is string s && s.Length > 0
-            ? s
-            : null;
+        => SignatureLookup.Primary(evidence);
 
     public static string? GetAsn(AggregatedEvidence evidence)
     {
