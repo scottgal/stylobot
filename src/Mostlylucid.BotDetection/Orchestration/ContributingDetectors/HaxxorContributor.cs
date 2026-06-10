@@ -67,7 +67,9 @@ public class HaxxorContributor : ConfiguredContributorBase
 
     // Config-driven parameters from YAML - cached after first access via GetParam
     private int MaxInputLength => GetParam("max_input_length", 8192);
-    private int RegexTimeoutMs => GetParam("regex_timeout_ms", 100);
+    // Clamped: these regexes run against attacker-controlled input, so a manifest
+    // typo must never disable the ReDoS timeout (or overflow TimeSpan).
+    private int RegexTimeoutMs => Math.Clamp(GetParam("regex_timeout_ms", 100), 10, 5000);
     private double CompoundBonusPerCategory => GetParam("compound_bonus_per_category", 0.05);
     private double MaxCompoundConfidence => GetParam("max_compound_confidence", 0.99);
 

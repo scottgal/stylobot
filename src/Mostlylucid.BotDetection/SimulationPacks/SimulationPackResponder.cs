@@ -91,6 +91,15 @@ public class SimulationPackResponder : IActionPolicy
         context.Response.Headers.TryAdd("X-StyloBot-Pack", matchedPack.Id);
         context.Response.Headers.TryAdd("X-StyloBot-Honeypot", "true");
 
+        // Honeypot bodies are fakes (and the dynamic path is LLM-generated from a
+        // prompt the bot's own request influences). They render on this site's
+        // origin, so if a human ever browses a honeypot path nothing in the fake
+        // page may execute or send credentials. Scrapers don't enforce CSP, so
+        // realism for the bot is unaffected.
+        context.Response.Headers.TryAdd("Content-Security-Policy",
+            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'");
+        context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
+
         // Compute canary from fingerprint if available
         var fingerprint = context.Items.TryGetValue("Holodeck.Fingerprint", out var fpVal) ? fpVal as string : null;
         if (fingerprint == null && evidence.Signals.TryGetValue("identity.primary_signature", out var sigVal))

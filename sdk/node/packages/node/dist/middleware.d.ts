@@ -1,10 +1,19 @@
 import type { RequestHandler } from 'express';
 import { type Verdict, type DetectResponse } from '@stylobot/core';
 export interface StyloBotMiddlewareOptions {
+    /**
+     * `headers` mode trusts inbound `X-StyloBot-*` headers verbatim. ONLY use it
+     * when this app is reachable exclusively through a StyloBot gateway that
+     * strips client-supplied copies of those headers — a directly reachable app
+     * lets any caller spoof `x-stylobot-isbot: false` and bypass detection.
+     * If clients can reach this app directly, use `api` or `grpc` mode instead.
+     */
     mode: 'headers' | 'api' | 'grpc';
     endpoint?: string;
     apiKey?: string;
     timeout?: number;
+    /** Suppress the one-time stderr warning emitted by `headers` mode. */
+    suppressHeaderModeWarning?: boolean;
 }
 export interface StyloBotResult {
     isBot: boolean;
