@@ -113,7 +113,8 @@ public sealed class DetectorManifestLoader
 
         foreach (var file in Directory.GetFiles(directory, "*.pipeline.yaml", SearchOption.AllDirectories))
         {
-            if (new FileInfo(file).Length > MaxManifestFileBytes) continue;
+            if (new FileInfo(file).Length > MaxManifestFileBytes)
+                throw new System.IO.InvalidDataException($"Pipeline manifest '{file}' exceeds {MaxManifestFileBytes} bytes.");
             var bytes = File.ReadAllBytes(file);
             var manifest = YamlSerializer.Deserialize<PipelineManifest>(bytes);
 
