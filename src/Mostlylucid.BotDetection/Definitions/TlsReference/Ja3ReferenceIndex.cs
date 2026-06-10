@@ -144,6 +144,30 @@ public sealed class Ja3ReferenceIndex : IJa3ReferenceIndex
             var corpus = YamlSerializer.Deserialize<Ja3CorpusFile>(ms.ToArray());
             if (corpus != null) ReplaceCorpus(corpus);
         }
+        catch (TypeInitializationException ex) when (ex.InnerException is MissingMethodException)
+        {
+            // Known VYaml + Native AOT limitation: BuiltinResolver's
+            // FormatterCache<T> cctor calls Activator.CreateInstance on
+            // doubly-nested closed-generic dictionaries, which the AOT
+            // trimmer strips. Explicit GeneratedResolver registration in
+            // VYamlBootstrap was attempted but the BuiltinResolver cctor
+            // still runs because VYaml's source-gen Deserialize routes
+            // certain lookups through StandardResolver before consulting
+            // the composite chain. The fix is upstream: either VYaml's
+            // source generator pre-emits formatters for nested closed
+            // generics, or we flatten the model with a named wrapper
+            // class (breaking change to tls-reference-corpus.yaml).
+            //
+            // Daemon stays up; JA3 corpus matching is offline until this
+            // is resolved. WARN (not ERR) because it's a known limitation
+            // documented here, not a fault to wake oncall.
+            _logger?.LogWarning(
+                "TLS reference corpus could not be loaded under Native AOT due to a known VYaml " +
+                "nested-generic limitation (see Ja3ReferenceIndex.LoadEmbeddedCorpus catch block). " +
+                "JA3 corpus matching will be offline; the rest of the detection pipeline is unaffected. " +
+                "Resource: {Resource}",
+                name);
+        }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to load embedded TLS reference corpus from {Resource}", name);
