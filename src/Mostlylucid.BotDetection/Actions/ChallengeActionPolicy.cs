@@ -1,3 +1,4 @@
+using System.IO.Hashing;
 using System.Net;
 using Mostlylucid.BotDetection.Middleware;
 using System.Security.Cryptography;
@@ -191,13 +192,15 @@ public class ChallengeActionPolicy : IActionPolicy
     {
         if (mode == ChallengeTokenBindingMode.Stable)
         {
-            // Stable mode: hash the User-Agent only. The cookie is already
-            // host-scoped by Cookies.Append's HttpOnly/Secure/SameSite=Strict
-            // wire-up, so a UA hash is enough to bind "this browser, this
-            // origin" without re-presenting the challenge every time a
-            // foundation signal drifts.
+            // Stable mode: non-cryptographic UA hash. The HMAC over the whole
+            // token (signed with EffectiveTokenSecret further down) is what
+            // gives the cookie its security guarantee -- the binding hash
+            // just needs to be a stable identifier for "this browser, this
+            // origin". XxHash64 is ~50-100x faster than SHA256 for short
+            // strings and stylobot already uses it for the same shape of
+            // problem in WaveformHistoryStore + shape_hash.
             var ua = context.Request.Headers.UserAgent.ToString();
-            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ua)));
+            return XxHash64.HashToUInt64(Encoding.UTF8.GetBytes(ua)).ToString("x16");
         }
 
         // Strict mode: bind to PrimarySignature when available, fall back
