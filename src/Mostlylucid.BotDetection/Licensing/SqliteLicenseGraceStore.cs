@@ -29,14 +29,7 @@ internal sealed class SqliteLicenseGraceStore : ILicenseGraceStore
         using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS license_state (
-                id               INTEGER PRIMARY KEY DEFAULT 1,
-                grace_started_at INTEGER,
-                updated_at       INTEGER NOT NULL
-            );
-            INSERT OR IGNORE INTO license_state (id, updated_at) VALUES (1, 0);
-            """;
+        cmd.CommandText = Data.Schema.SchemaLoader.Load("license_grace");
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
