@@ -53,7 +53,7 @@ public class BotDetectionOptions
     ///     For production, store in Key Vault/environment variable and configure here.
     ///     Generate with: Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
     /// </summary>
-    public string? SignatureHashKey { get; set; }
+    [Secret] public string? SignatureHashKey { get; set; }
 
     // ==========================================
     // Detection Strategy Toggles
@@ -780,7 +780,7 @@ public class BotDetectionOptions
     ///     Must match the secret configured on the gateway.
     /// </summary>
     [JsonIgnore]
-    public string? UpstreamSignatureSecret { get; set; }
+    [Secret] public string? UpstreamSignatureSecret { get; set; }
 
     /// <summary>
     ///     Maximum age (in seconds) for upstream HMAC signatures before they are rejected.
@@ -1521,7 +1521,7 @@ public class ClientSideOptions
     ///     If not set, a random key is generated (tokens won't survive restarts).
     ///     Recommended: Set a stable secret in production.
     /// </summary>
-    public string? TokenSecret { get; set; }
+    [Secret] public string? TokenSecret { get; set; }
 
     /// <summary>
     ///     Token lifetime in seconds.
@@ -3616,7 +3616,7 @@ public sealed class LicensingOptions
     ///     Optional; if unset and <see cref="Domains"/> is non-empty, enforcement still runs
     ///     (you can pre-configure domains without a token, useful for the gateway side).
     /// </summary>
-    public string? Token { get; set; }
+    [Secret] public string? Token { get; set; }
 }
 
 /// <summary>
@@ -4151,7 +4151,7 @@ public class ProjectHoneypotOptions
     ///     "AccessKey": "abcdefghijkl"
     ///     </code>
     /// </example>
-    public string? AccessKey { get; set; }
+    [Secret] public string? AccessKey { get; set; }
 
     /// <summary>
     ///     Threat score threshold above which to consider an IP as high threat.
