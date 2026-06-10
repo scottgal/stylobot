@@ -43,6 +43,9 @@ internal sealed class EmptyPolicyRuleStore : IPolicyRuleStore
     public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult<PolicyRule?>(null);
 
+    public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+        => Task.FromResult(Empty);
+
     // No reloads ever fire from this store; the event is required by the
     // interface but never raised in tests.
 #pragma warning disable CS0067
@@ -80,6 +83,9 @@ internal sealed class LegacySeedOnlyPolicyRuleStore : IPolicyRuleStore
         var rule = await _inner.GetByIdAsync(id, ct);
         return rule is not null && IsWildcardSeed(rule) ? null : rule;
     }
+
+    public async Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+        => Filter(await _inner.GetAllRulesAsync(ct));
 
     public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
 

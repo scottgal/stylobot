@@ -179,6 +179,15 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
         return Task.FromResult(rule);
     }
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+    {
+        // The snapshot's AllRules slot is the materialised every-rule view we
+        // build at Reload time. Direct hand-off; callers see a stable IReadOnlyList
+        // snapshot even if a reload swaps in a new corpus mid-iteration.
+        return Task.FromResult(_snapshot.AllRules);
+    }
+
     // -------- Reload pipeline --------
 
     private void OnFsEvent(object sender, FileSystemEventArgs e)

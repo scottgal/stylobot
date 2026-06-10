@@ -256,17 +256,14 @@ public sealed class MeterTriggerService : IDisposable
         if (_cachedRules is not null && now - _cachedAt < _ruleListCacheTtl)
             return _cachedRules;
 
-        // GetEffectiveRulesAsync(wildcard-walk) returns the full corpus the
-        // resolver would see for a wildcard scope -- which is the union of
-        // every rule attached at the Wildcard scope. To get the WHOLE corpus
-        // we pass an empty path and rely on the store's semantics, OR we walk
-        // every scope known to the store. Simpler: pass [Wildcard] and rely
-        // on the store impls to include every rule indexed at wildcard. For
-        // FOSS YamlPolicyRuleStore that is exactly the wildcard-attached
-        // rules; rules attached at deeper scopes are still candidates because
-        // EffectiveAsync walks scopes from specific->broad and concatenates.
-        var path = new[] { PolicyScope.Wildcard() };
-        var rules = await _store!.GetEffectiveRulesAsync(path, ct).ConfigureAwait(false);
+        // Wave 6: trigger rules can hang off any scope (host-specific,
+        // endpoint-specific, identity-narrowed -- the resolver still walks
+        // them per-request). The pre-Wave-6 code path walked only the
+        // wildcard scope via GetEffectiveRulesAsync, which silently dropped
+        // every non-wildcard trigger rule. GetAllRulesAsync is the dedicated
+        // flat surface added to IPolicyRuleStore to feed loops that need the
+        // FULL rule corpus regardless of scope -- exactly the case here.
+        var rules = await _store!.GetAllRulesAsync(ct).ConfigureAwait(false);
         _cachedRules = rules;
         _cachedAt = now;
         return rules;

@@ -39,6 +39,20 @@ public interface IPolicyRuleStore
     Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
+    ///     Return every rule in the corpus regardless of scope. The wildcard-
+    ///     only walk (<see cref="GetEffectiveRulesAsync"/> with
+    ///     <c>[Wildcard]</c>) misses rules attached to deeper, non-wildcard
+    ///     scopes -- callers that need to sweep the WHOLE rule set (e.g.
+    ///     <c>MeterTriggerService</c> evaluating every trigger rule on each
+    ///     tick, regardless of where its scope sits) need this surface.
+    ///     <para>
+    ///     Implementations are free to return an immutable snapshot of the
+    ///     corpus; order is not part of the contract.
+    ///     </para>
+    /// </summary>
+    Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default);
+
+    /// <summary>
     ///     Raised after a reload changes the rule corpus. The supplied scope
     ///     is the broadest scope known to be affected -- a per-rule edit fires
     ///     with that rule's own scope; a bulk reload may fire with the
