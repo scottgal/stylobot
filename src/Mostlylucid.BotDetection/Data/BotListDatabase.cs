@@ -115,7 +115,8 @@ public class BotListDatabase : IBotListDatabase, IDisposable
         await connection.OpenAsync(cancellationToken);
 
         await using var cmd = connection.CreateCommand();
-        cmd.CommandText = $"SELECT pattern FROM bot_patterns LIMIT {MaxPatternsPerQuery}";
+        cmd.CommandText = "SELECT pattern FROM bot_patterns LIMIT @limit";
+        cmd.Parameters.AddWithValue("@limit", MaxPatternsPerQuery);
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
 

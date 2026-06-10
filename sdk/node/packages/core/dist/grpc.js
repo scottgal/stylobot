@@ -2,8 +2,8 @@ import { createGrpcDetectionClient, grpcDetect, grpcRenderWidget, mapGrpcVerdict
 export class StyloBotGrpcClient {
     client;
     timeoutMs;
-    constructor(endpoint, timeoutMs = 5000) {
-        this.client = createGrpcDetectionClient(endpoint);
+    constructor(endpoint, timeoutMs = 5000, options) {
+        this.client = createGrpcDetectionClient(endpoint, options);
         this.timeoutMs = timeoutMs;
     }
     detect(req) {

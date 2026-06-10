@@ -3,10 +3,19 @@ import { StyloBotClient, StyloBotGrpcClient, parseStyloBotHeaders, type Verdict,
 import { extractDetectRequest } from './extract.js';
 
 export interface StyloBotMiddlewareOptions {
+  /**
+   * `headers` mode trusts inbound `X-StyloBot-*` headers verbatim. ONLY use it
+   * when this app is reachable exclusively through a StyloBot gateway that
+   * strips client-supplied copies of those headers — a directly reachable app
+   * lets any caller spoof `x-stylobot-isbot: false` and bypass detection.
+   * If clients can reach this app directly, use `api` or `grpc` mode instead.
+   */
   mode: 'headers' | 'api' | 'grpc';
   endpoint?: string;
   apiKey?: string;
   timeout?: number;
+  /** Suppress the one-time stderr warning emitted by `headers` mode. */
+  suppressHeaderModeWarning?: boolean;
 }
 
 export interface StyloBotResult {
@@ -67,6 +76,14 @@ export function styloBotMiddleware(options: StyloBotMiddlewareOptions): RequestH
       }
       next();
     };
+  }
+
+  if (!options.suppressHeaderModeWarning) {
+    console.warn(
+      '[stylobot] headers mode trusts inbound X-StyloBot-* headers. Ensure this app is ' +
+      'only reachable through a StyloBot gateway (which strips client-supplied copies); ' +
+      'a directly reachable app can be spoofed. Set suppressHeaderModeWarning: true to silence.'
+    );
   }
 
   return (req: Request, _res: Response, next: NextFunction) => {

@@ -1,13 +1,13 @@
 import * as grpc from '@grpc/grpc-js';
 import type { DetectRequest, Verdict } from './types.js';
-import { createGrpcDetectionClient, grpcDetect, grpcRenderWidget, mapGrpcVerdict } from './grpc-client.js';
+import { createGrpcDetectionClient, grpcDetect, grpcRenderWidget, mapGrpcVerdict, type GrpcClientOptions } from './grpc-client.js';
 
 export class StyloBotGrpcClient {
   private readonly client: grpc.Client;
   private readonly timeoutMs: number;
 
-  constructor(endpoint: string, timeoutMs = 5000) {
-    this.client = createGrpcDetectionClient(endpoint);
+  constructor(endpoint: string, timeoutMs = 5000, options?: GrpcClientOptions) {
+    this.client = createGrpcDetectionClient(endpoint, options);
     this.timeoutMs = timeoutMs;
   }
 

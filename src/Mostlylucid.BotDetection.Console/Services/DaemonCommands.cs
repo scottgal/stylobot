@@ -86,6 +86,12 @@ public static class DaemonCommands
 
         // Write PID file + port file
         Directory.CreateDirectory(PidDir);
+        if (IsSymlink(PidFile) || IsSymlink(PortFile))
+        {
+            System.Console.Error.WriteLine($"  Refusing to write through a symlinked PID/port file in {PidDir}");
+            try { process.Kill(true); } catch { /* child may have already exited */ }
+            return 1;
+        }
         File.WriteAllText(PidFile, process.Id.ToString());
 
         // Extract port from child args for status command
@@ -117,6 +123,12 @@ public static class DaemonCommands
             return 1;
         }
 
+        if (IsSymlink(PidFile))
+        {
+            System.Console.Error.WriteLine($"  Refusing to read symlinked PID file: {PidFile}");
+            return 1;
+        }
+
         var pidText = File.ReadAllText(PidFile).Trim();
         if (!int.TryParse(pidText, out var pid))
         {
@@ -133,6 +145,16 @@ public static class DaemonCommands
         catch (ArgumentException)
         {
             System.Console.Error.WriteLine($"  Process {pid} is not running (stale PID file)");
+            File.Delete(PidFile);
+            return 1;
+        }
+
+        // PID recycling guard: never signal a process that isn't ours. Same
+        // identity rule as TryGetRunningProcess.
+        var processName = SafeProcessName(process);
+        if (!processName.Contains("stylobot") && !processName.Contains("dotnet"))
+        {
+            System.Console.Error.WriteLine($"  PID {pid} is not a stylobot process ('{processName}') - removing stale PID file");
             File.Delete(PidFile);
             return 1;
         }
@@ -178,6 +200,12 @@ public static class DaemonCommands
         if (!File.Exists(PidFile))
         {
             System.Console.WriteLine("  stylobot is not running");
+            return 1;
+        }
+
+        if (IsSymlink(PidFile))
+        {
+            System.Console.Error.WriteLine($"  Refusing to read symlinked PID file: {PidFile}");
             return 1;
         }
 
@@ -278,6 +306,7 @@ public static class DaemonCommands
     {
         pid = 0;
         if (!File.Exists(PidFile)) return false;
+        if (IsSymlink(PidFile)) return false;
 
         var pidText = File.ReadAllText(PidFile).Trim();
         if (!int.TryParse(pidText, out pid)) return false;
@@ -302,6 +331,23 @@ public static class DaemonCommands
             File.Delete(PidFile);
             return false;
         }
+    }
+
+    /// <summary>
+    ///     The PID/port files live in the invoking user's home dir, but a planted
+    ///     symlink would let "stylobot start" overwrite an arbitrary file and
+    ///     "stylobot stop" signal whatever PID the link target names. Refuse both.
+    /// </summary>
+    private static bool IsSymlink(string path)
+    {
+        var fi = new FileInfo(path);
+        return fi.Exists && fi.LinkTarget != null;
+    }
+
+    private static string SafeProcessName(Process process)
+    {
+        try { return process.ProcessName.ToLowerInvariant(); }
+        catch { return string.Empty; }
     }
 
     private static string EscapeArg(string arg)

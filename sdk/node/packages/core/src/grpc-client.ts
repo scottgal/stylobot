@@ -68,8 +68,22 @@ const THREAT_MAP: Record<string, ThreatBand> = {
   THREAT_BAND_CRITICAL: 'Critical',
 };
 
-export function createGrpcDetectionClient(endpoint: string): grpc.Client {
-  return new ServiceCtor(endpoint, grpc.credentials.createInsecure());
+export interface GrpcClientOptions {
+  /**
+   * Use TLS for the channel. Defaults to false because the sidecar's documented
+   * topology is a loopback hop; ALWAYS set true (with `rootCerts` as needed)
+   * when the endpoint crosses a network boundary.
+   */
+  tls?: boolean;
+  /** PEM root certificates for TLS verification (defaults to system roots). */
+  rootCerts?: Buffer;
+}
+
+export function createGrpcDetectionClient(endpoint: string, options?: GrpcClientOptions): grpc.Client {
+  const credentials = options?.tls
+    ? grpc.credentials.createSsl(options.rootCerts)
+    : grpc.credentials.createInsecure();
+  return new ServiceCtor(endpoint, credentials);
 }
 
 export function grpcDetect(
