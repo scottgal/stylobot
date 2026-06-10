@@ -43,8 +43,11 @@ const THREAT_MAP = {
     THREAT_BAND_HIGH: 'High',
     THREAT_BAND_CRITICAL: 'Critical',
 };
-export function createGrpcDetectionClient(endpoint) {
-    return new ServiceCtor(endpoint, grpc.credentials.createInsecure());
+export function createGrpcDetectionClient(endpoint, options) {
+    const credentials = options?.tls
+        ? grpc.credentials.createSsl(options.rootCerts)
+        : grpc.credentials.createInsecure();
+    return new ServiceCtor(endpoint, credentials);
 }
 export function grpcDetect(client, req, timeoutMs = 5000) {
     return new Promise((resolve, reject) => {

@@ -246,6 +246,13 @@ try
     // Forward headers FIRST so bot detection sees real client IPs, not Docker bridge IPs
     app.UseForwardedHeaders();
 
+    // Anti-spoofing: drop X-Bot-Detection-* verdict headers a visitor attached
+    // (this gateway computes its own and re-emits them via UseStyloBotForwardedHeaders),
+    // and — when ForwardedHeaders:StripInboundClientSignalHeaders is enabled —
+    // client-signal headers (X-JA3-*, X-Client-TLS-*, …) that only a trusted
+    // upstream proxy may inject. Must run before anything reads request headers.
+    app.UseStyloBotInboundClientHeaderStrip();
+
     // TLS metadata (protocol + cipher suite) → HttpContext.Items for JA3/JA4 fingerprinting.
     // Only active when the gateway terminates TLS itself (cert-from-file or ACME modes).
     if (earlyTls.Enabled)

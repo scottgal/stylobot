@@ -89,6 +89,11 @@ public sealed class DetectorManifestLoader
     /// <summary>
     /// Load detector manifests from a directory.
     /// </summary>
+    // Manifests are small (the largest embedded one is a few KB); anything
+    // megabytes-large in the manifest directory is a mistake, and feeding it to
+    // the YAML deserializer would just burn memory.
+    private const long MaxManifestFileBytes = 1_048_576;
+
     public IReadOnlyDictionary<string, DetectorManifest> LoadFromDirectory(string directory)
     {
         if (!Directory.Exists(directory))
@@ -96,6 +101,8 @@ public sealed class DetectorManifestLoader
 
         foreach (var file in Directory.GetFiles(directory, "*.detector.yaml", SearchOption.AllDirectories))
         {
+            if (new FileInfo(file).Length > MaxManifestFileBytes)
+                throw new System.IO.InvalidDataException($"Detector manifest '{file}' exceeds {MaxManifestFileBytes} bytes.");
             var bytes = File.ReadAllBytes(file);
             var manifest = YamlSerializer.Deserialize<DetectorManifest>(bytes);
 
@@ -107,6 +114,8 @@ public sealed class DetectorManifestLoader
 
         foreach (var file in Directory.GetFiles(directory, "*.pipeline.yaml", SearchOption.AllDirectories))
         {
+            if (new FileInfo(file).Length > MaxManifestFileBytes)
+                throw new System.IO.InvalidDataException($"Pipeline manifest '{file}' exceeds {MaxManifestFileBytes} bytes.");
             var bytes = File.ReadAllBytes(file);
             var manifest = YamlSerializer.Deserialize<PipelineManifest>(bytes);
 

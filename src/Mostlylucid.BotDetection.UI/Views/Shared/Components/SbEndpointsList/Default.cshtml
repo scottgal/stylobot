@@ -185,9 +185,9 @@
                                             title="Apply policy to this endpoint"
                                             class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto"
                                             data-action="open-policy-modal"
-                                            data-method="@Html.Raw(endpoint.Method.Replace("\"", "&quot;"))"
-                                            data-path="@Html.Raw(Uri.EscapeDataString(endpoint.Path))"
-                                            data-policy="@Html.Raw((endpoint.ActivePolicyName ?? string.Empty).Replace("\"", "&quot;"))">
+                                            data-method="@endpoint.Method"
+                                            data-path="@Uri.EscapeDataString(endpoint.Path)"
+                                            data-policy="@(endpoint.ActivePolicyName ?? string.Empty)">
                                         <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
                                     </button>
                                 </div>

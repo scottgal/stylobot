@@ -42,6 +42,29 @@ public static class StyloBotEdgeHeaderNames
 }
 
 /// <summary>
+///     The edge-injected client-signal headers a trusted reverse proxy in front of
+///     stylobot may attach (TLS/JA3/JA4 fingerprints, real client HTTP version, ASN).
+///     Detectors read these in preference to <c>HttpContext.Request.*</c> because the
+///     proxy-to-origin hop's protocol and TLS are not the client's. When stylobot is
+///     itself the outermost edge there is no legitimate writer for these headers and
+///     a direct client can spoof its fingerprint by attaching them — see
+///     <see cref="EdgeForwardedHeadersOptions.StripInboundClientSignalHeaders"/>.
+/// </summary>
+public static class StyloBotClientSignalHeaderNames
+{
+    public static readonly string[] All =
+    [
+        "X-Client-TLS-Version", "X-TLS-Protocol",
+        "X-Client-TLS-Cipher", "X-TLS-Cipher",
+        "X-Client-TLS-Ext-Sha1",
+        "X-Client-HTTP-Version", "Sb-Http-Version",
+        "X-Client-ASN",
+        "X-JA3-Hash", "X-JA3-String",
+        "X-JA4", "X-JA4-Fingerprint", "X-JA4-Hash"
+    ];
+}
+
+/// <summary>
 ///     Anti-spoofing: removes any <c>X-Bot-Detection-*</c> headers from the inbound
 ///     request before any detection logic reads them. A visitor could otherwise
 ///     attach those headers and claim to be a different fingerprint / verdict.
@@ -50,22 +73,35 @@ public static class StyloBotEdgeHeaderNames
 public sealed class StyloBotInboundClientHeaderStripperMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly bool _enabled;
+    private readonly bool _stripVerdictHeaders;
+    private readonly bool _stripClientSignalHeaders;
 
     public StyloBotInboundClientHeaderStripperMiddleware(
         RequestDelegate next,
         IOptions<BotDetectionOptions> options)
     {
         _next = next;
-        _enabled = options.Value.ForwardedHeaders.StripInboundFromClient;
+        _stripVerdictHeaders = options.Value.ForwardedHeaders.StripInboundFromClient;
+        _stripClientSignalHeaders = options.Value.ForwardedHeaders.StripInboundClientSignalHeaders;
     }
 
     public Task InvokeAsync(HttpContext context)
     {
-        if (_enabled)
+        if (_stripVerdictHeaders)
             foreach (var name in StyloBotEdgeHeaderNames.All)
                 if (context.Request.Headers.ContainsKey(name))
                     context.Request.Headers.Remove(name);
+
+        // Client-signal headers (X-Client-TLS-*, X-JA3-*, X-JA4*, X-Client-ASN,
+        // X-Client-HTTP-Version) are only legitimate when a trusted proxy in
+        // front of this host injects them. When this host IS the outermost edge,
+        // a direct client could attach a known-good browser JA3 hash and defeat
+        // TLS/HTTP2 fingerprinting; strip them at the door.
+        if (_stripClientSignalHeaders)
+            foreach (var name in StyloBotClientSignalHeaderNames.All)
+                if (context.Request.Headers.ContainsKey(name))
+                    context.Request.Headers.Remove(name);
+
         return _next(context);
     }
 }

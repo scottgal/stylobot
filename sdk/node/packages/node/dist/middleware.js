@@ -43,6 +43,11 @@ export function styloBotMiddleware(options) {
             next();
         };
     }
+    if (!options.suppressHeaderModeWarning) {
+        console.warn('[stylobot] headers mode trusts inbound X-StyloBot-* headers. Ensure this app is ' +
+            'only reachable through a StyloBot gateway (which strips client-supplied copies); ' +
+            'a directly reachable app can be spoofed. Set suppressHeaderModeWarning: true to silence.');
+    }
     return (req, _res, next) => {
         const verdict = parseStyloBotHeaders(req.headers) ?? EMPTY_VERDICT;
         req.stylobot = { isBot: verdict.isBot, verdict, signals: {}, reasons: [], meta: null };

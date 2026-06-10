@@ -66,11 +66,19 @@ public class StyloBotDashboardMiddleware
 
     // Rate limiter: per IP, per minute (used only for diagnostics endpoint)
     private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
+    private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _exportRateLimits = new();
+    private const int ExportRateLimit = 6; // bulk exports per IP per window
     private static volatile bool _authWarningLogged;
 
     // Caches whether any dashboard users exist. Set to true on first confirmed user; never reverts.
     // Avoids a DB round-trip on every unauthenticated request once deployment is past first-run.
     private static volatile bool _usersExist;
+
+    // Serialises first-run admin creation: without it two concurrent POST /setup
+    // requests can both pass the user-count check and both create an account.
+    private static readonly SemaphoreSlim SetupLock = new(1, 1);
+
+    private const string SetupCsrfCookieName = "sb.setup.csrf";
 
     private const string AuthPageCss = """
         *{box-sizing:border-box;margin:0;padding:0}
@@ -195,6 +203,10 @@ public class StyloBotDashboardMiddleware
 
         var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
         var relLower = relativePath.ToLowerInvariant();
+
+        // Every dashboard-handled response (HTML, JSON, CSV export) carries nosniff
+        // so a browser can never reinterpret an export or API payload as HTML.
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
 
         if (_options.RequireAuthentication)
         {
@@ -811,6 +823,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "text/html; charset=utf-8";
         var basePath = _options.BasePath.TrimEnd('/');
+        var csrfToken = IssueSetupCsrfToken(context);
         await context.Response.WriteAsync($$"""
             <!DOCTYPE html>
             <html lang="en">
@@ -825,6 +838,7 @@ public class StyloBotDashboardMiddleware
               <h1>StyloBot Dashboard</h1>
               <p>Create the first admin account to secure your dashboard.</p>
               <form method="post" action="{{basePath}}/setup">
+                <input type="hidden" name="__csrf" value="{{csrfToken}}">
                 <label for="email">Email</label>
                 <input type="email" id="email" name="email" required autocomplete="email">
                 <label for="password">Password</label>
@@ -848,6 +862,16 @@ public class StyloBotDashboardMiddleware
 
         var basePath = _options.BasePath.TrimEnd('/');
 
+        // CSRF: double-submit token. A cross-site form post can neither read nor
+        // set our SameSite=Strict cookie, so it can't supply a matching pair.
+        if (!ValidateSetupCsrfToken(context))
+        {
+            _logger.LogWarning("StyloBot Dashboard: setup POST rejected - missing/mismatched CSRF token from {IP}",
+                context.Connection.RemoteIpAddress);
+            context.Response.Redirect($"{basePath}/setup?error=invalid");
+            return;
+        }
+
         if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password) || password != confirm)
         {
             context.Response.Redirect($"{basePath}/setup?error=invalid");
@@ -862,20 +886,67 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var user = new StyloBotUser { UserName = email, Email = email, EmailConfirmed = true };
-        var result = await userManager.CreateAsync(user, password);
+        // Serialise the count-recheck + create so two concurrent first-run POSTs
+        // can't both observe zero users and both create an admin account.
+        await SetupLock.WaitAsync(context.RequestAborted);
+        try
+        {
+            var userStore = context.RequestServices.GetService<IUserStore<StyloBotUser>>() as StyloBotUserStore;
+            if (userStore != null && await userStore.GetUserCountAsync(context.RequestAborted) > 0)
+            {
+                _usersExist = true;
+                context.Response.StatusCode = 404;
+                return;
+            }
 
-        if (result.Succeeded)
-        {
-            _usersExist = true;
-            _logger.LogInformation("StyloBot Dashboard: first admin account created for {Email}", email);
-            context.Response.Redirect($"{basePath}/auth-ui");
+            var user = new StyloBotUser { UserName = email, Email = email, EmailConfirmed = true };
+            var result = await userManager.CreateAsync(user, password);
+
+            if (result.Succeeded)
+            {
+                _usersExist = true;
+                _logger.LogInformation("StyloBot Dashboard: first admin account created.");
+                context.Response.Redirect($"{basePath}/auth-ui");
+            }
+            else
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                context.Response.Redirect($"{basePath}/setup?error={Uri.EscapeDataString(errors)}");
+            }
         }
-        else
+        finally
         {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            context.Response.Redirect($"{basePath}/setup?error={Uri.EscapeDataString(errors)}");
+            SetupLock.Release();
         }
+    }
+
+    /// <summary>
+    ///     Issues a fresh random token, stores it in a SameSite=Strict cookie and
+    ///     returns it for embedding as a hidden form field. Hex-only output, safe
+    ///     to interpolate into the HTML attribute.
+    /// </summary>
+    private string IssueSetupCsrfToken(HttpContext context)
+    {
+        var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        context.Response.Cookies.Append(SetupCsrfCookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Strict,
+            Secure = context.Request.IsHttps,
+            Path = _options.BasePath.TrimEnd('/') + "/setup",
+            MaxAge = TimeSpan.FromMinutes(30)
+        });
+        return token;
+    }
+
+    private static bool ValidateSetupCsrfToken(HttpContext context)
+    {
+        var cookie = context.Request.Cookies[SetupCsrfCookieName];
+        var form = context.Request.Form["__csrf"].FirstOrDefault();
+        if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(form)) return false;
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(cookie),
+            Encoding.UTF8.GetBytes(form));
     }
 
     private async Task ServeLoginUiAsync(HttpContext context)
@@ -1703,6 +1774,22 @@ public class StyloBotDashboardMiddleware
 
     private async Task ServeExportApiAsync(HttpContext context)
     {
+        // Bulk export is the most expensive read surface; throttle per IP like
+        // diagnostics so an authenticated client can't hammer the event store.
+        var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var now = DateTime.UtcNow;
+        var (allowed, remaining) = CheckRateLimit(clientIp, now, _exportRateLimits, ExportRateLimit);
+        context.Response.Headers["X-RateLimit-Limit"] = ExportRateLimit.ToString();
+        context.Response.Headers["X-RateLimit-Remaining"] = remaining.ToString();
+        if (!allowed)
+        {
+            context.Response.StatusCode = 429;
+            context.Response.Headers.RetryAfter = ((int)RateLimitWindow.TotalSeconds).ToString();
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Rate limit exceeded\"}");
+            return;
+        }
+
         var format = context.Request.Query["format"].FirstOrDefault() ?? "json";
         var filter = ParseFilter(context.Request.Query);
         var detections = await _eventStore.GetDetectionsAsync(filter);
@@ -5695,6 +5782,14 @@ public class StyloBotDashboardMiddleware
             }
 
             var target = $"{basePath}/signature/{Uri.EscapeDataString(activeEdge.Signature)}";
+            // Local-redirect guard: target is built from config + DB values, but a
+            // signature starting with "/" or "\" could otherwise turn this into a
+            // protocol-relative (//host) or scheme-confused redirect.
+            if (!target.StartsWith('/') || target.StartsWith("//") || target.StartsWith("/\\"))
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
             context.Response.Redirect(target, permanent: false);
         }
         catch (Exception ex)

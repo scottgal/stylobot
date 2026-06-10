@@ -64,5 +64,5 @@ public enum AuthStyle
     Bearer,         // Authorization: Bearer <key> (OpenAI-compatible)
     AzureApiKey,    // api-key: <key> header (Azure OpenAI)
     Anthropic,      // x-api-key: <key> + anthropic-version header
-    GeminiQuery     // API key in query string ?key=<key>
+    GeminiQuery     // Google Gemini API (x-goog-api-key header; name kept for config compat)
 }

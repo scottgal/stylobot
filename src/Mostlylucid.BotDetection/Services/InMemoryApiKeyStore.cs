@@ -57,17 +57,20 @@ public sealed class InMemoryApiKeyStore : IApiKeyStore
 
         var providedBytes = Encoding.UTF8.GetBytes(providedKey);
 
-        // Find matching key using constant-time comparison
+        // Find matching key using constant-time comparison. No early exit: every
+        // configured key is compared every time so a valid key takes the same
+        // wall-clock as an invalid one (an early break leaks match-vs-no-match
+        // and the matched key's position via response timing).
         string? matchedKeyId = null;
         ApiKeyConfig? matchedConfig = null;
 
         foreach (var (_, (keyBytes, keyId, config)) in _keyLookup)
         {
-            if (CryptographicOperations.FixedTimeEquals(providedBytes, keyBytes))
+            if (CryptographicOperations.FixedTimeEquals(providedBytes, keyBytes)
+                && matchedKeyId == null)
             {
                 matchedKeyId = keyId;
                 matchedConfig = config;
-                break;
             }
         }
 

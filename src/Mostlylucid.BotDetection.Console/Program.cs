@@ -852,6 +852,13 @@ try
         await next();
     });
 
+    // Anti-spoofing: drop X-Bot-Detection-* verdict headers a visitor attached
+    // (this gateway computes its own and re-emits via UseStyloBotForwardedHeaders),
+    // and — when ForwardedHeaders:StripInboundClientSignalHeaders is enabled —
+    // client-signal headers (X-JA3-*, X-Client-TLS-*, …) that only a trusted
+    // upstream proxy may inject. Must run before detection reads headers.
+    app.UseStyloBotInboundClientHeaderStrip();
+
     // Tap detection results for the live table (placed BEFORE bot detection
     // so it wraps around it and always sees the evidence in Items after _next completes)
     if (!verbose)

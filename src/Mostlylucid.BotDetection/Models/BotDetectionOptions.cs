@@ -4398,6 +4398,24 @@ public class EdgeForwardedHeadersOptions
     public bool StripInboundFromClient { get; set; } = true;
 
     /// <summary>
+    ///     Remove edge-injected client-signal headers (<c>X-Client-TLS-*</c>,
+    ///     <c>X-JA3-*</c>, <c>X-JA4*</c>, <c>X-Client-ASN</c>,
+    ///     <c>X-Client-HTTP-Version</c> / <c>Sb-Http-Version</c>) from inbound
+    ///     requests. Detectors trust these headers over the raw connection because
+    ///     a proxy-to-origin hop's TLS/protocol is not the client's — which means a
+    ///     client connecting DIRECTLY (no signal-injecting proxy in front) can spoof
+    ///     its TLS fingerprint, ASN, or HTTP version by attaching them.
+    ///     <para>
+    ///     Enable when this host is the outermost public edge (nothing in front
+    ///     injects these headers). Leave off when behind Cloudflare / Caddy / nginx
+    ///     configured per <c>docs/REVERSE_PROXY_SIGNALS.md</c>, otherwise the
+    ///     proxy-computed fingerprints are discarded. Default off for compatibility
+    ///     with the documented reverse-proxy topologies.
+    ///     </para>
+    /// </summary>
+    public bool StripInboundClientSignalHeaders { get; set; }
+
+    /// <summary>
     ///     Emit <c>X-Bot-Detection-*</c> on the YARP-forwarded request so a
     ///     downstream dashboard host renders identity from headers alone. Default
     ///     on; turn off for plain reverse-proxy deployments where the upstream

@@ -65,9 +65,21 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     // === Schema migration helper ===
 
+    // SQL identifiers can't be parameterised; gate the interpolation on a strict
+    // identifier shape so a future caller can never smuggle SQL through a
+    // table/column/type argument.
+    private static readonly System.Text.RegularExpressions.Regex SqlIdentifierRegex =
+        new("^[A-Za-z_][A-Za-z0-9_]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex SqlColumnTypeRegex =
+        new("^[A-Za-z0-9_ ]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static async Task MigrateAddColumnAsync(
         SqliteConnection conn, string table, string column, string type, CancellationToken ct)
     {
+        if (!SqlIdentifierRegex.IsMatch(table) || !SqlIdentifierRegex.IsMatch(column) || !SqlColumnTypeRegex.IsMatch(type))
+            throw new ArgumentException($"Invalid SQL identifier in migration: {table}.{column} {type}");
+
         // Must close the PRAGMA reader before running ALTER on the same connection.
         var exists = false;
         await using (var checkCmd = conn.CreateCommand())
@@ -151,7 +163,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@entropy", session.TimingEntropy);
             cmd.Parameters.AddWithValue("@narrative", (object?)session.Narrative ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@headerHashes", (object?)session.HeaderHashesJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@uaRaw", (object?)session.UserAgentRaw ?? DBNull.Value);
+            // Strip at the storage boundary too: every current writer already runs
+            // UaPiiStripper, but this column is the zero-PII promise's weak point
+            // and a future writer must not be able to bypass it.
+            cmd.Parameters.AddWithValue("@uaRaw", session.UserAgentRaw is { Length: > 0 } uaRaw
+                ? Privacy.UaPiiStripper.Strip(uaRaw)
+                : DBNull.Value);
             cmd.Parameters.AddWithValue("@freqFp", (object?)session.FrequencyFingerprintBlob ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@driftVec", (object?)session.DriftVectorBlob ?? DBNull.Value);
 
@@ -204,9 +221,11 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     last_seen = @last,
                     -- EWMA: blend prior with new observation so a high score from one observation
                     -- decays over time rather than pinning the signature at its all-time peak.
-                    -- is_bot, risk_band, bot_name, bot_type, action all key off whether the new
-                    -- observation exceeds the EWMA-blended value, not the raw historical max.
-                    is_bot = CASE WHEN @prob > ((1.0 - @alpha) * bot_probability + @alpha * @prob) THEN @isBot ELSE is_bot END,
+                    -- is_bot, risk_band, bot_name, bot_type, action all flip when the new
+                    -- observation exceeds the prior EWMA (bot_probability on the right-hand
+                    -- side reads the pre-update row value; @prob > old is algebraically the
+                    -- same test as @prob > the blended value for any alpha < 1).
+                    is_bot = CASE WHEN @prob > bot_probability THEN @isBot ELSE is_bot END,
                     bot_probability = (1.0 - @alpha) * bot_probability + @alpha * @prob,
                     confidence = MAX(confidence, @conf),
                     risk_band = CASE WHEN @prob > bot_probability THEN @risk ELSE risk_band END,
@@ -1300,11 +1319,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             var idsToDelete = toCompact.Select(r => r.Id).ToList();
             if (idsToDelete.Count > 0)
             {
-                await using var delCmd = conn.CreateCommand();
-                delCmd.CommandText = $"""
-                    DELETE FROM sessions WHERE id IN ({string.Join(",", idsToDelete)})
-                """;
-                await delCmd.ExecuteNonQueryAsync(ct);
+                // Parameterised like the other IN-clause builders in this file —
+                // the values are integers today, but interpolating them bakes in
+                // an injection hazard for whoever changes the id type later.
+                foreach (var chunk in idsToDelete.Chunk(500))
+                {
+                    await using var delCmd = conn.CreateCommand();
+                    var paramNames = chunk.Select((_, i) => $"@id{i}").ToList();
+                    delCmd.CommandText = $"DELETE FROM sessions WHERE id IN ({string.Join(",", paramNames)})";
+                    for (var i = 0; i < chunk.Length; i++)
+                        delCmd.Parameters.AddWithValue(paramNames[i], chunk[i]);
+                    await delCmd.ExecuteNonQueryAsync(ct);
+                }
             }
 
             await tx.CommitAsync(ct);
@@ -1558,6 +1584,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
     public static float[]? DeserializeVector(byte[]? blob)
     {
         if (blob == null || blob.Length == 0) return null;
+        // A length that isn't a whole number of floats means the row is corrupt;
+        // treat it like a missing vector rather than throwing mid-read.
+        if (blob.Length % sizeof(float) != 0) return null;
         var floats = new float[blob.Length / sizeof(float)];
         Buffer.BlockCopy(blob, 0, floats, 0, blob.Length);
         return floats;

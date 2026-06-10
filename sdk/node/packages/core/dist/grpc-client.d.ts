@@ -13,7 +13,17 @@ export interface GrpcDetectResponse {
     processingTimeMs: number;
     detectorsRun: number;
 }
-export declare function createGrpcDetectionClient(endpoint: string): grpc.Client;
+export interface GrpcClientOptions {
+    /**
+     * Use TLS for the channel. Defaults to false because the sidecar's documented
+     * topology is a loopback hop; ALWAYS set true (with `rootCerts` as needed)
+     * when the endpoint crosses a network boundary.
+     */
+    tls?: boolean;
+    /** PEM root certificates for TLS verification (defaults to system roots). */
+    rootCerts?: Buffer;
+}
+export declare function createGrpcDetectionClient(endpoint: string, options?: GrpcClientOptions): grpc.Client;
 export declare function grpcDetect(client: grpc.Client, req: DetectRequest, timeoutMs?: number): Promise<GrpcDetectResponse>;
 export declare function grpcRenderWidget(client: grpc.Client, template: string, verdict?: Verdict, vars?: Record<string, string>, timeoutMs?: number): Promise<string>;
 export declare function mapGrpcVerdict(r: GrpcDetectResponse): Verdict;
