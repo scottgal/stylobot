@@ -5,7 +5,7 @@ using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
-using Mostlylucid.BotDetection.Policies.Throttle;
+using Mostlylucid.BotDetection.RateLimit;
 using PredicateNode = Mostlylucid.BotDetection.Policies.Predicate.Predicate;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Dispatch;
@@ -74,10 +74,10 @@ public sealed class PolicyActionDispatcherTests
     private static PolicyActionDispatcher BuildDispatcher(
         StubResolver resolver,
         IPolicyDecisionLog? decisionLog = null,
-        ThrottleBucketRegistry? throttle = null,
+        ITokenBucketStore? bucketStore = null,
         IEnumerable<IPolicyActionHandler>? extraHandlers = null)
     {
-        throttle ??= new ThrottleBucketRegistry();
+        bucketStore ??= new InMemoryTokenBucketStore();
         var handlers = new List<IPolicyActionHandler>
         {
             new AllowActionHandler(),
@@ -86,7 +86,7 @@ public sealed class PolicyActionDispatcherTests
             new TagActionHandler(),
             new ChallengeActionHandler(),
             new RateLimitActionHandler(store: null),
-            new ThrottleActionHandler(throttle)
+            new ThrottleActionHandler(bucketStore)
         };
         if (extraHandlers is not null) handlers.AddRange(extraHandlers);
         return new PolicyActionDispatcher(resolver, handlers, decisionLog);
@@ -149,7 +149,7 @@ public sealed class PolicyActionDispatcherTests
         var rule = NewRule(new PolicyAction.Throttle(10));
         var resolver = new StubResolver();
         resolver.Rules.Add(new EffectiveRule(rule, rule.Scope, IsInherited: false));
-        var dispatcher = BuildDispatcher(resolver, throttle: new ThrottleBucketRegistry());
+        var dispatcher = BuildDispatcher(resolver, bucketStore: new InMemoryTokenBucketStore());
         var ctx = NewHttpContext();
 
         var result = await dispatcher.DispatchAsync(
@@ -165,8 +165,8 @@ public sealed class PolicyActionDispatcherTests
         var rule = NewRule(new PolicyAction.Throttle(1));
         var resolver = new StubResolver();
         resolver.Rules.Add(new EffectiveRule(rule, rule.Scope, IsInherited: false));
-        var bucket = new ThrottleBucketRegistry();
-        var dispatcher = BuildDispatcher(resolver, throttle: bucket);
+        var bucket = new InMemoryTokenBucketStore();
+        var dispatcher = BuildDispatcher(resolver, bucketStore: bucket);
 
         // First request admits and consumes the single token.
         var first = await dispatcher.DispatchAsync(
@@ -266,8 +266,8 @@ public sealed class PolicyActionDispatcherTests
         var rule = NewRule(new PolicyAction.Tag("tagged"), trigger: trigger);
         var resolver = new StubResolver();
         resolver.Rules.Add(new EffectiveRule(rule, rule.Scope, IsInherited: false, IsArmed: true));
-        var bucket = new ThrottleBucketRegistry();
-        var dispatcher = BuildDispatcher(resolver, throttle: bucket);
+        var bucket = new InMemoryTokenBucketStore();
+        var dispatcher = BuildDispatcher(resolver, bucketStore: bucket);
 
         // First armed dispatch -- Throttle(1) admits the request.
         var first = await dispatcher.DispatchAsync(

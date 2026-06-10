@@ -249,10 +249,14 @@ public static class StyloBotDashboardServiceExtensions
         // but the resolver constructor needs a non-null reference to merge
         // the (empty) set.
         services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Triggers.ArmedRuleRegistry>();
-        // Throttle pipeline enforcement: shared token-bucket registry keyed
-        // by the throttle rule's scope key. Singleton so concurrent requests
-        // on the same throttle rule share the bucket.
-        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Throttle.ThrottleBucketRegistry>();
+        // Throttle pipeline enforcement: shared ITokenBucketStore keyed by
+        // the throttle rule's composite PolicyScope key. The single primitive
+        // is shared with RateLimit (Wave 3 consolidation, see
+        // feedback_no_duplication). The default in-memory implementation is
+        // registered by AddBotDetection -- this TryAddSingleton is a safety
+        // net for dashboard hosts that skip the FOSS bot-detection wiring.
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.ITokenBucketStore,
+            Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore>();
         // FOSS default: in-process log. Commercial SQLite / Postgres impls slot
         // in via TryAdd from their respective packs. Operators that want SQLite
         // durability on FOSS can replace this registration explicitly.

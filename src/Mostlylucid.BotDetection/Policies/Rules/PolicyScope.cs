@@ -90,4 +90,26 @@ public sealed record PolicyScope(
         + (Method is null ? 0 : 1)
         + (Geo is null ? 0 : 1)
         + (Identity is null ? 0 : 1);
+
+    /// <summary>
+    ///     Deterministic, case-folded string projection of the composite
+    ///     scope. Used as a bucket-key fragment (e.g. by the throttle action
+    ///     handler) and anywhere two structurally-equal scopes must collapse
+    ///     to the same cache key. The shape does not round-trip --
+    ///     <see cref="HostScope.ToStableKey"/> and
+    ///     <see cref="IdentityScope.ToStableKey"/> own per-slot encoding,
+    ///     this method composes the four slots into one stable string.
+    ///
+    ///     <para>
+    ///         Composition: <c>policy:{host}|m:{method}|g:{geo}|i:{identity}</c>.
+    ///         Method is case-folded; Geo is case-folded (ISO-3166 alpha-2 is
+    ///         already canonical uppercase but we don't depend on the caller);
+    ///         host + identity fragments delegate to their own ToStableKey.
+    ///     </para>
+    /// </summary>
+    public string ToStableKey() =>
+        $"policy:{Host?.ToStableKey() ?? "*"}|" +
+        $"m:{(Method ?? "*").ToLowerInvariant()}|" +
+        $"g:{(Geo ?? "*").ToLowerInvariant()}|" +
+        $"i:{Identity?.ToStableKey() ?? "*"}";
 }

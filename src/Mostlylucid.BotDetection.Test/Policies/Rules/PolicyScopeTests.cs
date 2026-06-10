@@ -90,4 +90,96 @@ public class PolicyScopeTests
         var b = new PolicyScope(Method: "POST");
         Assert.NotEqual(a, b);
     }
+
+    // ---- ToStableKey() ---------------------------------------------------------
+
+    [Fact]
+    public void ToStableKey_wildcard_has_every_slot_empty()
+    {
+        var key = PolicyScope.Wildcard().ToStableKey();
+        Assert.Equal("policy:*|m:*|g:*|i:*", key);
+    }
+
+    [Fact]
+    public void ToStableKey_is_case_folded_for_method_and_geo_and_host()
+    {
+        var a = new PolicyScope(
+            Host: new HostScope.Domain("X.COM"),
+            Method: "POST",
+            Geo: "RU");
+        var b = new PolicyScope(
+            Host: new HostScope.Domain("x.com"),
+            Method: "post",
+            Geo: "ru");
+
+        // Two structurally equivalent scopes (case differences only) hash to
+        // the same bucket. That's what "deterministic and case-folded" means
+        // for the token-bucket consumer.
+        Assert.Equal(a.ToStableKey(), b.ToStableKey());
+    }
+
+    [Fact]
+    public void ToStableKey_distinguishes_structurally_different_scopes()
+    {
+        var domain = PolicyScope.Domain("x.com");
+        var subdomain = PolicyScope.Subdomain("x.com", "docs.x.com");
+        var endpoint = PolicyScope.Endpoint("x.com", "docs.x.com", "GET /api/upload");
+        var withMethod = new PolicyScope(Host: new HostScope.Domain("x.com"), Method: "POST");
+        var withIdentity = new PolicyScope(
+            Host: new HostScope.Domain("x.com"),
+            Identity: new IdentityScope.NamedBot("googlebot"));
+
+        var keys = new[]
+        {
+            domain.ToStableKey(),
+            subdomain.ToStableKey(),
+            endpoint.ToStableKey(),
+            withMethod.ToStableKey(),
+            withIdentity.ToStableKey(),
+        };
+
+        Assert.Equal(keys.Length, keys.Distinct().Count());
+    }
+
+    [Fact]
+    public void ToStableKey_composes_all_four_slots()
+    {
+        var scope = new PolicyScope(
+            Host: new HostScope.Domain("x.com"),
+            Method: "POST",
+            Geo: "RU",
+            Identity: new IdentityScope.NamedBot("googlebot"));
+
+        var key = scope.ToStableKey();
+        Assert.Contains("policy:domain:x.com", key);
+        Assert.Contains("m:post", key);
+        Assert.Contains("g:ru", key);
+        Assert.Contains("i:namedbot:googlebot", key);
+    }
+
+    [Fact]
+    public void HostScope_ToStableKey_distinguishes_variants()
+    {
+        var domain = new HostScope.Domain("x.com").ToStableKey();
+        var subdomain = new HostScope.Subdomain("x.com", "docs.x.com").ToStableKey();
+        var endpoint = new HostScope.Endpoint("x.com", "docs.x.com", "GET /api/upload").ToStableKey();
+
+        Assert.Equal("domain:x.com", domain);
+        Assert.Equal("subdomain:x.com|docs.x.com", subdomain);
+        Assert.Equal("endpoint:x.com|docs.x.com|GET /api/upload", endpoint);
+    }
+
+    [Fact]
+    public void IdentityScope_ToStableKey_distinguishes_variants()
+    {
+        Assert.Equal("namedbot:googlebot",
+            new IdentityScope.NamedBot("GoogleBot").ToStableKey());
+        Assert.Equal("bottype:scraper",
+            new IdentityScope.BotType("Scraper").ToStableKey());
+        Assert.Equal("human:chrome",
+            new IdentityScope.HumanBrowser("Chrome").ToStableKey());
+        // Fingerprint ids are opaque hashes -- case preserved on purpose.
+        Assert.Equal("fp:abc123XYZ",
+            new IdentityScope.Fingerprint("abc123XYZ").ToStableKey());
+    }
 }

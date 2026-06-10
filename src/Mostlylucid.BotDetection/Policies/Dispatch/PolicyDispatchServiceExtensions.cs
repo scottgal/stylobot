@@ -1,8 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
-using Mostlylucid.BotDetection.Policies.Throttle;
 using Mostlylucid.BotDetection.Policies.Triggers;
+using Mostlylucid.BotDetection.RateLimit;
 
 namespace Mostlylucid.BotDetection.Policies.Dispatch;
 
@@ -19,7 +19,7 @@ public static class PolicyDispatchServiceExtensions
     ///     Register <see cref="PolicyActionDispatcher"/>, every built-in
     ///     <see cref="IPolicyActionHandler"/>, and the supporting Phase G
     ///     primitives (<see cref="ArmedRuleRegistry"/>,
-    ///     <see cref="ThrottleBucketRegistry"/>). All registrations use
+    ///     <see cref="ITokenBucketStore"/>). All registrations use
     ///     <c>TryAdd</c> so a host that pre-registered any of these keeps
     ///     its own bindings. Idempotent.
     /// </summary>
@@ -31,7 +31,12 @@ public static class PolicyDispatchServiceExtensions
         // dashboard DI extension also registers these via TryAdd; calling
         // both is safe.
         services.TryAddSingleton<ArmedRuleRegistry>();
-        services.TryAddSingleton<ThrottleBucketRegistry>();
+        // ITokenBucketStore is the single token-bucket primitive used by
+        // both RateLimit and Throttle handlers (Wave 3 consolidation --
+        // see feedback_no_duplication). Hosts may replace the in-memory
+        // default with a SQLite or distributed implementation; the FOSS
+        // default keeps tests boot-time free.
+        services.TryAddSingleton<ITokenBucketStore, InMemoryTokenBucketStore>();
 
         // The dispatcher itself. Singleton: handlers are stateless, the
         // resolver is singleton-shaped, the decision log is singleton-shaped.

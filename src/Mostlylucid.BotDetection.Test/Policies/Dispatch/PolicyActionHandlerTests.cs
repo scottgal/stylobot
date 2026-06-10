@@ -4,7 +4,7 @@ using Mostlylucid.BotDetection.Policies.Dispatch;
 using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
-using Mostlylucid.BotDetection.Policies.Throttle;
+using Mostlylucid.BotDetection.RateLimit;
 using PredicateNode = Mostlylucid.BotDetection.Policies.Predicate.Predicate;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Dispatch;
@@ -149,7 +149,7 @@ public sealed class PolicyActionHandlerTests
     [Fact]
     public async Task ThrottleActionHandler_admits_first_request_and_429s_when_drained()
     {
-        var bucket = new ThrottleBucketRegistry();
+        var bucket = new InMemoryTokenBucketStore();
         var handler = new ThrottleActionHandler(bucket);
         var action = new PolicyAction.Throttle(1);
         var rule = NewRule(action);
@@ -164,6 +164,60 @@ public sealed class PolicyActionHandlerTests
         Assert.Equal("1", ctx2.Response.Headers["Retry-After"].ToString());
         Assert.Contains(rule.Id.ToString(),
             ctx2.Response.Headers[BlockActionHandler.PolicyHeader].ToString());
+    }
+
+    /// <summary>
+    ///     Wave 3 regression: RateLimit and Throttle share ONE
+    ///     <see cref="ITokenBucketStore"/> primitive. A tracking store records
+    ///     every TryConsume call; dispatching one of each action MUST land both
+    ///     calls in the same store instance with disjoint policy-name prefixes
+    ///     (no key collisions across the two action types).
+    /// </summary>
+    [Fact]
+    public async Task Throttle_and_RateLimit_use_same_bucket_store_instance()
+    {
+        var trackingStore = new RecordingBucketStore();
+        var throttleHandler = new ThrottleActionHandler(trackingStore);
+        var rateLimitHandler = new RateLimitActionHandler(trackingStore);
+
+        var throttleRule = NewRule(new PolicyAction.Throttle(10));
+        var rateLimitRule = NewRule(new PolicyAction.RateLimit(60));
+
+        await throttleHandler.HandleAsync(
+            NewHttpContext(), throttleRule, throttleRule.Action, CancellationToken.None);
+        await rateLimitHandler.HandleAsync(
+            NewHttpContext(), rateLimitRule, rateLimitRule.Action, CancellationToken.None);
+
+        // Both calls hit the SAME ITokenBucketStore instance -- the test wouldn't
+        // see two calls otherwise.
+        Assert.Equal(2, trackingStore.Calls.Count);
+
+        // Namespace prefixes diverge so the two action types can never collide
+        // on the same underlying bucket key, even if their other inputs match.
+        Assert.Contains(trackingStore.Calls,
+            c => c.PolicyName.StartsWith(ThrottleActionHandler.BucketPolicyPrefix, StringComparison.Ordinal));
+        Assert.Contains(trackingStore.Calls,
+            c => c.PolicyName.StartsWith(RateLimitActionHandler.BucketPolicyPrefix, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     Test-only <see cref="ITokenBucketStore"/> that records every
+    ///     <see cref="ITokenBucketStore.TryConsume"/> call. Always admits --
+    ///     this fixture is about proving the same instance was used, not
+    ///     about bucket behaviour (the in-memory store has its own test
+    ///     coverage in <c>InMemoryTokenBucketStoreTests</c>).
+    /// </summary>
+    private sealed class RecordingBucketStore : ITokenBucketStore
+    {
+        public List<(string PolicyName, string Key, int Capacity, int RefillRpm)> Calls { get; } = new();
+
+        public bool TryConsume(string policyName, string key, int capacity, int refillRatePerMinute)
+        {
+            Calls.Add((policyName, key, capacity, refillRatePerMinute));
+            return true;
+        }
+
+        public BucketSnapshot? Peek(string policyName, string key) => null;
     }
 
     [Fact]

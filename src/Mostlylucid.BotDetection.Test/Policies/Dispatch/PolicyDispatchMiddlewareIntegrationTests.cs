@@ -9,8 +9,8 @@ using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
-using Mostlylucid.BotDetection.Policies.Throttle;
 using Mostlylucid.BotDetection.Policies.Triggers;
+using Mostlylucid.BotDetection.RateLimit;
 using PredicateNode = Mostlylucid.BotDetection.Policies.Predicate.Predicate;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Dispatch;
@@ -105,7 +105,7 @@ public sealed class PolicyDispatchMiddlewareIntegrationTests : IAsyncDisposable
 
         builder.Services.AddSingleton<IPolicyRuleStore>(_ => new SingleRuleStore(rule));
         builder.Services.AddSingleton<ArmedRuleRegistry>();
-        builder.Services.AddSingleton<ThrottleBucketRegistry>();
+        builder.Services.AddSingleton<ITokenBucketStore, InMemoryTokenBucketStore>();
         builder.Services.AddSingleton<IPolicyResolver>(sp =>
             new DefaultPolicyResolver(
                 sp.GetRequiredService<IPolicyRuleStore>(),
@@ -119,7 +119,7 @@ public sealed class PolicyDispatchMiddlewareIntegrationTests : IAsyncDisposable
         builder.Services.AddSingleton<IPolicyActionHandler, ChallengeActionHandler>();
         builder.Services.AddSingleton<IPolicyActionHandler>(_ => new RateLimitActionHandler(store: null));
         builder.Services.AddSingleton<IPolicyActionHandler>(sp =>
-            new ThrottleActionHandler(sp.GetRequiredService<ThrottleBucketRegistry>()));
+            new ThrottleActionHandler(sp.GetRequiredService<ITokenBucketStore>()));
         builder.Services.AddSingleton<PolicyActionDispatcher>();
 
         var app = builder.Build();

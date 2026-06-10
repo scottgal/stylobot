@@ -31,4 +31,22 @@ public abstract record IdentityScope
 
     /// <summary>Match a single fingerprint by id.</summary>
     public sealed record Fingerprint(string Id) : IdentityScope;
+
+    /// <summary>
+    ///     Deterministic, case-folded string projection used as a bucket-key
+    ///     fragment (e.g. by the token-bucket throttle handler). Two
+    ///     structurally equal <see cref="IdentityScope"/> instances MUST
+    ///     produce identical output; the shape does not round-trip.
+    ///     Fingerprint ids are case-preserving (they are opaque hashes);
+    ///     family / category strings are case-folded so "GoogleBot" and
+    ///     "googlebot" hash to the same bucket.
+    /// </summary>
+    public string ToStableKey() => this switch
+    {
+        NamedBot n => $"namedbot:{(n.Family ?? string.Empty).ToLowerInvariant()}",
+        BotType b => $"bottype:{(b.Category ?? string.Empty).ToLowerInvariant()}",
+        HumanBrowser h => $"human:{(h.Family ?? string.Empty).ToLowerInvariant()}",
+        Fingerprint f => $"fp:{f.Id ?? string.Empty}",
+        _ => "*",
+    };
 }

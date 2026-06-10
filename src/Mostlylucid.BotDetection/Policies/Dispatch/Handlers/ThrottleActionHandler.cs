@@ -1,17 +1,33 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Policies.Rules;
-using Mostlylucid.BotDetection.Policies.Throttle;
+using Mostlylucid.BotDetection.RateLimit;
 
 namespace Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 
 /// <summary>
-///     Handles <see cref="PolicyAction.Throttle"/> via the Phase G
-///     <see cref="ThrottleBucketRegistry"/>. Unlike
-///     <see cref="RateLimitActionHandler"/>, Throttle's bucket is keyed by
-///     the rule's <see cref="PolicyScope"/> -- every request matching the
+///     Handles <see cref="PolicyAction.Throttle"/> via the shared
+///     <see cref="ITokenBucketStore"/> -- the same primitive that backs
+///     <see cref="RateLimitActionHandler"/>. Unlike RateLimit (per-visitor
+///     bucket), Throttle's bucket is keyed by the rule's
+///     <see cref="PolicyScope.ToStableKey"/>: every request matching the
 ///     same scope competes for the same tokens, so a single armed rule
 ///     globally caps throughput on its scope (a domain, an endpoint, a
 ///     country, etc.).
+///
+///     <para>
+///         The bucket key is namespaced with the <see cref="BucketPolicyPrefix"/>
+///         (<c>"throttle:"</c>) so a RateLimit and a Throttle rule can never
+///         collide on the same underlying ITokenBucketStore key value, even
+///         if their other inputs happen to overlap.
+///     </para>
+///
+///     <para>
+///         <see cref="ITokenBucketStore.TryConsume"/> takes refill rate in
+///         requests-per-MINUTE; Throttle is authored in requests-per-SECOND,
+///         so this handler does the *60 conversion at the call site. Bucket
+///         capacity equals the per-second rate (the burst allowance) -- the
+///         steady-state cap is the refill rate.
+///     </para>
 ///
 ///     <para>
 ///         On admit: returns <see cref="PolicyDispatchResult.FallThrough"/>
@@ -22,17 +38,20 @@ namespace Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 /// </summary>
 public sealed class ThrottleActionHandler : IPolicyActionHandler
 {
-    private readonly ThrottleBucketRegistry _buckets;
-    private readonly TimeProvider _timeProvider;
+    /// <summary>
+    ///     Bucket-policy-name prefix used to keep policy-stack Throttle
+    ///     buckets out of every other ITokenBucketStore key space
+    ///     (notably <see cref="RateLimitActionHandler.BucketPolicyPrefix"/>).
+    /// </summary>
+    public const string BucketPolicyPrefix = "policy.throttle:";
 
-    /// <summary>DI constructor.</summary>
-    public ThrottleActionHandler(
-        ThrottleBucketRegistry buckets,
-        TimeProvider? timeProvider = null)
+    private readonly ITokenBucketStore _store;
+
+    /// <summary>DI constructor. <paramref name="store"/> is required.</summary>
+    public ThrottleActionHandler(ITokenBucketStore store)
     {
-        ArgumentNullException.ThrowIfNull(buckets);
-        _buckets = buckets;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentNullException.ThrowIfNull(store);
+        _store = store;
     }
 
     /// <inheritdoc />
@@ -48,13 +67,23 @@ public sealed class ThrottleActionHandler : IPolicyActionHandler
         if (action is not PolicyAction.Throttle throttle) return PolicyDispatchResult.FallThrough;
         if (throttle.RequestsPerSecond <= 0) return PolicyDispatchResult.FallThrough;
 
-        // Stable bucket identity: stringified scope. Two rules at the same
-        // scope share a bucket, which is intentional -- the operator can
-        // arm "throttle posts on x.com" once and every armed copy of that
-        // rule contends for the same tokens.
-        var scopeKey = BuildScopeKey(rule.Scope);
+        // Stable bucket identity: composite scope stringified. Two rules at
+        // the same scope share a bucket, which is intentional -- the operator
+        // can arm "throttle posts on x.com" once and every armed copy of
+        // that rule contends for the same tokens.
+        var scopeKey = rule.Scope.ToStableKey();
 
-        var admitted = _buckets.TryAcquire(scopeKey, throttle.RequestsPerSecond, _timeProvider.GetUtcNow());
+        // Capacity = the per-second rate (burst allowance == steady-state
+        // rate, matching the legacy registry's behaviour). Refill rate
+        // converted to per-minute for the store contract.
+        var rps = throttle.RequestsPerSecond;
+        var rpm = rps * 60;
+        var admitted = _store.TryConsume(
+            BucketPolicyPrefix + rule.Id.ToString("N"),
+            scopeKey,
+            capacity: rps,
+            refillRatePerMinute: rpm);
+
         if (admitted) return PolicyDispatchResult.FallThrough;
 
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
@@ -68,34 +97,5 @@ public sealed class ThrottleActionHandler : IPolicyActionHandler
                 ct)
             .ConfigureAwait(false);
         return PolicyDispatchResult.Handled;
-    }
-
-    /// <summary>
-    ///     Stable, lossless string projection of a <see cref="PolicyScope"/>
-    ///     for use as a bucket key. The shape doesn't need to round-trip --
-    ///     two scopes that are structurally equal MUST produce identical
-    ///     strings, and that's all <see cref="ThrottleBucketRegistry"/>
-    ///     requires.
-    /// </summary>
-    private static string BuildScopeKey(PolicyScope scope)
-    {
-        var host = scope.Host switch
-        {
-            HostScope.Endpoint e => $"endpoint:{e.DomainName}|{e.SubdomainName}|{e.PathTemplate}",
-            HostScope.Subdomain s => $"subdomain:{s.DomainName}|{s.SubdomainName}",
-            HostScope.Domain d => $"domain:{d.Name}",
-            _ => "wildcard"
-        };
-        var method = scope.Method ?? "*";
-        var geo = scope.Geo ?? "*";
-        var identity = scope.Identity switch
-        {
-            IdentityScope.NamedBot n => $"namedbot:{n.Family}",
-            IdentityScope.BotType b => $"bottype:{b.Category}",
-            IdentityScope.HumanBrowser h => $"human:{h.Family}",
-            IdentityScope.Fingerprint f => $"fp:{f.Id}",
-            _ => "*"
-        };
-        return $"{host}::{method}::{geo}::{identity}";
     }
 }

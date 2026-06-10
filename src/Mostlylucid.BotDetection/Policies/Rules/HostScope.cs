@@ -30,4 +30,21 @@ public abstract record HostScope
     ///     <see cref="HostScope"/> type itself.
     /// </summary>
     public sealed record Endpoint(string DomainName, string SubdomainName, string PathTemplate) : HostScope;
+
+    /// <summary>
+    ///     Deterministic, case-folded string projection used as a bucket-key
+    ///     fragment (e.g. by the token-bucket throttle handler). Two
+    ///     structurally equal <see cref="HostScope"/> instances MUST produce
+    ///     identical output; the shape does not round-trip.
+    /// </summary>
+    public string ToStableKey() => this switch
+    {
+        Endpoint e => $"endpoint:{(e.DomainName ?? string.Empty).ToLowerInvariant()}|" +
+                      $"{(e.SubdomainName ?? string.Empty).ToLowerInvariant()}|" +
+                      $"{e.PathTemplate ?? string.Empty}",
+        Subdomain s => $"subdomain:{(s.DomainName ?? string.Empty).ToLowerInvariant()}|" +
+                       $"{(s.SubdomainName ?? string.Empty).ToLowerInvariant()}",
+        Domain d => $"domain:{(d.Name ?? string.Empty).ToLowerInvariant()}",
+        _ => "wildcard",
+    };
 }
