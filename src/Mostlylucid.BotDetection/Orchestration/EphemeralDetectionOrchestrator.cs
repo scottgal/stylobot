@@ -823,8 +823,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     private void TryPersistRequest(HttpContext httpContext, AggregatedEvidence result)
     {
         if (_requestPersistence == null) return;
-        if (!result.Signals.TryGetValue(Models.SignalKeys.PrimarySignature, out var sigObj)) return;
-        var signature = sigObj?.ToString();
+        var signature = SignatureLookup.Primary(result);
         if (string.IsNullOrEmpty(signature)) return;
 
         var markovState = result.Signals.TryGetValue("session.current_state", out var stateObj)
@@ -878,7 +877,8 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             metadata["ip"] = ip;
         if (result.Signals.TryGetValue("path", out var path))
             metadata["path"] = path;
-        if (result.Signals.TryGetValue(Models.SignalKeys.PrimarySignature, out var primarySig))
+        var primarySig = SignatureLookup.Primary(result);
+        if (primarySig is not null)
             metadata["primarySignature"] = primarySig;
 
         var isUncertain = result.Confidence < 0.6 && result.BotProbability is >= 0.3 and <= 0.8;

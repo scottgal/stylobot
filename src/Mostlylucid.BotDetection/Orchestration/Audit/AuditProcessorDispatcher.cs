@@ -85,7 +85,7 @@ public sealed class AuditProcessorDispatcher
             {
                 Timestamp = DateTime.UtcNow,
                 RequestId = httpContext.TraceIdentifier,
-                PrimarySignature = TryGetPrimarySignature(evidence),
+                PrimarySignature = SignatureLookup.PrimaryOrMultifactor(evidence),
                 Path = httpContext.Request.Path.Value,
                 Method = httpContext.Request.Method,
                 StatusCode = null,  // set by caller after response is finalized
@@ -124,16 +124,4 @@ public sealed class AuditProcessorDispatcher
         => _options.SignalRetention.ExcludedSignalPrefixes.Any(prefix =>
             key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
-    private static string? TryGetPrimarySignature(AggregatedEvidence evidence)
-    {
-        if (evidence.Signals.TryGetValue(Models.SignalKeys.PrimarySignature, out var sig) &&
-            sig is string primary && !string.IsNullOrWhiteSpace(primary))
-            return primary;
-
-        if (evidence.Signals.TryGetValue(Models.SignalKeys.SignatureMultifactor, out var multiObj) &&
-            multiObj is MultiFactorSignatures multi && !string.IsNullOrWhiteSpace(multi.PrimarySignature))
-            return multi.PrimarySignature;
-
-        return null;
-    }
 }

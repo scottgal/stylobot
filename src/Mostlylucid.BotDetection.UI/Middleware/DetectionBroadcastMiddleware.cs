@@ -616,17 +616,9 @@ public partial class DetectionBroadcastMiddleware
     private string ResolvePrimarySignature(HttpContext context)
     {
         if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
-            && evObj is AggregatedEvidence ev)
-        {
-            if (ev.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig)
-                && sig is string primary && !string.IsNullOrEmpty(primary))
-                return primary;
-
-            if (ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj)
-                && multiObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs
-                && !string.IsNullOrEmpty(mfs.PrimarySignature))
-                return mfs.PrimarySignature;
-        }
+            && evObj is AggregatedEvidence ev
+            && Mostlylucid.BotDetection.Orchestration.SignatureLookup.PrimaryOrMultifactor(ev) is { } resolved)
+            return resolved;
 
         return GenerateFallbackSignature(context);
     }

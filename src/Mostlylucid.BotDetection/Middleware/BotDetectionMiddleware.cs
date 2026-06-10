@@ -614,9 +614,7 @@ public class BotDetectionMiddleware(
         var capturedReq = CaptureRequestSnapshot(context);
         var capturedBotProbability = aggregatedResult.BotProbability;
         var capturedAction = aggregatedResult.PolicyAction;
-        var capturedSig = aggregatedResult.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigObj)
-            ? sigObj as string
-            : null;
+        var capturedSig = Orchestration.SignatureLookup.Primary(aggregatedResult);
         var capturedSigCoordinator = _signatureCoordinator;
         var capturedAuditCtx = auditProcessorDispatcher?.HasProcessors == true
             ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
@@ -1173,7 +1171,7 @@ public class BotDetectionMiddleware(
             && !aggregated.Signals.ContainsKey(SignalKeys.ApprovalVerified))
         {
             var approvalStore = context.RequestServices.GetService<Data.IFingerprintApprovalStore>();
-            var signature = aggregated.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig) && sig is string s ? s : null;
+            var signature = Orchestration.SignatureLookup.Primary(aggregated);
             if (approvalStore is not null && signature is not null)
             {
                 try
@@ -1699,11 +1697,8 @@ public class BotDetectionMiddleware(
         if (isHoneypotPath || hasAttackSignal)
         {
             // Set fingerprint for downstream action policies (SimulationPackResponder uses this)
-            if (aggregated.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigVal2))
-            {
-                var fp = sigVal2?.ToString();
-                if (fp != null) context.Items["Holodeck.Fingerprint"] = fp;
-            }
+            if (Orchestration.SignatureLookup.Primary(aggregated) is { } fp)
+                context.Items["Holodeck.Fingerprint"] = fp;
 
             var holodeckRegistry = context.RequestServices.GetService<IActionPolicyRegistry>();
             var holodeckPolicy = holodeckRegistry?.GetPolicy("holodeck");

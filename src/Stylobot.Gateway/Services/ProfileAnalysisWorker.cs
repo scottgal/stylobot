@@ -80,9 +80,8 @@ public class ProfileAnalysisWorker(
             _ => "VeryHigh",
         };
 
-        var signatureHash = evidence?.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigVal) == true && sigVal is string sigStr && !string.IsNullOrEmpty(sigStr)
-            ? sigStr
-            : ComputeVisitorHash(snapshot.ClientIp, snapshot.UserAgent);
+        var signatureHash = (evidence is null ? null : SignatureLookup.Primary(evidence))
+            ?? ComputeVisitorHash(snapshot.ClientIp, snapshot.UserAgent);
 
         await store.InsertAsync(new ProfileCalibrationEntry
         {

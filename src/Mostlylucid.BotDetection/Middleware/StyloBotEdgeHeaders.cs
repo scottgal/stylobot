@@ -106,11 +106,9 @@ public sealed class StyloBotForwardedHeadersMiddleware
             : null;
         if (string.IsNullOrEmpty(primarySig)
             && context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var ev2)
-            && ev2 is AggregatedEvidence agg2
-            && agg2.Signals.TryGetValue(SignalKeys.PrimarySignature, out var psSig)
-            && psSig is string psStr)
+            && ev2 is AggregatedEvidence agg2)
         {
-            primarySig = psStr;
+            primarySig = Orchestration.SignatureLookup.Primary(agg2);
         }
 
         // Verdict-cache-skip paths never run the orchestrator, so neither Items
