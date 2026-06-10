@@ -739,6 +739,25 @@ public class BotDetectionMiddleware(
             context.Items[AggregatedEvidenceKey] = aggregatedResult;
         }
 
+        // Per-endpoint action-policy override. Reads [BotAction("...")] and
+        // [BotPolicy("...", ActionPolicy = "...")] off the matched route's
+        // metadata. Lower precedence than honeypot / API-key / internal
+        // overrides (those have already run); higher than the BotType-mapped
+        // fallback below. Detection still runs in full; this only changes
+        // what action policy answers once the verdict is in.
+        if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName))
+        {
+            var endpointOverride = EndpointActionPolicyResolver.ResolveFromEndpoint(context);
+            if (!string.IsNullOrEmpty(endpointOverride))
+            {
+                aggregatedResult = aggregatedResult with
+                {
+                    TriggeredActionPolicyName = endpointOverride
+                };
+                context.Items[AggregatedEvidenceKey] = aggregatedResult;
+            }
+        }
+
         // Check for triggered action policy first (takes precedence over built-in actions)
         if (!string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName))
         {
