@@ -1,0 +1,52 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
+using Mostlylucid.BotDetection.Policies.Throttle;
+using Mostlylucid.BotDetection.Policies.Triggers;
+
+namespace Mostlylucid.BotDetection.Policies.Dispatch;
+
+/// <summary>
+///     DI registration for the policy-action dispatcher and its per-action
+///     handlers. Called from <c>AddBotDetection</c> so every FOSS host
+///     automatically gets the dispatcher wiring without an extra opt-in
+///     step; commercial packs replace individual handlers / the resolver
+///     via TryAdd-loses semantics.
+/// </summary>
+public static class PolicyDispatchServiceExtensions
+{
+    /// <summary>
+    ///     Register <see cref="PolicyActionDispatcher"/>, every built-in
+    ///     <see cref="IPolicyActionHandler"/>, and the supporting Phase G
+    ///     primitives (<see cref="ArmedRuleRegistry"/>,
+    ///     <see cref="ThrottleBucketRegistry"/>). All registrations use
+    ///     <c>TryAdd</c> so a host that pre-registered any of these keeps
+    ///     its own bindings. Idempotent.
+    /// </summary>
+    public static IServiceCollection AddPolicyDispatcher(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        // Phase G primitives the dispatcher and resolver depend on. The
+        // dashboard DI extension also registers these via TryAdd; calling
+        // both is safe.
+        services.TryAddSingleton<ArmedRuleRegistry>();
+        services.TryAddSingleton<ThrottleBucketRegistry>();
+
+        // The dispatcher itself. Singleton: handlers are stateless, the
+        // resolver is singleton-shaped, the decision log is singleton-shaped.
+        services.TryAddSingleton<PolicyActionDispatcher>();
+
+        // Built-in per-action handlers. Each rendered as one IEnumerable<IPolicyActionHandler>
+        // entry; the dispatcher's constructor builds the (action type -> handler) map.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, AllowActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, BlockActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, ObserveActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, TagActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, ChallengeActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, RateLimitActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, ThrottleActionHandler>());
+
+        return services;
+    }
+}

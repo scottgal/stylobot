@@ -29,6 +29,7 @@ using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Persistence;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Policies.Dispatch;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Similarity;
 using Mostlylucid.BotDetection.Compliance;
@@ -1347,6 +1348,15 @@ public static class ServiceCollectionExtensions
 
         // Register policy evaluator (handles transitions and weight resolution)
         services.TryAddSingleton<IPolicyEvaluator, PolicyEvaluator>();
+
+        // Policy-stack dispatcher: bridges the new PolicyAction record family
+        // (Allow / Block / Observe / Tag / Challenge / RateLimit / Throttle)
+        // to the HTTP request pipeline. Optional from the middleware's POV
+        // (BotDetectionMiddleware resolves it nullable from RequestServices),
+        // so registering it here costs nothing at runtime for hosts that don't
+        // exercise the policy stack. The handlers + Phase G primitives are
+        // all TryAdd so commercial packs can override individual pieces.
+        services.AddPolicyDispatcher();
 
         // ==========================================
         // Action Policy System (composable response handling)
