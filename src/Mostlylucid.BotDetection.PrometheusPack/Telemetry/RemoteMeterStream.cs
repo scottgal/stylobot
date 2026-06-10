@@ -71,40 +71,55 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
 
     private readonly IDisposable _pollSubscription;
     private readonly IDisposable _decaySubscription;
-    private HttpClient? _ownedHttpClient;
+    // Test-path HttpClient: built once around the injected handler. Production
+    // hosts MUST resolve through IHttpClientFactory -- the bare new HttpClient()
+    // fallback that used to live here was a drift trap (no socket pool reuse,
+    // no factory-managed handler lifetime).
+    private HttpClient? _testHttpClient;
     private int _disposed;
 
+    /// <summary>
+    ///     Production constructor. <paramref name="httpClientFactory"/> is
+    ///     required; production hosts wire it via <c>services.AddHttpClient</c>
+    ///     in <see cref="PrometheusPackServiceCollectionExtensions.AddRemoteMeterStream"/>.
+    ///     Wave 6 of the architectural-drift remediation removed the optional
+    ///     fallback to <c>new HttpClient()</c> -- every host that exercises
+    ///     this stream now goes through the factory's handler pool.
+    /// </summary>
     public RemoteMeterStream(
         IOptions<RemoteMeterStreamOptions> options,
         ILogger<RemoteMeterStream> logger,
-        IMeterSignalSink? signalSink = null,
-        IHttpClientFactory? httpClientFactory = null)
+        IHttpClientFactory httpClientFactory,
+        IMeterSignalSink? signalSink = null)
         : this(options, logger, signalSink, httpClientFactory, injectedHandler: null, coordinator: NullScheduleCoordinator.Instance)
     {
+        ArgumentNullException.ThrowIfNull(httpClientFactory);
     }
 
     /// <summary>
-    ///     Production constructor. Hooks the poll cadence
-    ///     (<see cref="RemoteMeterStreamOptions.PollCadence"/>) and the
-    ///     <see cref="TickCadence.Tick1m"/> LFU sweep into
-    ///     <paramref name="coordinator"/>. Wave 2 of the
-    ///     architectural-drift remediation: replaces the pre-migration
-    ///     <see cref="PeriodicTimer"/> + <see cref="Timer"/> pair.
+    ///     Production constructor that also takes a <see cref="IScheduleCoordinator"/>.
+    ///     Hooks the poll cadence (<see cref="RemoteMeterStreamOptions.PollCadence"/>)
+    ///     and the <see cref="TickCadence.Tick1m"/> LFU sweep into
+    ///     <paramref name="coordinator"/>. Wave 2 of the architectural-drift
+    ///     remediation replaced the pre-migration <see cref="PeriodicTimer"/>
+    ///     + <see cref="Timer"/> pair; Wave 6 made the factory non-optional.
     /// </summary>
     public RemoteMeterStream(
         IOptions<RemoteMeterStreamOptions> options,
         ILogger<RemoteMeterStream> logger,
         IMeterSignalSink? signalSink,
-        IHttpClientFactory? httpClientFactory,
+        IHttpClientFactory httpClientFactory,
         IScheduleCoordinator coordinator)
         : this(options, logger, signalSink, httpClientFactory, injectedHandler: null, coordinator: coordinator)
     {
+        ArgumentNullException.ThrowIfNull(httpClientFactory);
     }
 
     /// <summary>
     ///     Test-only constructor that lets the test plug a canned
     ///     <see cref="HttpMessageHandler" /> in directly without standing up an
-    ///     <see cref="IHttpClientFactory" />.
+    ///     <see cref="IHttpClientFactory" />. Production code must not call
+    ///     this -- the public ctors require the factory.
     /// </summary>
     internal RemoteMeterStream(
         IOptions<RemoteMeterStreamOptions> options,
@@ -124,6 +139,12 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
     ///     <see cref="RemoteMeterStreamOptions.BaseUrl"/> is empty the poll
     ///     handler is still wired but every fire is a no-op (matches the inert
     ///     mode contract).
+    ///     <para>
+    ///         Wave 6: this is the only ctor that accepts a nullable factory
+    ///         because the test entry path (<paramref name="injectedHandler"/>
+    ///         non-null) supplies its own transport. Public production ctors
+    ///         enforce a non-null factory at their boundary.
+    ///     </para>
     /// </summary>
     internal RemoteMeterStream(
         IOptions<RemoteMeterStreamOptions> options,
@@ -134,6 +155,16 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
         IScheduleCoordinator coordinator)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
+        // Test path: either an IHttpClientFactory or a HttpMessageHandler MUST
+        // be supplied -- a fully-null transport is a misconfiguration that
+        // would have silently created a bare HttpClient in the pre-Wave-6
+        // code path. Surface it as a constructor error so the host owner
+        // either registers AddHttpClient or hands in a test handler.
+        if (httpClientFactory is null && injectedHandler is null)
+            throw new ArgumentException(
+                "RemoteMeterStream requires either an IHttpClientFactory (production) " +
+                "or an injected HttpMessageHandler (test). Both were null.",
+                nameof(httpClientFactory));
         _options = options.Value;
         _logger = logger;
         _signalSink = signalSink ?? new NullMeterSignalSink();
