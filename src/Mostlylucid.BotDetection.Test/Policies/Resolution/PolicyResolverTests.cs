@@ -1,6 +1,7 @@
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.Policies.Signals;
 using Mostlylucid.BotDetection.Test.Policies.Support;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Resolution;
@@ -19,11 +20,12 @@ public class PolicyResolverTests
     // them out with the same LegacySeedOnlyPolicyRuleStore double the
     // SbPolicyStackTests render tests use -- production behaviour is
     // unchanged, the seeds stay on disk.
-    private static async Task<DefaultPolicyResolver> BuildResolverAsync()
+    private static async Task<DefaultPolicyResolver> BuildResolverAsync(
+        IEnumerable<ISignalContributor>? contributors = null)
     {
         var store = new LegacySeedOnlyPolicyRuleStore();
         await store.InitializeAsync();
-        return new DefaultPolicyResolver(store);
+        return new DefaultPolicyResolver(store, contributors);
     }
 
     [Fact]
@@ -252,5 +254,166 @@ public class PolicyResolverTests
         {
             ["is_human"] = false
         }));
+    }
+
+    // ---- Phase F: ISignalContributor integration --------------------------
+
+    [Fact]
+    public async Task Phase_F_composite_predicate_resolves_per_request_signals_and_contributor_signals()
+    {
+        // Composite predicate -- per-request half + contributor half -- so the
+        // resolver only matches if BOTH halves resolve through the merged map.
+        var store = new SingleRulePolicyRuleStore(
+            "score.bot_probability > 0.9 and meter.system.cpu_load.current > 80");
+        var contributor = new DelegateContributor(signals =>
+        {
+            signals["meter.system.cpu_load.current"] = 95.0;
+            return Task.CompletedTask;
+        });
+        var resolver = new DefaultPolicyResolver(store, new[] { contributor });
+
+        var matched = await resolver.EffectiveWithContextAsync(
+            new PolicyScope.Wildcard(),
+            new Dictionary<string, object?>
+            {
+                ["score.bot_probability"] = 0.95m
+            });
+
+        Assert.Single(matched);
+    }
+
+    [Fact]
+    public async Task Phase_F_request_signals_win_over_contributor_signals()
+    {
+        // Contributor pumps a high value; per-request bag overrides with a low
+        // value; predicate should evaluate against the request value.
+        var store = new SingleRulePolicyRuleStore("meter.foo.current > 50");
+        var contributor = new DelegateContributor(signals =>
+        {
+            // Contributor follows TryAdd semantics -- already present, so no-op.
+            if (!signals.ContainsKey("meter.foo.current"))
+                signals["meter.foo.current"] = 100.0;
+            return Task.CompletedTask;
+        });
+        var resolver = new DefaultPolicyResolver(store, new[] { contributor });
+
+        var matched = await resolver.EffectiveWithContextAsync(
+            new PolicyScope.Wildcard(),
+            new Dictionary<string, object?>
+            {
+                ["meter.foo.current"] = 5.0
+            });
+
+        Assert.Empty(matched);
+    }
+
+    [Fact]
+    public async Task Phase_F_throwing_contributor_does_not_break_resolver()
+    {
+        // Predicate uses only per-request signals; contributor throws and
+        // must be swallowed so the resolver still returns the matching rule.
+        var store = new SingleRulePolicyRuleStore("score.bot_probability > 0.9");
+        var contributor = new DelegateContributor(_ =>
+            throw new InvalidOperationException("boom"));
+        var resolver = new DefaultPolicyResolver(store, new[] { contributor });
+
+        var matched = await resolver.EffectiveWithContextAsync(
+            new PolicyScope.Wildcard(),
+            new Dictionary<string, object?>
+            {
+                ["score.bot_probability"] = 0.95m
+            });
+
+        Assert.Single(matched);
+    }
+
+    [Fact]
+    public async Task Phase_F_OCE_from_contributor_propagates()
+    {
+        var store = new SingleRulePolicyRuleStore("score.bot_probability > 0.9");
+        var contributor = new DelegateContributor(_ =>
+            throw new OperationCanceledException());
+        var resolver = new DefaultPolicyResolver(store, new[] { contributor });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => resolver.EffectiveWithContextAsync(
+                new PolicyScope.Wildcard(),
+                new Dictionary<string, object?> { ["score.bot_probability"] = 0.95m }));
+    }
+
+    [Fact]
+    public async Task Phase_F_null_contributors_is_identical_to_pre_phase_F_behaviour()
+    {
+        // Build resolver via the null-contributors path; assert the legacy
+        // EffectiveWithContextAsync surface returns the same rules as the
+        // current LegacySeedOnlyPolicyRuleStore baseline.
+        var store = new LegacySeedOnlyPolicyRuleStore();
+        await store.InitializeAsync();
+        var resolverNoContrib = new DefaultPolicyResolver(store, contributors: null);
+
+        var scraperSignals = new Dictionary<string, object?>
+        {
+            ["bot.type"] = "scraper",
+            ["score.bot_probability"] = 0.92m,
+            ["geo.country"] = "US",
+            ["is_human"] = false
+        };
+        var matched = await resolverNoContrib.EffectiveWithContextAsync(
+            new PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload),
+            scraperSignals);
+
+        Assert.Contains(matched, e => e.Rule.Action is PolicyAction.Block);
+        Assert.DoesNotContain(matched, e => e.Rule.Action is PolicyAction.Allow);
+    }
+
+    // ---- Support: tiny single-rule store + delegate-backed contributor ----
+
+    private sealed class SingleRulePolicyRuleStore : IPolicyRuleStore
+    {
+        private readonly IReadOnlyList<PolicyRule> _rules;
+
+        public SingleRulePolicyRuleStore(string predicateText)
+        {
+            var rule = new PolicyRule(
+                Id: Guid.NewGuid(),
+                Scope: new PolicyScope.Wildcard(),
+                Priority: 100,
+                Predicate: PredicateParser.Parse(predicateText),
+                Action: new PolicyAction.Block(),
+                Mode: PolicyMode.Live,
+                Notes: string.Empty,
+                Source: "test",
+                CreatedAt: DateTimeOffset.UtcNow,
+                RevisionId: Guid.NewGuid());
+            _rules = new[] { rule };
+        }
+
+        public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
+            => Task.FromResult(scope is PolicyScope.Wildcard ? _rules : (IReadOnlyList<PolicyRule>)Array.Empty<PolicyRule>());
+
+        public Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(IReadOnlyList<PolicyScope> scopePath, CancellationToken ct = default)
+            => Task.FromResult(_rules);
+
+        public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
+            => Task.FromResult<PolicyRule?>(_rules[0].Id == id ? _rules[0] : null);
+
+#pragma warning disable CS0067
+        public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
+#pragma warning restore CS0067
+    }
+
+    private sealed class DelegateContributor : ISignalContributor
+    {
+        private readonly Func<IDictionary<string, object?>, Task> _impl;
+
+        public DelegateContributor(Func<IDictionary<string, object?>, Task> impl)
+        {
+            _impl = impl;
+        }
+
+        public Task ContributeAsync(IDictionary<string, object?> signals, CancellationToken ct)
+            => _impl(signals);
     }
 }

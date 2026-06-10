@@ -208,12 +208,20 @@ public static class StyloBotDashboardServiceExtensions
         // for the Policy Stack expression editor. Reflects SignalKeys constants
         // + XML doc summaries + embedded VYaml overlays; immutable post-load,
         // so a blocking GetAwaiter().GetResult() at boot is intentional.
-        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Signals.ISignalCatalog>(_ =>
+        //
+        // Phase F: any ISignalCatalogSource registrations (e.g. PrometheusPack's
+        // MeterSignalCatalogSource) are passed through so dynamic vocabularies
+        // -- live meter names, in particular -- appear in the editor catalog
+        // alongside the static SignalKeys constants. The catalog enumerates
+        // them lazily on read; the snapshot returned by GetAwaiter().GetResult()
+        // here just captures the source set, not the source contents.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Signals.ISignalCatalog>(sp =>
         {
             var asm = typeof(Mostlylucid.BotDetection.Models.SignalKeys).Assembly;
+            var sources = sp.GetServices<Mostlylucid.BotDetection.Policies.Signals.ISignalCatalogSource>();
 #pragma warning disable IL2026 // SignalCatalog.LoadAsync reflects const fields; overlays are pre-registered for AOT.
             return Mostlylucid.BotDetection.Policies.Signals.SignalCatalog
-                .LoadAsync(asm).GetAwaiter().GetResult();
+                .LoadAsync(asm, sources).GetAwaiter().GetResult();
 #pragma warning restore IL2026
         });
 

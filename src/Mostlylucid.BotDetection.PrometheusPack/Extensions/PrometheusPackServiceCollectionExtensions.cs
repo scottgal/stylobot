@@ -1,6 +1,8 @@
 using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Mostlylucid.BotDetection.Policies.Signals;
+using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 namespace Mostlylucid.BotDetection.PrometheusPack.Extensions;
@@ -157,6 +159,7 @@ public static class PrometheusPackServiceCollectionExtensions
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<LocalMeterStream>());
         services.AddHostedService(sp => sp.GetRequiredService<LocalMeterStream>());
 
+        AddPolicyMeterIntegration(services);
         return services;
     }
 
@@ -193,6 +196,41 @@ public static class PrometheusPackServiceCollectionExtensions
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<RemoteMeterStream>());
         services.AddHostedService(sp => sp.GetRequiredService<RemoteMeterStream>());
 
+        AddPolicyMeterIntegration(services);
         return services;
+    }
+
+    /// <summary>
+    ///     Wire the Phase F policy + meter bridge:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <description>
+    ///                 <see cref="MeterSnapshotSignalContributor" /> as
+    ///                 <see cref="ISignalContributor" /> -- the resolver
+    ///                 enumerates it once per request to pump
+    ///                 <c>meter.{name}.{facet}</c> into the predicate
+    ///                 signal bag.
+    ///             </description>
+    ///         </item>
+    ///         <item>
+    ///             <description>
+    ///                 <see cref="MeterSignalCatalogSource" /> as
+    ///                 <see cref="ISignalCatalogSource" /> -- the catalog
+    ///                 enumerates it on read so the editor autocomplete
+    ///                 shows live <c>meter.*</c> keys alongside the static
+    ///                 SignalKeys vocabulary.
+    ///         </description>
+    ///         </item>
+    ///     </list>
+    /// </summary>
+    private static void AddPolicyMeterIntegration(IServiceCollection services)
+    {
+        services.TryAddSingleton<MeterSnapshotSignalContributor>();
+        services.AddSingleton<ISignalContributor>(sp =>
+            sp.GetRequiredService<MeterSnapshotSignalContributor>());
+
+        services.TryAddSingleton<MeterSignalCatalogSource>();
+        services.AddSingleton<ISignalCatalogSource>(sp =>
+            sp.GetRequiredService<MeterSignalCatalogSource>());
     }
 }

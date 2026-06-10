@@ -23,38 +23,99 @@ namespace Mostlylucid.BotDetection.Policies.Signals;
 public sealed class SignalCatalog : ISignalCatalog
 {
     private readonly Dictionary<string, SignalDescriptor> _byKey;
-    private readonly IReadOnlyList<SignalDescriptor> _all;
-    private readonly IReadOnlyList<string> _namespaces;
+    private readonly IReadOnlyList<SignalDescriptor> _reflected;
+    private readonly IReadOnlyList<string> _reflectedNamespaces;
+    private readonly IReadOnlyList<ISignalCatalogSource> _sources;
 
-    private SignalCatalog(IReadOnlyList<SignalDescriptor> all)
+    private SignalCatalog(IReadOnlyList<SignalDescriptor> reflected, IReadOnlyList<ISignalCatalogSource> sources)
     {
-        _all = all;
-        _byKey = new Dictionary<string, SignalDescriptor>(all.Count, StringComparer.Ordinal);
+        _reflected = reflected;
+        _sources = sources;
+        _byKey = new Dictionary<string, SignalDescriptor>(reflected.Count, StringComparer.Ordinal);
         var nsSet = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var d in all)
+        foreach (var d in reflected)
         {
             _byKey[d.Key] = d;
             var dotIdx = d.Key.IndexOf('.');
             var ns = dotIdx > 0 ? d.Key[..dotIdx] : d.Key;
             nsSet.Add(ns);
         }
-        _namespaces = nsSet.ToArray();
+        _reflectedNamespaces = nsSet.ToArray();
+    }
+
+    /// <summary>
+    ///     Merge every catalogued descriptor (reflected + sources) once, with
+    ///     reflected entries winning on key collisions. The result is a fresh
+    ///     dictionary -- catalog reads aren't on a per-request hot path
+    ///     (autocomplete = once per HTTP request) and source membership is
+    ///     dynamic, so caching for staleness would buy a small allocation
+    ///     win at the cost of a stale-meter bug surface.
+    /// </summary>
+    private (IReadOnlyList<SignalDescriptor> All, Dictionary<string, SignalDescriptor> ByKey, IReadOnlyList<string> Namespaces) Snapshot()
+    {
+        if (_sources.Count == 0)
+            return (_reflected, _byKey, _reflectedNamespaces);
+
+        var merged = new Dictionary<string, SignalDescriptor>(_byKey, StringComparer.Ordinal);
+        foreach (var source in _sources)
+        {
+            IReadOnlyList<SignalDescriptor>? supplied;
+            try
+            {
+                supplied = source.GetDescriptors();
+            }
+            catch
+            {
+                // A faulty source must not take down the catalog.
+                supplied = null;
+            }
+            if (supplied is null) continue;
+
+            foreach (var d in supplied)
+            {
+                if (d is null) continue;
+                // TryAdd semantics -- reflected entries always win.
+                if (merged.ContainsKey(d.Key)) continue;
+                merged[d.Key] = d;
+            }
+        }
+
+        // Stable order: reflected entries first (preserves their existing
+        // ordering), then source entries in iteration order.
+        var all = new List<SignalDescriptor>(merged.Count);
+        foreach (var d in _reflected) all.Add(d);
+        foreach (var kvp in merged)
+        {
+            if (_byKey.ContainsKey(kvp.Key)) continue;
+            all.Add(kvp.Value);
+        }
+
+        var nsSet = new SortedSet<string>(_reflectedNamespaces, StringComparer.Ordinal);
+        foreach (var d in all)
+        {
+            if (_byKey.ContainsKey(d.Key)) continue;
+            var dotIdx = d.Key.IndexOf('.');
+            var ns = dotIdx > 0 ? d.Key[..dotIdx] : d.Key;
+            nsSet.Add(ns);
+        }
+
+        return (all, merged, nsSet.ToArray());
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<SignalDescriptor> All => _all;
+    public IReadOnlyList<SignalDescriptor> All => Snapshot().All;
 
     /// <inheritdoc />
-    public IReadOnlyList<string> Namespaces => _namespaces;
+    public IReadOnlyList<string> Namespaces => Snapshot().Namespaces;
 
     /// <inheritdoc />
     public SignalDescriptor? TryGet(string key)
-        => _byKey.TryGetValue(key, out var d) ? d : null;
+        => Snapshot().ByKey.TryGetValue(key, out var d) ? d : null;
 
     /// <inheritdoc />
     public SignalDescriptor Require(string key)
     {
-        if (_byKey.TryGetValue(key, out var d)) return d;
+        if (Snapshot().ByKey.TryGetValue(key, out var d)) return d;
         var suggestions = SuggestForUnknown(key, 3);
         throw new UnknownSignalException(key, suggestions);
     }
@@ -64,10 +125,13 @@ public sealed class SignalCatalog : ISignalCatalog
     {
         if (string.IsNullOrEmpty(query) || max <= 0) yield break;
 
+        var snapshot = Snapshot();
+        var all = snapshot.All;
+
         if (query.Contains('.', StringComparison.Ordinal))
         {
             var count = 0;
-            foreach (var d in _all)
+            foreach (var d in all)
             {
                 if (count >= max) yield break;
                 if (d.Key.StartsWith(query, StringComparison.Ordinal))
@@ -85,8 +149,8 @@ public sealed class SignalCatalog : ISignalCatalog
         // bonus -- keys whose every query character appears in order get their
         // distance halved. That lets typed acronyms ('rj' -> 'risk.justification')
         // land near the top without abandoning Levenshtein for typo correction.
-        var scored = new List<(int score, SignalDescriptor d)>(_all.Count);
-        foreach (var d in _all)
+        var scored = new List<(int score, SignalDescriptor d)>(all.Count);
+        foreach (var d in all)
             scored.Add((FuzzyScore(query, d.Key), d));
         scored.Sort(static (a, b) =>
         {
@@ -128,9 +192,10 @@ public sealed class SignalCatalog : ISignalCatalog
     /// <inheritdoc />
     public IReadOnlyList<string> SuggestForUnknown(string key, int max = 3)
     {
-        if (_all.Count == 0 || max <= 0) return Array.Empty<string>();
-        var scored = new List<(int dist, string key)>(_all.Count);
-        foreach (var d in _all)
+        var all = Snapshot().All;
+        if (all.Count == 0 || max <= 0) return Array.Empty<string>();
+        var scored = new List<(int dist, string key)>(all.Count);
+        foreach (var d in all)
             scored.Add((Levenshtein(key, d.Key), d.Key));
         scored.Sort(static (a, b) =>
         {
@@ -148,9 +213,16 @@ public sealed class SignalCatalog : ISignalCatalog
     ///     (typically <c>typeof(SignalKeys).Assembly</c>). The method is async only
     ///     because future overlay sources (URL pulls, content packs, etc.) will
     ///     want to be -- today's implementation is synchronous under the await.
+    ///     <para>
+    ///         Optional <paramref name="sources"/> contribute additional
+    ///         descriptors lazily on read (see <see cref="ISignalCatalogSource"/>).
+    ///         Reflected entries always win on key collisions.
+    ///     </para>
     /// </summary>
     [RequiresUnreferencedCode("Drives SignalKeysReflector which inspects const fields by type name.")]
-    public static Task<SignalCatalog> LoadAsync(Assembly bdAssembly)
+    public static Task<SignalCatalog> LoadAsync(
+        Assembly bdAssembly,
+        IEnumerable<ISignalCatalogSource>? sources = null)
     {
         var docs = XmlDocCommentReader.Load(bdAssembly);
         var overlays = LoadOverlays(bdAssembly);
@@ -185,7 +257,11 @@ public sealed class SignalCatalog : ISignalCatalog
                 Related: related));
         }
 
-        return Task.FromResult(new SignalCatalog(descriptors));
+        var sourceArray = sources is null
+            ? Array.Empty<ISignalCatalogSource>()
+            : sources.Where(s => s is not null).ToArray();
+
+        return Task.FromResult(new SignalCatalog(descriptors, sourceArray));
     }
 
     // ----- Kind inference + overlay resolution -----
