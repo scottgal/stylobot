@@ -122,10 +122,16 @@ public class ThrottleActionPolicy : IActionPolicy
             }
         }
 
-        // Apply the delay
-        await Task.Delay(delay, cancellationToken);
-
-        // Optionally return a status code instead of continuing
+        // Visible-429 path (ReturnStatus = true, e.g. throttle-tools, throttle-status):
+        // respond IMMEDIATELY. The calculated `delay` is advisory only -- it has
+        // already been written to Retry-After above. Holding the response
+        // wall-clock for `delay` ms causes upstream proxies (Caddy default
+        // dial_timeout = 3s, Cloudflare tunnel origin budget, nginx
+        // proxy_connect_timeout) to give up first and return 502 in place of
+        // the 429 the visible-throttle contract promised. The client (curl,
+        // wget, python-requests, well-behaved scrapers) backs off according
+        // to Retry-After, which is the actual throttle mechanism for this
+        // preset.
         if (_options.ReturnStatus)
         {
             context.Response.StatusCode = _options.StatusCode;
@@ -135,8 +141,15 @@ public class ThrottleActionPolicy : IActionPolicy
             var json = $$"""{"message":"{{BlockActionPolicy.EscapeJson(_options.Message)}}","retryAfterMs":{{delay}},"policy":"{{BlockActionPolicy.EscapeJson(Name)}}"}""";
             await context.Response.WriteAsync(json, cancellationToken);
 
-            return ActionResult.Blocked(_options.StatusCode, $"Throttled by {Name}: {delay}ms delay");
+            return ActionResult.Blocked(_options.StatusCode, $"Throttled by {Name}: Retry-After advertises {delay}ms back-off");
         }
+
+        // Stealth path (ReturnStatus = false): apply the wall-clock delay,
+        // THEN let the request continue upstream. The silent-throttle
+        // contract requires the delay to be real wall-clock so the visitor
+        // perceives a slow site (the goal: the bot operator gives up
+        // without realising they were detected).
+        await Task.Delay(delay, cancellationToken);
 
         // Continue with the request after delay
         return new ActionResult
