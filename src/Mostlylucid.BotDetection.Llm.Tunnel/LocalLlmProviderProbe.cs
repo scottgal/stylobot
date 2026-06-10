@@ -24,6 +24,8 @@ public sealed class LocalLlmProviderProbe(
         int maxContextTokens = 8192,
         CancellationToken ct = default)
     {
+        LlmEndpointUrlValidator.Validate(ollamaBaseUrl, "Ollama base URL");
+
         // Use an injected client (for tests) or create a short-lived one (production).
         // Do not mutate a pooled IHttpClientFactory client.
         using var ownedClient = httpClient is null

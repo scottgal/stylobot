@@ -544,6 +544,13 @@ public static class StyloBotDashboardServiceExtensions
     {
         var options = app.ApplicationServices.GetService<StyloBotDashboardOptions>();
 
+        // Anti-spoofing: drop X-Bot-Detection-* verdict headers a visitor attached
+        // (this host computes its own and re-emits via UseStyloBotForwardedHeaders),
+        // and — when ForwardedHeaders:StripInboundClientSignalHeaders is enabled —
+        // client-signal headers (X-JA3-*, X-Client-TLS-*, …) that only a trusted
+        // upstream proxy may inject. Must run before anything reads headers.
+        app.UseStyloBotInboundClientHeaderStrip();
+
         if (options?.Enabled == true)
         {
             // Dashboard CSS/JS lives at /_content/Mostlylucid.BotDetection.UI/...

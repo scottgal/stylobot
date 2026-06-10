@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Mostlylucid.BotDetection.Models;
 
@@ -61,6 +63,14 @@ public static class ConfigOutputCommand
                 new ConfigDumpWrapper { BotDetection = options },
                 ConfigOutputJsonContext.Default.ConfigDumpWrapper);
 
+            // Redact secrets before the dump touches disk. The dashboard's
+            // EffectiveConfigSerializer does this via [Secret] reflection, which
+            // is unavailable here (AOT); a name-rule pass over the JSON tree
+            // applies the same suffix rule to every nested section instead.
+            var tree = JsonNode.Parse(json);
+            RedactSecrets(tree);
+            json = tree!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
             var dir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(outputPath, json);
@@ -68,6 +78,7 @@ public static class ConfigOutputCommand
             System.Console.WriteLine($"  Wrote effective configuration to {outputPath}");
             System.Console.WriteLine($"  Environment: {env}");
             System.Console.WriteLine($"  Loaded from: appsettings.json + appsettings.{env}.json + env + CLI");
+            System.Console.WriteLine("  Secrets (keys/tokens/passwords) are redacted to \"***\" - re-add real values by hand.");
             return 0;
         }
         catch (Exception ex)
@@ -76,6 +87,41 @@ public static class ConfigOutputCommand
             return 1;
         }
     }
+
+    // Same suffix rule as the dashboard's EffectiveConfigSerializer: any property
+    // ending in secret/password/token/key (singular or plural) is credential-shaped.
+    private static readonly Regex SecretNameRegex = new("(?i)(secret|password|token|key)s?$");
+
+    private static void RedactSecrets(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var name in obj.Select(kv => kv.Key).ToList())
+                {
+                    if (SecretNameRegex.IsMatch(name))
+                        obj[name] = RedactValue(obj[name]);
+                    else
+                        RedactSecrets(obj[name]);
+                }
+                break;
+            case JsonArray arr:
+                foreach (var item in arr) RedactSecrets(item);
+                break;
+        }
+    }
+
+    private static JsonNode? RedactValue(JsonNode? value) => value switch
+    {
+        null => null,
+        // Same-shaped masking so operators still see how many entries exist.
+        JsonArray arr => new JsonArray(arr.Select(_ => (JsonNode)"***").ToArray()),
+        // ApiKeys-style maps are keyed BY the credential; the whole object goes.
+        JsonObject => "***",
+        JsonValue v when v.GetValueKind() == JsonValueKind.String => "***",
+        // Numbers/bools that merely end in "Key"/"Token" carry no credential.
+        _ => value
+    };
 
     /// <summary>
     ///     Wrapper preserves the appsettings.json shape so the output can be dropped

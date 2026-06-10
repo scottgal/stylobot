@@ -17,6 +17,11 @@ public static class LlmNodeImporter
         }
 
         var p = key.Payload;
+
+        // A connection key is an importable artifact; a hostile TunnelUrl would
+        // turn this controller into an SSRF proxy against internal services.
+        LlmEndpointUrlValidator.Validate(p.TunnelUrl, "Connection key TunnelUrl");
+
         var descriptor = new LlmNodeDescriptor
         {
             NodeId = p.NodeId,

@@ -41,7 +41,9 @@ public sealed class GeminiLlmProvider : ILlmProvider
     {
         if (!IsReady) return string.Empty;
 
-        var url = $"{_baseUrl}/v1beta/models/{_model}:generateContent?key={_options.ApiKey}";
+        // Key goes in the x-goog-api-key header, never the query string — URLs end
+        // up in access logs, proxy caches, and exception messages.
+        var url = $"{_baseUrl}/v1beta/models/{_model}:generateContent";
 
         var body = new GeminiRequest
         {
@@ -62,6 +64,7 @@ public sealed class GeminiLlmProvider : ILlmProvider
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
+        req.Headers.TryAddWithoutValidation("x-goog-api-key", _options.ApiKey);
 
         try
         {
