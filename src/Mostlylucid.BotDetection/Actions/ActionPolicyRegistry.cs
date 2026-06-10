@@ -166,6 +166,13 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         RegisterPolicy(new BlockActionPolicy("block-fake-success", BlockActionOptions.FakeSuccess));
         RegisterPolicy(new BlockActionPolicy("block-fake-html", BlockActionOptions.FakeHtml));
 
+        // Silent drop: HAProxy-style connection abort with no response. Frees
+        // the Kestrel slot / h2 stream / HttpContext immediately. Use for
+        // high-confidence bot verdicts where there's no policy value in
+        // returning a 429. Opt-in: not the default for any BotType mapping;
+        // operators reference it explicitly from action-policy config.
+        RegisterPolicy(new SilentDropActionPolicy("silent-drop"));
+
         // Throttle policies
         RegisterPolicy(new ThrottleActionPolicy("throttle", ThrottleActionOptions.Moderate));
         RegisterPolicy(new ThrottleActionPolicy("throttle-gentle", ThrottleActionOptions.Gentle));
