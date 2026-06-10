@@ -37,7 +37,8 @@ public sealed record WaveformOp(string Signature, RequestSnapshot Snapshot);
 ///     </para>
 /// </summary>
 public sealed class WaveformHistoryStore
-    : WriteBehindLfuStore<string, WaveformHistory, WaveformOp>
+    : WriteBehindLfuStore<string, WaveformHistory, WaveformOp>,
+      Mostlylucid.BotDetection.Storage.IStoreInitializer
 {
     public const int MaxSnapshotsPerSignature = 100;
     public static readonly TimeSpan HistoryWindow = TimeSpan.FromMinutes(30);

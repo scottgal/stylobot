@@ -1015,7 +1015,7 @@ public static class ServiceCollectionExtensions
         // injects via IFingerprintPoolCollisionTracker.
         services.TryAddSingleton<SqlitePoolCollisionStore>();
         services.TryAddSingleton<IFingerprintPoolCollisionTracker>(sp => sp.GetRequiredService<SqlitePoolCollisionStore>());
-        services.AddHostedService<PoolCollisionInitService>();
+        services.AddHostedService<Mostlylucid.BotDetection.Storage.StoreInitService<SqlitePoolCollisionStore>>();
 
         // Sticky-deny store: same WriteBehindLfuStore pattern. SQLite tier
         // makes the block window durable across restarts so a bot can't
@@ -1032,7 +1032,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.Actions.SqliteStickyDenyStore>();
         services.TryAddSingleton<Mostlylucid.BotDetection.Actions.IStickyDenyTracker>(
             sp => sp.GetRequiredService<Mostlylucid.BotDetection.Actions.SqliteStickyDenyStore>());
-        services.AddHostedService<Mostlylucid.BotDetection.Actions.StickyDenyInitService>();
+        services.AddHostedService<Mostlylucid.BotDetection.Storage.StoreInitService<Mostlylucid.BotDetection.Actions.SqliteStickyDenyStore>>();
         services.AddSingleton<IContributingDetector, PoolCollisionContributor>();
         // Advanced fingerprinting detectors (Wave 0 - network/protocol layer)
         services.TryAddSingleton<Ja3ReferenceIndex>();
@@ -1085,7 +1085,7 @@ public static class ServiceCollectionExtensions
         // canonical WriteBehindLfuStore subclass (hot ConcurrentDictionary tier +
         // SQLite-backed durable tier in waveform_history.db).
         services.TryAddSingleton<WaveformHistoryStore>();
-        services.AddHostedService<WaveformHistoryInitService>();
+        services.AddHostedService<Mostlylucid.BotDetection.Storage.StoreInitService<WaveformHistoryStore>>();
         services.AddSingleton<BehavioralWaveformContributor>();
         services.AddSingleton<IContributingDetector>(sp => sp.GetRequiredService<BehavioralWaveformContributor>());
         // Header hash collector for progressive identity resolution

@@ -31,7 +31,8 @@ public sealed record StickyDenyViolation(string Key, DateTimeOffset Timestamp);
 /// </summary>
 public sealed class SqliteStickyDenyStore
     : WriteBehindLfuStore<string, StickyDenyState, StickyDenyViolation>,
-      IStickyDenyTracker
+      IStickyDenyTracker,
+      Mostlylucid.BotDetection.Storage.IStoreInitializer
 {
     private readonly StickyDenyActionOptions _options;
     private readonly string _connectionString;

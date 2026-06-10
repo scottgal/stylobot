@@ -56,7 +56,8 @@ public sealed record ShapeBucket(
 /// </summary>
 public sealed class SqlitePoolCollisionStore
     : WriteBehindLfuStore<string, ShapeBucket, PoolObservation>,
-      IFingerprintPoolCollisionTracker
+      IFingerprintPoolCollisionTracker,
+      IStoreInitializer
 {
     private readonly string _connectionString;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
