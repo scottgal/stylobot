@@ -6,6 +6,7 @@ using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.RateLimit;
+using Mostlylucid.BotDetection.Scheduling;
 using PredicateNode = Mostlylucid.BotDetection.Policies.Predicate.Predicate;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Dispatch;
@@ -75,7 +76,8 @@ public sealed class PolicyActionDispatcherTests
         StubResolver resolver,
         IPolicyDecisionLog? decisionLog = null,
         ITokenBucketStore? bucketStore = null,
-        IEnumerable<IPolicyActionHandler>? extraHandlers = null)
+        IEnumerable<IPolicyActionHandler>? extraHandlers = null,
+        IPolicyDecisionLogQueue? queueOverride = null)
     {
         bucketStore ??= new InMemoryTokenBucketStore();
         var handlers = new List<IPolicyActionHandler>
@@ -89,7 +91,31 @@ public sealed class PolicyActionDispatcherTests
             new ThrottleActionHandler(bucketStore)
         };
         if (extraHandlers is not null) handlers.AddRange(extraHandlers);
-        return new PolicyActionDispatcher(resolver, handlers, decisionLog);
+        IPolicyDecisionLogQueue? queue = queueOverride
+            ?? (decisionLog is not null
+                ? new SyncDecisionLogQueueForTests(decisionLog)
+                : null);
+        return new PolicyActionDispatcher(resolver, handlers, queue);
+    }
+
+    /// <summary>
+    ///     Test-only synchronous adapter: forwards <see cref="IPolicyDecisionLogQueue.Enqueue"/>
+    ///     straight to <see cref="IPolicyDecisionLog.AppendAsync"/> so the existing
+    ///     "log.Snapshot()" assertions stay observable without standing up a real
+    ///     coordinator + ticking the channel. Production paths use
+    ///     <see cref="PolicyDecisionLogQueue"/> with its bounded channel + Tick1s
+    ///     drainer.
+    /// </summary>
+    private sealed class SyncDecisionLogQueueForTests : IPolicyDecisionLogQueue
+    {
+        private readonly IPolicyDecisionLog _log;
+        public SyncDecisionLogQueueForTests(IPolicyDecisionLog log) => _log = log;
+        public long DroppedCount => 0;
+        public void Enqueue(PolicyDecision decision)
+        {
+            _log.AppendAsync(decision).AsTask().GetAwaiter().GetResult();
+        }
+        public Task FlushAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
     // ---- Selection-loop tests ---------------------------------------------
@@ -326,6 +352,35 @@ public sealed class PolicyActionDispatcherTests
         Assert.Equal(rule.Id, snapshot[0].WinnerRuleId);
         Assert.Equal(PolicyMode.Live, snapshot[0].Mode);
         Assert.IsType<PolicyAction.Block>(snapshot[0].Action);
+    }
+
+    [Fact]
+    public async Task Decision_enqueues_to_queue_and_drains_on_FlushAsync()
+    {
+        // Wave 4: the dispatcher writes through IPolicyDecisionLogQueue. The
+        // production queue drains on Tick1s; here we use a real queue paired
+        // with the NullScheduleCoordinator and drive FlushAsync directly.
+        var rule = NewRule(new PolicyAction.Block());
+        var resolver = new StubResolver();
+        resolver.Rules.Add(new EffectiveRule(rule, rule.Scope, IsInherited: false));
+
+        var log = new InMemoryPolicyDecisionLog();
+        var queue = new PolicyDecisionLogQueue(log, NullScheduleCoordinator.Instance);
+        var dispatcher = BuildDispatcher(resolver, queueOverride: queue);
+
+        await dispatcher.DispatchAsync(
+            NewHttpContext(), PolicyScope.Wildcard(), new Dictionary<string, object?>(), CancellationToken.None);
+
+        // The dispatcher enqueued the decision but has NOT awaited any
+        // durable write -- the log should still be empty until the queue
+        // drains.
+        Assert.Empty(log.Snapshot());
+
+        await queue.FlushAsync();
+
+        var snapshot = log.Snapshot();
+        Assert.Single(snapshot);
+        Assert.Equal(rule.Id, snapshot[0].RuleId);
     }
 
     [Fact]

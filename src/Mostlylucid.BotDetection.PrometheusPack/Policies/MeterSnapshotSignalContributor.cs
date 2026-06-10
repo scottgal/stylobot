@@ -4,8 +4,9 @@ using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 namespace Mostlylucid.BotDetection.PrometheusPack.Policies;
 
 /// <summary>
-///     Pumps the most-recent meter snapshot from <see cref="IMeterStream" />
-///     into the per-request signals map under the keys:
+///     Pumps the most-recent meter snapshot held by
+///     <see cref="MeterSignalsAtom"/> into the per-request signals map under
+///     the keys:
 ///     <list type="bullet">
 ///         <item><description><c>meter.{name}.current</c>      -- last observed value</description></item>
 ///         <item><description><c>meter.{name}.p50</c>          -- histogram only; absent for other kinds</description></item>
@@ -21,75 +22,59 @@ namespace Mostlylucid.BotDetection.PrometheusPack.Policies;
 ///     </para>
 ///     <para>
 ///         The contributor is the Phase F bridge between the meter stream
-///         (which Phase E shipped) and the predicate evaluator. The
-///         <see cref="DefaultPolicyResolver" /> invokes it once per
-///         <c>EffectiveWithContextAsync</c> call -- the snapshot-at-request-entry
-///         semantics fall out of that single invocation, not from request-scoped
-///         DI.
+///         (Phase E) and the predicate evaluator. The
+///         <see cref="DefaultPolicyResolver"/> invokes it once per
+///         <c>EffectiveWithContextAsync</c> call -- the snapshot-at-request-
+///         entry semantics fall out of the atom's Tick10s rebuild, not from
+///         per-request awaits.
+///     </para>
+///     <para>
+///         <b>Wave 4 architectural-drift remediation:</b> the contributor no
+///         longer awaits <see cref="IMeterStream.GetAsync"/> on the request
+///         hot path. The previous shape issued two awaits per catalogued
+///         meter on every policy resolution; with the default
+///         <c>MaxTrackedMeters=128</c> that was ~256 awaits per request just
+///         to populate the signal bag. The
+///         <see cref="MeterSignalsAtom"/> now rebuilds the canonical
+///         signals dictionary once every 10s and the contributor's per-request
+///         cost is a single O(N) dictionary merge.
 ///     </para>
 /// </summary>
 public sealed class MeterSnapshotSignalContributor : ISignalContributor
 {
-    private readonly IMeterStream _stream;
-
     /// <summary>The bucket count used for both the 1m and 5m windows.</summary>
     /// <remarks>
-    ///     Six buckets keeps the contributor allocation modest (two arrays of
-    ///     six doubles per meter) while still producing a meaningful delta sum.
-    ///     The exact bucket count is not surfaced in the signal value itself --
-    ///     the <c>delta_*</c> facets are sums, not means.
+    ///     Kept for binary-compat with call sites that referenced the constant
+    ///     directly before the Wave 4 rebuild moved the bucketing into
+    ///     <see cref="MeterSignalsAtom"/>.
     /// </remarks>
-    internal const int WindowBuckets = 6;
+    internal const int WindowBuckets = MeterSignalsAtom.WindowBuckets;
 
-    public MeterSnapshotSignalContributor(IMeterStream stream)
+    private readonly MeterSignalsAtom _atom;
+
+    public MeterSnapshotSignalContributor(MeterSignalsAtom atom)
     {
-        _stream = stream ?? throw new ArgumentNullException(nameof(stream));
+        _atom = atom ?? throw new ArgumentNullException(nameof(atom));
     }
 
     /// <inheritdoc />
-    public async Task ContributeAsync(IDictionary<string, object?> signals, CancellationToken ct)
+    public Task ContributeAsync(IDictionary<string, object?> signals, CancellationToken ct)
     {
-        var catalog = await _stream.ListAsync(ct).ConfigureAwait(false);
-        if (catalog.Count == 0) return;
+        // Single lock-free read of the snapshot reference. The atom guarantees
+        // the dictionary it returns is never mutated in place -- the next
+        // tick publishes a NEW reference -- so we can iterate without holding
+        // anything.
+        var snapshot = _atom.CurrentSnapshot;
+        if (snapshot.Count == 0) return Task.CompletedTask;
 
-        foreach (var entry in catalog)
+        foreach (var kv in snapshot)
         {
-            // 1m window -- current + delta_1m + (p50/p99 for histograms).
-            var oneMinute = await _stream
-                .GetAsync(entry.Name, TimeSpan.FromMinutes(1), WindowBuckets, ct)
-                .ConfigureAwait(false);
-            if (oneMinute is not null)
-            {
-                TryAdd(signals, $"meter.{entry.Name}.current",  oneMinute.Current);
-                TryAdd(signals, $"meter.{entry.Name}.delta_1m", SumValues(oneMinute));
-                if (entry.Kind == MeterKind.Histogram)
-                {
-                    TryAdd(signals, $"meter.{entry.Name}.p50", oneMinute.P50);
-                    TryAdd(signals, $"meter.{entry.Name}.p99", oneMinute.P99);
-                }
-            }
-
-            // 5m window -- delta_5m only; current/p50/p99 are point-in-time
-            // measurements and the 1m series already captures them.
-            var fiveMinute = await _stream
-                .GetAsync(entry.Name, TimeSpan.FromMinutes(5), WindowBuckets, ct)
-                .ConfigureAwait(false);
-            if (fiveMinute is not null)
-                TryAdd(signals, $"meter.{entry.Name}.delta_5m", SumValues(fiveMinute));
+            // Existing keys in the per-request bag win; the meter atom must not
+            // shadow upstream signals (e.g. a contributor that already wrote
+            // meter.foo.current with a per-request override).
+            if (!signals.ContainsKey(kv.Key))
+                signals[kv.Key] = kv.Value;
         }
-    }
-
-    private static void TryAdd(IDictionary<string, object?> signals, string key, object? value)
-    {
-        if (!signals.ContainsKey(key))
-            signals[key] = value;
-    }
-
-    private static double SumValues(MeterTimeSeries ts)
-    {
-        double sum = 0;
-        for (var i = 0; i < ts.Values.Count; i++)
-            sum += ts.Values[i];
-        return sum;
+        return Task.CompletedTask;
     }
 }

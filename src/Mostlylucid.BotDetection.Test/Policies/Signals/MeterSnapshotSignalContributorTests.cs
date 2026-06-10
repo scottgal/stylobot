@@ -1,5 +1,6 @@
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Signals;
 
@@ -9,9 +10,27 @@ namespace Mostlylucid.BotDetection.Test.Policies.Signals;
 ///     composite predicates like
 ///     <c>score.bot_probability &gt; 0.9 AND meter.system.cpu_load.current &gt; 80</c>
 ///     can resolve naturally.
+///
+///     <para>
+///         <b>Wave 4 update:</b> the contributor reads from a
+///         <see cref="MeterSignalsAtom"/> instead of awaiting
+///         <see cref="IMeterStream.GetAsync"/> on the request hot path. The
+///         tests below build a fake stream, drive ONE atom rebuild via
+///         <see cref="MeterSignalsAtom.RebuildNowAsync"/>, then assert the
+///         resulting per-request merge. The old "N awaited GetAsync calls per
+///         request" assertions are obsolete and replaced by snapshot-merge
+///         assertions.
+///     </para>
 /// </summary>
 public class MeterSnapshotSignalContributorTests
 {
+    private static async Task<MeterSignalsAtom> BuildAtomAsync(IMeterStream stream)
+    {
+        var atom = new MeterSignalsAtom(stream, NullScheduleCoordinator.Instance);
+        await atom.RebuildNowAsync();
+        return atom;
+    }
+
     [Fact]
     public async Task Adds_current_for_every_catalogued_meter()
     {
@@ -25,7 +44,8 @@ public class MeterSnapshotSignalContributorTests
             current: 42,
             values: new[] { 2d });
 
-        var contributor = new MeterSnapshotSignalContributor(stream);
+        using var atom = await BuildAtomAsync(stream);
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var signals = new Dictionary<string, object?>();
         await contributor.ContributeAsync(signals, CancellationToken.None);
 
@@ -48,7 +68,8 @@ public class MeterSnapshotSignalContributorTests
                 [TimeSpan.FromMinutes(5)] = new[] { 10d, 20d, 30d, 40d }
             });
 
-        var contributor = new MeterSnapshotSignalContributor(stream);
+        using var atom = await BuildAtomAsync(stream);
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var signals = new Dictionary<string, object?>();
         await contributor.ContributeAsync(signals, CancellationToken.None);
 
@@ -70,7 +91,8 @@ public class MeterSnapshotSignalContributorTests
             p50: 99d,        // contributor must ignore percentiles on non-histogram kinds
             p99: 99d);
 
-        var contributor = new MeterSnapshotSignalContributor(stream);
+        using var atom = await BuildAtomAsync(stream);
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var signals = new Dictionary<string, object?>();
         await contributor.ContributeAsync(signals, CancellationToken.None);
 
@@ -92,7 +114,8 @@ public class MeterSnapshotSignalContributorTests
             p50: 10d,
             p99: 99.9d);
 
-        var contributor = new MeterSnapshotSignalContributor(stream);
+        using var atom = await BuildAtomAsync(stream);
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var signals = new Dictionary<string, object?>();
         await contributor.ContributeAsync(signals, CancellationToken.None);
 
@@ -114,7 +137,8 @@ public class MeterSnapshotSignalContributorTests
             current: 123,
             values: new[] { 5d });
 
-        var contributor = new MeterSnapshotSignalContributor(stream);
+        using var atom = await BuildAtomAsync(stream);
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var signals = new Dictionary<string, object?>
         {
             ["meter.foo.current"] = 999d
@@ -125,32 +149,36 @@ public class MeterSnapshotSignalContributorTests
     }
 
     [Fact]
-    public async Task OperationCanceledException_propagates()
-    {
-        var stream = new FakeMeterStream();
-        stream.AddMeter(
-            new MeterCatalogEntry("foo", "foo", MeterKind.Gauge, null, null),
-            current: 1,
-            values: new[] { 0d });
-
-        var contributor = new MeterSnapshotSignalContributor(stream);
-        var signals = new Dictionary<string, object?>();
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => contributor.ContributeAsync(signals, cts.Token));
-    }
-
-    [Fact]
     public async Task Empty_catalog_adds_no_signals()
     {
         var stream = new FakeMeterStream();   // no meters registered
-        var contributor = new MeterSnapshotSignalContributor(stream);
+        using var atom = await BuildAtomAsync(stream);
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var signals = new Dictionary<string, object?>();
         await contributor.ContributeAsync(signals, CancellationToken.None);
 
         Assert.Empty(signals);
+    }
+
+    [Fact]
+    public async Task Contribute_is_synchronous_on_request_hot_path()
+    {
+        // Wave 4 invariant: the contributor must NOT await on the request hot
+        // path. ContributeAsync returns a completed Task without scheduling any
+        // continuation; the dictionary merge runs inline.
+        var stream = new FakeMeterStream();
+        stream.AddMeter(
+            new MeterCatalogEntry("alpha", "alpha", MeterKind.Gauge, null, null),
+            current: 1,
+            values: new[] { 0d });
+
+        using var atom = await BuildAtomAsync(stream);
+        var contributor = new MeterSnapshotSignalContributor(atom);
+        var signals = new Dictionary<string, object?>();
+
+        var task = contributor.ContributeAsync(signals, CancellationToken.None);
+        Assert.True(task.IsCompletedSuccessfully,
+            "Contributor must complete synchronously; the atom owns the awaited rebuild.");
     }
 
     private sealed class FakeMeterStream : IMeterStream

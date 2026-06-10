@@ -63,7 +63,7 @@ public sealed class PolicyActionDispatcher
     public const string RequestSignalsItemKey = "PolicyDispatched.RequestSignals";
 
     private readonly IPolicyResolver _resolver;
-    private readonly IPolicyDecisionLog? _decisionLog;
+    private readonly IPolicyDecisionLogQueue? _decisionLogQueue;
     private readonly IReadOnlyDictionary<Type, IPolicyActionHandler> _handlers;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<PolicyActionDispatcher>? _logger;
@@ -75,17 +75,28 @@ public sealed class PolicyActionDispatcher
     ///     type: the last one registered wins (matches DI <c>AddSingleton</c>
     ///     enumeration semantics).
     /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <b>Wave 4 architectural-drift remediation:</b> the dispatcher
+    ///         used to take an <see cref="IPolicyDecisionLog"/> and await
+    ///         <c>AppendAsync</c> inline on the dispatch hot path. It now
+    ///         takes an <see cref="IPolicyDecisionLogQueue"/> -- the
+    ///         queue is a bounded channel with a Tick1s drainer, so the
+    ///         request thread enqueues and returns without blocking on the
+    ///         underlying store.
+    ///     </para>
+    /// </remarks>
     public PolicyActionDispatcher(
         IPolicyResolver resolver,
         IEnumerable<IPolicyActionHandler> handlers,
-        IPolicyDecisionLog? decisionLog = null,
+        IPolicyDecisionLogQueue? decisionLogQueue = null,
         TimeProvider? timeProvider = null,
         ILogger<PolicyActionDispatcher>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(handlers);
         _resolver = resolver;
-        _decisionLog = decisionLog;
+        _decisionLogQueue = decisionLogQueue;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
 
@@ -225,7 +236,17 @@ public sealed class PolicyActionDispatcher
     ///     <c>outcome</c> column to the schema is the right long-term move but
     ///     out of scope for this task.
     /// </summary>
-    private async Task TryLogDecisionAsync(
+    /// <remarks>
+    ///     <para>
+    ///         <b>Wave 4:</b> the method name is kept for source compat with the
+    ///         pre-Wave-4 dispatcher, but the body now enqueues on a bounded
+    ///         channel via <see cref="IPolicyDecisionLogQueue"/> and returns
+    ///         a completed task. The await chain inherited by every dispatch
+    ///         call site keeps compiling unchanged; the runtime cost is one
+    ///         <c>TryWrite</c>.
+    ///     </para>
+    /// </remarks>
+    private Task TryLogDecisionAsync(
         HttpContext context,
         EffectiveRule entry,
         PolicyAction action,
@@ -234,12 +255,12 @@ public sealed class PolicyActionDispatcher
         CancellationToken ct)
     {
         // Structured-log fallback runs unconditionally so operators can grep
-        // the dispatcher's decisions even when no IPolicyDecisionLog is wired.
+        // the dispatcher's decisions even when no IPolicyDecisionLogQueue is wired.
         _logger?.LogDebug(
             "PolicyDispatch: rule={RuleId} mode={Mode} armed={IsArmed} action={Action} outcome={Outcome}",
             entry.Rule.Id, entry.Rule.Mode, entry.IsArmed, action.GetType().Name, outcome);
 
-        if (_decisionLog is null) return;
+        if (_decisionLogQueue is null) return Task.CompletedTask;
 
         try
         {
@@ -259,18 +280,15 @@ public sealed class PolicyActionDispatcher
                 Mode: observedMode,
                 EvalLatencyTicks: 0,
                 ObservedAt: _timeProvider.GetUtcNow());
-            await _decisionLog.AppendAsync(decision, ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
+            _decisionLogQueue.Enqueue(decision);
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex,
-                "PolicyActionDispatcher: decision log append threw for rule {RuleId}; ignoring",
+                "PolicyActionDispatcher: decision log enqueue threw for rule {RuleId}; ignoring",
                 entry.Rule.Id);
         }
+        return Task.CompletedTask;
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
@@ -60,6 +61,13 @@ internal sealed class PrometheusPackBootstrap : IHostedService
                 _services.GetService<RemoteMeterStream>();
                 break;
         }
+
+        // Wave 4: the MeterSignalsAtom owns the meter-signals snapshot for the
+        // policy hot path. Resolve it at boot so its constructor's
+        // Subscribe(Tick10s) fires; otherwise the snapshot stays empty until
+        // some other dependency resolves it. Registered via
+        // AddPolicyMeterIntegration in both modes.
+        _services.GetService<MeterSignalsAtom>();
 
         // The trigger service is registered via AddPolicyMeterIntegration in
         // both modes. Resolve it unconditionally; the resolution is a no-op if

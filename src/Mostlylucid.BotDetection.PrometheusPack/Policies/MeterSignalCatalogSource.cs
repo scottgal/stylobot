@@ -4,10 +4,10 @@ using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 namespace Mostlylucid.BotDetection.PrometheusPack.Policies;
 
 /// <summary>
-///     <see cref="ISignalCatalogSource" /> that projects every catalogued meter
+///     <see cref="ISignalCatalogSource"/> that projects every catalogued meter
 ///     into the <c>meter.{name}.{facet}</c> signal-catalog vocabulary so the
 ///     Policy Stack editor's autocomplete sees the same keys the runtime can
-///     resolve at <see cref="MeterSnapshotSignalContributor" /> time.
+///     resolve at <see cref="MeterSnapshotSignalContributor"/> time.
 ///
 ///     <para>
 ///         The facet family is:
@@ -20,16 +20,22 @@ namespace Mostlylucid.BotDetection.PrometheusPack.Policies;
 ///         </list>
 ///         Counter / Gauge / UpDownCounter meters get three entries each;
 ///         Histograms get five. Every entry is grouped under <c>"Meters"</c>
-///         and typed <see cref="SignalKind.Number" />.
+///         and typed <see cref="SignalKind.Number"/>.
 ///     </para>
 ///     <para>
-///         Discovery is dynamic: <see cref="IMeterStream.ListAsync" /> returns
-///         the current catalog snapshot, so meters published mid-process show
-///         up the next time the catalog is read. The source intentionally calls
-///         <c>ListAsync</c> with <see cref="CancellationToken.None" /> and a
-///         GetAwaiter().GetResult() bridge -- both in-process implementations
-///         return synchronously, and catalog reads are off the per-request
-///         hot path (autocomplete = once per HTTP request).
+///         Discovery is dynamic: <see cref="MeterSignalsAtom.CurrentCatalog"/>
+///         returns the most recent catalog snapshot (rebuilt on
+///         <see cref="TickCadence.Tick10s"/>) so meters published mid-process
+///         show up the next time the catalog source is read.
+///     </para>
+///     <para>
+///         <b>Wave 4 architectural-drift remediation:</b> previously the
+///         source called <see cref="IMeterStream.ListAsync"/> via a
+///         <c>.GetAwaiter().GetResult()</c> bridge -- a synchronous catalog
+///         API forced over an async stream contract. The Wave 4 atom-driven
+///         path drops the sync-over-async and reads directly from the atom's
+///         catalog projection; both production and test rebuilds happen on
+///         the atom's tick handler.
 ///     </para>
 /// </summary>
 public sealed class MeterSignalCatalogSource : ISignalCatalogSource
@@ -42,31 +48,21 @@ public sealed class MeterSignalCatalogSource : ISignalCatalogSource
     private static readonly IReadOnlyList<SignalExample> NoExamples = Array.Empty<SignalExample>();
     private static readonly IReadOnlyList<string> NoRelated = Array.Empty<string>();
 
-    private readonly IMeterStream _stream;
+    private readonly MeterSignalsAtom _atom;
 
-    public MeterSignalCatalogSource(IMeterStream stream)
+    public MeterSignalCatalogSource(MeterSignalsAtom atom)
     {
-        _stream = stream ?? throw new ArgumentNullException(nameof(stream));
+        _atom = atom ?? throw new ArgumentNullException(nameof(atom));
     }
 
     /// <inheritdoc />
     public IReadOnlyList<SignalDescriptor> GetDescriptors()
     {
-        IReadOnlyList<MeterCatalogEntry> catalog;
-        try
-        {
-            catalog = _stream.ListAsync(CancellationToken.None).GetAwaiter().GetResult();
-        }
-        catch
-        {
-            // A faulty meter stream must not poison the editor catalog.
-            return Array.Empty<SignalDescriptor>();
-        }
-
+        // O(1) lock-free read off the atom -- no sync-over-async, no I/O.
+        var catalog = _atom.CurrentCatalog;
         if (catalog.Count == 0) return Array.Empty<SignalDescriptor>();
 
         // Counter/Gauge/UpDownCounter contribute 3 entries; Histogram contributes 5.
-        // Initial estimate keeps allocation tight.
         var capacity = 0;
         for (var i = 0; i < catalog.Count; i++)
             capacity += catalog[i].Kind == MeterKind.Histogram ? 5 : 3;

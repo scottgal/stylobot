@@ -6,6 +6,7 @@ using Mostlylucid.BotDetection.Policies.Triggers;
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.BotDetection.Scheduling;
 using PredicateNode = Mostlylucid.BotDetection.Policies.Predicate.Predicate;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Triggers;
@@ -47,7 +48,12 @@ public sealed class PhaseG_EndToEnd_Tests
         var meterStream = new MutableFakeMeterStream();
         meterStream.SetMeter("test.foo", current: 0d);
 
-        var contributor = new MeterSnapshotSignalContributor(meterStream);
+        // Wave 4: contributor + catalog source read from MeterSignalsAtom.
+        // Tests pump the atom rebuild manually so the meter snapshot tracks
+        // the meterStream's current state at each TickOnceAsync call.
+        var atom = new MeterSignalsAtom(meterStream, NullScheduleCoordinator.Instance);
+        await atom.RebuildNowAsync();
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var registry = new ArmedRuleRegistry();
         var clock = new ManualTimeProvider(DateTimeOffset.UnixEpoch);
 
@@ -75,6 +81,7 @@ public sealed class PhaseG_EndToEnd_Tests
 
         // --- Act: phase 2, meter pops above threshold -------------------------
         meterStream.SetMeter("test.foo", current: 100d);
+        await atom.RebuildNowAsync();
 
         // First over-threshold tick: starts the sustain streak, no transition.
         await service.TickOnceAsync(CancellationToken.None);
@@ -101,6 +108,7 @@ public sealed class PhaseG_EndToEnd_Tests
 
         // --- Act: phase 3, meter drops back below threshold -------------------
         meterStream.SetMeter("test.foo", current: 10d);
+        await atom.RebuildNowAsync();
 
         // First below-threshold tick: starts the recover streak, still armed.
         await service.TickOnceAsync(CancellationToken.None);
@@ -157,7 +165,9 @@ public sealed class PhaseG_EndToEnd_Tests
         var store = new MultiRulePolicyRuleStore(triggerRule, regularRule);
         var meterStream = new MutableFakeMeterStream();
         meterStream.SetMeter("test.bar", current: 100d);
-        var contributor = new MeterSnapshotSignalContributor(meterStream);
+        var atom = new MeterSignalsAtom(meterStream, NullScheduleCoordinator.Instance);
+        await atom.RebuildNowAsync();
+        var contributor = new MeterSnapshotSignalContributor(atom);
         var registry = new ArmedRuleRegistry();
         var clock = new ManualTimeProvider(DateTimeOffset.UnixEpoch);
         var service = new MeterTriggerService(

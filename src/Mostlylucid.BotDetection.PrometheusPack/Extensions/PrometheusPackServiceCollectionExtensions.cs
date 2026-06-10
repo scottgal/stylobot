@@ -260,6 +260,17 @@ public static class PrometheusPackServiceCollectionExtensions
     /// </summary>
     private static void AddPolicyMeterIntegration(IServiceCollection services)
     {
+        // Wave 4: MeterSignalsAtom is the canonical singleton that owns the
+        // meter-signals snapshot. It subscribes to ScheduleCoordinator.Tick10s
+        // in its constructor; PrometheusPackBootstrap resolves it at boot so
+        // the subscription fires. The contributor and catalog source both
+        // read lock-free from the atom, so the per-request hot path drops
+        // from O(N) awaited GetAsync calls to O(N) dictionary copy.
+        services.TryAddSingleton<MeterSignalsAtom>(sp => new MeterSignalsAtom(
+            sp.GetRequiredService<IMeterStream>(),
+            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<MeterSignalsAtom>>()));
+
         services.TryAddSingleton<MeterSnapshotSignalContributor>();
         services.AddSingleton<ISignalContributor>(sp =>
             sp.GetRequiredService<MeterSnapshotSignalContributor>());

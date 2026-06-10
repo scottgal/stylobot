@@ -2,6 +2,7 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies.Signals;
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Signals;
 
@@ -121,12 +122,22 @@ public class SignalCatalogMeterIntegrationTests
         // appears mid-process (the LocalMeterStream subscribes via
         // MeterListener and discovers instruments over time) is catalogued
         // the next time the editor pulls the vocabulary.
+        //
+        // Wave 4: the catalog source reads from MeterSignalsAtom, so a
+        // newly-published meter only surfaces after the next atom tick.
+        // Tests pump the rebuild explicitly to keep the cadence-free.
         var stream = new FakeMeterStream();
-        var catalog = await BuildCatalog(stream);
+        var atom = new MeterSignalsAtom(stream, NullScheduleCoordinator.Instance);
+        await atom.RebuildNowAsync();
+
+        var asm = typeof(SignalKeys).Assembly;
+        var source = new MeterSignalCatalogSource(atom);
+        var catalog = await SignalCatalog.LoadAsync(asm, new ISignalCatalogSource[] { source });
 
         Assert.Null(catalog.TryGet("meter.late.current"));
 
         stream.Add(new MeterCatalogEntry("late", "late", MeterKind.Gauge, null, null));
+        await atom.RebuildNowAsync();
 
         Assert.NotNull(catalog.TryGet("meter.late.current"));
     }
@@ -145,11 +156,16 @@ public class SignalCatalogMeterIntegrationTests
         Assert.NotNull(catalog.TryGet("risk.justification"));
     }
 
-    private static Task<SignalCatalog> BuildCatalog(IMeterStream stream)
+    private static async Task<SignalCatalog> BuildCatalog(IMeterStream stream)
     {
+        // Wave 4: the catalog source reads from MeterSignalsAtom.CurrentCatalog
+        // synchronously, so the test seeds the atom by pumping ONE rebuild
+        // before standing up the catalog.
+        var atom = new MeterSignalsAtom(stream, NullScheduleCoordinator.Instance);
+        await atom.RebuildNowAsync();
         var asm = typeof(SignalKeys).Assembly;
-        var source = new MeterSignalCatalogSource(stream);
-        return SignalCatalog.LoadAsync(asm, new ISignalCatalogSource[] { source });
+        var source = new MeterSignalCatalogSource(atom);
+        return await SignalCatalog.LoadAsync(asm, new ISignalCatalogSource[] { source });
     }
 
     private sealed class FakeMeterStream : IMeterStream

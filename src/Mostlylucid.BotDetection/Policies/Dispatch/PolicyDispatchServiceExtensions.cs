@@ -1,8 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 using Mostlylucid.BotDetection.Policies.Triggers;
 using Mostlylucid.BotDetection.RateLimit;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Policies.Dispatch;
 
@@ -38,8 +41,27 @@ public static class PolicyDispatchServiceExtensions
         // default keeps tests boot-time free.
         services.TryAddSingleton<ITokenBucketStore, InMemoryTokenBucketStore>();
 
+        // Wave 4: PolicyDecisionLogQueue is the write-behind shim in front of
+        // IPolicyDecisionLog. The dispatcher enqueues here on the request hot
+        // path; a Tick1s drainer copies into the durable log. Reuses the same
+        // bounded-channel + drainer pattern as PolicyEffectivenessCache.
+        // Only registered if BOTH an IPolicyDecisionLog and an IScheduleCoordinator
+        // are available -- a viewer host with neither (e.g. dashboard-only)
+        // resolves null and the dispatcher's TryLogDecisionAsync falls back to
+        // the structured-log line.
+        services.TryAddSingleton<IPolicyDecisionLogQueue>(sp =>
+        {
+            var log = sp.GetService<IPolicyDecisionLog>();
+            var coordinator = sp.GetService<IScheduleCoordinator>();
+            if (log is null || coordinator is null) return new NullPolicyDecisionLogQueue();
+            return new PolicyDecisionLogQueue(
+                log,
+                coordinator,
+                logger: sp.GetService<ILogger<PolicyDecisionLogQueue>>());
+        });
+
         // The dispatcher itself. Singleton: handlers are stateless, the
-        // resolver is singleton-shaped, the decision log is singleton-shaped.
+        // resolver is singleton-shaped, the decision log queue is singleton-shaped.
         services.TryAddSingleton<PolicyActionDispatcher>();
 
         // Built-in per-action handlers. Each rendered as one IEnumerable<IPolicyActionHandler>

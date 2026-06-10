@@ -57,7 +57,8 @@ public class BotDetectionMiddleware(
     Services.PipelineLoadSensor? loadSensor = null,
     LoadShedDecision? loadShedDecision = null,
     Services.SignatureVerdictGate? verdictGate = null,
-    Services.VarianceWatchdog? watchdog = null)
+    Services.VarianceWatchdog? watchdog = null,
+    PolicyActionDispatcher? policyDispatcher = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -112,6 +113,11 @@ public class BotDetectionMiddleware(
     private readonly LoadShedDecision? _loadShedDecision = loadShedDecision;
     private readonly Services.SignatureVerdictGate? _verdictGate = verdictGate;
     private readonly Services.VarianceWatchdog? _watchdog = watchdog;
+    // Wave 4 architectural-drift remediation: cache the singleton dispatcher
+    // ctor-injected, instead of paying for context.RequestServices.GetService
+    // on every request. Hosts that didn't AddPolicyDispatcher get null and
+    // the dispatch block falls through unchanged.
+    private readonly PolicyActionDispatcher? _policyDispatcher = policyDispatcher;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -855,11 +861,10 @@ public class BotDetectionMiddleware(
         // dispatcher returns Handled the response is already shaped and we
         // short-circuit; FallThrough lets the legacy block/throttle/challenge
         // path run unchanged.
-        var policyDispatcher = context.RequestServices.GetService<PolicyActionDispatcher>();
-        if (policyDispatcher is not null)
+        if (_policyDispatcher is not null)
         {
             var dispatchResult = await TryDispatchPolicyStackAsync(
-                context, aggregatedResult, policyDispatcher).ConfigureAwait(false);
+                context, aggregatedResult, _policyDispatcher).ConfigureAwait(false);
             if (dispatchResult == PolicyDispatchResult.Handled)
                 return;
         }
