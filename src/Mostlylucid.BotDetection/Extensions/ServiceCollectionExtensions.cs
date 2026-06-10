@@ -1019,12 +1019,16 @@ public static class ServiceCollectionExtensions
 
         // Sticky-deny store: same WriteBehindLfuStore pattern. SQLite tier
         // makes the block window durable across restarts so a bot can't
-        // escape its block by waiting for the process to recycle. The
-        // policy options come from configuration via IOptions; the ctor
-        // pulls the un-typed StickyDenyActionOptions so production
-        // deployments can tune ViolationThreshold / WindowSeconds /
-        // BlockTtlSeconds without touching code.
-        services.TryAddSingleton<Mostlylucid.BotDetection.Actions.StickyDenyActionOptions>();
+        // escape its block by waiting for the process to recycle.
+        //
+        // StickyDenyActionOptions lives on BotDetectionOptions.StickyDeny so
+        // appsettings.json under "BotDetection:StickyDeny" tunes it just like
+        // any other nested section. The earlier `TryAddSingleton<T>()`
+        // registration bypassed the IOptions binding entirely -- operators
+        // couldn't change ViolationThreshold / WindowSeconds / BlockTtlSeconds
+        // without recompiling, despite the comment above claiming otherwise.
+        services.TryAddSingleton(sp =>
+            sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.StickyDeny);
         services.TryAddSingleton<Mostlylucid.BotDetection.Actions.SqliteStickyDenyStore>();
         services.TryAddSingleton<Mostlylucid.BotDetection.Actions.IStickyDenyTracker>(
             sp => sp.GetRequiredService<Mostlylucid.BotDetection.Actions.SqliteStickyDenyStore>());

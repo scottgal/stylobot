@@ -855,6 +855,13 @@ public class BotDetectionOptions
     /// </summary>
     public ThrottlingOptions Throttling { get; set; } = new();
 
+    /// <summary>
+    ///     Configuration for the <c>sticky-deny</c> action policy:
+    ///     after N violations within a window, the key is promoted to a
+    ///     hard-deny for a configurable TTL. Binds under <c>BotDetection:StickyDeny</c>.
+    /// </summary>
+    public Actions.StickyDenyActionOptions StickyDeny { get; set; } = new();
+
     // ==========================================
     // Policy Configuration
     // ==========================================
