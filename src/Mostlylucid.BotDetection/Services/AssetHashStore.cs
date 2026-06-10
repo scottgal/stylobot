@@ -56,14 +56,7 @@ public sealed class AssetHashStore : IAsyncDisposable
         await _anchor.OpenAsync(ct);
 
         await using var cmd = _anchor.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS asset_hashes (
-                path         TEXT PRIMARY KEY,
-                hash         TEXT NOT NULL,
-                changed_at   TEXT,
-                last_seen    TEXT NOT NULL
-            );
-            """;
+        cmd.CommandText = Data.Schema.SchemaLoader.Load("asset_hashes");
         await cmd.ExecuteNonQueryAsync(ct);
         await LoadRecentChangesAsync(_anchor, ct);
     }

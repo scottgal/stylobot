@@ -221,6 +221,16 @@ public static class PrometheusPackServiceCollectionExtensions
 
         services.TryAddSingleton<IMeterSignalSink, NullMeterSignalSink>();
 
+        // Wave 6: RemoteMeterStream requires IHttpClientFactory (not optional).
+        // Register the named client unconditionally so hosts that haven't called
+        // AddHttpClient themselves still get a factory-managed handler pool. The
+        // call is idempotent under repeated registration -- the framework's
+        // AddHttpClient picks up the existing IHttpClientFactory when one is
+        // already registered. Hosts that want custom handlers (retry, circuit
+        // breaker, custom certs) can call AddHttpClient(RemoteMeterStream.HttpClientName)
+        // themselves and chain handlers before AddRemoteMeterStream runs.
+        services.AddHttpClient(RemoteMeterStream.HttpClientName);
+
         // Wave 2: RemoteMeterStream is no longer IHostedService. The
         // PrometheusPackBootstrap (registered by AddPrometheusPack) forces
         // construction at boot so the constructor's Subscribe(...) fires.
@@ -228,7 +238,7 @@ public static class PrometheusPackServiceCollectionExtensions
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RemoteMeterStreamOptions>>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RemoteMeterStream>>(),
             sp.GetService<IMeterSignalSink>(),
-            sp.GetService<IHttpClientFactory>(),
+            sp.GetRequiredService<IHttpClientFactory>(),
             sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<RemoteMeterStream>());
 

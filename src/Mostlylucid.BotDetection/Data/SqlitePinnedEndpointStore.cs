@@ -33,18 +33,7 @@ public sealed class SqlitePinnedEndpointStore : IPinnedEndpointStore
         try
         {
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS pinned_endpoints (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    method     TEXT NOT NULL DEFAULT 'ANY',
-                    path       TEXT NOT NULL,
-                    is_honeypot INTEGER NOT NULL DEFAULT 0,
-                    note       TEXT,
-                    created_at INTEGER NOT NULL
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_pinned_endpoints_method_path
-                    ON pinned_endpoints (method, path);
-                """;
+            cmd.CommandText = Schema.SchemaLoader.Load("pinned_endpoints");
             cmd.ExecuteNonQuery();
         }
         finally { if (owned) conn.Dispose(); }

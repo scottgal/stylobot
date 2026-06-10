@@ -374,18 +374,16 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
 
     private HttpClient ResolveHttpClient()
     {
+        // Production path: the factory is always non-null thanks to the
+        // ctor-boundary guards. Hand back a factory-managed client.
         if (_httpClientFactory != null)
             return _httpClientFactory.CreateClient(HttpClientName);
 
-        if (_ownedHttpClient != null)
-            return _ownedHttpClient;
-
-        // Fall back to a private client. The injected handler is used by tests;
-        // otherwise we let HttpClient's default handler do TCP/TLS.
-        _ownedHttpClient = _injectedHandler != null
-            ? new HttpClient(_injectedHandler, disposeHandler: false)
-            : new HttpClient();
-        return _ownedHttpClient;
+        // Test path: build a one-shot client around the injected handler the
+        // first time we're asked, then reuse it. The handler is owned by the
+        // test rig (disposeHandler: false) so a stream dispose doesn't tear
+        // down a fixture that other tests share.
+        return _testHttpClient ??= new HttpClient(_injectedHandler!, disposeHandler: false);
     }
 
     private void IngestFamily(PrometheusMetric family, DateTimeOffset now)
@@ -603,10 +601,10 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
         try { _decaySubscription.Dispose(); }
         catch { /* swallow -- coordinator already torn down */ }
 
-        try { _ownedHttpClient?.Dispose(); }
+        try { _testHttpClient?.Dispose(); }
         catch { /* swallow */ }
 
-        _ownedHttpClient = null;
+        _testHttpClient = null;
         _atoms.Clear();
         _catalog.Clear();
         _lastCumulative.Clear();

@@ -194,15 +194,7 @@ public sealed class CentroidSequenceStore
         await using var conn = _connectionFactory();
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS centroid_sequences (
-                centroid_id   TEXT PRIMARY KEY,
-                centroid_type INTEGER NOT NULL,
-                sequence_json TEXT NOT NULL,
-                sample_size   INTEGER NOT NULL,
-                computed_at   TEXT NOT NULL
-            );
-            """;
+        cmd.CommandText = Data.Schema.SchemaLoader.Load("centroid_sequences");
         await cmd.ExecuteNonQueryAsync(ct);
         await LoadFromDatabaseAsync(conn, ct);
     }

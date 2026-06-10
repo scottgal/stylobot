@@ -108,33 +108,7 @@ public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, 
         await conn.OpenAsync(ct);
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA cache_size=-2000;
-
-            CREATE TABLE IF NOT EXISTS fingerprint_approvals (
-                signature TEXT PRIMARY KEY,
-                locked_dimensions_json TEXT NOT NULL DEFAULT '{}',
-                justification TEXT NOT NULL,
-                approved_by TEXT NOT NULL,
-                approved_at TEXT NOT NULL,
-                expires_at TEXT,
-                revoked_at TEXT,
-                revoked_by TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS approval_tokens (
-                token TEXT PRIMARY KEY,
-                signature TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                consumed INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_tokens_signature ON approval_tokens(signature);
-            CREATE INDEX IF NOT EXISTS idx_tokens_expires ON approval_tokens(expires_at);
-            """;
+        cmd.CommandText = Schema.SchemaLoader.Load("fingerprint_approvals");
         await cmd.ExecuteNonQueryAsync(ct);
 
         _initialized = true;

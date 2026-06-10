@@ -42,34 +42,8 @@ public sealed class SqliteClusterStore : IClusterStore
             if (_initialised) return;
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);
-            await using (var pragma = conn.CreateCommand())
-            {
-                pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
-                await pragma.ExecuteNonQueryAsync(ct);
-            }
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS clusters (
-                    cluster_id              TEXT PRIMARY KEY,
-                    cluster_type            INTEGER NOT NULL,
-                    member_count            INTEGER NOT NULL,
-                    average_bot_probability REAL NOT NULL,
-                    average_similarity      REAL NOT NULL,
-                    connectedness           REAL NOT NULL,
-                    temporal_density        REAL NOT NULL,
-                    dominant_country        TEXT,
-                    dominant_asn            TEXT,
-                    label                   TEXT,
-                    description             TEXT,
-                    first_seen              TEXT NOT NULL,
-                    last_seen               TEXT NOT NULL,
-                    dominant_intent         TEXT,
-                    average_threat_score    REAL NOT NULL,
-                    member_signatures_json  TEXT NOT NULL,
-                    updated_at              TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS ix_clusters_last_seen ON clusters(last_seen DESC);
-                """;
+            cmd.CommandText = Data.Schema.SchemaLoader.Load("clusters");
             await cmd.ExecuteNonQueryAsync(ct);
             _initialised = true;
             _logger.LogInformation("Cluster store initialised at {Path}", _connectionString);
