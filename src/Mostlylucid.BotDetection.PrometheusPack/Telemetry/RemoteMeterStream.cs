@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry.Prometheus;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
@@ -46,7 +46,7 @@ namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 ///         path the local stream uses, no duplicated logic.
 ///     </para>
 /// </remarks>
-public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisposable, IDisposable
+public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposable
 {
     /// <summary>
     ///     Named <see cref="HttpClient" /> the stream prefers to resolve from
@@ -69,10 +69,9 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
     private readonly LocalMeterStreamOptions _atomOptions;
     private readonly object _evictionGate = new();
 
+    private readonly IDisposable _pollSubscription;
+    private readonly IDisposable _decaySubscription;
     private HttpClient? _ownedHttpClient;
-    private Timer? _sweepTimer;
-    private CancellationTokenSource? _pollCts;
-    private Task? _pollLoop;
     private int _disposed;
 
     public RemoteMeterStream(
@@ -80,7 +79,25 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
         ILogger<RemoteMeterStream> logger,
         IMeterSignalSink? signalSink = null,
         IHttpClientFactory? httpClientFactory = null)
-        : this(options, logger, signalSink, httpClientFactory, injectedHandler: null)
+        : this(options, logger, signalSink, httpClientFactory, injectedHandler: null, coordinator: NullScheduleCoordinator.Instance)
+    {
+    }
+
+    /// <summary>
+    ///     Production constructor. Hooks the poll cadence
+    ///     (<see cref="RemoteMeterStreamOptions.PollCadence"/>) and the
+    ///     <see cref="TickCadence.Tick1m"/> LFU sweep into
+    ///     <paramref name="coordinator"/>. Wave 2 of the
+    ///     architectural-drift remediation: replaces the pre-migration
+    ///     <see cref="PeriodicTimer"/> + <see cref="Timer"/> pair.
+    /// </summary>
+    public RemoteMeterStream(
+        IOptions<RemoteMeterStreamOptions> options,
+        ILogger<RemoteMeterStream> logger,
+        IMeterSignalSink? signalSink,
+        IHttpClientFactory? httpClientFactory,
+        IScheduleCoordinator coordinator)
+        : this(options, logger, signalSink, httpClientFactory, injectedHandler: null, coordinator: coordinator)
     {
     }
 
@@ -95,7 +112,28 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
         IMeterSignalSink? signalSink,
         IHttpClientFactory? httpClientFactory,
         HttpMessageHandler? injectedHandler)
+        : this(options, logger, signalSink, httpClientFactory, injectedHandler, NullScheduleCoordinator.Instance)
     {
+    }
+
+    /// <summary>
+    ///     Internal constructor used by every public + test entry point. Subscribes
+    ///     the poll handler to <paramref name="coordinator"/> at
+    ///     <see cref="RemoteMeterStreamOptions.PollCadence"/> and the eviction
+    ///     handler at <see cref="TickCadence.Tick1m"/>. If
+    ///     <see cref="RemoteMeterStreamOptions.BaseUrl"/> is empty the poll
+    ///     handler is still wired but every fire is a no-op (matches the inert
+    ///     mode contract).
+    /// </summary>
+    internal RemoteMeterStream(
+        IOptions<RemoteMeterStreamOptions> options,
+        ILogger<RemoteMeterStream> logger,
+        IMeterSignalSink? signalSink,
+        IHttpClientFactory? httpClientFactory,
+        HttpMessageHandler? injectedHandler,
+        IScheduleCoordinator coordinator)
+    {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _options = options.Value;
         _logger = logger;
         _signalSink = signalSink ?? new NullMeterSignalSink();
@@ -113,28 +151,13 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
             MeterNamePrefixFilter = _options.MeterNamePrefixFilter,
             MinSignalEmitInterval = _options.MinSignalEmitInterval,
         };
-    }
-
-    /// <summary>
-    ///     Starts the polling loop and the periodic LFU decay sweep.
-    ///     If <see cref="RemoteMeterStreamOptions.BaseUrl" /> is empty the
-    ///     stream stays inert: no poller, no HTTP traffic, empty catalog.
-    /// </summary>
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        if (_disposed != 0)
-            return Task.CompletedTask;
-        if (_pollLoop != null)
-            return Task.CompletedTask;
 
         if (string.IsNullOrWhiteSpace(_options.BaseUrl))
         {
             _logger.LogWarning(
                 "RemoteMeterStream started with empty BaseUrl; stream is inert (no polling, empty catalog).");
-            return Task.CompletedTask;
         }
-
-        if (_options.PollTimeout >= _options.PollInterval)
+        else if (_options.PollTimeout >= _options.PollInterval)
         {
             _logger.LogWarning(
                 "RemoteMeterStream PollTimeout ({Timeout}) >= PollInterval ({Interval}); polls may overlap.",
@@ -142,27 +165,46 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
                 _options.PollInterval);
         }
 
-        _pollCts = new CancellationTokenSource();
-        _pollLoop = Task.Run(() => RunPollLoopAsync(_pollCts.Token), _pollCts.Token);
+        _pollSubscription = coordinator.Subscribe(
+            _options.PollCadence,
+            "RemoteMeterStream.Poll",
+            CostHint.Medium,
+            OnPollTickAsync);
 
-        var decayPeriod = _options.HitCountDecayInterval;
-        if (decayPeriod <= TimeSpan.Zero) decayPeriod = TimeSpan.FromSeconds(60);
-        _sweepTimer = new Timer(_ => DecayAndEvict(), state: null, dueTime: decayPeriod, period: decayPeriod);
+        _decaySubscription = coordinator.Subscribe(
+            TickCadence.Tick1m,
+            "RemoteMeterStream.Decay",
+            CostHint.Low,
+            (_, _) => { DecayAndEvict(); return Task.CompletedTask; });
 
         _logger.LogDebug(
-            "RemoteMeterStream started (BaseUrl={BaseUrl}, PollInterval={Interval}, PrefixFilter={Prefix})",
+            "RemoteMeterStream started (BaseUrl={BaseUrl}, PollCadence={Cadence}, PrefixFilter={Prefix})",
             _options.BaseUrl,
-            _options.PollInterval,
+            _options.PollCadence,
             string.IsNullOrEmpty(_options.MeterNamePrefixFilter) ? "<all>" : _options.MeterNamePrefixFilter);
-
-        return Task.CompletedTask;
     }
 
-    /// <summary>Stops the polling loop and clears tracked atoms.</summary>
+    /// <summary>
+    ///     Backwards-compatible no-op kept for test rigs that called
+    ///     <c>StartAsync</c> on the pre-Wave-2 <see cref="Microsoft.Extensions.Hosting.IHostedService"/>
+    ///     shape. The poll/decay subscriptions are wired in the constructor.
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    ///     Backwards-compatible shim that calls <see cref="DisposeCore"/>.
+    /// </summary>
     public Task StopAsync(CancellationToken cancellationToken)
     {
         DisposeCore();
         return Task.CompletedTask;
+    }
+
+    private Task OnPollTickAsync(DateTimeOffset _, CancellationToken ct)
+    {
+        if (_disposed != 0) return Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(_options.BaseUrl)) return Task.CompletedTask;
+        return PollOnceAsync(ct);
     }
 
     /// <inheritdoc />
@@ -214,35 +256,7 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
         DecayAndEvict();
     }
 
-    // -------------------- poll loop --------------------
-
-    private async Task RunPollLoopAsync(CancellationToken ct)
-    {
-        var interval = _options.PollInterval;
-        if (interval <= TimeSpan.Zero) interval = TimeSpan.FromSeconds(5);
-
-        // No fire-and-forget initial scrape here: callers that wired the stream
-        // up via DI race with anything that mutates the canned response between
-        // StartAsync returning and the test driver invoking PumpPollForTesting.
-        // The PeriodicTimer below picks up the first real poll within PollInterval
-        // of StartAsync, which is fine for a dashboard data plane; tests drive
-        // every poll deterministically through PumpPollForTesting.
-        using var timer = new PeriodicTimer(interval);
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
-                if (!await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
-                    return;
-                await PollOnceAsync(ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { return; }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "RemoteMeterStream poll iteration threw");
-            }
-        }
-    }
+    // -------------------- poll handler --------------------
 
     private async Task PollOnceAsync(CancellationToken ct)
     {
@@ -552,21 +566,16 @@ public sealed class RemoteMeterStream : IMeterStream, IHostedService, IAsyncDisp
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        try
-        {
-            _pollCts?.Cancel();
-        }
-        catch { /* swallow */ }
+        try { _pollSubscription.Dispose(); }
+        catch { /* swallow -- coordinator already torn down */ }
 
-        try { _sweepTimer?.Dispose(); }
-        catch { /* swallow */ }
+        try { _decaySubscription.Dispose(); }
+        catch { /* swallow -- coordinator already torn down */ }
 
         try { _ownedHttpClient?.Dispose(); }
         catch { /* swallow */ }
 
-        _sweepTimer = null;
         _ownedHttpClient = null;
-        _pollLoop = null;
         _atoms.Clear();
         _catalog.Clear();
         _lastCumulative.Clear();

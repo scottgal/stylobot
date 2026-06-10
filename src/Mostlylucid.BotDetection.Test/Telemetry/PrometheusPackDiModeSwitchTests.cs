@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.PrometheusPack.Extensions;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Test.Telemetry;
 
@@ -18,6 +19,11 @@ public class PrometheusPackDiModeSwitchTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        // Wave 2: the migrated streams take IScheduleCoordinator. These DI
+        // mode-switch tests don't drive any ticks, so the null coordinator is
+        // the right test double -- the production AddBotDetection extension
+        // registers the real one in non-test composition.
+        services.AddSingleton<IScheduleCoordinator>(NullScheduleCoordinator.Instance);
         return services;
     }
 
@@ -69,6 +75,7 @@ public class PrometheusPackDiModeSwitchTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IScheduleCoordinator>(NullScheduleCoordinator.Instance);
         var ex = Assert.Throws<InvalidOperationException>(() =>
             services.AddPrometheusPack(opt => { opt.Mode = PrometheusPackMode.Remote; }));
         Assert.Contains("Remote configuration", ex.Message);
@@ -79,6 +86,7 @@ public class PrometheusPackDiModeSwitchTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IScheduleCoordinator>(NullScheduleCoordinator.Instance);
         var ex = Assert.Throws<InvalidOperationException>(() =>
             services.AddPrometheusPack(opt =>
             {
@@ -93,6 +101,7 @@ public class PrometheusPackDiModeSwitchTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IScheduleCoordinator>(NullScheduleCoordinator.Instance);
         var ex = Assert.Throws<InvalidOperationException>(() =>
             services.AddPrometheusPack(opt =>
             {
@@ -114,17 +123,27 @@ public class PrometheusPackDiModeSwitchTests
     }
 
     [Fact]
-    public void Local_mode_registers_LocalMeterStream_as_hosted_service()
+    public void Local_mode_registers_eager_bootstrap_hosted_service()
     {
+        // Wave 2: LocalMeterStream no longer inherits IHostedService. Instead
+        // AddPrometheusPack registers a PrometheusPackBootstrap shim whose only
+        // job is to RESOLVE the singleton at boot so its constructor's
+        // Subscribe(...) fires against the ScheduleCoordinator.
         var services = NewServices();
         services.AddPrometheusPack(opt => { opt.Mode = PrometheusPackMode.Local; });
         using var sp = services.BuildServiceProvider();
-        var hosted = sp.GetServices<IHostedService>();
-        Assert.Contains(hosted, h => h is LocalMeterStream);
+
+        var hosted = sp.GetServices<IHostedService>().ToList();
+        // The bootstrap shim is internal; assert by type-name suffix to keep
+        // the test free of an InternalsVisibleTo round-trip.
+        Assert.Contains(hosted, h => h.GetType().Name == "PrometheusPackBootstrap");
+        // LocalMeterStream is no longer an IHostedService -- assertion lives in
+        // type-name space so it survives the inheritance drop.
+        Assert.DoesNotContain(hosted, h => h.GetType() == typeof(LocalMeterStream));
     }
 
     [Fact]
-    public void Remote_mode_registers_RemoteMeterStream_as_hosted_service()
+    public void Remote_mode_registers_eager_bootstrap_hosted_service()
     {
         var services = NewServices();
         services.AddPrometheusPack(opt =>
@@ -133,7 +152,9 @@ public class PrometheusPackDiModeSwitchTests
             opt.Remote = ro => { ro.BaseUrl = "http://gateway.lan:8080"; };
         });
         using var sp = services.BuildServiceProvider();
-        var hosted = sp.GetServices<IHostedService>();
-        Assert.Contains(hosted, h => h is RemoteMeterStream);
+
+        var hosted = sp.GetServices<IHostedService>().ToList();
+        Assert.Contains(hosted, h => h.GetType().Name == "PrometheusPackBootstrap");
+        Assert.DoesNotContain(hosted, h => h.GetType() == typeof(RemoteMeterStream));
     }
 }

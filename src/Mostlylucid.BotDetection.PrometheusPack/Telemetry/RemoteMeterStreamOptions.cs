@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Scheduling;
+
 namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 /// <summary>
@@ -33,8 +35,25 @@ public sealed class RemoteMeterStreamOptions
 
     /// <summary>
     ///     How often the background poller scrapes the gateway. Default 5s.
+    ///     <para>
+    ///         <b>Wave 2 architectural-drift note:</b> the poll cadence is
+    ///         honoured to the nearest standard <see cref="TickCadence"/> via
+    ///         <see cref="PollCadence"/>; this field stays as the human-readable
+    ///         knob (and is still used to validate the timeout invariant), but
+    ///         the actual schedule is driven by the
+    ///         <see cref="IScheduleCoordinator"/>.
+    ///     </para>
     /// </summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    ///     Which <see cref="TickCadence"/> the poll subscription registers
+    ///     against. Defaults to <see cref="TickCadence.Tick10s"/> -- the closest
+    ///     standard cadence to the 5s default <see cref="PollInterval"/>. Hosts
+    ///     that want tighter polling can flip this to
+    ///     <see cref="TickCadence.Tick1s"/>.
+    /// </summary>
+    public TickCadence PollCadence { get; set; } = TickCadence.Tick10s;
 
     /// <summary>
     ///     HTTP timeout for a single scrape. Default 4s -- MUST be strictly less

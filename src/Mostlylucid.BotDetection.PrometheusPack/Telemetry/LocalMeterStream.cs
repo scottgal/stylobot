@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
@@ -60,7 +60,7 @@ namespace Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 ///         force observable callbacks rather than relying on a wall-clock tick.
 ///     </para>
 /// </remarks>
-public sealed class LocalMeterStream : IMeterStream, IHostedService, IAsyncDisposable, IDisposable
+public sealed class LocalMeterStream : IMeterStream, IAsyncDisposable, IDisposable
 {
     private readonly LocalMeterStreamOptions _options;
     private readonly ILogger<LocalMeterStream> _logger;
@@ -70,14 +70,14 @@ public sealed class LocalMeterStream : IMeterStream, IHostedService, IAsyncDispo
     private readonly ConcurrentDictionary<string, MeterCatalogEntry> _catalog = new(StringComparer.Ordinal);
     private readonly object _evictionGate = new();
 
+    private readonly IDisposable _decaySubscription;
     private MeterListener? _listener;
-    private Timer? _sweepTimer;
     private int _disposed;
 
     public LocalMeterStream(
         IOptions<LocalMeterStreamOptions> options,
         ILogger<LocalMeterStream> logger)
-        : this(options, logger, new NullMeterSignalSink())
+        : this(options, logger, new NullMeterSignalSink(), NullScheduleCoordinator.Instance)
     {
     }
 
@@ -85,23 +85,48 @@ public sealed class LocalMeterStream : IMeterStream, IHostedService, IAsyncDispo
         IOptions<LocalMeterStreamOptions> options,
         ILogger<LocalMeterStream> logger,
         IMeterSignalSink signalSink)
+        : this(options, logger, signalSink, NullScheduleCoordinator.Instance)
     {
-        _options = options.Value;
-        _logger = logger;
-        _signalSink = signalSink;
     }
 
     /// <summary>
-    ///     Starts the underlying <see cref="MeterListener" /> and registers
-    ///     measurement callbacks for the numeric primitives. Also starts the
-    ///     periodic LFU-decay / eviction sweep. Idempotent: a second call is a
-    ///     no-op.
+    ///     Production constructor. Starts the underlying
+    ///     <see cref="MeterListener" /> immediately so callers don't need to
+    ///     drive a separate <c>StartAsync</c> -- the listener is event-driven,
+    ///     not periodic, so the constructor is the right moment to subscribe.
+    ///     The periodic LFU-decay / eviction sweep is wired through
+    ///     <paramref name="coordinator"/>'s <see cref="TickCadence.Tick1m"/>
+    ///     subscription (Wave 2 of the architectural-drift remediation; see
+    ///     <c>feedback_no_background_services</c>).
     /// </summary>
-    public Task StartAsync(CancellationToken cancellationToken)
+    public LocalMeterStream(
+        IOptions<LocalMeterStreamOptions> options,
+        ILogger<LocalMeterStream> logger,
+        IMeterSignalSink signalSink,
+        IScheduleCoordinator coordinator)
     {
-        if (_listener != null)
-            return Task.CompletedTask;
+        ArgumentNullException.ThrowIfNull(coordinator);
+        _options = options.Value;
+        _logger = logger;
+        _signalSink = signalSink;
 
+        StartListener();
+        _decaySubscription = coordinator.Subscribe(
+            TickCadence.Tick1m,
+            "LocalMeterStream.Decay",
+            CostHint.Low,
+            (_, _) => { DecayAndEvict(); return Task.CompletedTask; });
+
+        _logger.LogDebug(
+            "LocalMeterStream started (MaxTrackedMeters={Max}, RecentBucketCount={Buckets}, BucketWidth={Width}, PrefixFilter={Prefix})",
+            _options.MaxTrackedMeters,
+            _options.RecentBucketCount,
+            _options.BucketWidth,
+            string.IsNullOrEmpty(_options.MeterNamePrefixFilter) ? "<all>" : _options.MeterNamePrefixFilter);
+    }
+
+    private void StartListener()
+    {
         var listener = new MeterListener
         {
             InstrumentPublished = OnInstrumentPublished,
@@ -117,27 +142,18 @@ public sealed class LocalMeterStream : IMeterStream, IHostedService, IAsyncDispo
 
         listener.Start();
         _listener = listener;
-
-        // Schedule the periodic decay + eviction sweep. Cap interval at 1s
-        // floor so test configs that use a sub-second decay still fire
-        // deterministically without spinning the threadpool.
-        var period = _options.HitCountDecayInterval;
-        if (period <= TimeSpan.Zero) period = TimeSpan.FromSeconds(60);
-        _sweepTimer = new Timer(_ => DecayAndEvict(), state: null, dueTime: period, period: period);
-
-        _logger.LogDebug(
-            "LocalMeterStream started (MaxTrackedMeters={Max}, RecentBucketCount={Buckets}, BucketWidth={Width}, PrefixFilter={Prefix})",
-            _options.MaxTrackedMeters,
-            _options.RecentBucketCount,
-            _options.BucketWidth,
-            string.IsNullOrEmpty(_options.MeterNamePrefixFilter) ? "<all>" : _options.MeterNamePrefixFilter);
-
-        return Task.CompletedTask;
     }
 
     /// <summary>
-    ///     Stops the listener and clears the atom dictionary so a subsequent
-    ///     <see cref="StartAsync" /> begins fresh.
+    ///     Backwards-compatible no-op kept for test rigs that called
+    ///     <c>StartAsync</c> on the pre-Wave-2 <see cref="Microsoft.Extensions.Hosting.IHostedService"/>
+    ///     shape. The listener now starts in the constructor; this method exists
+    ///     so the existing call sites stay green without rewriting.
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    ///     Backwards-compatible shim that calls <see cref="DisposeCore"/>.
     /// </summary>
     public Task StopAsync(CancellationToken cancellationToken)
     {
@@ -364,13 +380,12 @@ public sealed class LocalMeterStream : IMeterStream, IHostedService, IAsyncDispo
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        try { _sweepTimer?.Dispose(); }
-        catch { /* swallow */ }
+        try { _decaySubscription.Dispose(); }
+        catch { /* swallow -- coordinator already torn down */ }
 
         try { _listener?.Dispose(); }
         catch { /* swallow */ }
 
-        _sweepTimer = null;
         _listener = null;
         _atoms.Clear();
         _catalog.Clear();

@@ -130,15 +130,30 @@ public static class PrometheusPackServiceCollectionExtensions
                 "PrometheusPack: an IMeterStream registration already exists. " +
                 "Call AddPrometheusPack once per container.");
 
-        return options.Mode switch
+        switch (options.Mode)
         {
-            PrometheusPackMode.Local => services.AddLocalMeterStream(options.Local),
-            PrometheusPackMode.Remote => services.AddRemoteMeterStream(
-                options.Remote
-                    ?? throw new InvalidOperationException(
-                        "PrometheusPack: Remote mode requires Remote configuration with at least a BaseUrl.")),
-            _ => throw new InvalidOperationException($"PrometheusPack: unknown mode {options.Mode}.")
-        };
+            case PrometheusPackMode.Local:
+                services.AddLocalMeterStream(options.Local);
+                break;
+            case PrometheusPackMode.Remote:
+                services.AddRemoteMeterStream(
+                    options.Remote
+                        ?? throw new InvalidOperationException(
+                            "PrometheusPack: Remote mode requires Remote configuration with at least a BaseUrl."));
+                break;
+            default:
+                throw new InvalidOperationException($"PrometheusPack: unknown mode {options.Mode}.");
+        }
+
+        // Wave 2 architectural-drift remediation: the migrated singletons need to
+        // be CONSTRUCTED at boot so their constructors call Subscribe(...) on the
+        // ScheduleCoordinator. PrometheusPackBootstrap is the one IHostedService
+        // this pack registers (the coordinator itself is the only other one,
+        // owned by Mostlylucid.BotDetection core). It does no periodic work.
+        var mode = options.Mode;
+        services.AddHostedService(sp => new PrometheusPackBootstrap(sp, mode));
+
+        return services;
     }
 
     /// <summary>
@@ -155,9 +170,22 @@ public static class PrometheusPackServiceCollectionExtensions
 
         services.TryAddSingleton<IMeterSignalSink, NullMeterSignalSink>();
 
-        services.AddSingleton<LocalMeterStream>();
+        // Wave 2: LocalMeterStream is no longer IHostedService. The
+        // PrometheusPackBootstrap (registered by AddPrometheusPack) forces
+        // construction at boot so the constructor's Subscribe(...) fires.
+        // Callers that wire AddLocalMeterStream directly without going through
+        // AddPrometheusPack get the same behaviour as long as something
+        // resolves IMeterStream early (the dashboard view-component pipeline
+        // does this on first SignalR connection).
+        //
+        // Resolve IScheduleCoordinator via the production constructor (added
+        // by Mostlylucid.BotDetection.Extensions.AddBotDetection).
+        services.AddSingleton<LocalMeterStream>(sp => new LocalMeterStream(
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<LocalMeterStreamOptions>>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LocalMeterStream>>(),
+            sp.GetRequiredService<IMeterSignalSink>(),
+            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<LocalMeterStream>());
-        services.AddHostedService(sp => sp.GetRequiredService<LocalMeterStream>());
 
         AddPolicyMeterIntegration(services);
         return services;
@@ -192,9 +220,16 @@ public static class PrometheusPackServiceCollectionExtensions
 
         services.TryAddSingleton<IMeterSignalSink, NullMeterSignalSink>();
 
-        services.AddSingleton<RemoteMeterStream>();
+        // Wave 2: RemoteMeterStream is no longer IHostedService. The
+        // PrometheusPackBootstrap (registered by AddPrometheusPack) forces
+        // construction at boot so the constructor's Subscribe(...) fires.
+        services.AddSingleton<RemoteMeterStream>(sp => new RemoteMeterStream(
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RemoteMeterStreamOptions>>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RemoteMeterStream>>(),
+            sp.GetService<IMeterSignalSink>(),
+            sp.GetService<IHttpClientFactory>(),
+            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<RemoteMeterStream>());
-        services.AddHostedService(sp => sp.GetRequiredService<RemoteMeterStream>());
 
         AddPolicyMeterIntegration(services);
         return services;
@@ -238,8 +273,11 @@ public static class PrometheusPackServiceCollectionExtensions
         // viewer hosts that include the dashboard but not the gateway still
         // have one. The MeterTriggerService is gateway-only -- it's the loop
         // that actually evaluates trigger rules against the meter snapshot.
+        //
+        // Wave 2: MeterTriggerService no longer inherits BackgroundService;
+        // it subscribes to the ScheduleCoordinator's Tick1s cadence in its
+        // constructor. PrometheusPackBootstrap forces the construction at boot.
         services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Triggers.ArmedRuleRegistry>();
         services.TryAddSingleton<Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers.MeterTriggerService>();
-        services.AddHostedService(sp => sp.GetRequiredService<Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers.MeterTriggerService>());
     }
 }
