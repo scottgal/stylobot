@@ -1,5 +1,5 @@
-using System.Globalization;
 using System.Text;
+using Mostlylucid.BotDetection.Policies.Rules;
 
 namespace Mostlylucid.BotDetection.UI.Models;
 
@@ -178,21 +178,26 @@ public sealed record PolicyStackFilter
 
     private static bool TryParseSince(string value, out TimeSpan window)
     {
-        // Accept "24h", "7d", "30d" (and any small variant -- "1h", "2d") so
-        // the surface is small but extensible. Numbers must be positive ints.
+        // Defers to the canonical shared parser
+        // (<see cref="DurationParser"/>) for the actual grammar so the
+        // dashboard "@since:&lt;value&gt;" token stays in sync with the YAML
+        // rule loader's <c>sustain_for</c> / <c>recover_after</c> fields.
+        //
+        // The dashboard layers two extra contracts on top of the shared
+        // parser:
+        //   * only the hour/day units are meaningful for an edit-window
+        //     filter, so reject "30s" / "5m" tokens here.
+        //   * a non-positive window is meaningless ("show me rows edited in
+        //     the last 0h"), so reject those too.
         window = default;
-        if (string.IsNullOrEmpty(value) || value.Length < 2) return false;
-        var unit = value[^1];
-        var numberPart = value[..^1];
-        if (!int.TryParse(numberPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || n <= 0)
-            return false;
-        window = unit switch
-        {
-            'h' or 'H' => TimeSpan.FromHours(n),
-            'd' or 'D' => TimeSpan.FromDays(n),
-            _ => default
-        };
-        return window > TimeSpan.Zero;
+        if (!DurationParser.TryParse(value, out var parsed)) return false;
+        if (parsed <= TimeSpan.Zero) return false;
+
+        var lastChar = value.Length > 0 ? value[^1] : '\0';
+        if (lastChar is not ('h' or 'H' or 'd' or 'D')) return false;
+
+        window = parsed;
+        return true;
     }
 
     private static string FormatSince(TimeSpan window)

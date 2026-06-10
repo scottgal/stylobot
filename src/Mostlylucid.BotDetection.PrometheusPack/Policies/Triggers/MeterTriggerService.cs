@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Triggers;
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
@@ -46,14 +47,19 @@ namespace Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers;
 public sealed class MeterTriggerService : IDisposable
 {
     /// <summary>
-    ///     Cadence the trigger loop ticks at. The coordinator's
-    ///     <see cref="TickCadence.Tick1s"/> is the canonical 1Hz oscilloscope
-    ///     tick; kept here as a constant for documentation parity with the
-    ///     pre-migration class.
+    ///     Documentation-only mirror of the coordinator's Tick1s cadence.
+    ///     Wave 5 moved the canonical value to
+    ///     <see cref="MeterTriggerServiceOptions.TickInterval"/>; this constant
+    ///     stays for back-compat with any test rig that referenced it directly.
     /// </summary>
     public static readonly TimeSpan DefaultTickInterval = TimeSpan.FromSeconds(1);
 
-    /// <summary>Default TTL for the cached rule corpus.</summary>
+    /// <summary>
+    ///     Default TTL for the cached rule corpus. Wave 5 moved the canonical
+    ///     value to <see cref="MeterTriggerServiceOptions.RuleListCacheTtl"/>;
+    ///     this constant stays for back-compat with the existing test rigs that
+    ///     hand-construct the service.
+    /// </summary>
     public static readonly TimeSpan DefaultRuleListCacheTtl = TimeSpan.FromSeconds(5);
 
     private readonly IPolicyRuleStore? _store;
@@ -75,14 +81,29 @@ public sealed class MeterTriggerService : IDisposable
     ///     and contributor stay nullable so the service can register on hosts
     ///     that lack one or both and just no-op its tick handler.
     /// </summary>
+    /// <remarks>
+    ///     The Wave 5 Options shim (<see cref="MeterTriggerServiceOptions"/>)
+    ///     resolves through DI's <see cref="IOptions{TOptions}"/>; when one
+    ///     isn't registered, the constructor falls back to
+    ///     <see cref="DefaultRuleListCacheTtl"/> so older hosts keep working
+    ///     without an explicit <c>services.Configure&lt;&gt;</c> call.
+    /// </remarks>
     public MeterTriggerService(
         IScheduleCoordinator coordinator,
         ArmedRuleRegistry registry,
         ILogger<MeterTriggerService> logger,
         IPolicyRuleStore? store = null,
         MeterSnapshotSignalContributor? contributor = null,
-        TimeProvider? timeProvider = null)
-        : this(coordinator, registry, logger, store, contributor, timeProvider, DefaultRuleListCacheTtl)
+        TimeProvider? timeProvider = null,
+        IOptions<MeterTriggerServiceOptions>? options = null)
+        : this(
+            coordinator,
+            registry,
+            logger,
+            store,
+            contributor,
+            timeProvider,
+            (options?.Value.RuleListCacheTtl is { } ttl && ttl > TimeSpan.Zero) ? ttl : DefaultRuleListCacheTtl)
     {
     }
 

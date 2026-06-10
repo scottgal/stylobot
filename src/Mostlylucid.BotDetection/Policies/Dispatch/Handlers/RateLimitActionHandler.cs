@@ -105,7 +105,7 @@ public sealed class RateLimitActionHandler : IPolicyActionHandler
         // Prefer fingerprint when the dispatcher stashed the signal bag.
         if (context.Items.TryGetValue(PolicyActionDispatcher.RequestSignalsItemKey, out var raw)
             && raw is IReadOnlyDictionary<string, object?> signals
-            && signals.TryGetValue("signature.primary", out var sig)
+            && signals.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.PrimarySignature, out var sig)
             && sig is string s
             && !string.IsNullOrEmpty(s))
             return s;

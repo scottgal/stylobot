@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Policies.Rules;
 
 namespace Mostlylucid.BotDetection.Policies.Triggers;
@@ -27,12 +28,38 @@ namespace Mostlylucid.BotDetection.Policies.Triggers;
 public sealed class ArmedRuleRegistry
 {
     private readonly ConcurrentDictionary<Guid, ArmedRuleAtom> _atoms = new();
+    private readonly ILogger<ArmedRuleRegistry>? _logger;
+
+    /// <summary>
+    ///     Default constructor. Subscriber faults are silently swallowed --
+    ///     this is the historical shape kept for tests / hosts that pre-date
+    ///     the optional logger.
+    /// </summary>
+    public ArmedRuleRegistry()
+    {
+        _logger = null;
+    }
+
+    /// <summary>
+    ///     Wave 5 constructor: takes an optional <see cref="ILogger"/> so a
+    ///     faulting transition subscriber surfaces at Warning instead of being
+    ///     dropped on the floor. The catch + isolate semantics are unchanged.
+    ///     One bad subscriber MUST NOT take down the trigger loop, but the
+    ///     registry can now name the rule id and exception type so the fault
+    ///     is investigable.
+    /// </summary>
+    public ArmedRuleRegistry(ILogger<ArmedRuleRegistry>? logger)
+    {
+        _logger = logger;
+    }
 
     /// <summary>
     ///     Raised after a transition is recorded on any atom. The handler runs
     ///     on the calling thread (the trigger service's tick thread). Throwing
-    ///     handlers are caught and logged-by-omission: the trigger loop must
-    ///     stay alive even when a faulty subscriber faults.
+    ///     handlers are caught and, when an <see cref="ILogger"/> was passed
+    ///     to the constructor, logged at Warning. The trigger loop must stay
+    ///     alive even when a faulty subscriber faults, so the exception never
+    ///     propagates past <see cref="RaiseTransition"/>.
     /// </summary>
     public event EventHandler<ArmedRuleTransition>? OnTransition;
 
@@ -116,15 +143,30 @@ public sealed class ArmedRuleRegistry
     {
         var handler = OnTransition;
         if (handler is null) return;
-        try
+
+        // Fan out to each subscriber individually so one faulting handler
+        // doesn't strand the others. The combined invocation list is the
+        // historical event-handler shape; walking it explicitly preserves
+        // hand-isolation semantics. The ILogger, when present, surfaces the
+        // fault so a stuck audit sink is investigable instead of silent.
+        foreach (var subscriber in handler.GetInvocationList())
         {
-            handler(this, new ArmedRuleTransition(ruleId, nowArmed, at));
-        }
-        catch
-        {
-            // A faulty observability subscriber MUST NOT take down the
-            // trigger loop. Swallow here; once an ILogger is plumbed in the
-            // registry can surface the fault.
+            try
+            {
+                ((EventHandler<ArmedRuleTransition>)subscriber)(
+                    this,
+                    new ArmedRuleTransition(ruleId, nowArmed, at));
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(
+                    ex,
+                    "ArmedRuleRegistry transition subscriber {Subscriber} threw {ExceptionType} for rule {RuleId} (nowArmed={NowArmed}); subscriber isolated.",
+                    subscriber.Method.DeclaringType?.FullName + "." + subscriber.Method.Name,
+                    ex.GetType().FullName,
+                    ruleId,
+                    nowArmed);
+            }
         }
     }
 }

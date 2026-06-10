@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 using Mostlylucid.BotDetection.Scheduling;
 
@@ -53,13 +54,21 @@ namespace Mostlylucid.BotDetection.PrometheusPack.Policies;
 /// </remarks>
 public sealed class MeterSignalsAtom : IDisposable
 {
-    /// <summary>The bucket count used for both the 1m and 5m windows.</summary>
-    /// <remarks>
-    ///     Six buckets matches the per-request contributor's previous
-    ///     behaviour (<see cref="MeterSnapshotSignalContributor.WindowBuckets"/>)
-    ///     so the <c>delta_*</c> facet values stay numerically comparable
-    ///     across the refactor.
-    /// </remarks>
+    /// <summary>
+    ///     Default bucket count for both the 1m and 5m windows. Six buckets
+    ///     matches the per-request contributor's previous behaviour
+    ///     (<see cref="MeterSnapshotSignalContributor.WindowBuckets"/>) so
+    ///     the <c>delta_*</c> facet values stay numerically comparable
+    ///     across the Wave 4 refactor.
+    ///
+    ///     <para>
+    ///         <b>Wave 5:</b> the live value is now read from
+    ///         <see cref="MeterSignalsAtomOptions.WindowBuckets"/>; this
+    ///         constant is kept as the documented default and as the
+    ///         compatibility shim for callers that referenced
+    ///         <c>MeterSignalsAtom.WindowBuckets</c> directly.
+    ///     </para>
+    /// </summary>
     internal const int WindowBuckets = 6;
 
     /// <summary>Tick cadence the snapshot rebuilds on.</summary>
@@ -73,6 +82,7 @@ public sealed class MeterSignalsAtom : IDisposable
     private readonly IMeterStream _stream;
     private readonly ILogger<MeterSignalsAtom> _logger;
     private readonly IDisposable _subscription;
+    private readonly int _windowBuckets;
 
     // Reference-swap via Volatile.Read/Write. Snapshot is never mutated in place;
     // each tick builds a fresh dictionary and publishes the new reference.
@@ -85,16 +95,24 @@ public sealed class MeterSignalsAtom : IDisposable
     ///     <see cref="TickCadence.Tick10s"/> immediately so the snapshot rebuild
     ///     fires as soon as the coordinator's cadence loop starts.
     /// </summary>
+    /// <remarks>
+    ///     The Wave 5 <see cref="MeterSignalsAtomOptions"/> shim is optional;
+    ///     when an <see cref="IOptions{TOptions}"/> isn't registered the atom
+    ///     falls back to <see cref="WindowBuckets"/>.
+    /// </remarks>
     public MeterSignalsAtom(
         IMeterStream stream,
         IScheduleCoordinator coordinator,
-        ILogger<MeterSignalsAtom>? logger = null)
+        ILogger<MeterSignalsAtom>? logger = null,
+        IOptions<MeterSignalsAtomOptions>? options = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(coordinator);
 
         _stream = stream;
         _logger = logger ?? NullLogger<MeterSignalsAtom>.Instance;
+        var configured = options?.Value.WindowBuckets;
+        _windowBuckets = configured is > 0 ? configured.Value : WindowBuckets;
 
         _subscription = coordinator.Subscribe(
             RebuildCadence,
@@ -175,7 +193,7 @@ public sealed class MeterSignalsAtom : IDisposable
             try
             {
                 oneMinute = await _stream
-                    .GetAsync(entry.Name, TimeSpan.FromMinutes(1), WindowBuckets, ct)
+                    .GetAsync(entry.Name, TimeSpan.FromMinutes(1), _windowBuckets, ct)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -204,7 +222,7 @@ public sealed class MeterSignalsAtom : IDisposable
             try
             {
                 fiveMinute = await _stream
-                    .GetAsync(entry.Name, TimeSpan.FromMinutes(5), WindowBuckets, ct)
+                    .GetAsync(entry.Name, TimeSpan.FromMinutes(5), _windowBuckets, ct)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException)

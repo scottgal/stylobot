@@ -294,16 +294,14 @@ public sealed class PolicyActionDispatcher
     /// <summary>
     ///     Pull the request fingerprint out of the signal bag the dispatcher
     ///     stashed on <see cref="HttpContext.Items"/>. The canonical key is
-    ///     <c>signature.primary</c> (matches <c>SignalKeys.PrimarySignature</c>
-    ///     in the orchestrator -- duplicated here as a string to keep the
-    ///     dispatcher decoupled from detection internals).
+    ///     <see cref="Models.SignalKeys.PrimarySignature"/> (<c>signature.primary</c>).
     /// </summary>
     internal static string? TryReadFingerprint(HttpContext context)
     {
         if (!context.Items.TryGetValue(RequestSignalsItemKey, out var raw)
             || raw is not IReadOnlyDictionary<string, object?> signals)
             return null;
-        return signals.TryGetValue("signature.primary", out var v) ? v as string : null;
+        return signals.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.PrimarySignature, out var v) ? v as string : null;
     }
 
     /// <summary>

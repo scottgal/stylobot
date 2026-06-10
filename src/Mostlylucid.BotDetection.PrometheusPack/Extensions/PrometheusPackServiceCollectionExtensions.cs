@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.Policies.Signals;
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
+using Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 
 namespace Mostlylucid.BotDetection.PrometheusPack.Extensions;
@@ -266,10 +267,20 @@ public static class PrometheusPackServiceCollectionExtensions
         // the subscription fires. The contributor and catalog source both
         // read lock-free from the atom, so the per-request hot path drops
         // from O(N) awaited GetAsync calls to O(N) dictionary copy.
+        // Wave 5: register the Options shims with their defaults so the atom +
+        // trigger service can resolve IOptions<> uniformly. AddOptions<T>()
+        // wires the singleton IOptions<T> without forcing an IConfiguration
+        // binding; the defaults set on the Options classes win when nothing
+        // is configured. Consumers can layer `services.Configure<T>(...)`
+        // on top to override.
+        services.AddOptions<MeterSignalsAtomOptions>();
+        services.AddOptions<MeterTriggerServiceOptions>();
+
         services.TryAddSingleton<MeterSignalsAtom>(sp => new MeterSignalsAtom(
             sp.GetRequiredService<IMeterStream>(),
             sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(),
-            sp.GetService<Microsoft.Extensions.Logging.ILogger<MeterSignalsAtom>>()));
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<MeterSignalsAtom>>(),
+            sp.GetService<Microsoft.Extensions.Options.IOptions<MeterSignalsAtomOptions>>()));
 
         services.TryAddSingleton<MeterSnapshotSignalContributor>();
         services.AddSingleton<ISignalContributor>(sp =>
