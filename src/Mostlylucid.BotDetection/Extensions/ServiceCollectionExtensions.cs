@@ -485,6 +485,22 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Telemetry.BotDetectionSignalMeter>();
         services.TryAddSingleton<Telemetry.BotDetectionInstrumentation>();
 
+        // ScheduleCoordinator -- the canonical tick.* signal source. Wave 1 of
+        // the architectural-drift remediation; Wave 2 will migrate
+        // MeterTriggerService / LocalMeterStream eviction / RemoteMeterStream
+        // poll off BackgroundService and onto Subscribe(TickCadence.*).
+        //
+        // This IS the project's one allowed IHostedService -- per
+        // feedback_no_background_services in user memory. TryAdd so a host that
+        // wants a different scheduler can Replace() the singleton before the
+        // hosted-service descriptor resolves it.
+        services.AddOptions<Scheduling.ScheduleCoordinatorOptions>()
+            .BindConfiguration(Scheduling.ScheduleCoordinatorOptions.SectionName);
+        services.TryAddSingleton<Scheduling.ScheduleCoordinator>();
+        services.TryAddSingleton<Scheduling.IScheduleCoordinator>(
+            sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
+        services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
+
         // Meter-signals extension point (IMeterSignalSink / NullMeterSignalSink)
         // lives in Mostlylucid.BotDetection.PrometheusPack now -- AddLocalMeterStream
         // / AddRemoteMeterStream register the default null sink there.
