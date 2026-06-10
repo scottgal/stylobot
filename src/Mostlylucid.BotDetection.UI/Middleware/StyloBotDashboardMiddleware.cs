@@ -910,7 +910,11 @@ public class StyloBotDashboardMiddleware
             }
             else
             {
-                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                // Identity error descriptions can echo the submitted email
+                // ("Username 'a@b.com' is already taken."); redact it so the
+                // address never lands in the query string / access logs.
+                var errors = string.Join(", ", result.Errors.Select(e =>
+                    e.Description.Replace(email, "[redacted]", StringComparison.OrdinalIgnoreCase)));
                 context.Response.Redirect($"{basePath}/setup?error={Uri.EscapeDataString(errors)}");
             }
         }

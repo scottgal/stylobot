@@ -38,12 +38,16 @@ public static class LlmEndpointUrlValidator
         }
         else
         {
+            // Best-effort: reject a hostname that demonstrably resolves to a
+            // link-local address (nip.io-style bypass of the literal check).
+            // A resolution FAILURE is not rejected — a tunnel hostname may
+            // legitimately be unresolvable at import time (offline import,
+            // tunnel not yet up, unit tests), the connection itself fails
+            // safely later, and an attacker who controls DNS answers can
+            // defeat any resolve-time check via rebinding regardless.
             IPAddress[] resolved;
             try { resolved = Dns.GetHostAddresses(uri.Host); }
-            catch (Exception ex)
-            {
-                throw new FormatException($"{description} host '{uri.Host}' could not be resolved: {ex.Message}", ex);
-            }
+            catch { resolved = []; }
 
             foreach (var addr in resolved)
                 if (IsLinkLocal(addr))
