@@ -98,19 +98,7 @@ public sealed class SqlitePoolCollisionStore
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-
-            CREATE TABLE IF NOT EXISTS pool_collisions (
-                shape_hash TEXT NOT NULL,
-                context_key TEXT NOT NULL,
-                last_seen_ticks INTEGER NOT NULL,
-                PRIMARY KEY (shape_hash, context_key)
-            );
-            CREATE INDEX IF NOT EXISTS idx_pool_collisions_shape_ts
-                ON pool_collisions(shape_hash, last_seen_ticks);
-            """;
+        cmd.CommandText = Mostlylucid.BotDetection.Data.Schema.SchemaLoader.Load("pool_collisions");
         await cmd.ExecuteNonQueryAsync(ct);
     }
 

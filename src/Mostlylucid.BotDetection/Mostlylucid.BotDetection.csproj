@@ -120,6 +120,9 @@
         <EmbeddedResource Include="Definitions\VendorHomeHosts\*.yaml" />
         <EmbeddedResource Include="Definitions\TlsReference\*.yaml" />
         <EmbeddedResource Include="Data\UserAgents\*.yaml" />
+        <EmbeddedResource Include="Data\Schema\*.sql">
+            <LogicalName>Mostlylucid.BotDetection.Data.Schema.%(Filename)%(Extension)</LogicalName>
+        </EmbeddedResource>
     </ItemGroup>
 
     <!-- Embed detector and pipeline YAML manifests -->

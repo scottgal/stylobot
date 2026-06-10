@@ -51,20 +51,7 @@ public sealed class SqlitePathLifecycleStore : IPathLifecycleStore, IDisposable
             await _persistentConnection.OpenAsync(ct);
 
             await using var cmd = _persistentConnection.CreateCommand();
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS path_lifecycle (
-                    path                    TEXT PRIMARY KEY,
-                    first_seen_utc          TEXT NOT NULL,
-                    total_2xx               INTEGER NOT NULL DEFAULT 0,
-                    total_4xx               INTEGER NOT NULL DEFAULT 0,
-                    total_other             INTEGER NOT NULL DEFAULT 0,
-                    last_2xx_utc            TEXT,
-                    first_4xx_after_2xx_utc TEXT,
-                    last_seen_utc           TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_path_lifecycle_last_seen
-                    ON path_lifecycle(last_seen_utc);
-                """;
+            cmd.CommandText = Mostlylucid.BotDetection.Data.Schema.SchemaLoader.Load("path_lifecycle");
             await cmd.ExecuteNonQueryAsync(ct);
 
             _initialized = true;

@@ -99,24 +99,7 @@ public sealed class WaveformHistoryStore
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-
-            CREATE TABLE IF NOT EXISTS waveform_history (
-                signature TEXT NOT NULL,
-                ts_ticks INTEGER NOT NULL,
-                path TEXT NOT NULL,
-                method TEXT NOT NULL,
-                status_code INTEGER NOT NULL,
-                user_agent_hash TEXT NOT NULL,
-                referer_hash TEXT NOT NULL,
-                content_class INTEGER NOT NULL,
-                PRIMARY KEY (signature, ts_ticks)
-            );
-            CREATE INDEX IF NOT EXISTS idx_waveform_history_signature_ts
-                ON waveform_history(signature, ts_ticks);
-            """;
+        cmd.CommandText = Mostlylucid.BotDetection.Data.Schema.SchemaLoader.Load("waveform_history");
         await cmd.ExecuteNonQueryAsync(ct);
     }
 

@@ -68,20 +68,9 @@ public sealed class SqliteStickyDenyStore
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-
-            CREATE TABLE IF NOT EXISTS sticky_deny (
-                key TEXT PRIMARY KEY,
-                first_violation_ticks INTEGER NOT NULL,
-                last_violation_ticks INTEGER NOT NULL,
-                violation_count INTEGER NOT NULL,
-                blocked_until_ticks INTEGER NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_sticky_deny_blocked_until
-                ON sticky_deny(blocked_until_ticks);
-            """;
+        // DDL lives in Data/Schema/sticky_deny.sql so it diffs / lints /
+        // formats like SQL instead of a multiline C# string literal.
+        cmd.CommandText = Mostlylucid.BotDetection.Data.Schema.SchemaLoader.Load("sticky_deny");
         await cmd.ExecuteNonQueryAsync(ct);
     }
 

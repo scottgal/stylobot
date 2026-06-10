@@ -58,6 +58,18 @@ public class BotListDatabase : IBotListDatabase, IDisposable
         _dbPath = dbPath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
     }
 
+    /// <summary>
+    ///     Ensures the schema exists on the given open connection. Idempotent.
+    ///     DDL lives in <c>Data/Schema/bot_list_database.sql</c>; loaded once
+    ///     and cached by <see cref="SchemaLoader"/>.
+    /// </summary>
+    private static async Task EnsureSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = Schema.SchemaLoader.Load("bot_list_database");
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (_initialized) return;
@@ -75,41 +87,7 @@ public class BotListDatabase : IBotListDatabase, IDisposable
 
             await using var connection = new SqliteConnection($"Data Source={_dbPath}");
             await connection.OpenAsync(cancellationToken);
-
-            await using var cmd = connection.CreateCommand();
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS bot_patterns (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    pattern TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    url TEXT,
-                    is_verified INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    UNIQUE(pattern)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_bot_patterns_pattern ON bot_patterns(pattern);
-                CREATE INDEX IF NOT EXISTS idx_bot_patterns_category ON bot_patterns(category);
-
-                CREATE TABLE IF NOT EXISTS datacenter_ips (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ip_range TEXT NOT NULL UNIQUE,
-                    provider TEXT,
-                    region TEXT,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_datacenter_ips_range ON datacenter_ips(ip_range);
-
-                CREATE TABLE IF NOT EXISTS list_updates (
-                    list_type TEXT PRIMARY KEY,
-                    last_update TEXT NOT NULL,
-                    record_count INTEGER NOT NULL
-                );
-            ";
-
-            await cmd.ExecuteNonQueryAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
 
             _initialized = true;
 
@@ -359,6 +337,10 @@ public class BotListDatabase : IBotListDatabase, IDisposable
 
         await using var connection = new SqliteConnection($"Data Source={_dbPath}");
         await connection.OpenAsync(cancellationToken);
+        // Idempotent schema ensure -- handles the "_initialized got set
+        // somehow but the table isn't there" failure mode that surfaced
+        // on production (Maxo .15) with the BotListUpdateService spam log.
+        await EnsureSchemaAsync(connection, cancellationToken);
 
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT last_update FROM list_updates WHERE list_type = @type";
