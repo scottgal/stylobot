@@ -232,5 +232,14 @@ public static class PrometheusPackServiceCollectionExtensions
         services.TryAddSingleton<MeterSignalCatalogSource>();
         services.AddSingleton<ISignalCatalogSource>(sp =>
             sp.GetRequiredService<MeterSignalCatalogSource>());
+
+        // Phase G runtime: registry + 1s-tick trigger service. The registry
+        // is also TryAdd-registered by the dashboard service extensions, so
+        // viewer hosts that include the dashboard but not the gateway still
+        // have one. The MeterTriggerService is gateway-only -- it's the loop
+        // that actually evaluates trigger rules against the meter snapshot.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Triggers.ArmedRuleRegistry>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers.MeterTriggerService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers.MeterTriggerService>());
     }
 }

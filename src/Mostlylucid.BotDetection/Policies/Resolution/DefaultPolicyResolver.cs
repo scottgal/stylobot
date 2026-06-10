@@ -1,6 +1,7 @@
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Signals;
+using Mostlylucid.BotDetection.Policies.Triggers;
 
 namespace Mostlylucid.BotDetection.Policies.Resolution;
 
@@ -22,11 +23,26 @@ namespace Mostlylucid.BotDetection.Policies.Resolution;
 ///         resolution: non-cancellation exceptions are swallowed,
 ///         <see cref="OperationCanceledException" /> is re-thrown.
 ///     </para>
+///
+///     <para>
+///         Phase G: an optional <see cref="ArmedRuleRegistry"/> is consulted
+///         on every <see cref="EffectiveWithContextAsync"/> call. Armed rules
+///         whose <see cref="PolicyScope"/> matches the request scope are
+///         merged into the effective list at the TOP (most-specific by
+///         construction) with <see cref="EffectiveRule.IsArmed"/> set to
+///         <c>true</c>. The resolver leaves the rule's authored
+///         <see cref="PolicyRule.Action"/> intact; downstream pipeline
+///         components substitute the rule's
+///         <see cref="Rules.RuleTriggerOptions.ActionWhileArmed"/> when
+///         applying the action. Null registry means "no trigger system in
+///         this host" -- typical for viewer-only processes.
+///     </para>
 /// </summary>
 public sealed class DefaultPolicyResolver : IPolicyResolver
 {
     private readonly IPolicyRuleStore _store;
     private readonly IReadOnlyList<ISignalContributor> _contributors;
+    private readonly ArmedRuleRegistry? _armedRegistry;
 
     /// <summary>
     ///     Construct a resolver that does no signal contribution merging --
@@ -35,7 +51,7 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
     ///     have not registered any contributors yet.
     /// </summary>
     public DefaultPolicyResolver(IPolicyRuleStore store)
-        : this(store, contributors: null)
+        : this(store, contributors: null, armedRegistry: null)
     {
     }
 
@@ -45,11 +61,27 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
     ///     pre-Phase-F path. A null entry inside the enumerable is filtered.
     /// </summary>
     public DefaultPolicyResolver(IPolicyRuleStore store, IEnumerable<ISignalContributor>? contributors)
+        : this(store, contributors, armedRegistry: null)
+    {
+    }
+
+    /// <summary>
+    ///     Phase G constructor: wires the optional
+    ///     <see cref="ArmedRuleRegistry"/> so the resolver can merge
+    ///     currently-armed rules into the effective list. The DI container
+    ///     resolves <paramref name="armedRegistry"/> as nullable; passing
+    ///     <c>null</c> leaves the resolver in pre-Phase-G behaviour.
+    /// </summary>
+    public DefaultPolicyResolver(
+        IPolicyRuleStore store,
+        IEnumerable<ISignalContributor>? contributors,
+        ArmedRuleRegistry? armedRegistry)
     {
         _store = store;
         _contributors = contributors is null
             ? Array.Empty<ISignalContributor>()
             : contributors.Where(c => c is not null).ToArray();
+        _armedRegistry = armedRegistry;
     }
 
     /// <inheritdoc />
@@ -60,9 +92,51 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
         var path = WalkPath(scope);
         var rules = await _store.GetEffectiveRulesAsync(path, ct).ConfigureAwait(false);
 
-        var result = new List<EffectiveRule>(rules.Count);
+        // Phase G: snapshot the currently-armed rule ids ONCE so the regular
+        // walk can stamp IsArmed onto the matching entries and so we know
+        // which extra armed rules (attached deeper than the walk path covers)
+        // need to be appended.
+        HashSet<Guid>? armedIds = null;
+        IReadOnlyCollection<PolicyRule>? extraArmedRules = null;
+        if (_armedRegistry is not null)
+        {
+            armedIds = new HashSet<Guid>(_armedRegistry.CurrentlyArmedIds());
+            if (armedIds.Count > 0)
+                extraArmedRules = await _armedRegistry.CurrentlyArmedAsync(_store, ct).ConfigureAwait(false);
+        }
+
+        var result = new List<EffectiveRule>(rules.Count + 4);
+        var seenIds = new HashSet<Guid>();
         foreach (var rule in rules)
-            result.Add(new EffectiveRule(rule, rule.Scope, IsInherited: !ScopeEquals(rule.Scope, scope)));
+        {
+            seenIds.Add(rule.Id);
+            var isArmed = armedIds is not null && armedIds.Contains(rule.Id);
+            result.Add(new EffectiveRule(
+                rule,
+                rule.Scope,
+                IsInherited: !ScopeEquals(rule.Scope, scope),
+                IsArmed: isArmed));
+        }
+
+        // Append armed rules the regular walk missed -- e.g. an armed rule
+        // attached at a scope that the request scope's walk path does not
+        // include because the host hierarchy is unrelated. Host-attachment
+        // narrowing still applies; orthogonal slots fall through to
+        // PolicyScopeMatcher in EffectiveWithContextAsync.
+        if (extraArmedRules is not null)
+        {
+            foreach (var rule in extraArmedRules)
+            {
+                if (!seenIds.Add(rule.Id)) continue;
+                if (!ArmedScopeAttachesTo(rule.Scope, scope)) continue;
+                result.Add(new EffectiveRule(
+                    rule,
+                    rule.Scope,
+                    IsInherited: !ScopeEquals(rule.Scope, scope),
+                    IsArmed: true));
+            }
+        }
+
         return result;
     }
 
@@ -116,17 +190,31 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
         //      orthogonal slots populated passes through trivially.
         //   2. PredicateEvaluator evaluates the predicate against the merged
         //      signal map -- the existing Phase-F semantics.
-        // Output is sorted most-specific-first using PolicyScope.Specificity.
+        //
+        // Phase G: armed rules bypass the predicate check. The trigger service
+        // already proved the meter-only predicate was sustained-true; the
+        // resolver trusts the armed state and surfaces the rule regardless of
+        // the per-request snapshot (per-request signals don't carry the meter
+        // facets the predicate references on a viewer host). Scope-matcher
+        // still applies so an armed rule attached to a Method/Geo/Identity
+        // axis still narrows to those requests.
         var result = new List<EffectiveRule>(all.Count);
         foreach (var entry in all)
         {
             if (!PolicyScopeMatcher.MatchesRequest(entry.Rule.Scope, evalSignals)) continue;
-            if (!PredicateEvaluator.Evaluate(entry.Rule.Predicate, evalSignals)) continue;
+            if (!entry.IsArmed
+                && !PredicateEvaluator.Evaluate(entry.Rule.Predicate, evalSignals))
+                continue;
             result.Add(entry);
         }
 
         result.Sort(static (a, b) =>
         {
+            // Phase G: armed rules sort first regardless of scope specificity
+            // -- they fire because the operator wired them up against a sustained
+            // meter condition and the resolver surfaces them above the regular
+            // composite-specificity stack.
+            if (a.IsArmed != b.IsArmed) return a.IsArmed ? -1 : 1;
             // Descending specificity, then ascending priority within a tie.
             var spec = b.Rule.Scope.Specificity.CompareTo(a.Rule.Scope.Specificity);
             if (spec != 0) return spec;
@@ -134,6 +222,50 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
         });
 
         return result;
+    }
+
+    /// <summary>
+    ///     <c>true</c> when <paramref name="ruleScope"/>'s Host slot attaches
+    ///     to <paramref name="requestScope"/>. Wildcard host always attaches;
+    ///     a Domain rule attaches to any request on that domain; a Subdomain
+    ///     rule attaches when both domain and subdomain match; an Endpoint
+    ///     rule attaches when domain, subdomain and path all match.
+    ///
+    ///     <para>
+    ///         Orthogonal slots (Method / Geo / Identity) are NOT filtered
+    ///         here -- they fall through to <see cref="PolicyScopeMatcher.MatchesRequest"/>
+    ///         in <see cref="EffectiveWithContextAsync"/>.
+    ///     </para>
+    /// </summary>
+    private static bool ArmedScopeAttachesTo(PolicyScope ruleScope, PolicyScope requestScope)
+    {
+        // Host slot: walk the rule's host against the request's host hierarchy.
+        if (ruleScope.Host is null) return true;
+        return ruleScope.Host switch
+        {
+            HostScope.Domain d => requestScope.Host switch
+            {
+                HostScope.Domain rd => string.Equals(d.Name, rd.Name, StringComparison.OrdinalIgnoreCase),
+                HostScope.Subdomain rs => string.Equals(d.Name, rs.DomainName, StringComparison.OrdinalIgnoreCase),
+                HostScope.Endpoint re => string.Equals(d.Name, re.DomainName, StringComparison.OrdinalIgnoreCase),
+                _ => false
+            },
+            HostScope.Subdomain s => requestScope.Host switch
+            {
+                HostScope.Subdomain rs =>
+                    string.Equals(s.DomainName, rs.DomainName, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(s.SubdomainName, rs.SubdomainName, StringComparison.OrdinalIgnoreCase),
+                HostScope.Endpoint re =>
+                    string.Equals(s.DomainName, re.DomainName, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(s.SubdomainName, re.SubdomainName, StringComparison.OrdinalIgnoreCase),
+                _ => false
+            },
+            HostScope.Endpoint e => requestScope.Host is HostScope.Endpoint re
+                && string.Equals(e.DomainName, re.DomainName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(e.SubdomainName, re.SubdomainName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(e.PathTemplate, re.PathTemplate, StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
     }
 
     /// <summary>

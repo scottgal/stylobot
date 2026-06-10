@@ -242,6 +242,17 @@ public static class StyloBotDashboardServiceExtensions
         });
         services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Resolution.IPolicyResolver,
             Mostlylucid.BotDetection.Policies.Resolution.DefaultPolicyResolver>();
+        // Phase G runtime: the armed-rule registry is the single source of
+        // truth for "which trigger rules are currently armed". Register on
+        // every host -- viewer-only processes won't have a MeterTriggerService
+        // populating it (which is fine; CurrentlyArmedAsync returns empty),
+        // but the resolver constructor needs a non-null reference to merge
+        // the (empty) set.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Triggers.ArmedRuleRegistry>();
+        // Throttle pipeline enforcement: shared token-bucket registry keyed
+        // by the throttle rule's scope key. Singleton so concurrent requests
+        // on the same throttle rule share the bucket.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Throttle.ThrottleBucketRegistry>();
         // FOSS default: in-process log. Commercial SQLite / Postgres impls slot
         // in via TryAdd from their respective packs. Operators that want SQLite
         // durability on FOSS can replace this registration explicitly.
