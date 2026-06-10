@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Mostlylucid.BotDetection.Compliance;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Definitions.VendorHomeHosts;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -135,6 +136,18 @@ internal static class VYamlBootstrap
         GeneratedResolver.Register(new DictionaryFormatter<string, LaneConfig>());
         GeneratedResolver.Register(new DictionaryFormatter<string, object>());
         GeneratedResolver.Register(new DictionaryFormatter<string, string>());
+
+        // TLS JA3 reference corpus -- the nested Dictionary<string, Dictionary<int, ...>>
+        // shape needs both closed-generic dictionary formatters or VYaml's StandardResolver
+        // tries Activator.CreateInstance on the inner closure and dies under AOT (the
+        // tls-reference-corpus.yaml load fails with MissingMethodException at startup).
+        // Caught + logged by Ja3ReferenceIndex.LoadEmbeddedCorpus so the daemon does NOT
+        // crash, but JA3 corpus matching goes silently offline until this is wired.
+        Ja3CorpusFile.__RegisterVYamlFormatter();
+        Ja3CorpusPlatforms.__RegisterVYamlFormatter();
+        Ja3CorpusEntry.__RegisterVYamlFormatter();
+        GeneratedResolver.Register(new DictionaryFormatter<int, Ja3CorpusPlatforms>());
+        GeneratedResolver.Register(new DictionaryFormatter<string, Dictionary<int, Ja3CorpusPlatforms>>());
 
         YamlSerializer.DefaultOptions = new YamlSerializerOptions
         {
