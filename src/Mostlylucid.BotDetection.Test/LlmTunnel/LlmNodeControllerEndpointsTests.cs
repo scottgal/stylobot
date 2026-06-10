@@ -74,6 +74,72 @@ public class LlmNodeControllerEndpointsTests
         Assert.Contains("Failed to decode connection key", ex.Message);
     }
 
+    // ── TunnelUrl validation (SSRF guard) ──────────────────────────────────
+
+    [Theory]
+    [InlineData("http://169.254.169.254/latest/meta-data")] // cloud metadata endpoint
+    [InlineData("http://169.254.0.1:8080")]                  // any IPv4 link-local
+    [InlineData("http://[fe80::1]:11434")]                   // IPv6 link-local
+    public void ImportKey_LinkLocalTunnelUrl_ThrowsFormatException(string tunnelUrl)
+    {
+        var keyStr = MakeValidConnectionKey(tunnelUrl: tunnelUrl);
+
+        var ex = Assert.Throws<FormatException>(() => LlmNodeImporter.ImportKey(keyStr));
+
+        Assert.Contains("link-local", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("gopher://internal-service/1")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://10.0.0.1/models")]
+    public void ImportKey_NonHttpScheme_ThrowsFormatException(string tunnelUrl)
+    {
+        var keyStr = MakeValidConnectionKey(tunnelUrl: tunnelUrl);
+
+        var ex = Assert.Throws<FormatException>(() => LlmNodeImporter.ImportKey(keyStr));
+
+        Assert.Contains("http", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not a url")]
+    public void ImportKey_MalformedTunnelUrl_ThrowsFormatException(string tunnelUrl)
+    {
+        var keyStr = MakeValidConnectionKey(tunnelUrl: tunnelUrl);
+
+        Assert.Throws<FormatException>(() => LlmNodeImporter.ImportKey(keyStr));
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:11434")]      // loopback sidecar hop
+    [InlineData("http://192.168.1.50:11434")]    // LAN GPU box - the primary topology
+    [InlineData("https://10.20.30.40")]          // RFC1918
+    public void ImportKey_LoopbackAndPrivateTunnelUrl_Allowed(string tunnelUrl)
+    {
+        var keyStr = MakeValidConnectionKey(tunnelUrl: tunnelUrl);
+
+        var (descriptor, _) = LlmNodeImporter.ImportKey(keyStr);
+
+        Assert.Equal(tunnelUrl, descriptor.TunnelUrl);
+    }
+
+    [Fact]
+    public void ImportKey_UnresolvableHostname_Allowed()
+    {
+        // Resolution failure must NOT reject the key: tunnel hostnames are often
+        // unresolvable at import time (tunnel not up yet, offline import) and the
+        // connection itself fails safely later. Only a POSITIVE link-local
+        // resolution rejects.
+        var keyStr = MakeValidConnectionKey(
+            tunnelUrl: "https://definitely-not-a-real-host.invalid");
+
+        var (descriptor, _) = LlmNodeImporter.ImportKey(keyStr);
+
+        Assert.Equal("https://definitely-not-a-real-host.invalid", descriptor.TunnelUrl);
+    }
+
     // ── InMemoryLlmNodeRegistry tests ──────────────────────────────────────
 
     [Fact]
