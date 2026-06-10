@@ -45,6 +45,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Gateway-local persistence schemas (profile calibration store).
+             Loaded at startup via GatewaySchemaLoader. -->
+        <EmbeddedResource Include="Data\Schema\*.sql" />
+    </ItemGroup>
+
+    <ItemGroup>
         <!-- YARP Reverse Proxy -->
         <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
 

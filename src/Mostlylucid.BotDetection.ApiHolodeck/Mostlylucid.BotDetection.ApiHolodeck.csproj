@@ -31,6 +31,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- BeaconStore schema. Loaded at startup via ApiHolodeckSchemaLoader. -->
+        <EmbeddedResource Include="Data\Schema\*.sql" />
+    </ItemGroup>
+
+    <ItemGroup>
         <!-- MockLLMApi for LLM-powered fake responses -->
         <PackageReference Include="mostlylucid.mockllmapi" Version="2.6.0" />
     </ItemGroup>

@@ -49,104 +49,14 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);
 
-            const string schemaSql = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA cache_size=-4000;
-
-            CREATE TABLE IF NOT EXISTS detections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                signature TEXT NOT NULL,
-                method TEXT,
-                path TEXT,
-                is_bot INTEGER NOT NULL,
-                bot_probability REAL NOT NULL,
-                confidence REAL NOT NULL,
-                risk_band TEXT,
-                bot_name TEXT,
-                bot_type TEXT,
-                action TEXT,
-                country_code TEXT,
-                processing_time_ms REAL,
-                threat_score REAL DEFAULT 0,
-                threat_band TEXT,
-                status_code INTEGER DEFAULT 0,
-                user_agent_raw TEXT,
-                response_bytes INTEGER,
-                risk_justification TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS signatures (
-                signature TEXT PRIMARY KEY,
-                bot_name TEXT,
-                bot_type TEXT,
-                is_bot INTEGER NOT NULL DEFAULT 0,
-                bot_probability REAL NOT NULL DEFAULT 0,
-                confidence REAL NOT NULL DEFAULT 0,
-                risk_band TEXT,
-                action TEXT,
-                country_code TEXT,
-                hit_count INTEGER NOT NULL DEFAULT 1,
-                first_seen TEXT NOT NULL,
-                last_seen TEXT NOT NULL,
-                processing_time_ms REAL DEFAULT 0,
-                threat_score REAL DEFAULT 0,
-                threat_band TEXT,
-                narrative TEXT,
-                metadata_json TEXT,
-                risk_justification TEXT
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_det_timestamp ON detections(timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_det_signature ON detections(signature);
-            CREATE INDEX IF NOT EXISTS idx_det_is_bot ON detections(is_bot);
-            CREATE INDEX IF NOT EXISTS idx_det_country ON detections(country_code);
-            CREATE INDEX IF NOT EXISTS idx_det_path ON detections(path);
-            CREATE INDEX IF NOT EXISTS idx_sig_last_seen ON signatures(last_seen DESC);
-            CREATE INDEX IF NOT EXISTS idx_sig_is_bot ON signatures(is_bot);
-            CREATE INDEX IF NOT EXISTS idx_det_threat ON detections(threat_score DESC, timestamp DESC);
-
-            CREATE TABLE IF NOT EXISTS user_agent_stats (
-                ua_family TEXT NOT NULL,
-                ua_version TEXT NOT NULL DEFAULT '',
-                ua_os TEXT NOT NULL DEFAULT '',
-                is_bot INTEGER NOT NULL DEFAULT 0,
-                first_seen TEXT NOT NULL,
-                last_seen TEXT NOT NULL,
-                hit_count INTEGER NOT NULL DEFAULT 1,
-                unique_signatures INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (ua_family, ua_version, ua_os)
-            );
-            CREATE INDEX IF NOT EXISTS idx_ua_family ON user_agent_stats(ua_family, hit_count DESC);
-
-            CREATE TABLE IF NOT EXISTS metric_snapshots (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                bucket_time TEXT    NOT NULL,
-                pack_id     TEXT    NOT NULL,
-                meter_name  TEXT    NOT NULL,
-                instrument  TEXT    NOT NULL,
-                tags        TEXT,
-                value       REAL    NOT NULL,
-                value_type  TEXT    NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_ms_lookup
-                ON metric_snapshots(bucket_time, pack_id, instrument);
-            """;
-            foreach (var statement in schemaSql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            // SQLite happily runs the entire multi-statement DDL in one
+            // ExecuteNonQuery; if a statement fails, the exception bubbles
+            // with the offending line in its message. Same convention as
+            // every other SchemaLoader-driven store in the codebase.
+            await using (var cmd = conn.CreateCommand())
             {
-                try
-                {
-                    await using var cmd = conn.CreateCommand();
-                    cmd.CommandText = statement;
-                    await cmd.ExecuteNonQueryAsync(ct);
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException(
-                        $"Failed to initialize SQLite dashboard schema statement: {statement}",
-                        ex);
-                }
+                cmd.CommandText = Data.Schema.UiSchemaLoader.Load("dashboard_events");
+                await cmd.ExecuteNonQueryAsync(ct);
             }
 
             // Migrate: add risk_justification column if absent (idempotent).
@@ -187,19 +97,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             // Indexes that depend on the analytics columns added by the migration
             // tuple loop above. Created here so the new columns are guaranteed to
             // exist. Idempotent via IF NOT EXISTS.
-            const string analyticsIndexSql = """
-            CREATE INDEX IF NOT EXISTS idx_det_domain_ts ON detections(domain, timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_det_domain_path_ts ON detections(domain, path, timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_det_domain_bot_name_ts ON detections(domain, bot_name, timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_det_domain_country_ts ON detections(domain, country_code, timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_det_domain_referrer_host_ts ON detections(domain, referrer_host, timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_det_domain_ua_device_class_ts ON detections(domain, ua_device_class, timestamp DESC);
-            """;
-            foreach (var statement in analyticsIndexSql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            await using (var analyticsCmd = conn.CreateCommand())
             {
-                await using var cmd = conn.CreateCommand();
-                cmd.CommandText = statement;
-                await cmd.ExecuteNonQueryAsync(ct);
+                analyticsCmd.CommandText = Data.Schema.UiSchemaLoader.Load("dashboard_events_analytics_indexes");
+                await analyticsCmd.ExecuteNonQueryAsync(ct);
             }
 
             // Backfill ua_device_class for pre-migration rows that have a

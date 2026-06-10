@@ -27,12 +27,14 @@ public static class SchemaLoader
 {
     private static readonly ConcurrentDictionary<string, string> Cache = new(StringComparer.Ordinal);
     private static readonly Assembly OwningAssembly = typeof(SchemaLoader).Assembly;
-    private const string ResourcePrefix = "Mostlylucid.BotDetection.Data.Schema.";
+    private const string CoreResourcePrefix = "Mostlylucid.BotDetection.Data.Schema.";
 
     /// <summary>
-    ///     Returns the DDL text for the named schema. <paramref name="name"/>
-    ///     is the file's base name (without the <c>.sql</c> extension) and is
-    ///     case-sensitive to match the embedded-resource name.
+    ///     Returns the DDL text for the named schema from the core
+    ///     <c>Mostlylucid.BotDetection.Data.Schema</c> namespace. Sugar over
+    ///     <see cref="Load(Assembly, string, string)"/> for the common case;
+    ///     downstream projects (UI / ApiHolodeck / Gateway) call the overload
+    ///     with their own assembly + namespace prefix.
     /// </summary>
     /// <exception cref="InvalidOperationException">
     ///     Thrown when the embedded resource is missing -- typically a
@@ -41,14 +43,25 @@ public static class SchemaLoader
     ///     SQLite error six call stacks deep.
     /// </exception>
     public static string Load(string name)
+        => Load(OwningAssembly, CoreResourcePrefix, name);
+
+    /// <summary>
+    ///     Generic overload: reads the embedded resource
+    ///     <c>{resourcePrefix}{name}.sql</c> from <paramref name="assembly"/>.
+    ///     Each downstream project gets a tiny facade
+    ///     (e.g. <c>UiSchemaLoader.Load</c>) that pre-binds its assembly
+    ///     and namespace prefix so call sites stay one-liners.
+    /// </summary>
+    public static string Load(Assembly assembly, string resourcePrefix, string name)
     {
-        return Cache.GetOrAdd(name, static n =>
+        var cacheKey = assembly.FullName + "::" + resourcePrefix + name;
+        return Cache.GetOrAdd(cacheKey, _ =>
         {
-            var resourceName = ResourcePrefix + n + ".sql";
-            using var stream = OwningAssembly.GetManifestResourceStream(resourceName)
+            var resourceName = resourcePrefix + name + ".sql";
+            using var stream = assembly.GetManifestResourceStream(resourceName)
                 ?? throw new InvalidOperationException(
-                    $"Embedded SQL schema '{resourceName}' not found. " +
-                    $"Check Data/Schema/{n}.sql exists and the .csproj " +
+                    $"Embedded SQL schema '{resourceName}' not found in {assembly.GetName().Name}. " +
+                    $"Check the .sql file exists and the .csproj " +
                     $"<EmbeddedResource Include=\"Data\\Schema\\*.sql\" /> is in place.");
             using var reader = new StreamReader(stream);
             return reader.ReadToEnd();

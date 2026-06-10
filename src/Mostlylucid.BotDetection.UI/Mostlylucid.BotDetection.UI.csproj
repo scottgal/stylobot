@@ -50,6 +50,9 @@
         <!-- Dashboard tooltip inventory. Per feedback_no_word_lists the text lives in
              YAML, not C#. DashboardTooltipRegistry loads this at startup. -->
         <EmbeddedResource Include="Definitions\Tooltips\*.yaml" />
+        <!-- UI persistence schemas. Loaded at startup via UiSchemaLoader; same
+             pattern as the core lib's Data\Schema\*.sql convention. -->
+        <EmbeddedResource Include="Data\Schema\*.sql" />
     </ItemGroup>
 
     <PropertyGroup>

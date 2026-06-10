@@ -30,18 +30,7 @@ public sealed class BeaconStore : IBeaconStore, IDisposable
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS beacons (
-                    canary TEXT PRIMARY KEY,
-                    fingerprint TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    pack_id TEXT,
-                    created_at TEXT NOT NULL,
-                    expires_at TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS ix_beacons_expires ON beacons(expires_at);
-                CREATE INDEX IF NOT EXISTS ix_beacons_fingerprint ON beacons(fingerprint);
-                """;
+            cmd.CommandText = ApiHolodeck.Data.Schema.ApiHolodeckSchemaLoader.Load("beacons");
             await cmd.ExecuteNonQueryAsync();
             _initialized = true;
         }

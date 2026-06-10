@@ -28,17 +28,8 @@ public sealed class SqliteRouteNameStore : IRouteNameStore
         var shouldDispose = _sharedConn == null;
         try
         {
-            const string schemaSql = """
-                CREATE TABLE IF NOT EXISTS route_names (
-                    route_key     TEXT PRIMARY KEY,
-                    friendly_name TEXT NOT NULL,
-                    notes         TEXT,
-                    updated_utc   TEXT NOT NULL,
-                    updated_by    TEXT
-                );
-                """;
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = schemaSql;
+            cmd.CommandText = UI.Data.Schema.UiSchemaLoader.Load("route_names");
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally

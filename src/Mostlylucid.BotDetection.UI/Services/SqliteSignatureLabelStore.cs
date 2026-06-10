@@ -42,23 +42,7 @@ public sealed class SqliteSignatureLabelStore : ISignatureLabelStore, IAsyncDisp
             await conn.OpenAsync(ct);
 
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                PRAGMA journal_mode=WAL;
-                PRAGMA synchronous=NORMAL;
-
-                CREATE TABLE IF NOT EXISTS labels (
-                    signature TEXT NOT NULL,
-                    kind INTEGER NOT NULL,
-                    confidence REAL NOT NULL DEFAULT 1.0,
-                    labeled_by TEXT NOT NULL,
-                    labeled_at TEXT NOT NULL,
-                    note TEXT,
-                    PRIMARY KEY (signature, labeled_by)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_labels_signature ON labels(signature);
-                CREATE INDEX IF NOT EXISTS idx_labels_at ON labels(labeled_at DESC);
-                """;
+            cmd.CommandText = Data.Schema.UiSchemaLoader.Load("signature_labels");
             await cmd.ExecuteNonQueryAsync(ct);
 
             _initialized = true;

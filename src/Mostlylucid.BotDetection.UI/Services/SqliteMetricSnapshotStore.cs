@@ -28,26 +28,9 @@ public sealed class SqliteMetricSnapshotStore : IMetricSnapshotStore
         var shouldDispose = _sharedConn == null;
         try
         {
-            const string schemaSql = """
-                CREATE TABLE IF NOT EXISTS metric_snapshots (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bucket_time TEXT    NOT NULL,
-                    pack_id     TEXT    NOT NULL,
-                    meter_name  TEXT    NOT NULL,
-                    instrument  TEXT    NOT NULL,
-                    tags        TEXT,
-                    value       REAL    NOT NULL,
-                    value_type  TEXT    NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_ms_lookup
-                    ON metric_snapshots(bucket_time, pack_id, instrument);
-                """;
-            foreach (var statement in schemaSql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                await using var cmd = conn.CreateCommand();
-                cmd.CommandText = statement;
-                await cmd.ExecuteNonQueryAsync(ct);
-            }
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = Data.Schema.UiSchemaLoader.Load("metric_snapshots");
+            await cmd.ExecuteNonQueryAsync(ct);
         }
         finally
         {
