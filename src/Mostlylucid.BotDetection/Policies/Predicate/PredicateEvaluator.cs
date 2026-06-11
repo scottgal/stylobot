@@ -25,28 +25,80 @@ namespace Mostlylucid.BotDetection.Policies.Predicate;
 /// </summary>
 public static class PredicateEvaluator
 {
-    public static bool Evaluate(Predicate predicate, IReadOnlyDictionary<string, object?> signals) =>
+    /// <summary>
+    ///     Evaluate <paramref name="predicate"/> against the request signals
+    ///     without a sustain context. Callers that already have a rule id and
+    ///     <see cref="SustainEvaluator"/> should prefer the stateful overload
+    ///     that takes those arguments -- this stateless path returns
+    ///     <c>false</c> for any <see cref="Predicate.Sustain"/> node it
+    ///     encounters because it cannot know whether the inner has been true
+    ///     long enough.
+    /// </summary>
+    public static bool Evaluate(Predicate predicate, IReadOnlyDictionary<string, object?> signals)
+        => EvaluateStateless(predicate, signals);
+
+    /// <summary>
+    ///     Stateless evaluation -- treats <see cref="Predicate.Sustain"/>
+    ///     nodes as <c>false</c>. Used by the predicate-trace explainer, the
+    ///     backtest runner, and any caller without per-(rule, time) sustain
+    ///     state. Composite predicates that mix Sustain with per-request
+    ///     terms still evaluate the per-request terms exactly; the Sustain
+    ///     subtree contributes <c>false</c> to its parent And/Or which is the
+    ///     conservative degrade-safely answer the spec requires.
+    /// </summary>
+    public static bool EvaluateStateless(Predicate predicate, IReadOnlyDictionary<string, object?> signals) =>
         predicate switch
         {
-            Predicate.And and => EvaluateAnd(and, signals),
-            Predicate.Or or => EvaluateOr(or, signals),
+            Predicate.And and => EvaluateAnd(and, signals, ruleId: Guid.Empty, sustain: null),
+            Predicate.Or or => EvaluateOr(or, signals, ruleId: Guid.Empty, sustain: null),
+            Predicate.Sustain => false,
             Predicate.Term term => EvaluateTerm(term, signals),
             _ => false
         };
 
-    private static bool EvaluateAnd(Predicate.And and, IReadOnlyDictionary<string, object?> signals)
+    /// <summary>
+    ///     Stateful evaluation -- <see cref="Predicate.Sustain"/> nodes
+    ///     dispatch through <paramref name="sustain"/> with the provided
+    ///     <paramref name="ruleId"/> so atoms are partitioned per rule. When
+    ///     <paramref name="sustain"/> is <c>null</c> the evaluator falls back
+    ///     to <see cref="EvaluateStateless"/> semantics so a host without
+    ///     trigger-system DI keeps booting.
+    /// </summary>
+    public static bool Evaluate(
+        Predicate predicate,
+        IReadOnlyDictionary<string, object?> signals,
+        Guid ruleId,
+        SustainEvaluator? sustain) =>
+        predicate switch
+        {
+            Predicate.And and => EvaluateAnd(and, signals, ruleId, sustain),
+            Predicate.Or or => EvaluateOr(or, signals, ruleId, sustain),
+            Predicate.Sustain s => sustain?.IsSatisfied(ruleId, s, signals) ?? false,
+            Predicate.Term term => EvaluateTerm(term, signals),
+            _ => false
+        };
+
+    private static bool EvaluateAnd(
+        Predicate.And and,
+        IReadOnlyDictionary<string, object?> signals,
+        Guid ruleId,
+        SustainEvaluator? sustain)
     {
         // Vacuous truth on an empty And matches the AST's identity element.
         foreach (var child in and.Children)
-            if (!Evaluate(child, signals))
+            if (!Evaluate(child, signals, ruleId, sustain))
                 return false;
         return true;
     }
 
-    private static bool EvaluateOr(Predicate.Or or, IReadOnlyDictionary<string, object?> signals)
+    private static bool EvaluateOr(
+        Predicate.Or or,
+        IReadOnlyDictionary<string, object?> signals,
+        Guid ruleId,
+        SustainEvaluator? sustain)
     {
         foreach (var child in or.Children)
-            if (Evaluate(child, signals))
+            if (Evaluate(child, signals, ruleId, sustain))
                 return true;
         return false;
     }

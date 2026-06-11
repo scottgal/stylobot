@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Mostlylucid.BotDetection.Policies.Rules;
 
 namespace Mostlylucid.BotDetection.Policies.Predicate;
 
@@ -8,7 +9,8 @@ namespace Mostlylucid.BotDetection.Policies.Predicate;
 ///     <code>
 ///     expr     := or
 ///     or       := and ( "or" and )*
-///     and      := atom ( "and" atom )*
+///     and      := sustain_unit ( "and" sustain_unit )*
+///     sustain_unit := atom ( "for" duration )?
 ///     atom     := "(" expr ")"  |  "not" atom  |  term
 ///     term     := IDENT op value
 ///     op       := "=" | "!=" | ">=" | ">" | "<=" | "<"
@@ -18,10 +20,22 @@ namespace Mostlylucid.BotDetection.Policies.Predicate;
 ///     value    := list | scalar
 ///     list     := "(" scalar ("," scalar)* ")"
 ///     scalar   := NUMBER | STRING | BOOL | IDENT
+///     duration := <DurationParser shorthand>  -- 30s, 5m, 1h, 1h30m, 1d, ...
 ///     </code>
 ///     <c>between A and B</c> is currently parsed but folded into a single
 ///     <see cref="PredicateOp.Between"/> term whose value is a string[]
 ///     <c>{ A, B }</c>; that is the same shape the formatter writes back.
+///     <para>
+///         T-Expr (<c>X FOR Yt</c>): any unit predicate may be followed by
+///         <c>FOR</c> + a duration literal to wrap it in a
+///         <see cref="Predicate.Sustain"/> AST node. <c>FOR</c> is
+///         case-insensitive and reserved (it joins the keyword set alongside
+///         <c>and</c>, <c>or</c>, <c>not</c>, ...). The duration literal is
+///         consumed as a raw lexeme and parsed via
+///         <see cref="DurationParser.TryParse"/> -- it must end with one of
+///         <c>s</c>/<c>m</c>/<c>h</c>/<c>d</c> and may compose
+///         (<c>1h30m</c>).
+///     </para>
 /// </summary>
 public static class PredicateParser
 {
@@ -56,16 +70,48 @@ public static class PredicateParser
 
     private static Predicate ParseAnd(Lexer lexer)
     {
-        var left = ParseAtom(lexer);
+        var left = ParseSustainUnit(lexer);
         var children = new List<Predicate> { left };
 
         while (lexer.Peek() is { Kind: TokenKind.Keyword, Text: "and" })
         {
             lexer.Next();
-            children.Add(ParseAtom(lexer));
+            children.Add(ParseSustainUnit(lexer));
         }
 
         return children.Count == 1 ? children[0] : new Predicate.And(children.ToArray());
+    }
+
+    /// <summary>
+    ///     <c>sustain_unit := atom ( "for" duration )?</c>. Consumes an
+    ///     <c>atom</c> first; if the next token is the reserved
+    ///     <c>for</c> keyword, switches the lexer to "duration-literal" mode,
+    ///     reads the next contiguous lexeme (digits/letters with no whitespace),
+    ///     hands it to <see cref="DurationParser.TryParse" />, and wraps the
+    ///     atom in a <see cref="Predicate.Sustain" /> node.
+    /// </summary>
+    private static Predicate ParseSustainUnit(Lexer lexer)
+    {
+        var inner = ParseAtom(lexer);
+
+        var peek = lexer.Peek();
+        if (peek is not { Kind: TokenKind.Keyword, Text: "for" }) return inner;
+        lexer.Next(); // consume 'for'
+
+        var (text, position) = lexer.ReadDurationLiteral();
+        // Constrain to the SUFFIX grammar -- 30s / 5m / 1h / 1h30m -- so that
+        // an HH:MM:SS literal or a bare integer doesn't sneak through via
+        // DurationParser's TimeSpan.TryParse fallback. The last character must
+        // be a unit ([smhd], case-insensitive) and DurationParser must succeed
+        // with a strictly-positive value.
+        var lastChar = text.Length > 0 ? text[text.Length - 1] : '\0';
+        var unitOk = lastChar is 's' or 'S' or 'm' or 'M' or 'h' or 'H' or 'd' or 'D';
+        if (!unitOk || !DurationParser.TryParse(text, out var duration) || duration <= TimeSpan.Zero)
+            throw new PredicateParseException(
+                $"invalid duration literal after 'for': '{text}' (expected e.g. 30s, 5m, 1h, 1h30m)",
+                position);
+
+        return new Predicate.Sustain(inner, duration);
     }
 
     private static Predicate ParseAtom(Lexer lexer)
@@ -231,7 +277,7 @@ public static class PredicateParser
     {
         private static readonly HashSet<string> Keywords = new(StringComparer.OrdinalIgnoreCase)
         {
-            "and", "or", "not", "in", "between", "matches", "contains", "true", "false", "any", "all"
+            "and", "or", "not", "in", "between", "matches", "contains", "true", "false", "any", "all", "for"
         };
 
         private readonly string _src;
@@ -247,6 +293,25 @@ public static class PredicateParser
             var t = _peek ?? ReadNext();
             _peek = null;
             return t;
+        }
+
+        /// <summary>
+        ///     Pull the next contiguous run of digits/dot/letters as a single
+        ///     duration literal -- bypasses the normal Number/Ident split so
+        ///     <c>1h30m</c> arrives at <see cref="DurationParser"/> intact.
+        ///     Discards any token already buffered in <c>_peek</c> (the parser
+        ///     only invokes this after consuming the <c>for</c> keyword, so
+        ///     the buffer is guaranteed empty).
+        /// </summary>
+        public (string Text, int Position) ReadDurationLiteral()
+        {
+            _peek = null;
+            while (_pos < _src.Length && char.IsWhiteSpace(_src[_pos])) _pos++;
+            var start = _pos;
+            while (_pos < _src.Length
+                   && (char.IsLetterOrDigit(_src[_pos]) || _src[_pos] == '.'))
+                _pos++;
+            return (_src.Substring(start, _pos - start), start);
         }
 
         private Token ReadNext()

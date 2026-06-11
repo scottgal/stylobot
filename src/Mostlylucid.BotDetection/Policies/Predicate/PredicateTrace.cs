@@ -36,7 +36,7 @@ public sealed record PredicateTermOutcome(
 /// <summary>
 ///     Result of a <see cref="PredicateTraceEvaluator.Trace"/> call: the
 ///     overall match verdict (identical to what
-///     <see cref="PredicateEvaluator.Evaluate"/> would have returned), the
+///     <see cref="PredicateEvaluator.EvaluateStateless"/> would have returned), the
 ///     per-term outcomes in logical evaluation order, and the sum of every
 ///     term's lookup + compare ticks.
 /// </summary>

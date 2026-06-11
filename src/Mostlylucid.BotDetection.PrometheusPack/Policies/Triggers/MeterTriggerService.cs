@@ -68,6 +68,7 @@ public sealed class MeterTriggerService : IDisposable
     private readonly ILogger<MeterTriggerService> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _ruleListCacheTtl;
+    private readonly SustainEvaluator? _sustain;
 
     private readonly IDisposable _subscription;
     private int _disposed;
@@ -95,7 +96,8 @@ public sealed class MeterTriggerService : IDisposable
         IPolicyRuleStore? store = null,
         MeterSnapshotSignalContributor? contributor = null,
         TimeProvider? timeProvider = null,
-        IOptions<MeterTriggerServiceOptions>? options = null)
+        IOptions<MeterTriggerServiceOptions>? options = null,
+        SustainEvaluator? sustain = null)
         : this(
             coordinator,
             registry,
@@ -103,7 +105,8 @@ public sealed class MeterTriggerService : IDisposable
             store,
             contributor,
             timeProvider,
-            (options?.Value.RuleListCacheTtl is { } ttl && ttl > TimeSpan.Zero) ? ttl : DefaultRuleListCacheTtl)
+            (options?.Value.RuleListCacheTtl is { } ttl && ttl > TimeSpan.Zero) ? ttl : DefaultRuleListCacheTtl,
+            sustain)
     {
     }
 
@@ -127,7 +130,8 @@ public sealed class MeterTriggerService : IDisposable
         IPolicyRuleStore? store,
         MeterSnapshotSignalContributor? contributor,
         TimeProvider? timeProvider,
-        TimeSpan ruleListCacheTtl)
+        TimeSpan ruleListCacheTtl,
+        SustainEvaluator? sustain = null)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -136,6 +140,7 @@ public sealed class MeterTriggerService : IDisposable
         _contributor = contributor;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _ruleListCacheTtl = ruleListCacheTtl <= TimeSpan.Zero ? DefaultRuleListCacheTtl : ruleListCacheTtl;
+        _sustain = sustain;
 
         _subscription = coordinator.Subscribe(
             TickCadence.Tick1s,
@@ -166,8 +171,9 @@ public sealed class MeterTriggerService : IDisposable
         MeterSnapshotSignalContributor? contributor,
         TimeProvider? timeProvider,
         TimeSpan tickInterval,
-        TimeSpan ruleListCacheTtl)
-        : this(NullScheduleCoordinator.Instance, registry, logger, store, contributor, timeProvider, ruleListCacheTtl)
+        TimeSpan ruleListCacheTtl,
+        SustainEvaluator? sustain = null)
+        : this(NullScheduleCoordinator.Instance, registry, logger, store, contributor, timeProvider, ruleListCacheTtl, sustain)
     {
         _ = tickInterval; // pre-migration; the coordinator owns cadence now.
     }
@@ -216,21 +222,46 @@ public sealed class MeterTriggerService : IDisposable
         await _contributor.ContributeAsync(meterSignals, ct).ConfigureAwait(false);
 
         // 3. Walk the trigger rules, drive their atoms, and collect transitions.
+        //
+        //    Two flavours classify as trigger rules now:
+        //    * Phase G: meter-only predicate + non-null rule.Trigger.SustainFor
+        //               -- the ArmedRuleAtom owns the sustain timer driven by
+        //               the raw boolean predicate result.
+        //    * T-Expr (FOR Xs): predicate contains a Sustain(meter-only, Xs)
+        //               node -- the SustainEvaluator atoms own the sustain
+        //               timer. The stateful PredicateEvaluator dispatches
+        //               through SustainEvaluator, so the boolean we observe
+        //               here is already the sustained-true verdict. We feed
+        //               that into the ArmedRuleAtom with zero sustain so the
+        //               armed flag flips synchronously with the predicate.
         var triggerRuleIds = new HashSet<Guid>();
         foreach (var rule in rules)
         {
             if (!TriggerRuleClassifier.IsTriggerRule(rule)) continue;
             triggerRuleIds.Add(rule.Id);
 
-            var predicateTrue = PredicateEvaluator.Evaluate(rule.Predicate, meterSignals);
+            // Stateful overload advances the SustainEvaluator atoms; for
+            // Phase G rules without Sustain nodes it behaves like the
+            // pre-T-Expr evaluator.
+            var predicateTrue = PredicateEvaluator.Evaluate(rule.Predicate, meterSignals, rule.Id, _sustain);
 
             var atom = _registry.GetOrAdd(rule.Id);
-            var trigger = rule.Trigger!; // IsTriggerRule guarantees non-null
-            var transitioned = atom.Observe(
-                predicateTrue,
-                now,
-                trigger.EffectiveSustainFor,
-                trigger.EffectiveRecoverAfter);
+            TimeSpan sustainFor;
+            TimeSpan recoverAfter;
+            if (rule.Trigger is { } trigger)
+            {
+                // Phase G shape -- atom owns the sustain timer.
+                sustainFor = trigger.EffectiveSustainFor;
+                recoverAfter = trigger.EffectiveRecoverAfter;
+            }
+            else
+            {
+                // T-Expr shape -- predicate already encodes the sustain;
+                // the atom is just a same-cycle latch.
+                sustainFor = TimeSpan.Zero;
+                recoverAfter = TimeSpan.Zero;
+            }
+            var transitioned = atom.Observe(predicateTrue, now, sustainFor, recoverAfter);
 
             if (transitioned)
             {

@@ -29,10 +29,74 @@ public static class PredicateFormatter
             case Predicate.And and:
                 WriteCombinator(and.Children, "and", precedence: 2, sb, parentPrecedence);
                 break;
+            case Predicate.Sustain sustain:
+                WriteSustain(sustain, sb, parentPrecedence);
+                break;
             case Predicate.Term term:
                 WriteTerm(term, sb);
                 break;
         }
+    }
+
+    /// <summary>
+    ///     Format a <see cref="Predicate.Sustain"/> as <c>&lt;inner&gt; for &lt;duration&gt;</c>.
+    ///     Inner is written at the And precedence (2) so a composite inner
+    ///     <see cref="Predicate.Or"/> gets parenthesised consistently with
+    ///     "or inside and" rendering -- a Sustain over an Or otherwise reads
+    ///     ambiguously.
+    /// </summary>
+    private static void WriteSustain(Predicate.Sustain sustain, StringBuilder sb, int parentPrecedence)
+    {
+        // Sustain associates tighter than the surrounding boolean combinators:
+        // it's a unit-level decorator on top of an atom/group. Render the inner
+        // at And precedence so an Or inside picks up parens, mirroring
+        // WriteCombinator's "Or inside And" rule.
+        Write(sustain.Inner, sb, parentPrecedence: 2);
+        sb.Append(" for ");
+        sb.Append(FormatDuration(sustain.Duration));
+    }
+
+    /// <summary>
+    ///     Emit a duration using the same shorthand
+    ///     <see cref="Mostlylucid.BotDetection.Policies.Rules.DurationParser"/>
+    ///     accepts: prefer a single-unit token (<c>30s</c>, <c>5m</c>,
+    ///     <c>1h</c>, <c>1d</c>) when the value is an integer in that unit;
+    ///     otherwise compose <c>{d}d{h}h{m}m{s}s</c> dropping zero-valued
+    ///     groups. Sub-second precision falls back to a single
+    ///     fractional-second token (<c>1.5s</c>).
+    /// </summary>
+    internal static string FormatDuration(TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero) return "0s";
+
+        // Single-unit fast path: round down to the largest whole unit.
+        if (duration.Ticks % TimeSpan.TicksPerDay == 0)
+            return ((long)duration.TotalDays).ToString(CultureInfo.InvariantCulture) + "d";
+        if (duration.Ticks % TimeSpan.TicksPerHour == 0)
+            return ((long)duration.TotalHours).ToString(CultureInfo.InvariantCulture) + "h";
+        if (duration.Ticks % TimeSpan.TicksPerMinute == 0)
+            return ((long)duration.TotalMinutes).ToString(CultureInfo.InvariantCulture) + "m";
+        if (duration.Ticks % TimeSpan.TicksPerSecond == 0)
+            return ((long)duration.TotalSeconds).ToString(CultureInfo.InvariantCulture) + "s";
+
+        // Composite shorthand for mixed integer groups (e.g. 1h30m).
+        var days = duration.Days;
+        var hours = duration.Hours;
+        var minutes = duration.Minutes;
+        var seconds = duration.Seconds;
+        if (duration.Ticks % TimeSpan.TicksPerSecond == 0
+            && (days > 0 || hours > 0 || minutes > 0 || seconds > 0))
+        {
+            var sb = new StringBuilder();
+            if (days > 0) sb.Append(days.ToString(CultureInfo.InvariantCulture)).Append('d');
+            if (hours > 0) sb.Append(hours.ToString(CultureInfo.InvariantCulture)).Append('h');
+            if (minutes > 0) sb.Append(minutes.ToString(CultureInfo.InvariantCulture)).Append('m');
+            if (seconds > 0) sb.Append(seconds.ToString(CultureInfo.InvariantCulture)).Append('s');
+            return sb.ToString();
+        }
+
+        // Sub-second remainder -- emit a fractional-second token.
+        return duration.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) + "s";
     }
 
     // Parenthesise only when the child precedence is lower than parent. "OR" inside "AND"

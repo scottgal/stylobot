@@ -77,6 +77,37 @@ public abstract record Predicate
     }
 
     /// <summary>
+    ///     T-Expr sustain wrapper: <c>(Inner FOR Duration)</c>. The wrapped
+    ///     predicate must have been continuously true for at least
+    ///     <see cref="Duration"/> before <see cref="Sustain"/> itself evaluates
+    ///     true. Per-(rule, inner-AST-hash) state is owned by
+    ///     <c>SustainEvaluator</c> -- the AST node is value-equal and contains
+    ///     no runtime state of its own. Stateless callers see
+    ///     <see cref="PredicateEvaluator.EvaluateStateless"/> return
+    ///     <c>false</c> for any Sustain node; the stateful
+    ///     <see cref="PredicateEvaluator.Evaluate(Predicate, IReadOnlyDictionary{string,object?}, Guid, SustainEvaluator?)"/>
+    ///     overload dispatches the lookup-or-create against the evaluator's
+    ///     atom registry.
+    /// </summary>
+    public sealed record Sustain(Predicate Inner, TimeSpan Duration) : Predicate
+    {
+        public bool Equals(Sustain? other)
+        {
+            if (other is null) return false;
+            if (ReferenceEquals(this, other)) return true;
+            return Duration == other.Duration && Inner.Equals(other.Inner);
+        }
+
+        public override int GetHashCode()
+        {
+            var hc = new HashCode();
+            hc.Add(Inner);
+            hc.Add(Duration);
+            return hc.ToHashCode();
+        }
+    }
+
+    /// <summary>
     ///     Leaf predicate: <c>(Facet Op Value)</c>. <c>Facet</c> is a
     ///     SignalKeys constant (e.g. <c>"bot.type"</c>,
     ///     <c>"score.bot_probability"</c>). <c>Value</c> is a primitive
@@ -174,9 +205,10 @@ public sealed class PredicatePolymorphicConverter : JsonConverter<Predicate>
         {
             "And" => new Predicate.And(ReadChildren(root, options)),
             "Or" => new Predicate.Or(ReadChildren(root, options)),
+            "Sustain" => ReadSustain(root, options),
             "Term" => ReadTerm(root),
             _ => throw new JsonException(
-                $"Unknown predicate kind '{kind}'. Expected one of: And, Or, Term.")
+                $"Unknown predicate kind '{kind}'. Expected one of: And, Or, Sustain, Term.")
         };
     }
 
@@ -193,6 +225,17 @@ public sealed class PredicatePolymorphicConverter : JsonConverter<Predicate>
             case Predicate.Or or:
                 writer.WriteString("$kind", "Or");
                 WriteChildren(writer, or.Children, options);
+                break;
+
+            case Predicate.Sustain sustain:
+                writer.WriteString("$kind", "Sustain");
+                // ISO-8601 ("PT60S") is the durable wire form: round-trips
+                // exactly through TimeSpan.Parse and stays culture-invariant.
+                // The textual FOR/format pair (30s / 5m / 1h30m) lives at the
+                // predicate-text layer only -- JSON is structured storage.
+                writer.WriteString("duration", System.Xml.XmlConvert.ToString(sustain.Duration));
+                writer.WritePropertyName("inner");
+                JsonSerializer.Serialize(writer, sustain.Inner, options);
                 break;
 
             case Predicate.Term term:
@@ -231,6 +274,32 @@ public sealed class PredicatePolymorphicConverter : JsonConverter<Predicate>
             list.Add(child);
         }
         return list.ToArray();
+    }
+
+    private static Predicate.Sustain ReadSustain(JsonElement root, JsonSerializerOptions options)
+    {
+        // Duration: ISO-8601 ("PT60S") is the canonical wire form.
+        // Be lenient if a producer wrote a TimeSpan.ToString() ("00:01:00")
+        // shape -- TimeSpan.TryParse handles that with invariant culture.
+        if (!root.TryGetProperty("duration", out var durProp))
+            throw new JsonException("Predicate Sustain JSON is missing required 'duration'.");
+        var raw = durProp.GetString() ?? string.Empty;
+        TimeSpan duration;
+        try
+        {
+            duration = System.Xml.XmlConvert.ToTimeSpan(raw);
+        }
+        catch (FormatException)
+        {
+            if (!TimeSpan.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out duration))
+                throw new JsonException($"Predicate Sustain 'duration' is not a valid ISO-8601 / TimeSpan value: '{raw}'.");
+        }
+
+        if (!root.TryGetProperty("inner", out var innerProp))
+            throw new JsonException("Predicate Sustain JSON is missing required 'inner'.");
+        var inner = JsonSerializer.Deserialize<Predicate>(innerProp.GetRawText(), options)
+                    ?? throw new JsonException("Predicate Sustain 'inner' was null.");
+        return new Predicate.Sustain(inner, duration);
     }
 
     private static Predicate.Term ReadTerm(JsonElement root)

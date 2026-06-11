@@ -43,6 +43,7 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
     private readonly IPolicyRuleStore _store;
     private readonly IReadOnlyList<ISignalContributor> _contributors;
     private readonly ArmedRuleRegistry? _armedRegistry;
+    private readonly SustainEvaluator? _sustain;
 
     /// <summary>
     ///     Construct a resolver that does no signal contribution merging --
@@ -51,7 +52,7 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
     ///     have not registered any contributors yet.
     /// </summary>
     public DefaultPolicyResolver(IPolicyRuleStore store)
-        : this(store, contributors: null, armedRegistry: null)
+        : this(store, contributors: null, armedRegistry: null, sustain: null)
     {
     }
 
@@ -61,7 +62,7 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
     ///     pre-Phase-F path. A null entry inside the enumerable is filtered.
     /// </summary>
     public DefaultPolicyResolver(IPolicyRuleStore store, IEnumerable<ISignalContributor>? contributors)
-        : this(store, contributors, armedRegistry: null)
+        : this(store, contributors, armedRegistry: null, sustain: null)
     {
     }
 
@@ -76,12 +77,31 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
         IPolicyRuleStore store,
         IEnumerable<ISignalContributor>? contributors,
         ArmedRuleRegistry? armedRegistry)
+        : this(store, contributors, armedRegistry, sustain: null)
+    {
+    }
+
+    /// <summary>
+    ///     T-Expr constructor: also wires the optional
+    ///     <see cref="SustainEvaluator"/> so <c>FOR Xs</c> sub-predicates
+    ///     consult the shared per-rule sustain atoms. Null means "no sustain
+    ///     context" -- the resolver still evaluates Sustain nodes via
+    ///     <see cref="PredicateEvaluator.Evaluate(Predicate.Predicate, IReadOnlyDictionary{string, object?}, Guid, SustainEvaluator?)"/>
+    ///     but they always degrade to <c>false</c>, which is the documented
+    ///     fail-safe.
+    /// </summary>
+    public DefaultPolicyResolver(
+        IPolicyRuleStore store,
+        IEnumerable<ISignalContributor>? contributors,
+        ArmedRuleRegistry? armedRegistry,
+        SustainEvaluator? sustain)
     {
         _store = store;
         _contributors = contributors is null
             ? Array.Empty<ISignalContributor>()
             : contributors.Where(c => c is not null).ToArray();
         _armedRegistry = armedRegistry;
+        _sustain = sustain;
     }
 
     /// <inheritdoc />
@@ -203,7 +223,7 @@ public sealed class DefaultPolicyResolver : IPolicyResolver
         {
             if (!PolicyScopeMatcher.MatchesRequest(entry.Rule.Scope, evalSignals)) continue;
             if (!entry.IsArmed
-                && !PredicateEvaluator.Evaluate(entry.Rule.Predicate, evalSignals))
+                && !PredicateEvaluator.Evaluate(entry.Rule.Predicate, evalSignals, entry.Rule.Id, _sustain))
                 continue;
             result.Add(entry);
         }

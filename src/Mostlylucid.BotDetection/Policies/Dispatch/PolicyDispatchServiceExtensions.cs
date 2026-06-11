@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
+using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Triggers;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Scheduling;
@@ -34,6 +35,11 @@ public static class PolicyDispatchServiceExtensions
         // dashboard DI extension also registers these via TryAdd; calling
         // both is safe.
         services.TryAddSingleton<ArmedRuleRegistry>();
+        // T-Expr (FOR Xs) -- per-(rule, term) sustain state lives here. The
+        // resolver and trigger service both ask this singleton "is the
+        // sustained-inner-true condition met right now?". Atoms are
+        // in-memory; the process owns the timer state by design.
+        services.TryAddSingleton<SustainEvaluator>();
         // ITokenBucketStore is the single token-bucket primitive used by
         // both RateLimit and Throttle handlers (Wave 3 consolidation --
         // see feedback_no_duplication). Hosts may replace the in-memory
