@@ -70,7 +70,9 @@ public sealed class RemoteMeterStreamOptions
 
     /// <summary>
     ///     Only ingest meters whose name starts with this prefix. Empty
-    ///     (default) ingests every family the gateway exposes.
+    ///     (default) ingests every family the gateway exposes. A pipe (<c>|</c>)
+    ///     separates multiple prefixes -- e.g. <c>"stylobot|aspnet_pack"</c>
+    ///     keeps families starting with either token.
     /// </summary>
     public string MeterNamePrefixFilter { get; set; } = "";
 

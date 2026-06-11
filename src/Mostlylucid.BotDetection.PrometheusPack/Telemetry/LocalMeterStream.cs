@@ -220,9 +220,7 @@ public sealed class LocalMeterStream : IMeterStream, IAsyncDisposable, IDisposab
 
     private void OnInstrumentPublished(Instrument instrument, MeterListener listener)
     {
-        var filter = _options.MeterNamePrefixFilter;
-        if (!string.IsNullOrEmpty(filter)
-            && !instrument.Name.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
+        if (!MeterNamePrefixFilterMatcher.Matches(instrument.Name, _options.MeterNamePrefixFilter))
         {
             return;
         }

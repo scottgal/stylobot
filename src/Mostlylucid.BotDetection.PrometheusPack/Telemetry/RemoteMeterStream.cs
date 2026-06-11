@@ -356,8 +356,7 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
         var now = DateTimeOffset.UtcNow;
         foreach (var family in families)
         {
-            if (!string.IsNullOrEmpty(_options.MeterNamePrefixFilter)
-                && !family.Name.StartsWith(_options.MeterNamePrefixFilter, StringComparison.OrdinalIgnoreCase))
+            if (!MeterNamePrefixFilterMatcher.Matches(family.Name, _options.MeterNamePrefixFilter))
             {
                 continue;
             }
