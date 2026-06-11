@@ -9,10 +9,12 @@ namespace Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 ///     Wraps <see cref="IMeterStream.ListAsync"/> for a count of currently
 ///     registered instruments.
 ///     <para>
-///         Always returns a tile -- <see cref="IMeterStream"/> is registered
-///         on every host (Local on the gateway, Remote on viewer hosts), so
-///         this provider doesn't need the optional-DI fallback the other two
-///         use. An empty catalog renders Caution; any entries render Good.
+///         <see cref="IMeterStream"/> is optional: a Demo / dev-bench host
+///         that doesn't call <c>AddPrometheusPack</c> won't have one, and
+///         the dashboard wiring registers this provider unconditionally.
+///         Returning <c>null</c> from <see cref="BuildTileAsync"/> when the
+///         dependency is absent mirrors the fallback the other two
+///         pack-health providers use; the row builder simply omits the tile.
 ///     </para>
 /// </summary>
 public sealed class MeterStreamHealthSummaryProvider : IPackHealthSummaryProvider
@@ -23,11 +25,10 @@ public sealed class MeterStreamHealthSummaryProvider : IPackHealthSummaryProvide
     /// </summary>
     public const string DrillPath = "/dashboard/insights";
 
-    private readonly IMeterStream _stream;
+    private readonly IMeterStream? _stream;
 
-    public MeterStreamHealthSummaryProvider(IMeterStream stream)
+    public MeterStreamHealthSummaryProvider(IMeterStream? stream = null)
     {
-        ArgumentNullException.ThrowIfNull(stream);
         _stream = stream;
     }
 
@@ -37,6 +38,8 @@ public sealed class MeterStreamHealthSummaryProvider : IPackHealthSummaryProvide
     /// <inheritdoc />
     public async Task<StatTileViewModel?> BuildTileAsync(CancellationToken ct)
     {
+        if (_stream is null) return null;
+
         var catalog = await _stream.ListAsync(ct).ConfigureAwait(false);
         var count = catalog.Count;
 

@@ -310,8 +310,14 @@ public static class StyloBotDashboardServiceExtensions
             Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.PolicyStackHealthSummaryProvider>();
         services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
             Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHealthSummaryProvider>();
-        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
-            Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthSummaryProvider>();
+        // Factory variant: IMeterStream is only registered when a host calls
+        // AddPrometheusPack. A Demo / dev-bench host won't have it, but the
+        // dashboard wiring registers this provider unconditionally. Resolving
+        // through the factory lets the provider's null path return a null tile
+        // (the row builder skips it) instead of failing ValidateOnBuild.
+        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider>(sp =>
+            new Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthSummaryProvider(
+                sp.GetService<Mostlylucid.BotDetection.PrometheusPack.Telemetry.IMeterStream>()));
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();
 
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial

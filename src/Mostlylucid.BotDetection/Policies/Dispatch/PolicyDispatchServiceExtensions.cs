@@ -60,6 +60,24 @@ public static class PolicyDispatchServiceExtensions
                 logger: sp.GetService<ILogger<PolicyDecisionLogQueue>>());
         });
 
+        // PolicyActionDispatcher's constructor requires IPolicyResolver, which
+        // requires IPolicyRuleStore. The dashboard wires both -- but a
+        // detection-only host (Demo, BDF rig, minimal LearningFeedbackLoop test)
+        // doesn't pull in the dashboard. Without these TryAddSingleton lines
+        // every PolicyActionDispatcher activation throws at boot.
+        // YamlPolicyRuleStore.FromEmbeddedResources loads the bundled FOSS
+        // seed; commercial Postgres pack overrides via TryAdd-loses semantics.
+        services.TryAddSingleton<Rules.IPolicyRuleStore>(_ =>
+        {
+            var asm = typeof(Rules.PolicyRule).Assembly;
+            var store = Rules.YamlPolicyRuleStore.FromEmbeddedResources(
+                asm,
+                "Mostlylucid.BotDetection.Policies.Rules.SeedRules.");
+            store.InitializeAsync().GetAwaiter().GetResult();
+            return store;
+        });
+        services.TryAddSingleton<Resolution.IPolicyResolver, Resolution.DefaultPolicyResolver>();
+
         // The dispatcher itself. Singleton: handlers are stateless, the
         // resolver is singleton-shaped, the decision log queue is singleton-shaped.
         services.TryAddSingleton<PolicyActionDispatcher>();
