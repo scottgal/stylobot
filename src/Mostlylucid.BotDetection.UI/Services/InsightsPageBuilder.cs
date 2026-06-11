@@ -168,7 +168,8 @@ public sealed class InsightsPageBuilder
             Sparkline: spark,
             HealthBand: HealthBand.Neutral,
             DrillHref: $"/dashboard/insights/{Uri.EscapeDataString(entry.Name)}",
-            Description: entry.Description);
+            Description: entry.Description,
+            Label: entry.Label);
     }
 
     internal static IReadOnlyList<InsightsFacetOption> BuildNamespaceFacets(

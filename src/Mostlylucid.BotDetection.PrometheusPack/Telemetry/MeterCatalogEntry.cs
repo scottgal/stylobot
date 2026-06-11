@@ -20,4 +20,5 @@ public sealed record MeterCatalogEntry(
     string Namespace,
     MeterKind Kind,
     string? Unit,
-    string? Description);
+    string? Description,
+    string? Label = null);

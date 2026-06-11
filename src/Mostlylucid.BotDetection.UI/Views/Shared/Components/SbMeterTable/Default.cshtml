@@ -44,14 +44,25 @@
                 {
                     var rowCls = $"sb-meter-table__row sb-meter-table__row--{BandSuffix(row.HealthBand)}";
                     var pillCls = $"sb-meter-table__pill sb-meter-table__pill--{row.Kind.ToLowerInvariant()}";
+                    var primary = string.IsNullOrWhiteSpace(row.Label) ? row.Name : row.Label;
                     <tr class="@rowCls" data-meter-row data-health="@row.HealthBand">
-                        <th scope="row" class="sb-meter-table__name" title="@row.Description">
+                        <th scope="row" class="sb-meter-table__name">
                             @if (row.HealthBand != HealthBand.Neutral)
                             {
                                 @await Component.InvokeAsync("SbHealthDot",
                                     new { model = new HealthDotViewModel(row.HealthBand, "") })
                             }
-                            <span class="sb-meter-table__name-text">@row.Name</span>
+                            <div class="sb-meter-table__name-block">
+                                <span class="sb-meter-table__name-text">@primary</span>
+                                @if (!string.IsNullOrWhiteSpace(row.Label))
+                                {
+                                    <code class="sb-meter-table__name-raw">@row.Name</code>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(row.Description))
+                                {
+                                    <p class="sb-meter-table__name-desc">@row.Description</p>
+                                }
+                            </div>
                         </th>
                         <td class="sb-meter-table__kind">
                             <span class="@pillCls">@row.Kind</span>

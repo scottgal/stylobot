@@ -1,0 +1,56 @@
+# Human-readable labels + descriptions for FOSS BotDetection meters.
+# Names match the Prometheus exposition (underscore form). The registry
+# canonicalises lookups so the dotted in-process Meter source names resolve
+# to the same entry.
+family: stylobot
+
+entries:
+  - name: stylobot_signals_per_request
+    label: "Signals per request"
+    description: "Histogram of how many detection signals fire per request. Higher values mean richer per-request fingerprint evidence."
+    unit: "signals"
+
+  - name: stylobot_detector_duration_seconds
+    label: "Detector latency"
+    description: "Histogram of per-detector execution time. Tail latency here is the budget the StyloBot pipeline adds to each request."
+    unit: "s"
+
+  - name: stylobot_detectors_runs_total
+    label: "Detector runs"
+    description: "Total detector executions across the pipeline. Counts each detector against each eligible request."
+    unit: "runs"
+
+  - name: stylobot_signature_emit_total
+    label: "Signatures emitted"
+    description: "Fingerprint signatures committed to the store. Increments after the LFU + write-behind drain succeeds."
+    unit: "signatures"
+
+  - name: stylobot_signature_match_total
+    label: "Signature matches"
+    description: "Inbound requests matched against an existing fingerprint signature. Drives the bot-pressure column on the dashboard."
+    unit: "hits"
+
+  - name: stylobot_request_decision_total
+    label: "Request decisions"
+    description: "Per-request final verdict counter (allow / challenge / block / throttle), tagged with the decision band."
+    unit: "decisions"
+
+  - name: stylobot_policy_decisions_total
+    label: "Policy decisions"
+    description: "Counts evaluations of the active policy stack, tagged with rule id + winning action. Underpins the Policy Effective tab."
+    unit: "decisions"
+
+  - name: stylobot_honeypot_hits_total
+    label: "Honeypot hits"
+    description: "Requests that landed on a honeypot route or asset. Tagged with category (path / asset / referer / etc.)."
+    unit: "hits"
+
+  - name: stylobot_pipeline_latency_seconds
+    label: "Pipeline latency"
+    description: "End-to-end histogram of the StyloBot middleware. This is the processing time StyloBot adds to each request, gateway-internal only."
+    unit: "s"
+
+  - name: stylobot_upstream_response_seconds
+    label: "Upstream response time"
+    description: "Time observed between StyloBot forwarding the request to YARP upstream and the upstream first byte. Backend health."
+    unit: "s"

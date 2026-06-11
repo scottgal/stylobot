@@ -186,11 +186,14 @@ public static class PrometheusPackServiceCollectionExtensions
         //
         // Resolve IScheduleCoordinator via the production constructor (added
         // by Mostlylucid.BotDetection.Extensions.AddBotDetection).
+        EnsureMeterDescriptionRegistryRegistered(services);
+
         services.AddSingleton<LocalMeterStream>(sp => new LocalMeterStream(
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<LocalMeterStreamOptions>>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LocalMeterStream>>(),
             sp.GetRequiredService<IMeterSignalSink>(),
-            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
+            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(),
+            sp.GetService<MeterDescriptionRegistry>()));
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<LocalMeterStream>());
 
         AddPolicyMeterIntegration(services);
@@ -244,16 +247,51 @@ public static class PrometheusPackServiceCollectionExtensions
         // Wave 2: RemoteMeterStream is no longer IHostedService. The
         // PrometheusPackBootstrap (registered by AddPrometheusPack) forces
         // construction at boot so the constructor's Subscribe(...) fires.
+        EnsureMeterDescriptionRegistryRegistered(services);
+
         services.AddSingleton<RemoteMeterStream>(sp => new RemoteMeterStream(
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RemoteMeterStreamOptions>>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RemoteMeterStream>>(),
             sp.GetService<IMeterSignalSink>(),
             sp.GetRequiredService<IHttpClientFactory>(),
-            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
+            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(),
+            sp.GetService<MeterDescriptionRegistry>()));
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<RemoteMeterStream>());
 
         AddPolicyMeterIntegration(services);
         return services;
+    }
+
+    /// <summary>
+    ///     Registers the <see cref="MeterDescriptionRegistry" /> as a singleton and
+    ///     seeds it with this assembly. Pack extensions (e.g. AspNetPack, OtelMesh)
+    ///     can append their own assembly via
+    ///     <see cref="MeterDescriptionRegistryOptions.Assemblies" /> so each pack
+    ///     ships descriptions for the meters it owns.
+    /// </summary>
+    public static IServiceCollection AddMeterDescriptionSourceAssembly(
+        this IServiceCollection services, System.Reflection.Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        EnsureMeterDescriptionRegistryRegistered(services);
+        services.Configure<MeterDescriptionRegistryOptions>(opt =>
+        {
+            if (!opt.Assemblies.Contains(assembly)) opt.Assemblies.Add(assembly);
+        });
+        return services;
+    }
+
+    private static void EnsureMeterDescriptionRegistryRegistered(IServiceCollection services)
+    {
+        services.AddOptions<MeterDescriptionRegistryOptions>()
+            .Configure(opt =>
+            {
+                var thisAssembly = typeof(MeterDescriptionRegistry).Assembly;
+                if (!opt.Assemblies.Contains(thisAssembly)) opt.Assemblies.Add(thisAssembly);
+            });
+        services.TryAddSingleton(sp => new MeterDescriptionRegistry(
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MeterDescriptionRegistryOptions>>().Value,
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<MeterDescriptionRegistry>>()));
     }
 
     /// <summary>

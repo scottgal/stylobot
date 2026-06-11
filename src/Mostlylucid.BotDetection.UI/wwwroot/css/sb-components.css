@@ -625,13 +625,41 @@
 }
 .sb-meter-table__name {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.4em;
     font-weight: 500;
     color: var(--sb-text);
+    padding-top: 0.35em;
+    padding-bottom: 0.35em;
+}
+.sb-meter-table__name-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15em;
+    min-width: 0;
 }
 .sb-meter-table__name-text {
+    word-break: break-word;
+    font-weight: 600;
+    color: var(--sb-text);
+}
+.sb-meter-table__name-raw {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    color: var(--sb-text-muted);
+    background: var(--sb-surface-alt, rgba(127,127,127,0.08));
+    padding: 0.05em 0.4em;
+    border-radius: 4px;
+    align-self: flex-start;
     word-break: break-all;
+}
+.sb-meter-table__name-desc {
+    color: var(--sb-text-muted);
+    font-size: 0.78rem;
+    font-weight: 400;
+    margin: 0;
+    line-height: 1.35;
+    max-width: 56ch;
 }
 .sb-meter-table__value {
     font-weight: 600;

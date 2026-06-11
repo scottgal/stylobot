@@ -65,6 +65,7 @@ public sealed class LocalMeterStream : IMeterStream, IAsyncDisposable, IDisposab
     private readonly LocalMeterStreamOptions _options;
     private readonly ILogger<LocalMeterStream> _logger;
     private readonly IMeterSignalSink _signalSink;
+    private readonly MeterDescriptionRegistry? _descriptions;
 
     private readonly ConcurrentDictionary<string, MeterSummaryAtom> _atoms = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, MeterCatalogEntry> _catalog = new(StringComparer.Ordinal);
@@ -103,12 +104,14 @@ public sealed class LocalMeterStream : IMeterStream, IAsyncDisposable, IDisposab
         IOptions<LocalMeterStreamOptions> options,
         ILogger<LocalMeterStream> logger,
         IMeterSignalSink signalSink,
-        IScheduleCoordinator coordinator)
+        IScheduleCoordinator coordinator,
+        MeterDescriptionRegistry? descriptions = null)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         _options = options.Value;
         _logger = logger;
         _signalSink = signalSink;
+        _descriptions = descriptions;
 
         StartListener();
         _decaySubscription = coordinator.Subscribe(
@@ -227,12 +230,14 @@ public sealed class LocalMeterStream : IMeterStream, IAsyncDisposable, IDisposab
 
         var kind = InferKind(instrument);
         var ns = ExtractNamespace(instrument.Name);
+        var desc = _descriptions?.TryGet(instrument.Name);
         var entry = new MeterCatalogEntry(
             instrument.Name,
             ns,
             kind,
-            string.IsNullOrEmpty(instrument.Unit) ? null : instrument.Unit,
-            string.IsNullOrEmpty(instrument.Description) ? null : instrument.Description);
+            desc?.Unit ?? (string.IsNullOrEmpty(instrument.Unit) ? null : instrument.Unit),
+            desc?.Description ?? (string.IsNullOrEmpty(instrument.Description) ? null : instrument.Description),
+            desc?.Label);
 
         // Remember the catalog entry for this name so subsequent Record()
         // calls can lazily re-create the atom if an LFU eviction destroyed

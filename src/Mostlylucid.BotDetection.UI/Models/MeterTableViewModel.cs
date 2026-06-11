@@ -56,4 +56,5 @@ public sealed record MeterTableRowViewModel(
     SparklineViewModel? Sparkline = null,
     HealthBand HealthBand = HealthBand.Neutral,
     string? DrillHref = null,
-    string? Description = null);
+    string? Description = null,
+    string? Label = null);

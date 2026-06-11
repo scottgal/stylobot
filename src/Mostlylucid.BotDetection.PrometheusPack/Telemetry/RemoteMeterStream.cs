@@ -57,6 +57,7 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
 
     private readonly RemoteMeterStreamOptions _options;
     private readonly ILogger<RemoteMeterStream> _logger;
+    private readonly MeterDescriptionRegistry? _descriptions;
     private readonly IMeterSignalSink _signalSink;
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly HttpMessageHandler? _injectedHandler;
@@ -109,8 +110,9 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
         ILogger<RemoteMeterStream> logger,
         IMeterSignalSink? signalSink,
         IHttpClientFactory httpClientFactory,
-        IScheduleCoordinator coordinator)
-        : this(options, logger, signalSink, httpClientFactory, injectedHandler: null, coordinator: coordinator)
+        IScheduleCoordinator coordinator,
+        MeterDescriptionRegistry? descriptions = null)
+        : this(options, logger, signalSink, httpClientFactory, injectedHandler: null, coordinator: coordinator, descriptions: descriptions)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
     }
@@ -152,9 +154,11 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
         IMeterSignalSink? signalSink,
         IHttpClientFactory? httpClientFactory,
         HttpMessageHandler? injectedHandler,
-        IScheduleCoordinator coordinator)
+        IScheduleCoordinator coordinator,
+        MeterDescriptionRegistry? descriptions = null)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
+        _descriptions = descriptions;
         // Test path: either an IHttpClientFactory or a HttpMessageHandler MUST
         // be supplied -- a fully-null transport is a misconfiguration that
         // would have silently created a bare HttpClient in the pre-Wave-6
@@ -388,6 +392,9 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
     private void IngestFamily(PrometheusMetric family, DateTimeOffset now)
     {
         var kind = MapKind(family.Kind);
+        var desc = _descriptions?.TryGet(family.Name);
+        var unit = desc?.Unit ?? (string.IsNullOrEmpty(family.Unit) ? null : family.Unit);
+        var description = desc?.Description ?? (string.IsNullOrEmpty(family.Help) ? null : family.Help);
 
         // Catalog entry: same shape as LocalMeterStream.OnInstrumentPublished
         // builds. Keyed by family name (not the suffixed sample name).
@@ -396,19 +403,21 @@ public sealed class RemoteMeterStream : IMeterStream, IAsyncDisposable, IDisposa
                 family.Name,
                 ExtractNamespace(family.Name),
                 kind,
-                string.IsNullOrEmpty(family.Unit) ? null : family.Unit,
-                string.IsNullOrEmpty(family.Help) ? null : family.Help));
+                unit,
+                description,
+                desc?.Label));
 
         // If the previous catalog entry had a placeholder Untyped that's since
         // been declared, refresh it. Cheap because catalog is small.
-        if (entry.Kind != kind || entry.Unit != family.Unit || entry.Description != family.Help)
+        if (entry.Kind != kind || entry.Unit != unit || entry.Description != description)
         {
             entry = new MeterCatalogEntry(
                 family.Name,
                 ExtractNamespace(family.Name),
                 kind,
-                string.IsNullOrEmpty(family.Unit) ? null : family.Unit,
-                string.IsNullOrEmpty(family.Help) ? null : family.Help);
+                unit,
+                description,
+                desc?.Label);
             _catalog[family.Name] = entry;
         }
 

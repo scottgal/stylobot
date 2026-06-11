@@ -20,6 +20,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <EmbeddedResource Include="MeterCatalogs\*.yaml" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
     </ItemGroup>
 
