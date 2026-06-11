@@ -4,7 +4,7 @@
   "type": "module",
   "main": "index.js",
   "dependencies": {
-    "@grpc/grpc-js": "^1.12.0",
+    "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.7.0"
   }
 }
