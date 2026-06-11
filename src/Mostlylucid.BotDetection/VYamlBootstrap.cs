@@ -96,6 +96,16 @@ internal static class VYamlBootstrap
         GeneratedResolver.Register(new ListFormatter<YamlTemplateParameter>());
         GeneratedResolver.Register(new ListFormatter<YamlTemplateExpansionEntry>());
 
+        // Policy Stack template applications (T2). Customer-supplied YAML files
+        // declare "application: X / template: Y / applied-to: ... / parameters:
+        // ..." -- YamlTemplateStore.LoadApplicationsFromDirectory parses them
+        // and TemplateMaterializer compiles each through TemplateResolver into
+        // bare PolicyRules.
+        YamlApplicationFile.__RegisterVYamlFormatter();
+        YamlApplicationScope.__RegisterVYamlFormatter();
+        YamlApplicationHost.__RegisterVYamlFormatter();
+        GeneratedResolver.Register(new ListFormatter<YamlApplicationScope>());
+
         // Detector / pipeline manifests
         DetectorManifest.__RegisterVYamlFormatter();
         SignalScope.__RegisterVYamlFormatter();

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Mostlylucid.BotDetection.Policies.Rules;
 using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Policies.Templates;
@@ -219,6 +220,151 @@ public sealed class YamlTemplateStore
                 : raw,
             "bool" => bool.TryParse(raw, out var b) ? (object)b : raw,
             _ => raw
+        };
+    }
+
+    // -------- Applications (T2) --------
+
+    /// <summary>
+    ///     Load every <see cref="TemplateApplication"/> declared as YAML in
+    ///     <paramref name="directory"/>. Returns an empty list when
+    ///     <paramref name="directory"/> is <c>null</c>, empty, or does not
+    ///     exist -- the "no customer applications" deployment is the common
+    ///     FOSS shape and should not throw. Malformed files are logged at
+    ///     <c>Warning</c> and skipped; one rotten YAML never blocks the rest.
+    ///
+    ///     <para>
+    ///         Validation of the referenced template id is NOT done here --
+    ///         the materializer is the right place to report "template X
+    ///         referenced by application Y does not exist", because the catalog
+    ///         and customer applications load independently.
+    ///     </para>
+    /// </summary>
+    public IReadOnlyList<TemplateApplication> LoadApplicationsFromDirectory(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            return Array.Empty<TemplateApplication>();
+
+        var result = new List<TemplateApplication>();
+        foreach (var path in Directory.EnumerateFiles(directory, "*.yaml", SearchOption.TopDirectoryOnly))
+        {
+            byte[] bytes;
+            try
+            {
+                bytes = File.ReadAllBytes(path);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read application file {Path}", path);
+                continue;
+            }
+
+            if (TryParseApplication(bytes, $"yaml:{Path.GetFileName(path)}", out var app) && app is not null)
+                result.Add(app);
+        }
+        return result;
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "VYaml [YamlObject] formatters for YamlApplicationFile/Scope/Host are registered in VYamlBootstrap.")]
+    private bool TryParseApplication(byte[] bytes, string sourceLabel, out TemplateApplication? application)
+    {
+        application = null;
+        if (bytes.Length == 0) return false;
+
+        YamlApplicationFile? file;
+        try
+        {
+            file = YamlSerializer.Deserialize<YamlApplicationFile>(bytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Skipping malformed application file {Source}", sourceLabel);
+            return false;
+        }
+
+        if (file is null || string.IsNullOrWhiteSpace(file.Application))
+        {
+            _logger.LogWarning("Skipping application file {Source} -- missing 'application' id", sourceLabel);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(file.Template))
+        {
+            _logger.LogWarning("Skipping application file {Source} -- missing 'template' id", sourceLabel);
+            return false;
+        }
+
+        var scopes = new List<PolicyScope>();
+        foreach (var entry in file.AppliedTo ?? new List<YamlApplicationScope>())
+        {
+            try
+            {
+                scopes.Add(MapApplicationScope(entry));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping invalid applied-to entry in {Source}", sourceLabel);
+            }
+        }
+
+        var parameters = file.Parameters is null
+            ? new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, object?>(file.Parameters, StringComparer.OrdinalIgnoreCase);
+
+        application = new TemplateApplication(
+            Id: file.Application,
+            TemplateId: file.Template,
+            AppliedTo: scopes,
+            Parameters: parameters);
+        return true;
+    }
+
+    /// <summary>
+    ///     Map a YAML applied-to entry onto a <see cref="PolicyScope"/>.
+    ///     Honours the spec example shape: when both a subdomain host and a
+    ///     sibling <c>host-path</c> are present, the resulting scope is
+    ///     promoted to an endpoint scope so per-endpoint templates apply
+    ///     cleanly.
+    /// </summary>
+    internal static PolicyScope MapApplicationScope(YamlApplicationScope scope)
+    {
+        var host = MapApplicationHost(scope.Host, scope.HostPath);
+        var method = string.IsNullOrWhiteSpace(scope.Method) ? null : scope.Method!.Trim().ToUpperInvariant();
+        var geo = string.IsNullOrWhiteSpace(scope.Geo) ? null : scope.Geo!.Trim().ToUpperInvariant();
+        return new PolicyScope(Host: host, Method: method, Geo: geo);
+    }
+
+    private static HostScope? MapApplicationHost(YamlApplicationHost? host, string? hostPath)
+    {
+        if (host is null) return null;
+        if (string.IsNullOrWhiteSpace(host.Kind)) return null;
+        var kind = host.Kind!.Trim().ToLowerInvariant();
+
+        return kind switch
+        {
+            "domain" => new HostScope.Domain(
+                host.Domain ?? throw new InvalidDataException("host domain requires 'domain'")),
+
+            "subdomain" when !string.IsNullOrWhiteSpace(hostPath) =>
+                // Subdomain + host-path collapses into endpoint -- the spec's
+                // sample application shape (host: { kind: subdomain, ... },
+                // host-path: /login) is the per-endpoint case.
+                new HostScope.Endpoint(
+                    host.Domain ?? throw new InvalidDataException("host subdomain requires 'domain'"),
+                    host.Sub ?? throw new InvalidDataException("host subdomain requires 'sub'"),
+                    hostPath!),
+
+            "subdomain" => new HostScope.Subdomain(
+                host.Domain ?? throw new InvalidDataException("host subdomain requires 'domain'"),
+                host.Sub ?? throw new InvalidDataException("host subdomain requires 'sub'")),
+
+            "endpoint" => new HostScope.Endpoint(
+                host.Domain ?? throw new InvalidDataException("host endpoint requires 'domain'"),
+                host.Sub ?? throw new InvalidDataException("host endpoint requires 'sub'"),
+                host.PathTemplate ?? hostPath ?? throw new InvalidDataException("host endpoint requires 'path_template' or sibling 'host-path'")),
+
+            _ => throw new InvalidDataException($"unknown host kind '{host.Kind}'")
         };
     }
 }

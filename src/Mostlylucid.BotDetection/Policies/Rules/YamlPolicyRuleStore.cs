@@ -3,6 +3,7 @@ using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Policies.Predicate;
+using Mostlylucid.BotDetection.Policies.Templates;
 using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Policies.Rules;
@@ -51,6 +52,13 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
     private readonly string? _resourcePrefix;
     private readonly string? _directory;
 
+    // Optional template-application materialization (T2). Hooked up via the
+    // WithTemplates factory; null on the bare-rule-only path. The applications
+    // delegate is evaluated per Reload so customer applications watched on disk
+    // pick up edits without restarting the host.
+    private readonly TemplateMaterializer? _materializer;
+    private readonly Func<IReadOnlyList<TemplateApplication>>? _applicationsLoader;
+
     // Debounced FS watcher state.
     private FileSystemWatcher? _watcher;
     private readonly object _reloadGate = new();
@@ -61,6 +69,13 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
     // successful reload so readers never observe a half-built corpus.
     private volatile RuleSnapshot _snapshot = RuleSnapshot.Empty;
 
+    // In-memory hash cache for materialized rule ids. Lives only for the
+    // process lifetime: override-divergence detection works across reloads in
+    // the same process, but not across restarts. Persistent storage of
+    // (rule_id, hash, origin) lives in the commercial Postgres overlay (T3) --
+    // FOSS-only deployments treat every restart as "first materialization".
+    private Dictionary<Guid, string> _priorHashes = new();
+
     private bool _disposed;
 
     /// <inheritdoc />
@@ -70,13 +85,40 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
         ILogger<YamlPolicyRuleStore>? logger,
         Assembly? assembly,
         string? resourcePrefix,
-        string? directory)
+        string? directory,
+        TemplateMaterializer? materializer = null,
+        Func<IReadOnlyList<TemplateApplication>>? applicationsLoader = null)
     {
         _logger = logger ?? NullLogger<YamlPolicyRuleStore>.Instance;
         _assembly = assembly;
         _resourcePrefix = resourcePrefix;
         _directory = directory;
+        _materializer = materializer;
+        _applicationsLoader = applicationsLoader;
     }
+
+    /// <summary>
+    ///     Ids of materialized rules whose current corpus entry has DIVERGED
+    ///     from the original template materialization (operator edited the
+    ///     rule between reloads).
+    ///
+    ///     <para>
+    ///         The dashboard reads this to surface the "diverged from template"
+    ///         banner on rule rows; visible-banner work happens in T4. The set
+    ///         is empty until the first reload that runs the materializer --
+    ///         a host with no template applications wired never reports
+    ///         divergence.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         <b>FOSS limitation</b>: override-divergence detection is
+    ///         in-memory only. A process restart resets the hash cache, so the
+    ///         FIRST reload after restart cannot tell "operator edited" from
+    ///         "fresh materialization" -- both look identical. Persistent hash
+    ///         storage lives in the commercial Postgres overlay (T3).
+    ///     </para>
+    /// </summary>
+    public IReadOnlySet<Guid> DivergedRuleIds => _snapshot.DivergedRuleIds;
 
     /// <summary>
     ///     Build a store that loads seed rules from embedded resources in
@@ -98,6 +140,35 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
         string directory,
         ILogger<YamlPolicyRuleStore>? logger = null)
         => new(logger, assembly: null, resourcePrefix: null, directory);
+
+    /// <summary>
+    ///     Same as <see cref="FromEmbeddedResources(Assembly, string, ILogger{YamlPolicyRuleStore}?)"/>
+    ///     but also runs the template-application materialization pipeline at
+    ///     each reload. <paramref name="materializer"/> compiles each
+    ///     application into bare <see cref="PolicyRule"/> instances;
+    ///     <paramref name="applicationsLoader"/> is evaluated on every reload
+    ///     so on-disk customer application edits pick up live. Pass an empty
+    ///     loader to materialize the catalog without any customer applications.
+    /// </summary>
+    public static YamlPolicyRuleStore FromEmbeddedResourcesWithTemplates(
+        Assembly assembly,
+        string resourcePrefix,
+        TemplateMaterializer materializer,
+        Func<IReadOnlyList<TemplateApplication>> applicationsLoader,
+        ILogger<YamlPolicyRuleStore>? logger = null)
+        => new(logger, assembly, resourcePrefix, directory: null, materializer, applicationsLoader);
+
+    /// <summary>
+    ///     Same as <see cref="FromDirectory(string, ILogger{YamlPolicyRuleStore}?)"/>
+    ///     but also runs the template-application materialization pipeline at
+    ///     each reload.
+    /// </summary>
+    public static YamlPolicyRuleStore FromDirectoryWithTemplates(
+        string directory,
+        TemplateMaterializer materializer,
+        Func<IReadOnlyList<TemplateApplication>> applicationsLoader,
+        ILogger<YamlPolicyRuleStore>? logger = null)
+        => new(logger, assembly: null, resourcePrefix: null, directory, materializer, applicationsLoader);
 
     /// <inheritdoc />
     public Task InitializeAsync(CancellationToken ct = default)
@@ -303,6 +374,63 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
             atScope.Add(rule);
         }
 
+        // T2: run the template-application materializer (if wired) BEFORE we
+        // collapse the by-host index, so materialized rules land in the same
+        // index as bare YAML rules. Override-divergence detection runs here so
+        // operator-edited materialized rules survive the reload intact.
+        IReadOnlySet<Guid> divergedIds = new HashSet<Guid>();
+        if (_materializer is not null && _applicationsLoader is not null)
+        {
+            IReadOnlyList<TemplateApplication> applications;
+            try
+            {
+                applications = _applicationsLoader.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Application loader threw -- skipping materialization for this reload");
+                applications = Array.Empty<TemplateApplication>();
+            }
+
+            // Build the existing-rules-by-id view BEFORE we add materialized
+            // rules. Bare YAML rules with ids collisions to materialized rules
+            // are exceedingly unlikely (materialized ids are SHA-256 of a
+            // structured key) but defensively the "existing" view is the set
+            // of bare rules already loaded -- the operator's edit could be in
+            // either bare YAML or in a materialized rule that's been hand-
+            // edited and is now persisted as a bare rule.
+            var existingById = new Dictionary<Guid, PolicyRule>(byId);
+            var materialResult = _materializer.MaterializeWithDivergence(applications, existingById, _priorHashes);
+
+            foreach (var err in materialResult.Errors)
+                _logger.LogWarning("Template materialization error for application {AppId}: {Message}",
+                    err.ApplicationId, err.Message);
+
+            foreach (var rule in materialResult.Rules)
+            {
+                // If a bare YAML rule already carries this id (rare), keep the
+                // bare rule -- it's the source of truth on the operator's
+                // direct edit. The materialized rule's hash still gets cached
+                // so we can detect future drift.
+                if (byId.ContainsKey(rule.Id)) continue;
+                byId[rule.Id] = rule;
+                var hostKey = HostKey.From(rule.Scope.Host);
+                if (!byHostKey.TryGetValue(hostKey, out var atScope))
+                {
+                    atScope = new List<PolicyRule>();
+                    byHostKey[hostKey] = atScope;
+                }
+                atScope.Add(rule);
+            }
+
+            // Persist hashes for the NEXT reload. Use the result's per-id
+            // hashes (which reflect the preserved-existing rule for diverged
+            // ids, so the next reload sees "same hash as last time -> no
+            // further divergence").
+            _priorHashes = new Dictionary<Guid, string>(materialResult.RuleHashes);
+            divergedIds = materialResult.DivergedRuleIds ?? new HashSet<Guid>();
+        }
+
         // Sort each host-key bucket by priority ascending, ties broken by id for determinism.
         foreach (var bucket in byHostKey.Values)
             bucket.Sort(static (a, b) =>
@@ -316,7 +444,7 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
             kv => (IReadOnlyList<PolicyRule>)kv.Value.ToArray());
 
         var allRules = byId.Values.ToArray();
-        _snapshot = new RuleSnapshot(byId, newByHost, allRules);
+        _snapshot = new RuleSnapshot(byId, newByHost, allRules, divergedIds);
 
         if (initialLoad)
             _logger.LogInformation("Loaded {Count} policy rule(s)", byId.Count);
@@ -597,11 +725,13 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
     private sealed record RuleSnapshot(
         IReadOnlyDictionary<Guid, PolicyRule> ById,
         IReadOnlyDictionary<HostKey, IReadOnlyList<PolicyRule>> ByHostKey,
-        IReadOnlyList<PolicyRule> AllRules)
+        IReadOnlyList<PolicyRule> AllRules,
+        IReadOnlySet<Guid> DivergedRuleIds)
     {
         public static RuleSnapshot Empty { get; } = new(
             new Dictionary<Guid, PolicyRule>(),
             new Dictionary<HostKey, IReadOnlyList<PolicyRule>>(),
-            Array.Empty<PolicyRule>());
+            Array.Empty<PolicyRule>(),
+            new HashSet<Guid>());
     }
 }
