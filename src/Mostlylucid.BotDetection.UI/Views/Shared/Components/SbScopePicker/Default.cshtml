@@ -1,0 +1,279 @@
+@using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.UI.Models
+@model ScopePickerViewModel
+@*
+    SbScopePicker (T4 Part A). Four-axis form for the composite PolicyScope
+    shape: Host? / Method? / Geo? / Identity?. Each axis is independently
+    nullable -- the operator picks "none" on any axis to leave that slot
+    wildcard. All four "none" is the global wildcard scope.
+
+    The form fields below drive an Alpine x-data root that mirrors the
+    state into a hidden JSON field named @Model.FieldName. The wrapping
+    form posts that single hidden field; backend handlers parse the JSON
+    into a PolicyScope.
+*@
+@{
+    // Pre-decompose the initial scope into per-axis seed values so the
+    // form controls hydrate with the matching state on edit.
+    var initial = Model.Initial;
+    var initialHostKind = initial?.Host switch
+    {
+        null => "none",
+        HostScope.Domain => "domain",
+        HostScope.Subdomain => "subdomain",
+        HostScope.Endpoint => "endpoint",
+        _ => "none"
+    };
+    var initialDomain = initial?.Host switch
+    {
+        HostScope.Domain d => d.Name,
+        HostScope.Subdomain s => s.DomainName,
+        HostScope.Endpoint e => e.DomainName,
+        _ => string.Empty
+    };
+    var initialSubdomain = initial?.Host switch
+    {
+        HostScope.Subdomain s => s.SubdomainName,
+        HostScope.Endpoint e => e.SubdomainName,
+        _ => string.Empty
+    };
+    var initialPath = initial?.Host switch
+    {
+        HostScope.Endpoint e => e.PathTemplate,
+        _ => string.Empty
+    };
+    var initialMethod = initial?.Method ?? string.Empty;
+    var initialGeo = initial?.Geo ?? string.Empty;
+    var initialIdentityKind = initial?.Identity switch
+    {
+        null => "none",
+        IdentityScope.NamedBot => "named_bot",
+        IdentityScope.BotType => "bot_type",
+        IdentityScope.HumanBrowser => "human_browser",
+        IdentityScope.Fingerprint => "fingerprint",
+        _ => "none"
+    };
+    var initialIdentityValue = initial?.Identity switch
+    {
+        IdentityScope.NamedBot n => n.Family,
+        IdentityScope.BotType b => b.Category,
+        IdentityScope.HumanBrowser h => h.Family,
+        IdentityScope.Fingerprint f => f.Id,
+        _ => string.Empty
+    };
+
+    // Alpine init payload, serialised once -- the script body reads this
+    // from a data attribute rather than rendering into x-data inline so
+    // single quotes in operator-supplied strings stay safe.
+    var seed = new
+    {
+        host = new
+        {
+            kind = initialHostKind,
+            domain = initialDomain,
+            sub = initialSubdomain,
+            path = initialPath
+        },
+        method = initialMethod,
+        geo = initialGeo,
+        identity = new
+        {
+            kind = initialIdentityKind,
+            value = initialIdentityValue
+        }
+    };
+    var seedJson = System.Text.Json.JsonSerializer.Serialize(seed);
+
+    // Field id helpers so labels link cleanly even when the picker is
+    // rendered more than once on the page.
+    var pickerId = "sb-scope-picker-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+}
+<fieldset class="sb-scope-picker"
+          id="@pickerId"
+          data-scope-picker
+          data-scope-picker-seed="@seedJson"
+          x-data="sbScopePicker($el.dataset.scopePickerSeed)"
+          x-init="syncHidden()">
+    <legend class="sb-scope-picker-legend">Where this applies</legend>
+
+    @* Hidden JSON field -- the only thing posted to the server. The
+       Alpine root rewrites its value on every axis change via syncHidden. *@
+    <input type="hidden"
+           name="@Model.FieldName"
+           data-scope-picker-hidden
+           x-ref="hidden"
+           value="" />
+
+    @* ---- Host axis ------------------------------------------------- *@
+    <div class="sb-scope-picker-axis" data-axis="host">
+        <label class="sb-scope-picker-label" for="@(pickerId)-host-kind">Host</label>
+        <select id="@(pickerId)-host-kind"
+                data-scope-picker-host-kind
+                x-model="host.kind"
+                @@change="syncHidden()">
+            <option value="none">none</option>
+            <option value="domain">Domain</option>
+            <option value="subdomain">Subdomain</option>
+            <option value="endpoint">Endpoint</option>
+        </select>
+        <input type="text"
+               data-scope-picker-host-domain
+               placeholder="example.com"
+               x-show="host.kind !== 'none'"
+               x-model="host.domain"
+               @@input="syncHidden()"
+               aria-label="Domain" />
+        <input type="text"
+               data-scope-picker-host-sub
+               placeholder="subdomain"
+               x-show="host.kind === 'subdomain' || host.kind === 'endpoint'"
+               x-model="host.sub"
+               @@input="syncHidden()"
+               aria-label="Subdomain" />
+        <input type="text"
+               data-scope-picker-host-path
+               placeholder="GET /path/template"
+               x-show="host.kind === 'endpoint'"
+               x-model="host.path"
+               @@input="syncHidden()"
+               aria-label="Path template" />
+    </div>
+
+    @* ---- Method axis ---------------------------------------------- *@
+    <div class="sb-scope-picker-axis" data-axis="method">
+        <label class="sb-scope-picker-label" for="@(pickerId)-method">Method</label>
+        <select id="@(pickerId)-method"
+                data-scope-picker-method
+                x-model="method"
+                @@change="syncHidden()">
+            <option value="">none</option>
+            @foreach (var m in Model.EffectiveMethods)
+            {
+                <option value="@m">@m</option>
+            }
+        </select>
+    </div>
+
+    @* ---- Geo axis ------------------------------------------------- *@
+    <div class="sb-scope-picker-axis" data-axis="geo">
+        <label class="sb-scope-picker-label" for="@(pickerId)-geo">Geo</label>
+        @if (Model.KnownGeos is { Count: > 0 } geos)
+        {
+            <select id="@(pickerId)-geo"
+                    data-scope-picker-geo
+                    x-model="geo"
+                    @@change="syncHidden()">
+                <option value="">none</option>
+                @foreach (var pair in geos)
+                {
+                    <option value="@pair.Key">@(pair.Key) -- @pair.Value</option>
+                }
+            </select>
+        }
+        else
+        {
+            <input id="@(pickerId)-geo"
+                   type="text"
+                   data-scope-picker-geo
+                   maxlength="2"
+                   placeholder="ISO (e.g. US)"
+                   x-model="geo"
+                   @@input="syncHidden()"
+                   aria-label="Geo (ISO-3166 alpha-2)" />
+        }
+    </div>
+
+    @* ---- Identity axis -------------------------------------------- *@
+    <div class="sb-scope-picker-axis" data-axis="identity">
+        <label class="sb-scope-picker-label" for="@(pickerId)-identity-kind">Identity</label>
+        <select id="@(pickerId)-identity-kind"
+                data-scope-picker-identity-kind
+                x-model="identity.kind"
+                @@change="syncHidden()">
+            <option value="none">none</option>
+            <option value="named_bot">Named bot</option>
+            <option value="bot_type">Bot type</option>
+            <option value="human_browser">Human browser</option>
+            <option value="fingerprint">Fingerprint id</option>
+        </select>
+        <input type="text"
+               data-scope-picker-identity-value
+               placeholder="value"
+               x-show="identity.kind !== 'none'"
+               x-model="identity.value"
+               @@input="syncHidden()"
+               @if (Model.KnownIdentityFamilies is { Count: > 0 })
+               { <text> list="@(pickerId)-identity-list" </text> }
+               aria-label="Identity value" />
+        @if (Model.KnownIdentityFamilies is { Count: > 0 } families)
+        {
+            <datalist id="@(pickerId)-identity-list">
+                @foreach (var family in families)
+                {
+                    <option value="@family"></option>
+                }
+            </datalist>
+        }
+    </div>
+
+    <p class="sb-scope-picker-hint" data-scope-picker-hint>
+        none on every axis matches every request (wildcard scope).
+    </p>
+</fieldset>
+
+@* Per-picker Alpine factory. Registered once per render; the body is
+   idempotent so multiple pickers on one page each get their own root
+   without re-defining the function on the global namespace. *@
+<script>
+(function () {
+    if (window.sbScopePicker) return;
+    window.sbScopePicker = function (seedAttr) {
+        var seed;
+        try { seed = JSON.parse(seedAttr || '{}'); }
+        catch (_) { seed = {}; }
+        var hostSeed = seed.host || {};
+        var idSeed = seed.identity || {};
+        return {
+            host: {
+                kind: hostSeed.kind || 'none',
+                domain: hostSeed.domain || '',
+                sub: hostSeed.sub || '',
+                path: hostSeed.path || ''
+            },
+            method: seed.method || '',
+            geo: seed.geo || '',
+            identity: {
+                kind: idSeed.kind || 'none',
+                value: idSeed.value || ''
+            },
+            build: function () {
+                var payload = { host: null, method: null, geo: null, identity: null };
+                switch (this.host.kind) {
+                    case 'domain':
+                        payload.host = { kind: 'domain', domain: this.host.domain };
+                        break;
+                    case 'subdomain':
+                        payload.host = { kind: 'subdomain', domain: this.host.domain, sub: this.host.sub };
+                        break;
+                    case 'endpoint':
+                        payload.host = { kind: 'endpoint', domain: this.host.domain, sub: this.host.sub, path: this.host.path };
+                        break;
+                }
+                if (this.method) payload.method = this.method.toUpperCase();
+                if (this.geo) payload.geo = this.geo.toUpperCase();
+                if (this.identity.kind !== 'none' && this.identity.value) {
+                    payload.identity = { kind: this.identity.kind, value: this.identity.value };
+                }
+                return payload;
+            },
+            syncHidden: function () {
+                var json = JSON.stringify(this.build());
+                if (this.$refs && this.$refs.hidden) {
+                    this.$refs.hidden.value = json;
+                    this.$refs.hidden.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+        };
+    };
+})();
+</script>

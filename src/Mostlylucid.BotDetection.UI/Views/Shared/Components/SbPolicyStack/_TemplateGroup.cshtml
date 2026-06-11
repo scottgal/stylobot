@@ -1,0 +1,47 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PolicyStackTemplateGroupViewModel
+@*
+    T4 Part B -- one template-keyed group on /dashboard/policies. Header
+    shows the template display name + every application id that emitted
+    rules into this group + the rule count + (if any) the count of rules
+    that diverged from their template's last materialization. Hand-
+    authored rules collect into a single "Manually authored" group with
+    no application chips.
+
+    Each row is the existing _RuleRow partial, kept untouched so the C6
+    pencil edit affordance + the divergence banner ride through unchanged.
+*@
+<section class="sb-policy-stack-template-group"
+         data-template-group
+         data-template-id="@Model.TemplateId"
+         data-is-manually-authored="@(Model.IsManuallyAuthored ? "true" : "false")">
+    <header class="sb-policy-stack-template-group-header">
+        <span class="sb-policy-stack-template-group-title">@Model.TemplateDisplayName</span>
+        <span class="sb-policy-stack-template-group-count">
+            @Model.Rows.Count @(Model.Rows.Count == 1 ? "rule" : "rules")
+        </span>
+        @if (!Model.IsManuallyAuthored && Model.ApplicationIds.Count > 0)
+        {
+            <span class="sb-policy-stack-template-group-apps" aria-label="Template applications">
+                @foreach (var appId in Model.ApplicationIds)
+                {
+                    <code class="sb-policy-stack-template-group-app">@appId</code>
+                }
+            </span>
+        }
+        @if (Model.DivergedCount > 0)
+        {
+            <span class="sb-policy-stack-template-group-diverged" role="note">
+                @Model.DivergedCount diverged
+            </span>
+        }
+    </header>
+    <ul class="sb-policy-stack-rows" role="list">
+        @foreach (var row in Model.Rows)
+        {
+            <li>
+                @await Html.PartialAsync("Components/SbPolicyStack/_RuleRow", row)
+            </li>
+        }
+    </ul>
+</section>

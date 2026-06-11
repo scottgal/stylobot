@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mostlylucid.BotDetection.Policies.Rules;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -114,5 +115,100 @@ public static class PolicyScopeUrl
             default:
                 return PolicyScope.Wildcard();
         }
+    }
+
+    // -------- JSON projection (SbScopePicker payload) ---------------------
+    //
+    // The SbScopePicker view component (T4 Part A) serialises a composite
+    // scope as a four-axis JSON object. The shape mirrors PolicyScope's
+    // own slots: `{ host: ..., method: ..., geo: ..., identity: ... }`.
+    // Host is itself a discriminated union: `{ kind: domain|subdomain|endpoint, ... }`.
+    // Identity follows the same pattern: `{ kind: named_bot|bot_type|human_browser|fingerprint, value: "..." }`.
+    // Any missing / null slot is the wildcard for that axis. The parser is
+    // tolerant: unknown discriminators, missing required fields, or invalid
+    // JSON degrade to a wildcard slot rather than throwing so a half-filled
+    // form does not crash the controller.
+
+    /// <summary>
+    ///     Parse the JSON payload produced by <c>SbScopePicker</c>'s hidden
+    ///     input into a <see cref="PolicyScope"/>. Empty, null, or invalid
+    ///     JSON yields a wildcard scope. Unknown axis discriminators are
+    ///     treated as the wildcard for that axis so an incomplete form
+    ///     never throws.
+    /// </summary>
+    public static PolicyScope FromPickerJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return PolicyScope.Wildcard();
+        JsonElement root;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            root = doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return PolicyScope.Wildcard();
+        }
+        if (root.ValueKind != JsonValueKind.Object) return PolicyScope.Wildcard();
+
+        var host = ParseHost(root);
+        var method = ReadString(root, "method")?.Trim().ToUpperInvariant();
+        var geo = ReadString(root, "geo")?.Trim().ToUpperInvariant();
+        var identity = ParseIdentity(root);
+
+        if (string.IsNullOrEmpty(method)) method = null;
+        if (string.IsNullOrEmpty(geo)) geo = null;
+
+        return new PolicyScope(Host: host, Method: method, Geo: geo, Identity: identity);
+    }
+
+    private static HostScope? ParseHost(JsonElement root)
+    {
+        if (!root.TryGetProperty("host", out var host) || host.ValueKind != JsonValueKind.Object)
+            return null;
+        var kind = ReadString(host, "kind")?.Trim().ToLowerInvariant();
+        var domain = ReadString(host, "domain");
+        var sub = ReadString(host, "sub");
+        var path = ReadString(host, "path");
+        return kind switch
+        {
+            "domain" when !string.IsNullOrWhiteSpace(domain) =>
+                new HostScope.Domain(domain.Trim()),
+            "subdomain" when !string.IsNullOrWhiteSpace(domain) && !string.IsNullOrWhiteSpace(sub) =>
+                new HostScope.Subdomain(domain.Trim(), sub.Trim()),
+            "endpoint" when !string.IsNullOrWhiteSpace(domain)
+                            && !string.IsNullOrWhiteSpace(sub)
+                            && !string.IsNullOrWhiteSpace(path) =>
+                new HostScope.Endpoint(domain.Trim(), sub.Trim(), path.Trim()),
+            _ => null
+        };
+    }
+
+    private static IdentityScope? ParseIdentity(JsonElement root)
+    {
+        if (!root.TryGetProperty("identity", out var id) || id.ValueKind != JsonValueKind.Object)
+            return null;
+        var kind = ReadString(id, "kind")?.Trim().ToLowerInvariant();
+        var value = ReadString(id, "value");
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return kind switch
+        {
+            "named_bot" => new IdentityScope.NamedBot(value.Trim()),
+            "bot_type" => new IdentityScope.BotType(value.Trim()),
+            "human_browser" => new IdentityScope.HumanBrowser(value.Trim()),
+            "fingerprint" => new IdentityScope.Fingerprint(value.Trim()),
+            _ => null
+        };
+    }
+
+    private static string? ReadString(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var prop)) return null;
+        return prop.ValueKind switch
+        {
+            JsonValueKind.String => prop.GetString(),
+            JsonValueKind.Null => null,
+            _ => null
+        };
     }
 }

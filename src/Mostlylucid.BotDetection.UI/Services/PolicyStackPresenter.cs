@@ -32,6 +32,7 @@ public sealed class PolicyStackPresenter
     private readonly PolicyConflictAnalyzer _conflictAnalyzer;
     private readonly PolicyStackFilterOptions _filterOptions;
     private readonly PolicyExplainerPresenter? _explainerPresenter;
+    private readonly IRuleDivergenceProbe? _divergenceProbe;
 
     public PolicyStackPresenter(
         IPolicyResolver resolver,
@@ -39,7 +40,8 @@ public sealed class PolicyStackPresenter
         ISignalCatalog signalCatalog,
         PolicyConflictAnalyzer conflictAnalyzer,
         PolicyStackFilterOptions? filterOptions = null,
-        PolicyExplainerPresenter? explainerPresenter = null)
+        PolicyExplainerPresenter? explainerPresenter = null,
+        IRuleDivergenceProbe? divergenceProbe = null)
     {
         _resolver = resolver;
         _effectiveness = effectiveness;
@@ -47,6 +49,11 @@ public sealed class PolicyStackPresenter
         _conflictAnalyzer = conflictAnalyzer;
         _filterOptions = filterOptions ?? new PolicyStackFilterOptions();
         _explainerPresenter = explainerPresenter;
+        // Divergence probe is optional: hosts that do not wire template
+        // materialization (bare-rules FOSS) or do not register the probe in
+        // DI get a presenter that never flags divergence, which renders as
+        // no banners -- the right behaviour for those hosts.
+        _divergenceProbe = divergenceProbe;
     }
 
     /// <summary>
@@ -493,7 +500,14 @@ public sealed class PolicyStackPresenter
             // C6 -- threaded from BuildAsync's canEdit parameter. The row
             // doesn't decide gating; the call site does, and this flag is
             // just what RuleRow's pencil affordance checks.
-            CanEdit: canEdit);
+            CanEdit: canEdit,
+            Origin: entry.Rule.Origin,
+            // Divergence comes from an optional probe so bare-rules hosts
+            // never flag a rule; commercial hosts wire the Postgres-backed
+            // probe via DI override.
+            IsDiverged: entry.Rule.Origin is not null
+                        && _divergenceProbe is not null
+                        && _divergenceProbe.IsDiverged(entry.Rule.Id));
     }
 
     private static string SourcePillFor(PolicyScope scope) => scope.Host switch

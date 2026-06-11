@@ -279,6 +279,14 @@ public static class StyloBotDashboardServiceExtensions
         // real explainer rather than null. The explainer is a pure read
         // surface, stateless, peer-singleton with the stack presenter.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyExplainerPresenter>();
+        // T4 Part B -- rule-divergence probe. The FOSS default reads
+        // YamlPolicyRuleStore.DivergedRuleIds (in-memory only, wiped on
+        // restart). The commercial Postgres overlay replaces this binding
+        // with a probe that consults policy_rules.override_diverged
+        // (durable across restarts). Registered before the presenter so
+        // the presenter's optional ctor parameter resolves cleanly.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IRuleDivergenceProbe,
+                                 Mostlylucid.BotDetection.UI.Services.YamlRuleDivergenceProbe>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
         // C6 expression-editor presenter. Pure read surface; never mutates a
         // rule. The actual write goes through the commercial mutation API

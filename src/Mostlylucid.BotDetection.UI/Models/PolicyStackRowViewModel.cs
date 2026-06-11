@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.Policies.Templates;
 
 namespace Mostlylucid.BotDetection.UI.Models;
 
@@ -33,6 +34,18 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="ActionKind">Lowercase canonical action kind (<c>"block"</c>, <c>"challenge"</c>, ...) for the <c>@action:</c> filter.</param>
 /// <param name="ScopeKind">Lowercase canonical source-scope kind (<c>"endpoint"</c>, <c>"subdomain"</c>, <c>"domain"</c>, <c>"wildcard"</c>) for the <c>@scope:</c> filter.</param>
 /// <param name="CanEdit">When <c>true</c>, the row renders the C6 pencil button that swaps the row in for the <c>_EditRow</c> partial. Threaded from the call-site canEdit flag, which itself is gated on the operator's <c>dashboard-write</c> role.</param>
+/// <param name="Origin">
+///     Template-provenance stamp -- <c>null</c> for hand-authored rules.
+///     Powers the T4 dashboard "rules grouped by template + application"
+///     view. Threaded straight from <see cref="PolicyRule.Origin"/>.
+/// </param>
+/// <param name="IsDiverged">
+///     <c>true</c> when the materialized rule has been edited away from
+///     the template's last materialization (T2 override-divergence
+///     detection). Drives the inline "diverged from template" banner on
+///     <c>_RuleRow.cshtml</c>. Always <c>false</c> for hand-authored
+///     rules and on stores that do not perform divergence tracking.
+/// </param>
 public sealed record PolicyStackRowViewModel(
     Guid RuleId,
     PolicyScope SourceScope,
@@ -59,7 +72,9 @@ public sealed record PolicyStackRowViewModel(
     DateTimeOffset LastEditedAt,
     string ActionKind,
     string ScopeKind,
-    bool CanEdit = false);
+    bool CanEdit = false,
+    RuleOrigin? Origin = null,
+    bool IsDiverged = false);
 
 /// <summary>
 ///     One predicate chip on the compact rule row. Either a real term

@@ -21,7 +21,10 @@
          data-rule-id="@Model.RuleId"
          data-source-pill="@Model.SourcePill"
          data-mode="@modeLower"
-         data-no-hits="@(Model.HasNoHits ? "true" : "false")">
+         data-no-hits="@(Model.HasNoHits ? "true" : "false")"
+         data-template-id="@(Model.Origin?.TemplateId ?? "")"
+         data-application-id="@(Model.Origin?.ApplicationId ?? "")"
+         data-diverged="@(Model.IsDiverged ? "true" : "false")">
     <header class="sb-policy-stack-row-head">
         @if (sourcePillHref is not null)
         {
@@ -98,4 +101,19 @@
                     hx-swap="outerHTML">&#x270e;</button>
         }
     </div>
+    @if (Model.IsDiverged && Model.Origin is not null)
+    {
+        @* T4 Part B -- inline divergence banner. The rule was emitted by a
+           template + application but its current text no longer matches
+           the last materialization (the operator hand-edited it). Re-apply
+           the template to drop the divergence, or detach the rule from
+           the application to keep the edit. *@
+        <p class="sb-policy-stack-row-diverged" data-policy-stack-diverged-banner role="note">
+            <span class="sb-policy-stack-row-diverged-pill">diverged from template</span>
+            <span class="sb-policy-stack-row-diverged-meta">
+                originated from <code>@Model.Origin.TemplateId</code>
+                via application <code>@Model.Origin.ApplicationId</code>
+            </span>
+        </p>
+    }
 </article>

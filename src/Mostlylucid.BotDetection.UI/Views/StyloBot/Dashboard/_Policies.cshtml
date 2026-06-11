@@ -1,4 +1,6 @@
+@using Microsoft.Extensions.DependencyInjection
 @using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.Policies.Templates
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
@@ -9,6 +11,12 @@
     The filter / sort tokens ride the same query string the SbPolicyStack
     rows-url builds, so a refresh of /dashboard/policies?scope=...&policystack-filter=...
     re-renders with the same view the user left.
+
+    T4 Part B: above the SbPolicyStack we render a template-grouped view
+    of the same effective rules so an operator sees rules under the
+    template that emitted them. Hand-authored rules collect into a
+    trailing "Manually authored" group. SbPolicyStack stays below as the
+    detailed editor surface so the change is purely additive.
 *@
 @{
     var scopeParam = Context.Request.Query["scope"].ToString();
@@ -16,8 +24,42 @@
     var filter = Context.Request.Query["policystack-filter"].ToString();
     var sortKey = Context.Request.Query["policystack-sort"].ToString();
     var sortDir = Context.Request.Query["policystack-dir"].ToString();
+
+    // Pull the same presenter + registry the SbPolicyStack uses so the
+    // grouped view shows the same rule set the editor surface does. The
+    // registry is optional in DI; when absent the group headers fall
+    // back to the bare template id.
+    var presenter = Context.RequestServices.GetService<PolicyStackPresenter>();
+    var registry = Context.RequestServices.GetService<TemplateRegistry>();
+
+    IReadOnlyList<PolicyStackTemplateGroupViewModel> templateGroups =
+        Array.Empty<PolicyStackTemplateGroupViewModel>();
+    if (presenter is not null)
+    {
+        var vm = await presenter.BuildAsync(
+            scope: scope,
+            embed: PolicyStackEmbed.EffectiveOnly,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false,
+            filter: string.IsNullOrWhiteSpace(filter) ? null : PolicyStackFilter.Parse(filter),
+            sort: PolicyStackSort.Parse(
+                string.IsNullOrWhiteSpace(sortKey) ? null : sortKey,
+                string.IsNullOrWhiteSpace(sortDir) ? null : sortDir),
+            ct: Context.RequestAborted);
+        templateGroups = PolicyTemplateGrouping.Group(vm.Rows, registry);
+    }
 }
 <section class="dashboard-policies">
+    @if (templateGroups.Count > 0)
+    {
+        <div class="sb-policy-stack-template-groups" data-policy-stack-template-groups>
+            @foreach (var group in templateGroups)
+            {
+                @await Html.PartialAsync("Components/SbPolicyStack/_TemplateGroup", group)
+            }
+        </div>
+    }
     @await Component.InvokeAsync("SbPolicyStack", new
     {
         scope = scope,
