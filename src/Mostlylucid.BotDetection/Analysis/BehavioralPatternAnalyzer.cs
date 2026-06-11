@@ -251,21 +251,30 @@ public partial class BehavioralPatternAnalyzer
 
     #region Helper Methods
 
+    // The defensive copy callers previously needed is no longer required:
+    // RecordRequest's copy-on-write pattern (create a new list, then Set) means
+    // any list reference returned here is immutable for its lifetime. Callers
+    // (CalculatePathEntropy, CalculateTimingEntropy, DetectTimingAnomaly, etc.)
+    // only read; returning the cached reference directly cuts the per-request
+    // List<string>/<DateTime> alloc + the wasted snapshot copy. At 32 KB/req
+    // for Behavioral_Normal the GetRecent* allocations were one of the bigger
+    // line items.
+
+    private static readonly List<string> EmptyPaths = new(0);
+    private static readonly List<DateTime> EmptyTimings = new(0);
+
     private List<string> GetRecentPaths(string identityKey)
     {
         var hashedKey = HashIdentity(identityKey);
-        var key = $"pattern_paths_{hashedKey}";
-        // Return a snapshot so callers can iterate without concurrent-modification risk.
-        var stored = _cache.Get<List<string>>(key);
-        return stored != null ? new List<string>(stored) : new List<string>();
+        var key = "pattern_paths_" + hashedKey;
+        return _cache.Get<List<string>>(key) ?? EmptyPaths;
     }
 
     private List<DateTime> GetRecentTimings(string identityKey)
     {
         var hashedKey = HashIdentity(identityKey);
-        var key = $"pattern_timings_{hashedKey}";
-        var stored = _cache.Get<List<DateTime>>(key);
-        return stored != null ? new List<DateTime>(stored) : new List<DateTime>();
+        var key = "pattern_timings_" + hashedKey;
+        return _cache.Get<List<DateTime>>(key) ?? EmptyTimings;
     }
 
     /// <summary>
@@ -288,17 +297,41 @@ public partial class BehavioralPatternAnalyzer
     /// </summary>
     public void RecordRequest(string identityKey, string path, DateTime timestamp)
     {
-        // Use hashed identity to protect PII
+        // Hash once per call instead of three times via the GetRecentPaths /
+        // GetRecentTimings chain (each of those previously rebuilt
+        // pattern_paths_/pattern_timings_ keys via $-interpolation + a fresh
+        // List copy). Behavioral_Normal microbench at 32 KB/req was dominated
+        // by these per-detection LINQ + List copy paths.
         var hashedKey = HashIdentity(identityKey);
+        var pathKey = "pattern_paths_" + hashedKey;
+        var timingKey = "pattern_timings_" + hashedKey;
 
-        // Copy-on-write: create a new list so concurrent readers of the old reference are safe.
-        var pathKey = $"pattern_paths_{hashedKey}";
-        var paths = new List<string>(GetRecentPaths(identityKey)) { path };
+        // Copy-on-write: clone the stored list so concurrent readers of the old
+        // reference are safe. The previous code did this twice -- once inside
+        // GetRecentPaths to produce a defensive snapshot, then again inside
+        // RecordRequest's `new List<string>(snapshot) { path }`. Reading the
+        // cache directly and copying once produces the same safety.
+        var storedPaths = _cache.Get<List<string>>(pathKey);
+        var paths = storedPaths is null
+            ? new List<string>(capacity: 4) { path }
+            : new List<string>(storedPaths.Count + 1) { };
+        if (storedPaths is not null)
+        {
+            paths.AddRange(storedPaths);
+            paths.Add(path);
+        }
         if (paths.Count > 50) paths.RemoveAt(0);
         _cache.Set(pathKey, paths, _analysisWindow);
 
-        var timingKey = $"pattern_timings_{hashedKey}";
-        var timings = new List<DateTime>(GetRecentTimings(identityKey)) { timestamp };
+        var storedTimings = _cache.Get<List<DateTime>>(timingKey);
+        var timings = storedTimings is null
+            ? new List<DateTime>(capacity: 4) { timestamp }
+            : new List<DateTime>(storedTimings.Count + 1) { };
+        if (storedTimings is not null)
+        {
+            timings.AddRange(storedTimings);
+            timings.Add(timestamp);
+        }
         if (timings.Count > 100) timings.RemoveAt(0);
         _cache.Set(timingKey, timings, _analysisWindow);
     }
