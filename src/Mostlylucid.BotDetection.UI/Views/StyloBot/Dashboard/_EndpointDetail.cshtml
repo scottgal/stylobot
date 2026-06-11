@@ -8,7 +8,7 @@
     // wrap us in its _Layout. When we're being rendered as an HTMX-swap fragment
     // (IsStandalonePage=false), Layout = null so we emit body markup only.
     if (!Model.IsStandalonePage) { Layout = null; }
-    else { ViewData["Title"] = $"{Model.Method} {Model.Path} -- StyloBot endpoint detail"; }
+    else { ViewData["Title"] = $"{Model.Method} {Model.Path}, StyloBot endpoint detail"; }
     var bp = Model.BasePath;
     var navBp = Model.ResolvedNavBasePath;
     var chartId = "ep-radar-" + Guid.NewGuid().ToString("N")[..8];
@@ -257,7 +257,7 @@
                                 }
                                 else
                                 {
-                                    <span class="w-4 h-3 text-[8px] text-base-content/30">--</span>
+                                    <span class="w-4 h-3 text-[8px] text-base-content/30">-</span>
                                 }
                                 <span class="text-[10px] font-mono w-6">@kvp.Key</span>
                                 <div class="flex-1 h-1 bg-base-300 rounded">
@@ -316,7 +316,7 @@
                                 <tr>
                                     <td class="py-0.5 text-[10px] text-base-content/40 font-mono w-12">@TimeAgo(det.Timestamp)</td>
                                     <td class="py-0.5 text-[10px] font-mono w-10 @verdictColor">@(det.IsBot ? "BOT" : "HUM")</td>
-                                    <td class="py-0.5 text-[10px] font-mono w-10 @statusColor">@(det.StatusCode == 0 ? "--" : det.StatusCode.ToString())</td>
+                                    <td class="py-0.5 text-[10px] font-mono w-10 @statusColor">@(det.StatusCode == 0 ? "-" : det.StatusCode.ToString())</td>
                                     <td class="py-0.5 text-[10px] font-mono">@((det.BotProbability * 100).ToString("F0"))%</td>
                                     <td class="py-0.5 text-[10px] text-base-content/50 text-right">@BotDisplayHelpers.FormatProcessingTime(det.ProcessingTimeMs)</td>
                                 </tr>

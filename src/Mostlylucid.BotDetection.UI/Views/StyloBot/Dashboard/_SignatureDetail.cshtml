@@ -220,9 +220,9 @@ else
             var consistencyDetector = FindDetector("Consistency", "HttpHeader", "Header", "Inconsistency");
             var uaDetector = FindDetector("UserAgent", "UA");
 
-            var tlsVersion = Signal("tls", "version") ?? Signal("tls", "Version") ?? Signal("ja3", "version") ?? "--";
-            var httpProtocol = Model.Protocol ?? Signal("http", "protocol") ?? Signal("http", "version") ?? "--";
-            var protocolClient = Signal("tls", "client") ?? Signal("ja3", "hash") ?? (fingerprintDetector != null ? "Detected" : "--");
+            var tlsVersion = Signal("tls", "version") ?? Signal("tls", "Version") ?? Signal("ja3", "version") ?? "-";
+            var httpProtocol = Model.Protocol ?? Signal("http", "protocol") ?? Signal("http", "version") ?? "-";
+            var protocolClient = Signal("tls", "client") ?? Signal("ja3", "hash") ?? (fingerprintDetector != null ? "Detected" : "-");
 
             string? FpValue(SignatureDetectorEntry? det) => det == null ? null :
                 Math.Abs(det.Contribution) >= 0.1 ? $"{(det.Contribution >= 0 ? "+" : "")}{det.Contribution:F2}" : "Low";
@@ -237,12 +237,12 @@ else
             // SbTooltipTagHelper resolves the key against DashboardTooltipRegistry
             // at render time and only emits markup when EnableTooltips is true.
             var fpItems = new (string Label, string Icon, string Value, string Color, string TooltipKey)[] {
-                ("TLS Version", "bx-lock-alt", tlsVersion, tlsVersion == "--" ? "text-base-content/40" : "text-info", "fp.tls_version"),
-                ("HTTP Protocol", "bx-globe", httpProtocol, httpProtocol == "--" ? "text-base-content/40" : "text-info", "fp.http_protocol"),
-                ("Protocol Client", "bx-transfer", protocolClient, protocolClient == "--" ? "text-base-content/40" : (fingerprintDetector != null ? FpColor(fingerprintDetector) : "text-info"), "fp.protocol_client"),
-                ("TCP OS Hint", "bx-chip", consistencyDetector != null ? (FpValue(consistencyDetector) ?? "Flagged") : "--", FpColor(consistencyDetector), "fp.tcp_os_hint"),
-                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? (FpValue(fingerprintDetector) ?? "Checked") : "--", FpColor(fingerprintDetector), "fp.fingerprint_integrity"),
-                ("UA Consistency", "bx-badge-check", uaDetector != null ? (FpValue(uaDetector) ?? "Checked") : "--", FpColor(uaDetector), "fp.ua_consistency"),
+                ("TLS Version", "bx-lock-alt", tlsVersion, tlsVersion == "-" ? "text-base-content/40" : "text-info", "fp.tls_version"),
+                ("HTTP Protocol", "bx-globe", httpProtocol, httpProtocol == "-" ? "text-base-content/40" : "text-info", "fp.http_protocol"),
+                ("Protocol Client", "bx-transfer", protocolClient, protocolClient == "-" ? "text-base-content/40" : (fingerprintDetector != null ? FpColor(fingerprintDetector) : "text-info"), "fp.protocol_client"),
+                ("TCP OS Hint", "bx-chip", consistencyDetector != null ? (FpValue(consistencyDetector) ?? "Flagged") : "-", FpColor(consistencyDetector), "fp.tcp_os_hint"),
+                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? (FpValue(fingerprintDetector) ?? "Checked") : "-", FpColor(fingerprintDetector), "fp.fingerprint_integrity"),
+                ("UA Consistency", "bx-badge-check", uaDetector != null ? (FpValue(uaDetector) ?? "Checked") : "-", FpColor(uaDetector), "fp.ua_consistency"),
                 ("Headless Indicator", "bx-bot", headlessDetector != null ? (FpValue(headlessDetector) ?? "Detected") : "Clean", headlessDetector != null ? FpColor(headlessDetector) : "text-success", "fp.headless_indicator"),
                 ("Datacenter IP", "bx-server", datacenterDetector != null ? (FpValue(datacenterDetector) ?? "Detected") : "Clean", datacenterDetector != null ? FpColor(datacenterDetector) : "text-success", "fp.datacenter_ip")
             };
@@ -330,7 +330,7 @@ else
                 <i class="bx bx-layer text-sm" style="color: var(--sb-accent);"></i>
                 Browser modes
                 <span class="text-[10px] font-normal text-base-content/40 normal-case ml-1">
-                    same browser, different modes — one row per persisted mode
+                    same browser, different modes. One row per persisted mode
                 </span>
             </h3>
             <div class="overflow-x-auto">
@@ -362,7 +362,7 @@ else
                                     }
                                     else
                                     {
-                                        <span class="text-base-content/30">—</span>
+                                        <span class="text-base-content/30">-</span>
                                     }
                                 </td>
                                 <td class="py-1 pl-2 text-right text-[11px] text-base-content/50 tabular-nums whitespace-nowrap">@m.LastSeen.ToString("HH:mm:ss")</td>
@@ -376,7 +376,7 @@ else
                 var totalObs = Model.BrowserModes.Sum(m => m.ObservationCount);
             }
             <div class="text-[10px] text-base-content/40 mt-2">
-                @modeCount mode@(modeCount == 1 ? "" : "s") across @totalObs observation@(totalObs == 1 ? "" : "s") — see <a class="underline decoration-dotted" href="https://github.com/scottgal/stylobot/blob/main/docs/architecture/composite-browser-mode-fingerprints.md" target="_blank" rel="noopener">composite browser-mode fingerprints</a>.
+                @modeCount mode@(modeCount == 1 ? "" : "s") across @totalObs observation@(totalObs == 1 ? "" : "s"). See <a class="underline decoration-dotted" href="https://github.com/scottgal/stylobot/blob/main/docs/architecture/composite-browser-mode-fingerprints.md" target="_blank" rel="noopener">composite browser-mode fingerprints</a>.
             </div>
         </div>
     }
@@ -420,7 +420,7 @@ else
                                            composed inline. The portal binds .tooltip[data-tip] and shows
                                            the styled bubble on hover — same single rendering path the
                                            rest of the page uses. *@
-                                        var cellTip = $"{dayLabels[d]} {h:00}:00 UTC — {count} hits";
+                                        var cellTip = $"{dayLabels[d]} {h:00}:00 UTC, {count} hits";
                                         <td class="border tooltip tooltip-bottom" style="width: 14px; height: 14px; background: @bg; border-color: var(--sb-card-divider);" data-tip="@cellTip"></td>
                                     }
                                 </tr>
@@ -489,8 +489,8 @@ else
                                     <td class="py-1 text-right text-xs tabular-nums text-base-content/70">@e.P95ProcessingTimeMs.ToString("F1")</td>
                                     <td class="py-1 text-right text-xs tabular-nums text-base-content/50">@e.MaxProcessingTimeMs.ToString("F1")</td>
                                     <td class="py-1 text-right text-xs tabular-nums @(botPct >= 70 ? "text-error" : botPct >= 30 ? "text-warning" : "text-success")">@botPct%</td>
-                                    <td class="py-1 text-xs @RiskColor(e.DominantRiskBand)">@(e.DominantRiskBand ?? "—")</td>
-                                    <td class="py-1 text-xs @ActionColor(e.DominantAction)">@(e.DominantAction ?? "—")</td>
+                                    <td class="py-1 text-xs @RiskColor(e.DominantRiskBand)">@(e.DominantRiskBand ?? "-")</td>
+                                    <td class="py-1 text-xs @ActionColor(e.DominantAction)">@(e.DominantAction ?? "-")</td>
                                     <td class="py-1 text-right text-[10px] tabular-nums font-mono text-base-content/60">
                                         <span class="text-success">@e.Status2xx</span>/<span class="text-warning">@e.Status4xx</span>/<span class="text-error">@e.Status5xx</span>
                                     </td>
@@ -672,7 +672,7 @@ else
                             var deltaColor = det.ConfidenceDelta > 0 ? "text-error" : "text-success";
                             var timingDisplay = det.ExecutionTimeMs > 0
                                 ? $"{det.ExecutionTimeMs:F1}"
-                                : "--";
+                                : "-";
                             var detectorLabel = det.Name.Replace("Contributor", "", StringComparison.Ordinal);
                             <tr class="hover:bg-base-200/50">
                                 <td class="py-1.5">

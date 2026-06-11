@@ -13,8 +13,8 @@
     var probPct = (Model.BotProbability * 100).ToString("F0");
     var (icon, color, label, tip) = band switch
     {
-        "Critical" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Critical", "Active attack -- block immediately"),
-        "VeryHigh" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Very High","Confident bot -- highest Risk Profile band"),
+        "Critical" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Critical", "Active attack. Block immediately"),
+        "VeryHigh" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Very High","Confident bot. Highest Risk Profile band"),
         "High"     => ("bxs-shield-minus", "var(--color-error,   #ef4444)", "High",     "Bot, very likely unwanted"),
         "Elevated" => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Elevated", "Suspicious behaviour above ambient"),
         "Medium"   => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Medium",   "Bot signals present, classification uncertain"),
@@ -23,6 +23,6 @@
         _          => ("bxs-shield",       "rgba(148,163,184,0.55)",         "None",     "No Risk Profile band assigned")
     };
 }
-<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label Risk Profile -- @probPct% bot probability. @tip">
+<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label Risk Profile: @probPct% bot probability. @tip">
     <i class="bx @icon text-lg" style="color: @color;" aria-label="@label Risk Profile"></i>
 </span>

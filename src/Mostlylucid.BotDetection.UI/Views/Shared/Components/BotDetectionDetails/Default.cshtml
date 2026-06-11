@@ -91,7 +91,7 @@
         <div class="flex flex-col gap-2 min-w-0">
             <div class="flex items-baseline gap-3">
                 <div>
-                    <span class="text-2xl font-black" style="color: @accent;">@(hasLiveData ? probPct + "%" : "--")</span>
+                    <span class="text-2xl font-black" style="color: @accent;">@(hasLiveData ? probPct + "%" : "-")</span>
                     <span class="text-[10px] text-base-content/50 ml-1">bot probability</span>
                 </div>
                 <span class="badge badge-xs sb-risk-@(Model.RiskBand.ToLowerInvariant())">@Model.RiskBand</span>

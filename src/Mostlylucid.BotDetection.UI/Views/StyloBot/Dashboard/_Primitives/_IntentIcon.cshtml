@@ -27,10 +27,10 @@
     var muted  = "color-mix(in oklab, var(--color-base-content) 65%, transparent)";
     var (icon, color, label, tip) = intent switch
     {
-        "Scraper" or "Scanner"  => ("bxs-spider",         muted,                                     "Scraper",   "Scrapes pages at scale -- credential harvest, content reuse, inventory theft. Threat severity is in the shield column."),
+        "Scraper" or "Scanner"  => ("bxs-spider",         muted,                                     "Scraper",   "Scrapes pages at scale: credential harvest, content reuse, inventory theft. Threat severity is in the shield column."),
         "Probe"                 => ("bxs-search-alt-2",   muted,                                     "Probe",     "Probes endpoints looking for vulns, leaked secrets, or open admin paths. Threat severity is in the shield column."),
         "AI" or "AiBot"         => ("bxs-brain",          "var(--color-accent,  #a78bfa)",           "AI",        "AI / LLM crawler training on your content"),
-        "Bot" or "Automated"    => ("bxs-bot",            muted,                                     "Bot",       "Headless / scripted automation -- intent unclear"),
+        "Bot" or "Automated"    => ("bxs-bot",            muted,                                     "Bot",       "Headless / scripted automation, intent unclear"),
         "Tool"                  => ("bxs-wrench",         "var(--color-info,    #38bdf8)",           "Tool",      "Generic HTTP tool / library (curl, requests, etc.)"),
         "Crawler"               => ("bxs-network-chart",  "var(--color-info,    #38bdf8)",           "Crawler",   "Indexing / SEO crawler"),
         "Browser"               => ("bxs-globe",          "var(--color-success, #22c55e)",           "Browser",   "Looks like a real interactive browser"),
@@ -38,6 +38,6 @@
         _                       => ("bxs-help-circle",    "rgba(148,163,184,0.55)",                  intent,     "Intent could not be classified from signals")
     };
 }
-<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label -- @tip">
+<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label. @tip">
     <i class="bx @icon text-lg" style="color: @color;" aria-label="@label"></i>
 </span>

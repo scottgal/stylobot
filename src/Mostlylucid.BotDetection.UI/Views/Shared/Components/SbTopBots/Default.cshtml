@@ -164,7 +164,7 @@
                                 hx-get="@SortUrl("probability")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Bot %@(Html.Raw(SortIcon("probability")))
                             </th>
-                            <th class="py-1 px-1.5 text-center text-[10px] text-base-content/40" title="Detection confidence -- gates the recommendation. Low confidence + high bot % = monitor, not block.">Conf</th>
+                            <th class="py-1 px-1.5 text-center text-[10px] text-base-content/40" title="Detection confidence. Gates the recommendation. Low confidence + high bot % = monitor, not block.">Conf</th>
                             <th class="py-1 px-1.5 text-center @ThClass("threat")"
                                 hx-get="@SortUrl("threat")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Threat@(Html.Raw(SortIcon("threat")))

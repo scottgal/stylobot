@@ -23,7 +23,7 @@
         var riskBars = Math.Max(1, BotDisplayHelpers.RiskSeverity(d.RiskBand));
         var actionIcon = BotDisplayHelpers.IconForAction(d.Action);
         var actionColor = BotDisplayHelpers.ColorForAction(d.Action);
-        var botLabel = d.BotName ?? d.BotType ?? "--";
+        var botLabel = d.BotName ?? d.BotType ?? "-";
         var botIcon = BotDisplayHelpers.IconForBotType(d.BotType);
         var hasDetail = (d.DetectorContributions?.Any() == true)
                      || (d.ImportantSignals?.Any() == true)

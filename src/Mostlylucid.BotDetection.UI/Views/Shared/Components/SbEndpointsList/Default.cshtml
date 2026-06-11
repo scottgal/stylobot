@@ -99,7 +99,7 @@
                 <tr class="text-[10px] uppercase tracking-wider">
                     <th class="py-1 @ThClass("method") cursor-pointer" hx-get="@SortUrl("method")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Method@(Html.Raw(SortIcon("method")))</th>
                     <th class="py-1 @ThClass("path") cursor-pointer" hx-get="@SortUrl("path")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Path@(Html.Raw(SortIcon("path")))</th>
-                    <th class="py-1 text-center @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Bot pressure -- bot hits as a fraction of total in the trailing window">Bot Pressure@(Html.Raw(SortIcon("botrate")))</th>
+                    <th class="py-1 text-center @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Bot pressure: bot hits as a fraction of total in the trailing window">Bot Pressure@(Html.Raw(SortIcon("botrate")))</th>
                     <th class="py-1 text-center @ThClass("threat") cursor-pointer @(compact ? "" : "hidden md:table-cell")" hx-get="@SortUrl("threat")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Threat@(Html.Raw(SortIcon("threat")))</th>
                     <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Hits@(Html.Raw(SortIcon("total")))</th>
                     @if (!compact)

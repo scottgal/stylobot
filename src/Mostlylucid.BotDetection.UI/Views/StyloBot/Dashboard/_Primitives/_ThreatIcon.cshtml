@@ -43,21 +43,21 @@
     {
         5 => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Critical",
               band == "Critical"
-                ? "Active attack signals -- block immediately"
+                ? "Active attack signals. Block immediately"
                 : "Active attack signals (escalated by threat band)"),
         4 => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "High",
               band is "VeryHigh" or "High"
-                ? "Hostile shape detected -- challenge or throttle"
-                : "High-confidence bot -- treat as risk to the site"),
+                ? "Hostile shape detected. Challenge or throttle"
+                : "High-confidence bot. Treat as risk to the site"),
         3 => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Medium",
               band is "Elevated" or "Medium"
-                ? "Suspicious shape -- monitor"
-                : "Moderate-confidence bot -- monitor"),
-        1 => ("bxs-shield",       "var(--color-success, #22c55e)", "Low",      "Low risk -- no hostile signals"),
+                ? "Suspicious shape. Monitor"
+                : "Moderate-confidence bot. Monitor"),
+        1 => ("bxs-shield",       "var(--color-success, #22c55e)", "Low",      "Low risk. No hostile signals"),
         _ => ("bxs-shield",       "rgba(148, 163, 184, 0.55)",     "None",     "No hostile signals or bot evidence")
     };
 }
-@{ var fullTip = $"Threat: {label} -- {tip}"; }
+@{ var fullTip = $"Threat: {label}. {tip}"; }
 <span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@fullTip">
     <i class="bx @icon text-lg" style="color: @color;" aria-label="Threat: @label"></i>
 </span>
