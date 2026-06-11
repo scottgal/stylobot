@@ -171,6 +171,11 @@ public static class PrometheusPackServiceCollectionExtensions
 
         services.TryAddSingleton<IMeterSignalSink, NullMeterSignalSink>();
 
+        // Self-register IScheduleCoordinator. AddBotDetection registers it on the
+        // gateway, but viewer hosts (e.g. the marketing site) call AddPrometheusPack
+        // without AddBotDetection -- TryAdd here makes the pack self-sufficient.
+        EnsureScheduleCoordinatorRegistered(services);
+
         // Wave 2: LocalMeterStream is no longer IHostedService. The
         // PrometheusPackBootstrap (registered by AddPrometheusPack) forces
         // construction at boot so the constructor's Subscribe(...) fires.
@@ -220,6 +225,11 @@ public static class PrometheusPackServiceCollectionExtensions
             .Configure(opts => configure?.Invoke(opts));
 
         services.TryAddSingleton<IMeterSignalSink, NullMeterSignalSink>();
+
+        // Self-register IScheduleCoordinator. AddBotDetection registers it on the
+        // gateway, but viewer hosts (e.g. the marketing site) call AddPrometheusPack
+        // without AddBotDetection -- TryAdd here makes the pack self-sufficient.
+        EnsureScheduleCoordinatorRegistered(services);
 
         // Wave 6: RemoteMeterStream requires IHttpClientFactory (not optional).
         // Register the named client unconditionally so hosts that haven't called
@@ -311,5 +321,33 @@ public static class PrometheusPackServiceCollectionExtensions
         // constructor. PrometheusPackBootstrap forces the construction at boot.
         services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Triggers.ArmedRuleRegistry>();
         services.TryAddSingleton<Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers.MeterTriggerService>();
+    }
+
+    /// <summary>
+    ///     Registers <see cref="Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator" />
+    ///     as the canonical tick source if no <see cref="Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator" />
+    ///     is already in DI. Mirrors the registration block inside
+    ///     <c>AddBotDetection</c> in the core assembly. Idempotent under
+    ///     repeated calls and respects callers that registered their own
+    ///     coordinator earlier.
+    /// </summary>
+    private static void EnsureScheduleCoordinatorRegistered(IServiceCollection services)
+    {
+        // We use the concrete-type registration as the sentinel for "did someone
+        // already do the full block?" If ScheduleCoordinator is registered,
+        // assume the hosted-service descriptor is too (AddBotDetection and this
+        // method are the only call sites that register it, and both register the
+        // pair atomically).
+        if (services.Any(d => d.ServiceType == typeof(Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator)))
+            return;
+
+        services.AddOptions<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions>()
+            .BindConfiguration(Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions.SectionName);
+
+        services.AddSingleton<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>();
+        services.AddSingleton<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(
+            sp => sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>());
+        services.AddHostedService(
+            sp => sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>());
     }
 }
