@@ -88,13 +88,13 @@
     // rendered more than once on the page.
     var pickerId = "sb-scope-picker-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 }
-<fieldset class="sb-scope-picker"
+<fieldset class="sb-scope-picker rounded-lg border border-base-300 bg-base-100 p-4 space-y-3"
           id="@pickerId"
           data-scope-picker
           data-scope-picker-seed="@seedJson"
           x-data="sbScopePicker($el.dataset.scopePickerSeed)"
           x-init="syncHidden()">
-    <legend class="sb-scope-picker-legend">Where this applies</legend>
+    <legend class="sb-scope-picker-legend text-sm font-semibold px-1">Where this applies</legend>
 
     @* Hidden JSON field -- the only thing posted to the server. The
        Alpine root rewrites its value on every axis change via syncHidden. *@
@@ -105,18 +105,22 @@
            value="" />
 
     @* ---- Host axis ------------------------------------------------- *@
-    <div class="sb-scope-picker-axis" data-axis="host">
-        <label class="sb-scope-picker-label" for="@(pickerId)-host-kind">Host</label>
-        <select id="@(pickerId)-host-kind"
-                data-scope-picker-host-kind
-                x-model="host.kind"
-                @@change="syncHidden()">
-            <option value="none">none</option>
-            <option value="domain">Domain</option>
-            <option value="subdomain">Subdomain</option>
-            <option value="endpoint">Endpoint</option>
-        </select>
+    <div class="sb-scope-picker-axis flex flex-wrap items-end gap-2" data-axis="host">
+        <label class="sb-scope-picker-label flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-base-content/60 min-w-[80px]" for="@(pickerId)-host-kind">
+            Host
+            <select id="@(pickerId)-host-kind"
+                    class="select select-bordered select-sm normal-case font-normal tracking-normal text-sm"
+                    data-scope-picker-host-kind
+                    x-model="host.kind"
+                    @@change="syncHidden()">
+                <option value="none">none</option>
+                <option value="domain">Domain</option>
+                <option value="subdomain">Subdomain</option>
+                <option value="endpoint">Endpoint</option>
+            </select>
+        </label>
         <input type="text"
+               class="input input-bordered input-sm flex-1 min-w-[160px]"
                data-scope-picker-host-domain
                placeholder="example.com"
                x-show="host.kind !== 'none'"
@@ -124,6 +128,7 @@
                @@input="syncHidden()"
                aria-label="Domain" />
         <input type="text"
+               class="input input-bordered input-sm flex-1 min-w-[140px]"
                data-scope-picker-host-sub
                placeholder="subdomain"
                x-show="host.kind === 'subdomain' || host.kind === 'endpoint'"
@@ -131,6 +136,7 @@
                @@input="syncHidden()"
                aria-label="Subdomain" />
         <input type="text"
+               class="input input-bordered input-sm flex-1 min-w-[180px]"
                data-scope-picker-host-path
                placeholder="GET /path/template"
                x-show="host.kind === 'endpoint'"
@@ -140,63 +146,74 @@
     </div>
 
     @* ---- Method axis ---------------------------------------------- *@
-    <div class="sb-scope-picker-axis" data-axis="method">
-        <label class="sb-scope-picker-label" for="@(pickerId)-method">Method</label>
-        <select id="@(pickerId)-method"
-                data-scope-picker-method
-                x-model="method"
-                @@change="syncHidden()">
-            <option value="">none</option>
-            @foreach (var m in Model.EffectiveMethods)
-            {
-                <option value="@m">@m</option>
-            }
-        </select>
+    <div class="sb-scope-picker-axis flex flex-wrap items-end gap-2" data-axis="method">
+        <label class="sb-scope-picker-label flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-base-content/60 min-w-[80px]" for="@(pickerId)-method">
+            Method
+            <select id="@(pickerId)-method"
+                    class="select select-bordered select-sm normal-case font-normal tracking-normal text-sm"
+                    data-scope-picker-method
+                    x-model="method"
+                    @@change="syncHidden()">
+                <option value="">none</option>
+                @foreach (var m in Model.EffectiveMethods)
+                {
+                    <option value="@m">@m</option>
+                }
+            </select>
+        </label>
     </div>
 
     @* ---- Geo axis ------------------------------------------------- *@
-    <div class="sb-scope-picker-axis" data-axis="geo">
-        <label class="sb-scope-picker-label" for="@(pickerId)-geo">Geo</label>
-        @if (Model.KnownGeos is { Count: > 0 } geos)
-        {
-            <select id="@(pickerId)-geo"
-                    data-scope-picker-geo
-                    x-model="geo"
-                    @@change="syncHidden()">
-                <option value="">none</option>
-                @foreach (var pair in geos)
-                {
-                    <option value="@pair.Key">@(pair.Key): @pair.Value</option>
-                }
-            </select>
-        }
-        else
-        {
-            <input id="@(pickerId)-geo"
-                   type="text"
-                   data-scope-picker-geo
-                   maxlength="2"
-                   placeholder="ISO (e.g. US)"
-                   x-model="geo"
-                   @@input="syncHidden()"
-                   aria-label="Geo (ISO-3166 alpha-2)" />
-        }
+    <div class="sb-scope-picker-axis flex flex-wrap items-end gap-2" data-axis="geo">
+        <label class="sb-scope-picker-label flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-base-content/60 min-w-[80px]" for="@(pickerId)-geo">
+            Geo
+            @if (Model.KnownGeos is { Count: > 0 } geos)
+            {
+                <select id="@(pickerId)-geo"
+                        class="select select-bordered select-sm normal-case font-normal tracking-normal text-sm"
+                        data-scope-picker-geo
+                        x-model="geo"
+                        @@change="syncHidden()">
+                    <option value="">none</option>
+                    @foreach (var pair in geos)
+                    {
+                        <option value="@pair.Key">@(pair.Key): @pair.Value</option>
+                    }
+                </select>
+            }
+            else
+            {
+                <input id="@(pickerId)-geo"
+                       type="text"
+                       class="input input-bordered input-sm normal-case font-normal tracking-normal text-sm"
+                       data-scope-picker-geo
+                       maxlength="2"
+                       placeholder="ISO (e.g. US)"
+                       x-model="geo"
+                       @@input="syncHidden()"
+                       aria-label="Geo (ISO-3166 alpha-2)" />
+            }
+        </label>
     </div>
 
     @* ---- Identity axis -------------------------------------------- *@
-    <div class="sb-scope-picker-axis" data-axis="identity">
-        <label class="sb-scope-picker-label" for="@(pickerId)-identity-kind">Identity</label>
-        <select id="@(pickerId)-identity-kind"
-                data-scope-picker-identity-kind
-                x-model="identity.kind"
-                @@change="syncHidden()">
-            <option value="none">none</option>
-            <option value="named_bot">Named bot</option>
-            <option value="bot_type">Bot type</option>
-            <option value="human_browser">Human browser</option>
-            <option value="fingerprint">Fingerprint id</option>
-        </select>
+    <div class="sb-scope-picker-axis flex flex-wrap items-end gap-2" data-axis="identity">
+        <label class="sb-scope-picker-label flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wider text-base-content/60 min-w-[80px]" for="@(pickerId)-identity-kind">
+            Identity
+            <select id="@(pickerId)-identity-kind"
+                    class="select select-bordered select-sm normal-case font-normal tracking-normal text-sm"
+                    data-scope-picker-identity-kind
+                    x-model="identity.kind"
+                    @@change="syncHidden()">
+                <option value="none">none</option>
+                <option value="named_bot">Named bot</option>
+                <option value="bot_type">Bot type</option>
+                <option value="human_browser">Human browser</option>
+                <option value="fingerprint">Fingerprint id</option>
+            </select>
+        </label>
         <input type="text"
+               class="input input-bordered input-sm flex-1 min-w-[180px]"
                data-scope-picker-identity-value
                placeholder="value"
                x-show="identity.kind !== 'none'"
@@ -216,7 +233,7 @@
         }
     </div>
 
-    <p class="sb-scope-picker-hint" data-scope-picker-hint>
+    <p class="sb-scope-picker-hint text-xs text-base-content/60" data-scope-picker-hint>
         none on every axis matches every request (wildcard scope).
     </p>
 </fieldset>

@@ -3,10 +3,16 @@
     C1 -- Pack-health row rendered at the top of the dashboard overview body.
     One SbStatTile cell per registered provider that returned a tile. Empty
     Tiles list = nothing renders (the existing overview widgets take over).
+
+    Layout matches the rest of the overview: a responsive auto-fit grid sized
+    to tile width, with the same gap as the other tile rows. The wrapping
+    sb-pack-health-row class is preserved so any downstream selector still hits.
 *@
 @if (Model.Tiles.Count > 0)
 {
-    <section class="sb-pack-health-row" aria-label="Pack health overview">
+    <section class="sb-pack-health-row mb-4 grid gap-3"
+             style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));"
+             aria-label="Pack health overview">
         @foreach (var tile in Model.Tiles)
         {
             <div class="sb-pack-health-row__cell">

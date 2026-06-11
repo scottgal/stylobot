@@ -13,16 +13,19 @@
 }
 <section class="sb-meter-table" data-meter-table>
     <header class="sb-meter-table__head">
-        <h3 class="sb-meter-table__title">@Model.Title</h3>
+        <h3 class="sb-meter-table__title text-base font-semibold">@Model.Title</h3>
         @if (!string.IsNullOrEmpty(Model.Caption))
         {
-            <p class="sb-meter-table__caption">@Model.Caption</p>
+            <p class="sb-meter-table__caption text-sm text-base-content/70">@Model.Caption</p>
         }
     </header>
 
     @if (Model.Rows.Count == 0)
     {
-        <p class="sb-meter-table__empty">@(Model.EmptyMessage ?? "No meters")</p>
+        <div class="sb-meter-table__empty py-8 text-center text-sm text-base-content/60">
+            <i class="bx bx-line-chart text-2xl block mb-2 text-base-content/30"></i>
+            @(Model.EmptyMessage ?? "No meters")
+        </div>
     }
     else
     {

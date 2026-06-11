@@ -10,38 +10,44 @@
 
     Each row is the existing _RuleRow partial, kept untouched so the C6
     pencil edit affordance + the divergence banner ride through unchanged.
+
+    Rendered as a DaisyUI card with the same shell the rest of the
+    dashboard uses. The sb-policy-stack-template-* classes stay so any
+    test assertion or CSS hook keeps matching.
 *@
-<section class="sb-policy-stack-template-group"
+<section class="sb-policy-stack-template-group card bg-base-100 shadow-sm rounded-xl border border-base-300 mb-3"
          data-template-group
          data-template-id="@Model.TemplateId"
          data-is-manually-authored="@(Model.IsManuallyAuthored ? "true" : "false")">
-    <header class="sb-policy-stack-template-group-header">
-        <span class="sb-policy-stack-template-group-title">@Model.TemplateDisplayName</span>
-        <span class="sb-policy-stack-template-group-count">
-            @Model.Rows.Count @(Model.Rows.Count == 1 ? "rule" : "rules")
-        </span>
-        @if (!Model.IsManuallyAuthored && Model.ApplicationIds.Count > 0)
-        {
-            <span class="sb-policy-stack-template-group-apps" aria-label="Template applications">
-                @foreach (var appId in Model.ApplicationIds)
-                {
-                    <code class="sb-policy-stack-template-group-app">@appId</code>
-                }
+    <div class="card-body p-4 md:p-5">
+        <header class="sb-policy-stack-template-group-header flex flex-wrap items-center gap-2 mb-3">
+            <h3 class="sb-policy-stack-template-group-title card-title text-base">@Model.TemplateDisplayName</h3>
+            <span class="sb-policy-stack-template-group-count badge badge-ghost badge-sm">
+                @Model.Rows.Count @(Model.Rows.Count == 1 ? "rule" : "rules")
             </span>
-        }
-        @if (Model.DivergedCount > 0)
-        {
-            <span class="sb-policy-stack-template-group-diverged" role="note">
-                @Model.DivergedCount diverged
-            </span>
-        }
-    </header>
-    <ul class="sb-policy-stack-rows" role="list">
-        @foreach (var row in Model.Rows)
-        {
-            <li>
-                @await Html.PartialAsync("Components/SbPolicyStack/_RuleRow", row)
-            </li>
-        }
-    </ul>
+            @if (!Model.IsManuallyAuthored && Model.ApplicationIds.Count > 0)
+            {
+                <span class="sb-policy-stack-template-group-apps flex flex-wrap gap-1" aria-label="Template applications">
+                    @foreach (var appId in Model.ApplicationIds)
+                    {
+                        <code class="sb-policy-stack-template-group-app text-xs px-1.5 py-0.5 rounded bg-base-200">@appId</code>
+                    }
+                </span>
+            }
+            @if (Model.DivergedCount > 0)
+            {
+                <span class="sb-policy-stack-template-group-diverged badge badge-warning badge-sm ml-auto" role="note">
+                    @Model.DivergedCount diverged
+                </span>
+            }
+        </header>
+        <ul class="sb-policy-stack-rows divide-y divide-base-300" role="list">
+            @foreach (var row in Model.Rows)
+            {
+                <li class="py-2 first:pt-0 last:pb-0">
+                    @await Html.PartialAsync("Components/SbPolicyStack/_RuleRow", row)
+                </li>
+            }
+        </ul>
+    </div>
 </section>

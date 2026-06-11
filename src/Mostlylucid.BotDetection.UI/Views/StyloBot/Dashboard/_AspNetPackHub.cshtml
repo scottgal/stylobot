@@ -23,14 +23,21 @@
     }
 }
 
-<section class="sb-aspnet-hub" data-aspnet-hub-vm>
+<section class="sb-aspnet-hub space-y-4" data-aspnet-hub-vm>
     @if (vm is null)
     {
-        <div class="sb-aspnet-hub__unavailable rounded-xl border p-6 text-sm text-base-content/60"
-             style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            ASP.NET Pack is not configured on this host. Add
-            <code>AddAspNetPackReadOnly()</code> and <code>AddPrometheusPack(...)</code>
-            to enable the pack hub.
+        <div class="card bg-base-100 shadow-sm rounded-xl border border-base-300">
+            <div class="card-body p-6 text-center">
+                <i class="bx bx-info-circle text-2xl text-base-content/40 mx-auto mb-2"></i>
+                <h2 class="card-title text-lg justify-center">ASP.NET Pack is not configured</h2>
+                <p class="text-sm text-base-content/70 mt-1">
+                    Add
+                    <code class="px-1 py-0.5 rounded bg-base-200 text-xs">AddAspNetPackReadOnly()</code>
+                    and
+                    <code class="px-1 py-0.5 rounded bg-base-200 text-xs">AddPrometheusPack(...)</code>
+                    to enable the pack hub.
+                </p>
+            </div>
         </div>
     }
     else
@@ -43,34 +50,44 @@
             _                  => "Pack health unknown",
         };
 
-        <header class="sb-aspnet-hub__head"
-                style="display:flex; flex-direction:column; gap:0.25rem; margin-bottom:0.75rem;">
-            <div style="display:flex; align-items:center; gap:0.5rem;">
-                @await Component.InvokeAsync("SbHealthDot",
-                    new { model = new HealthDotViewModel(vm.OverallHealthBand, healthTooltip) })
-                <h2 class="sb-aspnet-hub__title" style="font-size:1.25rem; font-weight:600;">@vm.Title</h2>
+        @* Header card: health dot + title + subtitle in the same shell pattern
+           the overview uses. *@
+        <div class="card bg-base-100 shadow-sm rounded-xl border border-base-300">
+            <div class="card-body p-4 md:p-6">
+                <div class="flex items-center gap-2">
+                    @await Component.InvokeAsync("SbHealthDot",
+                        new { model = new HealthDotViewModel(vm.OverallHealthBand, healthTooltip) })
+                    <h2 class="card-title text-lg">@vm.Title</h2>
+                </div>
+                <p class="text-sm text-base-content/70 mt-1">@vm.Subtitle</p>
             </div>
-            <p class="sb-aspnet-hub__subtitle"
-               style="font-size:0.8125rem; color: var(--sb-brand-muted);">
-                @vm.Subtitle
-            </p>
-        </header>
-
-        <div class="sb-aspnet-hub__tiles"
-             style="display:grid; gap:0.75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:1rem;">
-            @foreach (var tile in vm.TopTiles)
-            {
-                @await Component.InvokeAsync("SbStatTile", new { model = tile })
-            }
         </div>
+
+        @* Headline tile grid -- same auto-fit minmax pattern used elsewhere. *@
+        @if (vm.TopTiles.Count > 0)
+        {
+            <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                @foreach (var tile in vm.TopTiles)
+                {
+                    @await Component.InvokeAsync("SbStatTile", new { model = tile })
+                }
+            </div>
+        }
 
         @if (vm.IngestTrend is not null)
         {
-            <div class="sb-aspnet-hub__trend" style="margin-bottom:1rem;">
+            <div>
                 @await Component.InvokeAsync("SbTrendCard", new { model = vm.IngestTrend })
             </div>
         }
 
-        @await Component.InvokeAsync("SbMeterTable", new { model = vm.MeterTable })
+        @* Meter table inside a card shell with overflow-x-auto. *@
+        <div class="card bg-base-100 shadow-sm rounded-xl border border-base-300">
+            <div class="card-body p-4 md:p-5">
+                <div class="overflow-x-auto">
+                    @await Component.InvokeAsync("SbMeterTable", new { model = vm.MeterTable })
+                </div>
+            </div>
+        </div>
     }
 </section>
