@@ -74,7 +74,7 @@ public sealed class InsightsPageBuilder
 
         var emptyMessage = filtered.Count == 0 && total > 0
             ? "No meters match the current filter."
-            : "No meters published yet -- once traffic arrives the gateway will register meters here.";
+            : "No meters published yet. Once traffic arrives the gateway will register meters here.";
 
         var table = new MeterTableViewModel(
             Title: "All meters",
@@ -158,7 +158,7 @@ public sealed class InsightsPageBuilder
             ? new SparklineViewModel(values, ColorClass: ColorForKind(entry.Kind))
             : null;
 
-        var current = ts is null ? "—" : FormatNumber(ts.Current);
+        var current = ts is null ? "-" : FormatNumber(ts.Current);
 
         return new MeterTableRowViewModel(
             Name: entry.Name,
@@ -255,7 +255,7 @@ public sealed class InsightsPageBuilder
 
     internal static string FormatNumber(double value)
     {
-        if (double.IsNaN(value) || double.IsInfinity(value)) return "—";
+        if (double.IsNaN(value) || double.IsInfinity(value)) return "-";
         var abs = Math.Abs(value);
 
         if (abs > 1_000_000)
@@ -304,7 +304,7 @@ public sealed class InsightsPageBuilder
     /// </summary>
     private static double ParseValueForSort(string formatted)
     {
-        if (string.IsNullOrEmpty(formatted) || formatted == "—") return double.MinValue;
+        if (string.IsNullOrEmpty(formatted) || formatted == "-") return double.MinValue;
 
         var s = formatted;
         double mult = 1d;

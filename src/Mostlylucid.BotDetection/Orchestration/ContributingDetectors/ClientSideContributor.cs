@@ -88,7 +88,7 @@ public class ClientSideContributor : ConfiguredContributorBase
                         Category = "ClientSide",
                         ConfidenceDelta = bias,
                         Weight = GetParam("fingerprint_weight", 1.8),
-                        Reason = "Adblocker probe blocked — human-affinity bias (adblocker users skew strongly human)"
+                        Reason = "Adblocker probe blocked: human-affinity bias (adblocker users skew strongly human)"
                     });
                 }
                 return contributions;

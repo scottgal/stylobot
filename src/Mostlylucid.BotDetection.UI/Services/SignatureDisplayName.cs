@@ -194,13 +194,13 @@ public static class SignatureDisplayName
         family.Equals("-", StringComparison.Ordinal);
 
     /// <summary>
-    ///     First N chars of the signature, or "—" when there is no signature
+    ///     First N chars of the signature, or "-" when there is no signature
     ///     at all. The signature itself is real data; truncating it gives a
     ///     stable, grep-able row identity without inventing a label.
     /// </summary>
     private static string ShortHash(string signature, int length = 8)
     {
-        if (string.IsNullOrEmpty(signature)) return "—";
+        if (string.IsNullOrEmpty(signature)) return "-";
         return signature.Length <= length ? signature : signature[..length];
     }
 }

@@ -5,7 +5,7 @@ namespace Mostlylucid.BotDetection.UI.Notifications;
 
 public sealed class RegistrationVerifyEmail : INotificationTemplate<RegistrationVerifyModel>
 {
-    public string Subject(RegistrationVerifyModel m) => $"Verify your email -- {m.SiteName}";
+    public string Subject(RegistrationVerifyModel m) => $"Verify your email: {m.SiteName}";
 
     public async Task<string> RenderHtmlAsync(RegistrationVerifyModel model, CancellationToken cancellationToken = default)
     {

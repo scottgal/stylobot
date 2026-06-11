@@ -244,7 +244,7 @@ public sealed class PolicyExplainerPresenter
                 PredicateText: predicateText,
                 Terms: Array.Empty<PolicyExplainerTermViewModel>(),
                 TotalEvalMicros: 0,
-                SkipReason: "not evaluated -- earlier rule won");
+                SkipReason: "not evaluated; earlier rule won");
         }
 
         var trace = PredicateTraceEvaluator.Trace(entry.Rule.Predicate, signals);

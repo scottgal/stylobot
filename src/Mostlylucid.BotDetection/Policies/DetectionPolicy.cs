@@ -489,7 +489,7 @@ public sealed record DetectionPolicy
     public static DetectionPolicy Profile => new()
     {
         Name = "profile",
-        Description = "Fingerprint-only detection for calibration — never blocks inline",
+        Description = "Fingerprint-only detection for calibration; never blocks inline",
         FastPathDetectors = ["Signature"],
         SlowPathDetectors = [],
         AiPathDetectors = [],

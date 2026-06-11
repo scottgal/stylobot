@@ -51,7 +51,7 @@ public class GeoIpSetupResource : ISetupResource
         var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(_csvPath);
         if (age.TotalDays > 7)
             return Task.FromResult(new ResourceStatus(Name, Description, ResourcePresence.Stale, _csvPath,
-                $"Updated {(int)age.TotalDays} days ago -- weekly update recommended"));
+                $"Updated {(int)age.TotalDays} days ago; weekly update recommended"));
 
         return Task.FromResult(new ResourceStatus(Name, Description, ResourcePresence.Fresh, _csvPath,
             $"Updated {(int)age.TotalHours}h ago"));

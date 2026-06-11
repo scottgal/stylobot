@@ -17,8 +17,8 @@ public class MeController : Controller
         ViewBag.Probability    = HttpContext.GetBotProbability();
         ViewBag.Confidence     = HttpContext.GetBotConfidence();
         ViewBag.RiskBand       = HttpContext.GetRiskBand().ToString();
-        ViewBag.BotType        = HttpContext.GetBotType()?.ToString() ?? "—";
-        ViewBag.BotName        = HttpContext.GetBotName() ?? "—";
+        ViewBag.BotType        = HttpContext.GetBotType()?.ToString() ?? "-";
+        ViewBag.BotName        = HttpContext.GetBotName() ?? "-";
         ViewBag.Reasons        = result?.Reasons?.Select(r => r.Detail).ToList() ?? [];
         return View();
     }

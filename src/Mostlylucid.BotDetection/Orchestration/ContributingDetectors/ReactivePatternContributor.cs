@@ -145,7 +145,7 @@ public class ReactivePatternContributor : ConfiguredContributorBase
                 compliance, deviation);
             contributions.Add(BotContribution(
                 "RetryCompliance",
-                $"Retry-After compliance ratio {compliance:F2} (deviation {deviation:F2}) — inhuman timing precision",
+                $"Retry-After compliance ratio {compliance:F2} (deviation {deviation:F2}): inhuman timing precision",
                 ComplianceBotConfidence));
         }
     }
@@ -273,7 +273,7 @@ public class ReactivePatternContributor : ConfiguredContributorBase
         {
             contributions.Add(BotContribution(
                 "RateAdaptation",
-                $"Rate adaptation after 429: gaps increasing ({adaptationScore:P0} monotone) — automated retry with backoff",
+                $"Rate adaptation after 429: gaps increasing ({adaptationScore:P0} monotone), automated retry with backoff",
                 RateAdaptedBotConfidence));
         }
     }

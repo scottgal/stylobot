@@ -94,7 +94,7 @@ public static class PredicateTraceEvaluator
             {
                 // First failing child trips short-circuit for every following sibling.
                 passed = false;
-                carriedSkip = "skipped -- earlier And child failed";
+                carriedSkip = "skipped; earlier And child failed";
             }
         }
         return passed;
@@ -123,7 +123,7 @@ public static class PredicateTraceEvaluator
             {
                 // First winning child trips short-circuit for every following sibling.
                 anyWon = true;
-                carriedSkip = "skipped -- earlier Or child won";
+                carriedSkip = "skipped; earlier Or child won";
             }
         }
         return anyWon;

@@ -79,7 +79,7 @@ public sealed class AspNetPackHubPageBuilderTests
 
         var endpointsTile = vm.TopTiles[0];
         endpointsTile.Title.Should().Be("Endpoints");
-        endpointsTile.Value.Should().Be("—");
+        endpointsTile.Value.Should().Be("-");
         endpointsTile.HealthBand.Should().Be(HealthBand.Caution);
     }
 
@@ -98,7 +98,7 @@ public sealed class AspNetPackHubPageBuilderTests
         vm.MeterTable.EmptyMessage.Should().Be("No ASP.NET pack meters observed yet.");
 
         vm.IngestTrend.Should().NotBeNull();
-        vm.IngestTrend!.Value.Should().Be("—");
+        vm.IngestTrend!.Value.Should().Be("-");
         vm.IngestTrend.HealthBand.Should().Be(HealthBand.Caution);
         vm.IngestTrend.Subtitle.Should().Be("Pack telemetry not yet observed");
     }

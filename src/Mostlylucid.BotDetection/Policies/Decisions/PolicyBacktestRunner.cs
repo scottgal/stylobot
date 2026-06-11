@@ -159,7 +159,7 @@ public sealed class PolicyBacktestRunner
         if (inconclusive > 0)
         {
             caveat = inconclusive == total
-                ? "No rows in this window carry a signals snapshot yet -- backtest is unavailable until C8 schema-patched rows accumulate."
+                ? "No rows in this window carry a signals snapshot yet. Backtest is unavailable until C8 schema-patched rows accumulate."
                 : $"{inconclusive:N0} of {total:N0} rows pre-date the C8 schema patch and were skipped (no signals snapshot).";
         }
 

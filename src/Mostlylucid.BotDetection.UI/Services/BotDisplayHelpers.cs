@@ -338,7 +338,7 @@ public static class BotDisplayHelpers
     /// </summary>
     public static string FormatProcessingTime(double ms)
     {
-        if (double.IsNaN(ms) || ms < 0) return "--";
+        if (double.IsNaN(ms) || ms < 0) return "-";
         if (ms < 0.001) return "<1µs";
         if (ms < 1.0)   return $"{ms * 1000.0:F0}µs";
         if (ms < 10.0)  return $"{ms:F2}ms";

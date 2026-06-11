@@ -68,7 +68,7 @@ public sealed class AspNetPackHealthSummaryProviderTests
         var tile = await provider.BuildTileAsync(default);
 
         tile.Should().NotBeNull();
-        tile!.Value.Should().Be("—");
+        tile!.Value.Should().Be("-");
     }
 
     // ============================================================

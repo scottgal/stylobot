@@ -5974,7 +5974,7 @@ public class StyloBotDashboardMiddleware
         var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
         var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
         var sigEncoded = Uri.EscapeDataString(sig);
-        var pageTitle = "Session Detail -- StyloBot";
+        var pageTitle = "Session Detail: StyloBot";
 
         // Same shell as signature + endpoint detail. Brand-header rule defined inline
         // so the page paints correctly off the FOSS vendor CSS bundle alone.

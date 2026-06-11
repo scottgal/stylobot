@@ -42,7 +42,7 @@ public sealed class AspNetPackHealthSummaryProvider : IPackHealthSummaryProvider
         var summary = await _builder.BuildSummaryAsync(ct).ConfigureAwait(false);
 
         var value = summary.EndpointCount is null
-            ? "—"
+            ? "-"
             : summary.EndpointCount.Value.ToString("N0", CultureInfo.InvariantCulture);
 
         return new StatTileViewModel(

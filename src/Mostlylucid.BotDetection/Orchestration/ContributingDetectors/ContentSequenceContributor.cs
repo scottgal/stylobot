@@ -236,7 +236,7 @@ public class ContentSequenceContributor : ConfiguredContributorBase, IFoundation
             new(SignalKeys.AssetContentChanged, assetChanged)
         ]);
 
-        return new[] { NeutralContribution("Sequence", $"Document hit — sequence reset at {contentPath}") };
+        return new[] { NeutralContribution("Sequence", $"Document hit; sequence reset at {contentPath}") };
     }
 
     /// <summary>

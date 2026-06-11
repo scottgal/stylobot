@@ -187,7 +187,7 @@ public sealed class AspNetPackHubPageBuilder : IAspNetPackHubBuilder
         tiles.Add(snapshot.EndpointCount is null
             ? new StatTileViewModel(
                 Title: "Endpoints",
-                Value: "—",
+                Value: "-",
                 DrillHref: "/dashboard/aspnet-pack/routes",
                 DrillLabel: "Browse routes",
                 HealthBand: HealthBand.Caution)
@@ -225,7 +225,7 @@ public sealed class AspNetPackHubPageBuilder : IAspNetPackHubBuilder
         {
             tiles.Add(new StatTileViewModel(
                 Title: "Observations / 15m",
-                Value: "—",
+                Value: "-",
                 HealthBand: HealthBand.Caution));
         }
 
@@ -259,7 +259,7 @@ public sealed class AspNetPackHubPageBuilder : IAspNetPackHubBuilder
         {
             return new TrendCardViewModel(
                 Title: "Pack ingest trend (1h)",
-                Value: "—",
+                Value: "-",
                 Subtitle: "Pack telemetry not yet observed",
                 HealthBand: HealthBand.Caution);
         }
@@ -310,7 +310,7 @@ public sealed class AspNetPackHubPageBuilder : IAspNetPackHubBuilder
         SparklineViewModel? spark = values.Count > 0
             ? new SparklineViewModel(values, ColorClass: ColorForKind(entry.Kind))
             : null;
-        var current = ts is null ? "—" : FormatNumber(ts.Current);
+        var current = ts is null ? "-" : FormatNumber(ts.Current);
 
         return new MeterTableRowViewModel(
             Name: entry.Name,
@@ -409,7 +409,7 @@ public sealed class AspNetPackHubPageBuilder : IAspNetPackHubBuilder
 
     internal static string FormatNumber(double value)
     {
-        if (double.IsNaN(value) || double.IsInfinity(value)) return "—";
+        if (double.IsNaN(value) || double.IsInfinity(value)) return "-";
         var abs = Math.Abs(value);
 
         if (abs > 1_000_000)
