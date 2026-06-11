@@ -1,0 +1,30 @@
+# preserve-humans-during-overload: meter-driven overload shedding.
+# Once system load stays above the threshold for the sustain window,
+# throttle non-human identities hard while leaving human traffic
+# untouched. Uses the T-Expr FOR operator so the rule only fires on
+# real sustained pressure.
+template: preserve-humans-during-overload
+display-name: "Preserve humans during overload"
+description: "Throttle non-human traffic while leaving humans untouched once load sustains over threshold."
+category: overload
+
+parameters:
+  - name: load-threshold
+    type: number
+    default: 0.7
+    description: "Fraction of CPU above which non-human shedding arms."
+  - name: sustain-duration
+    type: duration
+    default: 30s
+    description: "How long load must stay over threshold before the shed engages."
+  - name: bot-rps
+    type: int
+    default: 1
+    description: "Requests per second non-human traffic is throttled to once armed."
+
+expansion:
+  - suffix: throttle-bots
+    predicate: 'meter.gateway.cpu_load.current > {{ load-threshold }} for {{ sustain-duration }} and ua.is_bot = true'
+    action: '{ kind: throttle, rps: {{ bot-rps }}, reason: "overload-shed-bots" }'
+    priority: 700
+    mode: live

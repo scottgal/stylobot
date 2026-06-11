@@ -1,0 +1,32 @@
+# protect-search: cache-friendly gating for search endpoints.
+# API key holders pass through. Unknown identities get a per-minute
+# rate cap. Known scraper bot types are blocked.
+template: protect-search
+display-name: "Protect search"
+description: "Allow API key holders, throttle unknown identities, block known scrapers."
+category: endpoint-protection
+
+parameters:
+  - name: search-rpm
+    type: int
+    default: 30
+    description: "Per-minute request budget for unknown identities."
+
+expansion:
+  - suffix: allow-api-keys
+    predicate: 'attestation.api_key = true'
+    action: '{ kind: allow }'
+    priority: 100
+    mode: live
+
+  - suffix: block-scrapers
+    predicate: 'ua.bot_type = "scraper"'
+    action: '{ kind: block }'
+    priority: 200
+    mode: live
+
+  - suffix: throttle-unknown
+    predicate: 'attestation.api_key = false'
+    action: '{ kind: rate_limit, rpm: {{ search-rpm }} }'
+    priority: 300
+    mode: live

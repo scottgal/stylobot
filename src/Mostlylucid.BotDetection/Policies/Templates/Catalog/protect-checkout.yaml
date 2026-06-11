@@ -1,0 +1,26 @@
+# protect-checkout: high-severity gating for the purchase flow.
+# Block every detected bot outright. Throttle remaining traffic to a low
+# steady-state RPS so a hijacked human session cannot exfiltrate volume.
+template: protect-checkout
+display-name: "Protect checkout"
+description: "Block bots outright on the checkout flow and throttle human traffic to a safe steady state."
+category: endpoint-protection
+
+parameters:
+  - name: human-rps
+    type: int
+    default: 2
+    description: "Requests per second the checkout flow accepts in steady state."
+
+expansion:
+  - suffix: block-bots
+    predicate: 'ua.is_bot = true'
+    action: '{ kind: block }'
+    priority: 100
+    mode: live
+
+  - suffix: throttle-human
+    predicate: 'ua.is_bot = false'
+    action: '{ kind: throttle, rps: {{ human-rps }}, reason: "checkout-throttle" }'
+    priority: 200
+    mode: live

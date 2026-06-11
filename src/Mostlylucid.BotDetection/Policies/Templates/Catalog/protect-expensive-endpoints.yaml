@@ -1,0 +1,30 @@
+# protect-expensive-endpoints: meter-driven throttle.
+# When gateway CPU load stays above the threshold for the sustain
+# window, arm a global rate cap on the scope. Uses the T-Expr FOR
+# operator so the rule only fires for a steady overload, not a brief
+# spike.
+template: protect-expensive-endpoints
+display-name: "Protect expensive endpoints"
+description: "Arm a global rate cap when CPU load sustains over threshold."
+category: overload
+
+parameters:
+  - name: cpu-threshold
+    type: number
+    default: 0.75
+    description: "Fraction of CPU above which the throttle arms."
+  - name: sustain-duration
+    type: duration
+    default: 30s
+    description: "How long load must stay over threshold before the throttle arms."
+  - name: throttle-rps
+    type: int
+    default: 20
+    description: "Steady-state requests per second once the throttle is armed."
+
+expansion:
+  - suffix: throttle-on-cpu
+    predicate: 'meter.gateway.cpu_load.current > {{ cpu-threshold }} for {{ sustain-duration }}'
+    action: '{ kind: throttle, rps: {{ throttle-rps }}, reason: "cpu-overload" }'
+    priority: 500
+    mode: live

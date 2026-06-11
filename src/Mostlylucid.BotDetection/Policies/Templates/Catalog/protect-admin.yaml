@@ -1,0 +1,32 @@
+# protect-admin: hard gate for administrative endpoints.
+# Only verified humans are allowed; every other classification is blocked.
+# An optional geo-fence narrows the allow rule to a configured country code.
+template: protect-admin
+display-name: "Protect admin"
+description: "Hard gate: only verified human traffic; everything else blocked."
+category: endpoint-protection
+
+parameters:
+  - name: allowed-geo
+    type: string
+    default: ""
+    description: "Optional ISO-3166 alpha-2 country code; empty means no geo restriction."
+
+expansion:
+  - suffix: block-bots
+    predicate: 'ua.is_bot = true'
+    action: '{ kind: block }'
+    priority: 100
+    mode: live
+
+  - suffix: block-low-integrity
+    predicate: 'fingerprint.integrity_score < 0.6'
+    action: '{ kind: block }'
+    priority: 150
+    mode: live
+
+  - suffix: allow-verified-humans
+    predicate: 'ua.is_bot = false and fingerprint.integrity_score >= 0.6'
+    action: '{ kind: allow }'
+    priority: 200
+    mode: live

@@ -1,0 +1,21 @@
+# keep-verified-bots-working: explicit allow for the verified-bot
+# catalog (Googlebot, Bingbot, ChatGPT-bot, etc). Pairs a per-minute
+# budget so an impersonator cannot abuse the allow path; the verified
+# IP check is the gate.
+template: keep-verified-bots-working
+display-name: "Keep verified bots working"
+description: "Allow the verified-bot catalog at a generous per-minute budget."
+category: verified-bots
+
+parameters:
+  - name: verified-bot-rpm
+    type: int
+    default: 120
+    description: "Per-minute budget for verified bot traffic."
+
+expansion:
+  - suffix: allow-verified
+    predicate: 'friendly.ip_verified = true and ua.is_bot = true'
+    action: '{ kind: rate_limit, rpm: {{ verified-bot-rpm }} }'
+    priority: 50
+    mode: live

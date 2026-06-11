@@ -171,6 +171,13 @@
         <EmbeddedResource Include="Policies\Rules\SeedRules\*.yaml" />
     </ItemGroup>
 
+    <!-- Embed canonical template catalog YAML files (T1). YamlTemplateStore
+         loads these at boot so every host has the FOSS template catalog
+         available without a separate distribution step. -->
+    <ItemGroup>
+        <EmbeddedResource Include="Policies\Templates\Catalog\*.yaml" />
+    </ItemGroup>
+
     <!-- Embed forward-only SQL schema patches for the SQLite policy decision
          log. SqlitePolicyDecisionLog.InitialiseSchema applies the initial
          CREATE TABLE inline then applies these patches, swallowing the

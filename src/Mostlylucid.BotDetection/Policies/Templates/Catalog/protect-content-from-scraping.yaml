@@ -1,0 +1,32 @@
+# protect-content-from-scraping: gate content endpoints against bulk
+# extraction. Verified bots flow; identified scrapers are rate-limited
+# tight; unverified bots block.
+template: protect-content-from-scraping
+display-name: "Protect content from scraping"
+description: "Allow verified bots, rate-limit scrapers, block unverified bot traffic."
+category: scraping-defence
+
+parameters:
+  - name: scraper-rpm
+    type: int
+    default: 10
+    description: "Per-minute budget once a request is identified as scraper traffic."
+
+expansion:
+  - suffix: allow-verified
+    predicate: 'friendly.ip_verified = true'
+    action: '{ kind: allow }'
+    priority: 100
+    mode: live
+
+  - suffix: rate-limit-scraper
+    predicate: 'ua.bot_type = "scraper"'
+    action: '{ kind: rate_limit, rpm: {{ scraper-rpm }} }'
+    priority: 200
+    mode: live
+
+  - suffix: block-unverified-bots
+    predicate: 'ua.is_bot = true and friendly.ip_verified = false'
+    action: '{ kind: block }'
+    priority: 300
+    mode: live

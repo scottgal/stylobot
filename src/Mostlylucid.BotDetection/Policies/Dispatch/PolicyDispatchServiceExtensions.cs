@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 using Mostlylucid.BotDetection.Policies.Predicate;
+using Mostlylucid.BotDetection.Policies.Templates;
 using Mostlylucid.BotDetection.Policies.Triggers;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Scheduling;
@@ -83,6 +84,21 @@ public static class PolicyDispatchServiceExtensions
             return store;
         });
         services.TryAddSingleton<Resolution.IPolicyResolver, Resolution.DefaultPolicyResolver>();
+
+        // T1: Template runtime. YamlTemplateStore loads the embedded FOSS
+        // catalog (and an optional customer directory at T2's loader-wire
+        // step). TemplateRegistry is the indexed lookup the resolver hits
+        // when expanding a TemplateApplication. TemplateResolver compiles
+        // (template + application) into bare PolicyRules. T2 wires this
+        // into YamlPolicyRuleStore's load path; T1 ships the primitives so
+        // dashboard reads and tests can construct the chain in isolation.
+        services.TryAddSingleton<YamlTemplateStore>();
+        services.TryAddSingleton<TemplateRegistry>(sp =>
+        {
+            var store = sp.GetRequiredService<YamlTemplateStore>();
+            return new TemplateRegistry(store.LoadEmbeddedCatalog());
+        });
+        services.TryAddSingleton<TemplateResolver>();
 
         // The dispatcher itself. Singleton: handlers are stateless, the
         // resolver is singleton-shaped, the decision log queue is singleton-shaped.

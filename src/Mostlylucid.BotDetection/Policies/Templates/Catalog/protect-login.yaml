@@ -1,0 +1,41 @@
+# protect-login: identity-based gating for login endpoints.
+# Verified bots flow with a generous budget; unknown identities are
+# rate-limited to a low per-minute cap; high credential-stuffing scores
+# block outright.
+template: protect-login
+display-name: "Protect login"
+description: "Rate-limit unknown identities, let verified bots flow, block credential stuffing."
+category: endpoint-protection
+
+parameters:
+  - name: human-rpm
+    type: int
+    default: 6
+    description: "Requests per minute allowed for unknown identities on login endpoints."
+  - name: verified-bot-rpm
+    type: int
+    default: 60
+    description: "Requests per minute allowed for verified bots."
+  - name: credstuff-threshold
+    type: number
+    default: 0.8
+    description: "Fingerprint integrity score below this blocks the request as credential stuffing."
+
+expansion:
+  - suffix: keep-verified
+    predicate: 'friendly.ip_verified = true'
+    action: '{ kind: rate_limit, rpm: {{ verified-bot-rpm }} }'
+    priority: 100
+    mode: live
+
+  - suffix: throttle-unknown
+    predicate: 'ua.is_bot = false and friendly.ip_verified = false'
+    action: '{ kind: rate_limit, rpm: {{ human-rpm }} }'
+    priority: 200
+    mode: live
+
+  - suffix: block-credstuff
+    predicate: 'fingerprint.integrity_score < {{ credstuff-threshold }}'
+    action: '{ kind: block }'
+    priority: 50
+    mode: live

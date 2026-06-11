@@ -7,6 +7,7 @@ using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Signals;
+using Mostlylucid.BotDetection.Policies.Templates;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.SimulationPacks;
 using VYaml.Serialization;
@@ -87,6 +88,13 @@ internal static class VYamlBootstrap
         YamlRuleIdentity.__RegisterVYamlFormatter();
         YamlRuleAction.__RegisterVYamlFormatter();
         YamlRuleTrigger.__RegisterVYamlFormatter();
+
+        // Policy Stack template catalog (T1)
+        YamlTemplateFile.__RegisterVYamlFormatter();
+        YamlTemplateParameter.__RegisterVYamlFormatter();
+        YamlTemplateExpansionEntry.__RegisterVYamlFormatter();
+        GeneratedResolver.Register(new ListFormatter<YamlTemplateParameter>());
+        GeneratedResolver.Register(new ListFormatter<YamlTemplateExpansionEntry>());
 
         // Detector / pipeline manifests
         DetectorManifest.__RegisterVYamlFormatter();

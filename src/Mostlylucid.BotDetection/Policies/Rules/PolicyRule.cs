@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Policies.Predicate;
+using Mostlylucid.BotDetection.Policies.Templates;
 
 namespace Mostlylucid.BotDetection.Policies.Rules;
 
@@ -38,6 +39,16 @@ namespace Mostlylucid.BotDetection.Policies.Rules;
 ///     row, not part of the per-request decision. Trailing optional positional so every
 ///     existing constructor call continues to compile unchanged.
 /// </param>
+/// <param name="Origin">
+///     Optional template-provenance stamp. <c>null</c> on every hand-authored bare rule
+///     (the default). When non-null, identifies the <see cref="Template"/> +
+///     <see cref="TemplateApplication"/> + expansion-suffix that emitted this rule via
+///     the <see cref="TemplateResolver"/>. The runtime ignores this field on the request
+///     hot path -- it is metadata for the dashboard (rule-grouping under owning
+///     applications), for the audit log (trace edits back to the template + application),
+///     and for T2's override-divergence detection. Trailing optional positional so every
+///     existing constructor call continues to compile unchanged.
+/// </param>
 public sealed record PolicyRule(
     Guid Id,
     PolicyScope Scope,
@@ -50,4 +61,5 @@ public sealed record PolicyRule(
     DateTimeOffset CreatedAt,
     Guid RevisionId,
     DateTimeOffset? AutoPromoteAt = null,
-    RuleTriggerOptions? Trigger = null);
+    RuleTriggerOptions? Trigger = null,
+    RuleOrigin? Origin = null);
