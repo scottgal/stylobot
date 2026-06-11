@@ -1,6 +1,7 @@
 using System.Globalization;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 
@@ -26,10 +27,14 @@ public sealed class MeterStreamHealthSummaryProvider : IPackHealthSummaryProvide
     public const string DrillPath = "/dashboard/insights";
 
     private readonly IMeterStream? _stream;
+    private readonly MeterStreamHealthTileCache? _cache;
 
-    public MeterStreamHealthSummaryProvider(IMeterStream? stream = null)
+    public MeterStreamHealthSummaryProvider(
+        IMeterStream? stream = null,
+        MeterStreamHealthTileCache? cache = null)
     {
         _stream = stream;
+        _cache = cache;
     }
 
     /// <inheritdoc />
@@ -40,15 +45,26 @@ public sealed class MeterStreamHealthSummaryProvider : IPackHealthSummaryProvide
     {
         if (_stream is null) return null;
 
+        // Centralised cache + beacon path. The DashboardFreshnessBridge
+        // ticks on Tick10s and invalidates this cache when the catalog
+        // size changes; subsequent BuildTileAsync rebuilds via ListAsync.
+        // Per feedback_centralised_change_detection.
+        var cached = _cache?.TryGet();
+        if (cached is not null) return cached;
+
         var catalog = await _stream.ListAsync(ct).ConfigureAwait(false);
         var count = catalog.Count;
 
-        return new StatTileViewModel(
+        var tile = new StatTileViewModel(
             Title: "Metrics",
             Value: count.ToString("N0", CultureInfo.InvariantCulture),
             Unit: "meters",
             HealthBand: count > 0 ? HealthBand.Good : HealthBand.Caution,
             DrillHref: DrillPath,
-            DrillLabel: "Open insights");
+            DrillLabel: "Open insights",
+            BeaconKey: DashboardFreshnessBeacon.Surfaces.MeterStreamHealth);
+
+        _cache?.Set(tile);
+        return tile;
     }
 }

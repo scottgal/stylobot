@@ -325,8 +325,28 @@ public static class StyloBotDashboardServiceExtensions
         // (the row builder skips it) instead of failing ValidateOnBuild.
         services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider>(sp =>
             new Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthSummaryProvider(
-                sp.GetService<Mostlylucid.BotDetection.PrometheusPack.Telemetry.IMeterStream>()));
+                sp.GetService<Mostlylucid.BotDetection.PrometheusPack.Telemetry.IMeterStream>(),
+                sp.GetService<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>()));
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();
+
+        // #122 -- Centralised dashboard freshness beacon. ONE invalidation
+        // channel for every pack-health summary tile (policy stack, AspNet
+        // pack, meter stream). Producers publish a surface key; consumers
+        // subscribe via SignalR + HTMX OOB swap; the rendered tile carries
+        // data-sb-widget / data-sb-depends derived from
+        // StatTileViewModel.BeaconKey. Per feedback_centralised_change_detection:
+        // dashboard caches MUST share ONE mechanism, not private per-builder
+        // TTLs / warmups / invalidation logic.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardFreshnessBeacon>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackSummaryCache>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHubTileCache>();
+        // Bridge: subscribes IPolicyRuleStore.Changed -> beacon, and
+        // IScheduleCoordinator Tick10s -> beacon (when the meter catalog
+        // size changes). Each upstream is optional per
+        // feedback_remote_mode_optional_di; absent inputs self-disable
+        // that producer arm.
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DashboardFreshnessBridge>();
 
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
         // packs replace this with a Redis-fanned implementation so an edit on

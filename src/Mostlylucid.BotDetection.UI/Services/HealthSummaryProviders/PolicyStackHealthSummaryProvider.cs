@@ -1,5 +1,6 @@
 using System.Globalization;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 
@@ -29,10 +30,14 @@ public sealed class PolicyStackHealthSummaryProvider : IPackHealthSummaryProvide
     public const string DrillPath = "/dashboard/policies";
 
     private readonly PolicyStackSummaryBuilder? _builder;
+    private readonly PolicyStackSummaryCache? _cache;
 
-    public PolicyStackHealthSummaryProvider(PolicyStackSummaryBuilder? builder = null)
+    public PolicyStackHealthSummaryProvider(
+        PolicyStackSummaryBuilder? builder = null,
+        PolicyStackSummaryCache? cache = null)
     {
         _builder = builder;
+        _cache = cache;
     }
 
     /// <inheritdoc />
@@ -43,8 +48,18 @@ public sealed class PolicyStackHealthSummaryProvider : IPackHealthSummaryProvide
     {
         if (_builder is null) return null;
 
-        var summary = await _builder.BuildAsync(ct).ConfigureAwait(false);
-        if (summary is null) return null;
+        // Hit the centralised cache first. Invalidated by
+        // DashboardFreshnessBridge on IPolicyRuleStore.Changed events --
+        // not a private TTL. Per feedback_centralised_change_detection
+        // every dashboard summary surface MUST share the one beacon path
+        // so a fresh edit reaches the tile without per-builder warmups.
+        var summary = _cache?.TryGet();
+        if (summary is null)
+        {
+            summary = await _builder.BuildAsync(ct).ConfigureAwait(false);
+            if (summary is null) return null;
+            _cache?.Set(summary);
+        }
 
         var value = summary.LiveRules.ToString(CultureInfo.InvariantCulture);
         var observe = summary.ObserveRules.ToString(CultureInfo.InvariantCulture);
@@ -58,6 +73,7 @@ public sealed class PolicyStackHealthSummaryProvider : IPackHealthSummaryProvide
             Delta: delta,
             HealthBand: summary.HealthBand,
             DrillHref: DrillPath,
-            DrillLabel: "View rules");
+            DrillLabel: "View rules",
+            BeaconKey: DashboardFreshnessBeacon.Surfaces.PolicyStackSummary);
     }
 }

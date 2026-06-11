@@ -27,6 +27,16 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="DrillHref">Optional anchor URL for the footer drill link.</param>
 /// <param name="DrillLabel">Optional drill link text. Defaults to "View" when an href is supplied but no label is.</param>
 /// <param name="Icon">Optional CSS icon class from the existing icon set (e.g. boxicons).</param>
+/// <param name="BeaconKey">
+///     Optional centralised <c>DashboardFreshnessBeacon</c> surface key. When
+///     non-null the rendered tile emits <c>data-sb-widget</c> +
+///     <c>data-sb-depends</c> attributes equal to this key so the existing
+///     SignalR-driven HTMX OOB-swap layer re-fetches the tile partial when
+///     the matching beacon fires. Per
+///     <c>feedback_centralised_change_detection</c>: dashboard summary
+///     surfaces MUST subscribe through the one beacon path, not via private
+///     polling or TTLs.
+/// </param>
 public sealed record StatTileViewModel(
     string Title,
     string Value,
@@ -36,4 +46,5 @@ public sealed record StatTileViewModel(
     HealthBand HealthBand = HealthBand.Neutral,
     string? DrillHref = null,
     string? DrillLabel = null,
-    string? Icon = null);
+    string? Icon = null,
+    string? BeaconKey = null);

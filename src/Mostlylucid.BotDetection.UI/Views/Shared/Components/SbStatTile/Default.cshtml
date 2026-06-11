@@ -10,8 +10,22 @@
         HealthBand.Danger   => "sb-stat-tile-danger",
         _                   => "sb-stat-tile-neutral"
     };
+
+    // BeaconKey hooks the tile into the centralised DashboardFreshnessBeacon
+    // so a producer-side BroadcastStale(key) wakes the existing SignalR /
+    // HTMX OOB swap layer for THIS tile only. data-sb-widget identifies the
+    // tile DOM root; data-sb-depends names the surface key the JS layer
+    // subscribes to. Per feedback_centralised_change_detection -- one
+    // change-detection channel, not per-tile polling. The attribute pair is
+    // emitted only when a beacon key is set so legacy callers stay
+    // attribute-free.
+    var hasBeacon = !string.IsNullOrEmpty(Model.BeaconKey);
 }
-<article class="sb-stat-tile @borderCls" data-stat-tile data-health="@Model.HealthBand">
+<article class="sb-stat-tile @borderCls"
+         data-stat-tile
+         data-health="@Model.HealthBand"
+         data-sb-widget="@(hasBeacon ? Model.BeaconKey : null)"
+         data-sb-depends="@(hasBeacon ? Model.BeaconKey : null)">
     <header class="sb-stat-tile-head">
         @if (!string.IsNullOrEmpty(Model.Icon))
         {

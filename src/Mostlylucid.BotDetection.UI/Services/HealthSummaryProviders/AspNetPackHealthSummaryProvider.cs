@@ -1,5 +1,6 @@
 using System.Globalization;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 
@@ -25,10 +26,14 @@ public sealed class AspNetPackHealthSummaryProvider : IPackHealthSummaryProvider
     public const string DrillPath = "/dashboard/aspnet-hub";
 
     private readonly IAspNetPackHubBuilder? _builder;
+    private readonly AspNetPackHubTileCache? _cache;
 
-    public AspNetPackHealthSummaryProvider(IAspNetPackHubBuilder? builder = null)
+    public AspNetPackHealthSummaryProvider(
+        IAspNetPackHubBuilder? builder = null,
+        AspNetPackHubTileCache? cache = null)
     {
         _builder = builder;
+        _cache = cache;
     }
 
     /// <inheritdoc />
@@ -39,18 +44,28 @@ public sealed class AspNetPackHealthSummaryProvider : IPackHealthSummaryProvider
     {
         if (_builder is null) return null;
 
+        // Centralised cache + beacon path. The commercial AspNetPack
+        // bridge invalidates this cache when the underlying inventory /
+        // meter catalog changes. Per feedback_centralised_change_detection.
+        var cached = _cache?.TryGet();
+        if (cached is not null) return cached;
+
         var summary = await _builder.BuildSummaryAsync(ct).ConfigureAwait(false);
 
         var value = summary.EndpointCount is null
             ? "-"
             : summary.EndpointCount.Value.ToString("N0", CultureInfo.InvariantCulture);
 
-        return new StatTileViewModel(
+        var tile = new StatTileViewModel(
             Title: "ASP.NET Pack",
             Value: value,
             Unit: "endpoints",
             HealthBand: summary.HealthBand,
             DrillHref: DrillPath,
-            DrillLabel: "View pack");
+            DrillLabel: "View pack",
+            BeaconKey: DashboardFreshnessBeacon.Surfaces.AspNetPackHub);
+
+        _cache?.Set(tile);
+        return tile;
     }
 }
