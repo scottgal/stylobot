@@ -394,7 +394,11 @@ public class BotDetectionMiddleware(
                     // proxied request, so website-side lookups miss the cache forever
                     // and the "You:" pill stays "Detection pending…" on every
                     // verdict-cache hit.
-                    var cachedSignals = new Dictionary<string, object>(StringComparer.Ordinal);
+                    // Capacity 3 -- the verdict-cache hit path writes at most three
+                    // entries (PrimarySignature + UserAgentBotType + UserAgentBotName).
+                    // Without a hint the default capacity-0 dict resizes twice on the
+                    // first two adds; at 50 RPS that's 100+ resize/rehash ops/s avoided.
+                    var cachedSignals = new Dictionary<string, object>(capacity: 3, StringComparer.Ordinal);
                     if (!string.IsNullOrEmpty(precomputedSig))
                     {
                         cachedSignals[SignalKeys.PrimarySignature] = precomputedSig;

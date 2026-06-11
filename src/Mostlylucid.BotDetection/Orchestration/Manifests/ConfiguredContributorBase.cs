@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -19,6 +20,13 @@ public abstract class ConfiguredContributorBase : ContributingDetectorBase
     private readonly IDetectorConfigProvider _configProvider;
     private DetectorDefaults? _cachedConfig;
     private DetectorManifest? _cachedManifest;
+    // Memoise string-list params. Without this every UA / Haxxor / Header
+    // detection re-runs `Config.Parameters.TryGetValue + Select(...).ToList()`
+    // per request -- 829 ns Googlebot in the CLAUDE.md table balloon'd to
+    // 11.7 µs once the known_bot_patterns YAML list grew. Manifest values
+    // are immutable for the process lifetime, so the cache hit is safe.
+    private readonly ConcurrentDictionary<string, IReadOnlyList<string>> _stringListCache
+        = new(StringComparer.Ordinal);
 
     protected ConfiguredContributorBase(IDetectorConfigProvider configProvider)
     {
@@ -110,15 +118,19 @@ public abstract class ConfiguredContributorBase : ContributingDetectorBase
 
     /// <summary>
     /// Get a list parameter from the manifest.
+    /// Memoised on first call; manifest values are immutable for the process lifetime.
     /// </summary>
     protected IReadOnlyList<string> GetStringListParam(string name)
+        => _stringListCache.GetOrAdd(name, MaterialiseStringListParam);
+
+    private IReadOnlyList<string> MaterialiseStringListParam(string name)
     {
         if (Config.Parameters.TryGetValue(name, out var value))
         {
-            if (value is IEnumerable<object> enumerable)
-                return enumerable.Select(x => x?.ToString() ?? "").ToList();
             if (value is IEnumerable<string> strings)
-                return strings.ToList();
+                return strings.ToArray();
+            if (value is IEnumerable<object> enumerable)
+                return enumerable.Select(x => x?.ToString() ?? "").ToArray();
         }
         return Array.Empty<string>();
     }

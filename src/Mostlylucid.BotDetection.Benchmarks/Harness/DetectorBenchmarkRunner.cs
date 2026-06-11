@@ -1,5 +1,5 @@
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Engines;
+using BenchmarkDotNet.Configs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Mostlylucid.BotDetection.Extensions;
@@ -10,7 +10,7 @@ namespace Mostlylucid.BotDetection.Benchmarks.Harness;
 
 [MemoryDiagnoser]
 [ThreadingDiagnoser]
-[SimpleJob(RunStrategy.Throughput, warmupCount: 3, iterationCount: 10)]
+[Config(typeof(InProcessConfig))]
 public class DetectorBenchmarkRunner
 {
     private IContributingDetector _detector = null!;
