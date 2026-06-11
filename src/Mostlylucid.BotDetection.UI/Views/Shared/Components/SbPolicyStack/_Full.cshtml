@@ -47,17 +47,27 @@
 
         @if (Model.CanEdit)
         {
-            @* C6 -- the + Add rule button targets the section's afterbegin so
-               the new edit row appears at the top of the visible rule list.
-               The marker span stays for backwards compatibility with B6 glue
+            @* The marker span stays for backwards compatibility with B6 glue
                that may already be probing for [data-can-edit]. *@
             <span class="sb-policy-stack-edit-affordance" data-can-edit="true" hidden></span>
-            <button type="button"
-                    class="sb-policy-stack-add-rule"
-                    data-action="add-rule"
-                    hx-get="/dashboard/policystack/edit/new?scope=@PolicyScopeUrl.Encode(Model.Scope)"
-                    hx-target="closest section"
-                    hx-swap="afterbegin">+ Add rule</button>
+            @* Two siblings: T4's Apply Template is the primary affordance
+               (operators pick from the catalog and parameterise); C6's
+               Raw rule stays as the advanced fallback for hand-authored
+               composite predicates. Both render only when CanEdit. *@
+            <div class="sb-policy-stack-add-actions join">
+                <button type="button"
+                        class="btn btn-primary btn-sm join-item sb-policy-stack-apply-template"
+                        data-action="apply-template"
+                        hx-get="/dashboard/policies/templates/apply?scope=@PolicyScopeUrl.Encode(Model.Scope)"
+                        hx-target="closest section"
+                        hx-swap="afterbegin">+ Apply template</button>
+                <button type="button"
+                        class="btn btn-ghost btn-sm join-item sb-policy-stack-add-rule"
+                        data-action="add-rule"
+                        hx-get="/dashboard/policystack/edit/new?scope=@PolicyScopeUrl.Encode(Model.Scope)"
+                        hx-target="closest section"
+                        hx-swap="afterbegin">+ Raw rule</button>
+            </div>
         }
     </header>
 
