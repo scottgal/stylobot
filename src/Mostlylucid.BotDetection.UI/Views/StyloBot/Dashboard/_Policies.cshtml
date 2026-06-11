@@ -60,6 +60,15 @@
             }
         </div>
     }
+    @* F3 -- The T4 template-grouped block above already renders every
+       effective rule (materialized templates first, then the "Manually
+       authored" tail). SbPolicyStack stays on the page for its filter bar
+       / aggregate strip / explainer surface and its SignalR row swap
+       envelope -- but rendering its own Effective tab here would print
+       the same rules a second time, which is the bug staging surfaced.
+       hideRuleList = true suppresses just the rule list; the rest of
+       the component still renders. The flag defaults to false everywhere
+       else so the other 9 SbPolicyStack call sites are unchanged. *@
     @await Component.InvokeAsync("SbPolicyStack", new
     {
         scope = scope,
@@ -69,6 +78,7 @@
         canEdit = false,
         filterExpression = string.IsNullOrWhiteSpace(filter) ? null : filter,
         sortKey = string.IsNullOrWhiteSpace(sortKey) ? null : sortKey,
-        sortDir = string.IsNullOrWhiteSpace(sortDir) ? null : sortDir
+        sortDir = string.IsNullOrWhiteSpace(sortDir) ? null : sortDir,
+        hideRuleList = templateGroups.Count > 0
     })
 </section>

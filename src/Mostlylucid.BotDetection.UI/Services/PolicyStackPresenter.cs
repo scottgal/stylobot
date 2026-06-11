@@ -72,6 +72,7 @@ public sealed class PolicyStackPresenter
         PolicyStackSort? sort = null,
         string? explainerFingerprint = null,
         bool explainerLocked = false,
+        bool hideRuleList = false,
         CancellationToken ct = default)
     {
         var effectiveFilter = filter ?? PolicyStackFilter.Empty;
@@ -215,7 +216,8 @@ public sealed class PolicyStackPresenter
             Filter: effectiveFilter,
             Sort: effectiveSort,
             AggregateStrip: strip,
-            Explainer: explainer);
+            Explainer: explainer,
+            HideRuleList: hideRuleList);
     }
 
     // -------- Filter --------

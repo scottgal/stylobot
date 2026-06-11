@@ -1003,6 +1003,61 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             html);
     }
 
+    // -------- F3: HideRuleList flag (policies-page double-render fix) --------
+
+    [Fact]
+    public async Task HideRuleList_true_suppresses_rule_list_but_keeps_aggregate_strip_filter_bar_explainer()
+    {
+        // /dashboard/policies renders the T4 template-grouped block ABOVE
+        // SbPolicyStack and would print every rule twice if SbPolicyStack
+        // also rendered its Effective tab. hideRuleList=true skips just
+        // the rule-list section; the filter bar, aggregate strip, and
+        // explainer panel still render so the tools surface stays usable.
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        var hidden = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            hideRuleList: true);
+        var visible = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
+            hideRuleList: false);
+
+        // Rule list (the row envelope + the per-row article) MUST be gone.
+        Assert.DoesNotContain("sb-policy-stack-rows-envelope", hidden);
+        Assert.DoesNotContain("data-rule-id=", hidden);
+
+        // Sanity: the same render with the flag off DOES contain them so
+        // we're not asserting against a missing partial.
+        Assert.Contains("sb-policy-stack-rows-envelope", visible);
+        Assert.Contains("data-rule-id=", visible);
+
+        // Filter bar + aggregate strip + explainer panel STILL render --
+        // the page wants those surfaces; only the rule list moves up to
+        // the T4 template-grouped block above the component.
+        Assert.Contains("sb-policy-stack-filter-bar", hidden);
+        Assert.Contains("sb-policy-stack-aggregate-strip", hidden);
+        Assert.Contains("id=\"sb-policy-stack-explainer\"", hidden);
+
+        // The header / breadcrumb / tabs survive too -- the operator can
+        // still flip Effective <-> Stack from the page chrome.
+        Assert.Contains("data-policy-stack-embed=\"full\"", hidden);
+        Assert.Contains("data-tab=\"effective\"", hidden);
+        Assert.Contains("data-tab=\"stack\"", hidden);
+    }
+
+    [Fact]
+    public async Task HideRuleList_defaults_to_false_for_all_other_call_sites()
+    {
+        // Other SbPolicyStack call sites (overview status badge, signature
+        // detail, endpoint detail, etc.) MUST keep rendering rules. This
+        // guards the "default false" promise on the new flag.
+        var client = await BuildClientAsync(prewarmEndpointHits: false);
+
+        // No hideRuleList query param -> presenter sees default false ->
+        // rule list renders as before.
+        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
+        Assert.Contains("sb-policy-stack-rows-envelope", html);
+        Assert.Contains("data-rule-id=", html);
+    }
+
     [Fact]
     public void ReorderJs_script_is_emitted_alongside_realtime_script()
     {
@@ -1158,7 +1213,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         string? sortDir = null,
         string? explainerFingerprint = null,
         bool lockedFingerprint = false,
-        bool canEdit = false)
+        bool canEdit = false,
+        bool hideRuleList = false)
     {
         var query = $"embed={embed}&scopeKind={ScopeKind(scope)}";
         switch (scope.Host)
@@ -1187,6 +1243,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             query += "&lockedFingerprint=true";
         if (canEdit)
             query += "&canEdit=true";
+        if (hideRuleList)
+            query += "&hideRuleList=true";
         var resp = await client.GetAsync($"/_test/policy-stack?{query}");
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync();
@@ -1359,7 +1417,8 @@ public sealed class PolicyStackTestController : Controller
         string? sortDir = null,
         string? explainerFingerprint = null,
         bool lockedFingerprint = false,
-        bool canEdit = false)
+        bool canEdit = false,
+        bool hideRuleList = false)
     {
         PolicyScope scope = scopeKind switch
         {
@@ -1378,7 +1437,8 @@ public sealed class PolicyStackTestController : Controller
                 scope, embed = parsedEmbed, activeTab,
                 filterExpression, sortKey, sortDir,
                 explainerFingerprint, lockedFingerprint,
-                canEdit
+                canEdit,
+                hideRuleList
             });
     }
 }

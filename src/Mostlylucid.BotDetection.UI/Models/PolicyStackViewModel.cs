@@ -26,6 +26,14 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="Sort">Parsed sort state from <c>?policystack-sort=/?policystack-dir=</c>; <see cref="PolicyStackSort.Default"/> when not specified.</param>
 /// <param name="AggregateStrip">Aggregate strip summarising the post-filter visible row set; <c>null</c> for <see cref="PolicyStackEmbed.StatusBadge"/>.</param>
 /// <param name="Explainer">Pre-built explainer panel state when the presenter was given a fingerprint to replay; <c>null</c> otherwise. Surfaced on the Full embed and on EffectiveOnly when <see cref="PolicyExplainerViewModel.Locked"/>.</param>
+/// <param name="HideRuleList">
+///     When <c>true</c>, the Full embed renders its filter bar / aggregate
+///     strip / explainer panel without the underlying rule list. Set by the
+///     <c>/dashboard/policies</c> page where the T4 template-grouped block
+///     above the component already renders every effective rule -- without
+///     this flag the page would render every rule twice. Defaults to
+///     <c>false</c> so the other 9 SbPolicyStack call sites are unchanged.
+/// </param>
 public sealed record PolicyStackViewModel(
     PolicyScope Scope,
     IReadOnlyList<PolicyScope> BreadcrumbPath,
@@ -43,4 +51,5 @@ public sealed record PolicyStackViewModel(
     PolicyStackFilter Filter,
     PolicyStackSort Sort,
     PolicyStackAggregateStrip? AggregateStrip,
-    PolicyExplainerViewModel? Explainer = null);
+    PolicyExplainerViewModel? Explainer = null,
+    bool HideRuleList = false);

@@ -169,6 +169,74 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         Assert.DoesNotContain("<sb-policies-tab/>", source);
     }
 
+    [Fact]
+    public void Policies_partial_passes_hideRuleList_when_template_groups_render_above()
+    {
+        // F3 -- regression guard for the policies-page double-render bug
+        // staging surfaced. The T4 template-grouped block at the top of
+        // _Policies.cshtml owns the rule rendering, so the SbPolicyStack
+        // invocation below it MUST pass hideRuleList=true (gated on
+        // templateGroups.Count > 0) or every rule prints twice.
+        var source = File.ReadAllText(LocatePartial("_Policies.cshtml"));
+        Assert.Contains("hideRuleList", source);
+        // The flag is wired off the same condition the template-groups
+        // block uses, so an empty presenter -> empty groups -> falls back
+        // to the SbPolicyStack rule list (the page never goes blank).
+        Assert.Contains("templateGroups.Count > 0", source);
+    }
+
+    [Fact]
+    public async Task Policies_page_compose_does_not_render_same_rule_twice()
+    {
+        // F3 -- end-to-end regression for the staging.stylobot.net bug:
+        // /dashboard/policies rendered every rule once inside the T4
+        // template-grouped block and again inside the SbPolicyStack
+        // Effective tab. We can't easily render the full DashboardShellModel
+        // (15+ required props) here, so the test composes the page the
+        // same way _Policies.cshtml does -- the T4 template-grouped
+        // _TemplateGroup partials AND the SbPolicyStack invocation -- via
+        // two render hops, then concatenates and asserts NO rule id appears
+        // twice. This is the exact composition the live page produces.
+        var client = await BuildClientAsync();
+
+        var templateGroupsHtml = await client.GetStringAsync(
+            "/_test/dashboard/policies-template-groups");
+        var sbPolicyStackHtml = await client.GetStringAsync(
+            "/_test/dashboard/policies-sb-policy-stack");
+
+        var composed = templateGroupsHtml + sbPolicyStackHtml;
+
+        // Count <article data-rule-id="..."> occurrences -- exactly ONE per
+        // rendered rule row (the row's own <article> element is the rule's
+        // anchor; child buttons inside the article carry the same attribute
+        // for HTMX wiring and would inflate a naive count). With the bug
+        // present every rule's article appeared twice; the fix forces
+        // SbPolicyStack to suppress its rule list so each rule's article
+        // appears exactly once -- inside its template group above the
+        // component.
+        var ruleIds = System.Text.RegularExpressions.Regex
+            .Matches(composed,
+                @"<article\s+class=""sb-policy-stack-row""\s+data-rule-id=""(?<id>[0-9a-fA-F\-]+)""")
+            .Select(m => m.Groups["id"].Value)
+            .ToList();
+        Assert.NotEmpty(ruleIds);
+        var duplicates = ruleIds.GroupBy(id => id).Where(g => g.Count() > 1).ToList();
+        Assert.True(duplicates.Count == 0,
+            $"Each rule must render exactly once; duplicates: {string.Join(",", duplicates.Select(g => g.Key))}");
+
+        // Specific checks: the template-groups block carries the rule rows
+        // and SbPolicyStack contributes the surrounding chrome (filter bar,
+        // aggregate strip) WITHOUT a rule envelope of its own.
+        Assert.Contains("sb-policy-stack-template-group", templateGroupsHtml);
+        Assert.Contains("sb-policy-stack-row", templateGroupsHtml);
+        Assert.Contains("data-policy-stack-embed=\"full\"", sbPolicyStackHtml);
+        Assert.Contains("sb-policy-stack-filter-bar", sbPolicyStackHtml);
+        Assert.Contains("sb-policy-stack-aggregate-strip", sbPolicyStackHtml);
+        Assert.DoesNotContain("sb-policy-stack-rows-envelope", sbPolicyStackHtml);
+        // SbPolicyStack with hideRuleList=true MUST emit no rule articles.
+        Assert.DoesNotContain("<article class=\"sb-policy-stack-row\"", sbPolicyStackHtml);
+    }
+
     private static string LocatePartial(string filename)
     {
         // Find the repo root by walking up from the test bin directory.
@@ -365,6 +433,100 @@ public sealed class DashboardIntegrationStubController : Controller
             embed = PolicyStackEmbed.StatusBadge,
             aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24)
         });
+    }
+
+    [HttpGet("policies-template-groups")]
+    public async Task<IActionResult> PoliciesTemplateGroups(
+        [FromServices] PolicyStackPresenter presenter)
+    {
+        // Mirrors the T4 grouping arm of _Policies.cshtml: build the row
+        // VMs via the same presenter the live page uses, project to
+        // template groups, then render each group's partial in order.
+        // Returns concatenated HTML so the regression test can sum it
+        // with the SbPolicyStack output and check rule-id uniqueness.
+        const string DomainAcme = "acme.com";
+        const string SubDocs = "docs.acme.com";
+        const string EpUpload = "GET /api/upload";
+        var scope = PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
+
+        var vm = await presenter.BuildAsync(
+            scope: scope,
+            embed: PolicyStackEmbed.EffectiveOnly,
+            activeTab: "effective",
+            aggregateWindow: TimeSpan.FromHours(24),
+            canEdit: false);
+        var registry = HttpContext.RequestServices
+            .GetService(typeof(Mostlylucid.BotDetection.Policies.Templates.TemplateRegistry))
+            as Mostlylucid.BotDetection.Policies.Templates.TemplateRegistry;
+        var groups = PolicyTemplateGrouping.Group(vm.Rows, registry);
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var group in groups)
+        {
+            var partial = await RenderPartialAsync(
+                "Components/SbPolicyStack/_TemplateGroup", group);
+            sb.Append(partial);
+        }
+        return Content(sb.ToString(), "text/html");
+    }
+
+    [HttpGet("policies-sb-policy-stack")]
+    public IActionResult PoliciesSbPolicyStack()
+    {
+        // Mirrors the SbPolicyStack invocation arm of _Policies.cshtml AT
+        // THE SAME endpoint scope the template-groups endpoint uses, with
+        // hideRuleList = true (the fix). The combined assertion lives in
+        // the test.
+        const string DomainAcme = "acme.com";
+        const string SubDocs = "docs.acme.com";
+        const string EpUpload = "GET /api/upload";
+        var scope = PolicyScope.Endpoint(DomainAcme, SubDocs, EpUpload);
+        return ViewComponent("SbPolicyStack", new
+        {
+            scope,
+            embed = PolicyStackEmbed.Full,
+            activeTab = "effective",
+            aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24),
+            canEdit = false,
+            hideRuleList = true
+        });
+    }
+
+    private async Task<string> RenderPartialAsync(string viewName, object model)
+    {
+        // Render a Razor partial to a string from a controller -- used by
+        // the policies-template-groups endpoint so the test can replay the
+        // same composition _Policies.cshtml performs.
+        var viewEngine = HttpContext.RequestServices
+            .GetRequiredService<Microsoft.AspNetCore.Mvc.ViewEngines.ICompositeViewEngine>();
+        var actionContextAccessor = new Microsoft.AspNetCore.Mvc.ActionContext(
+            HttpContext, RouteData, ControllerContext.ActionDescriptor);
+        var viewResult = viewEngine.GetView(executingFilePath: null, viewPath: viewName, isMainPage: false);
+        if (!viewResult.Success)
+            viewResult = viewEngine.FindView(actionContextAccessor, viewName, isMainPage: false);
+        if (!viewResult.Success)
+            throw new InvalidOperationException(
+                $"Could not locate view {viewName}; searched: {string.Join(", ", viewResult.SearchedLocations)}");
+
+        await using var sw = new StringWriter();
+        var viewDictionary = new Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary(
+            new Microsoft.AspNetCore.Mvc.ModelBinding.EmptyModelMetadataProvider(),
+            new Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary())
+        {
+            Model = model
+        };
+        var tempDataProvider = HttpContext.RequestServices
+            .GetRequiredService<Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataProvider>();
+        var tempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(HttpContext, tempDataProvider);
+        var viewContext = new Microsoft.AspNetCore.Mvc.Rendering.ViewContext(
+            actionContextAccessor,
+            viewResult.View,
+            viewDictionary,
+            tempData,
+            sw,
+            new Microsoft.AspNetCore.Mvc.ViewFeatures.HtmlHelperOptions());
+        await viewResult.View.RenderAsync(viewContext);
+        return sw.ToString();
     }
 
     [HttpGet("endpoints-collapsible")]
