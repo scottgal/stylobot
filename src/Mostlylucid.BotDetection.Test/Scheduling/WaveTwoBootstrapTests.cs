@@ -23,7 +23,7 @@ public sealed class WaveTwoBootstrapTests
     {
         var services = NewServices(out var coordinator);
         services.AddPrometheusPack(opt => { opt.Mode = PrometheusPackMode.Local; });
-        using var sp = services.BuildServiceProvider();
+        await using var sp = services.BuildServiceProvider();
 
         // The bootstrap shim does the eager resolution that fires Subscribe(...).
         await StartHostedServicesAsync(sp);
@@ -42,7 +42,7 @@ public sealed class WaveTwoBootstrapTests
             opt.Mode = PrometheusPackMode.Remote;
             opt.Remote = ro => { ro.BaseUrl = "http://gw.test:8080"; };
         });
-        using var sp = services.BuildServiceProvider();
+        await using var sp = services.BuildServiceProvider();
 
         await StartHostedServicesAsync(sp);
 
@@ -65,7 +65,7 @@ public sealed class WaveTwoBootstrapTests
                 ro.PollCadence = TickCadence.Tick1s;
             };
         });
-        using var sp = services.BuildServiceProvider();
+        await using var sp = services.BuildServiceProvider();
 
         await StartHostedServicesAsync(sp);
 

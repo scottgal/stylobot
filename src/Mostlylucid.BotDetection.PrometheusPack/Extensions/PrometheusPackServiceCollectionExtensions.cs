@@ -333,12 +333,15 @@ public static class PrometheusPackServiceCollectionExtensions
     /// </summary>
     private static void EnsureScheduleCoordinatorRegistered(IServiceCollection services)
     {
-        // We use the concrete-type registration as the sentinel for "did someone
-        // already do the full block?" If ScheduleCoordinator is registered,
-        // assume the hosted-service descriptor is too (AddBotDetection and this
-        // method are the only call sites that register it, and both register the
-        // pair atomically).
-        if (services.Any(d => d.ServiceType == typeof(Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator)))
+        // Sentinel: any pre-existing IScheduleCoordinator wins (caller is
+        // responsible for the registration shape). This covers both
+        // AddBotDetection (which registers concrete + interface + hosted
+        // service atomically) and test rigs that register a single recording
+        // implementation as IScheduleCoordinator only. Without this check,
+        // our additional AddSingleton<IScheduleCoordinator>(factory) would
+        // override the test's recording coordinator -- the last AddSingleton
+        // wins on resolve.
+        if (services.Any(d => d.ServiceType == typeof(Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator)))
             return;
 
         services.AddOptions<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions>()
