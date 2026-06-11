@@ -181,7 +181,14 @@ public sealed class YamlTemplateStore
                 Mode: string.IsNullOrWhiteSpace(e.Mode) ? "live" : e.Mode))
             .ToArray();
 
-        if (expansion.Length == 0)
+        var extends = string.IsNullOrWhiteSpace(file.Extends) ? null : file.Extends!.Trim();
+
+        // A root template (no extends:) MUST ship at least one expansion entry
+        // -- otherwise it would never materialize a rule. A child template
+        // (extends: set) MAY have an empty local expansion list: the parent's
+        // entries already cover the materialization, and the child is allowed
+        // to inherit them unchanged while just overriding parameter defaults.
+        if (expansion.Length == 0 && extends is null)
         {
             _logger.LogWarning("Skipping template {Id} -- expansion is empty", file.Template);
             return false;
@@ -193,7 +200,8 @@ public sealed class YamlTemplateStore
             Description: file.Description ?? string.Empty,
             Category: file.Category ?? string.Empty,
             Parameters: parameters,
-            Expansion: expansion);
+            Expansion: expansion,
+            ExtendsTemplateId: extends);
         return true;
     }
 

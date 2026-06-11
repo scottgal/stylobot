@@ -37,6 +37,29 @@ namespace Mostlylucid.BotDetection.Policies.Templates;
 ///     Ordered list of rule blueprints. Each entry compiles to one
 ///     materialized rule per applied-to scope. Suffix is unique within the
 ///     template so re-applications produce deterministic ids.
+///
+///     <para>
+///         For a template with <see cref="ExtendsTemplateId"/> set, the
+///         expansion list AS-AUTHORED holds only the child's added entries;
+///         the registry constructor merges parent + child at load time and
+///         stores the FULLY-RESOLVED template (parent's entries + child's).
+///         Consumers (<see cref="TemplateResolver"/>, materializer, editor)
+///         always see the resolved shape.
+///     </para>
+/// </param>
+/// <param name="ExtendsTemplateId">
+///     Optional id of the parent template this one inherits from. Set in the
+///     YAML via <c>extends:</c>. At <see cref="TemplateRegistry"/>
+///     construction time the inheritance graph is resolved: parameters are
+///     merged (child overrides parent on name match), expansion entries are
+///     concatenated (parent first, child's appended). The flattened template
+///     stored in the registry has <see cref="ExtendsTemplateId"/> set to
+///     <c>null</c> -- runtime consumers see a single-source record.
+///
+///     <para>
+///         <c>null</c> for the common case (Stylobot catalog templates +
+///         single-source customer templates).
+///     </para>
 /// </param>
 public sealed record Template(
     string Id,
@@ -44,7 +67,8 @@ public sealed record Template(
     string Description,
     string Category,
     IReadOnlyList<TemplateParameter> Parameters,
-    IReadOnlyList<TemplateExpansionEntry> Expansion);
+    IReadOnlyList<TemplateExpansionEntry> Expansion,
+    string? ExtendsTemplateId = null);
 
 /// <summary>
 ///     Declared parameter on a <see cref="Template"/>. Parameters are

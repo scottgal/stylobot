@@ -13,6 +13,14 @@ public sealed partial class YamlTemplateFile
     /// <summary>Stable template id (e.g. <c>protect-login</c>).</summary>
     [YamlMember("template")] public string Template { get; init; } = "";
 
+    /// <summary>
+    ///     Optional parent template id. When set, this template inherits the
+    ///     parent's parameters and expansion entries: the child's parameters
+    ///     are MERGED into the parent's (child wins on name match) and the
+    ///     child's expansion entries are APPENDED to the parent's. T5 design.
+    /// </summary>
+    [YamlMember("extends")] public string? Extends { get; init; }
+
     /// <summary>Operator-facing label rendered in the template picker.</summary>
     [YamlMember("display-name")] public string DisplayName { get; init; } = "";
 
