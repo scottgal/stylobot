@@ -99,7 +99,12 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
         var ctx = state.HttpContext;
         var headers = ctx.Request.Headers;
         var signals = state.Signals;
-        var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        // ComposeRawValues writes ~50 fixed entries below. Hinting the
+        // dictionary at that size dodges three internal resize/rehash
+        // operations per detection (capacity grows 0 -> 7 -> 17 -> 37 ->
+        // 67 under the default growth policy; we land squarely in the
+        // last resize without the hint).
+        var values = new Dictionary<string, object?>(capacity: 64, StringComparer.OrdinalIgnoreCase);
 
         // Network — taken from existing signals / GeoLocation context where possible.
         // IP subnet computed inline from the connection address since no standalone signal exists.
