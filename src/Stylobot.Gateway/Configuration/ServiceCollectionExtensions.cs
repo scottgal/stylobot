@@ -120,6 +120,11 @@ public static class ServiceCollectionExtensions
                 // - Http2FingerprintContributor
                 builderContext.AddTlsFingerprintingHeaders();
 
+                // Stamp upstream RTT timing into HttpContext.Items so downstream
+                // middleware (AspNet pack absorption) can split observed wall-clock
+                // duration into upstream RTT vs StyloBot processing time.
+                builderContext.AddUpstreamTimingTransforms();
+
                 // Add bot detection headers transform based on demo mode
                 builderContext.AddDemoModeTransform(configuration);
             });
