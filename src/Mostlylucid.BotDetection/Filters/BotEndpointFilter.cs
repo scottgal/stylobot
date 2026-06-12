@@ -1,6 +1,11 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Filters;
 
@@ -96,9 +101,42 @@ public class BlockBotsEndpointFilter : IEndpointFilter
             }, statusCode: _statusCode);
         }
 
+        // Honour an upstream API-key bypass: if the middleware skipped
+        // detection because a trusted key disabled all detectors, we pass
+        // through too. Re-running detection here would defeat the bypass.
+        var apiKeyBypass = httpContext.Items.TryGetValue("BotDetection.ApiKeyBypass", out var bp)
+            && bp is true;
+        if (apiKeyBypass)
+            return await next(context);
+
         var result = httpContext.GetBotDetectionResult();
 
-        if (result == null || !result.IsBot || result.ConfidenceScore < _minConfidence)
+        // The middleware may have used the "static" policy for paths matching
+        // static-asset extensions (.xml for sitemaps, .json for manifests, .txt
+        // for robots.txt). That policy is intentionally lax: only
+        // FastPathReputation runs, no UA / header / behavioural checks.
+        // .BlockBots() represents EXPLICIT developer intent that bots should
+        // be refused on this route, which overrides path-based laxness. If the
+        // static policy was used (or detection didn't run at all), re-run
+        // with the default policy so the UA-based classification is honoured.
+        var usedPolicy = httpContext.Items.TryGetValue("BotDetection.PolicyName", out var pn)
+            ? pn?.ToString()
+            : null;
+
+        if (result is null ||
+            string.Equals(usedPolicy, "static", StringComparison.OrdinalIgnoreCase))
+        {
+            result = await EnsureDetectionAsync(httpContext);
+            if (result is null)
+                return Results.Json(new
+                {
+                    error = "Access denied",
+                    blocked = true,
+                    reason = "detection-unavailable"
+                }, statusCode: _statusCode);
+        }
+
+        if (!result.IsBot || result.ConfidenceScore < _minConfidence)
             return await next(context);
 
         // Check if this bot type is allowed through (shared logic)
@@ -115,6 +153,57 @@ public class BlockBotsEndpointFilter : IEndpointFilter
             botType = result.BotType?.ToString(),
             confidence = result.ConfidenceScore
         }, statusCode: _statusCode);
+    }
+
+    /// <summary>
+    ///     Runs the detection pipeline with the default policy when the
+    ///     middleware path-policy short-circuited the request (sitemap.xml on
+    ///     a static-asset policy, etc.). Writes the result back to
+    ///     HttpContext.Items so subsequent reads (TagHelpers, other filters)
+    ///     see the same verdict.
+    /// </summary>
+    private static async Task<BotDetectionResult?> EnsureDetectionAsync(HttpContext httpContext)
+    {
+        var orchestrator = httpContext.RequestServices.GetService<IDetectionOrchestrator>();
+        var policies = httpContext.RequestServices.GetService<IPolicyRegistry>();
+        if (orchestrator is null || policies is null) return null;
+
+        try
+        {
+            var evidence = await orchestrator.DetectWithPolicyAsync(
+                httpContext, policies.DefaultPolicy, httpContext.RequestAborted);
+
+            var detectionResult = new BotDetectionResult
+            {
+                IsBot = evidence.BotProbability >= 0.5,
+                BotType = evidence.PrimaryBotType,
+                BotName = evidence.PrimaryBotName,
+                ConfidenceScore = evidence.BotProbability,
+                ProcessingTimeMs = evidence.TotalProcessingTimeMs,
+            };
+
+            httpContext.Items["BotDetectionResult"] = detectionResult;
+            httpContext.Items["BotDetection.AggregatedEvidence"] = evidence;
+
+            // Count the on-demand detection in the global stats counter so
+            // /bot-detection/stats reflects requests that hit endpoint
+            // filters but bypassed the middleware's normal detection path.
+            httpContext.RequestServices
+                .GetService<IBotDetectionService>()
+                ?.RecordDetection(detectionResult);
+
+            return detectionResult;
+        }
+        catch (Exception ex)
+        {
+            httpContext.RequestServices
+                .GetService<ILoggerFactory>()
+                ?.CreateLogger("BlockBotsEndpointFilter")
+                .LogWarning(ex,
+                    "On-demand detection failed for {Path}; returning fail-closed",
+                    httpContext.Request.Path);
+            return null;
+        }
     }
 }
 
