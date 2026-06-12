@@ -11,6 +11,22 @@ namespace Mostlylucid.BotDetection.Orchestration;
 public static class DetectionLedgerExtensions
 {
     /// <summary>
+    ///     Copy an IReadOnlyDictionary into a fresh Dictionary, hinting
+    ///     capacity. Per the perf-throughput baseline (~376 KB/req), the
+    ///     ToAggregatedEvidence snapshot copy is one of the larger
+    ///     per-request allocations -- the dict has 100+ entries on the
+    ///     full-pipeline path, and the default ctor's repeated resize/rehash
+    ///     is wasted work.
+    /// </summary>
+    private static Dictionary<string, object> CopyWithCapacity(IReadOnlyDictionary<string, object> src)
+    {
+        var dst = new Dictionary<string, object>(src.Count);
+        foreach (var kv in src) dst[kv.Key] = kv.Value;
+        return dst;
+    }
+
+
+    /// <summary>
     /// Builds an AggregatedEvidence from the detection ledger.
     /// </summary>
     public static AggregatedEvidence ToAggregatedEvidence(
@@ -173,8 +189,15 @@ public static class DetectionLedgerExtensions
             return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals);
         }
 
+        // The orchestrator pools its signal ConcurrentDictionary and clears it
+        // for the next request, so the receiver of AggregatedEvidence cannot
+        // hold the live reference. A snapshot copy is mandatory. Hint the
+        // capacity so the destination Dictionary doesn't resize during the
+        // foreach copy; without it the default 0 capacity grows
+        // 0 -> 7 -> 17 -> 37 -> 67 -> 137 across five rehash operations to
+        // accommodate the typical 100+-signal payload.
         var signals = premergedSignals != null
-            ? new Dictionary<string, object>(premergedSignals)
+            ? CopyWithCapacity(premergedSignals)
             : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
         var (threatScore, signalsThreatBand) = ExtractThreatScore(signals);
