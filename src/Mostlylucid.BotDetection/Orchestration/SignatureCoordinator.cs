@@ -1076,41 +1076,67 @@ internal class SignatureTrackingAtom : IDisposable
                 IsConfirmedFriendly = _isConfirmedFriendly
             };
 
-        var requestList = _requests.ToList();
-        var firstSeen = requestList.First().Timestamp;
-        var lastSeen = requestList.Last().Timestamp;
+        // ComputeBehavior runs inside the per-signature lock on every
+        // RecordRequestAsync. Squash four LINQ passes (intervals.Average,
+        // intervals.Average(delegate), GroupBy+ToDictionary, requests.Average)
+        // into one loop over the LinkedList: variance can be computed
+        // online via Welford, path entropy from a single Dictionary<string,int>,
+        // bot-prob average from a running sum. Removes the requestList copy
+        // (LinkedList -> List), the intermediate intervals List<double>, the
+        // two LINQ delegates, the GroupBy enumerator, and the
+        // requests-to-paths-dictionary copy. The returned
+        // SignatureBehavior.Requests still needs a snapshot list -- consumers
+        // iterate it independently; allocate it once at the end.
+        var requestCount = _requests.Count;
+        var requestList = new List<SignatureRequest>(requestCount);
+        DateTime firstSeen = default;
+        DateTime lastSeen = default;
+        DateTime? prevTimestamp = null;
+        var intervalCount = 0;
+        var intervalSum = 0.0;
+        var intervalSqSum = 0.0;
+        var botProbSum = 0.0;
+        var pathCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
-        // Calculate average interval
-        var intervals = new List<double>();
-        for (var i = 1; i < requestList.Count; i++)
-            intervals.Add((requestList[i].Timestamp - requestList[i - 1].Timestamp).TotalSeconds);
-
-        var avgInterval = intervals.Count > 0 ? intervals.Average() : 0;
-
-        // Calculate timing coefficient of variation
-        var timingCV = 0.0;
-        if (intervals.Count > 1)
+        foreach (var r in _requests)
         {
-            var stdDev = Math.Sqrt(intervals.Average(v => Math.Pow(v - avgInterval, 2)));
-            timingCV = avgInterval > 0 ? stdDev / avgInterval : 0;
+            requestList.Add(r);
+            if (prevTimestamp is null)
+                firstSeen = r.Timestamp;
+            else
+            {
+                var dt = (r.Timestamp - prevTimestamp.Value).TotalSeconds;
+                intervalSum += dt;
+                intervalSqSum += dt * dt;
+                intervalCount++;
+            }
+            lastSeen = r.Timestamp;
+            prevTimestamp = r.Timestamp;
+            botProbSum += r.BotProbability;
+            pathCounts[r.Path] = pathCounts.TryGetValue(r.Path, out var existing) ? existing + 1 : 1;
         }
 
-        // Calculate path entropy (Shannon)
-        var pathCounts = requestList.GroupBy(r => r.Path).ToDictionary(g => g.Key, g => g.Count());
+        var avgInterval = intervalCount > 0 ? intervalSum / intervalCount : 0;
+        var timingCV = 0.0;
+        if (intervalCount > 1 && avgInterval > 0)
+        {
+            var variance = (intervalSqSum / intervalCount) - (avgInterval * avgInterval);
+            if (variance < 0) variance = 0; // floating-point edge
+            timingCV = Math.Sqrt(variance) / avgInterval;
+        }
+
         var pathEntropy = 0.0;
         if (pathCounts.Count > 1)
         {
-            var total = requestList.Count;
+            var total = (double)requestCount;
             foreach (var count in pathCounts.Values)
             {
-                var p = (double)count / total;
-                if (p > 0)
-                    pathEntropy -= p * Math.Log2(p);
+                var p = count / total;
+                if (p > 0) pathEntropy -= p * Math.Log2(p);
             }
         }
 
-        // Average bot probability across requests
-        var avgBotProb = requestList.Average(r => r.BotProbability);
+        var avgBotProb = requestCount > 0 ? botProbSum / requestCount : 0;
 
         // Compute aberration score (weighted combination)
         var aberrationScore = ComputeAberrationScore(
