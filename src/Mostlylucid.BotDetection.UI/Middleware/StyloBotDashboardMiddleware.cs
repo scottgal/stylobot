@@ -617,8 +617,29 @@ public class StyloBotDashboardMiddleware
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
                 if (_options.RenderPage)
                 {
-                    // Use original relativePath (not lowercased) to preserve signature case
-                    await ServeSignatureDetailAsync(context, relativePath.Substring("signature/".Length));
+                    // The standalone /dashboard/signature/<id> page rendered a
+                    // completely separate layout from the rest of the dashboard
+                    // (its own tab strip, its own header) which broke operator
+                    // workflows -- you went to look at a signature and lost the
+                    // surrounding endpoints context. Now we redirect to the
+                    // endpoints tab with the signature pre-selected so detail
+                    // shows inline in the existing #endpoint-detail-panel slot.
+                    //
+                    // The legacy renderer remains accessible to:
+                    //   * test harnesses that opt in via ?legacy=1
+                    //   * the partials/signature-detail endpoint (HTMX inline use)
+                    var rawSigId = relativePath.Substring("signature/".Length);
+                    var keepLegacy = context.Request.Query.ContainsKey("legacy");
+                    if (keepLegacy)
+                    {
+                        await ServeSignatureDetailAsync(context, rawSigId);
+                    }
+                    else
+                    {
+                        var basePathPrefix = _options.BasePath ?? "/dashboard";
+                        var encodedSig = Uri.EscapeDataString(rawSigId);
+                        context.Response.Redirect($"{basePathPrefix}/endpoints?selectedSig={encodedSig}");
+                    }
                 }
                 else
                 {

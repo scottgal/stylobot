@@ -46,3 +46,38 @@
         </div>
     </div>
 </div>
+
+@* Deep-link handler: when /dashboard/endpoints?selected=METHOD|PATH loads
+   (from a row-click hx-push-url or a redirect off the retired
+   /dashboard/signature/<id> page) find the matching row by data-endpoint-key
+   and trigger it. HTMX swaps the detail into #endpoint-detail-panel exactly
+   as if the user had clicked. Done on the first 'sb:endpoints-list-ready'
+   event so the table is in the DOM, with a setTimeout fallback for the
+   first paint. *@
+<script>
+    (function () {
+        function trySelect() {
+            try {
+                var params = new URLSearchParams(window.location.search);
+                var selected = params.get('selected');
+                if (!selected) return false;
+                var row = document.querySelector(
+                    'tr.endpoint-row[data-endpoint-key="' +
+                    selected.replace(/"/g, '\\"') + '"]'
+                );
+                if (!row || typeof htmx === 'undefined') return false;
+                htmx.trigger(row, 'click');
+                if (row.scrollIntoView) {
+                    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }
+                return true;
+            } catch (e) { return false; }
+        }
+        if (!trySelect()) {
+            // Endpoints list may load via HTMX after first paint; retry once.
+            setTimeout(trySelect, 400);
+            setTimeout(trySelect, 1200);
+        }
+    })();
+</script>
+
