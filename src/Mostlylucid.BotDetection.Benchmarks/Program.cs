@@ -34,6 +34,19 @@ public class Program
             return RegressionChecker.Check("BenchmarkDotNet.Artifacts/results", scenarios);
         }
 
+        if (args.Length > 0 && args[0] == "--throughput")
+        {
+            // --throughput [clients] [requestsPerClient]
+            // Defaults to 64 clients x 1000 requests (~64k detections).
+            var clients = args.Length > 1 && int.TryParse(args[1], out var c) ? c : 64;
+            var perClient = args.Length > 2 && int.TryParse(args[2], out var p) ? p : 1000;
+            var report = DetectionThroughputHarness
+                .RunAsync(clients, perClient)
+                .GetAwaiter()
+                .GetResult();
+            return report.RequestsPerSecond > 0 ? 0 : 1;
+        }
+
         // Default: interactive BenchmarkDotNet mode (includes old benchmarks + new YAML-driven ones)
         BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
         return 0;
