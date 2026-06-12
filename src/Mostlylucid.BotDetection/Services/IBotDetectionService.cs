@@ -21,6 +21,16 @@ public interface IBotDetectionService
     /// </summary>
     /// <returns>Detection statistics</returns>
     BotDetectionStatistics GetStatistics();
+
+    /// <summary>
+    ///     Record a detection result against the statistics counters. Called
+    ///     by the middleware after the orchestrator produces a verdict, by
+    ///     <see cref="DetectAsync"/> internally, and by anyone running
+    ///     detection out-of-band (demo preload, on-demand endpoint filter,
+    ///     test harnesses). Idempotent per call; the caller decides whether
+    ///     to record a verdict at all.
+    /// </summary>
+    void RecordDetection(BotDetectionResult result);
 }
 
 /// <summary>

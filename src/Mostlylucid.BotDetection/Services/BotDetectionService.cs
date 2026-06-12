@@ -260,6 +260,9 @@ public class BotDetectionService : IBotDetectionService
     private static string ComputeStableHash(string input)
         => PatternNormalization.ComputeHash(input);
 
+    /// <inheritdoc />
+    public void RecordDetection(BotDetectionResult result) => UpdateStatistics(result);
+
     private void UpdateStatistics(BotDetectionResult result)
     {
         lock (_statsLock)
