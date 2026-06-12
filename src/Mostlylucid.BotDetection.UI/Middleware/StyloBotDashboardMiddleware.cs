@@ -1071,7 +1071,17 @@ public class StyloBotDashboardMiddleware
             "img-src 'self' data: blob:",
             "font-src 'self' data:",
             $"style-src 'self' 'unsafe-inline'",
-            $"script-src 'self' 'nonce-{cspNonce}'",
+            // 'unsafe-eval' is required for Alpine.js's reactive-expression
+            // evaluator (new AsyncFunction("...") under the hood). Removing
+            // it silently broke every x-bind / x-show / x-if on the dashboard:
+            // bindings throw EvalError on compile, Alpine swallows them, and
+            // the operator just sees a sluggish/dead dashboard. Alpine offers
+            // a CSP-safe build that uses a pre-compiled expression evaluator,
+            // but switching to it is a separate piece of work because the
+            // dashboard's x-bind syntax has to be hand-converted. Until then,
+            // 'unsafe-eval' is the conscious trade. Nonce + 'self' still
+            // prevents arbitrary external script loads.
+            $"script-src 'self' 'nonce-{cspNonce}' 'unsafe-eval'",
             // worker-src for Monaco's language-service web workers (loaded from CDN as
             // blob: URLs after the AMD loader rewrites them). Safe to allow on the
             // dashboard origin since Monaco is the only consumer.
