@@ -78,7 +78,8 @@ public class StyloBotDashboardMiddleware
     // requests can both pass the user-count check and both create an account.
     private static readonly SemaphoreSlim SetupLock = new(1, 1);
 
-    private const string SetupCsrfCookieName = "sb.setup.csrf";
+    internal const string SetupCsrfCookieName = "sb.setup.csrf";
+    internal const string SetupCsrfFormField = "__csrf";
 
     private const string AuthPageCss = """
         *{box-sizing:border-box;margin:0;padding:0}
@@ -838,7 +839,7 @@ public class StyloBotDashboardMiddleware
               <h1>StyloBot Dashboard</h1>
               <p>Create the first admin account to secure your dashboard.</p>
               <form method="post" action="{{basePath}}/setup">
-                <input type="hidden" name="__csrf" value="{{csrfToken}}">
+                <input type="hidden" name="{{SetupCsrfFormField}}" value="{{csrfToken}}">
                 <label for="email">Email</label>
                 <input type="email" id="email" name="email" required autocomplete="email">
                 <label for="password">Password</label>
@@ -910,11 +911,7 @@ public class StyloBotDashboardMiddleware
             }
             else
             {
-                // Identity error descriptions can echo the submitted email
-                // ("Username 'a@b.com' is already taken."); redact it so the
-                // address never lands in the query string / access logs.
-                var errors = string.Join(", ", result.Errors.Select(e =>
-                    e.Description.Replace(email, "[redacted]", StringComparison.OrdinalIgnoreCase)));
+                var errors = RedactEmailFromIdentityErrors(result.Errors.Select(e => e.Description), email);
                 context.Response.Redirect($"{basePath}/setup?error={Uri.EscapeDataString(errors)}");
             }
         }
@@ -943,10 +940,26 @@ public class StyloBotDashboardMiddleware
         return token;
     }
 
-    private static bool ValidateSetupCsrfToken(HttpContext context)
+    /// <summary>
+    ///     Joins identity error descriptions for round-tripping back through
+    ///     the redirect query string, with the submitted email scrubbed out.
+    ///     ASP.NET Core Identity descriptions can echo the email verbatim
+    ///     ("Username 'a@b.com' is already taken."); without this guard the
+    ///     address lands in the redirect URL and from there in access logs
+    ///     and the browser history.
+    /// </summary>
+    internal static string RedactEmailFromIdentityErrors(IEnumerable<string> descriptions, string email)
+    {
+        if (string.IsNullOrEmpty(email))
+            return string.Join(", ", descriptions);
+        return string.Join(", ", descriptions.Select(d =>
+            d.Replace(email, "[redacted]", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    internal static bool ValidateSetupCsrfToken(HttpContext context)
     {
         var cookie = context.Request.Cookies[SetupCsrfCookieName];
-        var form = context.Request.Form["__csrf"].FirstOrDefault();
+        var form = context.Request.Form[SetupCsrfFormField].FirstOrDefault();
         if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(form)) return false;
         return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(cookie),
@@ -2811,7 +2824,7 @@ public class StyloBotDashboardMiddleware
     private static (bool Allowed, int Remaining) CheckRateLimit(string clientIp, DateTime now)
         => CheckRateLimit(clientIp, now, _rateLimits, DiagnosticsRateLimit);
 
-    private static (bool Allowed, int Remaining) CheckRateLimit(
+    internal static (bool Allowed, int Remaining) CheckRateLimit(
         string clientIp, DateTime now,
         ConcurrentDictionary<string, (int Count, DateTime WindowStart)> store, int limit)
     {
