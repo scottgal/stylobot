@@ -1,0 +1,130 @@
+@using Microsoft.AspNetCore.Http
+@using Mostlylucid.BotDetection.Orchestration
+@inject IHttpContextAccessor HttpCtx
+@{
+    ViewData["Title"] = "Home";
+    var ctx = HttpCtx.HttpContext!;
+    var evidence = ctx.Items.TryGetValue("BotDetection.AggregatedEvidence", out var evObj) ? evObj as AggregatedEvidence : null;
+    var hasResult = ctx.Items.ContainsKey("BotDetectionResult");
+    var hasEvidence = evidence is not null;
+}
+
+<details style="background: #fff7ed; border: 1px solid #fdba74; padding: 0.75rem; border-radius: 0.5rem; margin: 0.5rem 0; font-size: 0.85rem;">
+    <summary><strong>Debug</strong> &mdash; raw HttpContext.Items state (TagHelper input)</summary>
+    <pre style="margin: 0.5rem 0; white-space: pre-wrap;">AggregatedEvidence present: @hasEvidence
+BotDetectionResult present:  @hasResult
+@if (evidence is not null)
+{
+@:evidence.RiskBand     = @evidence.RiskBand
+@:evidence.BotProbability = @evidence.BotProbability
+@:evidence.Confidence   = @evidence.Confidence
+}</pre>
+</details>
+
+<h1>Behaviour-aware Razor</h1>
+<p>
+    This page is rendered by ASP.NET Core MVC with StyloBot middleware in
+    process. No gateway, no third-party service, no JavaScript on the
+    client. Every <code>&lt;sb-*&gt;</code> tag below reads from the same
+    <code>DetectionDisplayModel</code> the detection pipeline populated
+    before this view started rendering.
+</p>
+
+<div class="demo-controls">
+    <strong>Demo mode</strong> &mdash; flip the verdict by appending
+    <code>?demo=&lt;preset&gt;</code> to any URL. Same code path as the
+    <code>ml-bot-test-mode</code> header; opt-in via
+    <code>BotDetection:TestModeQueryParam</code>.
+    <div style="margin-top: 0.5rem;">
+        <a href="?demo=human">human</a>
+        <a href="?demo=googlebot">googlebot</a>
+        <a href="?demo=bingbot">bingbot</a>
+        <a href="?demo=mj12bot">MJ12bot</a>
+        <a href="?demo=scrapy">scrapy</a>
+        <a href="?demo=curl">curl</a>
+        <a href="?demo=malicious">masscan</a>
+        <a class="reset" href="@Url.Action("Index")">reset</a>
+    </div>
+</div>
+
+<h2>1. Risk-gated content (<code>&lt;sb-risk&gt;</code>)</h2>
+
+<sb-risk max="Low">
+    <p style="background: #d1fae5; padding: 1rem; border-radius: 0.5rem;">
+        <strong>Welcome back.</strong> You scored Low risk &mdash; full
+        access. This block is wrapped in
+        <code>&lt;sb-risk max=&quot;Low&quot;&gt;</code> so it renders only
+        for visitors the engine classifies as Low or VeryLow.
+    </p>
+</sb-risk>
+
+<sb-risk min="Elevated" max="Medium">
+    <div class="alert alert-warning">
+        <strong>Elevated risk.</strong> You're being throttled. Block
+        wrapped in
+        <code>&lt;sb-risk min=&quot;Elevated&quot; max=&quot;Medium&quot;&gt;</code>.
+    </div>
+</sb-risk>
+
+<sb-risk min="High">
+    <div style="background: #fecaca; padding: 1rem; border-radius: 0.5rem;">
+        <strong>High risk.</strong> If this were a real product page,
+        you'd be served the lite version and your form posts would face a
+        proof-of-work challenge. Wrapped in
+        <code>&lt;sb-risk min=&quot;High&quot;&gt;</code>.
+    </div>
+</sb-risk>
+
+<h2>2. Signal-driven variation (<code>&lt;sb-signal&gt;</code>)</h2>
+
+<sb-signal signal="ip.is_datacenter" condition="true">
+    <p>You appear to be on a <strong>datacentre IP</strong>. Some
+    features disabled.</p>
+</sb-signal>
+
+<sb-signal signal="geo.is_vpn,geo.is_tor" condition="any-true">
+    <p>You're on an <strong>anonymised network</strong>. Limited content
+    only.</p>
+</sb-signal>
+
+<sb-signal signal="ua.is_bot" condition="true">
+    <p>Detected as a <strong>declared bot</strong>. If you're a verified
+    crawler, you're allowed; otherwise the route handlers downstream will
+    reject you.</p>
+</sb-signal>
+
+<sb-signal signal="ua.is_bot" condition="false">
+    <p>Treated as a <strong>human visitor</strong> by the User-Agent
+    detector.</p>
+</sb-signal>
+
+<h2>3. Honeypot form (<code>&lt;sb-honeypot /&gt;</code>)</h2>
+
+<p>This form contains three offscreen trap fields. Humans don't see them;
+bots fill them in. View source to confirm they're there.</p>
+
+<form method="post" asp-action="Subscribe">
+    <sb-honeypot />
+    @Html.AntiForgeryToken()
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" placeholder="you@example.com" required />
+    <button type="submit">Subscribe</button>
+</form>
+
+<h2>4. Endpoint traffic shaping</h2>
+
+<p>The opening Razor view from the talk also wires up three minimal-API
+endpoints at the routing layer:</p>
+
+<ul>
+    <li><code>GET /api/data</code> &mdash; <code>.BlockBots()</code>:
+        all bots refused. <a href="/api/data" target="_blank">Try it</a>.</li>
+    <li><code>GET /sitemap.xml</code> &mdash;
+        <code>.BlockBots(allowVerifiedBots: true, allowSearchEngines: true)</code>.
+        <a href="/sitemap.xml" target="_blank">Try it</a>.</li>
+    <li><code>POST /api/login</code> &mdash;
+        <code>.BotPolicy(&quot;strict&quot;, blockThreshold: 0.5)</code>.</li>
+</ul>
+
+<p>Tip: hit <code>/api/data</code> while demo mode is set to
+<code>scrapy</code> or <code>curl</code> and watch it 403.</p>

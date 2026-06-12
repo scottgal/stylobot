@@ -1,0 +1,192 @@
+### StyloBot Trailblazor demo — HTTP probes
+###
+### Run with:  dotnet run --project Mostlylucid.BotDetection.TrailblazorDemo
+### Then run any probe below from JetBrains Rider, VS Code REST Client,
+### or httpyac / kulala.nvim.
+###
+### IMPORTANT: human probes send the full Sec-Ch-Ua / Sec-Fetch-* headers
+### that real Chrome 120 always emits. Sending the Chrome UA string WITHOUT
+### them trips the Inconsistency detector (correctly — bots commonly forge
+### the UA but forget client hints). That's a teaching moment for the talk:
+### the engine isn't fooled by the UA alone.
+
+@host = http://localhost:5186
+@bypassKey = demo-bypass-key-localhost-only
+
+@humanUa  = Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+@google   = Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+@scrapy   = Scrapy/2.5.0 (+https://scrapy.org)
+@masscan  = masscan/1.0 (https://github.com/robertdavidgraham/masscan)
+
+
+### --- 1. The home page — server-rendered Razor with TagHelpers ----------
+
+### Plain human visitor (full browser-shape headers)
+GET {{host}}/
+User-Agent: {{humanUa}}
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+Accept-Encoding: gzip, deflate, br
+Sec-Ch-Ua: "Chromium";v="120", "Not(A:Brand";v="24", "Google Chrome";v="120"
+Sec-Ch-Ua-Mobile: ?0
+Sec-Ch-Ua-Platform: "Windows"
+Sec-Fetch-Mode: navigate
+Sec-Fetch-Dest: document
+Sec-Fetch-Site: none
+Upgrade-Insecure-Requests: 1
+
+
+### Flip the engine's view of you to googlebot via query-param test mode
+### (TestModeQueryParam = "demo" in appsettings).
+GET {{host}}/?demo=googlebot
+User-Agent: {{humanUa}}
+Accept: text/html
+
+
+### Flip to scrapy
+GET {{host}}/?demo=scrapy
+User-Agent: {{humanUa}}
+Accept: text/html
+
+
+### Flip to masscan
+GET {{host}}/?demo=malicious
+User-Agent: {{humanUa}}
+Accept: text/html
+
+
+### --- 2. Diagnostic endpoint — full per-detector breakdown ---------------
+
+### Human-UA full check (with realistic chrome headers)
+GET {{host}}/bot-detection/check
+User-Agent: {{humanUa}}
+Accept: application/json
+Accept-Language: en-US,en;q=0.9
+Sec-Ch-Ua: "Chromium";v="120", "Not(A:Brand";v="24", "Google Chrome";v="120"
+Sec-Ch-Ua-Mobile: ?0
+Sec-Ch-Ua-Platform: "Windows"
+
+
+### Direct bot-UA check (no test mode — the real UA + minimal headers, as a
+### scraper would actually send)
+GET {{host}}/bot-detection/check
+User-Agent: {{scrapy}}
+
+
+### Stats — reflects DemoPreloadOnStartup + every real request the
+### middleware (or BlockBots filter on-demand) has run detection on.
+GET {{host}}/bot-detection/stats
+
+
+### Health
+GET {{host}}/bot-detection/health
+
+
+### --- 3. Traffic shaping — .BlockBots() and .BotPolicy() ----------------
+
+### /api/data is .BlockBots() — humans (with chrome client hints) pass.
+GET {{host}}/api/data
+User-Agent: {{humanUa}}
+Accept: application/json
+Accept-Language: en-US,en;q=0.9
+Sec-Ch-Ua: "Chromium";v="120", "Not(A:Brand";v="24", "Google Chrome";v="120"
+Sec-Ch-Ua-Mobile: ?0
+Sec-Ch-Ua-Platform: "Windows"
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Sec-Fetch-Site: same-origin
+Referer: {{host}}/
+
+
+### /api/data with a scraper UA — 403, botType=Scraper
+GET {{host}}/api/data
+User-Agent: {{scrapy}}
+
+
+### /api/data with masscan UA — 403, MaliciousBot
+GET {{host}}/api/data
+User-Agent: {{masscan}}
+
+
+### /api/data with the dev bypass key — passes regardless of UA.
+### Demonstrates the operator-trust escape hatch (CI, monitoring, etc.)
+GET {{host}}/api/data
+User-Agent: {{scrapy}}
+X-SB-Api-Key: {{bypassKey}}
+
+
+### /sitemap.xml is .BlockBots(allowVerifiedBots: true, allowSearchEngines: true).
+### Googlebot UA — passes
+GET {{host}}/sitemap.xml
+User-Agent: {{google}}
+
+
+### /sitemap.xml with scrapy — refused (search-engine whitelist doesn't
+### cover Scraper bot type). NOTE: BlockBots now re-runs detection on
+### demand when the middleware short-circuited via the static-asset
+### policy (.xml extensions hit it by default).
+GET {{host}}/sitemap.xml
+User-Agent: {{scrapy}}
+
+
+### /sitemap.xml with chrome — also refused, because human browsers
+### don't directly fetch /sitemap.xml. If you see chrome here, it's a
+### chrome-shaped bot. Teaching moment for the talk.
+GET {{host}}/sitemap.xml
+User-Agent: {{humanUa}}
+
+
+### /api/login has .BotPolicy("strict", blockThreshold: 0.5) — humans
+### with realistic browser headers pass.
+POST {{host}}/api/login
+Content-Type: application/json
+User-Agent: {{humanUa}}
+Accept: application/json
+Accept-Language: en-US,en;q=0.9
+Sec-Ch-Ua: "Chromium";v="120", "Not(A:Brand";v="24", "Google Chrome";v="120"
+Sec-Ch-Ua-Mobile: ?0
+Sec-Ch-Ua-Platform: "Windows"
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Sec-Fetch-Site: same-origin
+Origin: {{host}}
+Referer: {{host}}/
+
+{ "user": "scott", "password": "hunter2" }
+
+
+### /api/login with scrapy — refused by the strict policy
+POST {{host}}/api/login
+Content-Type: application/json
+User-Agent: {{scrapy}}
+
+{ "user": "scott", "password": "hunter2" }
+
+
+### --- 4. Honeypot ------------------------------------------------------
+
+### Clean form submit — succeeds normally (real subscribe path)
+POST {{host}}/Home/Subscribe
+Content-Type: application/x-www-form-urlencoded
+User-Agent: {{humanUa}}
+
+email=demo@example.com
+
+
+### Bot-style submit — fills the honeypot trap field (sb_email_confirm).
+### Controller silently redirects to /Subscribed without performing the
+### work. Use the bypass key so we're testing the honeypot, not the
+### detector.
+POST {{host}}/Home/Subscribe
+Content-Type: application/x-www-form-urlencoded
+User-Agent: {{humanUa}}
+X-SB-Api-Key: {{bypassKey}}
+
+email=demo@example.com&sb_email_confirm=trap@bot.invalid
+
+
+### --- 5. Dashboard --------------------------------------------------------
+
+### Dashboard landing (HTML). Open in a browser for the live feed.
+GET {{host}}/_stylobot/
+User-Agent: {{humanUa}}

@@ -1,0 +1,18 @@
+@{
+    ViewData["Title"] = "Subscribed";
+}
+
+<h1>Thanks for subscribing.</h1>
+
+<p>
+    Subscribed: <strong>@(TempData["Email"] ?? "(silently dropped &mdash; honeypot trap was filled)")</strong>
+</p>
+
+<p><a asp-action="Index">&larr; Back to home</a></p>
+
+<p style="color: #6b7280; font-size: 0.85rem;">
+    The honeypot validator runs server-side. If a bot filled any of the
+    three trap fields rendered by <code>&lt;sb-honeypot /&gt;</code>, the
+    controller returns the same redirect a real submit would (silent
+    drop) so the bot operator never learns we caught them.
+</p>
