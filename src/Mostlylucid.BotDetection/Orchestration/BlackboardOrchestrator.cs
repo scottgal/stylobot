@@ -774,12 +774,19 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
 
                         // Fire-and-forget (don't await to avoid blocking request)
                         // Pass geo data for cluster analysis
+                        // `signals` is IReadOnlyDictionary<string, object> on
+                        // AggregatedEvidence -- the previous `new Dictionary<...>(signals)`
+                        // defensive copy was unnecessary (the receiver only reads via
+                        // TryGetValue, no mutation path exists). At 100+ signals per
+                        // detection that's a per-request hashtable copy we can skip.
+                        // The HashSet still needs construction: SignatureRequest.DetectorsRan
+                        // is typed HashSet<string> for legacy reasons.
                         _ = _signatureCoordinator.RecordRequestAsync(
                             signature,
                             requestId,
                             path,
                             result.BotProbability,
-                            new Dictionary<string, object>(signals),
+                            signals,
                             new HashSet<string>(result.ContributingDetectors),
                             cancellationToken,
                             countryCode: geoCountryCode,
@@ -825,7 +832,16 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 // FingerprintDriftService tick interval (default 5s) miss the cache and
                 // re-run the full pipeline. Dict-authoritative write so the next L1 lookup
                 // sees the new value immediately.
-                if (_fingerprintStore is not null &&
+                // Test-mode short-circuit: when the middleware flagged this
+                // dispatch as an ephemeral simulation, do NOT persist the
+                // verdict. Otherwise the simulated bot UA poisons the cached
+                // verdict for the visitor's real fingerprint.
+                var ephemeralVerdict = httpContext.Items.TryGetValue(
+                    Middleware.BotDetectionMiddleware.TestModeEphemeralKey, out var tmEphemeral)
+                    && tmEphemeral is true;
+
+                if (!ephemeralVerdict &&
+                    _fingerprintStore is not null &&
                     signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpVal) &&
                     fpVal is string fpId &&
                     !string.IsNullOrEmpty(fpId))

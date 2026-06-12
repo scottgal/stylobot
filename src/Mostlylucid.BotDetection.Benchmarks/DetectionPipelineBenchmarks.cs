@@ -1,9 +1,10 @@
 using System.Net;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Engines;
+using BenchmarkDotNet.Configs;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Mostlylucid.BotDetection.Benchmarks.Harness;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Orchestration;
 
@@ -12,10 +13,13 @@ namespace Mostlylucid.BotDetection.Benchmarks;
 /// <summary>
 ///     Benchmarks for the bot detection request processing pipeline.
 ///     Tests various scenarios with predictable results (no AI/LLM randomness).
+///     Uses InProcessEmitToolchain (see <see cref="InProcessConfig"/>) so the
+///     benchmark survives worktree builds where the default BDN boilerplate
+///     csproj generator picks the wrong duplicate-name project.
 /// </summary>
 [MemoryDiagnoser]
 [ThreadingDiagnoser]
-[SimpleJob(RunStrategy.Throughput, warmupCount: 3, iterationCount: 10)]
+[Config(typeof(InProcessConfig))]
 public class DetectionPipelineBenchmarks
 {
     private HttpContext _botContext = null!;

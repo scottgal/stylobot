@@ -111,6 +111,24 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         var proxyBuilder = services.AddReverseProxy()
+            .ConfigureHttpClient((context, handler) =>
+            {
+                // Refresh upstream connections every 5 minutes so DNS changes
+                // (rolling deploy on the backend, blue/green cutover, ELB DNS
+                // rotation) propagate without bouncing the gateway. Default is
+                // Timeout.InfiniteTimeSpan -- a connection picked up the first
+                // time a hostname resolved stays bound to that IP forever.
+                handler.PooledConnectionLifetime = TimeSpan.FromMinutes(5);
+
+                // Multiplexing toggle: HTTP/2 deliberately maintains a single
+                // connection per origin to maximise stream re-use. Under high
+                // RPS that single connection becomes the throughput cap.
+                // Allow multiple H/2 connections per origin so streams spread
+                // across them; the YARP-default SocketsHttpHandler then
+                // respects MaxConnectionsPerServer (default int.MaxValue
+                // already).
+                handler.EnableMultipleHttp2Connections = true;
+            })
             .AddTransforms(builderContext =>
             {
                 // Add TLS/TCP/HTTP2 fingerprinting headers to all proxied requests
