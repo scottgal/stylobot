@@ -804,19 +804,23 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
 
                         // Fire-and-forget (don't await to avoid blocking request)
                         // Pass geo data for cluster analysis
-                        // `signals` is IReadOnlyDictionary<string, object> on
-                        // AggregatedEvidence -- the previous `new Dictionary<...>(signals)`
-                        // defensive copy was unnecessary (the receiver only reads via
-                        // TryGetValue, no mutation path exists). At 100+ signals per
-                        // detection that's a per-request hashtable copy we can skip.
-                        // The HashSet still needs construction: SignatureRequest.DetectorsRan
-                        // is typed HashSet<string> for legacy reasons.
+                        // Defensive snapshot copy is mandatory: SignatureCoordinator
+                        // queues the SignatureRequest for asynchronous processing,
+                        // and its queue worker (SignatureCoordinator.cs:991-1017)
+                        // reads the signals dict AFTER this orchestrator's finally
+                        // block has called pooledState.Reset() -> Signals.Clear().
+                        // The worker's "empty-signals = skip-path observation"
+                        // branch (line 989) silently degrades without the copy,
+                        // dropping IntentThreatScore / FriendlyDomainVerified /
+                        // FriendlyIpVerified absorption into _latestThreatScore /
+                        // _isConfirmedFriendly. Discovered during the perf re-audit
+                        // following the throughput-harness work.
                         _ = _signatureCoordinator.RecordRequestAsync(
                             signature,
                             requestId,
                             path,
                             result.BotProbability,
-                            signals,
+                            new Dictionary<string, object>(signals),
                             new HashSet<string>(result.ContributingDetectors),
                             cancellationToken,
                             countryCode: geoCountryCode,
