@@ -63,6 +63,7 @@
     <ItemGroup>
         <PackageReference Include="AngleSharp" Version="1.4.0" />
         <!-- LLM packages moved to Mostlylucid.BotDetection.Llm.Ollama / LlamaSharp projects -->
+        <PackageReference Include="MessagePack" Version="3.1.7" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
         <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
         <PackageReference Include="System.IO.Hashing" Version="10.0.8" />
