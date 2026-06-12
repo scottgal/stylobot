@@ -61,17 +61,26 @@ public partial class BehavioralPatternAnalyzer
         var paths = GetRecentPaths(identityKey);
         if (paths.Count < 5) return 0; // Not enough data
 
-        // Count frequency of each path
-        var frequencies = paths
-            .GroupBy(p => p)
-            .ToDictionary(g => g.Key, g => (double)g.Count() / paths.Count);
+        // Count frequency of each path without allocating a fresh
+        // IGrouping + Dictionary per call (the LINQ GroupBy + ToDictionary
+        // form allocates ~3 objects per group plus the group keys). For the
+        // bounded paths list (cap 50) this dictionary is small but called
+        // on every advanced-behavioural detection.
+        var counts = new Dictionary<string, int>(capacity: paths.Count, StringComparer.Ordinal);
+        for (var i = 0; i < paths.Count; i++)
+        {
+            var p = paths[i];
+            counts[p] = counts.TryGetValue(p, out var existing) ? existing + 1 : 1;
+        }
 
-        // Calculate Shannon entropy: H = -Σ(p * log2(p))
+        // Shannon entropy: H = -Σ(p * log2(p))
+        var total = (double)paths.Count;
         var entropy = 0.0;
-        foreach (var freq in frequencies.Values)
-            if (freq > 0)
-                entropy -= freq * Math.Log2(freq);
-
+        foreach (var count in counts.Values)
+        {
+            var freq = count / total;
+            if (freq > 0) entropy -= freq * Math.Log2(freq);
+        }
         return entropy;
     }
 
@@ -84,26 +93,31 @@ public partial class BehavioralPatternAnalyzer
         var timings = GetRecentTimings(identityKey);
         if (timings.Count < 5) return 0;
 
-        // Convert to intervals in milliseconds, binned to 100ms buckets
-        var intervals = new List<int>();
+        // Bin intervals into 100ms buckets and count inline. The previous
+        // implementation built an intermediate List<int> + GroupBy + ToDictionary;
+        // the bounded timings list (cap 100) makes the bucket count small but
+        // the bucket key density is high (every 100ms is its own key), so the
+        // dictionary fits the allocations into a single bounded chunk instead
+        // of a List + 3 LINQ chained allocs.
+        var counts = new Dictionary<int, int>(capacity: timings.Count);
+        var intervalsCount = 0;
         for (var i = 1; i < timings.Count; i++)
         {
             var intervalMs = (timings[i] - timings[i - 1]).TotalMilliseconds;
-            var bucket = (int)(intervalMs / 100) * 100; // Round to 100ms buckets
-            intervals.Add(bucket);
+            var bucket = (int)(intervalMs / 100) * 100;
+            counts[bucket] = counts.TryGetValue(bucket, out var existing) ? existing + 1 : 1;
+            intervalsCount++;
         }
 
-        // Calculate frequency distribution
-        var frequencies = intervals
-            .GroupBy(i => i)
-            .ToDictionary(g => g.Key, g => (double)g.Count() / intervals.Count);
+        if (intervalsCount == 0) return 0;
 
-        // Shannon entropy
+        var total = (double)intervalsCount;
         var entropy = 0.0;
-        foreach (var freq in frequencies.Values)
-            if (freq > 0)
-                entropy -= freq * Math.Log2(freq);
-
+        foreach (var count in counts.Values)
+        {
+            var freq = count / total;
+            if (freq > 0) entropy -= freq * Math.Log2(freq);
+        }
         return entropy;
     }
 
@@ -152,40 +166,31 @@ public partial class BehavioralPatternAnalyzer
         var paths = GetRecentPaths(identityKey);
         if (paths.Count < 3) return (0, "Insufficient history");
 
-        // Build transition matrix (simplified first-order)
-        var transitions = new Dictionary<string, List<string>>();
+        // We only need transitions out of `lastPath`. The previous code
+        // built the full first-order transition matrix
+        // (Dictionary<string, List<string>>) just to query a single key.
+        // For paths cap=50, that's 50 SimplifyPath calls + ~25 List
+        // allocations + a Dictionary -- all thrown away after one lookup.
+        // Single-pass counter that skips both the transition matrix and the
+        // LINQ Count(predicate) delegate at the end.
+        var lastPath = SimplifyPath(paths[^1]);
+        var currentSimplified = SimplifyPath(currentPath);
+        var transitionCount = 0;
+        var matchingCount = 0;
         for (var i = 0; i < paths.Count - 1; i++)
         {
-            var from = SimplifyPath(paths[i]);
-            var to = SimplifyPath(paths[i + 1]);
-
-            if (!transitions.ContainsKey(from)) transitions[from] = new List<string>();
-            transitions[from].Add(to);
+            if (SimplifyPath(paths[i]) != lastPath) continue;
+            transitionCount++;
+            if (SimplifyPath(paths[i + 1]) == currentSimplified) matchingCount++;
         }
 
-        // Analyze current transition
-        if (paths.Count > 0)
+        if (transitionCount > 0)
         {
-            var lastPath = SimplifyPath(paths[^1]);
-            var currentSimplified = SimplifyPath(currentPath);
-
-            if (transitions.ContainsKey(lastPath))
-            {
-                var possibleNext = transitions[lastPath];
-                var transitionCount = possibleNext.Count;
-                var matchingCount = possibleNext.Count(p => p == currentSimplified);
-
-                // Transition probability
-                var probability = (double)matchingCount / transitionCount;
-
-                // Low probability = unusual transition
-                if (probability < 0.1 && transitionCount >= 3)
-                    return (0.3, $"Unusual navigation: {lastPath}→{currentSimplified} (p={probability:P0})");
-
-                // Very repetitive = bot-like
-                if (probability > 0.9 && transitionCount >= 5)
-                    return (0.4, $"Highly repetitive: {lastPath}→{currentSimplified} (p={probability:P0})");
-            }
+            var probability = (double)matchingCount / transitionCount;
+            if (probability < 0.1 && transitionCount >= 3)
+                return (0.3, $"Unusual navigation: {lastPath}→{currentSimplified} (p={probability:P0})");
+            if (probability > 0.9 && transitionCount >= 5)
+                return (0.4, $"Highly repetitive: {lastPath}→{currentSimplified} (p={probability:P0})");
         }
 
         return (0, "Normal navigation");
