@@ -544,6 +544,11 @@ public static class ServiceCollectionExtensions
         // Register bot list update background service
         services.AddHostedService<BotListUpdateService>();
 
+        // Single-shot startup hook that drives demo presets through the
+        // orchestrator if BotDetection:DemoPreloadOnStartup is set. No-op when
+        // the list is empty or EnableTestMode is false.
+        services.AddHostedService<Mostlylucid.BotDetection.Middleware.DemoPreloadHostedService>();
+
         // Register detector manifest loader (YAML-based configuration)
         services.TryAddSingleton<DetectorManifestLoader>(sp =>
         {

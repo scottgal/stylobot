@@ -47,6 +47,26 @@ public class BotDetectionOptions
     public Dictionary<string, string> TestModeSimulations { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    ///     When set, EnableTestMode also accepts the named query parameter as a
+    ///     test-mode trigger (e.g. <c>?stylobot_demo=googlebot</c>). Same code
+    ///     path as the <c>ml-bot-test-mode</c> header. Intended for demos and
+    ///     live-coded talks where switching presets via a link is easier than
+    ///     setting headers. Null disables; null is the default.
+    ///     WARNING: Only enable in development/testing environments.
+    /// </summary>
+    public string? TestModeQueryParam { get; set; }
+
+    /// <summary>
+    ///     Optional list of test-mode names to drive synthetically through the
+    ///     orchestrator once at startup so the dashboard's signature panels are
+    ///     populated from request zero (instead of looking empty until real
+    ///     traffic arrives). Requires <see cref="EnableTestMode"/>. Each entry
+    ///     must resolve via <see cref="TestModeSimulations"/> or the built-in
+    ///     defaults. Single-shot. Failures are logged and swallowed.
+    /// </summary>
+    public List<string> DemoPreloadOnStartup { get; set; } = new();
+
+    /// <summary>
     ///     Base64-encoded HMAC key for PII signature hashing (zero-PII architecture).
     ///     Must be at least 128 bits (16 bytes) when decoded.
     ///     If not provided, a random key will be auto-generated (suitable for dev only).

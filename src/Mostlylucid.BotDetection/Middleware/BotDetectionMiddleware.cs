@@ -350,6 +350,19 @@ public class BotDetectionMiddleware(
                     actionPolicyRegistry, responseCoordinator, auditProcessorDispatcher);
                 return;
             }
+
+            // Query-param trigger (opt-in via TestModeQueryParam). Same code
+            // path as the header so demo links can drive presets without
+            // custom-header fiddling.
+            var queryName = _options.TestModeQueryParam;
+            if (!string.IsNullOrEmpty(queryName) &&
+                context.Request.Query.TryGetValue(queryName, out var queryMode) &&
+                !string.IsNullOrEmpty(queryMode.ToString()))
+            {
+                await HandleTestModeWithRealDetection(context, queryMode.ToString(), orchestrator,
+                    policyRegistry, actionPolicyRegistry, responseCoordinator, auditProcessorDispatcher);
+                return;
+            }
         }
 
         // Determine policy to use
@@ -1253,6 +1266,15 @@ public class BotDetectionMiddleware(
     public const string AggregatedEvidenceKey = "BotDetection.AggregatedEvidence";
 
     /// <summary>
+    ///     HttpContext.Items key the middleware sets on test-mode dispatches so
+    ///     the orchestrator can skip verdict-cache persistence for the
+    ///     simulated UA. Without this, a single demo press writes the
+    ///     simulated verdict to the cache and every subsequent real request
+    ///     from the same fingerprint inherits it.
+    /// </summary>
+    public const string TestModeEphemeralKey = "BotDetection.TestMode.Ephemeral";
+
+    /// <summary>
     ///     Legacy: previously held the precomputed primary signature on HttpContext.Items.
     ///     Read the signature from <see cref="AggregatedEvidence.Signals"/>[<see cref="SignalKeys.PrimarySignature"/>]
     ///     instead. Internal consumers no longer write this; the constant is retained so external
@@ -1912,6 +1934,14 @@ public class BotDetectionMiddleware(
     {
         var originalUserAgent = context.Request.Headers.UserAgent.ToString();
         context.Request.Headers.UserAgent = overrideUserAgent;
+
+        // Test mode is ephemeral: the simulated verdict must NOT be persisted to
+        // the verdict cache, otherwise a single `?demo=googlebot` press poisons
+        // every subsequent request from the same fingerprint with the bot
+        // verdict (the cache is keyed on the IP-plus-stable-headers signature,
+        // which the UA override leaves unchanged). Orchestrators check this key
+        // before calling `_fingerprintStore.RecordVerdictAsync`.
+        context.Items[TestModeEphemeralKey] = true;
 
         AggregatedEvidence? aggregatedResult = null;
         DetectionPolicy? policy = null;
@@ -2582,9 +2612,19 @@ public class BotDetectionMiddleware(
             ConfidenceScore = result.BotProbability,
             BotType = isBot ? result.PrimaryBotType : null,
             BotName = isBot ? result.PrimaryBotName : null,
-            Reasons = reasons
+            Reasons = reasons,
+            ProcessingTimeMs = result.TotalProcessingTimeMs
         };
         context.Items[BotDetectionResultKey] = legacyResult;
+
+        // Record into IBotDetectionService.GetStatistics() so the diagnostic
+        // endpoints (/bot-detection/stats, /health) reflect orchestrator-
+        // driven traffic. Otherwise the counter sits at zero forever because
+        // the legacy IBotDetectionService.DetectAsync entry point is unused
+        // when the orchestrator is in charge.
+        context.RequestServices
+            .GetService<IBotDetectionService>()
+            ?.RecordDetection(legacyResult);
     }
 
     private static void PopulateContextItems(HttpContext context, BotDetectionResult result)

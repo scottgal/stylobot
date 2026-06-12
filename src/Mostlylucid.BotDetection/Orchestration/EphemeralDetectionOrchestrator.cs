@@ -437,9 +437,22 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             $"detection.completed:{result.RiskBand}:{result.BotProbability:F2}",
             requestId);
 
-        PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
-        TryPersistRequest(httpContext, result);
-        TryEnqueueBackgroundEnrichment(httpContext, result);
+        // Test-mode short-circuit: when the middleware flagged this dispatch
+        // as an ephemeral simulation (?demo=, ml-bot-test-mode header,
+        // ml-bot-test-ua header), do NOT touch ANY persistent learning state.
+        // Learning events, request persistence, background enrichment, and
+        // verdict-cache writes ALL leak the simulated UA into the visitor's
+        // real fingerprint reputation otherwise.
+        var ephemeralVerdict = httpContext.Items.TryGetValue(
+            Middleware.BotDetectionMiddleware.TestModeEphemeralKey, out var tmEphemeral)
+            && tmEphemeral is true;
+
+        if (!ephemeralVerdict)
+        {
+            PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
+            TryPersistRequest(httpContext, result);
+            TryEnqueueBackgroundEnrichment(httpContext, result);
+        }
 
         // Architecture spec (docs/architecture/fingerprint-match.md): the request-path
         // verdict EWMA-updates the matched fingerprint row, in-line, every request.
@@ -447,7 +460,8 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         // FingerprintDriftService tick interval (default 5s) miss the cache and
         // re-run the full pipeline. Dict-authoritative write so the next L1 lookup
         // sees the new value immediately.
-        if (_fingerprintStore is not null &&
+        if (!ephemeralVerdict &&
+            _fingerprintStore is not null &&
             result.Signals.TryGetValue(Models.SignalKeys.IdentityFingerprintId, out var fpVal) &&
             fpVal is string fpId &&
             !string.IsNullOrEmpty(fpId))
