@@ -1898,6 +1898,16 @@ public static class SignalKeys
 
     /// <summary>String: human browser family (e.g. <c>"chrome"</c>, <c>"firefox"</c>, <c>"safari"</c>).</summary>
     public const string IdentityHumanBrowser = "identity.human_browser";
+
+    /// <summary>
+    ///     Bool: the orchestrator has dropped into load-shed mode for this
+    ///     request. Foundation contributors ran; the classifier waves were
+    ///     skipped because <see cref="Services.PipelineLoadSensor.CurrentBand"/>
+    ///     reported <see cref="Services.LoadBand.Critical"/>. Surfaces so the
+    ///     dashboard can flag shed-mode requests and audit can correlate to
+    ///     the per-second RPS time series.
+    /// </summary>
+    public const string LoadShedActive = "load.shed_active";
 }
 
 /// <summary>Values written to <see cref="SignalKeys.TransportProtocolClass"/> by TransportProtocolContributor.</summary>

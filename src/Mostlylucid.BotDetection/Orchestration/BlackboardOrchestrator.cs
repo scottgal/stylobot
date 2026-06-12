@@ -259,6 +259,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     private readonly ISessionStore? _sessionStore;
     private readonly RequestPersistenceService? _requestPersistence;
     private readonly Identity.IFingerprintStore? _fingerprintStore;
+    private readonly Services.PipelineLoadSensor? _loadSensor;
 
     // Global signal sink for cross-host observability subscribers.
     private readonly SignalSink _globalSignals;
@@ -281,7 +282,8 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         MarkovTracker? markovTracker = null,
         ISessionStore? sessionStore = null,
         RequestPersistenceService? requestPersistence = null,
-        Identity.IFingerprintStore? fingerprintStore = null)
+        Identity.IFingerprintStore? fingerprintStore = null,
+        Services.PipelineLoadSensor? loadSensor = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -300,6 +302,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         _sessionStore = sessionStore;
         _requestPersistence = requestPersistence;
         _fingerprintStore = fingerprintStore;
+        _loadSensor = loadSensor;
 
         _globalSignals = new SignalSink(
             _options.SignalSinkMaxCapacity,
@@ -623,6 +626,24 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                     // If early exit was triggered, stop the wave loop (but after policy evaluation)
                     if (earlyExitTriggered) break;
 
+                    // Load-shed mode: once foundation contributors have run (wave 0
+                    // completes), if the load sensor reports a critical band, stop
+                    // running classifier waves. The verdict is built from foundation
+                    // signals + cached prior only -- not zero-information; the
+                    // FingerprintPrior contributor still carries the per-signature
+                    // verdict cache result. Surfaces a `load.shed` signal so the
+                    // dashboard can show "shed-mode active" and audit can flag it.
+                    if (waveNumber == 0
+                        && _loadSensor?.CurrentBand == Services.LoadBand.Critical)
+                    {
+                        signals[SignalKeys.LoadShedActive] = true;
+                        _logger.LogWarning(
+                            "Load-shed mode active for {RequestId} (smoothedRps={Rps:F0}); "
+                            + "skipping classifier waves",
+                            requestId, _loadSensor.SmoothedRps);
+                        break;
+                    }
+
                     waveNumber++;
                 }
             }
@@ -732,7 +753,16 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             var isReputationDriven = result.EarlyExit &&
                 result.Ledger?.EarlyExitContribution?.DetectorName is "FastPathReputation" or "ReputationBias";
 
-            if (!isVerifiedEarlyExit)
+            // Test-mode short-circuit: when the middleware flagged this
+            // dispatch as an ephemeral simulation, do NOT touch ANY persistent
+            // learning state. The simulated UA must not leak into the
+            // visitor's real fingerprint reputation, learning bus, or
+            // background enrichment queue.
+            var isEphemeralTest = httpContext.Items.TryGetValue(
+                Middleware.BotDetectionMiddleware.TestModeEphemeralKey, out var tmEphemeral)
+                && tmEphemeral is true;
+
+            if (!isVerifiedEarlyExit && !isEphemeralTest)
             {
                 // Only publish learning events for non-reputation-driven detections.
                 // Reputation-driven results are just echoes of prior beliefs - not new evidence.
@@ -832,15 +862,10 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 // FingerprintDriftService tick interval (default 5s) miss the cache and
                 // re-run the full pipeline. Dict-authoritative write so the next L1 lookup
                 // sees the new value immediately.
-                // Test-mode short-circuit: when the middleware flagged this
-                // dispatch as an ephemeral simulation, do NOT persist the
-                // verdict. Otherwise the simulated bot UA poisons the cached
-                // verdict for the visitor's real fingerprint.
-                var ephemeralVerdict = httpContext.Items.TryGetValue(
-                    Middleware.BotDetectionMiddleware.TestModeEphemeralKey, out var tmEphemeral)
-                    && tmEphemeral is true;
-
-                if (!ephemeralVerdict &&
+                // Test-mode short-circuit: handled by outer isEphemeralTest
+                // check above. Belt-and-braces here so a future refactor that
+                // moves this block out of the outer `if` keeps the guarantee.
+                if (!isEphemeralTest &&
                     _fingerprintStore is not null &&
                     signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpVal) &&
                     fpVal is string fpId &&
