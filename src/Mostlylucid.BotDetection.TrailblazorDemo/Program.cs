@@ -41,6 +41,14 @@ builder.Services.AddStyloBot(
         // <sb-all-signals /> control on /Home/Signals to surface
         // "Puppeteer" / "Playwright" / "Selenium" / "PhantomJS" names.
         detection.ClientSide.Enabled = true;
+
+        // Modern Playwright and Puppeteer-Stealth hide navigator.webdriver
+        // and the obvious CDP markers. BotD (FingerprintJS, MIT licensed)
+        // covers that gap by probing dozens of less obvious markers and
+        // returning the framework kind by name. Default ScriptUrl is the
+        // FingerprintJS CDN; self-host into wwwroot/lib/botd.min.js for a
+        // CSP-tight deployment.
+        detection.ClientSide.Botd.Enabled = true;
     });
 
 builder.Services.AddControllersWithViews();
