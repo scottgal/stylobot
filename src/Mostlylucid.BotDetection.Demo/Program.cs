@@ -117,6 +117,8 @@ builder.Services.AddControllers()
         foreach (var part in incompatible)
             manager.ApplicationParts.Remove(part);
     });
+builder.Services.Configure<Mostlylucid.BotDetection.Demo.Options.DemoBannerOptions>(
+    builder.Configuration.GetSection("Demo:Banner"));
 builder.Services.AddRazorPages(); // For TagHelper support
 builder.Services.AddHttpContextAccessor(); // Required for TagHelpers
 builder.Services.AddOpenApi();

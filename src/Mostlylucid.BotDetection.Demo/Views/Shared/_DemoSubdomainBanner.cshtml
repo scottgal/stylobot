@@ -1,0 +1,16 @@
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.Demo.Options
+@inject IOptions<DemoBannerOptions> BannerOpts
+@{
+    var b = BannerOpts.Value;
+}
+@if (b.Enabled)
+{
+    <aside class="bg-base-300 text-xs px-4 py-2 border-b border-base-content/20 flex flex-wrap gap-2 items-center">
+        <span>@b.Text</span>
+        <span class="text-base-content/40">|</span>
+        <span>Source on <a href="@b.SourceUrl" class="underline" rel="noopener">GitHub</a>.</span>
+        <span class="text-base-content/40">|</span>
+        <span>Want the paid pack? See <a href="@b.PackUrl" class="underline" rel="noopener">@b.PackUrl</a>.</span>
+    </aside>
+}
