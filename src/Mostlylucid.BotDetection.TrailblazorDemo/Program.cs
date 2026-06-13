@@ -1,8 +1,24 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// The demo sits behind a Cloudflare tunnel that terminates TLS and
+// forwards X-Forwarded-Proto/For/Host. Without ForwardedHeaders the
+// Request.Scheme would always read "http" and the adaptive sitemap
+// would emit http:// URLs. Clearing KnownNetworks/KnownProxies lets us
+// trust the tunnel hop without enumerating the Docker bridge subnet.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto |
+        ForwardedHeaders.XForwardedHost;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // -------------------------------------------------------------------
 // StyloBot: detection + dashboard, FOSS, middleware-mode (no gateway).
@@ -33,6 +49,11 @@ if (!app.Environment.IsDevelopment())
 // HTTPS redirect off for the demo; we run on http so chrome-devtools / curl
 // don't trip on the self-signed cert. Re-enable in production.
 // app.UseHttpsRedirection();
+
+// Honour the tunnel's X-Forwarded-* headers BEFORE any middleware that
+// reads Request.Scheme / Request.Host / RemoteIpAddress (the detection
+// pipeline reads RemoteIpAddress, the sitemap reads Scheme + Host).
+app.UseForwardedHeaders();
 
 app.UseStaticFiles();
 app.UseRouting();
