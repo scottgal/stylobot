@@ -3699,6 +3699,12 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
                 "TrustUpstreamDetection is enabled without HMAC signature verification (UpstreamSignatureHeader/Secret). " +
                 "Any client can forge X-Bot-Detected headers. Configure HMAC unless backend is network-isolated.");
 
+        if (options.TransportTrust.Mode == TransportTrustMode.Off)
+            warnings.Add(
+                "TransportTrust.Mode is Off: edge transport fingerprint headers (X-JA3-*, X-HTTP2-*, X-QUIC-*, X-TCP-*) are trusted from ANY peer, " +
+                "including direct clients. A direct client can spoof a browser fingerprint. " +
+                "Set Mode to Auto (default) or Strict unless you have a specific reason.");
+
         if (string.IsNullOrWhiteSpace(options.ApiBypassHeaderName))
             errors.Add("ApiBypassHeaderName cannot be empty");
 
