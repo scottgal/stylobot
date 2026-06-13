@@ -1420,8 +1420,21 @@ public class BotDetectionMiddleware(
             }
         }
 
-        // 2. Fall back to path-based policy resolution
-        var resolvedPolicy = policyRegistry.GetPolicyForPath(context.Request.Path);
+        // 2. Fall back to path-based policy resolution. Routed endpoints
+        //    carrying NotStaticAssetMarker metadata (e.g. MapStyloBotSitemap)
+        //    bypass the file-extension static-asset shortcut so a dynamic
+        //    /sitemap.xml or /feed.xml endpoint still runs full detection.
+        DetectionPolicy resolvedPolicy;
+        var routedEndpoint = context.GetEndpoint();
+        var skipStaticShortcut = routedEndpoint?.Metadata?.GetMetadata<Extensions.NotStaticAssetMarker>() != null;
+        if (skipStaticShortcut)
+        {
+            resolvedPolicy = policyRegistry.GetPolicy("default") ?? policyRegistry.GetPolicyForPath(context.Request.Path);
+        }
+        else
+        {
+            resolvedPolicy = policyRegistry.GetPolicyForPath(context.Request.Path);
+        }
 
         // 3. Apply API key overlay if present
         if (context.Items.TryGetValue("BotDetection.ApiKeyContext", out var keyCtxObj) &&

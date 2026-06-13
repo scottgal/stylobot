@@ -564,15 +564,11 @@ public static class RouteBuilderExtensions
             return Results.Content(xml, "application/xml");
         });
 
-        // Touch the detection result before the endpoint runs so the
-        // minimal-API path sees the populated AggregatedEvidence the same
-        // way controller actions do. Without this filter, the endpoint
-        // dispatch can read Items before the middleware completes.
-        handler.AddEndpointFilter(async (ctx, next) =>
-        {
-            _ = ctx.HttpContext.GetBotDetectionResult();
-            return await next(ctx);
-        });
+        // Mark the endpoint so the detection middleware skips the
+        // file-extension static-asset shortcut for this path. Without
+        // this, every visitor would get the "Static" policy's neutral
+        // verdict and the sitemap would never differentiate.
+        handler.WithNotStaticAsset();
 
         return handler;
     }
