@@ -1,0 +1,11 @@
+@*
+    Zero-field Observe action editor. Rendered into the action-editor slot
+    by HTMX when the action-kind selector flips to "observe". Observe has no
+    metadata to capture -- the rule counts matches but emits no
+    enforcement. The rule's Mode dropdown (Draft / Shadow / LIVE) is the
+    way to escalate when ready.
+*@
+<fieldset class="sb-edit-action" data-edit-action-kind="observe">
+    <legend>Observe</legend>
+    <p class="sb-edit-action-empty">No parameters. The rule counts matches but emits no enforcement. Use the rule's <strong>Mode</strong> dropdown to flip to LIVE when ready.</p>
+</fieldset>

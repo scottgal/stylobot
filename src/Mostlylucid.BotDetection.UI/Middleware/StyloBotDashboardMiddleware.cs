@@ -604,6 +604,17 @@ public class StyloBotDashboardMiddleware
                 await ServePolicyStackParseAsync(context);
                 break;
 
+            // E1 / Task 3 -- per-action-kind metadata editor swap. When the
+            // operator flips the kind <select> in the edit row the JS issues
+            // GET /dashboard/policystack/action-editor?kind=<x> and swaps the
+            // returned partial into the action-editor slot. The zero-field
+            // kinds (allow / observe / block) ship in Task 3; the
+            // parameterised kinds (tag / challenge / ratelimit / throttle)
+            // wire in Tasks 4-7 against the same endpoint.
+            case "policystack/action-editor":
+                await ServePolicyStackActionEditorAsync(context);
+                break;
+
             // C8 -- backtest projection. POST body is JSON
             // { predicate: "text", actionKind: "block", window: "24h" }.
             // Returns the rendered _BacktestPanel.cshtml partial as
@@ -3437,6 +3448,41 @@ public class StyloBotDashboardMiddleware
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbPolicyStack/_EditRow.cshtml", vm, context);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    // E1 / Task 3 -- GET /dashboard/policystack/action-editor?kind=<x>
+    // Returns the rendered per-kind action-editor partial. The kind
+    // selector in the edit row drives which fields the operator sees;
+    // policy-stack-edit.js issues this request on selector change and
+    // swaps the response into the [data-edit-action-slot] element.
+    // The zero-field kinds (allow / observe / block) return short partials
+    // with no inputs; the parameterised kinds (tag / challenge / ratelimit
+    // / throttle) land in Tasks 4-7 against this same endpoint.
+    // 404 when the kind isn't recognised so the editor JS leaves the slot
+    // untouched and surfaces the failure in the existing error channel.
+    private async Task ServePolicyStackActionEditorAsync(HttpContext context)
+    {
+        var kind = (context.Request.Query["kind"].ToString() ?? string.Empty).ToLowerInvariant();
+        var viewPath = kind switch
+        {
+            "allow"   => "/Views/Shared/Components/SbPolicyStack/_EditAction_Allow.cshtml",
+            "observe" => "/Views/Shared/Components/SbPolicyStack/_EditAction_Observe.cshtml",
+            "block"   => "/Views/Shared/Components/SbPolicyStack/_EditAction_Block.cshtml",
+            _ => null
+        };
+
+        if (viewPath is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            context.Response.ContentType = "text/plain; charset=utf-8";
+            await context.Response.WriteAsync($"unknown action kind: {kind}");
+            return;
+        }
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            viewPath, new object(), context);
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
     }

@@ -1,0 +1,9 @@
+@*
+    Zero-field Block action editor. Rendered into the action-editor slot by
+    HTMX when the action-kind selector flips to "block". Block has no
+    metadata to capture -- matching requests receive HTTP 403.
+*@
+<fieldset class="sb-edit-action" data-edit-action-kind="block">
+    <legend>Block</legend>
+    <p class="sb-edit-action-empty">No parameters. Matching requests receive HTTP 403.</p>
+</fieldset>
