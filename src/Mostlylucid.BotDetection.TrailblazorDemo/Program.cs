@@ -33,6 +33,13 @@ builder.Services.AddStyloBot(
     {
         // Keep localhost requests visible while we demo.
         detection.ExcludeLocalIpFromBroadcast = false;
+
+        // Enable the client-side fingerprint challenge so the in-process
+        // detection pipeline can see navigator.webdriver / CDP / automation
+        // signals and write headless.framework. Required for the
+        // <sb-all-signals /> control on /Home/Signals to surface
+        // "Puppeteer" / "Playwright" / "Selenium" / "PhantomJS" names.
+        detection.ClientSide.Enabled = true;
     });
 
 builder.Services.AddControllersWithViews();
@@ -119,6 +126,10 @@ app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
 // Built-in diagnostic endpoints (/bot-detection/check, /stats, /health).
 // Useful from .http files and the talk's live-coded probes.
 app.MapBotDetectionEndpoints();
+
+// Serves the client-side fingerprint script at /bot-detection/script.js.
+// The <bot-detection-script /> tag helper in _Layout.cshtml loads it.
+app.MapBotDetectionScript();
 
 // Required so <sb-live-updates> in the dashboard can connect.
 app.MapHub<StyloBotDashboardHub>("/_stylobot/hub");
