@@ -638,4 +638,74 @@ public static class RouteBuilderExtensions
         double Confidence,
         string RiskBand,
         IReadOnlyList<string> Urls);
+
+    /// <summary>
+    ///     Maps a <c>/robots.txt</c> endpoint whose content is composed
+    ///     from the configured <see cref="StyloBotRobotsTxtOptions.Rules"/>
+    ///     and an automatically-derived <c>Sitemap:</c> link.
+    ///
+    ///     Per-deployment (not per-visitor), so the response is the same
+    ///     for every caller. Routes through the same
+    ///     <c>NotStaticAssetMarker</c> metadata as <c>MapStyloBotSitemap</c>
+    ///     so the <c>.txt</c> path does not get diverted to the
+    ///     <c>Static</c> detection policy.
+    /// </summary>
+    public static RouteHandlerBuilder MapStyloBotRobotsTxt(
+        this IEndpointRouteBuilder endpoints,
+        string pattern = "/robots.txt",
+        Action<StyloBotRobotsTxtOptions>? configure = null)
+    {
+        var options = new StyloBotRobotsTxtOptions();
+        configure?.Invoke(options);
+
+        var handler = endpoints.MapGet(pattern, (HttpContext ctx) =>
+        {
+            var body = RenderRobotsTxt(ctx, options);
+            return Results.Content(body, "text/plain; charset=utf-8");
+        });
+
+        handler.WithNotStaticAsset();
+        return handler;
+    }
+
+    private static string RenderRobotsTxt(HttpContext ctx, StyloBotRobotsTxtOptions options)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        foreach (var line in options.HeaderComments)
+        {
+            sb.Append("# ").Append(line).Append('\n');
+        }
+        if (options.HeaderComments.Count > 0) sb.Append('\n');
+
+        if (!string.IsNullOrEmpty(options.Host))
+        {
+            sb.Append("Host: ").Append(options.Host).Append('\n').Append('\n');
+        }
+
+        for (var i = 0; i < options.Rules.Count; i++)
+        {
+            var rule = options.Rules[i];
+            sb.Append("User-agent: ").Append(rule.UserAgent).Append('\n');
+            foreach (var allow in rule.Allow)
+            {
+                sb.Append("Allow: ").Append(allow).Append('\n');
+            }
+            foreach (var disallow in rule.Disallow)
+            {
+                sb.Append("Disallow: ").Append(disallow).Append('\n');
+            }
+            if (rule.CrawlDelaySeconds is { } delay)
+            {
+                sb.Append("Crawl-delay: ").Append(delay).Append('\n');
+            }
+            if (i < options.Rules.Count - 1) sb.Append('\n');
+        }
+
+        var sitemap = options.SitemapUrl
+                      ?? $"{ctx.Request.Scheme}://{ctx.Request.Host.Value.TrimEnd('/')}/sitemap.xml";
+        sb.Append('\n').Append("Sitemap: ").Append(sitemap).Append('\n');
+
+        return sb.ToString();
+    }
 }

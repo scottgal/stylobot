@@ -89,6 +89,28 @@ app.MapStyloBotSitemap(configure: options =>
     options.HoneypotPath = "/honeypot/admin";
 });
 
+// Static-per-deployment robots.txt. References the sitemap above so a
+// crawler that respects robots picks it up. Disallows the honeypot from
+// well-behaved crawlers (badly-behaved ones ignore the directive, which
+// is what makes the honeypot effective).
+app.MapStyloBotRobotsTxt(configure: options =>
+{
+    options.HeaderComments = new List<string>
+    {
+        "stylobot middleware demo. https://github.com/scottgal/stylobot",
+        "Adaptive sitemap content varies per visitor; see /sitemap.xml."
+    };
+    options.Rules = new List<RobotsRule>
+    {
+        new RobotsRule
+        {
+            UserAgent = "*",
+            Allow = new List<string> { "/" },
+            Disallow = new List<string> { "/honeypot/", "/api/" }
+        }
+    };
+});
+
 app.MapPost("/api/login", (LoginRequest req) => Results.Ok(new { ok = true, user = req.User }))
     .BotPolicy("strict", blockThreshold: 0.5);
 
