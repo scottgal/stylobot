@@ -387,6 +387,16 @@ public sealed class SqlitePolicyDecisionLog : IPolicyDecisionLog, IAsyncDisposab
         }
     }
 
+    public Task<IReadOnlyList<string>> GetRecentFingerprintsAsync(int limit, CancellationToken ct = default)
+    {
+        // SQLite/Postgres impls land alongside the durable decision-log durability
+        // work (out of scope here, called out in the spec's Out-of-Scope section).
+        // Until then the FOSS in-memory path is the only consumer of this method.
+        throw new NotSupportedException(
+            "SqlitePolicyDecisionLog.GetRecentFingerprintsAsync is not yet implemented; " +
+            "hosts that want the recent-fingerprints picker must use InMemoryPolicyDecisionLog.");
+    }
+
     public async Task<IReadOnlyList<PolicyDecision>> GetByFingerprintAsync(
         string fingerprint,
         int max = 100,

@@ -53,4 +53,14 @@ public interface IPolicyDecisionLog
         TimeSpan window,
         int maxRows = 100_000,
         CancellationToken ct = default);
+
+    /// <summary>
+    ///     Distinct fingerprint ids observed by the log, most-recently-seen first,
+    ///     capped at <paramref name="limit"/>. The <c>limit</c> is clamped to at
+    ///     least 1 so callers can safely thread an unvalidated config value
+    ///     through. Returns empty when the log has no rows.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetRecentFingerprintsAsync(
+        int limit,
+        CancellationToken ct = default);
 }

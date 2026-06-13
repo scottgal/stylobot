@@ -296,6 +296,9 @@ public sealed class PolicyStackSummaryBuilderTests
         public Task<IReadOnlyList<PolicyDecision>> GetByFingerprintAsync(string fingerprint, int max = 100, CancellationToken ct = default)
             => throw new NotSupportedException("Summary builder does not call GetByFingerprintAsync.");
 
+        public Task<IReadOnlyList<string>> GetRecentFingerprintsAsync(int limit, CancellationToken ct = default)
+            => throw new NotSupportedException("Summary builder does not call GetRecentFingerprintsAsync.");
+
         public async IAsyncEnumerable<PolicyDecision> StreamWindowAsync(
             TimeSpan window,
             int maxRows = 100_000,

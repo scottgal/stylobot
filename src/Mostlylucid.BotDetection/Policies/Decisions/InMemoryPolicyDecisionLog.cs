@@ -73,6 +73,26 @@ public sealed class InMemoryPolicyDecisionLog : IPolicyDecisionLog
             ComputedAt: computedAt));
     }
 
+    public Task<IReadOnlyList<string>> GetRecentFingerprintsAsync(int limit, CancellationToken ct = default)
+    {
+        var cap = Math.Max(1, limit);
+        lock (_lock)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<string>(Math.Min(cap, _rows.Count));
+            // _rows is appended-to in ObservedAt order; walk back-to-front.
+            for (var i = _rows.Count - 1; i >= 0 && result.Count < cap; i--)
+            {
+                var fp = _rows[i].RequestFingerprint;
+                if (fp is not null && seen.Add(fp))
+                {
+                    result.Add(fp);
+                }
+            }
+            return Task.FromResult<IReadOnlyList<string>>(result);
+        }
+    }
+
     public Task<IReadOnlyList<PolicyDecision>> GetByFingerprintAsync(
         string fingerprint,
         int max = 100,
