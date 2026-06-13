@@ -73,12 +73,21 @@ app.UseAuthorization();
 app.MapGet("/api/data", () => Results.Ok(new { secret = "no bots allowed" }))
     .BlockBots();
 
-// Sitemap is served from HomeController.Sitemap as a controller action.
-// We were using app.MapGet here originally but the minimal-API endpoint
-// runs before the BotDetection middleware finishes populating
-// HttpContext.Items, so the verdict came out as the default "Unknown"
-// regardless of the visitor. The controller action runs through the
-// regular MVC pipeline where the evidence is reliably populated.
+// Adaptive sitemap, served by the FOSS BotDetection extension. The
+// extension reads the visitor's detection evidence and switches between
+// the configured public URLs, the uncertain subset, and the honeypot
+// path. Verdict comment is on by default for the demo punchline.
+app.MapStyloBotSitemap(configure: options =>
+{
+    options.PublicUrls = new List<string>
+    {
+        "/",
+        "/Home/Signals",
+        "/Home/Privacy"
+    };
+    options.UncertainUrls = new List<string> { "/", "/Home/Privacy" };
+    options.HoneypotPath = "/honeypot/admin";
+});
 
 app.MapPost("/api/login", (LoginRequest req) => Results.Ok(new { ok = true, user = req.User }))
     .BotPolicy("strict", blockThreshold: 0.5);

@@ -529,4 +529,117 @@ public static class RouteBuilderExtensions
     {
         return group.AddEndpointFilter(new RequireHumanEndpointFilter(statusCode));
     }
+
+    /// <summary>
+    ///     Maps an adaptive <c>/sitemap.xml</c> endpoint whose URL list and
+    ///     verdict comment vary with the visitor's bot-detection evidence.
+    ///     Search engines and humans get the full <see cref="StyloBotSitemapOptions.PublicUrls"/>
+    ///     list. High-probability bots (probability &gt;= <see cref="StyloBotSitemapOptions.BotProbabilityThreshold"/>)
+    ///     get the single <see cref="StyloBotSitemapOptions.HoneypotPath"/>.
+    ///     Uncertain visitors get <see cref="StyloBotSitemapOptions.UncertainUrls"/>
+    ///     (a subset of public URLs minus admin/api surfaces).
+    ///
+    ///     Every &lt;url&gt; is preceded by an XML comment naming the verdict so
+    ///     SEO consumers can audit what stylobot served them.
+    ///
+    ///     The endpoint binds via <c>endpoints.MapGet</c> AFTER the detection
+    ///     middleware has populated <c>HttpContext.Items[BotDetection.AggregatedEvidence]</c>,
+    ///     and is filtered through an endpoint filter that touches the
+    ///     detection result so the evidence is reliably available even on
+    ///     minimal-API endpoints. Consumers do not write any sitemap markup
+    ///     themselves.
+    /// </summary>
+    public static RouteHandlerBuilder MapStyloBotSitemap(
+        this IEndpointRouteBuilder endpoints,
+        string pattern = "/sitemap.xml",
+        Action<StyloBotSitemapOptions>? configure = null)
+    {
+        var options = new StyloBotSitemapOptions();
+        configure?.Invoke(options);
+
+        var handler = endpoints.MapGet(pattern, (HttpContext ctx) =>
+        {
+            var verdict = ResolveSitemapVerdict(ctx, options);
+            var xml = RenderSitemap(ctx, options, verdict);
+            return Results.Content(xml, "application/xml");
+        });
+
+        // Touch the detection result before the endpoint runs so the
+        // minimal-API path sees the populated AggregatedEvidence the same
+        // way controller actions do. Without this filter, the endpoint
+        // dispatch can read Items before the middleware completes.
+        handler.AddEndpointFilter(async (ctx, next) =>
+        {
+            _ = ctx.HttpContext.GetBotDetectionResult();
+            return await next(ctx);
+        });
+
+        return handler;
+    }
+
+    private static SitemapVerdict ResolveSitemapVerdict(HttpContext ctx, StyloBotSitemapOptions options)
+    {
+        var evidence = ctx.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+            ? evObj as AggregatedEvidence
+            : null;
+
+        var probability = evidence?.BotProbability ?? 0d;
+        var confidence = evidence?.Confidence ?? 0d;
+        var riskBand = evidence?.RiskBand.ToString() ?? "Unknown";
+        var isVerifiedCrawler = ctx.IsVerifiedBot() || ctx.IsSearchEngineBot();
+
+        string label;
+        IReadOnlyList<string> urls;
+        if (isVerifiedCrawler)
+        {
+            label = "verified-crawler";
+            urls = options.PublicUrls.ToList();
+        }
+        else if (probability >= options.BotProbabilityThreshold)
+        {
+            label = "high-probability-bot";
+            urls = new[] { options.HoneypotPath };
+        }
+        else if (probability < options.HumanProbabilityCeiling)
+        {
+            label = "human";
+            urls = options.PublicUrls.ToList();
+        }
+        else
+        {
+            label = "uncertain";
+            urls = options.UncertainUrls.Count > 0
+                ? options.UncertainUrls.ToList()
+                : options.PublicUrls.ToList();
+        }
+
+        return new SitemapVerdict(label, probability, confidence, riskBand, urls);
+    }
+
+    private static string RenderSitemap(HttpContext ctx, StyloBotSitemapOptions options, SitemapVerdict verdict)
+    {
+        var baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host.Value.TrimEnd('/')}";
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        sb.Append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+        if (options.EmitVerdictComment)
+        {
+            sb.Append(System.Globalization.CultureInfo.InvariantCulture,
+                $"  <!-- stylobot verdict: {verdict.Label} (risk={verdict.RiskBand}, probability={verdict.Probability:F2}, confidence={verdict.Confidence:F2}) -->\n");
+        }
+        foreach (var path in verdict.Urls)
+        {
+            sb.Append(System.Globalization.CultureInfo.InvariantCulture,
+                $"  <url><loc>{baseUrl}{path}</loc></url>\n");
+        }
+        sb.Append("</urlset>\n");
+        return sb.ToString();
+    }
+
+    private readonly record struct SitemapVerdict(
+        string Label,
+        double Probability,
+        double Confidence,
+        string RiskBand,
+        IReadOnlyList<string> Urls);
 }
