@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.Proxy;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -81,13 +82,16 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
     };
 
     private readonly ILogger<Http3FingerprintContributor> _logger;
+    private readonly ITransportHeaderTrust? _transportTrust;
 
     public Http3FingerprintContributor(
         ILogger<Http3FingerprintContributor> logger,
-        IDetectorConfigProvider configProvider)
+        IDetectorConfigProvider configProvider,
+        ITransportHeaderTrust? transportTrust = null)
         : base(configProvider)
     {
         _logger = logger;
+        _transportTrust = transportTrust;
     }
 
     public override string Name => "Http3Fingerprint";
@@ -111,7 +115,32 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
 
         try
         {
-            var protocol = state.HttpContext.Request.Protocol;
+            var req = state.HttpContext.Request;
+            var trust = _transportTrust?.Evaluate(state);
+            // When no trust service is wired (legacy / test) default to trusting headers,
+            // preserving the behaviour that existed before this gate was added.
+            var trustHeaders = trust?.Trusted ?? true;
+
+            if (trust is { Trusted: false })
+            {
+                var gatedHeaderPresent =
+                    req.Headers.ContainsKey("X-QUIC-Transport-Params") || req.Headers.ContainsKey("X-QUIC-Version") ||
+                    req.Headers.ContainsKey("X-QUIC-0RTT") || req.Headers.ContainsKey("X-QUIC-Connection-Migrated") ||
+                    req.Headers.ContainsKey("X-QUIC-Spin-Bit") || req.Headers.ContainsKey("X-QUIC-Alt-Svc-Used");
+
+                if (gatedHeaderPresent)
+                {
+                    state.WriteSignal(SignalKeys.TransportSpoofedEdgeHeaders, true);
+                    contributions.Add(BotContribution(
+                        "HTTP3",
+                        "Edge QUIC fingerprint headers from an untrusted direct peer (possible spoof)",
+                        confidenceOverride: GetParam("spoofed_edge_headers_confidence", 0.3),
+                        weightMultiplier: GetParam("spoofed_edge_headers_weight", 1.2),
+                        botType: BotType.Scraper.ToString()));
+                }
+            }
+
+            var protocol = req.Protocol;
             state.WriteSignal(SignalKeys.H3Protocol, protocol);
 
             // Only proceed if HTTP/3
@@ -133,8 +162,8 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                 "Using HTTP/3 (QUIC) - most bot frameworks don't support this protocol",
                 weightMultiplier: 0.8));
 
-            // 1. QUIC Transport Parameter fingerprinting
-            if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-Transport-Params", out var transportParams))
+            // 1. QUIC Transport Parameter fingerprinting. Gated: only read if peer is trusted.
+            if (trustHeaders && req.Headers.TryGetValue("X-QUIC-Transport-Params", out var transportParams))
             {
                 var paramStr = transportParams.ToString();
                 state.WriteSignal("h3.transport_params", paramStr);
@@ -171,8 +200,8 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                 }
             }
 
-            // 2. QUIC version analysis
-            if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-Version", out var quicVersion))
+            // 2. QUIC version analysis. Gated: only read if peer is trusted.
+            if (trustHeaders && req.Headers.TryGetValue("X-QUIC-Version", out var quicVersion))
             {
                 var version = quicVersion.ToString();
                 state.WriteSignal("h3.quic_version", version);
@@ -197,8 +226,8 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                 // v1 (RFC 9000) is standard, no additional signal needed
             }
 
-            // 3. 0-RTT resumption detection
-            if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-0RTT", out var zeroRtt))
+            // 3. 0-RTT resumption detection. Gated: only read if peer is trusted.
+            if (trustHeaders && req.Headers.TryGetValue("X-QUIC-0RTT", out var zeroRtt))
             {
                 var usesZeroRtt = zeroRtt.ToString().Equals("1", StringComparison.OrdinalIgnoreCase) ||
                                   zeroRtt.ToString().Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -217,8 +246,8 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                 }
             }
 
-            // 4. Connection migration detection
-            if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-Connection-Migrated", out var migrated))
+            // 4. Connection migration detection. Gated: only read if peer is trusted.
+            if (trustHeaders && req.Headers.TryGetValue("X-QUIC-Connection-Migrated", out var migrated))
             {
                 var hasMigrated = migrated.ToString().Equals("1", StringComparison.OrdinalIgnoreCase) ||
                                   migrated.ToString().Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -237,8 +266,8 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                 }
             }
 
-            // 5. Spin bit analysis
-            if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-Spin-Bit", out var spinBit))
+            // 5. Spin bit analysis. Gated: only read if peer is trusted.
+            if (trustHeaders && req.Headers.TryGetValue("X-QUIC-Spin-Bit", out var spinBit))
             {
                 var spinDisabled = spinBit.ToString().Equals("0", StringComparison.OrdinalIgnoreCase) ||
                                    spinBit.ToString().Equals("false", StringComparison.OrdinalIgnoreCase);
@@ -255,8 +284,8 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                 }
             }
 
-            // 6. Alt-Svc upgrade detection (HTTP/2 -> HTTP/3)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-Alt-Svc-Used", out var altSvc))
+            // 6. Alt-Svc upgrade detection (HTTP/2 -> HTTP/3). Gated: only read if peer is trusted.
+            if (trustHeaders && req.Headers.TryGetValue("X-QUIC-Alt-Svc-Used", out var altSvc))
             {
                 var usedAltSvc = altSvc.ToString().Equals("1", StringComparison.OrdinalIgnoreCase) ||
                                  altSvc.ToString().Equals("true", StringComparison.OrdinalIgnoreCase);

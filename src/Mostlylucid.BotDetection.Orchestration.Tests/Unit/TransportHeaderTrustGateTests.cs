@@ -166,4 +166,41 @@ public class TransportHeaderTrustGateTests
             "Loopback peer headers should be marked trusted");
         Assert.Contains(contributions, c => c.ConfidenceDelta < 0);
     }
+
+    private static Http3FingerprintContributor BuildH3(ITransportHeaderTrust trust)
+        => new(NullLogger<Http3FingerprintContributor>.Instance,
+               ConfigMock.Object,
+               transportTrust: trust);
+
+    [Fact]
+    public async Task Http3_spoofed_quic_from_public_peer_flags_spoof()
+    {
+        var (state, signals) = StateFor("203.0.113.9", req =>
+        {
+            req.Headers["X-QUIC-Version"] = "1";
+            req.Headers["X-QUIC-0RTT"] = "1";
+        });
+        var sut = BuildH3(Trust(TransportTrustMode.Auto));
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.True(signals.TryGetValue(SignalKeys.TransportSpoofedEdgeHeaders, out var f) && (bool)f);
+        Assert.DoesNotContain(contributions, c => c.ConfidenceDelta < 0);
+    }
+
+    [Fact]
+    public async Task Http3_quic_from_loopback_peer_is_trusted()
+    {
+        var (state, signals) = StateFor("127.0.0.1", req =>
+        {
+            req.Headers["X-QUIC-Version"] = "1";
+            req.Headers["X-QUIC-0RTT"] = "1";
+        });
+        var sut = BuildH3(Trust(TransportTrustMode.Auto));
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.False(signals.ContainsKey(SignalKeys.TransportSpoofedEdgeHeaders));
+        Assert.True(signals.TryGetValue(SignalKeys.TransportHeadersTrusted, out var t) && (bool)t);
+    }
 }
