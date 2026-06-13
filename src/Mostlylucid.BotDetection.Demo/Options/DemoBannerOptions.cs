@@ -12,7 +12,7 @@ public sealed class DemoBannerOptions
     public bool Enabled { get; init; } = true;
 
     /// <summary>Main banner copy. Plain text, no markdown.</summary>
-    public string Text { get; init; } = "Live demo of stylobot FOSS controls on a real ASP.NET app.";
+    public string Text { get; init; } = "Live demo of stylobot in ASP.NET middleware mode with SQLite storage.";
 
     /// <summary>Link target for the inline "GitHub" word in the banner.</summary>
     public string SourceUrl { get; init; } = "https://github.com/scottgal/stylobot";

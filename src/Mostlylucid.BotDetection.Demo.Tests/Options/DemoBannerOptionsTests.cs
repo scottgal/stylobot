@@ -14,7 +14,7 @@ public sealed class DemoBannerOptionsTests
         var opts = new DemoBannerOptions();
 
         Assert.True(opts.Enabled);
-        Assert.Equal("Live demo of stylobot FOSS controls on a real ASP.NET app.", opts.Text);
+        Assert.Equal("Live demo of stylobot in ASP.NET middleware mode with SQLite storage.", opts.Text);
         Assert.Equal("https://github.com/scottgal/stylobot", opts.SourceUrl);
         Assert.Equal("https://stylobot.net/packs/aspnet", opts.PackUrl);
     }
