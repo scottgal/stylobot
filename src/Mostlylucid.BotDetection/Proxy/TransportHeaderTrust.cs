@@ -38,15 +38,20 @@ public sealed class TransportHeaderTrust : ITransportHeaderTrust
         // Allowlist applies in both Auto and Strict.
         if (peer is not null && opts.TrustedProxyIps.Count > 0)
         {
-            foreach (var cidr in opts.TrustedProxyIps)
+            foreach (var entry in opts.TrustedProxyIps)
             {
+                var cidr = entry;
+                if (!cidr.Contains('/') && System.Net.IPAddress.TryParse(cidr, out var single))
+                    cidr = single.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                        ? cidr + "/128"
+                        : cidr + "/32";
                 if (CidrHelper.IsInSubnet(peer, cidr))
                     return new TransportTrustResult(true, "AllowlistedPeer");
             }
         }
 
         if (opts.Mode == TransportTrustMode.Strict)
-            return new TransportTrustResult(false, "UntrustedPublicPeer");
+            return new TransportTrustResult(false, "NotAllowlisted");
 
         // Auto: loopback / private peer (the loopback-fronted production topology).
         if (opts.TrustPrivatePeers && NetworkHelper.IsLocalIp(peer))

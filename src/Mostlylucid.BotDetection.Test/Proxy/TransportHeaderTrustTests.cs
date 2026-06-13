@@ -78,6 +78,37 @@ public class TransportHeaderTrustTests
     public void Strict_mode_distrusts_private_peer_without_allowlist()
     {
         var sut = Build(new TransportTrustOptions { Mode = TransportTrustMode.Strict });
+        var r = sut.Decide(Ctx("10.0.0.5"));
+        Assert.False(r.Trusted);
+        Assert.Equal("NotAllowlisted", r.Reason);
+    }
+
+    [Fact]
+    public void Allowlisted_bare_ip_is_trusted()
+    {
+        var sut = Build(new TransportTrustOptions { TrustedProxyIps = ["203.0.113.9"] });
+        Assert.Equal("AllowlistedPeer", sut.Decide(Ctx("203.0.113.9")).Reason);
+    }
+
+    [Fact]
+    public void Auto_trusts_ipv6_loopback_peer()
+    {
+        var sut = Build(new TransportTrustOptions());
+        Assert.True(sut.Decide(Ctx("::1")).Trusted);
+    }
+
+    [Fact]
+    public void Auto_distrusts_null_peer()
+    {
+        var sut = Build(new TransportTrustOptions());
+        var r = sut.Decide(new DefaultHttpContext()); // RemoteIpAddress is null
+        Assert.False(r.Trusted);
+    }
+
+    [Fact]
+    public void Auto_with_trust_private_peers_disabled_distrusts_private_peer()
+    {
+        var sut = Build(new TransportTrustOptions { TrustPrivatePeers = false });
         Assert.False(sut.Decide(Ctx("10.0.0.5")).Trusted);
     }
 

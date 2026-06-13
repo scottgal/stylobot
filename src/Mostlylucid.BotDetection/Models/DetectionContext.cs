@@ -1179,7 +1179,7 @@ public static class SignalKeys
     /// <summary>bool: whether edge transport fingerprint headers were trusted for this request.</summary>
     public const string TransportHeadersTrusted = "transport.headers_trusted";
 
-    /// <summary>string: reason for the trust verdict (AllowlistedPeer, PrivatePeer, DetectedTopology, UntrustedPublicPeer, GateOff).</summary>
+    /// <summary>string: reason for the trust verdict (AllowlistedPeer, PrivatePeer, DetectedTopology, NotAllowlisted, UntrustedPublicPeer, GateOff).</summary>
     public const string TransportTrustReason = "transport.trust_reason";
 
     /// <summary>bool: an untrusted direct peer sent edge transport fingerprint headers (possible spoof).</summary>
