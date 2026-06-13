@@ -31,6 +31,13 @@
     </style>
 </head>
 <body>
+    <aside class="aspnet-demo-banner" style="background:#0b1220;color:#e5e7eb;font-size:0.78rem;padding:0.5rem 1rem;border-bottom:1px solid #1f2937;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;font-family:-apple-system,system-ui,sans-serif;">
+        <span>Live demo of stylobot in ASP.NET middleware mode with SQLite storage.</span>
+        <span style="color:#6b7280;">|</span>
+        <span>Source on <a href="https://github.com/scottgal/stylobot" rel="noopener" style="color:#7cd9a8;">GitHub</a>.</span>
+        <span style="color:#6b7280;">|</span>
+        <span>Want the paid pack? See <a href="https://stylobot.net/packs/aspnet" rel="noopener" style="color:#7cd9a8;">stylobot.net/packs/aspnet</a>.</span>
+    </aside>
     <header>
         <nav class="topbar">
             <strong><a asp-controller="Home" asp-action="Index">StyloBot Demo</a></strong>
@@ -43,7 +50,7 @@
         @RenderBody()
     </main>
     <footer style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #6b7280;">
-        StyloBot middleware demo &mdash; FOSS, no gateway, no third-party calls.
+        StyloBot middleware demo. FOSS, no gateway, no third-party calls.
     </footer>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
