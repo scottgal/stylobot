@@ -39,6 +39,21 @@ public sealed class StyloBotRobotsTxtOptions
     ///     document. The endpoint prepends <c>#</c> automatically.
     /// </summary>
     public IList<string> HeaderComments { get; set; } = new List<string>();
+
+    /// <summary>
+    ///     When true (the default), the endpoint consults
+    ///     <c>IPolicyRuleStore</c> (if registered) and appends a
+    ///     <c>Disallow:</c> directive to the catch-all <c>User-agent: *</c>
+    ///     block for every live Block-action rule whose scope is an
+    ///     endpoint path template. This keeps the public robots contract
+    ///     consistent with the runtime policy: paths the gateway will
+    ///     block on a per-request basis are also marked off-limits in
+    ///     the document well-behaved crawlers consult first.
+    ///
+    ///     Disable to keep the document strictly driven by
+    ///     <see cref="Rules"/>.
+    /// </summary>
+    public bool IncludePolicyDerivedDisallows { get; set; } = true;
 }
 
 /// <summary>

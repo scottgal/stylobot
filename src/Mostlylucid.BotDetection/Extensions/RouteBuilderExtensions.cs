@@ -658,14 +658,114 @@ public static class RouteBuilderExtensions
         var options = new StyloBotRobotsTxtOptions();
         configure?.Invoke(options);
 
-        var handler = endpoints.MapGet(pattern, (HttpContext ctx) =>
+        var handler = endpoints.MapGet(pattern, async (HttpContext ctx) =>
         {
-            var body = RenderRobotsTxt(ctx, options);
+            var effective = options;
+            if (options.IncludePolicyDerivedDisallows)
+            {
+                effective = await ApplyPolicyDerivedDisallowsAsync(ctx, options);
+            }
+            var body = RenderRobotsTxt(ctx, effective);
             return Results.Content(body, "text/plain; charset=utf-8");
         });
 
         handler.WithNotStaticAsset();
         return handler;
+    }
+
+    /// <summary>
+    ///     Walks the registered <c>IPolicyRuleStore</c> for live Block-action
+    ///     rules whose scope is a single endpoint, normalises their path
+    ///     templates (strip HTTP verb if present, keep the path), de-duplicates
+    ///     against the static <see cref="StyloBotRobotsTxtOptions.Rules"/>'s
+    ///     existing <see cref="RobotsRule.Disallow"/> list under the catch-all
+    ///     User-agent, and returns a copy of the options with the merged set.
+    ///     Returns the original options unchanged when the store is not
+    ///     registered or returns no qualifying rules.
+    /// </summary>
+    private static async Task<StyloBotRobotsTxtOptions> ApplyPolicyDerivedDisallowsAsync(
+        HttpContext ctx,
+        StyloBotRobotsTxtOptions options)
+    {
+        var store = ctx.RequestServices.GetService<Policies.Rules.IPolicyRuleStore>();
+        if (store is null) return options;
+
+        IReadOnlyList<Policies.Rules.PolicyRule> rules;
+        try
+        {
+            rules = await store.GetAllRulesAsync(ctx.RequestAborted);
+        }
+        catch
+        {
+            // Store probe failed; the public document should stay rendered
+            // from the static rules rather than 500.
+            return options;
+        }
+
+        var derived = new List<string>();
+        foreach (var rule in rules)
+        {
+            if (rule.Mode != Policies.Rules.PolicyMode.Live) continue;
+            if (rule.Action is not Policies.Rules.PolicyAction.Block) continue;
+            if (rule.Scope.Host is not Policies.Rules.HostScope.Endpoint endpoint) continue;
+
+            var path = NormaliseEndpointPath(endpoint.PathTemplate);
+            if (!string.IsNullOrEmpty(path)) derived.Add(path);
+        }
+
+        if (derived.Count == 0) return options;
+
+        // Clone so we never mutate the operator-supplied options object.
+        var merged = CloneOptions(options);
+        var wildcard = merged.Rules.FirstOrDefault(r => r.UserAgent == "*");
+        if (wildcard is null)
+        {
+            wildcard = new RobotsRule { UserAgent = "*" };
+            merged.Rules.Add(wildcard);
+        }
+
+        foreach (var path in derived)
+        {
+            if (wildcard.Disallow.Contains(path, StringComparer.Ordinal)) continue;
+            wildcard.Disallow.Add(path);
+        }
+        return merged;
+    }
+
+    private static string NormaliseEndpointPath(string template)
+    {
+        if (string.IsNullOrWhiteSpace(template)) return string.Empty;
+        // Endpoint templates often look like "GET /admin/users".
+        // Strip a leading verb so the result is a robots-friendly path.
+        var trimmed = template.Trim();
+        var firstSpace = trimmed.IndexOf(' ');
+        if (firstSpace > 0 && firstSpace < trimmed.Length - 1)
+        {
+            var possibleVerb = trimmed.Substring(0, firstSpace);
+            if (possibleVerb.All(char.IsLetter))
+            {
+                trimmed = trimmed.Substring(firstSpace + 1).Trim();
+            }
+        }
+        return trimmed.StartsWith('/') ? trimmed : "/" + trimmed;
+    }
+
+    private static StyloBotRobotsTxtOptions CloneOptions(StyloBotRobotsTxtOptions source)
+    {
+        return new StyloBotRobotsTxtOptions
+        {
+            SitemapUrl = source.SitemapUrl,
+            Host = source.Host,
+            HeaderComments = source.HeaderComments.ToList(),
+            IncludePolicyDerivedDisallows = source.IncludePolicyDerivedDisallows,
+            Rules = source.Rules.Select(r => new RobotsRule
+            {
+                UserAgent = r.UserAgent,
+                Allow = r.Allow.ToList(),
+                Disallow = r.Disallow.ToList(),
+                CrawlDelaySeconds = r.CrawlDelaySeconds
+            }).ToList()
+        };
     }
 
     private static string RenderRobotsTxt(HttpContext ctx, StyloBotRobotsTxtOptions options)
