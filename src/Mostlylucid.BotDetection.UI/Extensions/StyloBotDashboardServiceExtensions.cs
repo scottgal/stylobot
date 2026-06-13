@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MEOptions = Microsoft.Extensions.Options.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Identity;
@@ -182,7 +183,7 @@ public static class StyloBotDashboardServiceExtensions
         // override is silently ignored on every IOptions<>-injected widget -- links emit
         // /stylobot/signature/... using the FOSS default while the middleware-rendered partials
         // correctly emit /dashboard/signature/..., producing inconsistent navigation.
-        services.AddSingleton<IOptions<StyloBotDashboardOptions>>(Options.Create(options));
+        services.AddSingleton<IOptions<StyloBotDashboardOptions>>(MEOptions.Create(options));
 
         // Register lightweight UI services (tag helpers, view components)
         services.AddStyloBotUI();
@@ -449,7 +450,7 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<IOpenApiDocumentLoader, OpenApiDocumentLoader>();
         // Bind from the StyloBotDashboardOptions.OpenApi instance the user already configured.
         services.AddSingleton<IOptions<OpenApiSeedOptions>>(sp =>
-            Options.Create(sp.GetRequiredService<StyloBotDashboardOptions>().OpenApi));
+            MEOptions.Create(sp.GetRequiredService<StyloBotDashboardOptions>().OpenApi));
         services.AddHostedService<OpenApiStartupSeederService>();
         services.AddHostedService<RouteNameStoreInitializer>();
 
