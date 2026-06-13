@@ -28,6 +28,7 @@ using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Auth;
+using Mostlylucid.BotDetection.UI.Policies;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.Auth;
 
@@ -604,13 +605,16 @@ public class StyloBotDashboardMiddleware
                 await ServePolicyStackParseAsync(context);
                 break;
 
-            // E1 / Task 3 -- per-action-kind metadata editor swap. When the
-            // operator flips the kind <select> in the edit row the JS issues
-            // GET /dashboard/policystack/action-editor?kind=<x> and swaps the
-            // returned partial into the action-editor slot. The zero-field
-            // kinds (allow / observe / block) ship in Task 3; the
-            // parameterised kinds (tag / challenge / ratelimit / throttle)
-            // wire in Tasks 4-7 against the same endpoint.
+            // Traffic-shaping plan Task 3 -- per-action-kind metadata editor
+            // swap endpoint. Returns the rendered _EditAction_{kind}.cshtml
+            // partial. Today (Task 3) only allow / observe / block are wired;
+            // Tasks 4-7 add the parameterised kinds (tag / challenge /
+            // ratelimit / throttle) against this same endpoint. The JS /
+            // HTMX hook-up that actually issues GET ?kind=<x> on the kind
+            // <select> change lands in Task 8 when _EditAction.cshtml becomes
+            // the slot host; the policy-stack-edit.js chip-pane refactor
+            // that consumes the data-edit-action-kind contract lands in
+            // Task 12.
             case "policystack/action-editor":
                 await ServePolicyStackActionEditorAsync(context);
                 break;
@@ -3452,26 +3456,21 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    // E1 / Task 3 -- GET /dashboard/policystack/action-editor?kind=<x>
-    // Returns the rendered per-kind action-editor partial. The kind
-    // selector in the edit row drives which fields the operator sees;
-    // policy-stack-edit.js issues this request on selector change and
-    // swaps the response into the [data-edit-action-slot] element.
-    // The zero-field kinds (allow / observe / block) return short partials
-    // with no inputs; the parameterised kinds (tag / challenge / ratelimit
-    // / throttle) land in Tasks 4-7 against this same endpoint.
-    // 404 when the kind isn't recognised so the editor JS leaves the slot
-    // untouched and surfaces the failure in the existing error channel.
+    /// <summary>
+    ///     Traffic-shaping plan Task 3 -- <c>GET /dashboard/policystack/action-editor?kind=&lt;x&gt;</c>.
+    ///     Renders the per-kind action-editor partial. Tasks 4-7 extend
+    ///     <see cref="PolicyActionEditorViewPaths.ForKind"/> with the
+    ///     parameterised kinds (tag / challenge / ratelimit / throttle);
+    ///     Task 8 wires the kind <c>&lt;select&gt;</c> in <c>_EditAction.cshtml</c>
+    ///     up to issue the swap into the <c>[data-edit-action-slot]</c>
+    ///     element. 404 when the kind isn't recognised so the editor JS
+    ///     (Task 12) can leave the slot untouched and surface the failure
+    ///     in the existing error channel.
+    /// </summary>
     private async Task ServePolicyStackActionEditorAsync(HttpContext context)
     {
         var kind = (context.Request.Query["kind"].ToString() ?? string.Empty).ToLowerInvariant();
-        var viewPath = kind switch
-        {
-            "allow"   => "/Views/Shared/Components/SbPolicyStack/_EditAction_Allow.cshtml",
-            "observe" => "/Views/Shared/Components/SbPolicyStack/_EditAction_Observe.cshtml",
-            "block"   => "/Views/Shared/Components/SbPolicyStack/_EditAction_Block.cshtml",
-            _ => null
-        };
+        var viewPath = PolicyActionEditorViewPaths.ForKind(kind);
 
         if (viewPath is null)
         {

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.UI.Policies;
 using Mostlylucid.BotDetection.UI.ViewComponents;
 using Xunit;
 
@@ -97,10 +98,12 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
 
 /// <summary>
 ///     Test-only mirror of the middleware's <c>policystack/action-editor</c>
-///     switch case. The middleware's switch lives in
-///     <c>StyloBotDashboardMiddleware.cs</c> around line 595; this controller
-///     keeps the dispatch logic identical so the partials are exercised by
-///     the same view-path strings the production middleware uses.
+///     handler. Both this controller and
+///     <c>StyloBotDashboardMiddleware.ServePolicyStackActionEditorAsync</c>
+///     resolve the view path via <see cref="PolicyActionEditorViewPaths.ForKind"/>,
+///     so when Tasks 4-7 add tag / challenge / ratelimit / throttle the
+///     test surface picks them up without drifting from the production
+///     dispatch.
 /// </summary>
 [Route("/_test")]
 public sealed class PolicyActionEditorTestController : Controller
@@ -109,13 +112,7 @@ public sealed class PolicyActionEditorTestController : Controller
     public IActionResult ActionEditor(string? kind)
     {
         var k = (kind ?? string.Empty).ToLowerInvariant();
-        var viewPath = k switch
-        {
-            "allow"   => "/Views/Shared/Components/SbPolicyStack/_EditAction_Allow.cshtml",
-            "observe" => "/Views/Shared/Components/SbPolicyStack/_EditAction_Observe.cshtml",
-            "block"   => "/Views/Shared/Components/SbPolicyStack/_EditAction_Block.cshtml",
-            _ => null
-        };
+        var viewPath = PolicyActionEditorViewPaths.ForKind(k);
         if (viewPath is null) return NotFound($"unknown action kind: {k}");
         return PartialView(viewPath);
     }
