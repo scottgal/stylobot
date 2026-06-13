@@ -4077,13 +4077,26 @@ public class StyloBotDashboardMiddleware
         var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 20;
         var excludeStatic = context.Request.Query["excludeStatic"].FirstOrDefault() == "true";
+        var statusFilter = (context.Request.Query["status"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        var pathFilter = (context.Request.Query["path"].FirstOrDefault() ?? string.Empty).Trim();
 
         var endpoints = await GetEndpointsDataAsync(context);
 
         if (excludeStatic)
             endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();
 
-        var model = BuildEndpointsModel(context, sortField, sortDir, page, pageSize, endpoints);
+        if (!string.IsNullOrEmpty(pathFilter))
+            endpoints = endpoints
+                .Where(e => e.Path.Contains(pathFilter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        if (statusFilter is "2xx" or "3xx" or "4xx" or "5xx")
+            endpoints = endpoints
+                .Where(e => string.Equals(e.DominantStatusBucket, statusFilter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        var model = BuildEndpointsModel(context, sortField, sortDir, page, pageSize, endpoints)
+            with { StatusFilter = statusFilter, PathFilter = pathFilter };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(

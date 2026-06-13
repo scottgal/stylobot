@@ -968,7 +968,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // SQLite lacks PERCENTILE_CONT, so p95 is approximated using avg + 90% of (max - avg).
         // Crude but consistent with the existing convention; the Postgres backend returns true p95.
         // Column order (0-based): method(0), path(1), total(2), bots(3), sigs(4),
-        //   avg_ms(5), min_ms(6), max_ms(7), avg_threat(8), last_seen(9), bytes_out(10)
+        //   avg_ms(5), min_ms(6), max_ms(7), avg_threat(8), last_seen(9), bytes_out(10),
+        //   s2xx(11), s3xx(12), s4xx(13), s5xx(14)
         cmd.CommandText = $"""
             SELECT method, path,
                    COUNT(*) as total,
@@ -979,7 +980,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    MAX(processing_time_ms) as max_ms,
                    AVG(threat_score) as avg_threat,
                    MAX(timestamp) as last_seen,
-                   COALESCE(SUM(response_bytes), 0) as bytes_out
+                   COALESCE(SUM(response_bytes), 0) as bytes_out,
+                   SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) as s2xx,
+                   SUM(CASE WHEN status_code BETWEEN 300 AND 399 THEN 1 ELSE 0 END) as s3xx,
+                   SUM(CASE WHEN status_code BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as s4xx,
+                   SUM(CASE WHEN status_code BETWEEN 500 AND 599 THEN 1 ELSE 0 END) as s5xx
             FROM detections
             {where}
             GROUP BY method, path
@@ -1017,6 +1022,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 AvgThreatScore      = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
                 LastSeen            = DateTime.Parse(reader.GetString(9)),
                 BytesOut            = reader.IsDBNull(10) ? 0L : Convert.ToInt64(reader.GetValue(10)),
+                Status2xx           = reader.IsDBNull(11) ? 0 : reader.GetInt32(11),
+                Status3xx           = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
+                Status4xx           = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
+                Status5xx           = reader.IsDBNull(14) ? 0 : reader.GetInt32(14),
             });
         }
         return results;

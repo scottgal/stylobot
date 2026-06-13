@@ -162,6 +162,21 @@ public sealed record EndpointsListModel
     public int TotalCount { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
 
+    /// <summary>
+    ///     Status-code bucket filter. Valid values are <c>all</c> (no filter),
+    ///     <c>2xx</c>, <c>3xx</c>, <c>4xx</c>, <c>5xx</c>. The server-side
+    ///     handler filters endpoint rows whose dominant response bucket
+    ///     matches; <c>all</c> renders the unfiltered set.
+    /// </summary>
+    public string StatusFilter { get; init; } = "all";
+
+    /// <summary>
+    ///     Free-text substring match against the endpoint <c>Path</c>. Empty
+    ///     string renders the unfiltered set. Server-side handler treats it
+    ///     as case-insensitive contains.
+    /// </summary>
+    public string PathFilter { get; init; } = "";
+
     /// <summary>When true the partial renders a narrow column set that fits inside a
     /// half-width container without horizontal scroll: Method, Path, Req, Bot %. The
     /// wider columns (Sigs, Policy) are dropped entirely rather than gated by Tailwind

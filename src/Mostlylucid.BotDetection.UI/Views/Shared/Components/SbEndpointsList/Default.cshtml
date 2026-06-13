@@ -5,17 +5,26 @@
 @model EndpointsListModel
 @{
     var bp = Model.BasePath;
+    // URL builders honour every filter axis so navigating one axis preserves
+    // the others. Sort + pagination changes drop back to page=1 so the new
+    // ordering or filter isn't paged past its first page.
+    string FilterQs(string statusOverride, string pathOverride)
+        => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}";
     string SortUrl(string field)
     {
         var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
-        return $"{bp}/partials/endpoints?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
+        return $"{bp}/partials/endpoints?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter)}";
     }
-    string PageUrl(int page) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
-    string PageSizeUrl(int size) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}";
+    string PageUrl(int page) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter)}";
+    string PageSizeUrl(int size) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}&{FilterQs(Model.StatusFilter, Model.PathFilter)}";
+    string StatusUrl(string bucket) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(bucket, Model.PathFilter)}";
     string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
     string ThClass(string field) => Model.SortField == field
         ? "text-base-content/70 font-bold"
         : "text-base-content/40 hover:text-base-content/60";
+    string ChipClass(string bucket) => Model.StatusFilter.Equals(bucket, StringComparison.OrdinalIgnoreCase)
+        ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-primary/20 text-primary border border-primary/30"
+        : "px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors";
 }
 <div id="endpoints-list"
      data-sb-widget="endpoints"
@@ -35,6 +44,42 @@
             </button>
         }
     </div>
+
+    @* Filter bar: status-code chips + free-text path filter. Hidden on compact
+       layouts (the half-width Activity card has no room for a second control
+       row). Both controls drop back to page=1 so the new filter set is paged
+       from the start. The path filter HTMX-debounces at 350ms so typing
+       doesn't fire a request per keystroke. *@
+    @if (!Model.IsCompact)
+    {
+        <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
+            <span class="text-base-content/40 mr-1">Status</span>
+            <a href="#" hx-get="@StatusUrl("all")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ChipClass("all")">All</a>
+            <a href="#" hx-get="@StatusUrl("2xx")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ChipClass("2xx")">2xx</a>
+            <a href="#" hx-get="@StatusUrl("3xx")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ChipClass("3xx")">3xx</a>
+            <a href="#" hx-get="@StatusUrl("4xx")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ChipClass("4xx")">4xx</a>
+            <a href="#" hx-get="@StatusUrl("5xx")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ChipClass("5xx")">5xx</a>
+
+            <span class="text-base-content/30 mx-1">·</span>
+            <input type="text" name="path" value="@Model.PathFilter"
+                   placeholder="filter path…"
+                   class="input input-xs input-bordered w-44 font-mono"
+                   hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)"
+                   hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+                   hx-trigger="keyup changed delay:350ms, search"
+                   hx-include="this" />
+        </div>
+    }
     @if (Model.IsCommercial && Model.AllowEndpointPinning)
     {
         <div id="pin-endpoint-form" class="hidden mb-4 p-3 bg-base-200 rounded-lg">

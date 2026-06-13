@@ -31,6 +31,39 @@ public sealed record DashboardEndpointStats
     public bool IsPinned { get; init; }
     public bool IsHoneypot { get; init; }
     public long? PinId { get; init; }
+
+    /// <summary>
+    ///     HTTP response status bucket counts populated by the endpoint
+    ///     aggregator (SQLite + Postgres backends both group on these). Used
+    ///     by SbEndpointsList to render the status mix column and to drive
+    ///     the status-code filter chips. Buckets are inclusive of both
+    ///     boundaries (2xx = 200..299 etc.); status_code = 0 (default in
+    ///     dashboard_events when the response phase was never observed)
+    ///     contributes to none of the buckets.
+    /// </summary>
+    public int Status2xx { get; init; }
+    public int Status3xx { get; init; }
+    public int Status4xx { get; init; }
+    public int Status5xx { get; init; }
+
+    /// <summary>
+    ///     The dominant status bucket for filter / sort purposes: the bucket
+    ///     with the most hits, or empty when no status was ever observed.
+    ///     Mirrors the operator workflow ("which endpoints are mostly 5xx
+    ///     right now?") without forcing callers to recompute the argmax.
+    /// </summary>
+    public string DominantStatusBucket
+    {
+        get
+        {
+            var max = Status2xx;
+            var bucket = Status2xx > 0 ? "2xx" : "";
+            if (Status3xx > max) { max = Status3xx; bucket = "3xx"; }
+            if (Status4xx > max) { max = Status4xx; bucket = "4xx"; }
+            if (Status5xx > max) { max = Status5xx; bucket = "5xx"; }
+            return bucket;
+        }
+    }
 }
 
 /// <summary>
