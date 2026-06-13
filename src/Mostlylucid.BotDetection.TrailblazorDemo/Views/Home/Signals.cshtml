@@ -1,0 +1,23 @@
+@{
+    ViewData["Title"] = "All signals for your request";
+}
+
+<h1>All signals for your request</h1>
+
+<p>
+    StyloBot's detection pipeline writes every value it computed into the
+    request's signal blackboard. The control below renders every entry as
+    a grouped table with the catalog description for each key. Reload the
+    page or change the <code>?demo=</code> preset on
+    <a asp-action="Index">the home page</a> to see how the signals shift
+    with the verdict.
+</p>
+
+@await Component.InvokeAsync("SbAllSignals", new { showDescriptions = true })
+
+<p style="margin-top: 1.5rem; font-size: 0.85rem; color: #6b7280;">
+    Used in code as a tag helper:
+    <code>&lt;vc:sb-all-signals show-descriptions="true" /&gt;</code>.
+    The <code>show-descriptions</code> attribute is optional and defaults
+    to false so the dashboard's dense usage stays compact.
+</p>

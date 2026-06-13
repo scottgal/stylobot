@@ -9,6 +9,8 @@ public class HomeController : Controller
 {
     public IActionResult Index() => View();
 
+    public IActionResult Signals() => View();
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public IActionResult Subscribe(string email)
