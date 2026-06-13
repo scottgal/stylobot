@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -73,6 +74,53 @@ public class TransportHeaderTrustGateTests
                ConfigMock.Object,
                referenceIndex: null,
                transportTrust: trust);
+
+    // Chrome Desktop 90+ SETTINGS value - matched by Http2FingerprintContributor as
+    // "Chrome_Desktop_90+" which does NOT contain "Bot" / "HTTP2_Client", so the
+    // trusted path produces a negative-delta HumanContribution (ConfidenceDelta = -0.2).
+    private const string ChromeDesktopSettings = "1:65536,2:0,3:1000,4:6291456,6:262144";
+
+    private static Http2FingerprintContributor BuildH2(ITransportHeaderTrust trust)
+        => new(NullLogger<Http2FingerprintContributor>.Instance,
+               ConfigMock.Object,
+               norms: new DeploymentNormTracker(),
+               transportTrust: trust);
+
+    [Fact]
+    public async Task Http2_spoofed_settings_from_public_peer_flags_spoof()
+    {
+        var (state, signals) = StateFor("203.0.113.9", req =>
+        {
+            req.Headers["X-HTTP-Protocol"] = "HTTP/2";
+            req.Headers["X-HTTP2-Settings"] = ChromeDesktopSettings;
+        });
+        var sut = BuildH2(Trust(TransportTrustMode.Auto));
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.True(signals.TryGetValue(SignalKeys.TransportSpoofedEdgeHeaders, out var f) && (bool)f,
+            "Expected transport.spoofed_edge_headers = true for untrusted public peer");
+        Assert.DoesNotContain(contributions, c => c.ConfidenceDelta < 0);
+    }
+
+    [Fact]
+    public async Task Http2_settings_from_loopback_peer_is_trusted()
+    {
+        var (state, signals) = StateFor("127.0.0.1", req =>
+        {
+            req.Headers["X-HTTP-Protocol"] = "HTTP/2";
+            req.Headers["X-HTTP2-Settings"] = ChromeDesktopSettings;
+        });
+        var sut = BuildH2(Trust(TransportTrustMode.Auto));
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.False(signals.ContainsKey(SignalKeys.TransportSpoofedEdgeHeaders),
+            "Loopback peer should not be flagged as spoofed");
+        Assert.True(signals.TryGetValue(SignalKeys.TransportHeadersTrusted, out var t) && (bool)t,
+            "Loopback peer headers should be marked trusted");
+        Assert.Contains(contributions, c => c.ConfidenceDelta < 0);
+    }
 
     [Fact]
     public async Task Tls_spoofed_ja3_from_public_peer_is_not_trusted_and_flags_spoof()
