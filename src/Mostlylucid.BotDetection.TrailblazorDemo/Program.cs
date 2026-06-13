@@ -128,9 +128,14 @@ app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
 // Useful from .http files and the talk's live-coded probes.
 app.MapBotDetectionEndpoints();
 
-// Serves the client-side fingerprint script at /bot-detection/script.js.
-// The <bot-detection-script /> tag helper in _Layout.cshtml loads it.
+// Serves the client-side fingerprint script at /bot-detection/script.js
+// and the receive endpoint at /bot-detection/fingerprint. The
+// <bot-detection-script /> tag helper in _Layout.cshtml loads the JS;
+// the receive endpoint takes the browser's POSTed fingerprint blob
+// (navigator.webdriver, CDP probes, automation flags, etc.) and feeds
+// it into the detection pipeline so headless.framework lights up.
 app.MapBotDetectionScript();
+app.MapBotDetectionFingerprintEndpoint();
 
 // Required so <sb-live-updates> in the dashboard can connect.
 app.MapHub<StyloBotDashboardHub>("/_stylobot/hub");
