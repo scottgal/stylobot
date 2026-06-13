@@ -158,6 +158,9 @@ emits:
     - key: h2.analysis_error
       type: string
       description: Parser error message - present when H2 detail was malformed or unparseable
+    - key: transport.spoofed_edge_headers
+      type: bool
+      description: Untrusted peer sent edge fingerprint headers (possible spoof)
 
   on_failure:
     - detector.http2.failed
@@ -249,6 +252,9 @@ defaults:
       - "X-H2-Settings"
       - "X-H2-Pseudoheaders"
       - "X-H2-Priority"
+    # Spoofed edge-header detection
+    spoofed_edge_headers_confidence: 0.3
+    spoofed_edge_headers_weight: 1.2
 
 tags:
   - fast-path
