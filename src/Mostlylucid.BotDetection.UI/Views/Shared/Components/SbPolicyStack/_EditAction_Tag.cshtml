@@ -1,0 +1,18 @@
+@model Mostlylucid.BotDetection.UI.Models.TagActionEdit?
+@{ var name = Model?.Name ?? ""; }
+@*
+    Tag action editor. Captures a single lower-case kebab name that the
+    detection pipeline attaches to the matched request as a label so
+    downstream consumers (decision-log filters, dashboards, custom
+    rules) can pivot on it. Rendered into the action-editor slot by
+    HTMX when the action-kind selector flips to "tag".
+*@
+<fieldset class="sb-edit-action" data-edit-action-kind="tag">
+    <legend>Tag</legend>
+    <label>
+        Name
+        <input type="text" name="action.tag.name" value="@name"
+               maxlength="64" required pattern="[a-z0-9\-]+" />
+    </label>
+    <small>Lower-case kebab. Becomes the attached label on the matched request for downstream consumers.</small>
+</fieldset>

@@ -3459,8 +3459,15 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
+        // Build the per-kind @model from the query string via the same
+        // helper the test controller uses, so the lockstep dispatch stays
+        // single-source. Zero-field partials return null; RazorViewRenderer
+        // declares its model parameter non-nullable, so we hand it a
+        // sentinel object in that case.
+        var model = PolicyActionEditorViewPaths.BuildActionEditorModel(kind, context.Request.Query)
+                    ?? new object();
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            viewPath, new object(), context);
+            viewPath, model, context);
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
     }

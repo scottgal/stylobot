@@ -69,6 +69,38 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
+    [Fact]
+    public async Task Tag_renders_name_input_with_provided_default()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync("/_test/policy-stack-action-editor?kind=tag&name=stale-session");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-edit-action-kind=\"tag\"", html);
+        Assert.Contains("name=\"action.tag.name\"", html);
+        Assert.Contains("value=\"stale-session\"", html);
+    }
+
+    [Fact]
+    public async Task Tag_with_empty_name_renders_empty_value_no_default_fallback()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync("/_test/policy-stack-action-editor?kind=tag&name=");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-edit-action-kind=\"tag\"", html);
+        Assert.Contains("name=\"action.tag.name\"", html);
+        // Empty input -> value="". No silent "untagged"/placeholder default
+        // injected by either the model construction or the partial; an empty
+        // string round-trips as an empty string so the operator-facing
+        // required-validation kicks in client-side.
+        Assert.Contains("value=\"\"", html);
+    }
+
     private async Task<HttpClient> BuildClientAsync()
     {
         var builder = WebApplication.CreateBuilder();
@@ -100,9 +132,11 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
 ///     Test-only mirror of the middleware's <c>policystack/action-editor</c>
 ///     handler. Both this controller and
 ///     <c>StyloBotDashboardMiddleware.ServePolicyStackActionEditorAsync</c>
-///     resolve the view path via <see cref="PolicyActionEditorViewPaths.ForKind"/>,
-///     so when Tasks 4-7 add tag / challenge / ratelimit / throttle the
-///     test surface picks them up without drifting from the production
+///     resolve the view path via <see cref="PolicyActionEditorViewPaths.ForKind"/>
+///     AND build the per-kind <c>@model</c> via
+///     <see cref="PolicyActionEditorViewPaths.BuildActionEditorModel"/>, so
+///     when Tasks 5-7 add challenge / ratelimit / throttle the test
+///     surface picks them up without drifting from the production
 ///     dispatch.
 /// </summary>
 [Route("/_test")]
@@ -114,6 +148,12 @@ public sealed class PolicyActionEditorTestController : Controller
         var k = (kind ?? string.Empty).ToLowerInvariant();
         var viewPath = PolicyActionEditorViewPaths.ForKind(k);
         if (viewPath is null) return NotFound($"unknown action kind: {k}");
-        return PartialView(viewPath);
+        var model = PolicyActionEditorViewPaths.BuildActionEditorModel(k, Request.Query);
+        // PartialView(viewPath, null) would fall through to the controller
+        // model which is null too, so the partial without an @model
+        // directive renders fine; the partials with @model directives
+        // (tag today, challenge/ratelimit/throttle in Tasks 5-7) receive
+        // the constructed slice.
+        return PartialView(viewPath, model);
     }
 }
