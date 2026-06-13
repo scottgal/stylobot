@@ -75,6 +75,7 @@ public sealed class InMemoryPolicyDecisionLog : IPolicyDecisionLog
 
     public Task<IReadOnlyList<string>> GetRecentFingerprintsAsync(int limit, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var cap = Math.Max(1, limit);
         lock (_lock)
         {
@@ -89,7 +90,7 @@ public sealed class InMemoryPolicyDecisionLog : IPolicyDecisionLog
                     result.Add(fp);
                 }
             }
-            return Task.FromResult<IReadOnlyList<string>>(result);
+            return Task.FromResult<IReadOnlyList<string>>(result.ToArray());
         }
     }
 
