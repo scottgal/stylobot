@@ -809,12 +809,14 @@ else
                     <i class="bx bx-shield-quarter text-sm" style="color: var(--sb-accent);"></i>
                     Policy applied
                 </h3>
+                @* Compact indicator: shows "N rules effective here" with link
+                   into the policy editor. Full rule editor lives on
+                   /dashboard/policies; signature detail just needs a one-line
+                   "this is what applies" badge, not the rule list. *@
                 @await Component.InvokeAsync("SbPolicyStack", new
                 {
                     scope = sigScope,
-                    embed = PolicyStackEmbed.EffectiveOnly,
-                    explainerFingerprint = Model.SignatureId,
-                    lockedFingerprint = true,
+                    embed = PolicyStackEmbed.StatusBadge,
                     aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24)
                 })
             </section>

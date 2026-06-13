@@ -418,11 +418,12 @@
                 : PolicyScope.Endpoint(policyHost, policyHost, pathTemplate);
             <div class="mt-3 pt-3 border-t border-base-300/40 dashboard-endpoint-policy" data-endpoint="@pathTemplate">
                 <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Effective policy stack</div>
+                @* Indicator only on endpoint detail; full rule editor lives at
+                   /dashboard/policies. *@
                 @await Component.InvokeAsync("SbPolicyStack", new
                 {
                     scope = endpointScope,
-                    embed = PolicyStackEmbed.Full,
-                    activeTab = "effective",
+                    embed = PolicyStackEmbed.StatusBadge,
                     aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24),
                     canEdit = false
                 })

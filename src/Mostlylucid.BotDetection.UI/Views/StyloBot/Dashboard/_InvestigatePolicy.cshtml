@@ -42,13 +42,13 @@
     }
 }
 <div class="sb-policy-tab" style="display:flex; flex-direction:column; gap:1rem;">
+    @* Indicator only on the investigation tab; the full rule editor lives at
+       /dashboard/policies. *@
     @await Component.InvokeAsync("SbPolicyStack", new
     {
         scope = investigationScope,
-        embed = PolicyStackEmbed.Full,
-        activeTab = "effective",
+        embed = PolicyStackEmbed.StatusBadge,
         aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24),
-        canEdit = false,
-        filterExpression = presetFilter
+        canEdit = false
     })
 </div>
