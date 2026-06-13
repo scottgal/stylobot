@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.HttpOverrides;
+using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.Hubs;
