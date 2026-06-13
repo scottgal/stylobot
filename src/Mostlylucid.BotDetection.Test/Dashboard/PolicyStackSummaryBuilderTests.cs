@@ -70,7 +70,7 @@ public sealed class PolicyStackSummaryBuilderTests
         // 2 Live + 1 Observe + 1 Draft + 1 Disabled at the wildcard scope.
         // Picked so each enum value is represented at least once and the
         // total != any single mode count -- catches a miscategorise bug.
-        var store = new InMemoryPolicyRuleStore(
+        var store = new FixedRulePolicyRuleStore(
             Wildcard(PolicyMode.Live),
             Wildcard(PolicyMode.Live),
             Wildcard(PolicyMode.Observe),
@@ -93,7 +93,7 @@ public sealed class PolicyStackSummaryBuilderTests
     [Fact]
     public async Task At_least_one_live_rule_returns_Good_band()
     {
-        var store = new InMemoryPolicyRuleStore(
+        var store = new FixedRulePolicyRuleStore(
             Wildcard(PolicyMode.Live),
             Wildcard(PolicyMode.Observe));
 
@@ -109,7 +109,7 @@ public sealed class PolicyStackSummaryBuilderTests
     [Fact]
     public async Task Rules_present_but_no_Live_returns_Caution_band()
     {
-        var store = new InMemoryPolicyRuleStore(
+        var store = new FixedRulePolicyRuleStore(
             Wildcard(PolicyMode.Observe),
             Wildcard(PolicyMode.Draft));
 
@@ -126,7 +126,7 @@ public sealed class PolicyStackSummaryBuilderTests
     [Fact]
     public async Task DecisionsLast15m_is_null_when_decision_log_is_null()
     {
-        var store = new InMemoryPolicyRuleStore(Wildcard(PolicyMode.Live));
+        var store = new FixedRulePolicyRuleStore(Wildcard(PolicyMode.Live));
 
         var builder = new PolicyStackSummaryBuilder(ruleStore: store, decisionLog: null);
         var summary = await builder.BuildAsync(default);
@@ -139,7 +139,7 @@ public sealed class PolicyStackSummaryBuilderTests
     [Fact]
     public async Task DecisionsLast15m_counts_only_rows_inside_the_15m_window()
     {
-        var store = new InMemoryPolicyRuleStore(Wildcard(PolicyMode.Live));
+        var store = new FixedRulePolicyRuleStore(Wildcard(PolicyMode.Live));
 
         // Fake log returns 5 rows when called with a 15m window; rows outside
         // the window are filtered by the fake itself so the assertion isn't
@@ -158,7 +158,7 @@ public sealed class PolicyStackSummaryBuilderTests
     [Fact]
     public async Task ComputedAtUtc_matches_supplied_TimeProvider()
     {
-        var store = new InMemoryPolicyRuleStore(Wildcard(PolicyMode.Live));
+        var store = new FixedRulePolicyRuleStore(Wildcard(PolicyMode.Live));
         // FOSS test project doesn't reference Microsoft.Extensions.TimeProvider.Testing,
         // so a hand-rolled fixed-instant TimeProvider keeps the dependency
         // surface unchanged. Same shape we'd get from FakeTimeProvider's
@@ -199,56 +199,6 @@ public sealed class PolicyStackSummaryBuilderTests
             Source: "test",
             CreatedAt: DateTimeOffset.UtcNow,
             RevisionId: Guid.NewGuid());
-    }
-
-    /// <summary>
-    ///     Minimal <see cref="IPolicyRuleStore"/> double that returns the
-    ///     supplied rules from <see cref="GetEffectiveRulesAsync"/> when (and
-    ///     only when) the scope path contains <see cref="PolicyScope.Wildcard"/>.
-    ///     The summary builder only ever asks for the wildcard path, so the
-    ///     other surface methods are unused in this test file.
-    /// </summary>
-    private sealed class InMemoryPolicyRuleStore : IPolicyRuleStore
-    {
-        private readonly IReadOnlyList<PolicyRule> _rules;
-
-        public InMemoryPolicyRuleStore(params PolicyRule[] rules)
-        {
-            _rules = rules;
-        }
-
-        public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-        public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
-        {
-            IReadOnlyList<PolicyRule> matched = _rules.Where(r => r.Scope == scope).ToArray();
-            return Task.FromResult(matched);
-        }
-
-        public Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(
-            IReadOnlyList<PolicyScope> scopePath,
-            CancellationToken ct = default)
-        {
-            var result = new List<PolicyRule>(_rules.Count);
-            foreach (var scope in scopePath)
-            {
-                foreach (var rule in _rules)
-                {
-                    if (rule.Scope == scope) result.Add(rule);
-                }
-            }
-            return Task.FromResult<IReadOnlyList<PolicyRule>>(result);
-        }
-
-        public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
-            => Task.FromResult<PolicyRule?>(_rules.FirstOrDefault(r => r.Id == id));
-
-        public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
-            => Task.FromResult(_rules);
-
-#pragma warning disable CS0067 // Event required by interface, never raised here.
-        public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
-#pragma warning restore CS0067
     }
 
     /// <summary>

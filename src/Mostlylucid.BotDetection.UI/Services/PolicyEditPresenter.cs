@@ -24,6 +24,21 @@ public sealed class PolicyEditPresenter
     ///     The richer fields land via the commercial JSONB sidecar later
     ///     in the traffic-shaping plan; this default keeps the editor
     ///     useful in the meantime.
+    ///     <para>
+    ///         <b>Vocabulary bridge:</b> <c>"fingerprint"</c> is the
+    ///         editor-facing label. At enforcement time it maps to
+    ///         <see cref="Mostlylucid.BotDetection.Actions.RateLimitKey.Signature"/>
+    ///         on <see cref="Mostlylucid.BotDetection.Actions.RateLimitActionOptions.KeyBy"/>
+    ///         (both bill against the primary signature; the editor uses the
+    ///         operator-friendly word, runtime uses the registry-enum name).
+    ///         The commercial wire-DTO mapper (traffic-shaping plan Task 2)
+    ///         owns the translation in both directions -- editor labels
+    ///         (<c>"fingerprint"</c> / <c>"ip"</c> / <c>"subnet"</c> /
+    ///         <c>"asn"</c> / <c>"asn+signature"</c>) onto the
+    ///         <see cref="Mostlylucid.BotDetection.Actions.RateLimitKey"/>
+    ///         enum and back. Keep this string in sync with the mapper or
+    ///         the legacy widening above will surface an unmappable label.
+    ///     </para>
     /// </summary>
     private const string DefaultRateLimitKey = "fingerprint";
 
@@ -31,6 +46,16 @@ public sealed class PolicyEditPresenter
     ///     Default <see cref="RateLimitActionEdit.OverLimitAction"/>
     ///     surfaced when widening the legacy record. Matches the
     ///     traffic-shaping spec.
+    ///     <para>
+    ///         <b>No vocabulary bridge needed:</b> <c>"throttle-status"</c>
+    ///         is the literal registered policy name in
+    ///         <c>IActionPolicyRegistry</c> (see
+    ///         <see cref="Mostlylucid.BotDetection.Actions.RateLimitActionOptions.OverLimitAction"/>
+    ///         and the preset choices it documents -- <c>throttle-status</c>,
+    ///         <c>block-soft</c>, <c>logonly</c>). Editor and runtime share
+    ///         this vocabulary verbatim, so the Task 2 wire-DTO mapper is a
+    ///         pass-through here.
+    ///     </para>
     /// </summary>
     private const string DefaultOverLimitAction = "throttle-status";
 

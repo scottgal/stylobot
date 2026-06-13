@@ -108,3 +108,64 @@ internal sealed class LegacySeedOnlyPolicyRuleStore : IPolicyRuleStore
     private static bool IsWildcardSeed(PolicyRule rule)
         => rule.Source.Contains(TestPolicyRuleStoreConstants.WildcardSeedTag, StringComparison.Ordinal);
 }
+
+/// <summary>
+///     Read-path <see cref="IPolicyRuleStore"/> that returns a fixed list of
+///     rules supplied at construction. Replaces the per-test-file
+///     <c>InMemoryPolicyRuleStore</c> private classes that
+///     <see cref="PolicyEditPresenterTests"/> and
+///     <see cref="PolicyStackSummaryBuilderTests"/> were each carrying;
+///     "Fixed" is more honest than "InMemory" -- there is no put / delete
+///     surface, just the immutable seed list the constructor took.
+///     <para>
+///         Mirrors the <see cref="IPolicyRuleStore"/> read methods enough for
+///         <see cref="PolicyEditPresenter"/> (only calls
+///         <see cref="GetByIdAsync"/>) and
+///         <see cref="PolicyStackSummaryBuilder"/> (only calls
+///         <see cref="GetEffectiveRulesAsync"/>) -- the remaining methods
+///         are stubbed with the obvious matches so future tests can reuse
+///         the type without surprises.
+///     </para>
+/// </summary>
+internal sealed class FixedRulePolicyRuleStore : IPolicyRuleStore
+{
+    private readonly IReadOnlyList<PolicyRule> _rules;
+
+    public FixedRulePolicyRuleStore(params PolicyRule[] rules)
+    {
+        _rules = rules;
+    }
+
+    public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
+    {
+        IReadOnlyList<PolicyRule> matched = _rules.Where(r => r.Scope == scope).ToArray();
+        return Task.FromResult(matched);
+    }
+
+    public Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(
+        IReadOnlyList<PolicyScope> scopePath,
+        CancellationToken ct = default)
+    {
+        var result = new List<PolicyRule>(_rules.Count);
+        foreach (var scope in scopePath)
+        {
+            foreach (var rule in _rules)
+            {
+                if (rule.Scope == scope) result.Add(rule);
+            }
+        }
+        return Task.FromResult<IReadOnlyList<PolicyRule>>(result);
+    }
+
+    public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => Task.FromResult<PolicyRule?>(_rules.FirstOrDefault(r => r.Id == id));
+
+    public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
+        => Task.FromResult(_rules);
+
+#pragma warning disable CS0067 // Event required by interface, never raised here.
+    public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
+#pragma warning restore CS0067
+}

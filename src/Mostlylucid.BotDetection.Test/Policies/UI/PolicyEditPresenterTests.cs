@@ -1,5 +1,6 @@
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.Test.Policies.Support;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 using Xunit;
@@ -30,7 +31,7 @@ public sealed class PolicyEditPresenterTests
             CreatedAt: DateTimeOffset.UtcNow,
             RevisionId: Guid.NewGuid());
 
-        var store = new InMemoryPolicyRuleStore(rule);
+        var store = new FixedRulePolicyRuleStore(rule);
         var presenter = new PolicyEditPresenter(store);
 
         var vm = await presenter.BuildForExistingRuleAsync(rule.Id, CancellationToken.None);
@@ -60,7 +61,7 @@ public sealed class PolicyEditPresenterTests
     public async Task Every_action_kind_round_trips_to_a_known_kind_string(string expected, Type _)
     {
         var rule = TestRules.WithAction(expected);
-        var presenter = new PolicyEditPresenter(new InMemoryPolicyRuleStore(rule));
+        var presenter = new PolicyEditPresenter(new FixedRulePolicyRuleStore(rule));
         var vm = await presenter.BuildForExistingRuleAsync(rule.Id, CancellationToken.None);
         Assert.Equal(expected, vm!.ActionKind);
     }
@@ -98,52 +99,5 @@ public sealed class PolicyEditPresenterTests
                 CreatedAt: DateTimeOffset.UtcNow,
                 RevisionId: Guid.NewGuid());
         }
-    }
-
-    /// <summary>
-    ///     Minimal <see cref="IPolicyRuleStore"/> double; presenter only
-    ///     calls <see cref="GetByIdAsync"/> so the rest are stubbed.
-    /// </summary>
-    private sealed class InMemoryPolicyRuleStore : IPolicyRuleStore
-    {
-        private readonly IReadOnlyList<PolicyRule> _rules;
-
-        public InMemoryPolicyRuleStore(params PolicyRule[] rules)
-        {
-            _rules = rules;
-        }
-
-        public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
-
-        public Task<IReadOnlyList<PolicyRule>> GetRulesAtAsync(PolicyScope scope, CancellationToken ct = default)
-        {
-            IReadOnlyList<PolicyRule> matched = _rules.Where(r => r.Scope == scope).ToArray();
-            return Task.FromResult(matched);
-        }
-
-        public Task<IReadOnlyList<PolicyRule>> GetEffectiveRulesAsync(
-            IReadOnlyList<PolicyScope> scopePath,
-            CancellationToken ct = default)
-        {
-            var result = new List<PolicyRule>(_rules.Count);
-            foreach (var scope in scopePath)
-            {
-                foreach (var rule in _rules)
-                {
-                    if (rule.Scope == scope) result.Add(rule);
-                }
-            }
-            return Task.FromResult<IReadOnlyList<PolicyRule>>(result);
-        }
-
-        public Task<PolicyRule?> GetByIdAsync(Guid id, CancellationToken ct = default)
-            => Task.FromResult<PolicyRule?>(_rules.FirstOrDefault(r => r.Id == id));
-
-        public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
-            => Task.FromResult(_rules);
-
-#pragma warning disable CS0067 // Event required by interface, never raised here.
-        public event EventHandler<PolicyRuleStoreChangedEventArgs>? Changed;
-#pragma warning restore CS0067
     }
 }
