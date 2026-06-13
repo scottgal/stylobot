@@ -203,4 +203,39 @@ public class TransportHeaderTrustGateTests
         Assert.False(signals.ContainsKey(SignalKeys.TransportSpoofedEdgeHeaders));
         Assert.True(signals.TryGetValue(SignalKeys.TransportHeadersTrusted, out var t) && (bool)t);
     }
+
+    private static TcpIpFingerprintContributor BuildTcp(ITransportHeaderTrust trust)
+        => new(NullLogger<TcpIpFingerprintContributor>.Instance,
+               ConfigMock.Object,
+               transportTrust: trust);
+
+    [Fact]
+    public async Task Tcp_spoofed_os_from_public_peer_flags_spoof()
+    {
+        var (state, signals) = StateFor("203.0.113.9", req =>
+        {
+            req.Headers["X-TCP-Window"] = "65535";
+            req.Headers["X-TCP-TTL"] = "128";
+        });
+        var sut = BuildTcp(Trust(TransportTrustMode.Auto));
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.True(signals.TryGetValue(SignalKeys.TransportSpoofedEdgeHeaders, out var f) && (bool)f);
+    }
+
+    [Fact]
+    public async Task Tcp_os_from_loopback_peer_is_trusted()
+    {
+        var (state, signals) = StateFor("127.0.0.1", req =>
+        {
+            req.Headers["X-TCP-Window"] = "65535";
+            req.Headers["X-TCP-TTL"] = "128";
+        });
+        var sut = BuildTcp(Trust(TransportTrustMode.Auto));
+
+        await sut.ContributeAsync(state);
+
+        Assert.False(signals.ContainsKey(SignalKeys.TransportSpoofedEdgeHeaders));
+    }
 }
