@@ -1,0 +1,47 @@
+archetype_id: stylobot-internal
+name: StyloBot Internal Client
+description: >
+  StyloBot's own internal HTTP clients (marketing site -> gateway pull,
+  AspNetPack remote sink/query/hub, OtelMesh remote, Prometheus pack
+  scraper). Anything in the stylobot fleet that needs to call the gateway
+  from inside the LAN. Pairs with the StyloBot.Internal UA emitted by
+  every internal AddHttpClient registration -- see
+  Identity/StyloBotInternalUserAgent.cs.
+
+  Existence rationale: before this archetype existed, internal clients
+  shipped no User-Agent at all (the .NET default HttpClient sends none),
+  the detection pipeline's behavioural archetypes matched the empty-UA
+  shape to wget, and the gateway's rate-limiter then throttled the
+  upstream's identity as if it were a bot. Fix is not an exemption --
+  it is to let the detection pipeline classify internal traffic
+  accurately. This archetype is the landing zone.
+archetype_kind: tool
+dimensions:
+  hdr.ua_family:
+    value: "StyloBot.Internal"
+    confidence: 0.99
+  # Server-to-server calls -- no Accept-Language, no sec-fetch metadata,
+  # no upgrade-insecure-requests, no sec-ch-ua hints. Matches what a
+  # straight HttpClient + StyloBot.Internal UA actually sends.
+  hdr.accept:
+    value: "application/json, text/plain, */*"
+    confidence: 0.80
+  hdr.accept_language:
+    value: ""
+    confidence: 0.95
+  hdr.sec_fetch_pattern:
+    value: 0
+    confidence: 0.95
+  hdr.upgrade_insecure_requests:
+    value: false
+    confidence: 0.95
+  hdr.sec_ch_ua_mobile:
+    value: false
+    confidence: 0.60
+  # Custom header: every internal client ships X-SB-Api-Key on every call.
+  # tool.custom_header_signature concatenates ordered X-* headers (minus
+  # X-Forwarded-* / X-Real-*) -- the lone X-SB-Api-Key is the signature
+  # for this archetype family.
+  tool.custom_header_signature:
+    value: "X-SB-Api-Key"
+    confidence: 0.90

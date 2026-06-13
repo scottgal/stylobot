@@ -82,6 +82,16 @@ user_agent_parsers:
   - regex: '(PingdomPageSpeed)/(\d+)\.(\d+)'
     family_replacement: 'PingdomBot'
 
+  # StyloBot's own internal HTTP clients. Marketing site -> gateway dashboard
+  # pull, AspNetPack remote sink/query/hub, OtelMesh remote, Prometheus pack
+  # scraper -- everything that talks to the gateway from inside the LAN ships
+  # this UA. The identity archetype stylobot-internal.yaml pins on family
+  # "StyloBot.Internal" so the detection pipeline classifies the request as a
+  # known-internal client instead of misfiring on the wget archetype (which is
+  # what an empty UA gets matched to). See Identity/StyloBotInternalUserAgent.cs
+  # for the canonical UA string the .NET HttpClient registrations emit.
+  - regex: '(StyloBot\.Internal)/(\d+)\.(\d+)\.(\d+)'
+
   # PTST / WebPageTest.org crawlers
   - regex: ' (PTST)/(\d+)(?:\.(\d+)|)$'
     family_replacement: 'WebPageTest.org bot'

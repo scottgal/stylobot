@@ -242,7 +242,9 @@ public static class PrometheusPackServiceCollectionExtensions
         // already registered. Hosts that want custom handlers (retry, circuit
         // breaker, custom certs) can call AddHttpClient(RemoteMeterStream.HttpClientName)
         // themselves and chain handlers before AddRemoteMeterStream runs.
-        services.AddHttpClient(RemoteMeterStream.HttpClientName);
+        services.AddHttpClient(RemoteMeterStream.HttpClientName, c =>
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(
+                Mostlylucid.BotDetection.Identity.StyloBotInternalUserAgent.Value));
 
         // Wave 2: RemoteMeterStream is no longer IHostedService. The
         // PrometheusPackBootstrap (registered by AddPrometheusPack) forces

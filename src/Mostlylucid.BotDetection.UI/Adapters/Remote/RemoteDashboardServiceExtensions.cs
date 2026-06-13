@@ -53,6 +53,11 @@ public static class RemoteDashboardServiceExtensions
                 // Matches Mostlylucid.BotDetection.Api.Auth.ApiKeyAuthenticationHandler.HeaderName
                 // (kept as a literal here because UI cannot reference Api - that would cycle).
                 http.DefaultRequestHeaders.Add("X-SB-Api-Key", options.Pull.ApiKey);
+            // Identify this dashboard's pull traffic so the gateway's detection
+            // pipeline classifies it as a known-internal client. Without this,
+            // .NET sends no User-Agent at all and the request shape (no UA +
+            // repeating internal HTTP/2 + api-key) matches the wget archetype.
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(StyloBotInternalUserAgent.Value);
             http.Timeout = TimeSpan.FromSeconds(options.Pull.TimeoutSeconds);
         });
 

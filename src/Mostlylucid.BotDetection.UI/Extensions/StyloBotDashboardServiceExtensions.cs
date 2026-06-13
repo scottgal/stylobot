@@ -105,8 +105,12 @@ public static class StyloBotDashboardServiceExtensions
     {
         services.Configure<DetectionApiOptions>(o => o.Endpoint = apiEndpoint);
 
-        // Register the named HTTP client used for API calls.
-        services.AddHttpClient("stylobot");
+        // Register the named HTTP client used for API calls. Ships the
+        // StyloBot.Internal UA so the detection pipeline classifies traffic
+        // from this host as a known-internal client (not "Wget" because
+        // the default .NET HttpClient sends no UA at all).
+        services.AddHttpClient("stylobot", c =>
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(StyloBotInternalUserAgent.Value));
 
         // DetectionDataExtractor auto-detects API mode via optional IOptions<DetectionApiOptions>.
         // If AddStyloBotUI has already registered it, remove and re-register so the DI container
@@ -446,7 +450,8 @@ public static class StyloBotDashboardServiceExtensions
         });
 
         services.TryAddSingleton<IOpenApiCatalog, OpenApiCatalog>();
-        services.AddHttpClient("stylobot-openapi");
+        services.AddHttpClient("stylobot-openapi", c =>
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(StyloBotInternalUserAgent.Value));
         services.TryAddSingleton<IOpenApiDocumentLoader, OpenApiDocumentLoader>();
         // Bind from the StyloBotDashboardOptions.OpenApi instance the user already configured.
         services.AddSingleton<IOptions<OpenApiSeedOptions>>(sp =>
@@ -495,7 +500,8 @@ public static class StyloBotDashboardServiceExtensions
             else if (options.MonitoringPack.Mode == MonitoringMode.RemoteClient
                      && options.MonitoringPack.GatewayMetricsUrl != null)
             {
-                services.AddHttpClient("sb-metrics");
+                services.AddHttpClient("sb-metrics", c =>
+                    c.DefaultRequestHeaders.UserAgent.ParseAdd(StyloBotInternalUserAgent.Value));
                 services.AddHostedService<RemoteMetricCollector>(sp =>
                     new RemoteMetricCollector(
                         sp.GetRequiredService<IHttpClientFactory>(),
