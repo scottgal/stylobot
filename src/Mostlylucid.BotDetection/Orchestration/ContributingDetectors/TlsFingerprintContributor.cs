@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.Proxy;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -67,15 +68,18 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
 
     private readonly ILogger<TlsFingerprintContributor> _logger;
     private readonly IJa3ReferenceIndex? _referenceIndex;
+    private readonly ITransportHeaderTrust? _transportTrust;
 
     public TlsFingerprintContributor(
         ILogger<TlsFingerprintContributor> logger,
         IDetectorConfigProvider configProvider,
-        IJa3ReferenceIndex? referenceIndex = null)
+        IJa3ReferenceIndex? referenceIndex = null,
+        ITransportHeaderTrust? transportTrust = null)
         : base(configProvider)
     {
         _logger = logger;
         _referenceIndex = referenceIndex;
+        _transportTrust = transportTrust;
     }
 
     public override string Name => "TlsFingerprint";
@@ -110,6 +114,30 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
 
         try
         {
+            var req = state.HttpContext.Request;
+            var trust = _transportTrust?.Evaluate(state);
+            // When no trust service is wired (legacy / test) default to trusting headers,
+            // preserving the behaviour that existed before this gate was added.
+            var trustHeaders = trust?.Trusted ?? true;
+
+            var gatedHeaderPresent =
+                req.Headers.ContainsKey("X-JA3-Hash") || req.Headers.ContainsKey("X-JA3-String") ||
+                req.Headers.ContainsKey("X-JA4") || req.Headers.ContainsKey("X-JA4-Fingerprint") ||
+                req.Headers.ContainsKey("X-JA4-Hash") || req.Headers.ContainsKey("X-Client-TLS-Version") ||
+                req.Headers.ContainsKey("X-TLS-Protocol") || req.Headers.ContainsKey("X-Client-TLS-Cipher") ||
+                req.Headers.ContainsKey("X-TLS-Cipher");
+
+            if (trust is { Trusted: false } && gatedHeaderPresent)
+            {
+                state.WriteSignal(SignalKeys.TransportSpoofedEdgeHeaders, true);
+                contributions.Add(BotContribution(
+                    "TLS",
+                    "Edge TLS fingerprint headers from an untrusted direct peer (possible spoof)",
+                    confidenceOverride: GetParam("spoofed_edge_headers_confidence", 0.3),
+                    weightMultiplier: GetParam("spoofed_edge_headers_weight", 1.2),
+                    botType: BotType.Scraper.ToString()));
+            }
+
             // Check if TLS connection (https://)
             // Behind a reverse proxy (e.g. Caddy, nginx), the backend connection is plain HTTP.
             // Check X-Forwarded-Proto header first for the original client scheme.
@@ -144,17 +172,22 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
             // docs/REVERSE_PROXY_SIGNALS.md) and the contributor's legacy nginx-shaped name
             // (X-TLS-Protocol). Both conventions appear in the wild; reading either keeps the
             // signal flowing regardless of which one the operator configured at the edge.
-            string? protocol = state.HttpContext.Request.Headers["X-Client-TLS-Version"].FirstOrDefault()
-                            ?? state.HttpContext.Request.Headers["X-TLS-Protocol"].FirstOrDefault();
+            // Gated: only read if the immediate peer is trusted.
+            string? protocol = trustHeaders
+                ? (state.HttpContext.Request.Headers["X-Client-TLS-Version"].FirstOrDefault()
+                ?? state.HttpContext.Request.Headers["X-TLS-Protocol"].FirstOrDefault())
+                : null;
             if (!string.IsNullOrEmpty(protocol))
             {
                 state.WriteSignal(SignalKeys.TlsProtocol, protocol);
                 AnalyzeTlsProtocol(protocol, contributions, state);
             }
 
-            // Cipher suite. Same dual-name rule as TLS protocol.
-            string? cipher = state.HttpContext.Request.Headers["X-Client-TLS-Cipher"].FirstOrDefault()
-                          ?? state.HttpContext.Request.Headers["X-TLS-Cipher"].FirstOrDefault();
+            // Cipher suite. Same dual-name rule as TLS protocol. Gated by trust.
+            string? cipher = trustHeaders
+                ? (state.HttpContext.Request.Headers["X-Client-TLS-Cipher"].FirstOrDefault()
+                ?? state.HttpContext.Request.Headers["X-TLS-Cipher"].FirstOrDefault())
+                : null;
             if (!string.IsNullOrEmpty(cipher))
             {
                 state.WriteSignal("tls.cipher_suite", cipher);
@@ -165,10 +198,11 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
             // Caddy ja4 plugin, custom edges). No "known JA4" list yet so this is
             // signal-emit only; downstream consumers (IdentityVectorContributor,
             // LearningTriggers) pick it up via tls.ja4 / tls.ja4_hash.
-            ReadJa4Fingerprint(state.HttpContext, state);
+            // Gated by trust.
+            if (trustHeaders) ReadJa4Fingerprint(state.HttpContext, state);
 
-            // Get JA3 fingerprint from reverse proxy
-            var ja3Hash = GetJa3Fingerprint(state.HttpContext, state);
+            // Get JA3 fingerprint from reverse proxy. Gated by trust.
+            var ja3Hash = trustHeaders ? GetJa3Fingerprint(state.HttpContext, state) : string.Empty;
             if (!string.IsNullOrEmpty(ja3Hash))
             {
                 // Check against known fingerprints
