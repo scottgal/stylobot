@@ -1,0 +1,36 @@
+@model Mostlylucid.BotDetection.UI.Models.ChallengeActionEdit?
+@{ var kind = Model?.Kind ?? "turnstile"; var siteKey = Model?.SiteKey ?? ""; }
+@*
+    Challenge action editor. Captures the challenge implementation
+    (turnstile / captcha / proof-of-work / jschallenge) and, for the two
+    third-party kinds that need it, a site-key reference. The site-key
+    field is conditional -- proof-of-work and jschallenge are
+    self-hosted and need no public key, so we don't render the row at
+    all rather than disabling it (keeps the form payload clean and the
+    a11y surface honest). HTMX swaps this partial into the action-editor
+    slot when the action-kind selector flips to "challenge".
+*@
+<fieldset class="sb-edit-action" data-edit-action-kind="challenge">
+    <legend>Challenge</legend>
+    <label>
+        Kind
+        @* Single-space-separated option attrs (no source-alignment) so the
+           rendered HTML matches the assertion shape used in render tests
+           and consumed by policy-stack-edit.js. *@
+        <select name="action.challenge.kind" data-challenge-kind>
+            <option value="turnstile" selected="@(kind == "turnstile" ? "selected" : null)">Turnstile</option>
+            <option value="captcha" selected="@(kind == "captcha" ? "selected" : null)">CAPTCHA</option>
+            <option value="proof-of-work" selected="@(kind == "proof-of-work" ? "selected" : null)">Proof of work</option>
+            <option value="jschallenge" selected="@(kind == "jschallenge" ? "selected" : null)">JS challenge</option>
+        </select>
+    </label>
+    @if (kind is "turnstile" or "captcha")
+    {
+        <label>
+            Site key reference
+            <input type="text" name="action.challenge.site-key" value="@siteKey"
+                   placeholder="env:STYLOBOT_TURNSTILE_SITE_KEY" />
+            <small>Reference an env var, key vault entry, or a literal site key.</small>
+        </label>
+    }
+</fieldset>

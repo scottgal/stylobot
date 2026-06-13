@@ -39,16 +39,17 @@ internal static class PolicyActionEditorViewPaths
     /// </summary>
     /// <param name="kind">
     ///     Lower-case action kind (<c>allow</c>, <c>observe</c>, <c>block</c>,
-    ///     <c>tag</c> today; <c>challenge</c> / <c>ratelimit</c> /
-    ///     <c>throttle</c> arrive in Tasks 5-7).
+    ///     <c>tag</c>, <c>challenge</c> today; <c>ratelimit</c> /
+    ///     <c>throttle</c> arrive in Tasks 6-7).
     /// </param>
     public static string? ForKind(string kind) => kind switch
     {
-        "allow"   => ViewRoot + "_EditAction_Allow.cshtml",
-        "observe" => ViewRoot + "_EditAction_Observe.cshtml",
-        "block"   => ViewRoot + "_EditAction_Block.cshtml",
-        "tag"     => ViewRoot + "_EditAction_Tag.cshtml",
-        // Tasks 5-7 add challenge / ratelimit / throttle here.
+        "allow"     => ViewRoot + "_EditAction_Allow.cshtml",
+        "observe"   => ViewRoot + "_EditAction_Observe.cshtml",
+        "block"     => ViewRoot + "_EditAction_Block.cshtml",
+        "tag"       => ViewRoot + "_EditAction_Tag.cshtml",
+        "challenge" => ViewRoot + "_EditAction_Challenge.cshtml",
+        // Tasks 6-7 add ratelimit / throttle here.
         _ => null
     };
 
@@ -73,9 +74,18 @@ internal static class PolicyActionEditorViewPaths
     public static object? BuildActionEditorModel(string kind, IQueryCollection query) => kind switch
     {
         "tag" => new TagActionEdit(query["name"].ToString() ?? string.Empty),
+        "challenge" => new ChallengeActionEdit(
+            // Defaulting to "turnstile" keeps the partial's <select> first
+            // option aligned with the model when the editor hasn't seeded
+            // a value (e.g. operator just flipped action-kind to
+            // "challenge" with no prior state). The site-key sub-field
+            // only renders for turnstile/captcha; the partial owns that
+            // branch so the model carries the raw value either way.
+            Kind: query["challengeKind"].ToString() is var k && !string.IsNullOrEmpty(k) ? k : "turnstile",
+            SiteKey: query["siteKey"].ToString()),
         // Zero-field kinds (allow / observe / block) have no @model
-        // directive on their partial. Tasks 5-7 add challenge /
-        // ratelimit / throttle cases here.
+        // directive on their partial. Tasks 6-7 add ratelimit / throttle
+        // cases here.
         _ => null
     };
 }

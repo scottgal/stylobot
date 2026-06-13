@@ -101,6 +101,57 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
         Assert.Contains("value=\"\"", html);
     }
 
+    /// <summary>
+    ///     Task 5 -- Challenge partial renders the kind &lt;select&gt; with
+    ///     the requested option pre-selected, and renders the site-key
+    ///     sub-field ONLY for the two third-party kinds (turnstile, captcha).
+    ///     proof-of-work and jschallenge are self-hosted and must not emit a
+    ///     site-key input so the form payload stays clean.
+    /// </summary>
+    [Theory]
+    [InlineData("turnstile",     true,  "site-key")]
+    [InlineData("captcha",       true,  "site-key")]
+    [InlineData("proof-of-work", false, null)]
+    [InlineData("jschallenge",   false, null)]
+    public async Task Challenge_renders_kind_and_optional_subfield(
+        string kind, bool expectSubfield, string? subfieldName)
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync($"/_test/policy-stack-action-editor?kind=challenge&challengeKind={kind}");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-edit-action-kind=\"challenge\"", html);
+        Assert.Contains($"<option value=\"{kind}\" selected", html);
+
+        if (expectSubfield)
+            Assert.Contains($"name=\"action.challenge.{subfieldName}\"", html);
+        else
+            Assert.DoesNotContain("action.challenge.site-key", html);
+    }
+
+    /// <summary>
+    ///     Task 5 -- the <c>?siteKey=</c> query param round-trips into the
+    ///     site-key input's <c>value</c> attribute when the challenge kind
+    ///     actually renders the input (turnstile here). Mirrors the
+    ///     tag-name round-trip assertion above; same lockstep contract
+    ///     between query-string defaults and the partial's seeded state.
+    /// </summary>
+    [Fact]
+    public async Task Challenge_turnstile_round_trips_site_key_into_input_value()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync(
+            "/_test/policy-stack-action-editor?kind=challenge&challengeKind=turnstile&siteKey=env:STYLOBOT_TURNSTILE_SITE_KEY");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("name=\"action.challenge.site-key\"", html);
+        Assert.Contains("value=\"env:STYLOBOT_TURNSTILE_SITE_KEY\"", html);
+    }
+
     private async Task<HttpClient> BuildClientAsync()
     {
         var builder = WebApplication.CreateBuilder();
