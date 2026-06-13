@@ -17,6 +17,23 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// </summary>
 public sealed class PolicyEditPresenter
 {
+    /// <summary>
+    ///     Default <see cref="RateLimitActionEdit.Key"/> when the legacy
+    ///     <see cref="PolicyAction.RateLimit"/> record (which only carries
+    ///     <c>RequestsPerMinute</c>) is widened into the editor model.
+    ///     The richer fields land via the commercial JSONB sidecar later
+    ///     in the traffic-shaping plan; this default keeps the editor
+    ///     useful in the meantime.
+    /// </summary>
+    private const string DefaultRateLimitKey = "fingerprint";
+
+    /// <summary>
+    ///     Default <see cref="RateLimitActionEdit.OverLimitAction"/>
+    ///     surfaced when widening the legacy record. Matches the
+    ///     traffic-shaping spec.
+    /// </summary>
+    private const string DefaultOverLimitAction = "throttle-status";
+
     private readonly IPolicyRuleStore _ruleStore;
 
     public PolicyEditPresenter(IPolicyRuleStore ruleStore)
@@ -37,7 +54,7 @@ public sealed class PolicyEditPresenter
         var rule = await _ruleStore.GetByIdAsync(ruleId, ct).ConfigureAwait(false);
         if (rule is null) return null;
 
-        var (kind, challengeKind, tagName, rpm) = ActionTriple(rule.Action);
+        var (tag, challenge, rateLimit, throttle, kind) = MapAction(rule.Action);
 
         return new PolicyEditRowViewModel(
             RuleId: rule.Id,
@@ -45,9 +62,10 @@ public sealed class PolicyEditPresenter
             Priority: rule.Priority,
             PredicateText: PredicateFormatter.Format(rule.Predicate),
             ActionKind: kind,
-            ChallengeKind: challengeKind,
-            TagName: tagName,
-            RequestsPerMinute: rpm,
+            Tag: tag,
+            Challenge: challenge,
+            RateLimit: rateLimit,
+            Throttle: throttle,
             Mode: rule.Mode,
             Notes: rule.Notes,
             SubmitUrl: $"/api/v1/policies/{rule.Id}",
@@ -67,9 +85,10 @@ public sealed class PolicyEditPresenter
             Priority: 0,
             PredicateText: string.Empty,
             ActionKind: "observe",
-            ChallengeKind: null,
-            TagName: null,
-            RequestsPerMinute: null,
+            Tag: null,
+            Challenge: null,
+            RateLimit: null,
+            Throttle: null,
             Mode: PolicyMode.Draft,
             Notes: string.Empty,
             SubmitUrl: "/api/v1/policies",
@@ -77,15 +96,34 @@ public sealed class PolicyEditPresenter
             CancelUrl: $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(scope)}&tab=effective");
     }
 
-    private static (string kind, string? challenge, string? tagName, int? rpm) ActionTriple(PolicyAction action) =>
-        action switch
-        {
-            RuleAction.Allow => ("allow", null, null, null),
-            RuleAction.Observe => ("observe", null, null, null),
-            RuleAction.Tag t => ("tag", null, t.Name, null),
-            RuleAction.Challenge c => ("challenge", c.Kind, null, null),
-            RuleAction.RateLimit r => ("ratelimit", null, null, r.RequestsPerMinute),
-            RuleAction.Block => ("block", null, null, null),
-            _ => ("observe", null, null, null)
-        };
+    /// <summary>
+    ///     Project a discriminated <see cref="PolicyAction"/> onto the
+    ///     per-kind edit slices on <see cref="PolicyEditRowViewModel"/>.
+    ///     Exactly one slice is non-null on return; the kind string is
+    ///     always set and always lower-case.
+    /// </summary>
+    private static (TagActionEdit? Tag,
+                    ChallengeActionEdit? Challenge,
+                    RateLimitActionEdit? RateLimit,
+                    ThrottleActionEdit? Throttle,
+                    string Kind) MapAction(PolicyAction action) => action switch
+    {
+        RuleAction.Allow         => (null, null, null, null, "allow"),
+        RuleAction.Observe       => (null, null, null, null, "observe"),
+        RuleAction.Block         => (null, null, null, null, "block"),
+        RuleAction.Tag t         => (new TagActionEdit(t.Name), null, null, null, "tag"),
+        RuleAction.Challenge c   => (null, new ChallengeActionEdit(c.Kind), null, null, "challenge"),
+        RuleAction.RateLimit rl  => (null, null,
+            new RateLimitActionEdit(
+                Rate: rl.RequestsPerMinute,
+                Unit: "minute",
+                Key: DefaultRateLimitKey,
+                Burst: null,
+                MitigationTimeoutSeconds: null,
+                OverLimitAction: DefaultOverLimitAction),
+            null, "ratelimit"),
+        RuleAction.Throttle t    => (null, null, null,
+            new ThrottleActionEdit(t.RequestsPerSecond, t.Reason), "throttle"),
+        _ => throw new InvalidOperationException($"Unhandled action kind {action.GetType().Name}")
+    };
 }

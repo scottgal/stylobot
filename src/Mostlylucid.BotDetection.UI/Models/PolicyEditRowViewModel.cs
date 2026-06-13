@@ -12,15 +12,26 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     same commercial mutation API (<c>/api/v1/policies</c>, C3) so a
 ///     gateway running standalone gets a no-op 404 here -- which is the
 ///     correct behaviour for "no commercial control plane present".
+///
+///     <para>
+///         The action-shape carrying fields are per-kind slices
+///         (<see cref="Tag"/>, <see cref="Challenge"/>, <see cref="RateLimit"/>,
+///         <see cref="Throttle"/>): exactly one is non-null on a populated row,
+///         which one depends on <see cref="ActionKind"/>. The traffic-shaping
+///         editor partials dispatch off of these slices; zero-field actions
+///         (<c>allow</c> / <c>observe</c> / <c>block</c>) carry no slice -- the
+///         kind string is enough.
+///     </para>
 /// </summary>
 /// <param name="RuleId">Existing rule id; <c>null</c> when creating a new rule.</param>
 /// <param name="Scope">Scope the rule is authored at.</param>
 /// <param name="Priority">Priority within the scope; lower = higher.</param>
 /// <param name="PredicateText">Canonical text from <see cref="Policies.Predicate.PredicateFormatter.Format"/>.</param>
-/// <param name="ActionKind">Lower-case action kind: <c>"allow" / "observe" / "tag" / "challenge" / "ratelimit" / "block"</c>.</param>
-/// <param name="ChallengeKind">Challenge kind metadata; only relevant when <see cref="ActionKind"/> is <c>"challenge"</c>.</param>
-/// <param name="TagName">Tag name metadata; only relevant when <see cref="ActionKind"/> is <c>"tag"</c>.</param>
-/// <param name="RequestsPerMinute">Rate-limit metadata; only relevant when <see cref="ActionKind"/> is <c>"ratelimit"</c>.</param>
+/// <param name="ActionKind">Lower-case action kind: <c>"allow" / "observe" / "tag" / "challenge" / "ratelimit" / "throttle" / "block"</c>.</param>
+/// <param name="Tag">Populated when <see cref="ActionKind"/> is <c>"tag"</c>.</param>
+/// <param name="Challenge">Populated when <see cref="ActionKind"/> is <c>"challenge"</c>.</param>
+/// <param name="RateLimit">Populated when <see cref="ActionKind"/> is <c>"ratelimit"</c>.</param>
+/// <param name="Throttle">Populated when <see cref="ActionKind"/> is <c>"throttle"</c>.</param>
 /// <param name="Mode">Lifecycle mode for the rule.</param>
 /// <param name="Notes">Operator-authored note string.</param>
 /// <param name="SubmitUrl">URL the form posts/puts to (commercial mutation API).</param>
@@ -38,12 +49,26 @@ public sealed record PolicyEditRowViewModel(
     int Priority,
     string PredicateText,
     string ActionKind,
-    string? ChallengeKind,
-    string? TagName,
-    int? RequestsPerMinute,
+    TagActionEdit? Tag,
+    ChallengeActionEdit? Challenge,
+    RateLimitActionEdit? RateLimit,
+    ThrottleActionEdit? Throttle,
     PolicyMode Mode,
     string Notes,
     string SubmitUrl,
     string HttpMethod,
     string CancelUrl,
-    PolicyBacktestViewModel? Backtest = null);
+    PolicyBacktestViewModel? Backtest = null)
+{
+    // TODO: replaced in Task 8 of traffic-shaping-editor plan -- the existing
+    // _EditAction.cshtml still reads scalar challenge_kind / tag_name /
+    // requests_per_minute fields; once the per-kind partials land in Tasks 3-7
+    // and _EditAction.cshtml becomes a selector + slot (Task 8), drop these.
+    public string? ChallengeKind => Challenge?.Kind;
+
+    // TODO: replaced in Task 8 of traffic-shaping-editor plan
+    public string? TagName => Tag?.Name;
+
+    // TODO: replaced in Task 8 of traffic-shaping-editor plan
+    public int? RequestsPerMinute => RateLimit?.Rate;
+}
