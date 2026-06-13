@@ -177,6 +177,9 @@ public class BotDetectionOptions
     /// </summary>
     public ProxyEnvironmentOptions ProxyEnvironment { get; set; } = new();
 
+    /// <summary>Trusted-proxy gate for edge-injected transport fingerprint headers (G1).</summary>
+    public TransportTrustOptions TransportTrust { get; set; } = new();
+
     /// <summary>
     ///     Startup-time tunnel-enrichment inspector. Samples the first N requests
     ///     after process start, snapshots whether the gateway is behind a tunnel
