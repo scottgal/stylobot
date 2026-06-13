@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Builder;
+
 namespace Mostlylucid.BotDetection.Extensions;
 
 /// <summary>
