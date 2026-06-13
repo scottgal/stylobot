@@ -120,22 +120,25 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
             // preserving the behaviour that existed before this gate was added.
             var trustHeaders = trust?.Trusted ?? true;
 
-            var gatedHeaderPresent =
-                req.Headers.ContainsKey("X-JA3-Hash") || req.Headers.ContainsKey("X-JA3-String") ||
-                req.Headers.ContainsKey("X-JA4") || req.Headers.ContainsKey("X-JA4-Fingerprint") ||
-                req.Headers.ContainsKey("X-JA4-Hash") || req.Headers.ContainsKey("X-Client-TLS-Version") ||
-                req.Headers.ContainsKey("X-TLS-Protocol") || req.Headers.ContainsKey("X-Client-TLS-Cipher") ||
-                req.Headers.ContainsKey("X-TLS-Cipher");
-
-            if (trust is { Trusted: false } && gatedHeaderPresent)
+            if (trust is { Trusted: false })
             {
-                state.WriteSignal(SignalKeys.TransportSpoofedEdgeHeaders, true);
-                contributions.Add(BotContribution(
-                    "TLS",
-                    "Edge TLS fingerprint headers from an untrusted direct peer (possible spoof)",
-                    confidenceOverride: GetParam("spoofed_edge_headers_confidence", 0.3),
-                    weightMultiplier: GetParam("spoofed_edge_headers_weight", 1.2),
-                    botType: BotType.Scraper.ToString()));
+                var gatedHeaderPresent =
+                    req.Headers.ContainsKey("X-JA3-Hash") || req.Headers.ContainsKey("X-JA3-String") ||
+                    req.Headers.ContainsKey("X-JA4") || req.Headers.ContainsKey("X-JA4-Fingerprint") ||
+                    req.Headers.ContainsKey("X-JA4-Hash") || req.Headers.ContainsKey("X-Client-TLS-Version") ||
+                    req.Headers.ContainsKey("X-TLS-Protocol") || req.Headers.ContainsKey("X-Client-TLS-Cipher") ||
+                    req.Headers.ContainsKey("X-TLS-Cipher");
+
+                if (gatedHeaderPresent)
+                {
+                    state.WriteSignal(SignalKeys.TransportSpoofedEdgeHeaders, true);
+                    contributions.Add(BotContribution(
+                        "TLS",
+                        "Edge TLS fingerprint headers from an untrusted direct peer (possible spoof)",
+                        confidenceOverride: GetParam("spoofed_edge_headers_confidence", 0.3),
+                        weightMultiplier: GetParam("spoofed_edge_headers_weight", 1.2),
+                        botType: BotType.Scraper.ToString()));
+                }
             }
 
             // Check if TLS connection (https://)

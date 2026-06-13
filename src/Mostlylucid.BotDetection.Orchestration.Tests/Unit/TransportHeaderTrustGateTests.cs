@@ -108,7 +108,7 @@ public class TransportHeaderTrustGateTests
         });
         var sut = BuildTls(Trust(TransportTrustMode.Auto));
 
-        await sut.ContributeAsync(state);
+        var contributions = await sut.ContributeAsync(state);
 
         Assert.False(
             signals.ContainsKey(SignalKeys.TransportSpoofedEdgeHeaders),
@@ -116,5 +116,6 @@ public class TransportHeaderTrustGateTests
         Assert.True(
             signals.TryGetValue(SignalKeys.TransportHeadersTrusted, out var t) && (bool)t,
             "Loopback peer headers should be marked trusted");
+        Assert.Contains(contributions, c => c.ConfidenceDelta < 0);
     }
 }
