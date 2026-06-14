@@ -780,36 +780,41 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
     /// <summary>
     ///     Writes <see cref="SignalKeys.IdentityDisplayName"/> for a matched fingerprint.
-    ///     Three paths:
-    ///     <list type="number">
-    ///         <item><c>matched.DisplayName</c> is non-empty: write the persisted name
-    ///             directly. Most matches take this path — names are stable.</item>
-    ///         <item><c>matched.DisplayName</c> is empty (row migrated from before the
-    ///             column existed): compose from current signals + lazy-backfill persist
-    ///             (fire-and-forget — don't block the request on the write).</item>
-    ///         <item>Drift score exceeds <c>Match.SignificantDriftEpsilon</c> AND the
-    ///             recomposed name differs from the persisted one: significant behavioural
-    ///             drift, update the persisted name + write the new signal. Per-request
-    ///             <c>DriftEpsilon</c> (0.05) gates the drift-label emission;
-    ///             <c>SignificantDriftEpsilon</c> (0.20, 4x) gates the name update so float
-    ///             noise doesn't churn names.</item>
+    ///     <para>
+    ///     Single path: always call <see cref="FingerprintNameComposer.Compose"/> with the
+    ///     stored <c>matched.DisplayName</c> as <c>previousName</c>. Compose already encodes
+    ///     the correct precedence:
+    ///     </para>
+    ///     <list type="bullet">
+    ///         <item>Priority 1 (<c>ua.bot_name</c>) WINS over any stored name. A self-declared
+    ///             bot UA on the current request is the authoritative per-request identity;
+    ///             the stored name on the matched fingerprint is at best a stale snapshot.
+    ///             This is what fixes the staging Bug 2 stampede where Googlebot/Bytespider/
+    ///             Mastodon UAs all inherited "Chrome on macOS (privacy headers)" from an
+    ///             earlier observation that wrote the wrong stored name.</item>
+    ///         <item>Priority 2 (<c>identity.archetype_name</c> with <c>human-browser</c> kind)
+    ///             likewise overrides a stored name -- the fresh archetype match is newer
+    ///             evidence about what kind of client this is.</item>
+    ///         <item>Priority 3 (<c>ua.family</c> + <c>user_agent.os</c>) overrides a stored
+    ///             name when the family genuinely differs, e.g. an Edge UA hitting a row
+    ///             previously stamped "Chrome on macOS".</item>
+    ///         <item>Priority 4 (no usable signal) yields to <c>previousName</c> via Compose's
+    ///             built-in hysteresis -- the legitimate "don't blank out a known name when
+    ///             this particular request has nothing fresh to upgrade to" case.</item>
     ///     </list>
+    ///     <para>
+    ///     Persist the recomposed name when it differs from the stored one. The previous
+    ///     drift-gated persist (only update on <c>SignificantDriftEpsilon</c> crossings) let
+    ///     wrong names stick forever because the bug-generating writes happened on a single
+    ///     race-lost first request and no later request triggered enough drift to overwrite
+    ///     them. Recompose-on-every-match closes that hole; Compose's hysteresis still
+    ///     guarantees we never overwrite a good stored name with a Priority-4 fallback.
+    ///     </para>
     /// </summary>
     private void EmitDisplayNameSignal(
         BlackboardState state, float[] vector, Fingerprint matched,
         DriftResult? drift)
     {
-        // Path 1: stable persisted name, no significant drift.
-        if (!string.IsNullOrEmpty(matched.DisplayName)
-            && (drift is null || drift.Value.Score <= _options.Match.SignificantDriftEpsilon))
-        {
-            state.WriteSignal(SignalKeys.IdentityDisplayName, matched.DisplayName);
-            return;
-        }
-
-        // Path 2 + 3: compose a fresh name from current signals. Pass matched.DisplayName as
-        // previousName so Compose can keep the existing real name when current signals haven't
-        // yet produced one (matcher runs before UserAgentContributor).
         var freshName = FingerprintNameComposer.Compose(
             state.Signals,
             userAgent: state.UserAgent,
@@ -820,13 +825,14 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (!string.IsNullOrEmpty(freshName))
             state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
 
-        // Persist when: row had no name AND we now have one, OR significant drift produced a
-        // different real name. Hysteresis already keeps the previous name when fresh is null,
-        // so any string-difference means a real upgrade or drift change.
-        var shouldPersist = !string.IsNullOrEmpty(freshName) && (
-            string.IsNullOrEmpty(matched.DisplayName)
-            || (drift is not null && drift.Value.Score > _options.Match.SignificantDriftEpsilon
-                && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal)));
+        // Persist whenever Compose produced something that differs from the stored value.
+        // Compose's hysteresis already keeps the stored name on Priority-4 fresh-is-null
+        // requests, so a string difference here is either a first-time-real-name upgrade or
+        // an authoritative recompose from a now-classified UA / archetype / family. Both must
+        // overwrite the stored row -- the previous drift-gated persist let staging Bug 2's
+        // wrong names stick forever.
+        var shouldPersist = !string.IsNullOrEmpty(freshName)
+            && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal);
         if (shouldPersist)
         {
             // Fire-and-forget. Consistent with other matcher writes that avoid blocking the
