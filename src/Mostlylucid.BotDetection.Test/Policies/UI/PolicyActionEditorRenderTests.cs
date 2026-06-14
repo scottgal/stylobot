@@ -152,6 +152,71 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
         Assert.Contains("value=\"env:STYLOBOT_TURNSTILE_SITE_KEY\"", html);
     }
 
+    /// <summary>
+    ///     Task 6 -- the rate-limit partial is the load-bearing per-action
+    ///     editor. Six fields (rate, unit, key, burst,
+    ///     mitigation-timeout-seconds, over-limit-action) all round-trip
+    ///     from the <c>?rate=&amp;unit=&amp;key=&amp;burst=&amp;mitigation=&amp;over=</c>
+    ///     query into the partial's seeded state. This is the assertion
+    ///     surface policy-stack-edit.js relies on when it re-seeds the
+    ///     editor after a swap; if any of these stop round-tripping the
+    ///     operator-facing edit loop silently drops values.
+    /// </summary>
+    [Fact]
+    public async Task RateLimit_renders_every_field()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync(
+            "/_test/policy-stack-action-editor?kind=ratelimit&rate=10&unit=minute&key=identity&burst=20&mitigation=120&over=block");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-edit-action-kind=\"ratelimit\"", html);
+        Assert.Contains("name=\"action.ratelimit.rate\"", html);
+        Assert.Contains("value=\"10\"", html);
+        Assert.Contains("<option value=\"minute\" selected", html);
+        Assert.Contains("<option value=\"identity\" selected", html);
+        Assert.Contains("name=\"action.ratelimit.burst\"", html);
+        Assert.Contains("value=\"20\"", html);
+        Assert.Contains("name=\"action.ratelimit.mitigation-timeout-seconds\"", html);
+        Assert.Contains("<option value=\"block\" selected", html);
+    }
+
+    /// <summary>
+    ///     Task 6 -- with NO query params the partial falls back to the
+    ///     spec-mandated defaults: rate=6, unit=minute, key=fingerprint,
+    ///     over-limit-action=throttle-status, and the two optional
+    ///     numeric inputs (burst / mitigation-timeout-seconds) render
+    ///     with empty <c>value=""</c>. These defaults match
+    ///     <c>PolicyEditPresenter.DefaultRateLimitKey</c> /
+    ///     <c>DefaultOverLimitAction</c> so the editor doesn't drift from
+    ///     the legacy-widening fallback the presenter uses when projecting
+    ///     a stored <c>PolicyAction.RateLimit</c> with only RPM set.
+    /// </summary>
+    [Fact]
+    public async Task RateLimit_with_no_query_params_renders_spec_defaults()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync("/_test/policy-stack-action-editor?kind=ratelimit");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-edit-action-kind=\"ratelimit\"", html);
+        Assert.Contains("name=\"action.ratelimit.rate\"", html);
+        Assert.Contains("value=\"6\"", html);
+        Assert.Contains("<option value=\"minute\" selected", html);
+        Assert.Contains("<option value=\"fingerprint\" selected", html);
+        Assert.Contains("<option value=\"throttle-status\" selected", html);
+        // Optional numeric inputs round-trip an empty string when the
+        // query param is missing -- no silent default of "0" or a magic
+        // sentinel. Empty means "unset" and the commercial JSONB sidecar
+        // (Task 16) will persist that as null.
+        Assert.Contains("name=\"action.ratelimit.burst\" value=\"\"", html);
+        Assert.Contains("name=\"action.ratelimit.mitigation-timeout-seconds\" value=\"\"", html);
+    }
+
     private async Task<HttpClient> BuildClientAsync()
     {
         var builder = WebApplication.CreateBuilder();

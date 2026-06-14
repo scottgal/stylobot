@@ -1,0 +1,71 @@
+@model Mostlylucid.BotDetection.UI.Models.RateLimitActionEdit?
+@{
+    var rate       = Model?.Rate ?? 6;
+    var unit       = Model?.Unit ?? "minute";
+    var key        = Model?.Key ?? "fingerprint";
+    var burst      = Model?.Burst;
+    var mitigation = Model?.MitigationTimeoutSeconds;
+    var overLimit  = Model?.OverLimitAction ?? "throttle-status";
+}
+@*
+    Rate-limit action editor -- the load-bearing per-action surface
+    operators reach for first. Six fields drive both the runtime bucket
+    (rate / unit / key / burst) and the over-limit policy chain
+    (mitigation-timeout-seconds / over-limit-action). Burst and
+    mitigation-timeout-seconds are optional integers; an empty input
+    means "unset" and round-trips as null through the commercial JSONB
+    sidecar landing in Task 16. Until then, the partial still captures
+    the values so the operator-facing form stays stable across the
+    plan.
+
+    Single-space-separated attributes (no source-alignment): Razor
+    preserves the whitespace verbatim and the render-test regex looks
+    for single space (see Task 5's _EditAction_Challenge.cshtml for
+    the same lesson). Same for the <option> rows below -- one space
+    between attrs, not column-aligned.
+*@
+<fieldset class="sb-edit-action" data-edit-action-kind="ratelimit">
+    <legend>Rate limit</legend>
+    <div class="sb-rl-rate-row">
+        <label>
+            Rate
+            <input type="number" name="action.ratelimit.rate" value="@rate" min="1" required />
+        </label>
+        <label>
+            per
+            <select name="action.ratelimit.unit">
+                <option value="second" selected="@(unit == "second" ? "selected" : null)">second</option>
+                <option value="minute" selected="@(unit == "minute" ? "selected" : null)">minute</option>
+                <option value="hour" selected="@(unit == "hour" ? "selected" : null)">hour</option>
+            </select>
+        </label>
+        <label>
+            keyed by
+            <select name="action.ratelimit.key">
+                <option value="fingerprint" selected="@(key == "fingerprint" ? "selected" : null)">fingerprint</option>
+                <option value="ip" selected="@(key == "ip" ? "selected" : null)">ip</option>
+                <option value="identity" selected="@(key == "identity" ? "selected" : null)">identity</option>
+                <option value="session" selected="@(key == "session" ? "selected" : null)">session</option>
+                <option value="path-template" selected="@(key == "path-template" ? "selected" : null)">path-template</option>
+                <option value="custom-signal" selected="@(key == "custom-signal" ? "selected" : null)">custom signal</option>
+            </select>
+        </label>
+    </div>
+    <label>
+        Burst <small>(allow short spikes above the steady rate)</small>
+        <input type="number" name="action.ratelimit.burst" value="@(burst?.ToString() ?? "")" min="0" />
+    </label>
+    <label>
+        Mitigation timeout (seconds) <small>(how long the bucket stays empty after over-limit)</small>
+        <input type="number" name="action.ratelimit.mitigation-timeout-seconds" value="@(mitigation?.ToString() ?? "")" min="0" />
+    </label>
+    <label>
+        Over-limit action
+        <select name="action.ratelimit.over-limit-action">
+            <option value="throttle-status" selected="@(overLimit == "throttle-status" ? "selected" : null)">throttle (HTTP 429)</option>
+            <option value="throttle-stealth" selected="@(overLimit == "throttle-stealth" ? "selected" : null)">throttle (silent delay)</option>
+            <option value="block" selected="@(overLimit == "block" ? "selected" : null)">block</option>
+            <option value="challenge" selected="@(overLimit == "challenge" ? "selected" : null)">challenge</option>
+        </select>
+    </label>
+</fieldset>

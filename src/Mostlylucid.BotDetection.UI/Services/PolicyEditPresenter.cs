@@ -40,7 +40,13 @@ public sealed class PolicyEditPresenter
     ///         the legacy widening above will surface an unmappable label.
     ///     </para>
     /// </summary>
-    private const string DefaultRateLimitKey = "fingerprint";
+    // `internal` (was `private`) so the action-editor query-string ->
+    // model construction in
+    // <see cref="Mostlylucid.BotDetection.UI.Policies.PolicyActionEditorViewPaths.BuildActionEditorModel"/>
+    // can reuse the same default literal without re-declaring it. Same
+    // string in two places is the duplication smell `feedback_no_duplication`
+    // calls out.
+    internal const string DefaultRateLimitKey = "fingerprint";
 
     /// <summary>
     ///     Default <see cref="RateLimitActionEdit.OverLimitAction"/>
@@ -57,7 +63,10 @@ public sealed class PolicyEditPresenter
     ///         pass-through here.
     ///     </para>
     /// </summary>
-    private const string DefaultOverLimitAction = "throttle-status";
+    // `internal` (was `private`) -- same reuse rationale as
+    // <see cref="DefaultRateLimitKey"/>: the action-editor model builder
+    // reaches in here so the spec default lives in exactly one place.
+    internal const string DefaultOverLimitAction = "throttle-status";
 
     private readonly IPolicyRuleStore _ruleStore;
 

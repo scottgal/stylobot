@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Policies;
 
@@ -39,8 +40,8 @@ internal static class PolicyActionEditorViewPaths
     /// </summary>
     /// <param name="kind">
     ///     Lower-case action kind (<c>allow</c>, <c>observe</c>, <c>block</c>,
-    ///     <c>tag</c>, <c>challenge</c> today; <c>ratelimit</c> /
-    ///     <c>throttle</c> arrive in Tasks 6-7).
+    ///     <c>tag</c>, <c>challenge</c>, <c>ratelimit</c> today;
+    ///     <c>throttle</c> arrives in Task 7).
     /// </param>
     public static string? ForKind(string kind) => kind switch
     {
@@ -49,7 +50,8 @@ internal static class PolicyActionEditorViewPaths
         "block"     => ViewRoot + "_EditAction_Block.cshtml",
         "tag"       => ViewRoot + "_EditAction_Tag.cshtml",
         "challenge" => ViewRoot + "_EditAction_Challenge.cshtml",
-        // Tasks 6-7 add ratelimit / throttle here.
+        "ratelimit" => ViewRoot + "_EditAction_RateLimit.cshtml",
+        // Task 7 adds throttle here.
         _ => null
     };
 
@@ -83,9 +85,24 @@ internal static class PolicyActionEditorViewPaths
             // branch so the model carries the raw value either way.
             Kind: query["challengeKind"].ToString() is var k && !string.IsNullOrEmpty(k) ? k : "turnstile",
             SiteKey: query["siteKey"].ToString()),
+        "ratelimit" => new RateLimitActionEdit(
+            // Defaults mirror the spec table:
+            //   rate = 6 / minute, key = fingerprint,
+            //   over-limit = throttle-status, burst/mitigation = null.
+            // The two string defaults (Key / OverLimitAction) reuse the
+            // const literals on PolicyEditPresenter -- same string in
+            // two places is the duplication smell `feedback_no_duplication`
+            // calls out, and the presenter's legacy widening (when the
+            // stored PolicyAction.RateLimit only carries RequestsPerMinute)
+            // already canonicalised the values there.
+            Rate: int.TryParse(query["rate"], out var r) ? r : 6,
+            Unit: query["unit"].ToString() is var u && !string.IsNullOrEmpty(u) ? u : "minute",
+            Key:  query["key"].ToString()  is var k2 && !string.IsNullOrEmpty(k2) ? k2 : PolicyEditPresenter.DefaultRateLimitKey,
+            Burst: int.TryParse(query["burst"], out var b) ? b : null,
+            MitigationTimeoutSeconds: int.TryParse(query["mitigation"], out var mt) ? mt : null,
+            OverLimitAction: query["over"].ToString() is var o && !string.IsNullOrEmpty(o) ? o : PolicyEditPresenter.DefaultOverLimitAction),
         // Zero-field kinds (allow / observe / block) have no @model
-        // directive on their partial. Tasks 6-7 add ratelimit / throttle
-        // cases here.
+        // directive on their partial. Task 7 adds throttle here.
         _ => null
     };
 }
