@@ -1174,6 +1174,17 @@ public static class SignalKeys
     /// <summary>Boolean: true if request uses any streaming transport (WebSocket, SSE, or SignalR)</summary>
     public const string TransportIsStreaming = "transport.is_streaming";
 
+    // ===== Transport header trust (G1) =====
+
+    /// <summary>bool: whether edge transport fingerprint headers were trusted for this request.</summary>
+    public const string TransportHeadersTrusted = "transport.headers_trusted";
+
+    /// <summary>string: reason for the trust verdict (AllowlistedPeer, PrivatePeer, DetectedTopology, NotAllowlisted, UntrustedPublicPeer, GateOff).</summary>
+    public const string TransportTrustReason = "transport.trust_reason";
+
+    /// <summary>bool: an untrusted direct peer sent edge transport fingerprint headers (possible spoof).</summary>
+    public const string TransportSpoofedEdgeHeaders = "transport.spoofed_edge_headers";
+
     // ==========================================
     // Stream abuse detection signals
     // Set by StreamAbuseContributor for detecting attackers hiding behind streaming traffic

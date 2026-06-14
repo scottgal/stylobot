@@ -57,6 +57,9 @@ emits:
       type: int
     - key: tcp.os_hint
       type: string
+    - key: transport.spoofed_edge_headers
+      type: bool
+      description: Untrusted peer sent edge fingerprint headers (possible spoof)
   on_failure:
     - detector.tcpipfingerprint.failed
 
@@ -124,6 +127,9 @@ defaults:
     connection_missing_weight: 0.7
     connection_close_confidence: 0.1
     connection_close_weight: 0.6
+    # Spoofed edge-header detection
+    spoofed_edge_headers_confidence: 0.3
+    spoofed_edge_headers_weight: 1.2
 
 tags:
   - tcp-ip

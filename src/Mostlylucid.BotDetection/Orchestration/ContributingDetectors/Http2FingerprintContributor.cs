@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.Proxy;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -99,6 +100,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
 
     private readonly ILogger<Http2FingerprintContributor> _logger;
     private readonly DeploymentNormTracker _norms;
+    private readonly ITransportHeaderTrust? _transportTrust;
     private readonly int _populationMinSamples;
     private readonly double _populationRateThreshold;
     private readonly double _http1PenaltyConfidence;
@@ -113,11 +115,13 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
     public Http2FingerprintContributor(
         ILogger<Http2FingerprintContributor> logger,
         IDetectorConfigProvider configProvider,
-        DeploymentNormTracker norms)
+        DeploymentNormTracker norms,
+        ITransportHeaderTrust? transportTrust = null)
         : base(configProvider)
     {
         _logger = logger;
         _norms = norms;
+        _transportTrust = transportTrust;
         _populationMinSamples = GetParam("population_min_samples", 20);
         _populationRateThreshold = GetParam("population_rate_threshold", 0.7);
         _http1PenaltyConfidence = GetParam("http1_penalty_confidence", 0.1);
@@ -143,13 +147,41 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
 
         try
         {
+            var req = state.HttpContext.Request;
+            var trust = _transportTrust?.Evaluate(state);
+            // When no trust service is wired (legacy / test) default to trusting headers,
+            // preserving the behaviour that existed before this gate was added.
+            var trustHeaders = trust?.Trusted ?? true;
+
+            if (trust is { Trusted: false })
+            {
+                var gatedHeaderPresent =
+                    req.Headers.ContainsKey("X-HTTP-Protocol") || req.Headers.ContainsKey("X-HTTP2-Settings") ||
+                    req.Headers.ContainsKey("X-HTTP2-Stream-Priority") || req.Headers.ContainsKey("X-HTTP2-Window-Updates") ||
+                    req.Headers.ContainsKey("X-HTTP2-Push-Enabled") || req.Headers.ContainsKey("X-HTTP2-Preface-Valid") ||
+                    req.Headers.ContainsKey("X-HTTP2-Pseudoheader-Order");
+
+                if (gatedHeaderPresent)
+                {
+                    state.WriteSignal(SignalKeys.TransportSpoofedEdgeHeaders, true);
+                    contributions.Add(BotContribution(
+                        "HTTP2",
+                        "Edge HTTP/2 fingerprint headers from an untrusted direct peer (possible spoof)",
+                        confidenceOverride: GetParam("spoofed_edge_headers_confidence", 0.3),
+                        weightMultiplier: GetParam("spoofed_edge_headers_weight", 1.2),
+                        botType: BotType.Scraper.ToString()));
+                }
+            }
+
             // Behind a reverse proxy (e.g. Caddy, nginx), the backend connection is typically HTTP/1.1.
             // Check X-HTTP-Protocol header first for the original client protocol.
-            var rawProtocol = state.HttpContext.Request.Protocol;
+            // Only trust this header if the immediate peer is a trusted proxy.
+            var rawProtocol = req.Protocol;
             var protocol = rawProtocol;
             var behindProxy = false;
 
-            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP-Protocol", out var originalProtocol)
+            if (trustHeaders
+                && req.Headers.TryGetValue("X-HTTP-Protocol", out var originalProtocol)
                 && !string.IsNullOrEmpty(originalProtocol.ToString()))
             {
                 protocol = originalProtocol.ToString();
@@ -209,8 +241,9 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                 _norms.Record(DeploymentNormTracker.Features.Http2, uaFamily, present: true);
             }
 
-            // HTTP/2 SETTINGS fingerprinting (requires reverse proxy to capture and forward)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP2-Settings", out var settingsHeader))
+            // HTTP/2 SETTINGS fingerprinting (requires reverse proxy to capture and forward).
+            // Gated: only read if the immediate peer is trusted.
+            if (trustHeaders && req.Headers.TryGetValue("X-HTTP2-Settings", out var settingsHeader))
             {
                 var settings = settingsHeader.ToString();
                 state.WriteSignal("h2.settings_fingerprint", settings);
@@ -245,9 +278,10 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                 }
             }
 
-            // Analyze pseudoheader order (:method, :path, :scheme, :authority)
-            // Browsers have consistent ordering, bots may vary
-            var pseudoHeaderOrder = ExtractPseudoHeaderOrder(state.HttpContext);
+            // Analyze pseudoheader order (:method, :path, :scheme, :authority).
+            // Browsers have consistent ordering, bots may vary.
+            // X-HTTP2-Pseudoheader-Order is a proxy-injected header, so reading it is gated by trust.
+            var pseudoHeaderOrder = ExtractPseudoHeaderOrder(state.HttpContext, trustHeaders);
             if (!string.IsNullOrEmpty(pseudoHeaderOrder))
             {
                 state.WriteSignal("h2.pseudoheader_order", pseudoHeaderOrder);
@@ -263,8 +297,8 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                         weightMultiplier: 1.2));
             }
 
-            // Check for HTTP/2 stream priority usage
-            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP2-Stream-Priority", out var priority))
+            // Check for HTTP/2 stream priority usage. Gated by trust.
+            if (trustHeaders && req.Headers.TryGetValue("X-HTTP2-Stream-Priority", out var priority))
             {
                 state.WriteSignal("h2.stream_priority", priority.ToString());
                 state.WriteSignal("h2.uses_priority", true);
@@ -280,8 +314,8 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                     weightMultiplier: 0.6));
             }
 
-            // Check for WINDOW_UPDATE behavior patterns
-            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP2-Window-Updates", out var windowUpdates))
+            // Check for WINDOW_UPDATE behavior patterns. Gated by trust.
+            if (trustHeaders && req.Headers.TryGetValue("X-HTTP2-Window-Updates", out var windowUpdates))
             {
                 var updates = windowUpdates.ToString();
                 state.WriteSignal("h2.window_update_pattern", updates);
@@ -301,8 +335,8 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                 }
             }
 
-            // Check for HTTP/2 Push support/usage
-            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP2-Push-Enabled", out var pushEnabled))
+            // Check for HTTP/2 Push support/usage. Gated by trust.
+            if (trustHeaders && req.Headers.TryGetValue("X-HTTP2-Push-Enabled", out var pushEnabled))
             {
                 var supportsPush = pushEnabled == "1";
                 state.WriteSignal("h2.push_enabled", supportsPush);
@@ -316,8 +350,8 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                         weightMultiplier: 0.7));
             }
 
-            // Analyze connection preface
-            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP2-Preface-Valid", out var prefaceValid))
+            // Analyze connection preface. Gated by trust.
+            if (trustHeaders && req.Headers.TryGetValue("X-HTTP2-Preface-Valid", out var prefaceValid))
             {
                 var valid = prefaceValid == "1";
                 state.WriteSignal("h2.preface_valid", valid);
@@ -359,13 +393,15 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
         return null;
     }
 
-    private string ExtractPseudoHeaderOrder(HttpContext context)
+    private string ExtractPseudoHeaderOrder(HttpContext context, bool trustHeaders)
     {
         // In HTTP/2, pseudoheaders start with ":"
         // Note: ASP.NET Core doesn't expose raw HTTP/2 frames directly
-        // This would need to be captured by reverse proxy and passed via header
+        // This would need to be captured by reverse proxy and passed via header.
+        // X-HTTP2-Pseudoheader-Order is proxy-injected, so only read it when the peer is trusted.
 
-        if (context.Request.Headers.TryGetValue("X-HTTP2-Pseudoheader-Order", out var order)) return order.ToString();
+        if (trustHeaders && context.Request.Headers.TryGetValue("X-HTTP2-Pseudoheader-Order", out var order))
+            return order.ToString();
 
         // Fallback: infer from standard headers presence
         var parts = new List<string>();
