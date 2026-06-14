@@ -69,8 +69,31 @@ namespace Mostlylucid.BotDetection.Api;
 // Dashboard read surface (Api references UI today for these models; persistence extraction
 // would let these move to Dashboard.Persistence — see plan doc 2026-05-17-extract-dashboard-
 // persistence.md).
+// DashboardDetectorContribution + Dictionary<string,object> + JsonElement are the nested
+// shapes inside DashboardDetectionEvent that broke /api/v1/detections responses on the
+// AOT-published gateway: source-gen could not synthesise a JsonTypeInfo for them at
+// publish time (warning SYSLIB1030) and STJ threw NotSupportedException at runtime for
+// every detection that carried non-string signal values, which the website's REST-mode
+// dashboard then rendered as empty "No detection signals recorded" / "No analysis
+// available yet" panels.
 [JsonSerializable(typeof(DashboardSignatureEvent))]
 [JsonSerializable(typeof(DashboardDetectionEvent))]
+[JsonSerializable(typeof(DashboardDetectorContribution))]
+[JsonSerializable(typeof(Dictionary<string, DashboardDetectorContribution>))]
+[JsonSerializable(typeof(Dictionary<string, object>))]
+[JsonSerializable(typeof(System.Text.Json.JsonElement))]
+[JsonSerializable(typeof(List<string>))]
+// ImportantSignals values arrive at the response path as JsonElement boxes
+// when the gateway reads them out of Postgres, and as raw primitives when
+// the gateway synthesises a detection from SignatureAggregate in the cache
+// fast-path. Registering both the JsonElement and the raw primitive shapes
+// keeps the polymorphic Dictionary<string,object> serialization AOT-safe
+// regardless of which side of the cache produced the row.
+[JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(double))]
+[JsonSerializable(typeof(long))]
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(DashboardSummary))]
 [JsonSerializable(typeof(DashboardTimeSeriesPoint))]
 [JsonSerializable(typeof(DashboardCountryStats))]
