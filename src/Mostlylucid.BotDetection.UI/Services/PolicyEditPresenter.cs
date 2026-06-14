@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 
 // Same alias dance PolicyStackPresenter uses: the legacy enum at the parent
@@ -69,10 +71,17 @@ public sealed class PolicyEditPresenter
     internal const string DefaultOverLimitAction = "throttle-status";
 
     private readonly IPolicyRuleStore _ruleStore;
+    private readonly IOptions<PolicyEditTimingsOptions> _timings;
 
-    public PolicyEditPresenter(IPolicyRuleStore ruleStore)
+    public PolicyEditPresenter(
+        IPolicyRuleStore ruleStore,
+        IOptions<PolicyEditTimingsOptions>? timings = null)
     {
         _ruleStore = ruleStore;
+        // Composition-light hosts (tests, AOT bundles) may skip binding the
+        // timings options; fall back to the FOSS-literal defaults so the
+        // presenter is always self-sufficient.
+        _timings = timings ?? Microsoft.Extensions.Options.Options.Create(new PolicyEditTimingsOptions());
     }
 
     /// <summary>
@@ -90,6 +99,7 @@ public sealed class PolicyEditPresenter
 
         var (tag, challenge, rateLimit, throttle, kind) = MapAction(rule.Action);
 
+        var timings = _timings.Value;
         return new PolicyEditRowViewModel(
             RuleId: rule.Id,
             Scope: rule.Scope,
@@ -104,7 +114,10 @@ public sealed class PolicyEditPresenter
             Notes: rule.Notes,
             SubmitUrl: $"/api/v1/policies/{rule.Id}",
             HttpMethod: "PUT",
-            CancelUrl: $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(rule.Scope)}&tab=effective");
+            CancelUrl: $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(rule.Scope)}&tab=effective",
+            Backtest: null,
+            ParseDebounceMs: timings.ParseDebounceMs,
+            BacktestDebounceMs: timings.BacktestDebounceMs);
     }
 
     /// <summary>
@@ -113,6 +126,7 @@ public sealed class PolicyEditPresenter
     /// </summary>
     public PolicyEditRowViewModel BuildForNewRule(PolicyScope scope)
     {
+        var timings = _timings.Value;
         return new PolicyEditRowViewModel(
             RuleId: null,
             Scope: scope,
@@ -127,7 +141,10 @@ public sealed class PolicyEditPresenter
             Notes: string.Empty,
             SubmitUrl: "/api/v1/policies",
             HttpMethod: "POST",
-            CancelUrl: $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(scope)}&tab=effective");
+            CancelUrl: $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(scope)}&tab=effective",
+            Backtest: null,
+            ParseDebounceMs: timings.ParseDebounceMs,
+            BacktestDebounceMs: timings.BacktestDebounceMs);
     }
 
     /// <summary>

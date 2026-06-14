@@ -298,6 +298,12 @@ public static class StyloBotDashboardServiceExtensions
         // (/api/v1/policies, C3); this presenter just shapes the existing
         // rule (or empty defaults) into the edit-row view model.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyEditPresenter>();
+        // Editor debounce timings carried to the JS via data-* attributes on
+        // the edit-row article. Defaults match the historical FOSS literals
+        // (80ms parse, 500ms backtest); commercial widens these via
+        // Configure<PolicyEditTimingsOptions> backed by PolicyStackEditorOptions
+        // so an operator override on the wider class flows through to the JS.
+        services.AddOptions<Mostlylucid.BotDetection.UI.Configuration.PolicyEditTimingsOptions>();
 
         // Task 18: policy-stack edit gate. SbPolicyStackViewComponent reads
         // this to decide whether to render edit affordances (pencil, drag

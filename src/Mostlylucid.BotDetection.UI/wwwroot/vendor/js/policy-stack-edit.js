@@ -41,6 +41,14 @@
 
         if (!expr || !chipPane || !validation || !saveBtn || !acList || !form) return;
 
+        // Task 21 -- debounce timings ride on data-* attributes so commercial
+        // can override via PolicyStackEditorOptions without touching the JS.
+        // parseInt('', 10) => NaN; NaN || <fallback> => fallback, so a FOSS
+        // standalone render (where the attribute is empty because no
+        // PolicyEditPresenter populated it) keeps the legacy literals.
+        var parseDebounceMs = parseInt(article.dataset.parseDebounceMs, 10) || 80;
+        var backtestDebounceMs = parseInt(article.dataset.backtestDebounceMs, 10) || 500;
+
         var ast = null;
         var lastGoodAst = null;
 
@@ -74,8 +82,9 @@
         // Initial parse from the textarea seed.
         runParse(expr.value);
 
-        // Live re-parse on every keystroke (80ms debounce).
-        expr.addEventListener('input', debounce(function () { runParse(expr.value); }, 80));
+        // Live re-parse on every keystroke (debounce from server-rendered
+        // data-parse-debounce-ms; FOSS-fallback 80ms).
+        expr.addEventListener('input', debounce(function () { runParse(expr.value); }, parseDebounceMs));
         expr.addEventListener('keydown', onExpressionKey);
         expr.addEventListener('keyup', maybeShowAutocomplete);
         expr.addEventListener('click', maybeShowAutocomplete);
@@ -127,7 +136,10 @@
             });
         }
 
-        // C8 backtest -- 500ms debounced POST to /dashboard/policystack/backtest.
+        // C8 backtest -- debounced POST to /dashboard/policystack/backtest.
+        // Debounce comes from server-rendered data-backtest-debounce-ms
+        // (commercial PolicyStackEditorOptions.BacktestDebounceMs);
+        // FOSS-fallback 500ms when the attribute is unset.
         // The scheduler is held on closure-local state so a fast typist
         // collapses the burst into a single request. We don't queue an
         // initial request before the first successful parse -- the slot
@@ -136,7 +148,7 @@
         var backtestTimer = null;
         function scheduleBacktest(text) {
             if (backtestTimer) clearTimeout(backtestTimer);
-            backtestTimer = setTimeout(function () { runBacktest(text); }, 500);
+            backtestTimer = setTimeout(function () { runBacktest(text); }, backtestDebounceMs);
         }
 
         function runBacktest(text) {
@@ -290,7 +302,10 @@
             valEl.value = formatValueForChipInput(term.value);
 
             [facetEl, valEl].forEach(function (el) {
-                el.addEventListener('input', debounce(rebuildExpressionFromChips, 80));
+                // Same parse-debounce as the textarea -- chip rebuild flows
+                // through runParse() so the operator gets one POST per burst
+                // regardless of which pane they're editing.
+                el.addEventListener('input', debounce(rebuildExpressionFromChips, parseDebounceMs));
             });
             opEl.addEventListener('change', rebuildExpressionFromChips);
 

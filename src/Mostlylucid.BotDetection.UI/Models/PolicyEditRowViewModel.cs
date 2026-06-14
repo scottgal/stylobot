@@ -43,6 +43,22 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     <c>/dashboard/policystack/backtest</c> 500ms after each successful
 ///     parse and outerHTML-swaps the panel with a populated copy.
 /// </param>
+/// <param name="ParseDebounceMs">
+///     Optional override for the parse-debounce window (milliseconds) the
+///     <c>policy-stack-edit.js</c> driver waits after the last keystroke
+///     before POSTing to <c>/dashboard/policystack/parse</c>. Emitted on
+///     the edit-row article as <c>data-parse-debounce-ms</c>; the JS reads
+///     it with a literal fallback so a FOSS standalone render (where no
+///     commercial options class binds the value) keeps the current
+///     behaviour. Commercial wires this from
+///     <c>PolicyStackEditorOptions.ParseDebounceMs</c>.
+/// </param>
+/// <param name="BacktestDebounceMs">
+///     Optional override for the backtest-debounce window (milliseconds)
+///     the JS waits after a successful parse before re-running the C8
+///     projection. Emitted as <c>data-backtest-debounce-ms</c> with the
+///     same FOSS-fallback semantics as <see cref="ParseDebounceMs"/>.
+/// </param>
 public sealed record PolicyEditRowViewModel(
     Guid? RuleId,
     PolicyScope Scope,
@@ -58,4 +74,6 @@ public sealed record PolicyEditRowViewModel(
     string SubmitUrl,
     string HttpMethod,
     string CancelUrl,
-    PolicyBacktestViewModel? Backtest = null);
+    PolicyBacktestViewModel? Backtest = null,
+    int? ParseDebounceMs = null,
+    int? BacktestDebounceMs = null);
