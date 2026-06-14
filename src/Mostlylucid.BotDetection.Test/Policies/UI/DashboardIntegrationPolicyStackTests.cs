@@ -111,11 +111,14 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         // Static source assertion: the dashboard-endpoint-policy class lives
         // on the wrapper div in _EndpointDetail.cshtml itself, so a
         // refactor that strips it would break this guard before any HTML
-        // test can catch it.
+        // test can catch it. The endpoint-detail surface uses the compact
+        // StatusBadge embed -- the full rule editor lives on
+        // /dashboard/policies (see commit 3d3cdc91); the detail view only
+        // needs the one-line "N rules effective here" indicator.
         var source = File.ReadAllText(LocatePartial("_EndpointDetail.cshtml"));
         Assert.Contains("dashboard-endpoint-policy", source);
         Assert.Contains("SbPolicyStack", source);
-        Assert.Contains("PolicyStackEmbed.Full", source);
+        Assert.Contains("PolicyStackEmbed.StatusBadge", source);
     }
 
     [Fact]
@@ -128,12 +131,17 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
     }
 
     [Fact]
-    public void SignatureDetail_partial_source_uses_effective_only_and_locked()
+    public void SignatureDetail_partial_source_uses_status_badge_embed()
     {
+        // The signature-detail surface uses the compact StatusBadge embed --
+        // the full rule editor lives on /dashboard/policies (see commit
+        // 3d3cdc91); the detail view only needs the one-line "N rules
+        // effective here" indicator. The lockedFingerprint explainer that
+        // EffectiveOnly carried is unused here because StatusBadge has no
+        // expandable rule rows.
         var source = File.ReadAllText(LocatePartial("_SignatureDetail.cshtml"));
         Assert.Contains("dashboard-signature-policy", source);
-        Assert.Contains("PolicyStackEmbed.EffectiveOnly", source);
-        Assert.Contains("lockedFingerprint = true", source);
+        Assert.Contains("PolicyStackEmbed.StatusBadge", source);
     }
 
     [Fact]
@@ -145,10 +153,14 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
     }
 
     [Fact]
-    public void InvestigatePolicy_partial_source_uses_full_embed()
+    public void InvestigatePolicy_partial_source_uses_status_badge_embed()
     {
+        // The investigate-policy tab uses the compact StatusBadge embed --
+        // the full rule editor lives on /dashboard/policies (see commit
+        // 3d3cdc91); the investigation surface only needs the one-line
+        // "N rules effective here" indicator.
         var source = File.ReadAllText(LocatePartial("_InvestigatePolicy.cshtml"));
-        Assert.Contains("PolicyStackEmbed.Full", source);
+        Assert.Contains("PolicyStackEmbed.StatusBadge", source);
         Assert.Contains("SbPolicyStack", source);
         // Bespoke legacy rendering is gone -- no more per-BotType policy cards.
         Assert.DoesNotContain("BotType &rarr; policy", source);
