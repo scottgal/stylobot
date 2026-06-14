@@ -115,8 +115,13 @@ public sealed class SbMeterTableTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Description_renders_as_name_cell_title_attribute()
+    public async Task Description_renders_as_visible_subtitle()
     {
+        // Per commit 33aa8337 (YAML meter catalog with human labels +
+        // descriptions): the description is now shown as a visible
+        // <p class="sb-meter-table__name-desc"> subtitle below the meter
+        // name so the operator sees it without hovering. The previous
+        // title= attribute would have hidden it behind a hover state.
         var rows = new[]
         {
             new MeterTableRowViewModel(
@@ -124,7 +129,8 @@ public sealed class SbMeterTableTests : IAsyncDisposable
                 Description: "my description")
         };
         var html = await RenderAsync(new MeterTableViewModel("Meters", rows));
-        Assert.Contains("title=\"my description\"", html);
+        Assert.Contains("sb-meter-table__name-desc", html);
+        Assert.Contains("my description", html);
     }
 
     [Fact]
