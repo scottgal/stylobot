@@ -8,18 +8,28 @@ namespace Mostlylucid.BotDetection.Test.Policies.Support;
 ///     policy-test class) can use the same primitives instead of each test
 ///     file re-inventing them.
 ///
-///     The two wildcard baseline seed YAMLs added in 54b41133
-///     (<c>wildcard-default-allow-human.yaml</c> + <c>wildcard-default-block-confirmed-bot.yaml</c>)
-///     load via <see cref="YamlPolicyRuleStore.FromEmbeddedResources"/> at
-///     boot. Tests that asserted exact rule counts pre-dated those seeds
-///     and broke when they leaked in. These two stores let those tests
-///     run against either a strictly-empty corpus or the legacy seed
-///     trio (domain Allow + subdomain Challenge + endpoint Block).
+///     Wildcard-scope baseline seed YAMLs load via
+///     <see cref="YamlPolicyRuleStore.FromEmbeddedResources"/> at boot.
+///     Originally that was just the two added in 54b41133
+///     (<c>wildcard-default-allow-human.yaml</c> +
+///     <c>wildcard-default-block-confirmed-bot.yaml</c>); commit
+///     <c>5dfe9f57</c> added <c>wildcard-allow-stylobot-internal.yaml</c>.
+///     Tests that assert exact rule counts pre-date those seeds and break
+///     when any leak in. The filter intentionally matches every
+///     <c>wildcard-*.yaml</c> seed -- one prefix, every seed dropped --
+///     so adding a new wildcard baseline doesn't require touching the
+///     test infrastructure again. These two stores let those tests run
+///     against either a strictly-empty corpus or the legacy seed trio
+///     (domain Allow + subdomain Challenge + endpoint Block).
 /// </summary>
 internal static class TestPolicyRuleStoreConstants
 {
     public const string SeedPrefix = "Mostlylucid.BotDetection.Policies.Rules.SeedRules.";
-    public const string WildcardSeedTag = "wildcard-default-";
+    // Matches every wildcard-* seed YAML, not just wildcard-default-*. New
+    // wildcard baselines (e.g. wildcard-allow-stylobot-internal.yaml from
+    // commit 5dfe9f57) get filtered automatically without churning the
+    // test-support code on each addition.
+    public const string WildcardSeedTag = "wildcard-";
 }
 
 /// <summary>
