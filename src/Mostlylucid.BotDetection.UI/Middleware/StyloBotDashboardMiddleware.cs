@@ -618,6 +618,19 @@ public class StyloBotDashboardMiddleware
                 await ServePolicyStackActionEditorAsync(context);
                 break;
 
+            // Traffic-shaping plan Task 9 -- inline scope-picker fragment.
+            // Renders the existing SbScopePicker view component
+            // (Default.cshtml) so _EditRow + Apply Template flows can swap a
+            // fresh picker into the form without re-rendering the whole row.
+            // The plan originally called for a new SbPolicyScopePicker
+            // component but SbScopePicker already covers the composite-scope
+            // axes (Host / Method / Geo / Identity); creating a parallel
+            // component would violate the no-duplication rule. The multi-row
+            // mode for Apply Template lands in Task 10.
+            case "policystack/scope-picker":
+                await ServePolicyStackScopePickerAsync(context);
+                break;
+
             // C8 -- backtest projection. POST body is JSON
             // { predicate: "text", actionKind: "block", window: "24h" }.
             // Returns the rendered _BacktestPanel.cshtml partial as
@@ -3468,6 +3481,65 @@ public class StyloBotDashboardMiddleware
                     ?? new object();
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             viewPath, model, context);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     Traffic-shaping plan Task 9 --
+    ///     <c>GET /dashboard/policystack/scope-picker?mode=inline&amp;scope=&lt;encoded&gt;&amp;fieldName=&lt;name&gt;</c>.
+    ///     Renders the existing <c>SbScopePicker</c> view component for
+    ///     inline use inside the policy edit row and the Apply Template
+    ///     dialog. The picker is already wired for the four-axis composite
+    ///     <see cref="Mostlylucid.BotDetection.Policies.Rules.PolicyScope"/>
+    ///     shape (Host / Method / Geo / Identity); this endpoint just hands
+    ///     it the seed model from the query string.
+    ///
+    ///     <para>
+    ///         <c>?scope=</c> accepts the URL-encoded form produced by
+    ///         <see cref="PolicyScopeUrl.Encode"/>; unknown values decode to
+    ///         the wildcard scope, which the picker renders as the
+    ///         all-axes-none initial state. <c>?fieldName=</c> overrides the
+    ///         hidden-input name when the caller needs to embed multiple
+    ///         pickers in a single form (Task 10's Apply Template multi-row
+    ///         mode). <c>?mode=multi</c> is reserved for Task 10 and returns
+    ///         400 today so callers fail loud rather than silently rendering
+    ///         the inline shape.
+    ///     </para>
+    /// </summary>
+    private async Task ServePolicyStackScopePickerAsync(HttpContext context)
+    {
+        var mode = (context.Request.Query["mode"].ToString() ?? "inline").ToLowerInvariant();
+        if (mode.Length == 0) mode = "inline";
+
+        if (mode != "inline")
+        {
+            // Task 10 owns the multi-scope mode (Apply Template). Return a
+            // crisp 400 instead of silently rendering inline so the caller
+            // notices the unwired path during development.
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "text/plain; charset=utf-8";
+            await context.Response.WriteAsync($"unsupported scope-picker mode: {mode}");
+            return;
+        }
+
+        var encoded = context.Request.Query["scope"].ToString();
+        var initial = string.IsNullOrEmpty(encoded)
+            ? null
+            : PolicyScopeUrl.Decode(encoded);
+
+        var fieldName = context.Request.Query["fieldName"].ToString();
+        if (string.IsNullOrEmpty(fieldName)) fieldName = "scope";
+
+        var model = new ScopePickerViewModel(FieldName: fieldName, Initial: initial);
+
+        // Render the SbScopePicker Default.cshtml directly via the existing
+        // RazorViewRenderer; view-components rendered through the view
+        // engine pick up the same view-locator paths the production
+        // pipeline does, so we don't need a separate view-component
+        // rendering helper.
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbScopePicker/Default.cshtml", model, context);
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
     }
