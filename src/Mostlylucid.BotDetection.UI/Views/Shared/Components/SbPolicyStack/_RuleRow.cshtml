@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @model PolicyStackRowViewModel
@@ -100,7 +101,53 @@
                     hx-target="closest article"
                     hx-swap="outerHTML">&#x270e;</button>
         }
+        @* Task 17 -- "Promote to OBSERVE for 24h" affordance. Only renders
+           when the operator has dashboard-write AND the rule is in DRAFT
+           (the only mode where promotion is meaningful). Posts the
+           commercial control-plane endpoint that flips mode + schedules
+           the auto-promote; the row swap then re-renders with the banner
+           below. The legacy inline PUT path on /api/v1/policies/{id}
+           still accepts autoPromoteAt for callers that want the bulk
+           edit; this button is the focused API. *@
+        @if (Model.CanEdit && Model.Mode == PolicyMode.Draft)
+        {
+            <button type="button"
+                    class="sb-policy-stack-row-promote-observe"
+                    data-action="promote-observe"
+                    data-rule-id="@Model.RuleId"
+                    aria-label="Promote rule to OBSERVE for 24 hours"
+                    hx-post="/api/v1/policies/@Model.RuleId/promote-observe"
+                    hx-ext="json-enc"
+                    hx-vals='{}'
+                    hx-target="closest article"
+                    hx-swap="outerHTML">Promote to OBSERVE for 24h</button>
+        }
     </div>
+    @if (Model.AutoPromoteAt is not null)
+    {
+        @* Task 17 -- auto-promote banner. Renders for OBSERVE rules with
+           an active hold window; the Cancel button DELETEs the commercial
+           promote-observe endpoint which clears auto_promote_at but
+           leaves the rule in OBSERVE (operators that want LIVE go via
+           the regular edit path). *@
+        <p class="sb-policy-stack-row-auto-promote" data-policy-stack-auto-promote role="note">
+            <span class="sb-policy-stack-row-auto-promote-pill">scheduled</span>
+            <span class="sb-policy-stack-row-auto-promote-meta">
+                Auto-promotes to LIVE at @Model.AutoPromoteAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            </span>
+            @if (Model.CanEdit)
+            {
+                <button type="button"
+                        class="sb-policy-stack-row-auto-promote-cancel"
+                        data-action="cancel-auto-promote"
+                        data-rule-id="@Model.RuleId"
+                        aria-label="Cancel scheduled auto-promote"
+                        hx-delete="/api/v1/policies/@Model.RuleId/promote-observe"
+                        hx-target="closest article"
+                        hx-swap="outerHTML">Cancel</button>
+            }
+        </p>
+    }
     @if (Model.IsDiverged && Model.Origin is not null)
     {
         @* T4 Part B -- inline divergence banner. The rule was emitted by a

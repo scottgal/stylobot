@@ -46,6 +46,15 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     <c>_RuleRow.cshtml</c>. Always <c>false</c> for hand-authored
 ///     rules and on stores that do not perform divergence tracking.
 /// </param>
+/// <param name="AutoPromoteAt">
+///     Optional pickup timestamp threaded straight from
+///     <see cref="PolicyRule.AutoPromoteAt"/>. When non-null, the row's
+///     OBSERVE banner shows "auto-promotes to LIVE at &lt;time&gt;" + a
+///     "Cancel" button that DELETEs the commercial promote-observe
+///     endpoint. <c>null</c> for every rule outside an active auto-promote
+///     hold (the common case); FOSS-only hosts never set this because the
+///     sweep service is a commercial-control-plane concern.
+/// </param>
 public sealed record PolicyStackRowViewModel(
     Guid RuleId,
     PolicyScope SourceScope,
@@ -74,7 +83,8 @@ public sealed record PolicyStackRowViewModel(
     string ScopeKind,
     bool CanEdit = false,
     RuleOrigin? Origin = null,
-    bool IsDiverged = false);
+    bool IsDiverged = false,
+    DateTimeOffset? AutoPromoteAt = null);
 
 /// <summary>
 ///     One predicate chip on the compact rule row. Either a real term

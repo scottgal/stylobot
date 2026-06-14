@@ -509,7 +509,13 @@ public sealed class PolicyStackPresenter
             // probe via DI override.
             IsDiverged: entry.Rule.Origin is not null
                         && _divergenceProbe is not null
-                        && _divergenceProbe.IsDiverged(entry.Rule.Id));
+                        && _divergenceProbe.IsDiverged(entry.Rule.Id),
+            // Threaded straight from the rule -- a non-null value drives
+            // the row's "Auto-promotes to LIVE at <time>" banner +
+            // Cancel button. FOSS-only hosts never populate this column
+            // (no commercial auto-promote sweep service); the banner just
+            // never renders.
+            AutoPromoteAt: entry.Rule.AutoPromoteAt);
     }
 
     private static string SourcePillFor(PolicyScope scope) => scope.Host switch
