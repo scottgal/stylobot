@@ -12,13 +12,13 @@ using Xunit;
 namespace Mostlylucid.BotDetection.Test.Policies.UI;
 
 /// <summary>
-///     E1 / Task 3 coverage. The three zero-field action editor partials
-///     (Allow / Observe / Block) render via the same Razor pipeline the
-///     middleware uses, and the action-editor switch-case dispatches on
-///     <c>?kind=&lt;allow|observe|block&gt;</c>. Tasks 4-7 will widen this
-///     test class (or sibling tests) with the parameterised partials
-///     (tag / challenge / ratelimit / throttle); the zero-field variants are
-///     the simplest case and lay down the test-host shape.
+///     Action-editor partial render coverage. Each kind in the 7-kind
+///     matrix (allow / observe / block / tag / challenge / ratelimit /
+///     throttle) renders via the same Razor pipeline the middleware uses;
+///     the action-editor switch-case dispatches on <c>?kind=&lt;x&gt;</c>
+///     and the zero-field variants (allow / observe / block) emit no
+///     editable controls while the parameterised ones round-trip their
+///     query-string defaults into the seeded inputs.
 ///
 ///     <para>
 ///     The test controller mirrors the middleware's <c>policystack/action-editor</c>
@@ -217,6 +217,57 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
         Assert.Contains("name=\"action.ratelimit.mitigation-timeout-seconds\" value=\"\"", html);
     }
 
+    /// <summary>
+    ///     Task 7 -- the throttle partial captures the two fields that map
+    ///     1:1 onto <c>PolicyAction.Throttle(int requestsPerSecond,
+    ///     string? reason)</c>. <c>rps</c> round-trips into the number
+    ///     input and <c>reason</c> into the text input -- those are the
+    ///     two surfaces the editor JS re-seeds after a swap. The min=1
+    ///     constraint is enforced at the input level (not in the model
+    ///     construction) so we don't duplicate the bound the
+    ///     <c>Throttle</c> constructor already enforces server-side.
+    /// </summary>
+    [Fact]
+    public async Task Throttle_renders_rps_and_reason()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync(
+            "/_test/policy-stack-action-editor?kind=throttle&rps=50&reason=overload");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-edit-action-kind=\"throttle\"", html);
+        Assert.Contains("name=\"action.throttle.rps\"", html);
+        Assert.Contains("value=\"50\"", html);
+        Assert.Contains("name=\"action.throttle.reason\"", html);
+        Assert.Contains("value=\"overload\"", html);
+    }
+
+    /// <summary>
+    ///     Task 7 -- with NO query params the throttle partial falls back
+    ///     to <c>RequestsPerSecond = 10</c> (a sane default that satisfies
+    ///     the &gt; 0 constructor bound on <c>PolicyAction.Throttle</c>) and
+    ///     renders <c>reason</c> with an empty value. The reason field is
+    ///     optional on the action record; an empty input round-trips as an
+    ///     empty string so the partial doesn't inject a placeholder label.
+    /// </summary>
+    [Fact]
+    public async Task Throttle_with_no_query_params_renders_defaults()
+    {
+        var client = await BuildClientAsync();
+
+        var resp = await client.GetAsync("/_test/policy-stack-action-editor?kind=throttle");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-edit-action-kind=\"throttle\"", html);
+        Assert.Contains("name=\"action.throttle.rps\"", html);
+        Assert.Contains("value=\"10\"", html);
+        Assert.Contains("name=\"action.throttle.reason\"", html);
+        Assert.Contains("value=\"\"", html);
+    }
+
     private async Task<HttpClient> BuildClientAsync()
     {
         var builder = WebApplication.CreateBuilder();
@@ -250,10 +301,9 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
 ///     <c>StyloBotDashboardMiddleware.ServePolicyStackActionEditorAsync</c>
 ///     resolve the view path via <see cref="PolicyActionEditorViewPaths.ForKind"/>
 ///     AND build the per-kind <c>@model</c> via
-///     <see cref="PolicyActionEditorViewPaths.BuildActionEditorModel"/>, so
-///     when Tasks 5-7 add challenge / ratelimit / throttle the test
-///     surface picks them up without drifting from the production
-///     dispatch.
+///     <see cref="PolicyActionEditorViewPaths.BuildActionEditorModel"/>,
+///     so the test surface stays lockstep with the production dispatch:
+///     a new kind extends both call sites at once.
 /// </summary>
 [Route("/_test")]
 public sealed class PolicyActionEditorTestController : Controller
@@ -268,8 +318,8 @@ public sealed class PolicyActionEditorTestController : Controller
         // PartialView(viewPath, null) would fall through to the controller
         // model which is null too, so the partial without an @model
         // directive renders fine; the partials with @model directives
-        // (tag today, challenge/ratelimit/throttle in Tasks 5-7) receive
-        // the constructed slice.
+        // (tag / challenge / ratelimit / throttle) receive the
+        // constructed slice.
         return PartialView(viewPath, model);
     }
 }

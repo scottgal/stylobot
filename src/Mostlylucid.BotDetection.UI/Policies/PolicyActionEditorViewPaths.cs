@@ -15,11 +15,12 @@ namespace Mostlylucid.BotDetection.UI.Policies;
 ///     <c>PolicyActionEditorTestController</c> (which mirrors the dispatch
 ///     so the partials can be rendered without booting the middleware's
 ///     full DI graph) call <see cref="ForKind"/> and
-///     <see cref="BuildActionEditorModel"/>. That keeps the two paths in
-///     lockstep when traffic-shaping plan Tasks 4-7 add the parameterised
-///     kinds (tag / challenge / ratelimit / throttle) -- a new kind goes
-///     here once, not twice. <c>feedback_no_duplication</c> is the
-///     standing rule.
+///     <see cref="BuildActionEditorModel"/>. The lockstep keeps the two
+///     paths from drifting: every
+///     <see cref="Mostlylucid.BotDetection.Policies.Rules.PolicyAction"/>
+///     kind has a corresponding partial routed through here, so a new
+///     kind goes here once, not twice. <c>feedback_no_duplication</c> is
+///     the standing rule.
 ///     </para>
 ///
 ///     <para>
@@ -39,9 +40,10 @@ internal static class PolicyActionEditorViewPaths
     ///     turning that into a 404.
     /// </summary>
     /// <param name="kind">
-    ///     Lower-case action kind (<c>allow</c>, <c>observe</c>, <c>block</c>,
-    ///     <c>tag</c>, <c>challenge</c>, <c>ratelimit</c> today;
-    ///     <c>throttle</c> arrives in Task 7).
+    ///     Lower-case action kind: one of <c>allow</c>, <c>observe</c>,
+    ///     <c>block</c>, <c>tag</c>, <c>challenge</c>, <c>ratelimit</c>,
+    ///     <c>throttle</c> -- the complete 7-kind matrix mirroring
+    ///     <see cref="Mostlylucid.BotDetection.Policies.Rules.PolicyAction"/>.
     /// </param>
     public static string? ForKind(string kind) => kind switch
     {
@@ -51,7 +53,7 @@ internal static class PolicyActionEditorViewPaths
         "tag"       => ViewRoot + "_EditAction_Tag.cshtml",
         "challenge" => ViewRoot + "_EditAction_Challenge.cshtml",
         "ratelimit" => ViewRoot + "_EditAction_RateLimit.cshtml",
-        // Task 7 adds throttle here.
+        "throttle"  => ViewRoot + "_EditAction_Throttle.cshtml",
         _ => null
     };
 
@@ -101,8 +103,18 @@ internal static class PolicyActionEditorViewPaths
             Burst: int.TryParse(query["burst"], out var b) ? b : null,
             MitigationTimeoutSeconds: int.TryParse(query["mitigation"], out var mt) ? mt : null,
             OverLimitAction: query["over"].ToString() is var o && !string.IsNullOrEmpty(o) ? o : PolicyEditPresenter.DefaultOverLimitAction),
+        "throttle" => new ThrottleActionEdit(
+            // Default RPS = 10 satisfies the > 0 bound the
+            // PolicyAction.Throttle constructor enforces server-side --
+            // the partial surfaces that same bound as min="1" on the
+            // <input>. We don't re-declare it as a local const here
+            // (`feedback_no_duplication`); the canonical bound lives on
+            // the action record's constructor.
+            RequestsPerSecond: int.TryParse(query["rps"], out var rps) ? rps : 10,
+            Reason: query["reason"].ToString()),
         // Zero-field kinds (allow / observe / block) have no @model
-        // directive on their partial. Task 7 adds throttle here.
+        // directive on their partial -- the dispatch returns null and the
+        // caller swaps in a sentinel before handing to the renderer.
         _ => null
     };
 }

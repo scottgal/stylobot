@@ -1,0 +1,33 @@
+@model Mostlylucid.BotDetection.UI.Models.ThrottleActionEdit?
+@{
+    var rps    = Model?.RequestsPerSecond ?? 10;
+    var reason = Model?.Reason ?? "";
+}
+@*
+    Throttle action editor -- the scope-wide cap (vs RateLimit's per-key
+    bucket). Maps 1:1 onto PolicyAction.Throttle(int requestsPerSecond,
+    string? reason). The constructor enforces rps > 0; the partial
+    surfaces that as `min="1"` rather than re-declaring the bound here
+    (feedback_no_duplication).
+
+    Single-space-separated attributes (no source-alignment): Razor
+    preserves the whitespace verbatim and the render-test regex looks
+    for single space between attrs. Same lesson Task 5 learned on the
+    challenge partial -- don't column-align the <input> attributes.
+*@
+<fieldset class="sb-edit-action" data-edit-action-kind="throttle">
+    <legend>Throttle (scope-wide cap)</legend>
+    <p class="sb-edit-action-hint">
+        Process-wide bucket keyed by the rule's scope. Use for meter-driven caps
+        (e.g. "while origin is overloaded, cap this domain at 50 req/s") rather than
+        per-identity rate limits.
+    </p>
+    <label>
+        Requests per second
+        <input type="number" name="action.throttle.rps" value="@rps" min="1" required />
+    </label>
+    <label>
+        Reason <small>(operator-facing label surfaced on decisions)</small>
+        <input type="text" name="action.throttle.reason" value="@reason" maxlength="120" />
+    </label>
+</fieldset>

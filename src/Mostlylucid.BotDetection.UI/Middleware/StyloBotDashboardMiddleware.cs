@@ -605,16 +605,15 @@ public class StyloBotDashboardMiddleware
                 await ServePolicyStackParseAsync(context);
                 break;
 
-            // Traffic-shaping plan Task 3 -- per-action-kind metadata editor
-            // swap endpoint. Returns the rendered _EditAction_{kind}.cshtml
-            // partial. Today (Task 3) only allow / observe / block are wired;
-            // Tasks 4-7 add the parameterised kinds (tag / challenge /
-            // ratelimit / throttle) against this same endpoint. The JS /
-            // HTMX hook-up that actually issues GET ?kind=<x> on the kind
-            // <select> change lands in Task 8 when _EditAction.cshtml becomes
-            // the slot host; the policy-stack-edit.js chip-pane refactor
-            // that consumes the data-edit-action-kind contract lands in
-            // Task 12.
+            // Per-action-kind metadata editor swap endpoint. Returns the
+            // rendered _EditAction_{kind}.cshtml partial; the 7-kind matrix
+            // (allow / observe / block / tag / challenge / ratelimit /
+            // throttle) is dispatched via PolicyActionEditorViewPaths.
+            // The JS / HTMX hook-up that actually issues GET ?kind=<x> on
+            // the kind <select> change lands in Task 8 when
+            // _EditAction.cshtml becomes the slot host; the
+            // policy-stack-edit.js chip-pane refactor that consumes the
+            // data-edit-action-kind contract lands in Task 12.
             case "policystack/action-editor":
                 await ServePolicyStackActionEditorAsync(context);
                 break;
@@ -3436,15 +3435,16 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     Traffic-shaping plan Task 3 -- <c>GET /dashboard/policystack/action-editor?kind=&lt;x&gt;</c>.
-    ///     Renders the per-kind action-editor partial. Tasks 4-7 extend
-    ///     <see cref="PolicyActionEditorViewPaths.ForKind"/> with the
-    ///     parameterised kinds (tag / challenge / ratelimit / throttle);
-    ///     Task 8 wires the kind <c>&lt;select&gt;</c> in <c>_EditAction.cshtml</c>
-    ///     up to issue the swap into the <c>[data-edit-action-slot]</c>
-    ///     element. 404 when the kind isn't recognised so the editor JS
-    ///     (Task 12) can leave the slot untouched and surface the failure
-    ///     in the existing error channel.
+    ///     <c>GET /dashboard/policystack/action-editor?kind=&lt;x&gt;</c>.
+    ///     Renders the per-kind action-editor partial; the 7-kind matrix
+    ///     (allow / observe / block / tag / challenge / ratelimit /
+    ///     throttle) is dispatched through
+    ///     <see cref="PolicyActionEditorViewPaths.ForKind"/>. Task 8 wires
+    ///     the kind <c>&lt;select&gt;</c> in <c>_EditAction.cshtml</c> up to
+    ///     issue the swap into the <c>[data-edit-action-slot]</c> element.
+    ///     404 when the kind isn't recognised so the editor JS (Task 12)
+    ///     can leave the slot untouched and surface the failure in the
+    ///     existing error channel.
     /// </summary>
     private async Task ServePolicyStackActionEditorAsync(HttpContext context)
     {
