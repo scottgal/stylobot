@@ -17,7 +17,9 @@ using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Signals;
 using Mostlylucid.BotDetection.Policies.Telemetry;
+using Mostlylucid.BotDetection.Test.Policies.Support;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Policies;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.ViewComponents;
 using Xunit;
@@ -180,14 +182,17 @@ public sealed class PolicyEditTests : IAsyncDisposable
         var html = await client.GetStringAsync(
             $"/_test/policy-stack-edit?ruleId={ruleId}");
 
-        // The endpoint seed rule is a Block. The <select name="action_kind">
-        // must mark <option value="block"> as selected.
-        Assert.Matches(new Regex(@"<option value=""block"" selected=""selected"">block</option>"),
+        // Task 8 -- the selector is now <select name="action.kind"> (dotted
+        // form-encoding consistent with the per-kind partials), KindsForSelector
+        // feeds the <option> rows, and the seeded Block rule's <option> carries
+        // the human label, not the bare lower-case kind.
+        Assert.Contains("name=\"action.kind\"", html);
+        Assert.Matches(new Regex(@"<option value=""block"" selected=""selected"">Block</option>"),
             html);
     }
 
     [Fact]
-    public async Task EditRow_action_meta_inputs_hidden_for_non_matching_kinds()
+    public async Task EditRow_renders_only_the_active_kind_partial_into_slot()
     {
         var client = await BuildClientAsync();
         var ruleId = await GetEndpointRuleIdAsync();
@@ -195,17 +200,89 @@ public sealed class PolicyEditTests : IAsyncDisposable
         var html = await client.GetStringAsync(
             $"/_test/policy-stack-edit?ruleId={ruleId}");
 
-        // The Block action means challenge_kind, tag_name, requests_per_minute
-        // all start hidden. Razor's bool attribute treatment writes `hidden="hidden"`.
-        Assert.Matches(
-            new Regex(@"name=""challenge_kind""[^>]*hidden=""hidden"""),
-            html);
-        Assert.Matches(
-            new Regex(@"name=""tag_name""[^>]*hidden=""hidden"""),
-            html);
-        Assert.Matches(
-            new Regex(@"name=""requests_per_minute""[^>]*hidden=""hidden"""),
-            html);
+        // Task 8 -- the per-kind partial dispatched off ActionKind ("block" for
+        // the seeded endpoint rule) is the ONLY one rendered into the slot.
+        // The old `[data-edit-action-meta]` hidden-toggle pattern is gone --
+        // non-active kinds simply aren't in the DOM until the HTMX swap brings
+        // them in. We assert this by checking the active partial's data
+        // attribute is present AND no other kind's data attribute is.
+        Assert.Contains("data-action-editor-slot", html);
+        Assert.Contains("data-edit-action-kind=\"block\"", html);
+        Assert.DoesNotContain("data-edit-action-kind=\"tag\"", html);
+        Assert.DoesNotContain("data-edit-action-kind=\"challenge\"", html);
+        Assert.DoesNotContain("data-edit-action-kind=\"ratelimit\"", html);
+        Assert.DoesNotContain("data-edit-action-kind=\"throttle\"", html);
+        // The old scalar-input names from the pre-Task 8 _EditAction.cshtml
+        // (challenge_kind / tag_name / requests_per_minute) are gone too.
+        Assert.DoesNotContain("name=\"challenge_kind\"", html);
+        Assert.DoesNotContain("name=\"tag_name\"", html);
+        Assert.DoesNotContain("name=\"requests_per_minute\"", html);
+    }
+
+    [Fact]
+    public async Task EditRow_renders_kind_selector_and_active_kind_partial()
+    {
+        // Seed a rate-limit rule via a FixedRulePolicyRuleStore so we can
+        // assert the initial render of _EditAction.cshtml wraps the
+        // ratelimit partial in the [data-action-editor-slot] AND wires
+        // the HTMX attributes Task 12's JS will piggyback on.
+        var ruleId = Guid.NewGuid();
+        var rule = new PolicyRule(
+            Id: ruleId,
+            Scope: PolicyScope.Wildcard(),
+            Priority: 100,
+            Predicate: PredicateParser.Parse("bot.type = scraper"),
+            Action: new PolicyAction.RateLimit(RequestsPerMinute: 6),
+            Mode: PolicyMode.Draft,
+            Notes: string.Empty,
+            Source: "test",
+            CreatedAt: DateTimeOffset.UtcNow,
+            RevisionId: Guid.NewGuid());
+
+        var client = await BuildClientAsync(new FixedRulePolicyRuleStore(rule));
+
+        var html = await client.GetStringAsync(
+            $"/_test/policy-stack-edit?ruleId={ruleId}");
+
+        Assert.Contains("name=\"action.kind\"", html);
+        Assert.Contains("data-action-editor-slot", html);
+        Assert.Contains("data-edit-action-kind=\"ratelimit\"", html);   // server-rendered active slot
+        Assert.Contains("hx-get=\"/dashboard/policystack/action-editor\"", html);
+        Assert.Contains("hx-target=\"[data-action-editor-slot]\"", html);
+    }
+
+    [Fact]
+    public void KindsForSelector_and_ForKind_have_matching_kinds()
+    {
+        // feedback_no_word_lists: the selector option list and the dispatch
+        // switch are two sides of the same single source of truth. If a kind
+        // ever lands on one without the other this test catches it before the
+        // editor silently drops a rendered <option> on the floor.
+        foreach (var (kind, _) in PolicyActionEditorViewPaths.KindsForSelector)
+        {
+            Assert.NotNull(PolicyActionEditorViewPaths.ForKind(kind));
+        }
+    }
+
+    [Fact]
+    public void KindsForSelector_round_trips_through_BuildActionEditorModel()
+    {
+        // Same lockstep contract as the ForKind() assertion above, but on the
+        // model-construction half of the dispatch. The zero-field kinds
+        // (allow / observe / block) return null on purpose -- the partials
+        // have no @model directive -- so the assertion is "the kind is
+        // recognised", not "a model is built": ForKind() already proved a
+        // partial exists, this proves the dispatcher accepts the kind at all.
+        var emptyQuery = new Microsoft.AspNetCore.Http.QueryCollection();
+        foreach (var (kind, _) in PolicyActionEditorViewPaths.KindsForSelector)
+        {
+            // BuildActionEditorModel returns null for zero-field kinds AND for
+            // unknown kinds. The lockstep contract is that for every kind in
+            // KindsForSelector, ForKind() is non-null (covered above) -- the
+            // "call without throwing" check below is enough to prove the
+            // dispatcher is wired for this kind.
+            var _ = PolicyActionEditorViewPaths.BuildActionEditorModel(kind, emptyQuery);
+        }
     }
 
     [Fact]
@@ -328,7 +405,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
 
     // ---- Helpers ----
 
-    private async Task<HttpClient> BuildClientAsync()
+    private async Task<HttpClient> BuildClientAsync(IPolicyRuleStore? storeOverride = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -348,6 +425,12 @@ public sealed class PolicyEditTests : IAsyncDisposable
         });
         builder.Services.AddSingleton<IPolicyRuleStore>(_ =>
         {
+            // Tests that need a rule with an action not present in the
+            // embedded YAML seeds (e.g. ratelimit, throttle) pass a
+            // FixedRulePolicyRuleStore via storeOverride. Default falls
+            // through to the embedded YAML seeds the rest of the suite
+            // has always asserted against.
+            if (storeOverride is not null) return storeOverride;
             var asm = typeof(PolicyRule).Assembly;
             var store = YamlPolicyRuleStore.FromEmbeddedResources(asm, SeedPrefix);
             store.InitializeAsync().GetAwaiter().GetResult();

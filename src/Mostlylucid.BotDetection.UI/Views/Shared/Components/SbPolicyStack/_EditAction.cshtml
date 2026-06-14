@@ -1,46 +1,73 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Policies
 @model PolicyEditRowViewModel
-@{
-    var kinds = new[] { "allow", "observe", "tag", "challenge", "ratelimit", "block" };
-}
 @*
-    C6 action selector + per-kind metadata. The kind <select> drives which
-    metadata input is visible; policy-stack-edit.js toggles the `hidden`
-    attribute on each [data-edit-action-meta=*] element when the kind
-    changes. Razor seeds the initial visibility so the no-JS render is
-    correct.
+    Task 8 -- kind selector + per-kind slot. The <select name="action.kind">
+    HTMX-fetches the per-kind partial into [data-action-editor-slot] when the
+    operator changes the action kind; the slot is server-rendered on initial
+    load so the form arrives populated for the no-JS path AND for the first
+    paint after the row-level swap from the pencil affordance.
+
+    The <option> list is enumerated from
+    PolicyActionEditorViewPaths.KindsForSelector -- the same single source of
+    truth ForKind() / BuildActionEditorModel() dispatch off of. Keeping the
+    selector and the dispatcher fed from the same list closes the drift
+    surface feedback_no_word_lists calls out.
 *@
-<fieldset class="sb-edit-action">
+<fieldset class="sb-edit-action-frame">
     <legend>THEN</legend>
-    <select name="action_kind" data-edit-action-kind>
-        @foreach (var kind in kinds)
+    <label>
+        Action
+        <select name="action.kind"
+                data-action-kind-select
+                hx-get="/dashboard/policystack/action-editor"
+                hx-target="[data-action-editor-slot]"
+                hx-swap="innerHTML"
+                hx-include="this"
+                hx-trigger="change">
+            @foreach (var (kind, label) in PolicyActionEditorViewPaths.KindsForSelector)
+            {
+                <option value="@kind" selected="@(Model.ActionKind == kind ? "selected" : null)">@label</option>
+            }
+        </select>
+    </label>
+
+    <div data-action-editor-slot>
+        @*
+            Server-render the active partial so the row arrives populated;
+            HTMX swaps replace ONLY the slot contents on selector change.
+            The dispatch mirrors PolicyActionEditorViewPaths.ForKind so the
+            initial render and the swap render reach the same partial. Tag
+            / Challenge / RateLimit / Throttle carry their per-kind slice
+            from the view model; the zero-field kinds take no @@model.
+        *@
+        @if (Model.ActionKind == "tag")
         {
-            if (kind == Model.ActionKind)
-            {
-                <option value="@kind" selected="selected">@kind</option>
-            }
-            else
-            {
-                <option value="@kind">@kind</option>
-            }
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditAction_Tag", Model.Tag)
         }
-    </select>
-    <input type="text"
-           name="challenge_kind"
-           value="@Model.ChallengeKind"
-           placeholder="turnstile"
-           data-edit-action-meta="challenge"
-           hidden="@(Model.ActionKind == "challenge" ? null : "hidden")" />
-    <input type="text"
-           name="tag_name"
-           value="@Model.TagName"
-           placeholder="tag name"
-           data-edit-action-meta="tag"
-           hidden="@(Model.ActionKind == "tag" ? null : "hidden")" />
-    <input type="number"
-           name="requests_per_minute"
-           value="@Model.RequestsPerMinute"
-           placeholder="requests per minute"
-           data-edit-action-meta="ratelimit"
-           hidden="@(Model.ActionKind == "ratelimit" ? null : "hidden")" />
+        else if (Model.ActionKind == "challenge")
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditAction_Challenge", Model.Challenge)
+        }
+        else if (Model.ActionKind == "ratelimit")
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditAction_RateLimit", Model.RateLimit)
+        }
+        else if (Model.ActionKind == "throttle")
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditAction_Throttle", Model.Throttle)
+        }
+        else if (Model.ActionKind == "allow")
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditAction_Allow")
+        }
+        else if (Model.ActionKind == "observe")
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditAction_Observe")
+        }
+        else if (Model.ActionKind == "block")
+        {
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditAction_Block")
+        }
+    </div>
 </fieldset>

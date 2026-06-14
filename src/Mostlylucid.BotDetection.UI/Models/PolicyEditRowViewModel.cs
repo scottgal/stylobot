@@ -58,17 +58,4 @@ public sealed record PolicyEditRowViewModel(
     string SubmitUrl,
     string HttpMethod,
     string CancelUrl,
-    PolicyBacktestViewModel? Backtest = null)
-{
-    // TODO: replaced in Task 8 of traffic-shaping-editor plan -- the existing
-    // _EditAction.cshtml still reads scalar challenge_kind / tag_name /
-    // requests_per_minute fields; once the per-kind partials land in Tasks 3-7
-    // and _EditAction.cshtml becomes a selector + slot (Task 8), drop these.
-    public string? ChallengeKind => Challenge?.Kind;
-
-    // TODO: replaced in Task 8 of traffic-shaping-editor plan
-    public string? TagName => Tag?.Name;
-
-    // TODO: replaced in Task 8 of traffic-shaping-editor plan
-    public int? RequestsPerMinute => RateLimit?.Rate;
-}
+    PolicyBacktestViewModel? Backtest = null);

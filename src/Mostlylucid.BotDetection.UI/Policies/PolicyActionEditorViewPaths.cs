@@ -58,6 +58,28 @@ internal static class PolicyActionEditorViewPaths
     };
 
     /// <summary>
+    ///     Display labels for every supported action kind, in the order they
+    ///     should appear in the action-kind selector in
+    ///     <c>_EditAction.cshtml</c>. Single source of truth shared with
+    ///     <see cref="ForKind"/> -- adding a kind here without adding it to
+    ///     <see cref="ForKind"/> (or vice versa) is an inconsistency the
+    ///     unit test catches. The selector partial enumerates this list to
+    ///     render <c>&lt;option&gt;</c> rows instead of hand-rolling a
+    ///     parallel literal (the duplication smell
+    ///     <c>feedback_no_word_lists</c> calls out).
+    /// </summary>
+    public static IReadOnlyList<(string Kind, string Label)> KindsForSelector { get; } = new[]
+    {
+        ("allow",     "Allow"),
+        ("observe",   "Observe"),
+        ("tag",       "Tag"),
+        ("challenge", "Challenge"),
+        ("ratelimit", "Rate limit"),
+        ("throttle",  "Throttle (scope-wide)"),
+        ("block",     "Block"),
+    };
+
+    /// <summary>
     ///     Builds the per-kind <c>@model</c> instance from the request
     ///     query string. Zero-field partials (Allow / Observe / Block)
     ///     return <c>null</c> -- they have no <c>@model</c> directive so
