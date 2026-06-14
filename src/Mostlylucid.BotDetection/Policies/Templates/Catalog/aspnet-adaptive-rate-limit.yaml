@@ -1,0 +1,59 @@
+# aspnet-adaptive-rate-limit: latency-driven adaptive throttle for an
+# ASP.NET site. Once the published ASP.NET p95 request-duration meter
+# sustains over the threshold for the configured window, arm a
+# scope-wide throttle. Humans are explicitly Allowed through the throttle
+# so user sessions degrade gracefully while bot / anonymous traffic
+# absorbs the cap. Self-relaxes the moment the meter recovers.
+#
+# Required runtime meter signal:
+#   meter.aspnet.request_latency.p95  (rolling p95 of the ASP.NET host's
+#   HTTP request-duration histogram, in milliseconds)
+#
+# Publish this signal from the AspNetPack's ScheduleCoordinator or
+# whichever meter source feeds the trigger machinery. If no source
+# publishes the key, this template is inert -- the trigger never arms
+# and no rule fires.
+#
+# Layer this template ON TOP of identity / endpoint templates
+# (protect-login, protect-checkout, keep-verified-bots-working). It is
+# an overload overlay, not a standalone policy.
+template: aspnet-adaptive-rate-limit
+display-name: "Adaptive rate-limit (ASP.NET request latency)"
+description: "Throttle site-wide once ASP.NET p95 request latency sustains above threshold; keep humans flowing."
+category: overload
+
+parameters:
+  - name: latency-threshold-ms
+    type: number
+    default: 500
+    description: "ASP.NET p95 request duration in milliseconds above which the throttle arms."
+
+  - name: sustain-duration
+    type: duration
+    default: 30s
+    description: "How long p95 must stay above the threshold before the throttle engages. Defends against latency micro-bursts."
+
+  - name: armed-rps
+    type: int
+    default: 50
+    description: "Steady-state requests-per-second cap across the scope while the throttle is armed."
+
+expansion:
+  # While armed, humans bypass the throttle so user sessions degrade
+  # gracefully. First-match-wins + priority 300 means this rule short-
+  # circuits the resolver before throttle-armed (priority 400) is even
+  # evaluated, so humans do NOT consume the scope-wide throttle bucket.
+  - suffix: keep-humans-armed
+    predicate: 'meter.aspnet.request_latency.p95 > {{ latency-threshold-ms }} for {{ sustain-duration }} and ua.is_bot = false'
+    action: '{ kind: allow }'
+    priority: 300
+    mode: live
+
+  # Bot / anonymous traffic absorbs the steady-state cap once the meter
+  # arms. Recovers automatically when p95 falls back below threshold
+  # because the FOR predicate flips false and the trigger disarms.
+  - suffix: throttle-armed
+    predicate: 'meter.aspnet.request_latency.p95 > {{ latency-threshold-ms }} for {{ sustain-duration }}'
+    action: '{ kind: throttle, rps: {{ armed-rps }}, reason: "aspnet-latency-overload" }'
+    priority: 400
+    mode: live
