@@ -1,0 +1,32 @@
+# Wildcard baseline: allow stylobot's own internal HTTP clients when they
+# also present a valid api-key. Marketing site -> gateway dashboard pull,
+# AspNetPack remote sink/query/hub, OtelMesh remote, Prometheus pack
+# scraper. All of these ship User-Agent "StyloBot.Internal/<version>"
+# (Identity/StyloBotInternalUserAgent) AND the gateway api-key. Both
+# signals together attest the request is from a known-internal caller --
+# UA alone is trivially spoofable so the api-key gate is mandatory.
+#
+# Priority 200 sits between the wildcard human-allow floor (1000) and the
+# default block-confirmed-bot baseline (500), so this rule wins over the
+# bot block when both fire. Ships in LIVE mode -- the FOSS detection
+# pipeline correctly classifies StyloBot.Internal as a tool (it IS a
+# .NET HttpClient) which lands risk=1.0 + throttle-stealth, blocking the
+# website's own dashboard data pull and the AspNetPack remote sink.
+# Without this rule operators have to discover and add it themselves
+# before the dashboard surfaces work end-to-end on a fresh deployment.
+#
+# The cause-and-effect chain we're closing: when the marketing site
+# can't talk to its own gateway, the dashboard's RemoteAspNetPackQuery
+# / GatewayApiClient / RemoteOtelMeshQuery / RemoteMeterStream all
+# show empty panels even though detection + persistence are healthy.
+# That looks like a broken product to a new operator. This rule keeps
+# the loop closed by default.
+id: 00000000-0000-0000-0000-000000000003
+scope:
+  kind: wildcard
+priority: 200
+predicate: 'ua.family = "StyloBot.Internal" and attestation.api_key = true'
+action:
+  kind: allow
+mode: live
+notes: "Default: allow StyloBot's own internal HTTP clients when authenticated by api-key."
