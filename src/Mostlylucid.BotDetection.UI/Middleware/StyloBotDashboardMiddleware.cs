@@ -618,15 +618,19 @@ public class StyloBotDashboardMiddleware
                 await ServePolicyStackActionEditorAsync(context);
                 break;
 
-            // Traffic-shaping plan Task 9 -- inline scope-picker fragment.
-            // Renders the existing SbScopePicker view component
-            // (Default.cshtml) so _EditRow + Apply Template flows can swap a
-            // fresh picker into the form without re-rendering the whole row.
-            // The plan originally called for a new SbPolicyScopePicker
-            // component but SbScopePicker already covers the composite-scope
-            // axes (Host / Method / Geo / Identity); creating a parallel
-            // component would violate the no-duplication rule. The multi-row
-            // mode for Apply Template lands in Task 10.
+            // Traffic-shaping plan Tasks 9 + 10 -- scope-picker fragment.
+            // Renders the existing SbScopePicker view component so _EditRow
+            // + Apply Template flows can swap a fresh picker into the form
+            // without re-rendering the whole row. The plan originally
+            // called for a new SbPolicyScopePicker component but
+            // SbScopePicker already covers the composite-scope axes
+            // (Host / Method / Geo / Identity); creating a parallel
+            // component would violate the no-duplication rule. Three
+            // modes are supported: inline (single picker, Task 9),
+            // multi (N pickers + "+ Add scope" wrapper, Task 10) and
+            // inline-row (single row wrapper appended by the multi
+            // wrapper's add button, Task 10). See
+            // ServePolicyStackScopePickerAsync for the full contract.
             case "policystack/scope-picker":
                 await ServePolicyStackScopePickerAsync(context);
                 break;
@@ -3486,25 +3490,52 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     Traffic-shaping plan Task 9 --
-    ///     <c>GET /dashboard/policystack/scope-picker?mode=inline&amp;scope=&lt;encoded&gt;&amp;fieldName=&lt;name&gt;</c>.
-    ///     Renders the existing <c>SbScopePicker</c> view component for
-    ///     inline use inside the policy edit row and the Apply Template
-    ///     dialog. The picker is already wired for the four-axis composite
+    ///     Traffic-shaping plan Tasks 9 + 10 --
+    ///     <c>GET /dashboard/policystack/scope-picker</c>. Renders the
+    ///     existing <c>SbScopePicker</c> view component for use inside the
+    ///     policy edit row and the Apply Template dialog. The picker is
+    ///     already wired for the four-axis composite
     ///     <see cref="Mostlylucid.BotDetection.Policies.Rules.PolicyScope"/>
     ///     shape (Host / Method / Geo / Identity); this endpoint just hands
     ///     it the seed model from the query string.
     ///
     ///     <para>
-    ///         <c>?scope=</c> accepts the URL-encoded form produced by
-    ///         <see cref="PolicyScopeUrl.Encode"/>; unknown values decode to
-    ///         the wildcard scope, which the picker renders as the
-    ///         all-axes-none initial state. <c>?fieldName=</c> overrides the
-    ///         hidden-input name when the caller needs to embed multiple
-    ///         pickers in a single form (Task 10's Apply Template multi-row
-    ///         mode). <c>?mode=multi</c> is reserved for Task 10 and returns
-    ///         400 today so callers fail loud rather than silently rendering
-    ///         the inline shape.
+    ///         Three modes are supported:
+    ///         <list type="bullet">
+    ///         <item>
+    ///             <description>
+    ///                 <c>mode=inline</c> (default) -- single picker.
+    ///                 <c>?scope=</c> accepts the URL-encoded form produced by
+    ///                 <see cref="PolicyScopeUrl.Encode"/> (unknown values
+    ///                 decode to the wildcard scope, which renders all axes
+    ///                 as <c>none</c>). <c>?fieldName=</c> overrides the
+    ///                 hidden-input name (defaults to <c>scope</c>).
+    ///             </description>
+    ///         </item>
+    ///         <item>
+    ///             <description>
+    ///                 <c>mode=multi</c> -- N pickers wrapped in a fieldset
+    ///                 with a "+ Add scope" button (Apply Template flow).
+    ///                 Repeat <c>?multi=&lt;encoded&gt;</c> once per existing
+    ///                 row; empty / unknown rows render as wildcards.
+    ///                 <c>?fieldNamePrefix=</c> drives the indexed hidden
+    ///                 names (<c>{prefix}[0]</c>, ...; defaults to
+    ///                 <c>applied-to</c>). No rows -&gt; a single empty row.
+    ///             </description>
+    ///         </item>
+    ///         <item>
+    ///             <description>
+    ///                 <c>mode=inline-row</c> -- single row wrapper (picker
+    ///                 + remove button) for the multi wrapper's
+    ///                 "+ Add scope" button to HTMX-append into the row
+    ///                 container. Returns <c>_Row.cshtml</c>, not the full
+    ///                 multi fieldset. <c>?fieldNamePrefix=</c> and
+    ///                 <c>?rowIndex=</c> control the picker's
+    ///                 <c>FieldName</c> (the client-side wiring lands later
+    ///                 and can rewrite indexes after server-side append).
+    ///             </description>
+    ///         </item>
+    ///         </list>
     ///     </para>
     /// </summary>
     private async Task ServePolicyStackScopePickerAsync(HttpContext context)
@@ -3512,17 +3543,35 @@ public class StyloBotDashboardMiddleware
         var mode = (context.Request.Query["mode"].ToString() ?? "inline").ToLowerInvariant();
         if (mode.Length == 0) mode = "inline";
 
-        if (mode != "inline")
+        switch (mode)
         {
-            // Task 10 owns the multi-scope mode (Apply Template). Return a
-            // crisp 400 instead of silently rendering inline so the caller
-            // notices the unwired path during development.
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            context.Response.ContentType = "text/plain; charset=utf-8";
-            await context.Response.WriteAsync($"unsupported scope-picker mode: {mode}");
-            return;
-        }
+            case "inline":
+                await RenderScopePickerInlineAsync(context);
+                return;
 
+            case "multi":
+                await RenderScopePickerMultiAsync(context);
+                return;
+
+            case "inline-row":
+                await RenderScopePickerInlineRowAsync(context);
+                return;
+
+            default:
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                await context.Response.WriteAsync($"unsupported scope-picker mode: {mode}");
+                return;
+        }
+    }
+
+    /// <summary>
+    ///     <c>mode=inline</c> branch -- single <c>SbScopePicker</c>
+    ///     fieldset. The wrapping form posts the picker's hidden JSON
+    ///     projection under <c>?fieldName=</c> (default <c>scope</c>).
+    /// </summary>
+    private async Task RenderScopePickerInlineAsync(HttpContext context)
+    {
         var encoded = context.Request.Query["scope"].ToString();
         var initial = string.IsNullOrEmpty(encoded)
             ? null
@@ -3540,6 +3589,73 @@ public class StyloBotDashboardMiddleware
         // rendering helper.
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbScopePicker/Default.cshtml", model, context);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     <c>mode=multi</c> branch -- N pickers in a single fieldset plus
+    ///     the "+ Add scope" button. Decodes each <c>?multi=</c> entry into
+    ///     a <see cref="PolicyScope"/>; entries that fail to decode are
+    ///     swallowed (the resulting list still binds well rather than
+    ///     erroring on operator-supplied junk). An empty list renders a
+    ///     single wildcard row so the operator always has one to fill in.
+    /// </summary>
+    private async Task RenderScopePickerMultiAsync(HttpContext context)
+    {
+        var scopes = new List<Mostlylucid.BotDetection.Policies.Rules.PolicyScope?>();
+        foreach (var encoded in context.Request.Query["multi"])
+        {
+            if (string.IsNullOrEmpty(encoded)) continue;
+            try
+            {
+                scopes.Add(PolicyScopeUrl.Decode(encoded));
+            }
+            catch
+            {
+                // Operator-supplied opaque scope string; skip the bad
+                // entry rather than 400. The Apply Template UX surfaces
+                // a wildcard slot in its place which the operator can
+                // re-populate.
+            }
+        }
+        if (scopes.Count == 0) scopes.Add(null);
+
+        var prefix = context.Request.Query["fieldNamePrefix"].ToString();
+        if (string.IsNullOrEmpty(prefix)) prefix = "applied-to";
+
+        var model = new ScopePickerMultiViewModel(scopes, prefix);
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbScopePicker/_Multi.cshtml", model, context);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     <c>mode=inline-row</c> branch -- single row wrapper
+    ///     (data-scope-row + remove button) for the multi wrapper's
+    ///     "+ Add scope" button to HTMX-append. The picker inside the row
+    ///     gets a <see cref="ScopePickerViewModel.FieldName"/> built from
+    ///     <c>?fieldNamePrefix=</c> + <c>?rowIndex=</c> so the appended row
+    ///     binds under the correct collection slot. When <c>?rowIndex=</c>
+    ///     is missing or non-numeric the row uses <c>new</c> as a
+    ///     placeholder index -- the client-side wiring that lands later
+    ///     can rewrite it before submit if model-binding needs strict
+    ///     contiguous indexes.
+    /// </summary>
+    private async Task RenderScopePickerInlineRowAsync(HttpContext context)
+    {
+        var prefix = context.Request.Query["fieldNamePrefix"].ToString();
+        if (string.IsNullOrEmpty(prefix)) prefix = "applied-to";
+
+        var rowIndexRaw = context.Request.Query["rowIndex"].ToString();
+        var rowIndexLabel = string.IsNullOrEmpty(rowIndexRaw) ? "new" : rowIndexRaw;
+
+        var fieldName = $"{prefix}[{rowIndexLabel}]";
+        var model = new ScopePickerViewModel(FieldName: fieldName, Initial: null);
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbScopePicker/_Row.cshtml", model, context);
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
     }

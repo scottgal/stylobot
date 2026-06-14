@@ -1,0 +1,26 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model ScopePickerViewModel
+@*
+    Traffic-shaping plan Task 10 -- a single multi-scope row, emitted by
+    the middleware's mode=inline-row branch in response to the multi
+    wrapper's "+ Add scope" button. HTMX appends the response into
+    [data-multi-scope-rows] inside _Multi.cshtml; this view returns just
+    the row wrapper (data-scope-row + remove button) so it slots in
+    cleanly without nesting a second multi fieldset.
+
+    The row's index is intentionally "new" -- no JS consumer keys off the
+    index value; the wiring uses data-remove-scope-row on the button.
+    The picker's FieldName already carries the indexed hidden-input
+    name, so server-side model binders see the correct collection slot.
+*@
+<div class="sb-scope-row flex items-start gap-2" data-scope-row="new">
+    <div class="flex-1">
+        @await Component.InvokeAsync("SbScopePicker", new { model = Model })
+    </div>
+    <button type="button"
+            class="btn btn-ghost btn-sm sb-scope-row-remove"
+            data-remove-scope-row
+            aria-label="Remove scope">
+        &times;
+    </button>
+</div>

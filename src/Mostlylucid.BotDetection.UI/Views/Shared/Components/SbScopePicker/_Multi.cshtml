@@ -1,0 +1,56 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model ScopePickerMultiViewModel
+@*
+    Traffic-shaping plan Task 10 -- multi-scope wrapper around the existing
+    SbScopePicker view component. Renders N independent pickers with
+    indexed FieldNames ({prefix}[0], {prefix}[1], ...) so the Apply
+    Template form binds N PolicyScope payloads in one POST. The "+ Add
+    scope" button HTMX-appends a fresh row via the middleware's
+    mode=inline-row branch (returns _Row.cshtml -- just the row wrapper,
+    not a full multi fieldset). Both the inline-rendered rows below and
+    the appended rows share the same data-scope-row + remove-button
+    structure; _Row.cshtml is the single source of truth for that shape
+    so the inline loop and HTMX append stay in lockstep.
+*@
+<fieldset class="sb-scope-picker-multi rounded-lg border border-base-300 bg-base-100 p-4 space-y-3"
+          data-scope-picker-mode="multi"
+          data-scope-picker-multi
+          data-scope-picker-prefix="@Model.FieldNamePrefix">
+    <legend class="sb-scope-picker-multi-legend text-sm font-semibold px-1">Apply to</legend>
+
+    <div class="sb-scope-picker-multi-rows space-y-3" data-multi-scope-rows>
+        @for (var i = 0; i < Model.InitialScopes.Count; i++)
+        {
+            var fieldName = $"{Model.FieldNamePrefix}[{i}]";
+            <div class="sb-scope-row flex items-start gap-2" data-scope-row="@i">
+                <div class="flex-1">
+                    @await Component.InvokeAsync("SbScopePicker", new
+                    {
+                        model = new ScopePickerViewModel(FieldName: fieldName, Initial: Model.InitialScopes[i])
+                    })
+                </div>
+                <button type="button"
+                        class="btn btn-ghost btn-sm sb-scope-row-remove"
+                        data-remove-scope-row
+                        aria-label="Remove scope">
+                    &times;
+                </button>
+            </div>
+        }
+    </div>
+
+    @* The "+ Add scope" button HTMX-fetches a single row (inline-row
+       mode returns _Row.cshtml with data-scope-row + remove button) and
+       appends it to the row container. The new picker renders with no
+       Initial so it's a wildcard the operator can populate. The next
+       row index is delegated to the server -- it just emits
+       data-scope-row="new" because no JS consumer keys off the index. *@
+    <button type="button"
+            class="btn btn-outline btn-sm sb-scope-row-add"
+            data-add-scope-row
+            hx-get="/dashboard/policystack/scope-picker?mode=inline-row&fieldNamePrefix=@Model.FieldNamePrefix"
+            hx-target="closest [data-multi-scope-rows]"
+            hx-swap="beforeend">
+        + Add scope
+    </button>
+</fieldset>
