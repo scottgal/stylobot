@@ -480,6 +480,11 @@ public sealed class PolicyEditTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyStackPresenter>();
         builder.Services.AddSingleton<PolicyEditPresenter>();
         builder.Services.AddSingleton<RazorViewRenderer>();
+        // Task 18: view component reads IPolicyCanEditPolicy when the
+        // canEdit override is unset. FOSS default is read-only; these
+        // tests pin canEdit via the controller param so the gate is
+        // only consulted when canEdit is null.
+        builder.Services.AddSingleton<IPolicyCanEditPolicy, AlwaysReadOnlyPolicyCanEditPolicy>();
 
         var app = builder.Build();
         app.UseRouting();
@@ -562,7 +567,7 @@ public sealed class PolicyEditTestController : Controller
         string? domain = null,
         string? sub = null,
         string? template = null,
-        bool canEdit = false)
+        bool? canEdit = null)
     {
         PolicyScope scope = scopeKind switch
         {

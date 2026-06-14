@@ -69,13 +69,15 @@
        hideRuleList = true suppresses just the rule list; the rest of
        the component still renders. The flag defaults to false everywhere
        else so the other 9 SbPolicyStack call sites are unchanged. *@
+    @* canEdit is left unset so the registered IPolicyCanEditPolicy decides
+       against the current ClaimsPrincipal. FOSS default is read-only; the
+       commercial overlay flips it on for paid + dashboard-write users. *@
     @await Component.InvokeAsync("SbPolicyStack", new
     {
         scope = scope,
         embed = PolicyStackEmbed.Full,
         activeTab = "effective",
         aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24),
-        canEdit = false,
         filterExpression = string.IsNullOrWhiteSpace(filter) ? null : filter,
         sortKey = string.IsNullOrWhiteSpace(sortKey) ? null : sortKey,
         sortDir = string.IsNullOrWhiteSpace(sortDir) ? null : sortDir,

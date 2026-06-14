@@ -325,6 +325,12 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyConflictAnalyzer>();
         builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
+        // Task 18: SbPolicyStackViewComponent reads IPolicyCanEditPolicy
+        // when the canEdit override is unset. These integration tests
+        // exercise the dashboard partials that embed the view component;
+        // FOSS default keeps them read-only as the production FOSS host
+        // does.
+        builder.Services.AddSingleton<IPolicyCanEditPolicy, AlwaysReadOnlyPolicyCanEditPolicy>();
 
         var app = builder.Build();
         app.UseRouting();

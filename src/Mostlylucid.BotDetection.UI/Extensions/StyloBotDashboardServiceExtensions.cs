@@ -299,6 +299,17 @@ public static class StyloBotDashboardServiceExtensions
         // rule (or empty defaults) into the edit-row view model.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyEditPresenter>();
 
+        // Task 18: policy-stack edit gate. SbPolicyStackViewComponent reads
+        // this to decide whether to render edit affordances (pencil, drag
+        // handle, + Add rule, Promote / Cancel auto-promote). The FOSS
+        // default returns false always so the dashboard ships read-only by
+        // construction; the commercial overlay registers a license- and
+        // role-aware implementation. TryAddSingleton so a commercial host
+        // that registers its own binding before AddStyloBotDashboard keeps
+        // its instance.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IPolicyCanEditPolicy,
+            Mostlylucid.BotDetection.UI.Services.AlwaysReadOnlyPolicyCanEditPolicy>();
+
         // Pack Metrics B1 -- /dashboard/insights page composer. Pure read; goes
         // through IMeterStream only (no DB). Stateless, peer-singleton with the
         // other dashboard presenters above. The IMeterStream binding itself is

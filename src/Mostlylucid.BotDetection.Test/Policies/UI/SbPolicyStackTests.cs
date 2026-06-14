@@ -1150,6 +1150,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyConflictAnalyzer>();
         builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
+        // Task 18: the view component reads IPolicyCanEditPolicy when the
+        // optional canEdit override is unset. These tests pin canEdit via
+        // the controller param so the gate is rarely consulted, but the
+        // FOSS default needs to be in the container for view-component
+        // construction.
+        builder.Services.AddSingleton<IPolicyCanEditPolicy, AlwaysReadOnlyPolicyCanEditPolicy>();
 
         var app = builder.Build();
         app.UseRouting();
@@ -1417,7 +1423,7 @@ public sealed class PolicyStackTestController : Controller
         string? sortDir = null,
         string? explainerFingerprint = null,
         bool lockedFingerprint = false,
-        bool canEdit = false,
+        bool? canEdit = null,
         bool hideRuleList = false)
     {
         PolicyScope scope = scopeKind switch
