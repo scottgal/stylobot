@@ -73,14 +73,17 @@ public class YamlPolicyRuleStoreTemplateLoadTests
     }
 
     [Fact]
-    public async Task Catalog_8_templates_zero_applications_loads_without_errors()
+    public async Task Catalog_templates_zero_applications_loads_without_errors()
     {
         // Loading the FOSS catalog templates with zero applications should
         // load the bare seed rules and emit zero materialized rules, with no
-        // errors logged into store state.
+        // errors logged into store state. We intentionally do NOT assert an
+        // exact template count here -- the catalog grows over time and
+        // YamlTemplateStoreTests.Embedded_catalog_loads_every_yaml_without_error
+        // owns that contract.
         var templateStore = new YamlTemplateStore();
         var templates = templateStore.LoadEmbeddedCatalog();
-        Assert.Equal(8, templates.Count);
+        Assert.NotEmpty(templates);
 
         var store = YamlPolicyRuleStore.FromEmbeddedResourcesWithTemplates(
             typeof(PolicyRule).Assembly,

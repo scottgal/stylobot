@@ -15,10 +15,10 @@ public class YamlTemplateStoreTests
 
         var templates = store.LoadEmbeddedCatalog();
 
-        // The catalog ships eight seed templates -- if anyone adds another
+        // The catalog ships nine seed templates -- if anyone adds another
         // YAML file without registering it as an EmbeddedResource the assert
         // tells you immediately.
-        Assert.Equal(8, templates.Count);
+        Assert.Equal(9, templates.Count);
         Assert.All(templates, t =>
         {
             Assert.False(string.IsNullOrWhiteSpace(t.Id));
@@ -43,6 +43,7 @@ public class YamlTemplateStoreTests
         Assert.Equal(3, templates["protect-content-from-scraping"].Expansion.Count);
         Assert.Single(templates["keep-verified-bots-working"].Expansion);
         Assert.Single(templates["preserve-humans-during-overload"].Expansion);
+        Assert.Equal(2, templates["aspnet-adaptive-rate-limit"].Expansion.Count);
     }
 
     [Fact]
