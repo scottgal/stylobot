@@ -33,6 +33,13 @@ public sealed class TransportHeaderTrust : ITransportHeaderTrust
 
         var peer = ctx.Connection?.RemoteIpAddress;
 
+        // Dual-stack Kestrel can present an IPv4 peer as an IPv4-mapped IPv6 address
+        // (::ffff:a.b.c.d). Unmap it so IPv4 CIDR allowlist entries and the
+        // loopback/private check compare like-for-like (CidrHelper requires matching
+        // address families), otherwise a trusted IPv4 proxy would read as untrusted.
+        if (peer is not null && peer.IsIPv4MappedToIPv6)
+            peer = peer.MapToIPv4();
+
         // Allowlist applies in both Auto and Strict.
         if (peer is not null && opts.TrustedProxyIps.Count > 0)
         {

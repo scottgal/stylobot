@@ -220,6 +220,38 @@ public sealed class PolicyEditTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task EditRow_kind_selector_is_data_action_kind_select_not_per_kind_fieldset_marker()
+    {
+        // Task 11 audit guard: policy-stack-edit.js reads the active action
+        // kind from the <select name="action.kind"> (marked
+        // [data-action-kind-select]), NOT from the per-kind partial's
+        // <fieldset data-edit-action-kind="..."> (which carries the kind as
+        // a STRING attribute, not a `value` property). The earlier 530-line
+        // module wired its actionKind.value off the wrong element; this
+        // assertion is the lockstep that prevents the same regression next
+        // time someone refactors the partial.
+        var client = await BuildClientAsync();
+        var ruleId = await GetEndpointRuleIdAsync();
+
+        var html = await client.GetStringAsync(
+            $"/_test/policy-stack-edit?ruleId={ruleId}");
+
+        // Exactly one [data-action-kind-select] in the row -- the <select>.
+        Assert.Contains("data-action-kind-select", html);
+        // The per-kind fieldset carries [data-edit-action-kind="<kind>"] as
+        // a marker, not as a control source. The seeded endpoint rule is
+        // "block", so we see the block marker on the <fieldset>.
+        Assert.Contains("data-edit-action-kind=\"block\"", html);
+        // The two attributes MUST NOT appear on the same element -- the
+        // selector and the slot's per-kind partial are separate concerns
+        // (Task 8 separated them).
+        var selectorMatch = new Regex(@"<select[^>]*data-action-kind-select[^>]*>");
+        Assert.Matches(selectorMatch, html);
+        var fieldsetMatch = new Regex(@"<fieldset[^>]*data-edit-action-kind=""[a-z]+""[^>]*>");
+        Assert.Matches(fieldsetMatch, html);
+    }
+
+    [Fact]
     public async Task EditRow_renders_kind_selector_and_active_kind_partial()
     {
         // Seed a rate-limit rule via a FixedRulePolicyRuleStore so we can

@@ -6704,38 +6704,18 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 
     private IReadOnlyList<EndpointPackCoverage> BuildEndpointDetailCoverage(HttpContext context, string path)
     {
-        // IReactionPackContext is an optional commercial/future capability.
-        // If not registered, return empty list rather than throwing.
-        var packContextType = Type.GetType(
-            "Mostlylucid.BotDetection.Services.IReactionPackContext, Mostlylucid.BotDetection");
-        if (packContextType == null) return [];
-
-        var packContext = context.RequestServices.GetService(packContextType);
+        // IReactionPackContext is a dormant extension seam: no core service
+        // registers it, so this is null today and the coverage panel stays
+        // hidden. A future/commercial reaction-pack engine implements it to
+        // light the panel up. See docs/architecture/reaction-packs.md.
+        var packContext = context.RequestServices.GetService<IReactionPackContext>();
         if (packContext == null) return [];
 
         var coverage = new List<EndpointPackCoverage>();
-
-        // Use reflection to call GetActiveStates() generically so this compiles
-        // without a hard reference to the optional interface.
-        var getActiveStates = packContextType.GetMethod("GetActiveStates");
-        if (getActiveStates == null) return [];
-
-        var activeStates = getActiveStates.Invoke(packContext, null);
-        if (activeStates is not System.Collections.IEnumerable states) return [];
-
-        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var state in states)
+        foreach (var state in packContext.GetActiveStates())
         {
-            var stateType = state.GetType();
-            var packName = stateType.GetProperty("PackName")?.GetValue(state) as string ?? "";
-            var scope = stateType.GetProperty("Scope")?.GetValue(state) as string ?? "global";
-            var level = stateType.GetProperty("Level")?.GetValue(state) as int? ?? 0;
-            var policyName = stateType.GetProperty("PolicyName")?.GetValue(state) as string;
-            if (scope == "global" || scope == path)
-            {
-                coverage.Add(new EndpointPackCoverage(packName, scope, level, policyName));
-                seenNames.Add(packName);
-            }
+            if (state.Scope == "global" || state.Scope == path)
+                coverage.Add(new EndpointPackCoverage(state.PackName, state.Scope, state.Level, state.PolicyName));
         }
 
         return coverage;

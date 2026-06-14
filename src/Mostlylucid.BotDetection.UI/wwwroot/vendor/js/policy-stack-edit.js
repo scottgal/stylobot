@@ -30,7 +30,13 @@
         var validation = article.querySelector('[data-edit-validation]');
         var saveBtn = article.querySelector('[data-edit-save]');
         var acList = article.querySelector('[data-edit-autocomplete]');
-        var actionKind = article.querySelector('[data-edit-action-kind]');
+        // Task 8 -- the kind selector is the <select name="action.kind"> at the
+        // top of _EditAction.cshtml, marked with [data-action-kind-select]. The
+        // per-kind partial fieldsets carry [data-edit-action-kind="<kind>"] as
+        // a STRING (not a select value); they're the swap target, not the
+        // selector. Reading kind from the SELECT is what flows into
+        // collectActionFromForm + scheduleBacktest.
+        var actionKindSelect = article.querySelector('[data-action-kind-select]');
         var form = article.querySelector('form');
 
         if (!expr || !chipPane || !validation || !saveBtn || !acList || !form) return;
@@ -38,13 +44,23 @@
         var ast = null;
         var lastGoodAst = null;
 
-        // Action-kind toggle for the per-kind metadata inputs.
-        if (actionKind) {
-            actionKind.addEventListener('change', function () {
-                var kind = actionKind.value;
-                article.querySelectorAll('[data-edit-action-meta]').forEach(function (el) {
-                    el.hidden = el.dataset.editActionMeta !== kind;
-                });
+        // Task 8 swap pattern -- when the operator changes the action kind,
+        // the <select>'s hx-get fetches /dashboard/policystack/action-editor
+        // and replaces [data-action-editor-slot]'s contents. HTMX's own
+        // change handler issues the swap; we listen too so we can re-fire
+        // the C8 backtest (the projection depends on the selected kind).
+        // No DOM toggling here -- the slot-swap replaces the per-kind
+        // partial in full, so the old [data-edit-action-meta] hide/show
+        // pattern is gone (Task 8 asserts non-active kinds aren't in the
+        // DOM at all). The htmx:afterSwap handler at the bottom catches
+        // the actual slot replacement and re-triggers backtest from the
+        // current expr value.
+        if (actionKindSelect) {
+            actionKindSelect.addEventListener('change', function () {
+                // The HTMX swap is in flight; the afterSwap handler will
+                // re-fire the backtest once the new partial is in place.
+                // We don't queue anything here because the slot's stale
+                // contents would re-render with stale kind data otherwise.
             });
         }
 
@@ -127,7 +143,7 @@
             var slot = article.querySelector('[data-edit-backtest-slot]');
             if (!slot) return;
             var currentWindow = readCurrentWindow();
-            var currentActionKind = actionKind ? actionKind.value : 'observe';
+            var currentActionKind = actionKindSelect ? actionKindSelect.value : 'observe';
             fetch('/dashboard/policystack/backtest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -502,21 +518,88 @@
         }
 
         function collectActionFromForm(article) {
-            var kindEl = article.querySelector('[data-edit-action-kind]');
+            // Task 8 -- the kind lives on the <select name="action.kind">, not
+            // on the per-kind partial's <fieldset data-edit-action-kind="...">
+            // (which carries the kind as a string attribute, not a `value`).
+            // The per-kind partials (Tasks 4-7) emit dotted form-encoded
+            // field names (action.tag.name, action.challenge.kind,
+            // action.ratelimit.rate, action.throttle.rps, ...). Read each
+            // by name and map to the canonical lowercase action DTO the
+            // commercial mutation API consumes (Task 2 widened the DTO to
+            // accept the full surface; Task 16 lands the JSONB sidecar for
+            // the ratelimit fields that don't yet round-trip through the
+            // discriminated-union runtime contract).
+            var kindEl = article.querySelector('[data-action-kind-select]');
             var kind = kindEl ? kindEl.value : 'observe';
             var out = { kind: kind };
-            if (kind === 'challenge') {
-                var c = article.querySelector('[name="challenge_kind"]');
-                out.challengeKind = (c && c.value) || 'turnstile';
-            } else if (kind === 'tag') {
-                var t = article.querySelector('[name="tag_name"]');
-                out.tagName = (t && t.value) || '';
+
+            function val(name) {
+                var el = article.querySelector('[name="' + name + '"]');
+                return el ? el.value : '';
+            }
+            function intOrNull(s) {
+                if (s == null || s === '') return null;
+                var n = parseInt(s, 10);
+                return isNaN(n) ? null : n;
+            }
+
+            if (kind === 'tag') {
+                out.tagName = val('action.tag.name');
+            } else if (kind === 'challenge') {
+                out.challengeKind = val('action.challenge.kind') || 'turnstile';
+                var sk = val('action.challenge.site-key');
+                if (sk) out.siteKey = sk;
             } else if (kind === 'ratelimit') {
-                var r = article.querySelector('[name="requests_per_minute"]');
-                out.requestsPerMinute = parseInt((r && r.value) || '60', 10);
+                // Commercial DTO widening (Task 2) accepts the full surface;
+                // the FOSS-only runtime currently only honours requestsPerMinute,
+                // so we send both the canonical narrow shape AND the richer
+                // edit-slice fields. The legacy widening in PolicyEditPresenter
+                // already canonicalises rate+unit -> requestsPerMinute on read;
+                // we mirror it on write so a FOSS gateway still receives a
+                // valid payload if it ever lands on the wire.
+                out.rate = intOrNull(val('action.ratelimit.rate')) || 6;
+                out.unit = val('action.ratelimit.unit') || 'minute';
+                out.key = val('action.ratelimit.key') || 'fingerprint';
+                var burst = intOrNull(val('action.ratelimit.burst'));
+                if (burst != null) out.burst = burst;
+                var mitigation = intOrNull(val('action.ratelimit.mitigation-timeout-seconds'));
+                if (mitigation != null) out.mitigationTimeoutSeconds = mitigation;
+                out.overLimitAction = val('action.ratelimit.over-limit-action') || 'throttle-status';
+                // Narrow-shape mirror for the FOSS runtime's RequestsPerMinute
+                // bucket: rate/unit -> per-minute. The presenter uses 60 as
+                // the default when the unit is "minute"; we replicate that
+                // mapping here so the submit payload carries both shapes.
+                out.requestsPerMinute = out.unit === 'minute'
+                    ? out.rate
+                    : out.unit === 'second'
+                        ? out.rate * 60
+                        : Math.max(1, Math.round(out.rate / 60));
+            } else if (kind === 'throttle') {
+                out.requestsPerSecond = intOrNull(val('action.throttle.rps')) || 10;
+                var reason = val('action.throttle.reason');
+                if (reason) out.reason = reason;
             }
             return out;
         }
+
+        // Task 8 swap-aware re-binding. HTMX swaps the action-editor slot in
+        // place when the kind selector changes; the article's other panes
+        // (expression textarea + chip pane) stay mounted across the swap.
+        // We listen at the article level so a slot swap re-fires the C8
+        // backtest with the new kind, AND we re-bind the kind selector
+        // because the SELECT survives the swap but the kind-string-bearing
+        // fieldset inside the slot is now a fresh DOM node.
+        article.addEventListener('htmx:afterSwap', function (evt) {
+            if (!evt.target) return;
+            // Only react when the swap landed inside this article's
+            // action-editor slot -- not on every swap on the page.
+            var slot = article.querySelector('[data-action-editor-slot]');
+            if (!slot || !slot.contains(evt.target) && evt.target !== slot) return;
+            // Re-fire backtest with the new kind. The expr value hasn't
+            // changed; we just need the panel to re-project under the new
+            // action.
+            if (ast && expr.value.trim()) scheduleBacktest(expr.value.trim());
+        });
     }
 
     if (document.readyState === 'loading') {

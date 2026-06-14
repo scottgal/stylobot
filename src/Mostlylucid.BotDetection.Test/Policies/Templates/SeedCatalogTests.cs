@@ -23,15 +23,17 @@ public class SeedCatalogTests
         yield return new object[] { "protect-content-from-scraping" };
         yield return new object[] { "keep-verified-bots-working" };
         yield return new object[] { "preserve-humans-during-overload" };
+        yield return new object[] { "aspnet-adaptive-rate-limit" };
     }
 
     public static IEnumerable<object[]> ForOperatorTemplateIds()
     {
-        // The two seed templates that exercise the T-Expr FOR operator
-        // natively. Materialized rules MUST carry a Predicate.Sustain node
-        // somewhere in the AST.
+        // Seed templates that exercise the T-Expr FOR operator natively.
+        // Materialized rules MUST carry a Predicate.Sustain node somewhere
+        // in the AST.
         yield return new object[] { "protect-expensive-endpoints" };
         yield return new object[] { "preserve-humans-during-overload" };
+        yield return new object[] { "aspnet-adaptive-rate-limit" };
     }
 
     [Theory]

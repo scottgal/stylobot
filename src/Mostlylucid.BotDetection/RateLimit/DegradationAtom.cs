@@ -12,7 +12,11 @@ namespace Mostlylucid.BotDetection.RateLimit;
 ///     </list>
 ///     Adapted from PR #16's reaction-pack work; the pack framework around
 ///     it was over-engineered for our needs, but the EMA primitive itself
-///     is a clean fit for adaptive rate-limit scaling.
+///     is a clean fit for adaptive rate-limit scaling. The fuller escalation
+///     concept (and what was salvaged vs. deferred) is captured in
+///     <c>docs/architecture/reaction-packs.md</c>; the dormant typed seam a
+///     future engine would implement is
+///     <see cref="Mostlylucid.BotDetection.Services.IReactionPackContext"/>.
 /// </summary>
 /// <remarks>
 ///     <para>
