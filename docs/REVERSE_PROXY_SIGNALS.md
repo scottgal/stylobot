@@ -175,15 +175,17 @@ from spoofing a known-browser fingerprint to earn a human bias.
 Configured at `BotDetection:TransportTrust`:
 
 - `Mode` : `Auto` (default), `Strict`, or `Off`.
-  - **Auto** trusts these headers when the immediate peer is loopback/private,
-    on `TrustedProxyIps`, or the detected proxy topology is a known edge
-    (Cloudflare/CloudFront/Fastly/nginx). This matches the canonical
-    `cloudflared -> Caddy -> gateway` topology, where the gateway's peer is loopback.
+  - **Auto** trusts these headers when the immediate peer is loopback/private or on
+    `TrustedProxyIps`. This matches the canonical `cloudflared -> Caddy -> gateway`
+    topology, where the gateway's peer is loopback. A public-IP edge such as Cloudflare
+    or an AWS ALB MUST be added to `TrustedProxyIps`; the gate never infers trust from
+    forwarded headers (X-Forwarded-For, CF-Connecting-IP, etc.), which are client-forgeable.
   - **Strict** trusts only peers in `TrustedProxyIps`.
   - **Off** restores the legacy behaviour (trust all; logs a startup warning).
 - `TrustedProxyIps` : CIDRs/IPs of your reverse proxies (a bare IP is treated as a
-  /32 or /128 host route). **Required** if a public-IP load balancer (e.g. AWS ALB
-  on a routable address) sits in front, because Auto distrusts public peers by default.
+  /32 or /128 host route). **Required** for any public-IP edge (Cloudflare, AWS ALB,
+  Fastly, etc.) sitting in front of the gateway. The gate never trusts a public-IP peer
+  by inferring topology from forwarded headers alone.
 
 When headers are distrusted, the gateway ignores them, falls back to live Kestrel
 TLS/protocol metadata, and emits a weak `transport.spoofed_edge_headers` bot signal

@@ -10,12 +10,10 @@ namespace Mostlylucid.BotDetection.Proxy;
 public sealed class TransportHeaderTrust : ITransportHeaderTrust
 {
     private readonly IOptions<BotDetectionOptions> _options;
-    private readonly IProxyEnvironment? _proxyEnv;
 
-    public TransportHeaderTrust(IOptions<BotDetectionOptions> options, IProxyEnvironment? proxyEnv = null)
+    public TransportHeaderTrust(IOptions<BotDetectionOptions> options)
     {
         _options = options;
-        _proxyEnv = proxyEnv;
     }
 
     public TransportTrustResult Evaluate(BlackboardState state)
@@ -57,15 +55,8 @@ public sealed class TransportHeaderTrust : ITransportHeaderTrust
         if (opts.TrustPrivatePeers && NetworkHelper.IsLocalIp(peer))
             return new TransportTrustResult(true, "PrivatePeer");
 
-        // Auto: a known edge topology was detected.
-        if (opts.TrustDetectedTopology && _proxyEnv is not null)
-        {
-            // GetRealClientIp triggers one-time topology auto-detection.
-            try { _proxyEnv.GetRealClientIp(ctx); } catch { /* detection best-effort */ }
-            if (_proxyEnv.DetectedTopology != ProxyTopology.Direct)
-                return new TransportTrustResult(true, "DetectedTopology");
-        }
-
+        // Auto fallthrough: public peers are never trusted by header inspection alone.
+        // Public-IP edges (Cloudflare, AWS ALB, etc.) MUST be added to TrustedProxyIps.
         return new TransportTrustResult(false, "UntrustedPublicPeer");
     }
 }

@@ -46,8 +46,10 @@ Result is computed once per request and cached on the blackboard (`transport.hea
 
 1. **Signed headers.** If a valid HMAC signature over the fingerprint headers is present, trust. Reuse the existing `UpstreamSignatureSecret` / `UpstreamSignatureHeader` plumbing and its constant-time comparison; do not roll new crypto. (Covers untrusted-network hops where peer IP is insufficient.)
 2. **Allowlisted peer.** `HttpContext.Connection.RemoteIpAddress` in configured `TrustedProxyIps` (CIDR list) -> trust.
-3. **Private / known-edge peer.** Peer is loopback or RFC1918/RFC4193 private, OR `IProxyEnvironment.DetectedTopology` is a known edge (Cloudflare / CloudFront / Fastly / Nginx / Generic non-Direct) -> trust.
+3. **Private peer.** Peer is loopback or RFC1918/RFC4193 private -> trust.
 4. **Otherwise** (public direct peer) -> distrust.
+
+Note: the topology-detection arm from the original design was removed during implementation review. `ProxyEnvironmentDetector` infers topology from forgeable headers (X-Forwarded-For, CF-Connecting-IP), so trusting a non-Direct topology let a public peer self-elevate by adding one header. Public-IP edges are trusted only via `TrustedProxyIps`.
 
 `RemoteIpAddress` is the true socket peer because `UseForwardedHeaders` is not enabled in StyloBot hosts; confirm this assumption holds for each host (Gateway, All, Console, Sidecar, Demo) and document that enabling `UseForwardedHeaders` upstream of detection would require adding the LB to `TrustedProxyIps`.
 
@@ -65,16 +67,16 @@ public sealed class TransportTrustOptions
 {
     public TransportTrustMode Mode { get; set; } = TransportTrustMode.Auto; // Auto | Strict | Off
     public List<string> TrustedProxyIps { get; set; } = []; // CIDRs / IPs
-    public bool TrustDetectedTopology { get; set; } = true;   // step 3 topology arm
     public bool TrustPrivatePeers { get; set; } = true;       // step 3 private-IP arm
     // Signature reuse: bind to existing UpstreamSignature* settings; no new secret field.
+    // Note: TrustDetectedTopology was removed — see decision order note above.
 }
 
 public enum TransportTrustMode { Auto, Strict, Off }
 ```
 
 - **Auto** (default): steps 1-4 as above.
-- **Strict**: trust only via step 1 (signed) or step 2 (allowlist). Private/topology arms disabled.
+- **Strict**: trust only via step 1 (signed) or step 2 (allowlist). Private arm disabled.
 - **Off**: legacy behaviour, trust all headers (escape hatch; logs a one-time Warning at startup that the gate is disabled).
 
 Bound at `BotDetection:TransportTrust`. CIDR parsing reuses any existing helper from `IpContributor` / ASN code; if none, a small `IPNetwork`-based parser validated at startup with a clear error on malformed entries.

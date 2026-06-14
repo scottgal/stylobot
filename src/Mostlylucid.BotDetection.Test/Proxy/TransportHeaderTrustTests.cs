@@ -1,7 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
-using Moq;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Proxy;
 using Xunit;
@@ -10,13 +9,10 @@ namespace Mostlylucid.BotDetection.Test.Proxy;
 
 public class TransportHeaderTrustTests
 {
-    private static TransportHeaderTrust Build(TransportTrustOptions opts, ProxyTopology topology = ProxyTopology.Direct)
+    private static TransportHeaderTrust Build(TransportTrustOptions opts)
     {
         var options = Options.Create(new BotDetectionOptions { TransportTrust = opts });
-        var env = new Mock<IProxyEnvironment>();
-        env.SetupGet(e => e.DetectedTopology).Returns(topology);
-        env.Setup(e => e.GetRealClientIp(It.IsAny<HttpContext>())).Returns("1.2.3.4");
-        return new TransportHeaderTrust(options, env.Object);
+        return new TransportHeaderTrust(options);
     }
 
     private static HttpContext Ctx(string peerIp)
@@ -59,12 +55,16 @@ public class TransportHeaderTrustTests
     }
 
     [Fact]
-    public void Auto_trusts_detected_edge_topology()
+    public void Auto_public_peer_with_forwarded_header_is_not_trusted()
     {
-        var sut = Build(new TransportTrustOptions(), ProxyTopology.Cloudflare);
-        var r = sut.Decide(Ctx("203.0.113.9"));
-        Assert.True(r.Trusted);
-        Assert.Equal("DetectedTopology", r.Reason);
+        var sut = Build(new TransportTrustOptions());
+        var ctx = new DefaultHttpContext();
+        ctx.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.9");
+        ctx.Request.Headers["X-Forwarded-For"] = "1.2.3.4";
+        ctx.Request.Headers["CF-Connecting-IP"] = "1.2.3.4";
+        var r = sut.Decide(ctx);
+        Assert.False(r.Trusted);
+        Assert.Equal("UntrustedPublicPeer", r.Reason);
     }
 
     [Fact]

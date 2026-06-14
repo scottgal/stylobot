@@ -44,7 +44,7 @@ public class TransportHeaderTrustGateTests
         {
             TransportTrust = new TransportTrustOptions { Mode = mode }
         });
-        return new TransportHeaderTrust(options, proxyEnv: null);
+        return new TransportHeaderTrust(options);
     }
 
     private static (BlackboardState state, ConcurrentDictionary<string, object> signals) StateFor(
