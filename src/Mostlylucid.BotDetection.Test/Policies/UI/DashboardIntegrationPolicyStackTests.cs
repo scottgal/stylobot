@@ -214,9 +214,13 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         // SbPolicyStack to suppress its rule list so each rule's article
         // appears exactly once -- inside its template group above the
         // component.
+        // Match the row's anchor article regardless of attribute order; new
+        // marker attributes (e.g. data-rule-row) may sit between class and
+        // data-rule-id without changing identity. The (?:[^>]*?\s)? prefix
+        // tolerates any intervening attribute on the same article tag.
         var ruleIds = System.Text.RegularExpressions.Regex
             .Matches(composed,
-                @"<article\s+class=""sb-policy-stack-row""\s+data-rule-id=""(?<id>[0-9a-fA-F\-]+)""")
+                @"<article\s+class=""sb-policy-stack-row""(?:[^>]*?\s)?data-rule-id=""(?<id>[0-9a-fA-F\-]+)""")
             .Select(m => m.Groups["id"].Value)
             .ToList();
         Assert.NotEmpty(ruleIds);

@@ -19,6 +19,7 @@
         : null;
 }
 <article class="sb-policy-stack-row"
+         data-rule-row
          data-rule-id="@Model.RuleId"
          data-source-pill="@Model.SourcePill"
          data-mode="@modeLower"
@@ -114,6 +115,7 @@
             <button type="button"
                     class="sb-policy-stack-row-promote-observe"
                     data-action="promote-observe"
+                    data-promote-observe
                     data-rule-id="@Model.RuleId"
                     aria-label="Promote rule to OBSERVE for 24 hours"
                     hx-post="/api/v1/policies/@Model.RuleId/promote-observe"
@@ -130,7 +132,7 @@
            promote-observe endpoint which clears auto_promote_at but
            leaves the rule in OBSERVE (operators that want LIVE go via
            the regular edit path). *@
-        <p class="sb-policy-stack-row-auto-promote" data-policy-stack-auto-promote role="note">
+        <p class="sb-policy-stack-row-auto-promote sb-auto-promote-banner" data-policy-stack-auto-promote role="note">
             <span class="sb-policy-stack-row-auto-promote-pill">scheduled</span>
             <span class="sb-policy-stack-row-auto-promote-meta">
                 Auto-promotes to LIVE at @Model.AutoPromoteAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
