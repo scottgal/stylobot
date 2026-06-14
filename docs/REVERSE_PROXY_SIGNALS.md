@@ -164,3 +164,29 @@ StyloBot's `EnrichProtocol` middleware (`Mostlylucid.BotDetection.UI/Middleware/
 
 - Direct deploys (no proxy in front): everything reads from `Request.Protocol` / `ConnectionInfo.Transport` natively - no setup needed.
 - Behind any proxy: configure the headers above and you get accurate client-side values.
+
+## Trusted-proxy gate (transport fingerprint headers)
+
+The transport fingerprint headers documented above (`X-JA3-*`, `X-Client-TLS-*`,
+`X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`) are only trusted when the request demonstrably
+arrived via a trusted edge. This prevents a client reaching the origin directly
+from spoofing a known-browser fingerprint to earn a human bias.
+
+Configured at `BotDetection:TransportTrust`:
+
+- `Mode` : `Auto` (default), `Strict`, or `Off`.
+  - **Auto** trusts these headers when the immediate peer is loopback/private or on
+    `TrustedProxyIps`. This matches the canonical `cloudflared -> Caddy -> gateway`
+    topology, where the gateway's peer is loopback. A public-IP edge such as Cloudflare
+    or an AWS ALB MUST be added to `TrustedProxyIps`; the gate never infers trust from
+    forwarded headers (X-Forwarded-For, CF-Connecting-IP, etc.), which are client-forgeable.
+  - **Strict** trusts only peers in `TrustedProxyIps`.
+  - **Off** restores the legacy behaviour (trust all; logs a startup warning).
+- `TrustedProxyIps` : CIDRs/IPs of your reverse proxies (a bare IP is treated as a
+  /32 or /128 host route). **Required** for any public-IP edge (Cloudflare, AWS ALB,
+  Fastly, etc.) sitting in front of the gateway. The gate never trusts a public-IP peer
+  by inferring topology from forwarded headers alone.
+
+When headers are distrusted, the gateway ignores them, falls back to live Kestrel
+TLS/protocol metadata, and emits a weak `transport.spoofed_edge_headers` bot signal
+only when such headers were actually present.

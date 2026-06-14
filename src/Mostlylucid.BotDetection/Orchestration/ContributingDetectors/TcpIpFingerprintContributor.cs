@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.Proxy;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -113,13 +114,16 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
     ];
 
     private readonly ILogger<TcpIpFingerprintContributor> _logger;
+    private readonly ITransportHeaderTrust? _transportTrust;
 
     public TcpIpFingerprintContributor(
         ILogger<TcpIpFingerprintContributor> logger,
-        IDetectorConfigProvider configProvider)
+        IDetectorConfigProvider configProvider,
+        ITransportHeaderTrust? transportTrust = null)
         : base(configProvider)
     {
         _logger = logger;
+        _transportTrust = transportTrust;
     }
 
     public override string Name => "TcpIpFingerprint";
@@ -159,11 +163,36 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
 
         try
         {
+            var req = state.HttpContext.Request;
+            var trust = _transportTrust?.Evaluate(state);
+            // When no trust service is wired (legacy / test) default to trusting headers,
+            // preserving the behaviour that existed before this gate was added.
+            var trustHeaders = trust?.Trusted ?? true;
+
+            if (trust is { Trusted: false })
+            {
+                var gatedHeaderPresent =
+                    req.Headers.ContainsKey("X-TCP-Window") || req.Headers.ContainsKey("X-TCP-TTL") ||
+                    req.Headers.ContainsKey("X-TCP-Options") || req.Headers.ContainsKey("X-TCP-MSS") ||
+                    req.Headers.ContainsKey("X-IP-DF") || req.Headers.ContainsKey("X-IP-ID-Pattern");
+
+                if (gatedHeaderPresent)
+                {
+                    state.WriteSignal(SignalKeys.TransportSpoofedEdgeHeaders, true);
+                    contributions.Add(BotContribution(
+                        "TCPIP",
+                        "Edge TCP/IP fingerprint headers from an untrusted direct peer (possible spoof)",
+                        confidenceOverride: GetParam("spoofed_edge_headers_confidence", 0.3),
+                        weightMultiplier: GetParam("spoofed_edge_headers_weight", 1.2),
+                        botType: BotType.Scraper.ToString()));
+                }
+            }
+
             // Extract TCP/IP characteristics from headers and connection info
             // Note: Most of this requires reverse proxy configuration to pass headers
 
             // Check for TCP window size (usually passed by reverse proxy as X-TCP-Window)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-Window", out var windowHeader) &&
+            if (trustHeaders && req.Headers.TryGetValue("X-TCP-Window", out var windowHeader) &&
                 int.TryParse(windowHeader, out var windowSize))
             {
                 state.WriteSignal("tcp.window_size", windowSize);
@@ -171,7 +200,7 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
             }
 
             // Check for TTL (Time To Live) - passed by reverse proxy as X-TCP-TTL
-            if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-TTL", out var ttlHeader) &&
+            if (trustHeaders && req.Headers.TryGetValue("X-TCP-TTL", out var ttlHeader) &&
                 int.TryParse(ttlHeader, out var ttl))
             {
                 state.WriteSignal("tcp.ttl", ttl);
@@ -179,7 +208,7 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
             }
 
             // Check for TCP options fingerprint (passed by reverse proxy as X-TCP-Options)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-Options", out var tcpOptions))
+            if (trustHeaders && req.Headers.TryGetValue("X-TCP-Options", out var tcpOptions))
             {
                 var options = tcpOptions.ToString();
                 state.WriteSignal("tcp.options_pattern", options);
@@ -187,7 +216,7 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
             }
 
             // Check for MSS (Maximum Segment Size)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-MSS", out var mssHeader) &&
+            if (trustHeaders && req.Headers.TryGetValue("X-TCP-MSS", out var mssHeader) &&
                 int.TryParse(mssHeader, out var mss))
             {
                 state.WriteSignal("tcp.mss", mss);
@@ -195,7 +224,7 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
             }
 
             // Analyze IP fragmentation patterns
-            if (state.HttpContext.Request.Headers.TryGetValue("X-IP-DF", out var dfFlag))
+            if (trustHeaders && req.Headers.TryGetValue("X-IP-DF", out var dfFlag))
             {
                 var dontFragment = dfFlag == "1";
                 state.WriteSignal("ip.dont_fragment", dontFragment);
@@ -213,7 +242,7 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
             }
 
             // Check for IP ID patterns (sequential = Windows, random = Linux/BSD)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-IP-ID-Pattern", out var ipIdPattern))
+            if (trustHeaders && req.Headers.TryGetValue("X-IP-ID-Pattern", out var ipIdPattern))
             {
                 state.WriteSignal("ip.id_pattern", ipIdPattern.ToString());
 
@@ -222,8 +251,8 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
                 else if (ipIdPattern == "random") state.WriteSignal(SignalKeys.TcpOsHint, "Linux/BSD");
             }
 
-            // Analyze connection reuse patterns
-            var connectionHeader = state.HttpContext.Request.Headers.Connection.ToString();
+            // Analyze connection reuse patterns (Connection is a real HTTP header, not edge-injected - not gated)
+            var connectionHeader = req.Headers.Connection.ToString();
             state.WriteSignal("tcp.connection_header", connectionHeader);
 
             if (string.IsNullOrEmpty(connectionHeader))
@@ -246,8 +275,8 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
                     Reason = "Client closes connection after each request (bots often avoid persistent connections)"
                 });
 
-            // Check for pipelining support (modern feature)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP-Pipelining", out var pipelining))
+            // Check for pipelining support (modern feature) - also edge-injected, gate accordingly
+            if (trustHeaders && req.Headers.TryGetValue("X-HTTP-Pipelining", out var pipelining))
                 state.WriteSignal("http.pipelining_supported", pipelining == "1");
         }
         catch (Exception ex)

@@ -132,6 +132,9 @@ emits:
     - key: user_agent.tls_protocol
       type: string
       description: TLS protocol version (SignalKeys.TlsProtocol)
+    - key: transport.spoofed_edge_headers
+      type: bool
+      description: Untrusted peer sent edge fingerprint headers (possible spoof)
 
   on_failure:
     - detector.tls.failed
@@ -215,6 +218,9 @@ defaults:
       - "X-JA3-String"
       - "X-TLS-Protocol"
       - "X-TLS-Cipher"
+    # Spoofed edge-header detection
+    spoofed_edge_headers_confidence: 0.3
+    spoofed_edge_headers_weight: 1.2
 
 tags:
   - fast-path

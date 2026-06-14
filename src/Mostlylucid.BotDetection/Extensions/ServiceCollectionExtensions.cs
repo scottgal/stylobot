@@ -461,6 +461,7 @@ public static class ServiceCollectionExtensions
         // resolves the real client IP from the correct headers (CF-Connecting-IP, X-Real-IP, etc.).
         // Registered as singleton - topology is detected once on first request and cached.
         services.TryAddSingleton<IProxyEnvironment, ProxyEnvironmentDetector>();
+        services.TryAddSingleton<ITransportHeaderTrust, TransportHeaderTrust>();
 
         // Startup-time tunnel-enrichment inspector: observes the first N requests, decides
         // whether the gateway sees TLS / JA3 (native or forwarded), and snapshots the verdict
