@@ -98,6 +98,22 @@ public class TransportHeaderTrustTests
     }
 
     [Fact]
+    public void Auto_trusts_ipv4_mapped_private_peer()
+    {
+        // Dual-stack Kestrel can present an IPv4 private peer as ::ffff:10.0.0.5.
+        var sut = Build(new TransportTrustOptions());
+        Assert.Equal("PrivatePeer", sut.Decide(Ctx("::ffff:10.0.0.5")).Reason);
+    }
+
+    [Fact]
+    public void Allowlisted_ipv4_mapped_peer_matches_ipv4_cidr()
+    {
+        // A ::ffff:a.b.c.d peer must still match an IPv4 CIDR allowlist entry.
+        var sut = Build(new TransportTrustOptions { TrustedProxyIps = ["203.0.113.0/24"] });
+        Assert.Equal("AllowlistedPeer", sut.Decide(Ctx("::ffff:203.0.113.9")).Reason);
+    }
+
+    [Fact]
     public void Auto_distrusts_null_peer()
     {
         var sut = Build(new TransportTrustOptions());

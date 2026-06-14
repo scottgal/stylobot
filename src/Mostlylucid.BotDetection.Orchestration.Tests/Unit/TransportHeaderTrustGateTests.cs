@@ -101,6 +101,9 @@ public class TransportHeaderTrustGateTests
         Assert.True(signals.TryGetValue(SignalKeys.TransportSpoofedEdgeHeaders, out var f) && (bool)f,
             "Expected transport.spoofed_edge_headers = true for untrusted public peer");
         Assert.DoesNotContain(contributions, c => c.ConfidenceDelta < 0);
+        // A distrusted peer must NOT be penalised for "missing" header-derived signals
+        // we deliberately skipped reading (e.g. the no-stream-priority penalty).
+        Assert.DoesNotContain(contributions, c => c.Reason.Contains("stream priority", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

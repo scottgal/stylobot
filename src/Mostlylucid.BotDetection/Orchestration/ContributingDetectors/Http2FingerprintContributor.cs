@@ -297,21 +297,27 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                         weightMultiplier: 1.2));
             }
 
-            // Check for HTTP/2 stream priority usage. Gated by trust.
-            if (trustHeaders && req.Headers.TryGetValue("X-HTTP2-Stream-Priority", out var priority))
+            // Check for HTTP/2 stream priority usage. The whole check is gated by trust:
+            // on a distrusted peer we never read the header, so we must NOT run the
+            // "no priority" penalty either (otherwise the else fires on every distrusted
+            // request, penalising it for a header we deliberately ignored).
+            if (trustHeaders)
             {
-                state.WriteSignal("h2.stream_priority", priority.ToString());
-                state.WriteSignal("h2.uses_priority", true);
-            }
-            else
-            {
-                state.WriteSignal("h2.uses_priority", false);
-                // Lack of priority is slightly suspicious - browsers use it
-                contributions.Add(BotContribution(
-                    "HTTP/2",
-                    "No HTTP/2 stream priority (browsers typically use this)",
-                    confidenceOverride: _noPriorityConfidence,
-                    weightMultiplier: 0.6));
+                if (req.Headers.TryGetValue("X-HTTP2-Stream-Priority", out var priority))
+                {
+                    state.WriteSignal("h2.stream_priority", priority.ToString());
+                    state.WriteSignal("h2.uses_priority", true);
+                }
+                else
+                {
+                    state.WriteSignal("h2.uses_priority", false);
+                    // Lack of priority is slightly suspicious - browsers use it
+                    contributions.Add(BotContribution(
+                        "HTTP/2",
+                        "No HTTP/2 stream priority (browsers typically use this)",
+                        confidenceOverride: _noPriorityConfidence,
+                        weightMultiplier: 0.6));
+                }
             }
 
             // Check for WINDOW_UPDATE behavior patterns. Gated by trust.
