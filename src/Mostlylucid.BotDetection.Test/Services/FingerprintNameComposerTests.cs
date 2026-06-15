@@ -313,17 +313,20 @@ public class FingerprintNameComposerTests
     public void Compose_ReturnsUaPrefix_WhenNoOtherPriorityHits()
     {
         // User direction 2026-06-15: when bot_name / archetype / family-on-os all miss,
-        // showing the raw UA prefix is more useful than returning null. Mastodon/4.3.0
-        // is exactly the case -- the UA carries no +URL discriminator so P1 doesn't
-        // fire, uap-core categorises it as "Other" so P3 doesn't fire, but the operator
-        // can still see what was sent if we surface the head of the UA.
+        // showing the raw UA prefix is more useful than returning null.
+        //
+        // Note: with the claim-first P1 (2026-06-15), a UA whose head matches a YAML
+        // bot-pattern entry (e.g. "Mastodon/4.3.0") is now caught by P1 directly --
+        // BotPatternLoader.MatchUserAgent scans the raw UA. This test now uses a UA
+        // that the catalog deliberately does NOT contain so we can still verify the
+        // P4 fallback path.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
-            ["ua.raw"] = "Mastodon/4.3.0"
-            // no bot_name, no archetype, no family, no os
+            ["ua.raw"] = "NoveltyAgent/9.9.9"
+            // no bot_name, no archetype, no family, no os, no YAML hit
         });
         Assert.NotNull(name);
-        Assert.StartsWith("Mastodon/", name);
+        Assert.StartsWith("NoveltyAgent/", name);
     }
 
     [Fact]
@@ -416,6 +419,153 @@ public class FingerprintNameComposerTests
             },
             previousName: "Googlebot");
         Assert.Equal("Googlebot", name);
+    }
+
+    // ----- Claim-first composition (user directive 2026-06-15) ----------------------------
+    // "We always start with what is claimed and TEST IT. Not start with a match, use that
+    // and ignore what's claimed."
+    //
+    // Rewires P1 from "trust the cached ua.bot_name signal" to "extract the claim straight
+    // from the raw UA via the YAML bot-patterns catalog". The catalog match is deterministic
+    // and runs even when the matcher fired before UserAgentContributor (matcher Priority 6,
+    // UA contributor Priority 10). Then run verification in parallel; if a Verified bot
+    // claim came back spoofed, mark with " (!)".
+
+    [Fact]
+    public void Compose_ClaimFirst_MastodonUa_WithCentroidDrift_StillNamedMastodon()
+    {
+        // The bug. Mastodon UA wrapped in http.rb; centroid drifted onto a chrome-with-
+        // privacy-headers archetype so ua.family signal says "Chrome", ua.os says "macOS",
+        // and the drift slot says "hdr.upgrade_insecure_requests". ua.bot_name is absent
+        // (matcher fired before UserAgentContributor populated bot_name). Result today:
+        // "Chrome on macOS (privacy headers)". Required: "Mastodon" via raw-UA catalog
+        // claim extraction.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "http.rb/5.x.x (Mastodon/4.3.0; +https://mastodon.social/)",
+            ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "macOS",
+            ["identity.drift_top_slot"] = "hdr.upgrade_insecure_requests",
+            // No ua.bot_name -- this is the actual staging condition
+        });
+
+        Assert.NotNull(name);
+        Assert.Contains("Mastodon", name);
+        Assert.DoesNotContain("Chrome", name);
+    }
+
+    [Fact]
+    public void Compose_ClaimFirst_SpoofedGooglebotUa_GetsSpoofedMarker()
+    {
+        // UA claims Googlebot. ua.bot_name not in signals (race-loss path). IP-range
+        // verification disagrees: verifiedbot.spoofed = true. Composer must (a) extract
+        // the Googlebot claim straight from the UA string, AND (b) append the spoofed
+        // marker. The operator wants to see the claim AND the verdict, never one or
+        // the other alone.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            ["verifiedbot.spoofed"] = true,
+        });
+
+        Assert.NotNull(name);
+        Assert.Contains("Googlebot", name);
+        Assert.EndsWith(" (!)", name);
+    }
+
+    [Fact]
+    public void Compose_ClaimFirst_RealChromeUa_WithPrivacyHeaders_StillNamedChromeOnMacOs()
+    {
+        // Regression: real Chrome with privacy headers must not be mis-claimed. The
+        // catalog won't match anything in the UA, so P1 returns null and we fall to
+        // P3 (family + OS). The result is the expected browser label, NOT a wrong
+        // catalog hit.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "macOS",
+        });
+
+        Assert.NotNull(name);
+        Assert.Contains("Chrome on macOS", name);
+    }
+
+    [Fact]
+    public void Compose_ClaimFirst_RawUaMatchesYamlCatalog_WhenBotNameSignalAbsent()
+    {
+        // Generalised claim-first: even without ua.bot_name in signals, the raw UA
+        // string is scanned via BotPatternLoader.MatchUserAgent. The fediverse YAML
+        // entry for "Mastodon" produces a hit.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "http.rb/5.2 (Mastodon/4.2.1; +https://mastodon.social/)",
+        });
+
+        Assert.NotNull(name);
+        Assert.Contains("Mastodon", name);
+        // Discriminator suffix from UserAgentDiscriminator
+        Assert.Contains("mastodon.social", name);
+    }
+
+    [Fact]
+    public void Compose_ClaimFirst_GptbotRawUa_NamedFromYamlEvenWithoutBotNameSignal()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "Mozilla/5.0 (compatible; GPTBot/1.0; +https://openai.com/gptbot)",
+        });
+
+        Assert.NotNull(name);
+        Assert.StartsWith("GPTBot", name);
+    }
+
+    [Fact]
+    public void Compose_ClaimFirst_CurlRawUa_NamedFromYaml()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "curl/8.0.1",
+        });
+
+        Assert.NotNull(name);
+        // YAML curl entry uses bot_name "curl"
+        Assert.StartsWith("curl", name);
+        // The raw-UA-prefix Priority 4 fallback would render "curl/8.0.1" which is also
+        // acceptable visually but our intent is to fire P1 via the catalog. Either way
+        // the name starts with "curl".
+    }
+
+    [Fact]
+    public void Compose_ClaimFirst_UnknownUa_FallsThroughToP3()
+    {
+        // The catalog has no entry for a totally novel UA. We must NOT invent a P1 claim.
+        // P3 (family + OS) takes over, producing the parser's best browser guess.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "MyCustomScanner/1.0",
+            ["ua.family"] = "Firefox",
+            ["user_agent.os"] = "Linux",
+        });
+
+        Assert.NotNull(name);
+        Assert.Equal("Firefox on Linux", name);
+    }
+
+    [Fact]
+    public void Compose_ClaimFirst_VerifiedClaim_NoSpoofMarker()
+    {
+        // Negative case: claim + verification PASSED. No marker.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            ["verifiedbot.confirmed"] = true,
+            ["verifiedbot.spoofed"] = false,
+        });
+
+        Assert.NotNull(name);
+        Assert.Contains("Googlebot", name);
+        Assert.DoesNotContain("(!)", name);
     }
 
 }

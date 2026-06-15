@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 
@@ -12,9 +13,20 @@ namespace Mostlylucid.BotDetection.Services;
 ///     <see cref="DeterministicBotNameSynthesizer"/> delegates here too so the async/LLM-fallback
 ///     path and the matcher's sync path produce the same names.
 ///
-///     Priorities:
-///       1. Known bot name from UA parsing (<c>ua.bot_name</c>).
-///       2. Matched archetype name + drift variance (<c>identity.archetype_name</c>).
+///     Priorities (claim-first, user directive 2026-06-15
+///     "We always start with what is claimed and TEST IT. Not start with a match, use that
+///     and ignore what's claimed."):
+///       1. UA-STRING CLAIM. Extract the bot/tool identity directly from the raw UA via the
+///          YAML bot-patterns catalog (<see cref="BotPatternLoader.MatchUserAgent"/>). The
+///          cached <c>ua.bot_name</c> signal is consulted first as a fast path, but absent
+///          that we read the catalog directly from <c>ua.raw</c>. This is the load-bearing
+///          inversion: the YAML catalog match is the source of truth, the cached signal is
+///          a convenience. Verification (IP-range / rDNS) runs in parallel and appends
+///          <see cref="SpoofedMarker"/> when it disagrees with the claim -- the operator
+///          sees both the claim AND the verdict.
+///       2. Matched archetype name + drift variance (<c>identity.archetype_name</c>),
+///          gated to human-browser archetypes only -- a non-self-declared visitor whose
+///          centroid grazes a bot archetype is a fingerprint coincidence, not an identity.
 ///       3. UA family + OS characterization (<c>ua.family</c> on <c>user_agent.os</c>).
 ///       4. Raw UA prefix as last-resort label (truncated). Marked as fallback so
 ///          hysteresis still lets a real Priority 1-3 name override it later.
@@ -87,24 +99,45 @@ internal static class FingerprintNameComposer
         IReadOnlyDictionary<string, object> signals,
         string? userAgent)
     {
-        // Priority 1: known bot name from UA parsing. When the UA carries a per-instance
-        // discriminator (the +URL comment convention used by Mastodon, Pleroma, Misskey,
-        // Lemmy, etc.), append the instance hostname so a fediverse link-preview stampede
-        // shows as N distinct signatures ("Mastodon mastodon.social", "Mastodon mas.to")
-        // rather than one giant pile that looks like a single misbehaving client.
+        // Priority 1: UA-STRING CLAIM (claim-first, user directive 2026-06-15).
         //
-        // Deceptive bots: when the UA claims a verifiable identity (Googlebot, Bingbot,
-        // GPTBot, etc.) but the IP didn't match the vendor's published range or the
-        // rDNS lookup failed, VerifiedBotContributor flags VerifiedBotSpoofed=true.
-        // We surface that with a "(!)" marker in the displayed name so an operator
-        // scanning the dashboard immediately sees the deception attempt instead of
-        // the bot blending in with legitimate Googlebot traffic.
-        var botName = GetString(signals, SignalKeys.UserAgentBotName);
-        if (!string.IsNullOrEmpty(botName) && botName != "unknown")
+        // Start with what the visitor CLAIMS to be. Two paths feed P1, in order:
+        //   (1a) the cached ua.bot_name signal -- fast, populated by UserAgentContributor
+        //        when the orchestrator has already run UA pattern matching for THIS
+        //        request and stuffed the result into the blackboard.
+        //   (1b) the raw UA string -- read directly via BotPatternLoader.MatchUserAgent
+        //        (substring scan over every catalogued claim marker in the YAML files).
+        //        This path is the load-bearing one for matcher-runs-before-UA-contributor
+        //        races: matcher Priority 6 fires before UserAgentContributor Priority 10
+        //        on every request, so ua.bot_name is absent on the matcher's first call
+        //        and a centroid drift onto a chrome-with-privacy-headers archetype used
+        //        to leak "Chrome on macOS (privacy headers)" out as the name for a real
+        //        Mastodon UA. Reading the YAML catalog directly bypasses the cached
+        //        signal entirely and produces "Mastodon mastodon.social" on request 1.
+        //
+        // Per feedback_no_word_lists: the claim catalogue lives in YAML
+        // (Definitions/BotPatterns/*.bot-patterns.yaml), NOT in code here. Adding a new
+        // fediverse server / AI crawler / CLI tool is a YAML edit.
+        //
+        // When the UA carries a per-instance discriminator (the +URL comment convention
+        // used by Mastodon, Pleroma, Misskey, Lemmy, etc.), append the instance hostname
+        // so a fediverse link-preview stampede shows as N distinct signatures
+        // ("Mastodon mastodon.social", "Mastodon mas.to") rather than one giant pile
+        // that looks like a single misbehaving client.
+        //
+        // Verification runs in parallel: when the UA claims a verifiable identity
+        // (Googlebot, Bingbot, GPTBot, etc.) but the IP didn't match the vendor's
+        // published range or the rDNS lookup failed, VerifiedBotContributor flags
+        // VerifiedBotSpoofed=true. We surface that with a " (!)" marker -- the name
+        // shows the CLAIM AND the verdict, never one without the other.
+        var rawUaForClaim = GetString(signals, SignalKeys.UserAgent) ?? userAgent;
+        var claimedBotName = ExtractClaimedBotName(signals, rawUaForClaim);
+        if (!string.IsNullOrEmpty(claimedBotName))
         {
-            var rawUa = GetString(signals, SignalKeys.UserAgent) ?? userAgent;
-            var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa);
-            var composed = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
+            var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUaForClaim);
+            var composed = string.IsNullOrEmpty(discriminator)
+                ? claimedBotName
+                : $"{claimedBotName} {discriminator}";
             if (IsSpoofedClaim(signals)) composed += SpoofedMarker;
             return composed;
         }
@@ -289,4 +322,33 @@ internal static class FingerprintNameComposer
 
     private static bool GetBool(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is bool b && b;
+
+    /// <summary>
+    ///     Resolve the bot/tool/client name CLAIMED by this request, in priority order:
+    ///     <list type="number">
+    ///         <item><c>ua.bot_name</c> from the signal dict, when UserAgentContributor
+    ///             has already populated it for this request.</item>
+    ///         <item>Direct scan of the raw UA via <see cref="BotPatternLoader.MatchUserAgent"/>.
+    ///             The loader walks every catalogued substring (search engines, AI
+    ///             scrapers, fediverse servers, developer tools, social media, monitoring,
+    ///             SEO tools) and returns the first hit. This is the path that rescues
+    ///             the matcher-before-UserAgentContributor race -- the catalog is the
+    ///             source of truth, not the cached signal.</item>
+    ///     </list>
+    ///     The catalogue itself lives in YAML (<c>Definitions/BotPatterns/*.bot-patterns.yaml</c>)
+    ///     per <c>feedback_no_word_lists</c>; adding a new claim marker is a YAML edit.
+    ///     Returns null when neither source yields a usable name.
+    /// </summary>
+    private static string? ExtractClaimedBotName(
+        IReadOnlyDictionary<string, object> signals,
+        string? rawUa)
+    {
+        var cached = GetString(signals, SignalKeys.UserAgentBotName);
+        if (!string.IsNullOrEmpty(cached) && cached != "unknown")
+            return cached;
+
+        if (string.IsNullOrEmpty(rawUa)) return null;
+        var (_, botName) = BotPatternLoader.Default.MatchUserAgent(rawUa);
+        return string.IsNullOrEmpty(botName) ? null : botName;
+    }
 }
