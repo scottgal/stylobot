@@ -551,8 +551,11 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<LicenseStateRefreshService>>(),
                 sp.GetRequiredService<Scheduling.IScheduleCoordinator>()));
 
-        // Register bot list update background service
-        services.AddHostedService<BotListUpdateService>();
+        // Register bot list update service.
+        // Wave 2: migrated to ScheduleCoordinator tick.1h. Eager-resolved by
+        // BotDetectionHostedSingletonsBootstrap so the constructor's Subscribe(...)
+        // fires at boot.
+        services.AddSingleton<BotListUpdateService>();
 
         // Single-shot startup hook that drives demo presets through the
         // orchestrator if BotDetection:DemoPreloadOnStartup is set. No-op when

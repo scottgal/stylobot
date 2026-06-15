@@ -87,7 +87,10 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         RegisterContributors(services, context);
 
         // Register background services
-        services.AddHostedService<BotListUpdateService>();
+        // Wave 2: BotListUpdateService migrated to ScheduleCoordinator tick.1h.
+        // Eager-resolved by BotDetectionHostedSingletonsBootstrap so the
+        // constructor's Subscribe(...) fires at boot.
+        services.AddSingleton<BotListUpdateService>();
 
         // Configure options if not already configured
         services.AddOptions<BotDetectionOptions>()

@@ -1,107 +1,147 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Background service that automatically updates bot detection lists.
-///     Designed to be fail-safe: all failures are logged but never crash the application.
+///     Periodically updates the bot detection lists. Fail-safe by design: every
+///     failure is logged but never crashes the application.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> that
+///         initialised the database on the first iteration and then looped on
+///         <c>Task.Delay(CalculateNextCheckDelay())</c> with exponential
+///         backoff. Now subscribes to <see cref="TickCadence.Tick1h"/> and
+///         gates the check on "last-attempt older than the backoff-adjusted
+///         check interval"; the database is initialised lazily on the first
+///         tick so the boot path stays subscribe-only. The startup
+///         <c>StartupDelaySeconds</c> grace window is preserved by tracking
+///         the first-tick timestamp.
+///     </para>
 /// </summary>
-public class BotListUpdateService : BackgroundService
+public sealed class BotListUpdateService : IDisposable
 {
     private readonly IBotListDatabase _database;
     private readonly ILogger<BotListUpdateService> _logger;
     private readonly BotDetectionMetrics? _metrics;
     private readonly BotDetectionOptions _options;
     private readonly ICompiledPatternCache? _patternCache;
+    private readonly IDisposable? _subscription;
+    private DateTime _firstTickUtc = DateTime.MinValue;
+    private DateTime _lastAttemptUtc = DateTime.MinValue;
+    private bool _databaseInitialised;
     private int _consecutiveFailures;
     private DateTime? _lastSuccessfulUpdate;
+    private int _disposed;
 
     public BotListUpdateService(
         IBotListDatabase database,
         ILogger<BotListUpdateService> logger,
         IOptions<BotDetectionOptions> options,
         ICompiledPatternCache? patternCache = null,
-        BotDetectionMetrics? metrics = null)
+        BotDetectionMetrics? metrics = null,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _database = database;
         _logger = logger;
         _options = options.Value;
         _patternCache = patternCache;
         _metrics = metrics;
+
+        // Optional so existing direct-construction tests keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick1h,
+                "BotListUpdateService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Fires every Tick1h; honours the
+    ///     legacy 60-minute check interval, 24-hour update interval, optional
+    ///     startup-delay grace window, and exponential backoff on consecutive
+    ///     failures. Public so tests can drive a single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        // Check if background updates are enabled
+        if (_disposed != 0) return;
+
         if (!_options.EnableBackgroundUpdates)
         {
-            _logger.LogInformation(
-                "Bot list background updates are disabled. Lists will only be loaded once at startup");
+            if (_firstTickUtc == DateTime.MinValue)
+            {
+                _logger.LogInformation(
+                    "Bot list background updates are disabled. Lists will only be loaded once at startup");
+                _firstTickUtc = now.UtcDateTime;
+            }
             return;
         }
 
-        _logger.LogInformation(
-            "Bot list update service started. Schedule: {Schedule}",
-            _options.UpdateSchedule?.Description ?? "default (daily at 2 AM UTC)");
+        if (_firstTickUtc == DateTime.MinValue)
+        {
+            _logger.LogInformation(
+                "Bot list update service started. Schedule: {Schedule}",
+                _options.UpdateSchedule?.Description ?? "default (daily at 2 AM UTC)");
+            _firstTickUtc = now.UtcDateTime;
+        }
 
-        // Delay startup to avoid slowing down application startup
+        // Preserve the StartupDelaySeconds grace window: skip the first tick(s)
+        // until the configured grace period has elapsed since the first tick.
         if (_options.StartupDelaySeconds > 0)
         {
-            _logger.LogDebug("Delaying bot list initialization by {Seconds} seconds", _options.StartupDelaySeconds);
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(_options.StartupDelaySeconds), stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
+            var grace = TimeSpan.FromSeconds(_options.StartupDelaySeconds);
+            if (now.UtcDateTime - _firstTickUtc < grace) return;
         }
 
-        // Initialize database on startup (fail-safe)
-        await InitializeDatabaseSafeAsync(stoppingToken);
-
-        // Main update loop
-        while (!stoppingToken.IsCancellationRequested)
+        // Honour the backoff-adjusted check interval since the last attempt.
+        var checkInterval = CalculateNextCheckDelay();
+        if (_lastAttemptUtc != DateTime.MinValue &&
+            now.UtcDateTime - _lastAttemptUtc < checkInterval)
         {
-            try
-            {
-                await CheckAndUpdateListsAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                // Normal shutdown
-                break;
-            }
-            catch (Exception ex)
-            {
-                // Catch-all: log but never crash
-                _consecutiveFailures++;
-                _logger.LogError(ex,
-                    "Unexpected error in bot list update service (failure #{FailureCount}). " +
-                    "Service will continue running",
-                    _consecutiveFailures);
-            }
-
-            // Wait for next check
-            try
-            {
-                var delay = CalculateNextCheckDelay();
-                _logger.LogDebug("Next bot list check in {Minutes} minutes", delay.TotalMinutes);
-                await Task.Delay(delay, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            return; // Not yet due.
         }
 
-        _logger.LogInformation("Bot list update service stopped");
+        _lastAttemptUtc = now.UtcDateTime;
+
+        // Initialize database on first eligible tick (was the first iteration
+        // of the legacy ExecuteAsync loop).
+        if (!_databaseInitialised)
+        {
+            await InitializeDatabaseSafeAsync(ct);
+            _databaseInitialised = true;
+        }
+
+        try
+        {
+            await CheckAndUpdateListsAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Normal shutdown.
+        }
+        catch (Exception ex)
+        {
+            _consecutiveFailures++;
+            _logger.LogError(ex,
+                "Unexpected error in bot list update tick (failure #{FailureCount}). " +
+                "Service will continue running",
+                _consecutiveFailures);
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     private async Task InitializeDatabaseSafeAsync(CancellationToken cancellationToken)
