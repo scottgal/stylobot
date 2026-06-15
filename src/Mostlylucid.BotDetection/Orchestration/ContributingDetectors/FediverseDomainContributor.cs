@@ -128,12 +128,15 @@ public sealed partial class FediverseDomainContributor : ContributingDetectorBas
         // can claim mastodon.social from any IP and FriendlyDomainVerified=true
         // still fires."
         //
-        // Uses the instance domain we already extracted from the UA's
-        // +https://host/ field above -- that is exactly the claim we need to
-        // bind to the client IP. When the UserAgentContributor later starts
-        // publishing an authoritative ua.bot_instance signal we can switch to
-        // reading that signal here so both contributors agree on one string.
-        await TryForwardDnsConfirmAsync(state, domain, cancellationToken).ConfigureAwait(false);
+        // Prefer the authoritative SignalKeys.UserAgentBotInstance (published
+        // by UserAgentContributor via the shared discriminator extractor) so
+        // both contributors agree on exactly the same instance string. Fall
+        // back to the regex match if that signal isn't present -- still safe
+        // because UserAgentContributor uses the same UserAgentDiscriminator
+        // helper, so the values match.
+        var claimedInstance = state.GetSignal<string>(SignalKeys.UserAgentBotInstance);
+        if (string.IsNullOrEmpty(claimedInstance)) claimedInstance = domain;
+        await TryForwardDnsConfirmAsync(state, claimedInstance, cancellationToken).ConfigureAwait(false);
 
         // Contributor pattern returns a DetectionContribution so the row shows up in
         // the dashboard trace; the actual signal-driven gate is in DetermineRiskBand.
