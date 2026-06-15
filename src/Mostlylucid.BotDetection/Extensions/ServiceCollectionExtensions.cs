@@ -903,8 +903,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.BruteForceIdentityAnchorIndex>();
         services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.SqliteVecIdentityAnchorIndex>();
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
+        // Wave 2: migrated to ScheduleCoordinator tick.10s. Eager-resolved by
+        // BotDetectionHostedSingletonsBootstrap so the constructor's Subscribe(...)
+        // fires at boot.
         services.AddSingleton<Identity.IdentityGlobalWeightsCache>();
-        services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityGlobalWeightsCache>());
         // Slow-path coordinator: bounded queue, priority scheduling, per-fp coalesce,
         // circuit breaker. Fast path bypasses it; slow path goes through it so adversarial
         // bursts cannot starve legitimate slow-path enrichment.
