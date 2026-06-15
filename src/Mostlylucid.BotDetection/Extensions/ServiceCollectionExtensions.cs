@@ -804,6 +804,14 @@ public static class ServiceCollectionExtensions
             AllowAutoRedirect = false,  // SSRF guard -- no redirect chains
             UseCookies = false
         });
+        // Forward-DNS resolver for FediverseDomainContributor's IP-side
+        // confirmation (Gap #3 from the 2026-06-15 claim-verify-trust gap
+        // analysis): NodeInfo confirms the claimed instance domain hosts
+        // ActivityPub software but never binds the client IP to the claim.
+        // SystemDnsResolver wraps Dns.GetHostAddressesAsync; swap for tests via
+        // IDnsResolver. Singleton -- the resolver is stateless and the
+        // contributor caches results in BoundedCache anyway.
+        services.TryAddSingleton<IDnsResolver, SystemDnsResolver>();
         services.AddSingleton<IContributingDetector, FediverseDomainContributor>();
         // Threat-intel enrichment (priority 7) - reads cached verdicts from
         // IThreatIntelCoordinator (offline pack: Spamhaus, Tor, KEV, cloud ranges).
