@@ -605,6 +605,25 @@ else
         </div>
     }
 
+    @* User Agent -- promoted from the metadata footer's hover-only title= attribute
+       (where it was effectively invisible) to a primary visible block above Analysis
+       so an operator can always read the raw UA string this signature was identified
+       from. Monospaced + word-break-all so long enterprise UAs wrap cleanly inside
+       the card rather than blowing the row width out. The select-all class is on the
+       <code> so a triple-click copies the full string without the label. *@
+    @if (!string.IsNullOrEmpty(Model.UserAgent))
+    {
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">
+                <i class="bx bx-user-circle text-sm" style="color: var(--sb-accent);"></i>
+                User Agent
+            </h3>
+            <code class="block text-xs font-mono text-base-content/80 break-all select-all"
+                  style="font-family: ui-monospace, monospace;"
+                  data-testid="sb-signature-user-agent">@Model.UserAgent</code>
+        </div>
+    }
+
     <!-- Two-column: Analysis + Detection Signals -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">

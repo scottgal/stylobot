@@ -16,9 +16,10 @@ namespace Mostlylucid.BotDetection.Services;
 ///       1. Known bot name from UA parsing (<c>ua.bot_name</c>).
 ///       2. Matched archetype name + drift variance (<c>identity.archetype_name</c>).
 ///       3. UA family + OS characterization (<c>ua.family</c> on <c>user_agent.os</c>).
-///       4. Short fingerprint-id prefix as last-resort label (only when no UA at all).
+///       4. Raw UA prefix as last-resort label (truncated). Marked as fallback so
+///          hysteresis still lets a real Priority 1-3 name override it later.
 ///
-///     Never returns null or empty.
+///     Returns null only when the request carries no UA at all.
 /// </summary>
 internal static class FingerprintNameComposer
 {
@@ -69,11 +70,15 @@ internal static class FingerprintNameComposer
     {
         var fresh = ComposeFresh(signals, userAgent);
 
-        // Hysteresis: if we have no fresh result but a previous real name exists, keep the
-        // previous one so the visible label doesn't disappear when signal presence varies
-        // request-to-request (matcher runs at priority 6, before UserAgentContributor at
-        // priority 10, so the first compose for a brand-new fingerprint often lacks ua.family).
-        if (fresh is null && !string.IsNullOrEmpty(previousName))
+        // Hysteresis: keep a previously-persisted REAL name (Priority 1-3) over either
+        //   (a) a null fresh result, OR
+        //   (b) a fresh Priority-4 UA-prefix FALLBACK
+        // so the visible label doesn't churn between "Googlebot" and "Mozilla/5.0..."
+        // when bot_name is missing from this request's signal dict. previousName is only
+        // honoured when it is itself NOT a fallback -- a previously-stored UA prefix or
+        // legacy "analysing" should yield to any non-null fresh result.
+        if (!string.IsNullOrEmpty(previousName) && !IsFallback(previousName) &&
+            (fresh is null || IsFallback(fresh)))
             return previousName;
         return fresh;
     }
@@ -142,28 +147,60 @@ internal static class FingerprintNameComposer
         // status-as-name pollution); the wrapper is gone too -- the return paths above
         // are the final names.
 
-        // No usable signal yet. Return null so the caller can decide whether to emit
-        // anything at all -- typically that means "leave bot_name blank in storage and
-        // let the dashboard's render layer synthesise a descriptive label from threat
-        // / behaviour signals on the row". Avoids the old "analysing" / "unknown xxx"
-        // placeholders ever reaching the dashboard or persisting in fingerprint records.
+        // Priority 4: raw UA prefix as a visible last-resort label. User direction
+        // 2026-06-15: showing the head of the actual UA string is always more useful
+        // than a null/anonymous label or the legacy "analysing" / "unknown xxx"
+        // placeholders. IsFallback below recognises this shape (UAs always contain
+        // a "/") so hysteresis still lets a real Priority 1-3 name win when it
+        // later becomes available, and the persist site still treats it as a
+        // fallback to keep it out of long-term fingerprint records.
+        var fallbackUa = GetString(signals, SignalKeys.UserAgent) ?? userAgent;
+        if (!string.IsNullOrEmpty(fallbackUa))
+        {
+            return fallbackUa.Length > UaPrefixMaxLength
+                ? fallbackUa[..UaPrefixMaxLength] + "…"
+                : fallbackUa;
+        }
+
+        // No UA at all -- nothing to render. Return null; the caller leaves bot_name
+        // blank and the dashboard's render layer falls back to a generic placeholder.
         return null;
     }
 
     /// <summary>
-    ///     True when <paramref name="composedName"/> is null/empty or a legacy Priority-4
-    ///     fallback ("analysing" / "unknown xxx" / "(country:sigprefix)"-decorated form of
-    ///     either). Compose no longer produces these -- it returns null instead -- but
-    ///     historical persisted display_name rows from before that change still match.
-    ///     Strips a legacy " (...)" suffix before testing the base.
+    ///     Cap on the visible UA prefix produced by Priority 4. Long enterprise UAs
+    ///     (Skype, Outlook, build tooling) can run 200+ characters and would blow up
+    ///     dashboard row layouts; the full UA is always available on the signature
+    ///     detail page where it has its own dedicated visible block.
+    /// </summary>
+    private const int UaPrefixMaxLength = 48;
+
+    /// <summary>
+    ///     True when <paramref name="composedName"/> is null/empty, a legacy fallback
+    ///     ("analysing" / "unknown xxx" / "(country:sigprefix)"-decorated form of either),
+    ///     OR a Priority-4 raw-UA-prefix label.
+    ///     <para>
+    ///     The UA-prefix shape is detected by the presence of a "/" -- every UA carries
+    ///     one ("Mozilla/5.0", "Mastodon/4.3.0", "curl/8.0"), and the real Priority 1-3
+    ///     composed names never do ("Googlebot", "Chrome on Windows", "Mastodon
+    ///     mastodon.social"). Marking these as fallback keeps hysteresis honest: a
+    ///     previously-stored real name will still override a fresh UA prefix on
+    ///     subsequent requests, and the matcher's persist site will not overwrite a
+    ///     stored real name with a UA prefix.
+    ///     </para>
+    ///     Strips a legacy " (...)" suffix before testing the base name.
     /// </summary>
     public static bool IsFallback(string? composedName)
     {
         if (string.IsNullOrEmpty(composedName)) return true;
         var paren = composedName.IndexOf(" (", StringComparison.Ordinal);
         var baseName = paren > 0 ? composedName[..paren] : composedName;
-        return baseName == "analysing"
-            || baseName.StartsWith("unknown ", StringComparison.Ordinal);
+        if (baseName == "analysing"
+            || baseName.StartsWith("unknown ", StringComparison.Ordinal))
+            return true;
+        // Raw-UA-prefix detection. Every UA token carries a "/" between the product
+        // name and version; the structured Priority 1-3 outputs never do.
+        return composedName.Contains('/');
     }
 
     /// <summary>

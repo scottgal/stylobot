@@ -281,17 +281,18 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_ReturnsPrevious_WhenFreshIsNullAndPreviousIsFallback()
+    public void Compose_ReturnsNull_WhenFreshIsNullAndPreviousIsFallback()
     {
-        // Compose no longer returns "analysing" or "unknown xxx" itself; it returns null.
-        // If the caller supplies a legacy fallback as previousName, we still echo it back
-        // (hysteresis: don't blank a name out, even a poor one) until a better fresh result
-        // arrives. The matcher's IsFallback check at the persist site keeps fallbacks out
-        // of the DB; this just preserves what's already there during the request.
+        // Updated contract 2026-06-15: with Priority 4 (raw-UA prefix) now providing a
+        // visible last-resort label, hysteresis no longer echoes legacy fallbacks like
+        // "analysing" back -- those carry no information and the persist layer should
+        // be free to overwrite them with the new UA-prefix shape (or leave blank when
+        // even the UA is absent). The previousName-overrides-fresh rule now requires
+        // previousName to be a REAL Priority 1-3 name, not another fallback.
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
             previousName: "analysing");
-        Assert.Equal("analysing", name);
+        Assert.Null(name);
     }
 
     [Fact]
@@ -304,6 +305,117 @@ public class FingerprintNameComposerTests
         Assert.False(FingerprintNameComposer.IsFallback("Chrome on Windows"));
         Assert.False(FingerprintNameComposer.IsFallback("Chrome on Windows (US:abcd)"));
         Assert.False(FingerprintNameComposer.IsFallback("Mastodon mastodon.social"));
+    }
+
+    // --- Priority 4: raw UA prefix as last-resort label ---------------------------------
+
+    [Fact]
+    public void Compose_ReturnsUaPrefix_WhenNoOtherPriorityHits()
+    {
+        // User direction 2026-06-15: when bot_name / archetype / family-on-os all miss,
+        // showing the raw UA prefix is more useful than returning null. Mastodon/4.3.0
+        // is exactly the case -- the UA carries no +URL discriminator so P1 doesn't
+        // fire, uap-core categorises it as "Other" so P3 doesn't fire, but the operator
+        // can still see what was sent if we surface the head of the UA.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = "Mastodon/4.3.0"
+            // no bot_name, no archetype, no family, no os
+        });
+        Assert.NotNull(name);
+        Assert.StartsWith("Mastodon/", name);
+    }
+
+    [Fact]
+    public void Compose_UaPrefix_ReadsUserAgentParam_WhenSignalMissing()
+    {
+        // The matcher hot path passes the UA via the userAgent parameter rather than
+        // stuffing it into the signal dict. Priority 4 must self-rescue from that
+        // parameter so a brand-new fingerprint isn't anonymous on request 1. Use a UA
+        // uap-core does NOT recognise (no curl/wget/etc. shortcut) so Priority 3
+        // returns "Other" and we fall through to the raw-UA path.
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object>(),
+            userAgent: "MyCustomScanner/1.0 (+https://example.com)");
+        Assert.NotNull(name);
+        Assert.StartsWith("MyCustomScanner/", name);
+    }
+
+    [Fact]
+    public void Compose_UaPrefix_Truncates_LongUserAgent()
+    {
+        // Cap at 48 chars + ellipsis so the dashboard row layout doesn't get blown up
+        // by a 500-char enterprise UA (Skype/Outlook/etc. concatenate their entire
+        // build chain into the UA string).
+        var longUa = new string('A', 200);
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.raw"] = longUa
+        });
+        Assert.NotNull(name);
+        Assert.True(name.Length <= 49, $"expected length ≤ 49, got {name.Length}: {name}");
+        Assert.EndsWith("…", name);
+    }
+
+    [Fact]
+    public void Compose_PrefersBotName_OverUaPrefixFallback()
+    {
+        // Priority 1 must still beat Priority 4. Googlebot UAs have bot_name set.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.bot_name"] = "Googlebot",
+            ["ua.raw"] = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        });
+        Assert.NotNull(name);
+        Assert.StartsWith("Googlebot", name);
+        Assert.DoesNotContain("Mozilla/", name);
+    }
+
+    [Fact]
+    public void Compose_PrefersFamilyOs_OverUaPrefixFallback()
+    {
+        // Priority 3 must still beat Priority 4.
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "Windows",
+            ["ua.raw"] = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36"
+        });
+        Assert.Equal("Chrome on Windows", name);
+    }
+
+    [Fact]
+    public void IsFallback_ReturnsTrue_ForUaPrefixLabel()
+    {
+        // The UA-prefix Priority 4 output IS a fallback -- if a real Priority 1-3 name
+        // later becomes available we want it to win. Detection: every UA string carries
+        // a "/" (Mozilla/5.0, Mastodon/4.3.0, curl/8.0). Real composed names from P1-P3
+        // never do ("Googlebot", "Chrome on Windows", "Mastodon mastodon.social").
+        Assert.True(FingerprintNameComposer.IsFallback("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW…"));
+        Assert.True(FingerprintNameComposer.IsFallback("Mastodon/4.3.0 (+https://m…"));
+        Assert.True(FingerprintNameComposer.IsFallback("curl/8.0.1"));
+        Assert.True(FingerprintNameComposer.IsFallback("Mastodon/4.3.0"));
+        // Sanity: real names still aren't fallbacks.
+        Assert.False(FingerprintNameComposer.IsFallback("Chrome on Windows"));
+        Assert.False(FingerprintNameComposer.IsFallback("Mastodon mastodon.social"));
+        Assert.False(FingerprintNameComposer.IsFallback("Googlebot"));
+    }
+
+    [Fact]
+    public void Compose_PreservesPreviousRealName_OverFreshUaPrefix()
+    {
+        // Load-bearing hysteresis test: with the new Priority 4 fallback "fresh" is no
+        // longer null when a raw UA is present, but a previously-persisted REAL name
+        // (Priority 1-3) must still win. Otherwise "Googlebot" would flicker back to
+        // "Mozilla/5.0..." on the next request when bot_name happened not to be in
+        // the signal dict.
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object>
+            {
+                ["ua.raw"] = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36"
+            },
+            previousName: "Googlebot");
+        Assert.Equal("Googlebot", name);
     }
 
 }
