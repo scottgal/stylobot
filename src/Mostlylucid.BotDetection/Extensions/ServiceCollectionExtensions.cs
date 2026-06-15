@@ -789,8 +789,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, FastPathReputationContributor>();
         // Verified bot identity check (priority 4) - IP range + FCrDNS verification
         // Runs after FastPathReputation, before UserAgent. Catches spoofed bot UAs.
+        // Wave 2: drop AddHostedService -- the registry subscribes to
+        // IScheduleCoordinator.Tick1h at construction for IP-range refresh.
+        // The BotDetectionHostedSingletonsBootstrap shim forces resolution at
+        // boot so the subscription is not dormant until first
+        // request-time resolution. See the migration plan dated 2026-06-15.
         services.TryAddSingleton<VerifiedBotRegistry>();
-        services.AddHostedService(sp => sp.GetRequiredService<VerifiedBotRegistry>());
         services.AddSingleton<IContributingDetector, VerifiedBotContributor>();
         // Inline IP-range verifier (priority 4) - catches UA-claim impersonators on
         // the first request when the claimed bot publishes CIDR ranges (Bingbot,

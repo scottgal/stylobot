@@ -3,10 +3,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -68,11 +68,29 @@ public sealed class VerifiedBotRegistryOptions
 ///     This service verifies claims by checking:
 ///     1. Published CIDR ranges (Google, Bing, OpenAI) - instant O(n) lookup
 ///     2. Forward-Confirmed reverse DNS (FCrDNS) for bots without published ranges
-///     IP ranges are refreshed periodically via a background timer.
+///     IP ranges are refreshed periodically via the project-wide
+///     <see cref="IScheduleCoordinator"/> (Tick1h cadence, gated on
+///     "last-success older than configured interval"). The in-memory
+///     <c>_ipRanges</c> dictionary is rebuilt from the published JSON
+///     endpoints on each successful refresh; loss-on-restart is
+///     covered because detection works fine while the dictionary is
+///     populating (matching the pre-Wave-2 "fire-and-forget initial
+///     load" semantics).
 ///     DNS verified results cached (configurable), failed results cached shorter.
 ///     All timing values configurable via appsettings.json: BotDetection:VerifiedBotRegistry
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was an
+///         <see cref="Microsoft.Extensions.Hosting.IHostedService"/> using a
+///         private <see cref="Timer"/> for the refresh cadence; now subscribes
+///         to <see cref="TickCadence.Tick1h"/> and gates the fetch on
+///         "last-success older than <see cref="VerifiedBotRegistryOptions.IpRangeRefreshHours"/>".
+///         The very first eligible tick after boot still primes the
+///         dictionary (<see cref="_lastSuccessfulRefreshUtc"/> is null on cold
+///         start, so the "not yet due" guard short-circuits to a refresh).
+///         See <c>feedback_no_background_services</c>.
+///     </para>
 /// </summary>
-public sealed class VerifiedBotRegistry : IHostedService, IDisposable
+public sealed class VerifiedBotRegistry : IDisposable
 {
     private readonly ILogger<VerifiedBotRegistry> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -81,8 +99,10 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
     private readonly BoundedCache<string, (bool verified, string? hostname)> _dnsCache = new(maxSize: 10_000, defaultTtl: TimeSpan.FromHours(1));
     private readonly ConcurrentDictionary<string, List<IPNetwork>> _ipRanges = new();
 
-    private Timer? _refreshTimer;
+    private readonly IDisposable _subscription;
     private int _refreshing; // Guard against overlapping refreshes
+    private DateTime? _lastSuccessfulRefreshUtc;
+    private int _disposed;
 
     // Configurable timing - bound from VerifiedBotRegistryOptions (appsettings.json)
     private readonly TimeSpan _dnsVerifiedCacheTtl;
@@ -120,8 +140,10 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
         ILogger<VerifiedBotRegistry> logger,
         IHttpClientFactory httpClientFactory,
         IOptions<VerifiedBotRegistryOptions> options,
+        IScheduleCoordinator coordinator,
         BotPatternLoader? patternLoader = null)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _logger = logger;
         _httpClientFactory = httpClientFactory;
 
@@ -150,6 +172,12 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
             "VerifiedBotRegistry initialised with {Count} bot definitions (sample: {Sample})",
             _botDefinitions.Length,
             string.Join(",", _botDefinitions.Take(5).Select(b => b.Name)));
+
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1h,
+            "VerifiedBotRegistry",
+            CostHint.Medium,
+            OnTickAsync);
     }
 
     /// <summary>
@@ -629,44 +657,40 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
         }
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    /// <summary>
+    ///     The coordinator's tick handler. Fires every Tick1h; gates the
+    ///     IP-range fetch on "last-success older than configured
+    ///     <see cref="VerifiedBotRegistryOptions.IpRangeRefreshHours"/>".
+    ///     On boot, <see cref="_lastSuccessfulRefreshUtc"/> is null so the
+    ///     first eligible tick refreshes immediately -- matching the
+    ///     pre-Wave-2 fire-and-forget initial load. Public so tests can drive
+    ///     a single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        // Fire-and-forget initial load so we don't block Kestrel startup.
-        // IP ranges start empty and fill within seconds; detection works fine without them.
-        _ = SafeRefreshAsync();
+        if (_disposed != 0) return;
 
-        // Schedule periodic refresh
-        _refreshTimer = new Timer(
-            static state => _ = ((VerifiedBotRegistry)state!).SafeRefreshAsync(),
-            this,
-            _refreshInterval,
-            _refreshInterval);
+        var lastSuccess = _lastSuccessfulRefreshUtc;
+        if (lastSuccess != null && now.UtcDateTime - lastSuccess.Value < _refreshInterval)
+            return; // Not yet due.
 
-        return Task.CompletedTask;
-    }
-
-    private async Task SafeRefreshAsync()
-    {
         try
         {
             await RefreshAllRangesAsync();
+            _lastSuccessfulRefreshUtc = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Periodic IP range refresh failed - will retry in {Hours}h",
-                _refreshInterval.TotalHours);
+            _logger.LogWarning(ex, "Periodic IP range refresh failed - will retry next tick");
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        _refreshTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-        return Task.CompletedTask;
-    }
-
+    /// <inheritdoc />
     public void Dispose()
     {
-        _refreshTimer?.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     private static string MaskIp(string ip) => Helpers.PrivacyHelper.MaskIp(ip);

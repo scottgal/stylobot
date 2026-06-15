@@ -35,7 +35,8 @@ public class VerifiedBotHonestBotTests
         return new VerifiedBotRegistry(
             NullLogger<VerifiedBotRegistry>.Instance,
             httpFactory,
-            options);
+            options,
+            new Mostlylucid.BotDetection.Test.Scheduling.Helpers.RecordingScheduleCoordinator());
     }
 
     [Fact]
