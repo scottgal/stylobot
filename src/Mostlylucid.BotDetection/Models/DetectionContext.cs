@@ -216,6 +216,27 @@ public static class SignalKeys
     /// <summary>String: bot product name when ua.is_bot is true (e.g. Googlebot, MJ12bot, AhrefsBot).</summary>
     public const string UserAgentBotName = "ua.bot_name";
 
+    /// <summary>
+    ///     String: the per-instance discriminator extracted from a UA's
+    ///     <c>+URL</c> comment marker. For fediverse link-preview bots
+    ///     (Mastodon, Pleroma, Akkoma, Misskey, etc.) this is the
+    ///     instance hostname (<c>mastodon.social</c>, <c>mas.to</c>).
+    ///     For self-identifying crawlers it's the home URL host when the
+    ///     URL is NOT in the vendor-home skiplist. Absent / empty when
+    ///     the UA carries no discriminator or the URL resolved to a
+    ///     vendor-home reference (<c>openai.com</c> for GPTBot,
+    ///     <c>www.google.com</c> for Googlebot).
+    ///     <para>
+    ///         Use this for per-instance trust accumulation, signature
+    ///         disambiguation, and dashboard display. Do NOT compose
+    ///         display names from this alone; pair with
+    ///         <see cref="UserAgentBotName"/>. Written by
+    ///         <c>UserAgentContributor</c> via
+    ///         <see cref="Helpers.UserAgentDiscriminator.ExtractDiscriminator"/>.
+    ///     </para>
+    /// </summary>
+    public const string UserAgentBotInstance = "ua.bot_instance";
+
     /// <summary>String: parsed browser/agent family from the UA (e.g. Chrome, Firefox, Safari, curl, python-requests).</summary>
     public const string UserAgentFamily = "ua.family";
 

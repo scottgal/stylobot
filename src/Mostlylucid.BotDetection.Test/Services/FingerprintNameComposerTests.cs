@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Test.Services;
@@ -566,6 +567,26 @@ public class FingerprintNameComposerTests
         Assert.NotNull(name);
         Assert.Contains("Googlebot", name);
         Assert.DoesNotContain("(!)", name);
+    }
+
+    // ----- Claim-verify-trust gap #2: composer reads ua.bot_instance signal -------------
+    // When UserAgentContributor has already populated ua.bot_instance for this request,
+    // the composer must prefer the cached signal over re-extracting via the helper.
+    // The direct-extraction fallback only fires when the signal is absent (matcher
+    // running on the hot path before UserAgentContributor).
+
+    [Fact]
+    public void Compose_Reads_BotInstance_Signal_When_Present()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentBotName] = "Mastodon",
+            [SignalKeys.UserAgentBotInstance] = "mas.to",
+            [SignalKeys.UserAgent] = "http.rb (Mastodon/4.x; +https://mas.to/)",
+        });
+
+        Assert.NotNull(name);
+        Assert.Equal("Mastodon mas.to", name);
     }
 
 }

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -73,6 +74,18 @@ public partial class UserAgentContributor : ConfiguredContributorBase
 
         var contributions = new List<DetectionContribution>();
 
+        // Per-instance discriminator (the +URL host -- mastodon.social, mas.to, etc.).
+        // Extracted once via the shared helper that already underpins display-name
+        // composition and the deterministic verifiedbot fingerprint id; emitting it
+        // as a first-class signal lets verifiers, persistence, and the dashboard see
+        // WHICH fediverse instance / vendor home the UA claims (claim-verify-trust
+        // gap #2 2026-06-15). Returns null on missing-URL UAs and on the vendor-home
+        // skiplist (openai.com, google.com); we only write the signal when it's a
+        // real per-instance value so consumers can distinguish "no discriminator"
+        // from "empty discriminator". Per feedback_no_duplication, this reuses the
+        // existing extractor rather than re-rolling the URL regex.
+        var botInstance = UserAgentDiscriminator.ExtractDiscriminator(userAgent);
+
         // Check for known bot UA patterns (previously whitelisted for early exit).
         // Now emits a regular bot contribution - actual IP/DNS verification is
         // handled by VerifiedBotContributor. UA alone is trivially spoofable.
@@ -90,6 +103,8 @@ public partial class UserAgentContributor : ConfiguredContributorBase
                 new(SignalKeys.UserAgentFamily, whitelistName!),
                 new(SignalKeys.UserAgentFamilyVersion, familyVersion ?? "")
             ]);
+            if (!string.IsNullOrEmpty(botInstance))
+                state.WriteSignal(SignalKeys.UserAgentBotInstance, botInstance);
             return Task.FromResult(Single(BotContribution(
                     "UserAgent",
                     $"Known bot UA pattern: {whitelistName}",
@@ -119,6 +134,8 @@ public partial class UserAgentContributor : ConfiguredContributorBase
                 new(SignalKeys.UserAgentFamily, botName ?? family),
                 new(SignalKeys.UserAgentFamilyVersion, familyVersion ?? "")
             ]);
+            if (!string.IsNullOrEmpty(botInstance))
+                state.WriteSignal(SignalKeys.UserAgentBotInstance, botInstance);
             contributions.Add(BotContribution(
                     "UserAgent",
                     reason,
@@ -139,6 +156,8 @@ public partial class UserAgentContributor : ConfiguredContributorBase
                 new(SignalKeys.UserAgentFamily, family),
                 new(SignalKeys.UserAgentFamilyVersion, familyVersion ?? "")
             ]);
+            if (!string.IsNullOrEmpty(botInstance))
+                state.WriteSignal(SignalKeys.UserAgentBotInstance, botInstance);
             contributions.Add(HumanContribution(
                     "UserAgent",
                     "User-Agent appears normal"));

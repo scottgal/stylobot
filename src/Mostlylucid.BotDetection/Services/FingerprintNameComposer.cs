@@ -134,7 +134,15 @@ internal static class FingerprintNameComposer
         var claimedBotName = ExtractClaimedBotName(signals, rawUaForClaim);
         if (!string.IsNullOrEmpty(claimedBotName))
         {
-            var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUaForClaim);
+            // Read the cached ua.bot_instance signal first; the UserAgentContributor
+            // emits it alongside ua.bot_name for every request now (claim-verify-trust
+            // gap #2 2026-06-15). The direct-extraction fallback below covers the
+            // matcher-runs-before-UserAgentContributor race -- matcher Priority 6
+            // fires before UA contributor Priority 10, so the signal is absent on
+            // the matcher's first read of a fresh request.
+            var discriminator = GetString(signals, SignalKeys.UserAgentBotInstance);
+            if (string.IsNullOrEmpty(discriminator))
+                discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUaForClaim);
             var composed = string.IsNullOrEmpty(discriminator)
                 ? claimedBotName
                 : $"{claimedBotName} {discriminator}";

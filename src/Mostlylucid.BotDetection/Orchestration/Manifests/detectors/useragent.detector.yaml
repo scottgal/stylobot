@@ -76,6 +76,9 @@ emits:
     - key: ua.bot_name
       type: string
       description: Bot product name when ua.is_bot
+    - key: ua.bot_instance
+      type: string
+      description: Per-instance discriminator from the UA's +URL host (e.g. mastodon.social, mas.to); absent for vendor-home references and for UAs without a +URL marker
     - key: ua.family
       type: string
       description: Parsed browser/agent family from the UA

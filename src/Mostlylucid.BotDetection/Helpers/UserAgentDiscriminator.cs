@@ -28,7 +28,7 @@ namespace Mostlylucid.BotDetection.Helpers;
 ///     their vendor's own domain and the discriminator would be meaningless.
 ///     </para>
 /// </summary>
-internal static class UserAgentDiscriminator
+public static class UserAgentDiscriminator
 {
     // RFC 7231 product-comment URL. Matches both `+https://host/` (mastodon, lemmy)
     // and `https://host/` without the plus (friendica). Stops at whitespace, `)`,

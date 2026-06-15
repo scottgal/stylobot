@@ -189,4 +189,57 @@ public class UserAgentContributorTests
         var humanContrib = contributions.FirstOrDefault(c => c.ConfidenceDelta <= 0);
         Assert.NotNull(humanContrib);
     }
+
+    // ---------------------------------------------------------------------------------
+    // UA instance discriminator (+URL host) on the signal bus.
+    // Gap #2 from the claim-verify-trust gap analysis 2026-06-15: the per-instance
+    // discriminator is extracted by UserAgentDiscriminator and used for display names
+    // and the deterministic verifiedbot fingerprint id, but never lands on the signal
+    // bus -- so verifiers, persistence (Postgres + SQLite), and the dashboard cannot
+    // see WHICH Mastodon instance (mastodon.social vs mas.to) a request came from.
+    // ---------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ContributeAsync_Emits_BotInstance_From_PlusUrl_Mastodon()
+    {
+        var contributor = CreateContributor(patternCache: null);
+        var state = CreateState("http.rb/5.x.x (Mastodon/4.3.0; +https://mastodon.social/)");
+
+        await contributor.ContributeAsync(state);
+
+        Assert.True(state.Signals.TryGetValue(SignalKeys.UserAgentBotInstance, out var v),
+            "UserAgentContributor must emit ua.bot_instance when the UA carries a +URL host");
+        Assert.Equal("mastodon.social", v as string);
+    }
+
+    [Fact]
+    public async Task ContributeAsync_Omits_BotInstance_When_No_Discriminator()
+    {
+        // curl carries no +URL; the discriminator extractor returns null and the
+        // signal must remain absent so consumers can distinguish "no discriminator"
+        // from "empty discriminator".
+        var contributor = CreateContributor(patternCache: null);
+        var state = CreateState("curl/8.0.1");
+
+        await contributor.ContributeAsync(state);
+
+        var hasSignal = state.Signals.TryGetValue(SignalKeys.UserAgentBotInstance, out var v);
+        Assert.True(!hasSignal || string.IsNullOrEmpty(v as string),
+            $"ua.bot_instance should be absent or empty for a UA with no +URL; got '{v}'");
+    }
+
+    [Fact]
+    public async Task ContributeAsync_Omits_BotInstance_For_VendorHomeUrl()
+    {
+        // GPTBot's +URL points at openai.com which is a vendor-home reference, not
+        // a per-instance identifier. UserAgentDiscriminator returns null for it.
+        var contributor = CreateContributor(patternCache: null);
+        var state = CreateState("Mozilla/5.0 (compatible; GPTBot/1.0; +https://openai.com/gptbot)");
+
+        await contributor.ContributeAsync(state);
+
+        var hasSignal = state.Signals.TryGetValue(SignalKeys.UserAgentBotInstance, out var v);
+        Assert.True(!hasSignal || string.IsNullOrEmpty(v as string),
+            $"ua.bot_instance should be absent for vendor-home URLs (openai.com); got '{v}'");
+    }
 }
