@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Services;
 
@@ -61,6 +62,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<EntityResolutionService>();
         _services.GetService<SessionAtomizerService>();
         _services.GetService<VectorCompactionService>();
+        _services.GetService<FingerprintDriftService>();
         return Task.CompletedTask;
     }
 

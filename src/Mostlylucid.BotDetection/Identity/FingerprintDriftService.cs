@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Identity;
 
@@ -22,8 +22,20 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     beyond a structured log line; <c>cached_score_updated_at</c> is bumped on every check.
 ///
 ///     Dormant when <c>BotDetectionOptions.Identity.Enabled</c> is false.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(DriftCheckIntervalSeconds)</c> loop (default 5 s);
+///         now subscribes to <see cref="TickCadence.Tick10s"/> and gates each
+///         pass on "last-success older than configured
+///         <see cref="IdentityDriftOptions.DriftCheckIntervalSeconds"/>" -- so
+///         a 5-second configured interval still fires every other tick while
+///         longer intervals throttle accordingly. The inner work is already
+///         gated by <c>cached_score_updated_at &lt; TTL</c> in the store, so a
+///         slightly stretched cadence costs nothing under steady state.
+///     </para>
 /// </summary>
-public sealed class FingerprintDriftService : BackgroundService
+public sealed class FingerprintDriftService : IDisposable
 {
     private readonly ILogger<FingerprintDriftService> _logger;
     private readonly IFingerprintStore _store;
@@ -31,48 +43,73 @@ public sealed class FingerprintDriftService : BackgroundService
     private readonly IdentityProcessingCoordinator _coordinator;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
+    private readonly IDisposable _subscription;
+    private DateTime _lastSuccessfulTickUtc = DateTime.MinValue;
+    private int _disposed;
 
     public FingerprintDriftService(
         ILogger<FingerprintDriftService> logger,
         IFingerprintStore store,
         IdentityGlobalWeightsCache globalWeights,
         IdentityProcessingCoordinator coordinator,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IScheduleCoordinator scheduleCoordinator)
     {
+        ArgumentNullException.ThrowIfNull(scheduleCoordinator);
         _logger = logger;
         _store = store;
         _globalWeights = globalWeights;
         _coordinator = coordinator;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
+
+        _subscription = scheduleCoordinator.Subscribe(
+            TickCadence.Tick10s,
+            "FingerprintDriftService",
+            CostHint.Medium,
+            OnTickAsync);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     The schedule-coordinator tick handler. Fires every Tick10s; gates
+    ///     each call to <see cref="TickOnceAsync"/> on "last-success older
+    ///     than configured DriftCheckIntervalSeconds" so the inner pass
+    ///     cadence honours the option. Dormant when
+    ///     <c>Identity.Enabled</c> is false. Public so tests can drive a
+    ///     single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (!_enabled)
+        if (_disposed != 0) return;
+        if (!_enabled) return;
+
+        var interval = TimeSpan.FromSeconds(Math.Max(1, _options.Drift.DriftCheckIntervalSeconds));
+        if (_lastSuccessfulTickUtc != DateTime.MinValue &&
+            now.UtcDateTime - _lastSuccessfulTickUtc < interval)
         {
-            _logger.LogDebug("FingerprintDriftService dormant: Identity.Enabled = false");
-            return;
+            return; // Not yet due.
         }
 
-        var tick = TimeSpan.FromSeconds(Math.Max(1, _options.Drift.DriftCheckIntervalSeconds));
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
-            {
-                var (checks, drifts) = await TickOnceAsync(stoppingToken);
-                if (checks > 0)
-                    _logger.LogDebug("Drift tick: {Checked} verified, {Drifts} drift", checks, drifts);
-            }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                _logger.LogWarning(ex, "Drift tick failed");
-            }
-
-            try { await Task.Delay(tick, stoppingToken); }
-            catch (OperationCanceledException) { return; }
+            var (checks, drifts) = await TickOnceAsync(ct);
+            _lastSuccessfulTickUtc = DateTime.UtcNow;
+            if (checks > 0)
+                _logger.LogDebug("Drift tick: {Checked} verified, {Drifts} drift", checks, drifts);
         }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Drift tick failed");
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     /// <summary>

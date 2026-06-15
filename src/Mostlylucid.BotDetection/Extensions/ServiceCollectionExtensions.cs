@@ -961,8 +961,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());
+        // Wave 2: FingerprintDriftService subscribes to
+        // IScheduleCoordinator.Tick10s at construction. Drop the
+        // AddHostedService trampoline; BotDetectionHostedSingletonsBootstrap
+        // eagerly resolves the singleton at boot so the subscription is
+        // not dormant until first request-time resolution.
         services.AddSingleton<Identity.FingerprintDriftService>();
-        services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintDriftService>());
         services.AddSingleton<Identity.IdentityWeightCalibrationService>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityWeightCalibrationService>());
         services.AddSingleton<IContributingDetector, HeaderContributor>();

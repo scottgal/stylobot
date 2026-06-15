@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Orchestration.Tests.Unit.Identity;
@@ -46,7 +47,8 @@ public sealed class FingerprintDriftServiceTests : IDisposable
             NullLogger<IdentityProcessingCoordinator>.Instance, optionsWrapper);
         coordinator.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         _service = new FingerprintDriftService(
-            NullLogger<FingerprintDriftService>.Instance, _store, globalWeights, coordinator, optionsWrapper);
+            NullLogger<FingerprintDriftService>.Instance, _store, globalWeights, coordinator, optionsWrapper,
+            NullScheduleCoordinator.Instance);
     }
 
     public void Dispose()
