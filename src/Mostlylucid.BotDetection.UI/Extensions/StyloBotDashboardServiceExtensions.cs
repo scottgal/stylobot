@@ -547,13 +547,19 @@ public static class StyloBotDashboardServiceExtensions
             {
                 services.AddHttpClient("sb-metrics", c =>
                     c.DefaultRequestHeaders.UserAgent.ParseAdd(StyloBotInternalUserAgent.Value));
-                services.AddHostedService<RemoteMetricCollector>(sp =>
+                // Wave 2 migrated: subscribes to ScheduleCoordinator.Tick10s
+                // at construction and gates the poll on the configured remote-
+                // poll interval. UiHostedSingletonsBootstrap (registered above
+                // alongside DashboardSummaryBroadcaster) eagerly resolves it at
+                // boot so the subscription is live before the first tick.
+                services.AddSingleton<RemoteMetricCollector>(sp =>
                     new RemoteMetricCollector(
                         sp.GetRequiredService<IHttpClientFactory>(),
                         options.MonitoringPack.GatewayMetricsUrl,
                         options.MonitoringPack.RemotePollInterval,
                         sp.GetRequiredService<IMetricSnapshotStore>(),
-                        sp.GetRequiredService<ILogger<RemoteMetricCollector>>()));
+                        sp.GetRequiredService<ILogger<RemoteMetricCollector>>(),
+                        sp.GetService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
             }
         }
 
