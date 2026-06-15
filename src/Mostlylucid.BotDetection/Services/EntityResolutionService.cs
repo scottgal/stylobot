@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -13,8 +13,20 @@ namespace Mostlylucid.BotDetection.Services;
 ///     - Computes velocity variance (low variance = systematic rotation)
 ///
 ///     Runs every 60 seconds. Non-blocking, fire-and-forget.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(adaptiveInterval)</c> loop; now subscribes to
+///         <see cref="TickCadence.Tick1m"/> and short-circuits when the
+///         <see cref="PipelineLoadSensor"/> says we should back off (we skip
+///         the tick if <c>now - lastRun</c> is shorter than the load-scaled
+///         interval). The 30-second warm-up from the pre-Wave-2 shape is
+///         dropped -- the first Tick1m fires roughly one minute after boot,
+///         which exceeds the old warm-up window. See
+///         <c>feedback_no_background_services</c>.
+///     </para>
 /// </summary>
-public sealed class EntityResolutionService : BackgroundService
+public sealed class EntityResolutionService : IDisposable
 {
     private readonly ISessionStore _store;
     private readonly ILogger<EntityResolutionService> _logger;
@@ -31,41 +43,64 @@ public sealed class EntityResolutionService : BackgroundService
     private const double RotationVarianceThreshold = 0.05;
 
     private readonly PipelineLoadSensor? _loadSensor;
+    private readonly IDisposable _subscription;
+    private DateTime _lastRunUtc = DateTime.MinValue;
+    private int _disposed;
 
     public EntityResolutionService(
         ISessionStore store,
         ILogger<EntityResolutionService> logger,
+        IScheduleCoordinator coordinator,
         PipelineLoadSensor? loadSensor = null)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _store = store;
         _logger = logger;
         _loadSensor = loadSensor;
+
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1m,
+            "EntityResolutionService",
+            CostHint.Medium,
+            OnTickAsync);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     The coordinator's tick handler. Fires every Tick1m; honours the
+    ///     <see cref="PipelineLoadSensor"/> by skipping ticks when the
+    ///     load-scaled interval hasn't yet elapsed since the last successful
+    ///     analysis pass. Public so tests can drive a single beat
+    ///     deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        _logger.LogInformation("EntityResolutionService started (interval: {Interval}s)", Interval.TotalSeconds);
+        if (_disposed != 0) return;
 
-        // Wait for system to warm up
-        try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-
-        while (!stoppingToken.IsCancellationRequested)
+        var adaptiveInterval = _loadSensor?.GetAdaptiveInterval(Interval) ?? Interval;
+        if (_lastRunUtc != DateTime.MinValue &&
+            now.UtcDateTime - _lastRunUtc < adaptiveInterval)
         {
-            try
-            {
-                await AnalyzeEntitiesAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Entity resolution analysis failed");
-            }
-
-            var adaptiveInterval = _loadSensor?.GetAdaptiveInterval(Interval) ?? Interval;
-            try { await Task.Delay(adaptiveInterval, stoppingToken); }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            return; // Load sensor says back off.
         }
+
+        try
+        {
+            await AnalyzeEntitiesAsync(ct);
+            _lastRunUtc = DateTime.UtcNow;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Entity resolution analysis failed");
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     private async Task AnalyzeEntitiesAsync(CancellationToken ct)

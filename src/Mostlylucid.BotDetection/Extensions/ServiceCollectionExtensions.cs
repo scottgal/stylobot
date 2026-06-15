@@ -1171,8 +1171,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Services.LoadShedDecision>();
         // Session atomization from raw requests (background, runs every 2 min)
         services.AddHostedService<Services.SessionAtomizerService>();
-        // Entity resolution - background service for merge/split/rewind analysis
-        services.AddHostedService<Services.EntityResolutionService>();
+        // Entity resolution - merge/split/rewind analysis.
+        // Wave 2: subscribes to IScheduleCoordinator.Tick1m at construction
+        // (load-sensor aware), so drop AddHostedService and add to the
+        // BotDetectionHostedSingletonsBootstrap eager-resolve chain.
+        services.AddSingleton<Services.EntityResolutionService>();
         // Markov chain path learning and drift detection
         services.TryAddSingleton<Markov.MarkovTracker>();
         services.TryAddSingleton<Clustering.AdaptiveSimilarityWeighter>();

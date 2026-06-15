@@ -58,6 +58,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<ICommonUserAgentService>();
         _services.GetService<Ja3CorpusRefreshService>();
         _services.GetService<VerifiedBotRegistry>();
+        _services.GetService<EntityResolutionService>();
         return Task.CompletedTask;
     }
 
