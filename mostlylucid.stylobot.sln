@@ -110,6 +110,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.As
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.PrometheusPack", "src\Mostlylucid.BotDetection.PrometheusPack\Mostlylucid.BotDetection.PrometheusPack.csproj", "{AA22ED93-C663-4AB7-9EA2-563880C313F6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Console.Tests", "src\Mostlylucid.BotDetection.Console.Tests\Mostlylucid.BotDetection.Console.Tests.csproj", "{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -576,6 +578,18 @@ Global
 		{AA22ED93-C663-4AB7-9EA2-563880C313F6}.Release|x64.Build.0 = Release|Any CPU
 		{AA22ED93-C663-4AB7-9EA2-563880C313F6}.Release|x86.ActiveCfg = Release|Any CPU
 		{AA22ED93-C663-4AB7-9EA2-563880C313F6}.Release|x86.Build.0 = Release|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Debug|x64.Build.0 = Debug|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Debug|x86.Build.0 = Debug|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Release|x64.ActiveCfg = Release|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Release|x64.Build.0 = Release|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Release|x86.ActiveCfg = Release|Any CPU
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -593,5 +607,6 @@ Global
 		{6D55DEB0-8F9F-47AA-BAE7-BF94BEF2DCF2} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{0FF6A2C8-DA6B-481F-B70F-72249A2FB546} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{AA22ED93-C663-4AB7-9EA2-563880C313F6} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{BD0A0F6C-C962-4602-900E-C2D7A6E18CDC} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

@@ -714,8 +714,13 @@ try
     var detectionSink = new DetectionEventSink();
     builder.Services.AddSingleton(detectionSink);
 
-    // Add heartbeat service to detect silent failures (logs every 5 minutes)
-    builder.Services.AddHostedService<HeartbeatService>();
+    // Add heartbeat service to detect silent failures (logs every 5 minutes).
+    // Wave 2 migration: HeartbeatService is no longer a BackgroundService;
+    // it subscribes to ScheduleCoordinator.Tick5m. ConsoleHostedSingletonsBootstrap
+    // is the eager-resolution shim that fires the singleton's constructor at
+    // boot so Subscribe(...) actually runs.
+    builder.Services.AddSingleton<HeartbeatService>();
+    builder.Services.AddHostedService<ConsoleHostedSingletonsBootstrap>();
 
     // Add YARP transforms for bot detection headers and CSP fixes
     yarpBuilder.AddTransforms(builderContext =>

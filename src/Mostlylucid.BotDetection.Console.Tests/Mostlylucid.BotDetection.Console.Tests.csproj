@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>preview</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <!--
+            The Console project is rooted at namespace
+            Mostlylucid.BotDetection.Console, which shadows System.Console for
+            in-namespace lookups from the Mostlylucid.BotDetection.* tree.
+            This test project is intentionally rooted OUTSIDE that prefix
+            (Mostlylucid.BotDetection.ConsoleTests) so test code can do bare
+            Console.WriteLine without alias gymnastics.
+        -->
+        <RootNamespace>Mostlylucid.BotDetection.ConsoleTests</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="coverlet.collector" Version="10.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="FluentAssertions" Version="8.10.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Console\Mostlylucid.BotDetection.Console.csproj" />
+        <!--
+            The shared RecordingScheduleCoordinator / FixedTimeProvider helpers
+            live in Mostlylucid.BotDetection.Test for now (promoted from
+            private-nested in Wave 2 Commit 1). We link the helper files in
+            instead of taking a project reference, so we don't pull every
+            integration-test transitive dependency.
+        -->
+        <Compile Include="..\Mostlylucid.BotDetection.Test\Scheduling\Helpers\RecordingScheduleCoordinator.cs"
+                 Link="Scheduling\Helpers\RecordingScheduleCoordinator.cs" />
+        <Compile Include="..\Mostlylucid.BotDetection.Test\Scheduling\Helpers\FixedTimeProvider.cs"
+                 Link="Scheduling\Helpers\FixedTimeProvider.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+</Project>
