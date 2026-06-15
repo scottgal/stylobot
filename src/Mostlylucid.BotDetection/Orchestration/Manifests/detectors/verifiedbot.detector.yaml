@@ -58,15 +58,19 @@ output:
 
 triggers:
   requires: []  # No dependencies - runs in Wave 0
-  # Stays skipped on detection.early_exit. Running this contributor on EVERY
-  # request (including human Chrome traffic with no bot UA pattern) regressed
-  # risk classification -- humans were flagged VeryHigh after the gate was
-  # removed. The badge graduates to green via the persisted
-  # SignatureAggregate.IsVerifiedBot flag once the FIRST detection writes
-  # verifiedbot.confirmed=true; subsequent cached requests inherit the latched
-  # flag without needing the contributor to fire again.
-  skip_when:
-    - detection.early_exit
+  # NO skip_when on detection.early_exit any more. The DNS work this
+  # contributor used to do inline now runs in BackgroundEnrichmentService
+  # (see Services/BackgroundEnrichmentService.RunVerifiedBotEnrichmentAsync
+  # for the known-bot FCrDNS path and Services/VerifiedBotRegistry.VerifyHonestBotAsync
+  # for the honest-bot +URL rDNS-suffix path). The full contributor is in
+  # DetectionPolicy.ExcludedDetectors on every policy, so this manifest is
+  # essentially documentation of the legacy inline shape -- never instantiated
+  # on the request path. Per 2026-06-15 claim-verify-trust gap analysis
+  # (Gap #1): the previous "skip_when: detection.early_exit" combined with
+  # the policy exclusion meant the rDNS-after-the-fact path NEVER fired in
+  # steady state. Fix: move rDNS to the async sink (Option B); the gate
+  # disappears because there is no request hot path left to gate.
+  skip_when: []
 
 emits:
   on_start:

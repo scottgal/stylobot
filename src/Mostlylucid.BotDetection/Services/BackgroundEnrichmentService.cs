@@ -54,6 +54,8 @@ public class BackgroundEnrichmentService : BackgroundService
     private long _totalEnqueued;
     private long _totalFcrDnsVerified;
     private long _totalFcrDnsSpoofed;
+    private long _totalHonestBotVerified;
+    private long _totalHonestBotMismatched;
 
     public BackgroundEnrichmentService(
         ILogger<BackgroundEnrichmentService> logger,
@@ -285,7 +287,20 @@ public class BackgroundEnrichmentService : BackgroundService
         }
 
         if (verdict is null)
-            return; // UA didn't match any verifiable bot pattern -- nothing to feed back
+        {
+            // Known-bot UA didn't match anything in the published-CIDR / FCrDNS
+            // registry (Mastodon, Pleroma, Akkoma, MostlylucidBot etc. live
+            // here -- they intentionally have no ip_ranges_url because they
+            // run on arbitrary cloud IPs). Fall through to the honest-bot
+            // rDNS-suffix path: rDNS the client IP, compare against the
+            // domain in the UA's +URL claim. Per 2026-06-15 claim-verify-trust
+            // gap analysis (Gap #1) -- this used to live inline inside
+            // VerifiedBotContributor.CheckHonestBot, gated by
+            // skip_when: detection.early_exit, so it never fired. Now lives
+            // off the request path and runs unconditionally on enrichment.
+            await RunHonestBotEnrichmentAsync(request, ct);
+            return;
+        }
 
         var patternId = $"ip:{request.ClientIp}";
         var current = _reputationCache.Get(patternId);
@@ -336,4 +351,106 @@ public class BackgroundEnrichmentService : BackgroundService
 
     /// <summary>FCrDNS-detected spoof count since startup.</summary>
     public long TotalFcrDnsSpoofed => Interlocked.Read(ref _totalFcrDnsSpoofed);
+
+    /// <summary>Honest-bot rDNS suffix-match count since startup (UA-claimed
+    /// domain matched the client IP's rDNS). Fediverse instances mostly land
+    /// here.</summary>
+    public long TotalHonestBotVerified => Interlocked.Read(ref _totalHonestBotVerified);
+
+    /// <summary>Honest-bot rDNS-mismatch count since startup (UA carried a
+    /// +URL claim but rDNS resolved to a different domain). Weaker signal
+    /// than the known-bot spoof counter -- CDN / shared-hosting noise lives
+    /// here.</summary>
+    public long TotalHonestBotMismatched => Interlocked.Read(ref _totalHonestBotMismatched);
+
+    /// <summary>
+    ///     Honest-bot rDNS-suffix path. The UA carries a <c>+URL</c> fragment
+    ///     (Mastodon / Pleroma / Akkoma instance address, transparent
+    ///     operator bot) but is not a published-CIDR bot, so the only
+    ///     verification channel available is rDNS-after-the-fact. Lives in
+    ///     the background sink (per Option B of the 2026-06-15 claim-verify-
+    ///     trust gap analysis) so the request path never blocks on DNS.
+    ///
+    ///     <list type="bullet">
+    ///         <item>Suffix match -- honest operator. Write a slightly
+    ///               human-leaning reputation entry. Honest bots are still
+    ///               bots, just transparent ones; weight is moderate.</item>
+    ///         <item>Mismatch -- could be a CDN-fronted real instance OR a
+    ///               +URL impersonator. Conservative: write a slight
+    ///               bot-leaning entry with low weight so a single rDNS
+    ///               miss can't tip the verdict.</item>
+    ///         <item>No rDNS at all -- absent PTR is ambiguous, no write.</item>
+    ///     </list>
+    /// </summary>
+    private async Task RunHonestBotEnrichmentAsync(EnrichmentRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(request.UserAgent) || string.IsNullOrEmpty(request.ClientIp))
+            return;
+
+        HonestBotResult? honest;
+        try
+        {
+            honest = await _verifiedBots.VerifyHonestBotAsync(request.UserAgent, request.ClientIp, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "Honest-bot enrichment threw for IP {Ip} request {RequestId}",
+                ProjectHoneypotLookupService.MaskIp(request.ClientIp), request.RequestId);
+            return;
+        }
+
+        if (honest is null)
+            return; // No +URL in UA, or no rDNS, or empty inputs -- nothing to feed back
+
+        var patternId = $"ip:{request.ClientIp}";
+        var current = _reputationCache.Get(patternId);
+
+        if (honest.SuffixMatched)
+        {
+            Interlocked.Increment(ref _totalHonestBotVerified);
+            // label=0.30 leans slightly human (honest bots are bots, but
+            // friendly ones); weight=0.7 because rDNS-suffix is weaker than
+            // a full FCrDNS confirm (no forward-DNS verification).
+            var updated = _updater.ApplyEvidence(
+                current,
+                patternId,
+                "IP",
+                request.ClientIp,
+                label: 0.30,
+                evidenceWeight: 0.7);
+            _reputationCache.Update(updated);
+            _logger.LogInformation(
+                "Honest bot verified at {Ip}: UA claims {Domain} and rDNS confirmed ({Hostname}); reputation -> {Score:F2}",
+                ProjectHoneypotLookupService.MaskIp(request.ClientIp),
+                honest.ClaimedDomain,
+                honest.ResolvedHostname,
+                updated.BotScore);
+            return;
+        }
+
+        Interlocked.Increment(ref _totalHonestBotMismatched);
+        // label=0.55 leans slightly bot (rDNS doesn't back up the claim) but
+        // weight=0.4 is conservative -- a CDN-fronted Mastodon instance
+        // legitimately resolves to amazonaws / cloudflare hostnames, and we
+        // do not want one rDNS miss to tip the verdict by itself.
+        var mismatchUpdated = _updater.ApplyEvidence(
+            current,
+            patternId,
+            "IP",
+            request.ClientIp,
+            label: 0.55,
+            evidenceWeight: 0.4);
+        _reputationCache.Update(mismatchUpdated);
+        _logger.LogDebug(
+            "Honest-bot rDNS mismatch at {Ip}: UA claims {Domain} but rDNS is {Hostname}; reputation -> {Score:F2}",
+            ProjectHoneypotLookupService.MaskIp(request.ClientIp),
+            honest.ClaimedDomain,
+            honest.ResolvedHostname,
+            mismatchUpdated.BotScore);
+    }
 }

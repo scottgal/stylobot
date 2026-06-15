@@ -1124,7 +1124,10 @@ public static class SignalKeys
     /// <summary>String: Verified or claimed bot name (e.g., "Googlebot")</summary>
     public const string VerifiedBotName = "verifiedbot.name";
 
-    /// <summary>String: Verification method used ("ip_range", "fcrdns", "none")</summary>
+    /// <summary>String: Verification method used.
+    /// Canonical values: "ip_range" (CIDR match), "fcrdns" (forward-confirmed
+    /// reverse DNS), "forward_dns" (FediverseDomainContributor: the claimed
+    /// instance domain's A/AAAA records contain the client IP), "none".</summary>
     public const string VerifiedBotMethod = "verifiedbot.method";
 
     /// <summary>Boolean: true if UA claims bot identity but IP doesn't verify (spoofed)</summary>
@@ -1132,6 +1135,28 @@ public static class SignalKeys
 
     /// <summary>Boolean: true if rDNS resolved but doesn't match domain claimed in UA</summary>
     public const string VerifiedBotRdnsMismatch = "verifiedbot.rdns_mismatch";
+
+    /// <summary>Boolean: set by FediverseDomainContributor when it ran a forward-DNS
+    /// lookup against the instance domain in the UA's <c>+https://host/</c> field
+    /// and compared the resolved A/AAAA records to the client IP. <c>true</c> means
+    /// the client IP appears in the resolved address set for that instance domain
+    /// (the strongest IP-side corroboration we can produce for fediverse traffic,
+    /// which has no fixed IP ranges). <c>false</c> means the lookup succeeded but
+    /// the client IP was not in the result set -- the UA claim is spoofed even
+    /// though NodeInfo confirmed the instance exists. Absent (no key) means the
+    /// lookup was not attempted (no fediverse claim) or did not complete in time.
+    /// Gap analysis 2026-06-15 (Gap #3): NodeInfo alone proved the instance hosts
+    /// ActivityPub software but never bound the client IP to the claim.</summary>
+    public const string VerifiedBotForwardDnsMatched = "verifiedbot.forward_dns_matched";
+
+    /// <summary>String: set by FediverseDomainContributor when a forward-DNS lookup
+    /// for the claimed instance domain failed (SocketException, OperationCanceledException,
+    /// timeout). Value is the exception type name. Distinguishes "we tried and the
+    /// lookup blew up" from "we never tried" (no signal) -- the verifier shouldn't
+    /// be retried inline on the next request when DNS is just down, but the absence
+    /// of the signal would otherwise be indistinguishable from never having a claim
+    /// to verify.</summary>
+    public const string VerifiedBotForwardDnsError = "verifiedbot.forward_dns_error";
 
     // ==========================================
     // ISP / residential IP signals

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,6 +17,30 @@ public sealed record VerifiedBotResult(
     string BotName,
     string VerificationMethod, // "ip_range", "fcrdns", "none"
     bool IsVerified);
+
+/// <summary>
+///     Result of the honest-bot rDNS-suffix check used by
+///     <see cref="VerifiedBotRegistry.VerifyHonestBotAsync"/>.
+///     An "honest bot" is a UA carrying a +URL claim (Mastodon, Pleroma,
+///     Akkoma, MostlylucidBot, etc.) whose client-IP rDNS resolves to a host
+///     on the claimed domain. We never IP-range-verify these -- they run on
+///     arbitrary cloud IPs -- so rDNS suffix-match is the only available
+///     verification channel.
+/// </summary>
+/// <param name="ClaimedDomain">The lowercase domain extracted from the +URL
+/// fragment of the UA (e.g. <c>mastodon.example.org</c>).</param>
+/// <param name="ResolvedHostname">The rDNS PTR result for the client IP. Null
+/// when no PTR record exists (in which case the caller should not synthesise
+/// a verdict at all -- absence of rDNS is ambiguous, not spoofed).</param>
+/// <param name="SuffixMatched"><c>true</c> when the resolved hostname is equal
+/// to, or a sub-domain of, the claimed domain.</param>
+/// <param name="VerificationMethod">Either <c>"fcrdns"</c> on a suffix match
+/// or <c>"fcrdns_mismatch"</c> when rDNS resolved to a different domain.</param>
+public sealed record HonestBotResult(
+    string ClaimedDomain,
+    string ResolvedHostname,
+    bool SuffixMatched,
+    string VerificationMethod);
 
 /// <summary>
 ///     Configuration options for <see cref="VerifiedBotRegistry"/>.
@@ -64,6 +89,24 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
     private readonly TimeSpan _dnsFailedCacheTtl;
     private readonly TimeSpan _refreshInterval;
     private readonly TimeSpan _dnsTimeout;
+
+    /// <summary>
+    ///     Test seam: overrides the reverse-DNS resolver used by
+    ///     <see cref="VerifyHonestBotAsync"/>. Production code leaves this
+    ///     null and we fall through to <see cref="Dns.GetHostEntryAsync(string, CancellationToken)"/>.
+    ///     Internal so test assemblies (Mostlylucid.BotDetection.Test via
+    ///     <c>InternalsVisibleTo</c>) can substitute a deterministic stub
+    ///     without spinning up real DNS in CI.
+    /// </summary>
+    internal Func<string, CancellationToken, Task<string?>>? RdnsResolverOverride { get; set; }
+
+    // Regex shared with VerifiedBotContributor.CheckHonestBot for extracting the
+    // host portion of a "+https://example.org/path" UA fragment. Kept inline as a
+    // compiled regex (not source-generated) because the registry is a singleton
+    // and we want a single compiled pattern across the assembly.
+    private static readonly Regex UaDomainRegex = new(
+        @"https?://([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>
     ///     Bot definitions with verification methods.
@@ -200,6 +243,143 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
             return null;
 
         return new VerifiedBotResult(matchedBot.Name, "ip_range", false);
+    }
+
+    /// <summary>
+    ///     Honest-bot rDNS-after-the-fact verification for UAs that carry a
+    ///     <c>+URL</c> claim (Mastodon / Pleroma / Akkoma instances, the
+    ///     <c>MostlylucidBot</c> family, and anything that follows the
+    ///     fediverse / "transparent operator" convention).
+    ///     <para>
+    ///     This is the bot-side analogue of <see cref="VerifyFcrDnsAsync"/>
+    ///     for bots that don't publish CIDR ranges and aren't in the
+    ///     <c>_botDefinitions</c> list (Mastodon runs on arbitrary cloud IPs,
+    ///     so it deliberately has no <c>ip_ranges_url</c> / <c>verified_domains</c>).
+    ///     Instead of comparing the rDNS hostname against a vendor allowlist,
+    ///     we compare it against the domain the UA itself claimed -- if both
+    ///     agree the operator was honest about identity.
+    ///     </para>
+    ///     <para>
+    ///     <b>Lives in the registry, runs off the request hot path.</b>
+    ///     Previously this logic was inline inside
+    ///     <see cref="Orchestration.ContributingDetectors.VerifiedBotContributor.CheckHonestBot"/>,
+    ///     gated by <c>skip_when: detection.early_exit</c> in the manifest
+    ///     AND excluded from every <see cref="Policies.DetectionPolicy"/> because
+    ///     rDNS is too slow inline. Net result: rDNS-after-the-fact for
+    ///     fediverse-shaped traffic NEVER fired. Gap #1 in the claim-verify-trust
+    ///     analysis (2026-06-15) -- fix per Option B (move rDNS off the
+    ///     request path entirely; call from <see cref="BackgroundEnrichmentService"/>).
+    ///     </para>
+    /// </summary>
+    /// <returns>
+    ///     <list type="bullet">
+    ///         <item><c>null</c> when the UA carries no extractable +URL,
+    ///               inputs are empty, or rDNS yielded nothing (no PTR record).
+    ///               Absence of rDNS is ambiguous, not spoofed -- never
+    ///               synthesise a verdict from missing data.</item>
+    ///         <item><see cref="HonestBotResult"/> with
+    ///               <c>VerificationMethod = "fcrdns"</c> and
+    ///               <c>SuffixMatched = true</c> when the rDNS host is the
+    ///               claimed domain or a sub-domain of it -- the operator
+    ///               was honest about who they are.</item>
+    ///         <item><see cref="HonestBotResult"/> with
+    ///               <c>VerificationMethod = "fcrdns_mismatch"</c> when the
+    ///               rDNS host is on a different domain than the UA claimed
+    ///               (CDNs, shared hosting, EC2-style hostnames). Weaker
+    ///               signal than a clean spoof -- callers should not block
+    ///               on this alone.</item>
+    ///     </list>
+    /// </returns>
+    public async Task<HonestBotResult?> VerifyHonestBotAsync(
+        string? userAgent,
+        string? clientIp,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(userAgent) || string.IsNullOrWhiteSpace(clientIp))
+            return null;
+
+        var domainMatch = UaDomainRegex.Match(userAgent);
+        if (!domainMatch.Success)
+            return null;
+
+        var claimedDomain = domainMatch.Groups[1].Value.ToLowerInvariant();
+
+        // Reuse the existing FCrDNS cache under a distinct key prefix so we
+        // don't collide with the verified-bot suffix entries.
+        var cacheKey = $"honest:{clientIp}";
+        string? hostname;
+        if (_dnsCache.TryGet(cacheKey, out var cached))
+        {
+            hostname = cached.hostname;
+        }
+        else
+        {
+            hostname = await ResolveReverseDnsAsync(clientIp, ct);
+            // Cache the resolved hostname (success or absence) so the next
+            // enrichment pass for the same IP is free. Pair the success flag
+            // with the hostname so we use the verified TTL when we got a
+            // useful PTR back, the failed TTL when nothing came in.
+            CacheDnsResult(cacheKey, verified: !string.IsNullOrEmpty(hostname), hostname);
+        }
+
+        if (string.IsNullOrEmpty(hostname))
+            return null;
+
+        var hostnameLower = hostname.TrimEnd('.').ToLowerInvariant();
+        var matched = hostnameLower == claimedDomain ||
+                      hostnameLower.EndsWith("." + claimedDomain, StringComparison.Ordinal);
+
+        return new HonestBotResult(
+            ClaimedDomain: claimedDomain,
+            ResolvedHostname: hostnameLower,
+            SuffixMatched: matched,
+            VerificationMethod: matched ? "fcrdns" : "fcrdns_mismatch");
+    }
+
+    /// <summary>
+    ///     Reverse-DNS the client IP. Honours <see cref="RdnsResolverOverride"/>
+    ///     so tests can short-circuit the network call. Treats the platform
+    ///     "no PTR" sentinel (hostname == ip-literal) as an empty result.
+    /// </summary>
+    private async Task<string?> ResolveReverseDnsAsync(string clientIp, CancellationToken ct)
+    {
+        if (RdnsResolverOverride is { } stub)
+        {
+            try
+            {
+                return await stub(clientIp, ct);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(_dnsTimeout);
+            var entry = await Dns.GetHostEntryAsync(clientIp, cts.Token);
+            // Platforms return the IP literal itself when no PTR exists.
+            if (string.IsNullOrEmpty(entry.HostName) ||
+                entry.HostName.Equals(clientIp, StringComparison.Ordinal) ||
+                IPAddress.TryParse(entry.HostName, out _))
+                return null;
+            return entry.HostName;
+        }
+        catch (SocketException)
+        {
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Honest-bot rDNS failed for {MaskedIP}", MaskIp(clientIp));
+            return null;
+        }
     }
 
     /// <summary>
