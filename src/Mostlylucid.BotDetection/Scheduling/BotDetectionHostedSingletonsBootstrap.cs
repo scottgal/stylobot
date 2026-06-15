@@ -51,6 +51,10 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // bootstrap should not crash the host when the singleton is absent.
         _services.GetService<DeploymentNormCalibrationService>();
         _services.GetService<LicenseStateRefreshService>();
+        // CommonUserAgentService is resolved via its interface (the
+        // production registration is TryAddSingleton<ICommonUserAgentService,
+        // CommonUserAgentService>); GetService<concrete> would miss it.
+        _services.GetService<ICommonUserAgentService>();
         return Task.CompletedTask;
     }
 

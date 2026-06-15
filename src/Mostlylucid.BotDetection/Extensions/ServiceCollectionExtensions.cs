@@ -699,11 +699,14 @@ public static class ServiceCollectionExtensions
         // Register signature feedback handler (feeds learned patterns back to detectors)
         services.AddSingleton<ILearningEventHandler, SignatureFeedbackHandler>();
 
-        // Register common user agent service (scrapes useragents.me for browser versions and common UAs)
+        // Register common user agent service (scrapes useragents.me for browser versions and common UAs).
+        // Wave 2 migrated: subscribes to ScheduleCoordinator.Tick1h at
+        // construction. BotDetectionHostedSingletonsBootstrap eagerly
+        // resolves it at boot so the subscription is live before the
+        // first tick.
         services.TryAddSingleton<ICommonUserAgentService, CommonUserAgentService>();
         services.TryAddSingleton<IBrowserVersionService>(sp =>
             (CommonUserAgentService)sp.GetRequiredService<ICommonUserAgentService>());
-        services.AddHostedService(sp => (CommonUserAgentService)sp.GetRequiredService<ICommonUserAgentService>());
 
         // Register version age detector
         services.TryAddSingleton<VersionAgeDetector>();

@@ -3,11 +3,11 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AngleSharp;
 using AngleSharp.Html.Parser;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -43,9 +43,20 @@ public record CommonUserAgent
 }
 
 /// <summary>
-///     Background service that periodically scrapes common user agents from useragents.me
+///     Service that periodically scrapes common user agents from useragents.me.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(UpdateIntervalHours)</c> loop; now subscribes to
+///         <see cref="TickCadence.Tick1h"/> on
+///         <see cref="IScheduleCoordinator"/> and gates the fetch on
+///         "last-success older than <see cref="VersionAgeOptions.UpdateIntervalHours"/>".
+///         The in-memory dictionaries are unchanged -- per the Wave 2 plan,
+///         cold-start fallback values cover the loss-on-restart window. See
+///         <c>feedback_no_background_services</c>.
+///     </para>
 /// </summary>
-public partial class CommonUserAgentService : BackgroundService, ICommonUserAgentService
+public sealed partial class CommonUserAgentService : ICommonUserAgentService, IDisposable
 {
     private readonly ConcurrentDictionary<string, int> _browserVersions = new(StringComparer.OrdinalIgnoreCase);
     private readonly IHttpClientFactory _httpClientFactory;
@@ -53,12 +64,17 @@ public partial class CommonUserAgentService : BackgroundService, ICommonUserAgen
     private readonly BotDetectionOptions _options;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private readonly ConcurrentDictionary<UserAgentPlatform, List<CommonUserAgent>> _userAgents = new();
+    private readonly IDisposable _subscription;
+    private int _disposed;
+    private DateTime? _lastSuccessfulFetchUtc;
 
     public CommonUserAgentService(
         ILogger<CommonUserAgentService> logger,
         IOptions<BotDetectionOptions> options,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IScheduleCoordinator coordinator)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _logger = logger;
         _options = options.Value;
         _httpClientFactory = httpClientFactory;
@@ -70,6 +86,12 @@ public partial class CommonUserAgentService : BackgroundService, ICommonUserAgen
         // Initialize with fallback versions
         foreach (var (browser, version) in _options.VersionAge.FallbackBrowserVersions)
             _browserVersions[browser] = version;
+
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1h,
+            "CommonUserAgentService",
+            CostHint.Medium,
+            OnTickAsync);
     }
 
     public DateTime? LastUpdated { get; private set; }
@@ -113,57 +135,37 @@ public partial class CommonUserAgentService : BackgroundService, ICommonUserAgen
     [GeneratedRegex(@"OPR/(\d+)")]
     private static partial Regex OperaVersionRegex();
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     The coordinator's tick handler. Fires every Tick1h; gates the
+    ///     remote scrape on "last-success older than configured update
+    ///     interval" so the actual scraping cadence honours
+    ///     <see cref="VersionAgeOptions.UpdateIntervalHours"/>. Public so
+    ///     tests can drive a single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (!_options.VersionAge.Enabled)
-        {
-            _logger.LogInformation("Version age detection is disabled. Common user agent scraping skipped.");
-            return;
-        }
+        if (_disposed != 0) return;
 
-        if (!_options.DataSources.BrowserVersions.Enabled)
-        {
-            _logger.LogInformation(
-                "Remote browser version feeds are disabled. Common user agent scraping skipped; using configured fallback versions only.");
-            return;
-        }
+        if (!_options.VersionAge.Enabled) return;
+        if (!_options.DataSources.BrowserVersions.Enabled) return;
 
-        _logger.LogInformation(
-            "Common user agent service started. Update interval: {Hours}h",
-            _options.VersionAge.UpdateIntervalHours);
+        var intervalHours = _options.VersionAge.UpdateIntervalHours;
+        if (intervalHours <= 0) return;
 
-        // Initial update (with delay to not slow startup)
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            return;
-        }
+        var lastSuccess = _lastSuccessfulFetchUtc;
+        if (lastSuccess != null && now.UtcDateTime - lastSuccess.Value < TimeSpan.FromHours(intervalHours))
+            return; // Not yet due.
 
-        await UpdateUserAgentsSafeAsync(stoppingToken);
+        await UpdateUserAgentsSafeAsync(ct);
+    }
 
-        // Periodic updates
-        while (!stoppingToken.IsCancellationRequested)
-            try
-            {
-                await Task.Delay(
-                    TimeSpan.FromHours(_options.VersionAge.UpdateIntervalHours),
-                    stoppingToken);
-
-                await UpdateUserAgentsSafeAsync(stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in common user agent update loop");
-            }
-
-        _logger.LogInformation("Common user agent service stopped");
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
+        _updateLock.Dispose();
     }
 
     private async Task UpdateUserAgentsSafeAsync(CancellationToken ct)
@@ -183,6 +185,7 @@ public partial class CommonUserAgentService : BackgroundService, ICommonUserAgen
             if (updated)
             {
                 LastUpdated = DateTime.UtcNow;
+                _lastSuccessfulFetchUtc = DateTime.UtcNow;
                 _logger.LogInformation(
                     "Common user agents updated successfully. Desktop: {DesktopCount}, Mobile: {MobileCount}, Browser versions: {Versions}",
                     _userAgents[UserAgentPlatform.Desktop].Count,
