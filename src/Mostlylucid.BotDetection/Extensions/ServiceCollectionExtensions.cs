@@ -1169,8 +1169,12 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Services.PipelineLoadSensor>();
         services.AddSingleton<Services.ILoadBandSource>(sp => sp.GetRequiredService<Services.PipelineLoadSensor>());
         services.AddSingleton<Services.LoadShedDecision>();
-        // Session atomization from raw requests (background, runs every 2 min)
-        services.AddHostedService<Services.SessionAtomizerService>();
+        // Session atomization from raw requests.
+        // Wave 2: subscribes to IScheduleCoordinator.Tick1m at construction
+        // (gated on RetentionOptions.AtomizerRunInterval); drop
+        // AddHostedService and add to the BotDetectionHostedSingletonsBootstrap
+        // eager-resolve chain.
+        services.AddSingleton<Services.SessionAtomizerService>();
         // Entity resolution - merge/split/rewind analysis.
         // Wave 2: subscribes to IScheduleCoordinator.Tick1m at construction
         // (load-sensor aware), so drop AddHostedService and add to the

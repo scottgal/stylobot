@@ -1,20 +1,41 @@
 using System.Text.Json;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
-public sealed class SessionAtomizerService : BackgroundService
+/// <summary>
+///     Pulls raw unatomized requests out of the session store, slices them
+///     into session groups by gap, vectorises and persists the resulting
+///     session rows. Runs on the project-wide
+///     <see cref="IScheduleCoordinator"/> Tick1m cadence, gated on
+///     "last-success older than configured
+///     <see cref="RetentionOptions.AtomizerRunInterval"/>" (default 2 min).
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(RunInterval)</c> loop and a shutdown forceFlush;
+///         the shutdown flush is intentionally dropped -- unatomized
+///         requests stay in SQLite and are picked up on the next boot's
+///         first tick (per the migration-plan risk #3: "the next tick
+///         re-reads the same window"). See
+///         <c>feedback_no_background_services</c>.
+///     </para>
+/// </summary>
+public sealed class SessionAtomizerService : IDisposable
 {
     private const int BatchLimit = 5000;
 
     private readonly ISessionStore _store;
     private readonly ILogger<SessionAtomizerService> _logger;
     private readonly RetentionOptions _retention;
+    private readonly IDisposable _subscription;
+    private DateTime _lastSuccessfulPassUtc = DateTime.MinValue;
+    private int _disposed;
 
     private TimeSpan SessionGap     => _retention.SessionGap;
     private TimeSpan RunInterval    => _retention.AtomizerRunInterval;
@@ -24,27 +45,57 @@ public sealed class SessionAtomizerService : BackgroundService
     public SessionAtomizerService(
         ISessionStore store,
         ILogger<SessionAtomizerService> logger,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IScheduleCoordinator coordinator)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _store = store;
         _logger = logger;
         _retention = options.Value.Retention;
+
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1m,
+            "SessionAtomizerService",
+            CostHint.Medium,
+            OnTickAsync);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     The coordinator's tick handler. Fires every Tick1m; gates the
+    ///     atomize pass on "last-success older than configured
+    ///     <see cref="RetentionOptions.AtomizerRunInterval"/>" so the actual
+    ///     pass cadence honours the option (default 2 minutes -> pass runs
+    ///     every other tick). Public so tests can drive a single beat
+    ///     deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        _logger.LogInformation("SessionAtomizerService started");
-        while (!stoppingToken.IsCancellationRequested)
+        if (_disposed != 0) return;
+
+        if (_lastSuccessfulPassUtc != DateTime.MinValue &&
+            now.UtcDateTime - _lastSuccessfulPassUtc < RunInterval)
         {
-            try { await AtomizePassAsync(forceFlush: false, stoppingToken); }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex) { _logger.LogError(ex, "SessionAtomizerService pass failed"); }
-            try { await Task.Delay(RunInterval, stoppingToken).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            return; // Not yet due.
         }
-        try { await AtomizePassAsync(forceFlush: true, CancellationToken.None); }
-        catch (Exception ex) { _logger.LogWarning(ex, "SessionAtomizerService shutdown flush failed"); }
-        _logger.LogInformation("SessionAtomizerService stopped");
+
+        try
+        {
+            await AtomizePassAsync(forceFlush: false, ct);
+            _lastSuccessfulPassUtc = DateTime.UtcNow;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SessionAtomizerService pass failed");
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     private async Task AtomizePassAsync(bool forceFlush, CancellationToken ct)
