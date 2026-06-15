@@ -60,32 +60,31 @@ emits:
   on_start:
     - detector.useragent.started
 
+  # Signal keys here MUST match the strings written via state.WriteSignal in
+  # UserAgentContributor.cs - the manifest is the source of truth for the
+  # SignalCatalog "emitted by" provenance.
   on_complete:
-    - key: detection.useragent
+    - key: ua.raw
       type: string
-      description: Raw User-Agent string
-
-    - key: detection.useragent.confidence
-      type: double
-      description: Bot detection confidence from UA analysis
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.useragent.bot_type
-      type: string
-      description: Detected bot type (if any)
-
-    - key: detection.useragent.is_known_bot
+      description: Raw User-Agent header value
+    - key: ua.is_bot
       type: bool
-      description: Whether UA matches known bot patterns
+      description: UA matches a known automation / bot pattern
+    - key: ua.bot_type
+      type: string
+      description: Bot category when ua.is_bot
+    - key: ua.bot_name
+      type: string
+      description: Bot product name when ua.is_bot
+    - key: ua.family
+      type: string
+      description: Parsed browser/agent family from the UA
+    - key: ua.family_version
+      type: string
+      description: Parsed family + major version from the UA
 
   on_failure:
     - detector.useragent.failed
-
-  conditional:
-    - key: detection.useragent.verified_bot
-      type: bool
-      when: confidence > 0.9 && bot_type != null
-      description: High-confidence bot identification
 
 listens:
   required: []

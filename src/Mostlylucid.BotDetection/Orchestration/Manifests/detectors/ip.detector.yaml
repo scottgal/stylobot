@@ -56,27 +56,34 @@ emits:
   on_start:
     - detector.ip.started
 
+  # Signal keys here MUST match the strings written via state.WriteSignal in
+  # IpContributor.cs - the manifest is the source of truth for the
+  # SignalCatalog "emitted by" provenance.
   on_complete:
-    - key: detection.ip.confidence
-      type: double
-      description: Bot confidence from IP analysis
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.ip.is_datacenter
-      type: bool
-      description: Whether IP is from known datacenter/cloud provider
-
-    - key: detection.ip.datacenter_name
+    - key: ip.address
       type: string
-      description: Name of datacenter provider if detected
-
-    - key: detection.ip.is_local
+      description: Client IP as resolved from the proxy / forwarded-headers chain
+    - key: ip.is_datacenter
       type: bool
-      description: Whether IP is local/private
-
-    - key: detection.ip.is_ipv6
+      description: Client IP belongs to a known datacenter / cloud ASN
+    - key: ip.is_local
       type: bool
-      description: Whether IP is IPv6
+      description: Client IP is RFC1918 / loopback / link-local
+    - key: ip.is_ipv6
+      type: bool
+      description: Client IP is an IPv6 address
+    - key: ip.provider
+      type: string
+      description: Hosting provider name when the IP is on a known cloud / VPS ASN
+    - key: ip.asn
+      type: int
+      description: AS number of the network owning the client IP
+    - key: ip.asn_org
+      type: string
+      description: AS organization name for the client IP's ASN
+    - key: proxy.topology
+      type: string
+      description: Inferred proxy topology (e.g. direct / cdn / proxy_chain)
 
   on_failure:
     - detector.ip.failed

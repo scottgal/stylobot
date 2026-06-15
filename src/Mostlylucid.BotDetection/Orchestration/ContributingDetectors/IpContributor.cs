@@ -229,7 +229,7 @@ public class IpContributor : ConfiguredContributorBase
 
         // Check for IPv6 (less common for bots currently, but this varies)
         var isIpv6 = clientIp.Contains(':');
-        state.WriteSignal("ip.is_ipv6", isIpv6);
+        state.WriteSignal(SignalKeys.IpIsIpv6, isIpv6);
 
         // No bot indicators found - use config-driven human indicator
         if (contributions.Count == 0)

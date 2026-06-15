@@ -253,7 +253,7 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
 
             // Analyze connection reuse patterns (Connection is a real HTTP header, not edge-injected - not gated)
             var connectionHeader = req.Headers.Connection.ToString();
-            state.WriteSignal("tcp.connection_header", connectionHeader);
+            state.WriteSignal(SignalKeys.TcpConnectionHeader, connectionHeader);
 
             if (string.IsNullOrEmpty(connectionHeader))
                 contributions.Add(new DetectionContribution

@@ -189,20 +189,20 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
             }
 
             state.WriteSignal(SignalKeys.H2Protocol, protocol);
-            state.WriteSignal("h2.behind_proxy", behindProxy);
+            state.WriteSignal(SignalKeys.H2BehindProxy, behindProxy);
 
             // Check if HTTP/2 is being used
             var isHttp2 = protocol.Equals("HTTP/2", StringComparison.OrdinalIgnoreCase) ||
                           protocol.Equals("HTTP/2.0", StringComparison.OrdinalIgnoreCase);
 
-            state.WriteSignal("h2.is_http2", isHttp2);
+            state.WriteSignal(SignalKeys.H2IsHttp2, isHttp2);
 
             if (!isHttp2)
             {
                 // HTTP/3 connections are handled by Http3FingerprintContributor - skip with neutral signal
                 if (protocol.StartsWith("HTTP/3", StringComparison.OrdinalIgnoreCase))
                 {
-                    state.WriteSignal("h2.is_http3", true);
+                    state.WriteSignal(SignalKeys.H2ObservedHttp3, true);
                     contributions.Add(DetectionContribution.Info(Name, "HTTP/2",
                         "Connection uses HTTP/3 (analyzed by Http3FingerprintContributor)"));
                     return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
@@ -216,8 +216,8 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                         _populationMinSamples, _populationRateThreshold,
                         out var http2Rate, out var samples);
 
-                    state.WriteSignal("h2.population_http2_rate", http2Rate);
-                    state.WriteSignal("h2.population_samples", samples);
+                    state.WriteSignal(SignalKeys.H2PopulationHttp2Rate, http2Rate);
+                    state.WriteSignal(SignalKeys.H2PopulationSamples, samples);
 
                     contributions.Add(eval switch
                     {

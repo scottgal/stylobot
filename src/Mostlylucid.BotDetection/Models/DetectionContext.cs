@@ -203,14 +203,29 @@ public class LearnedSignal
 public static class SignalKeys
 {
     // Stage 0 signals (raw detection)
+
+    /// <summary>String: raw User-Agent header value, verbatim from the request.</summary>
     public const string UserAgent = "ua.raw";
+
+    /// <summary>Bool: true when the UA matches a known automation / bot pattern (UserAgentContributor classification).</summary>
     public const string UserAgentIsBot = "ua.is_bot";
+
+    /// <summary>String: bot category when ua.is_bot is true (e.g. SearchEngine, Scraper, Monitoring).</summary>
     public const string UserAgentBotType = "ua.bot_type";
+
+    /// <summary>String: bot product name when ua.is_bot is true (e.g. Googlebot, MJ12bot, AhrefsBot).</summary>
     public const string UserAgentBotName = "ua.bot_name";
+
+    /// <summary>String: parsed browser/agent family from the UA (e.g. Chrome, Firefox, Safari, curl, python-requests).</summary>
     public const string UserAgentFamily = "ua.family";
+
+    /// <summary>String: parsed family + major version from the UA (e.g. "Chrome 138", "Safari 17").</summary>
     public const string UserAgentFamilyVersion = "ua.family_version";
 
+    /// <summary>Bool: at least one expected browser header was absent (Accept, Accept-Language, Accept-Encoding, etc.).</summary>
     public const string HeadersMissing = "headers.missing";
+
+    /// <summary>Bool: header set carried at least one bot-like indicator (Phantom-JS markers, headless tells, etc.).</summary>
     public const string HeadersSuspicious = "headers.suspicious";
 
     // Sec-Fetch-* headers (W3C Fetch Metadata Request Headers)
@@ -228,6 +243,43 @@ public static class SignalKeys
     /// <summary>Boolean: true if Sec-Fetch-Site is "same-origin" (browser attestation of programmatic fetch)</summary>
     public const string HeaderSecFetchSameOrigin = "header.sec_fetch_same_origin";
 
+    // ----- Per-request header shape signals (HeaderContributor) -----
+
+    /// <summary>Int: total number of HTTP headers on the inbound request.</summary>
+    public const string HeaderCount = "header.count";
+
+    /// <summary>Bool: true when the request carries an Accept header.</summary>
+    public const string HeaderHasAccept = "header.has_accept";
+
+    /// <summary>Bool: true when the request carries an Accept-Encoding header.</summary>
+    public const string HeaderHasAcceptEncoding = "header.has_accept_encoding";
+
+    /// <summary>Bool: true when the request carries an Accept-Language header.</summary>
+    public const string HeaderHasAcceptLanguage = "header.has_accept_language";
+
+    /// <summary>Bool: true when the request carries proxy headers (X-Forwarded-For or Via).</summary>
+    public const string HeaderHasProxyHeaders = "header.has_proxy_headers";
+
+    /// <summary>Bool: true when the request looks like a Service Worker registration fetch (Service-Worker: script).</summary>
+    public const string HeaderIsServiceWorkerFetch = "header.is_service_worker_fetch";
+
+    /// <summary>Bool: true when the request is a WebSocket upgrade (RFC 6455) and the omitted Accept-* headers should not be penalised.</summary>
+    public const string HeaderIsWebSocketUpgrade = "header.is_websocket_upgrade";
+
+    /// <summary>Double in [0,1]: rolling fraction of recent requests in the same UA bucket that carried an Accept header (deployment norm).</summary>
+    public const string HeaderPopulationAcceptRate = "header.population_accept_rate";
+
+    /// <summary>Double in [0,1]: rolling fraction of recent requests in the same UA bucket that carried an Accept-Language header (deployment norm).</summary>
+    public const string HeaderPopulationAcceptLanguageRate = "header.population_accept_language_rate";
+
+    // ----- Header correlation (HeaderCorrelationContributor) -----
+
+    /// <summary>Int: number of distinct primary signatures the gateway has seen reuse this header fingerprint (template-reuse detector).</summary>
+    public const string HeaderCorrelationDistinctSignatures = "header_correlation.distinct_signatures";
+
+    /// <summary>String: short hash of the request's full header shape, used to find clients reusing the same header template across rotating IPs/UAs.</summary>
+    public const string HeaderCorrelationHeaderFingerprint = "header_correlation.header_fingerprint";
+
     // Programmatic request attestation - signals that a request is a legitimate
     // programmatic call (browser fetch, API client with key, SignalR) rather than
     // a scraping bot. Downstream detectors use this to downweight false-positive
@@ -243,30 +295,64 @@ public static class SignalKeys
     /// <summary>Boolean: composite - true if ANY programmatic attestation signal is present</summary>
     public const string ProgrammaticRequest = "attestation.programmatic";
 
+    /// <summary>String: client IP address as resolved by the proxy/forwarded-headers chain.</summary>
     public const string ClientIp = "ip.address";
+
+    /// <summary>Bool: true when the client IP resolves to a known datacenter / cloud provider ASN.</summary>
     public const string IpIsDatacenter = "ip.is_datacenter";
+
+    /// <summary>Bool: true when the client IP is RFC1918 / loopback / link-local (test or internal traffic).</summary>
     public const string IpIsLocal = "ip.is_local";
+
+    /// <summary>String: hosting provider name when the IP resolves to a known cloud / VPS / hosting ASN.</summary>
     public const string IpProvider = "ip.provider";
+
+    /// <summary>Number: AS number of the network owning the client IP.</summary>
     public const string IpAsn = "ip.asn";
+
+    /// <summary>String: AS organization name for the client IP's ASN.</summary>
     public const string IpAsnOrg = "ip.asn_org";
+
+    /// <summary>Bool: true when the client IP is an IPv6 address.</summary>
+    public const string IpIsIpv6 = "ip.is_ipv6";
+
+    /// <summary>String: inferred proxy topology hint (e.g. "direct", "cdn", "proxy_chain") from forwarded headers and IP characteristics.</summary>
     public const string ProxyTopology = "proxy.topology";
 
+    /// <summary>Double in [0,1]: composite "looks-headless" score derived from clientside fingerprint signals.</summary>
     public const string FingerprintHeadlessScore = "fingerprint.headless_score";
+
+    /// <summary>Double in [0,1]: composite fingerprint-integrity score (how consistent the fingerprint is across factors).</summary>
     public const string FingerprintIntegrityScore = "fingerprint.integrity_score";
 
     // Stage 1 signals (behavioral)
+
+    /// <summary>Bool: true when the per-client request rate exceeded the configured behavioural threshold.</summary>
     public const string BehavioralRateExceeded = "behavioral.rate_exceeded";
+
+    /// <summary>Bool: true when behavioural-waveform analysis detected an anomaly (regular timing, lockstep cadence, etc.).</summary>
     public const string BehavioralAnomalyDetected = "behavioral.anomaly";
 
     // Stage 1 signals (version age)
+
+    /// <summary>Bool: true once VersionAgeContributor has finished its analysis (downstream gating signal).</summary>
     public const string VersionAgeAnalyzed = "versionage.analyzed";
+
+    /// <summary>Int: estimated age in days of the browser version inferred from the UA.</summary>
     public const string BrowserVersionAge = "versionage.browser_age";
 
     // Stage 2 signals (meta-layers)
+
+    /// <summary>Double in [0,1]: composite cross-layer inconsistency score (e.g. UA vs TLS vs TCP).</summary>
     public const string InconsistencyScore = "inconsistency.score";
+
+    /// <summary>String: human-readable breakdown of which layers disagreed and how.</summary>
     public const string InconsistencyDetails = "inconsistency.details";
 
+    /// <summary>String: final risk band assigned to this request (Low / Medium / High / VeryHigh).</summary>
     public const string RiskBand = "risk.band";
+
+    /// <summary>Double in [0,1]: final aggregated bot-probability score for this request.</summary>
     public const string RiskScore = "risk.score";
 
     /// <summary>String: human-readable explanation of why this risk band was assigned</summary>
@@ -304,17 +390,33 @@ public static class SignalKeys
     public const string FriendlyDomainVerified = "friendly.domain_verified";
 
     // AI/LLM signals
+
+    /// <summary>String: LLM escalation verdict (e.g. "Human", "Bot", "Unknown") when AI inspection ran.</summary>
     public const string AiPrediction = "ai.prediction";
+
+    /// <summary>Double in [0,1]: confidence reported by the LLM escalation for the verdict in <see cref="AiPrediction"/>.</summary>
     public const string AiConfidence = "ai.confidence";
+
+    /// <summary>String: learned pattern identifier the LLM matched against (when AI inspection escalated to pattern-similarity).</summary>
     public const string AiLearnedPattern = "ai.learned_pattern";
 
     // Heuristic signals (meta-layer that consumes all evidence)
+
+    /// <summary>String: early heuristic prediction (e.g. "Human", "Bot", "Unknown") emitted before late detectors run.</summary>
     public const string HeuristicPrediction = "heuristic.prediction";
+
+    /// <summary>Double in [0,1]: confidence of the early heuristic prediction.</summary>
     public const string HeuristicConfidence = "heuristic.confidence";
+
+    /// <summary>Bool: true when the early heuristic was confident enough to short-circuit subsequent detectors.</summary>
     public const string HeuristicEarlyCompleted = "heuristic.early_completed";
 
     // Late heuristic signals (runs after all detectors, uses full evidence)
+
+    /// <summary>String: late heuristic prediction emitted after the full evidence ledger is complete.</summary>
     public const string HeuristicLatePrediction = "heuristic.late_prediction";
+
+    /// <summary>Double in [0,1]: confidence of the late heuristic prediction.</summary>
     public const string HeuristicLateConfidence = "heuristic.late_confidence";
 
     // ==========================================
@@ -405,6 +507,9 @@ public static class SignalKeys
     /// <summary>String: OS hint derived from TCP window size</summary>
     public const string TcpOsHintWindow = "tcp.os_hint_window";
 
+    /// <summary>String: value of the HTTP Connection header (e.g. "keep-alive", "close", "Upgrade") as observed on the inbound socket.</summary>
+    public const string TcpConnectionHeader = "tcp.connection_header";
+
     // ==========================================
     // TLS fingerprinting signals
     // Set by TlsFingerprintContributor
@@ -412,6 +517,12 @@ public static class SignalKeys
 
     /// <summary>String: TLS protocol version (e.g., TLSv1.2, TLSv1.3)</summary>
     public const string TlsProtocol = "tls.protocol";
+
+    /// <summary>Bool: true when TLS handshake detail was available for this request (some edge hops strip it).</summary>
+    public const string TlsAvailable = "tls.available";
+
+    /// <summary>Bool: true when the request arrived over HTTPS.</summary>
+    public const string TlsIsHttps = "tls.is_https";
 
     // ==========================================
     // HTTP/2 fingerprinting signals
@@ -423,6 +534,21 @@ public static class SignalKeys
 
     /// <summary>String: Client type inferred from HTTP/2 fingerprint</summary>
     public const string H2ClientType = "h2.client_type";
+
+    /// <summary>Bool: true when the request arrived via a proxy (so the observed h2 settings describe the proxy, not the originating client).</summary>
+    public const string H2BehindProxy = "h2.behind_proxy";
+
+    /// <summary>Bool: true when the request was negotiated as HTTP/2 (false for HTTP/1.x).</summary>
+    public const string H2IsHttp2 = "h2.is_http2";
+
+    /// <summary>Double in [0,1]: rolling fraction of recent requests in the same UA bucket that arrived over HTTP/2 (deployment norm).</summary>
+    public const string H2PopulationHttp2Rate = "h2.population_http2_rate";
+
+    /// <summary>Int: number of samples contributing to <see cref="H2PopulationHttp2Rate"/>.</summary>
+    public const string H2PopulationSamples = "h2.population_samples";
+
+    /// <summary>Bool: emitted by Http2FingerprintContributor when it observes the connection has been upgraded to HTTP/3 (Http3FingerprintContributor takes over the analysis).</summary>
+    public const string H2ObservedHttp3 = "h2.is_http3";
 
     // ==========================================
     // HTTP/3 (QUIC) fingerprinting signals
@@ -440,6 +566,9 @@ public static class SignalKeys
 
     /// <summary>Boolean: Whether QUIC connection migration occurred (mobile user)</summary>
     public const string H3ConnectionMigrated = "h3.connection_migrated";
+
+    /// <summary>Bool: true when the request was negotiated as HTTP/3 (QUIC).</summary>
+    public const string H3IsHttp3 = "h3.is_http3";
 
     // ==========================================
     // User-Agent parsed signals
@@ -1091,15 +1220,11 @@ public static class SignalKeys
     /// <summary>Boolean: direct POST to login without prior GET (skipped form page)</summary>
     public const string AtoDirectPost = "ato.direct_post";
 
-    /// <summary>Boolean: rapid credential change after login (login -> password change < threshold)</summary>
+    /// <summary>Boolean: rapid credential change after login (login -&gt; password change &lt; threshold)</summary>
     public const string AtoRapidCredentialChange = "ato.rapid_credential_change";
-
-    /// <summary>Boolean: session behavioral anomaly detected post-login</summary>
 
     /// <summary>Int: number of failed login attempts in current window</summary>
     public const string AtoLoginFailedCount = "ato.login_failed_count";
-
-    /// <summary>Int: number of unique username hashes seen in current window</summary>
 
     /// <summary>Double: composite behavioral drift score (0.0-1.0), decay-adjusted</summary>
     public const string AtoDriftScore = "ato.drift_score";
@@ -1869,9 +1994,17 @@ public static class SignalKeys
     // Fingerprint prior signals, written by SignatureVerdictGate on a Bias decision.
     // Consumed by FingerprintPriorContributor (Wave 0) to bias the orchestrator's
     // aggregation toward the cached verdict.
+
+    /// <summary>Double in [0,1]: cached bot-probability the SignatureVerdictGate used to bias this request's aggregation.</summary>
     public const string FingerprintPriorProbability = "fingerprint.prior.probability";
+
+    /// <summary>Double in [0,1]: confidence of the cached prior in <see cref="FingerprintPriorProbability"/>.</summary>
     public const string FingerprintPriorConfidence  = "fingerprint.prior.confidence";
+
+    /// <summary>Int: age of the cached prior in seconds at the moment it was applied.</summary>
     public const string FingerprintPriorAgeSeconds  = "fingerprint.prior.age_seconds";
+
+    /// <summary>Int: number of requests the cached prior has accumulated evidence over.</summary>
     public const string FingerprintPriorRequestCount = "fingerprint.prior.request_count";
 
     // ==========================================

@@ -67,15 +67,24 @@ public sealed class SbAllSignalsViewComponent : ViewComponent
                 var dotIndex = key.IndexOf('.');
                 var prefix = dotIndex > 0 ? key.Substring(0, dotIndex) : "other";
                 var description = _catalog?.TryGet(key);
+                // Source column reads the inverted detector-manifest index
+                // (EmittedBy). Falling back to DeclaringType ("SignalKeys") is
+                // pointless because every catalogued signal would report the
+                // same thing, so we leave the cell empty and let the view
+                // render the "unknown" placeholder when no manifest declared
+                // the key. Multiple emitters are comma-joined.
+                var source = description?.EmittedBy is { Count: > 0 } emitters
+                    ? string.Join(", ", emitters)
+                    : string.Empty;
                 return new
                 {
                     Prefix = prefix,
                     Row = new SignalRow(
                         Key: key,
-                        Value: FormatValue(kvp.Value),
+                        Value: SignalValueFormatter.Format(kvp.Value),
                         Short: description?.Short ?? string.Empty,
                         Long: description?.Long ?? string.Empty,
-                        SourceType: description?.DeclaringType ?? string.Empty)
+                        SourceType: source)
                 };
             })
             .GroupBy(x => x.Prefix, StringComparer.OrdinalIgnoreCase)
@@ -85,19 +94,6 @@ public sealed class SbAllSignalsViewComponent : ViewComponent
                 Rows: g.Select(x => x.Row).OrderBy(r => r.Key, StringComparer.OrdinalIgnoreCase).ToList()))
             .ToList();
         return grouped;
-    }
-
-    private static string FormatValue(object? value)
-    {
-        if (value is null) return "null";
-        if (value is string s) return s;
-        if (value is System.Collections.IEnumerable enumerable && value is not string)
-        {
-            var items = new List<string>();
-            foreach (var item in enumerable) items.Add(item?.ToString() ?? "null");
-            return "[" + string.Join(", ", items) + "]";
-        }
-        return value.ToString() ?? string.Empty;
     }
 }
 

@@ -47,6 +47,11 @@ public sealed class MeterSignalCatalogSource : ISignalCatalogSource
 
     private static readonly IReadOnlyList<SignalExample> NoExamples = Array.Empty<SignalExample>();
     private static readonly IReadOnlyList<string> NoRelated = Array.Empty<string>();
+    // Meter-snapshot signals are emitted by the meter pipeline rather than a
+    // discrete IDetectionContributor, so the Source column stays empty for
+    // these rows. The view component prints "unknown" in that case which is
+    // the right answer -- there is no contributor to attribute them to.
+    private static readonly IReadOnlyList<string> NoEmittedBy = Array.Empty<string>();
 
     private readonly MeterSignalsAtom _atom;
 
@@ -92,5 +97,6 @@ public sealed class MeterSignalCatalogSource : ISignalCatalogSource
             DeclaringType:  Group,
             Operators:      NumberOperators,
             Examples:       NoExamples,
-            Related:        NoRelated);
+            Related:        NoRelated,
+            EmittedBy:      NoEmittedBy);
 }

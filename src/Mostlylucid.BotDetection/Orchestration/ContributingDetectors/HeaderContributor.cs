@@ -58,7 +58,7 @@ public class HeaderContributor : ConfiguredContributorBase
         var isWebSocketUpgrade = state.GetSignal<bool?>(SignalKeys.TransportIsUpgrade) ?? false;
         if (!isWebSocketUpgrade)
             isWebSocketUpgrade = IsWebSocketUpgrade(state.HttpContext.Request);
-        state.WriteSignal("header.is_websocket_upgrade", isWebSocketUpgrade);
+        state.WriteSignal(SignalKeys.HeaderIsWebSocketUpgrade, isWebSocketUpgrade);
 
         // Sec-Fetch-* headers (Fetch Metadata Request Headers, W3C spec).
         // Modern browsers send these on ALL requests - they attest the request's origin,
@@ -79,7 +79,7 @@ public class HeaderContributor : ConfiguredContributorBase
         // be mimicked without also sending the corresponding Sec-Fetch-* headers consistently.
         var isServiceWorkerFetch = headers.TryGetValue("Service-Worker", out var swHeader)
             && string.Equals(swHeader.ToString(), "script", StringComparison.OrdinalIgnoreCase);
-        state.WriteSignal("header.is_service_worker_fetch", isServiceWorkerFetch);
+        state.WriteSignal(SignalKeys.HeaderIsServiceWorkerFetch, isServiceWorkerFetch);
 
         // Write programmatic request attestation signals.
         // These are consumed by downstream detectors (Behavioral, ResponseBehavior,
@@ -99,10 +99,10 @@ public class HeaderContributor : ConfiguredContributorBase
         var hasAccept = headers.ContainsKey("Accept");
         var hasAcceptEncoding = headers.ContainsKey("Accept-Encoding");
 
-        state.WriteSignal("header.has_accept_language", hasAcceptLanguage);
-        state.WriteSignal("header.has_accept", hasAccept);
-        state.WriteSignal("header.has_accept_encoding", hasAcceptEncoding);
-        state.WriteSignal("header.count", headers.Count);
+        state.WriteSignal(SignalKeys.HeaderHasAcceptLanguage, hasAcceptLanguage);
+        state.WriteSignal(SignalKeys.HeaderHasAccept, hasAccept);
+        state.WriteSignal(SignalKeys.HeaderHasAcceptEncoding, hasAcceptEncoding);
+        state.WriteSignal(SignalKeys.HeaderCount, headers.Count);
 
         var userAgent = state.UserAgent ?? "";
         var looksLikeBrowser = userAgent.Contains("Mozilla/") &&
@@ -120,7 +120,7 @@ public class HeaderContributor : ConfiguredContributorBase
                 _populationMinSamples, _populationRateThreshold,
                 out var acceptRate, out var acceptSamples);
 
-            state.WriteSignal("header.population_accept_rate", acceptRate);
+            state.WriteSignal(SignalKeys.HeaderPopulationAcceptRate, acceptRate);
             contributions.Add(eval switch
             {
                 NormEvaluation.WarmingUp =>
@@ -146,7 +146,7 @@ public class HeaderContributor : ConfiguredContributorBase
                 _populationMinSamples, _populationRateThreshold,
                 out var langRate, out var langSamples);
 
-            state.WriteSignal("header.population_accept_language_rate", langRate);
+            state.WriteSignal(SignalKeys.HeaderPopulationAcceptLanguageRate, langRate);
             contributions.Add(eval switch
             {
                 NormEvaluation.WarmingUp =>
@@ -166,7 +166,7 @@ public class HeaderContributor : ConfiguredContributorBase
         // Check for proxy headers (X-Forwarded-For, Via)
         var hasXForwardedFor = headers.ContainsKey("X-Forwarded-For");
         var hasVia = headers.ContainsKey("Via");
-        state.WriteSignal("header.has_proxy_headers", hasXForwardedFor || hasVia);
+        state.WriteSignal(SignalKeys.HeaderHasProxyHeaders, hasXForwardedFor || hasVia);
 
         // Check for unusual header count - threshold from YAML parameters
         // WebSocket upgrades have fewer headers by design (Upgrade, Connection, Sec-WebSocket-*)

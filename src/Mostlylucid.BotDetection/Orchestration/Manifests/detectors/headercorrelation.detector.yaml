@@ -27,6 +27,18 @@ output:
     - header_correlation.distinct_signatures
     - header_correlation.header_fingerprint
 
+# Signal keys here MUST match the strings written via state.WriteSignal in
+# HeaderCorrelationContributor.cs - the manifest is the source of truth for
+# the SignalCatalog "emitted by" provenance.
+emits:
+  on_complete:
+    - key: header_correlation.distinct_signatures
+      type: int
+      description: Distinct primary signatures seen reusing this header fingerprint
+    - key: header_correlation.header_fingerprint
+      type: string
+      description: Short hash of the full header shape
+
 defaults:
   weights:
     BotSignal: 1.8

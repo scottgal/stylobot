@@ -222,10 +222,12 @@ public sealed class SignalCatalog : ISignalCatalog
     [RequiresUnreferencedCode("Drives SignalKeysReflector which inspects const fields by type name.")]
     public static Task<SignalCatalog> LoadAsync(
         Assembly bdAssembly,
-        IEnumerable<ISignalCatalogSource>? sources = null)
+        IEnumerable<ISignalCatalogSource>? sources = null,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? emittedBy = null)
     {
         var docs = XmlDocCommentReader.Load(bdAssembly);
         var overlays = LoadOverlays(bdAssembly);
+        var emitters = emittedBy ?? EmptyEmitters;
 
         var descriptors = new List<SignalDescriptor>();
         var seenKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -245,6 +247,9 @@ public sealed class SignalCatalog : ISignalCatalog
             var related = overlay?.Related is { Length: > 0 } r
                 ? (IReadOnlyList<string>)r.ToArray()
                 : Array.Empty<string>();
+            var emittedByList = emitters.TryGetValue(reflected.KeyValue, out var producers)
+                ? producers
+                : (IReadOnlyList<string>)Array.Empty<string>();
 
             descriptors.Add(new SignalDescriptor(
                 Key: reflected.KeyValue,
@@ -254,7 +259,8 @@ public sealed class SignalCatalog : ISignalCatalog
                 DeclaringType: reflected.DeclaringType,
                 Operators: operators,
                 Examples: examples,
-                Related: related));
+                Related: related,
+                EmittedBy: emittedByList));
         }
 
         var sourceArray = sources is null
@@ -263,6 +269,9 @@ public sealed class SignalCatalog : ISignalCatalog
 
         return Task.FromResult(new SignalCatalog(descriptors, sourceArray));
     }
+
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> EmptyEmitters
+        = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
     // ----- Kind inference + overlay resolution -----
 

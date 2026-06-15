@@ -50,13 +50,49 @@ triggers:
 emits:
   on_start:
     - detector.tcpipfingerprint.started
+  # Signal keys here MUST match the strings written via state.WriteSignal in
+  # TcpIpFingerprintContributor.cs - the manifest is the source of truth for
+  # the SignalCatalog "emitted by" provenance.
   on_complete:
     - key: tcp.window_size
       type: int
+      description: Observed TCP window size
     - key: tcp.ttl
       type: int
+      description: Observed IP Time-To-Live
+    - key: tcp.options_pattern
+      type: string
+      description: TCP options pattern observed on the SYN
+    - key: tcp.mss
+      type: int
+      description: Maximum Segment Size observed on the SYN
+    - key: tcp.has_timestamp
+      type: bool
+      description: TCP Timestamp option present
+    - key: tcp.has_sack
+      type: bool
+      description: TCP Selective ACK option present
+    - key: tcp.has_window_scale
+      type: bool
+      description: TCP Window Scale option present
+    - key: tcp.modern_options
+      type: bool
+      description: All three modern TCP options present (timestamp + SACK + window scale)
     - key: tcp.os_hint
       type: string
+      description: OS hint derived from TCP/IP stack characteristics
+    - key: tcp.os_hint_ttl
+      type: string
+      description: OS hint derived from TTL alone
+    - key: tcp.os_hint_window
+      type: string
+      description: OS hint derived from window size alone
+    - key: tcp.connection_header
+      type: string
+      description: Value of the HTTP Connection header observed on the request
+    - key: tcp.analysis_error
+      type: string
+      description: Parser error message when TCP/IP fingerprint could not be read
     - key: transport.spoofed_edge_headers
       type: bool
       description: Untrusted peer sent edge fingerprint headers (possible spoof)

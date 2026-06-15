@@ -75,8 +75,8 @@ public class HeaderCorrelationContributor : ConfiguredContributorBase
 
         var distinctSignatures = sigSet.Count;
 
-        state.WriteSignal("header_correlation.distinct_signatures", distinctSignatures);
-        state.WriteSignal("header_correlation.header_fingerprint", headerFingerprint[..Math.Min(8, headerFingerprint.Length)]);
+        state.WriteSignal(SignalKeys.HeaderCorrelationDistinctSignatures, distinctSignatures);
+        state.WriteSignal(SignalKeys.HeaderCorrelationHeaderFingerprint, headerFingerprint[..Math.Min(8, headerFingerprint.Length)]);
 
         if (distinctSignatures >= MinSignaturesForRotation)
         {

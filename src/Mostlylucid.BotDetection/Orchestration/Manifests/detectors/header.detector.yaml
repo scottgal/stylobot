@@ -57,27 +57,64 @@ emits:
   on_start:
     - detector.header.started
 
+  # Signal keys here MUST match the strings written via state.WriteSignal in
+  # HeaderContributor.cs - the manifest is the source of truth for the
+  # SignalCatalog "emitted by" provenance and for tooling (--output-config,
+  # dashboard "what signals does this detector emit", benchmark scenario
+  # filters). Drift between this list and the .cs writes means the dashboard
+  # silently shows the wrong Source column.
   on_complete:
-    - key: detection.header.confidence
-      type: double
-      description: Bot confidence from header analysis
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.header.missing_count
+    - key: header.count
       type: int
-      description: Count of expected headers that are missing
-
-    - key: detection.header.order_anomaly
+      description: Total number of HTTP headers on the request
+    - key: header.has_accept
       type: bool
-      description: Whether header order is suspicious
-
-    - key: detection.header.accept_language
+      description: Request carries an Accept header
+    - key: header.has_accept_encoding
+      type: bool
+      description: Request carries an Accept-Encoding header
+    - key: header.has_accept_language
+      type: bool
+      description: Request carries an Accept-Language header
+    - key: header.has_proxy_headers
+      type: bool
+      description: Request carries X-Forwarded-For or Via
+    - key: header.is_service_worker_fetch
+      type: bool
+      description: Request looks like a Service Worker registration fetch
+    - key: header.is_websocket_upgrade
+      type: bool
+      description: Request is a WebSocket upgrade (RFC 6455)
+    - key: header.population_accept_rate
+      type: double
+      description: Rolling fraction of recent requests in the same UA bucket carrying Accept
+    - key: header.population_accept_language_rate
+      type: double
+      description: Rolling fraction of recent requests in the same UA bucket carrying Accept-Language
+    - key: header.sec_fetch_site
       type: string
-      description: Accept-Language header value
-
-    - key: detection.header.accept_encoding
+      description: Value of the Sec-Fetch-Site header
+    - key: header.sec_fetch_mode
       type: string
-      description: Accept-Encoding header value
+      description: Value of the Sec-Fetch-Mode header
+    - key: header.sec_fetch_dest
+      type: string
+      description: Value of the Sec-Fetch-Dest header
+    - key: header.sec_fetch_same_origin
+      type: bool
+      description: Sec-Fetch-Site == "same-origin"
+    - key: attestation.fetch_metadata
+      type: bool
+      description: Request has browser fetch attestation (Sec-Fetch-Site present)
+    - key: attestation.api_key
+      type: bool
+      description: Request carries a valid API key
+    - key: attestation.programmatic
+      type: bool
+      description: Composite - any programmatic attestation signal present
+    - key: headers.missing
+      type: bool
+      description: At least one expected browser header is absent
 
   on_failure:
     - detector.header.failed

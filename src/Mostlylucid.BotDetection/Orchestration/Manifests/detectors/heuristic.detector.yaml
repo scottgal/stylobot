@@ -72,33 +72,30 @@ emits:
   on_start:
     - detector.heuristic.started
 
+  # Signal keys here MUST match the strings written via state.WriteSignal in
+  # HeuristicContributor.cs - the manifest is the source of truth for the
+  # SignalCatalog "emitted by" provenance.
   on_complete:
-    - key: detection.heuristic.score
-      type: double
-      description: Aggregated bot probability from learned weights
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.heuristic.confidence
-      type: double
-      description: Confidence in the prediction
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.heuristic.dominant_category
+    - key: heuristic.prediction
       type: string
-      description: Category contributing most to the score
-
-    - key: detection.heuristic.feature_count
-      type: int
-      description: Number of features used in scoring
+      description: Early heuristic verdict (Human / Bot / Unknown)
+    - key: heuristic.confidence
+      type: double
+      description: Confidence of the early heuristic verdict
+      confidence_range: [0.0, 1.0]
+    - key: heuristic.early_completed
+      type: bool
+      description: Early heuristic was confident enough to short-circuit later detectors
+    - key: heuristic.late_prediction
+      type: string
+      description: Late heuristic verdict after full evidence is gathered
+    - key: heuristic.late_confidence
+      type: double
+      description: Confidence of the late heuristic verdict
+      confidence_range: [0.0, 1.0]
 
   on_failure:
     - detector.heuristic.failed
-
-  conditional:
-    - key: detection.heuristic.escalate_to_ai
-      type: bool
-      when: confidence < 0.5 && !detection.budget.exhausted
-      description: Signal to escalate to LLM for disambiguation
 
 listens:
   required:

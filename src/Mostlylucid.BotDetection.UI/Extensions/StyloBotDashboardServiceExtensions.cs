@@ -224,9 +224,23 @@ public static class StyloBotDashboardServiceExtensions
         {
             var asm = typeof(Mostlylucid.BotDetection.Models.SignalKeys).Assembly;
             var sources = sp.GetServices<Mostlylucid.BotDetection.Policies.Signals.ISignalCatalogSource>();
+
+            // Build the signal_key -> detector_name(s) inverted index from any
+            // detector manifests the host already registered. The manifests are
+            // the source-of-truth that every contributor pack declares anyway,
+            // so we get the dashboard's "Source" column provenance for free
+            // without a curated string list in C# (per feedback_no_word_lists).
+            // When no manifest loader is registered (some test hosts), the
+            // catalog falls back to an empty index and the view component
+            // shows the SignalKeys DeclaringType.
+            var manifestLoader = sp.GetService<Mostlylucid.BotDetection.Orchestration.Manifests.DetectorManifestLoader>();
+            var emittedBy = manifestLoader is null
+                ? null
+                : Mostlylucid.BotDetection.Policies.Signals.SignalEmissionIndex.Build(manifestLoader);
+
 #pragma warning disable IL2026 // SignalCatalog.LoadAsync reflects const fields; overlays are pre-registered for AOT.
             return Mostlylucid.BotDetection.Policies.Signals.SignalCatalog
-                .LoadAsync(asm, sources).GetAwaiter().GetResult();
+                .LoadAsync(asm, sources, emittedBy).GetAwaiter().GetResult();
 #pragma warning restore IL2026
         });
 

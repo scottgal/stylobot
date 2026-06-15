@@ -154,12 +154,12 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
                 state.WriteSignal("tls.behind_proxy", true);
             }
 
-            state.WriteSignal("tls.is_https", isHttps);
+            state.WriteSignal(SignalKeys.TlsIsHttps, isHttps);
 
             if (!isHttps)
             {
                 // HTTP (not HTTPS) - slight bot indicator
-                state.WriteSignal("tls.available", false);
+                state.WriteSignal(SignalKeys.TlsAvailable, false);
                 contributions.Add(BotContribution(
                     "TLS",
                     "Using HTTP instead of HTTPS (uncommon for modern browsers)",
@@ -168,7 +168,7 @@ public partial class TlsFingerprintContributor : ConfiguredContributorBase
                 return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
             }
 
-            state.WriteSignal("tls.available", true);
+            state.WriteSignal(SignalKeys.TlsAvailable, true);
 
             // Get TLS protocol. Accept both the documented public name
             // (X-Client-TLS-Version - used by DetectionBroadcastMiddleware and recommended in

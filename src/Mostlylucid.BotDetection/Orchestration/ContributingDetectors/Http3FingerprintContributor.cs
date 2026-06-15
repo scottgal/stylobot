@@ -147,7 +147,7 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
             var isHttp3 = protocol.Equals("HTTP/3", StringComparison.OrdinalIgnoreCase) ||
                           protocol.Equals("HTTP/3.0", StringComparison.OrdinalIgnoreCase);
 
-            state.WriteSignal("h3.is_http3", isHttp3);
+            state.WriteSignal(SignalKeys.H3IsHttp3, isHttp3);
 
             if (!isHttp3)
             {

@@ -283,8 +283,8 @@ public static class BdfReplayEndpoints
                 // edge-computed TLS metadata (X-JA3-Hash / X-JA4 / X-Client-TLS-*). Probe
                 // is False for the no-edge-forwarding case; True confirms the read path
                 // in TlsFingerprintContributor + DetectionBroadcastMiddleware fired.
-                ["tls.is_https"]    = signals.ContainsKey("tls.is_https"),
-                ["tls.available"]   = signals.ContainsKey("tls.available"),
+                [Models.SignalKeys.TlsIsHttps]    = signals.ContainsKey(Models.SignalKeys.TlsIsHttps),
+                [Models.SignalKeys.TlsAvailable]  = signals.ContainsKey(Models.SignalKeys.TlsAvailable),
                 ["tls.ja3_hash"]    = signals.ContainsKey("tls.ja3_hash"),
                 ["tls.ja4"]         = signals.ContainsKey("tls.ja4"),
                 ["tls.version"]     = signals.ContainsKey("tls.version"),

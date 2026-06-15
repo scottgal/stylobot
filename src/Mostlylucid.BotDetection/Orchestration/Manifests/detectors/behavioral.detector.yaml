@@ -68,23 +68,16 @@ emits:
   on_start:
     - detector.behavioral.started
 
+  # Signal keys here MUST match the strings written via state.WriteSignal in
+  # BehavioralContributor.cs - the manifest is the source of truth for the
+  # SignalCatalog "emitted by" provenance.
   on_complete:
-    - key: detection.behavioral.confidence
-      type: double
-      description: Bot confidence from behavioral analysis
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.behavioral.anomaly_detected
+    - key: behavioral.anomaly
       type: bool
-      description: Whether behavioral anomalies were detected
-
-    - key: detection.behavioral.rate_exceeded
+      description: Behavioural-waveform analysis detected an anomaly (regular timing / lockstep cadence)
+    - key: behavioral.rate_exceeded
       type: bool
-      description: Whether request rate limits were exceeded
-
-    - key: detection.behavioral.pattern_type
-      type: string
-      description: Type of detected pattern if any
+      description: Per-client request rate exceeded the configured behavioural threshold
 
   on_failure:
     - detector.behavioral.failed

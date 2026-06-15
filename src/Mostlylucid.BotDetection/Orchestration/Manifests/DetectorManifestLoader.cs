@@ -233,11 +233,20 @@ public sealed class DetectorManifestLoader
     public IReadOnlySet<string> GetEmittedSignals(DetectorManifest manifest)
     {
         var signals = new HashSet<string>();
-
-        signals.UnionWith(manifest.Emits.OnStart);
-        signals.UnionWith(manifest.Emits.OnComplete.Select(s => s.Key));
-        signals.UnionWith(manifest.Emits.OnFailure);
-        signals.UnionWith(manifest.Emits.Conditional.Select(s => s.Key));
+        // A SignalDefinition / ConditionalSignal record may legitimately
+        // come from a manifest with a missing/empty Key (operator typo,
+        // partial commercial-pack manifest), so filter nulls/blanks out
+        // rather than letting Linq throw on the Select pipeline.
+        if (manifest.Emits?.OnStart is { Count: > 0 } onStart)
+            signals.UnionWith(onStart.Where(s => !string.IsNullOrEmpty(s))!);
+        if (manifest.Emits?.OnComplete is { Count: > 0 } onComplete)
+            foreach (var s in onComplete)
+                if (s is not null && !string.IsNullOrEmpty(s.Key)) signals.Add(s.Key);
+        if (manifest.Emits?.OnFailure is { Count: > 0 } onFailure)
+            signals.UnionWith(onFailure.Where(s => !string.IsNullOrEmpty(s))!);
+        if (manifest.Emits?.Conditional is { Count: > 0 } conditional)
+            foreach (var s in conditional)
+                if (s is not null && !string.IsNullOrEmpty(s.Key)) signals.Add(s.Key);
 
         return signals;
     }

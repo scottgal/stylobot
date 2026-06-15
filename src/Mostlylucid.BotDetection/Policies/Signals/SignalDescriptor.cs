@@ -15,6 +15,15 @@ namespace Mostlylucid.BotDetection.Policies.Signals;
 /// <param name="Operators">Predicate operators valid for this signal (e.g. <c>=</c>, <c>!=</c>, <c>in</c>). Defaulted from <see cref="Kind"/> when the overlay does not specify.</param>
 /// <param name="Examples">Worked predicate snippets the editor can insert as starting points.</param>
 /// <param name="Related">Other signal keys the editor should surface alongside this one (cross-reference hints).</param>
+/// <param name="EmittedBy">
+///     Detector/contributor name(s) that produce this signal, sourced from the
+///     embedded <c>*.detector.yaml</c> manifests by inverting their
+///     <c>emits.on_complete</c> + <c>emits.conditional</c> lists. The dashboard
+///     "Source" column reads this to show provenance ("HeaderContributor" rather
+///     than "SignalKeys"); empty for signals not declared by any detector
+///     manifest (commercial/contributor packs that haven't shipped a manifest
+///     yet, or signals written from one-off code paths).
+/// </param>
 public sealed record SignalDescriptor(
     string Key,
     SignalKind Kind,
@@ -23,4 +32,5 @@ public sealed record SignalDescriptor(
     string DeclaringType,
     IReadOnlyList<string> Operators,
     IReadOnlyList<SignalExample> Examples,
-    IReadOnlyList<string> Related);
+    IReadOnlyList<string> Related,
+    IReadOnlyList<string> EmittedBy);
