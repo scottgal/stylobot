@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Identity;
 
@@ -22,49 +22,89 @@ namespace Mostlylucid.BotDetection.Identity;
 ///        pushed back into the in-memory registry via <see cref="IdentityArchetypeRegistry.Replace"/>.
 ///
 ///     Dormant when <c>BotDetectionOptions.Identity.Enabled</c> is false.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(CalibrationIntervalMinutes)</c> loop (default 30 min,
+///         min 1 min); now subscribes to <see cref="TickCadence.Tick1m"/> and
+///         gates each <see cref="RunOnceAsync"/> pass on "last-success older
+///         than the configured interval". Inner calibration math unchanged.
+///     </para>
 /// </summary>
-public sealed class IdentityWeightCalibrationService : BackgroundService
+public sealed class IdentityWeightCalibrationService : IDisposable
 {
     private readonly ILogger<IdentityWeightCalibrationService> _logger;
     private readonly IFingerprintStore _store;
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
+    private readonly IDisposable? _subscription;
+    private DateTime _lastSuccessfulRunUtc = DateTime.MinValue;
+    private int _disposed;
 
     public IdentityWeightCalibrationService(
         ILogger<IdentityWeightCalibrationService> logger,
         IFingerprintStore store,
         IdentityArchetypeRegistry archetypes,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _store = store;
         _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
+
+        // Optional so test fixtures that drive RunOnceAsync directly (without
+        // scheduling) keep working. Production DI passes the real coordinator.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick1m,
+                "IdentityWeightCalibrationService",
+                CostHint.High,
+                OnTickAsync);
+        }
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Fires every Tick1m; gates the
+    ///     calibration pass on "last-success older than configured
+    ///     CalibrationIntervalMinutes" so a 30-minute configured interval
+    ///     fires roughly every 30 ticks while a 1-minute interval fires every
+    ///     tick. Dormant when Identity.Enabled is false. Public so tests can
+    ///     drive a single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (!_enabled)
+        if (_disposed != 0) return;
+        if (!_enabled) return;
+
+        var interval = TimeSpan.FromMinutes(Math.Max(1, _options.Calibration.CalibrationIntervalMinutes));
+        if (_lastSuccessfulRunUtc != DateTime.MinValue &&
+            now.UtcDateTime - _lastSuccessfulRunUtc < interval)
         {
-            _logger.LogDebug("IdentityWeightCalibrationService dormant: Identity.Enabled = false");
-            return;
+            return; // Not yet due.
         }
 
-        var tick = TimeSpan.FromMinutes(Math.Max(1, _options.Calibration.CalibrationIntervalMinutes));
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try { await RunOnceAsync(stoppingToken); }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                _logger.LogWarning(ex, "Calibration tick failed");
-            }
-
-            try { await Task.Delay(tick, stoppingToken); }
-            catch (OperationCanceledException) { return; }
+            await RunOnceAsync(ct);
+            _lastSuccessfulRunUtc = DateTime.UtcNow;
         }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Calibration tick failed");
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     /// <summary>

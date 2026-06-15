@@ -969,8 +969,10 @@ public static class ServiceCollectionExtensions
         // eagerly resolves the singleton at boot so the subscription is
         // not dormant until first request-time resolution.
         services.AddSingleton<Identity.FingerprintDriftService>();
+        // Wave 2: migrated to ScheduleCoordinator tick.1m. Eager-resolved by
+        // BotDetectionHostedSingletonsBootstrap so the constructor's Subscribe(...)
+        // fires at boot.
         services.AddSingleton<Identity.IdentityWeightCalibrationService>();
-        services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityWeightCalibrationService>());
         services.AddSingleton<IContributingDetector, HeaderContributor>();
         services.AddSingleton<IContributingDetector, IpContributor>();
         services.AddSingleton<IContributingDetector, BehavioralContributor>();
