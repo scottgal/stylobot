@@ -502,6 +502,10 @@ public static class ServiceCollectionExtensions
             sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
         services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
 
+        // ScheduleCoordinatorWatchdog: the irreducible bootstrap watchdog. See
+        // the class comment for why this ONE BackgroundService is justified.
+        services.AddHostedService<Scheduling.ScheduleCoordinatorWatchdog>();
+
         // Meter-signals extension point (IMeterSignalSink / NullMeterSignalSink)
         // lives in Mostlylucid.BotDetection.PrometheusPack now -- AddLocalMeterStream
         // / AddRemoteMeterStream register the default null sink there.
