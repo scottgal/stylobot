@@ -3,13 +3,14 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
 namespace Mostlylucid.BotDetection.Test.Scheduling;
 
 /// <summary>
 ///     Coverage for <see cref="ScheduleCoordinator"/>. All time is driven by a
-///     hand-rolled <see cref="FixedTimeProvider"/> and ticks are pumped through
-///     the internal <c>TickOnceAsync</c> hook, matching the
+///     hand-rolled <see cref="Helpers.FixedTimeProvider"/> and ticks are pumped
+///     through the internal <c>TickOnceAsync</c> hook, matching the
 ///     <c>MeterTriggerService.TickOnceAsync</c> deterministic-loop pattern
 ///     already used in the codebase. The tests deliberately do NOT take a
 ///     dependency on <c>Microsoft.Extensions.TimeProvider.Testing</c> --
@@ -313,19 +314,6 @@ public sealed class ScheduleCoordinatorTests
             logger ?? NullLogger<ScheduleCoordinator>.Instance,
             time);
         return (coord, time);
-    }
-
-    /// <summary>
-    ///     Frozen <see cref="TimeProvider"/> for tick-fan-out tests. We don't
-    ///     need to advance time (TickOnceAsync drives the loop directly), so a
-    ///     fixed-now provider is enough and lets us skip the
-    ///     <c>Microsoft.Extensions.TimeProvider.Testing</c> package reference.
-    /// </summary>
-    private sealed class FixedTimeProvider : TimeProvider
-    {
-        private DateTimeOffset _now;
-        public FixedTimeProvider(DateTimeOffset now) => _now = now;
-        public override DateTimeOffset GetUtcNow() => _now;
     }
 
     private static async Task WaitFor(Func<bool> predicate, int timeoutMs = 2000)

@@ -4,6 +4,7 @@ using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Test.Policies.Support;
+using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -199,19 +200,6 @@ public sealed class PolicyStackSummaryBuilderTests
             Source: "test",
             CreatedAt: DateTimeOffset.UtcNow,
             RevisionId: Guid.NewGuid());
-    }
-
-    /// <summary>
-    ///     Hand-rolled <see cref="TimeProvider"/> stub pinned to a fixed
-    ///     instant. The FOSS test project doesn't reference
-    ///     <c>Microsoft.Extensions.TimeProvider.Testing</c>, and one
-    ///     fixed-instant test doesn't justify pulling the package in.
-    /// </summary>
-    private sealed class FixedTimeProvider : TimeProvider
-    {
-        private readonly DateTimeOffset _now;
-        public FixedTimeProvider(DateTimeOffset now) => _now = now;
-        public override DateTimeOffset GetUtcNow() => _now;
     }
 
     /// <summary>

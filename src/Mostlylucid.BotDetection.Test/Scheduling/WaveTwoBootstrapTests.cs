@@ -2,11 +2,9 @@ using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.PrometheusPack.Extensions;
-using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
 namespace Mostlylucid.BotDetection.Test.Scheduling;
 
@@ -101,34 +99,4 @@ public sealed class WaveTwoBootstrapTests
         }
     }
 
-    /// <summary>
-    ///     <see cref="IScheduleCoordinator"/> stand-in that records every
-    ///     subscription so the test can assert on names/cadences without
-    ///     standing up the real coordinator's cadence loops.
-    /// </summary>
-    private sealed class RecordingScheduleCoordinator : IScheduleCoordinator
-    {
-        private readonly List<TickSubscriberMetadata> _subs = new();
-        private readonly object _gate = new();
-
-        public IDisposable Subscribe(
-            TickCadence cadence,
-            string subscriberName,
-            CostHint costHint,
-            Func<DateTimeOffset, CancellationToken, Task> handler)
-        {
-            lock (_gate)
-            {
-                _subs.Add(new TickSubscriberMetadata(cadence, subscriberName, costHint, null, null, 0, 0));
-            }
-            return new NoopDisposable();
-        }
-
-        public IReadOnlyList<TickSubscriberMetadata> Snapshot()
-        {
-            lock (_gate) return _subs.ToArray();
-        }
-
-        private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
-    }
 }

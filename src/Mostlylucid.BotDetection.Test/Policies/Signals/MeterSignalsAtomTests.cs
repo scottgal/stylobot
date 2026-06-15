@@ -1,6 +1,7 @@
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Signals;
 
@@ -250,40 +251,4 @@ public class MeterSignalsAtomTests
             double? P99);
     }
 
-    private sealed class RecordingScheduleCoordinator : IScheduleCoordinator
-    {
-        public List<Recorded> Subscriptions { get; } = new();
-
-        public IDisposable Subscribe(
-            TickCadence cadence,
-            string subscriberName,
-            CostHint costHint,
-            Func<DateTimeOffset, CancellationToken, Task> handler)
-        {
-            var rec = new Recorded(cadence, subscriberName, costHint, handler);
-            Subscriptions.Add(rec);
-            return rec;
-        }
-
-        public IReadOnlyList<TickSubscriberMetadata> Snapshot() => Array.Empty<TickSubscriberMetadata>();
-
-        public sealed class Recorded : IDisposable
-        {
-            public TickCadence Cadence { get; }
-            public string Name { get; }
-            public CostHint Hint { get; }
-            public Func<DateTimeOffset, CancellationToken, Task> Handler { get; }
-            public bool Disposed { get; private set; }
-
-            public Recorded(TickCadence c, string n, CostHint h, Func<DateTimeOffset, CancellationToken, Task> handler)
-            {
-                Cadence = c;
-                Name = n;
-                Hint = h;
-                Handler = handler;
-            }
-
-            public void Dispose() => Disposed = true;
-        }
-    }
 }
