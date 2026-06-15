@@ -1,18 +1,41 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.MonitoringPacks;
 
-public sealed class MeterListenerService : BackgroundService, IDisposable
+/// <summary>
+///     Subscribes to .NET <see cref="MeterListener"/> measurements from every
+///     registered <see cref="IMonitoringPack"/>, accumulates them in
+///     write-through bounded dictionaries, and on a periodic flush writes the
+///     aggregated <see cref="MetricSnapshot"/> rows to the snapshot store. The
+///     in-memory accumulators are pre-flush write-behind buffers; persistence
+///     lives in the store, so a restart loses at most the current bucket.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> called <see cref="StartListening"/> once and
+///         then looped on <c>Task.Delay(packs.Min(p =&gt; p.CollectionInterval))</c>
+///         + flush. Now subscribes to <see cref="TickCadence.Tick1m"/> -- the
+///         default pack <see cref="AspNetMonitoringPack.CollectionInterval"/>
+///         is 60 s, which aligns to Tick1m exactly. Packs configured with a
+///         sub-minute collection interval flush on the same Tick1m boundary;
+///         the loss-resolution is the snapshot bucket
+///         (<see cref="DateTimeExtensions.TruncateToMinute"/>) which is also
+///         minute-aligned, so the alignment is correct.
+///     </para>
+/// </summary>
+public sealed class MeterListenerService : IDisposable
 {
     private readonly Dictionary<string, IMonitoringPack> _packs;
     private readonly IMetricSnapshotStoreAccessor? _storeAccessor;
     private readonly ILogger<MeterListenerService> _logger;
     private readonly IPackRuntimeController? _runtimeController;
+    private readonly IDisposable? _subscription;
     private readonly object _packsLock = new();
     private MeterListener? _listener;
+    private int _disposed;
 
     private readonly ConcurrentDictionary<string, InstrumentState> _counters = new();
     private readonly ConcurrentDictionary<string, double> _gauges = new();
@@ -25,26 +48,49 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
         IEnumerable<IMonitoringPack> packs,
         IMetricSnapshotStore store,
         ILogger<MeterListenerService> logger,
-        IPackRuntimeController? runtimeController = null)
+        IPackRuntimeController? runtimeController = null,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _packs = packs.ToDictionary(p => p.Id);
         _directStore = store;
         _logger = logger;
         _runtimeController = runtimeController;
         SubscribeRuntimeController();
+        _subscription = SubscribeToCoordinator(scheduleCoordinator);
     }
 
     public MeterListenerService(
         IEnumerable<IMonitoringPack> packs,
         IMetricSnapshotStoreAccessor storeAccessor,
         ILogger<MeterListenerService> logger,
-        IPackRuntimeController? runtimeController = null)
+        IPackRuntimeController? runtimeController = null,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _packs = packs.ToDictionary(p => p.Id);
         _storeAccessor = storeAccessor;
         _logger = logger;
         _runtimeController = runtimeController;
         SubscribeRuntimeController();
+        _subscription = SubscribeToCoordinator(scheduleCoordinator);
+    }
+
+    private IDisposable? SubscribeToCoordinator(IScheduleCoordinator? scheduleCoordinator)
+    {
+        if (scheduleCoordinator is null) return null;
+
+        // Start the meter listener at construction so measurements begin
+        // accumulating before the first flush tick. The legacy ExecuteAsync
+        // called StartListening as its first action; the subscribe-in-ctor
+        // model puts it next to the subscription so both happen on the same
+        // boot path.
+        StartListening();
+        _logger.LogInformation("MeterListenerService started with {Count} pack(s)", _packs.Count);
+
+        return scheduleCoordinator.Subscribe(
+            TickCadence.Tick1m,
+            "MeterListenerService",
+            CostHint.Low,
+            OnTickAsync);
     }
 
     private void SubscribeRuntimeController()
@@ -100,32 +146,25 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
         _listener.Start();
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Drains the in-memory accumulators
+    ///     into snapshot rows and writes them to the store. Public so tests
+    ///     can drive a single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        StartListening();
-        _logger.LogInformation("MeterListenerService started with {Count} pack(s)", _packs.Count);
+        if (_disposed != 0) return;
 
-        var packs = SnapshotPacks();
-        var interval = packs.Count > 0
-            ? packs.Min(p => p.CollectionInterval)
-            : TimeSpan.FromSeconds(60);
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try { await Task.Delay(interval, stoppingToken); }
-            catch (OperationCanceledException) { break; }
-
-            try
-            {
-                var store = _directStore ?? _storeAccessor!.GetStore();
-                var snapshots = await FlushSnapshotsAsync(stoppingToken);
-                if (snapshots.Count > 0)
-                    await store.WriteSnapshotsAsync(snapshots, stoppingToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to flush metric snapshots");
-            }
+            var store = _directStore ?? _storeAccessor!.GetStore();
+            var snapshots = await FlushSnapshotsAsync(ct);
+            if (snapshots.Count > 0)
+                await store.WriteSnapshotsAsync(snapshots, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Failed to flush metric snapshots");
         }
     }
 
@@ -261,12 +300,14 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
         return (parts[0], parts[1]);
     }
 
-    public override void Dispose()
+    public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         if (_runtimeController is not null)
             _runtimeController.PackChanged -= OnPackChanged;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
         _listener?.Dispose();
-        base.Dispose();
     }
 
     private sealed class InstrumentState { public long Total; }

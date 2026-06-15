@@ -4,6 +4,7 @@ using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Markov;
+using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Scheduling;
@@ -69,6 +70,10 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<IdentityWeightCalibrationService>();
         _services.GetService<SignatureConvergenceService>();
         _services.GetService<BotListUpdateService>();
+        // MeterListenerService is only registered when the dashboard's
+        // MonitoringPack.Mode is Local; the GetService probe returns null in
+        // every other host so this is the safe place to drive eager resolution.
+        _services.GetService<MeterListenerService>();
         return Task.CompletedTask;
     }
 

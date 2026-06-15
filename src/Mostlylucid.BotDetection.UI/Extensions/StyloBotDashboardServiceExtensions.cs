@@ -511,12 +511,17 @@ public static class StyloBotDashboardServiceExtensions
             {
                 services.AddSingleton<IMonitoringPack>(
                     new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
-                services.AddHostedService<MeterListenerService>(sp =>
+                // Wave 2: MeterListenerService migrated to ScheduleCoordinator
+                // tick.1m. Singleton + the dashboard bootstrap shim eagerly
+                // resolves it so StartListening() runs and the tick
+                // subscription is established at boot.
+                services.AddSingleton<MeterListenerService>(sp =>
                     new MeterListenerService(
                         sp.GetServices<IMonitoringPack>(),
                         sp.GetRequiredService<IMetricSnapshotStore>(),
                         sp.GetRequiredService<ILogger<MeterListenerService>>(),
-                        sp.GetRequiredService<IPackRuntimeController>()));
+                        sp.GetRequiredService<IPackRuntimeController>(),
+                        sp.GetService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
             }
             else if (options.MonitoringPack.Mode == MonitoringMode.GatewayServer)
             {
