@@ -310,7 +310,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
                    display_name, display_name_updated_at,
-                   root_centroid, root_centroid_at, root_source
+                   root_centroid, root_centroid_at, root_source,
+                   claim_status, verification_method, verified_at, trust_observations
               FROM fingerprints WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
@@ -344,7 +345,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                     inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                     cached_score_updated_at, ambiguity_persistence,
                     display_name, display_name_updated_at,
-                    root_centroid, root_centroid_at, root_source
+                    root_centroid, root_centroid_at, root_source,
+                    claim_status, verification_method, verified_at, trust_observations
                 ) VALUES (
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
@@ -352,7 +354,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                     @inferred_changed, @cached_prob, @cached_band,
                     @cached_updated, @ambiguity,
                     @display_name, @display_name_updated,
-                    @root_centroid, @root_at, @root_source
+                    @root_centroid, @root_at, @root_source,
+                    @claim_status, @verification_method, @verified_at, @trust_observations
                 )
                 """;
             cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
@@ -389,6 +392,17 @@ public class SqliteFingerprintStore : IFingerprintStore
             cmd.Parameters.AddWithValue("@root_centroid", FloatsToBlob(rootCentroid));
             cmd.Parameters.AddWithValue("@root_at", rootAt);
             cmd.Parameters.AddWithValue("@root_source", rootSource);
+            // Trust state defaults to 'unverified' / NULL / NULL / 0 for a freshly
+            // allocated fingerprint; verifier contributors call
+            // UpdateClaimVerificationAsync after a successful verification to
+            // flip claim_status -> 'verified' and stamp verified_at.
+            cmd.Parameters.AddWithValue("@claim_status",
+                string.IsNullOrEmpty(fp.ClaimStatus) ? "unverified" : fp.ClaimStatus);
+            cmd.Parameters.AddWithValue("@verification_method",
+                (object?)fp.VerificationMethod ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@verified_at",
+                (object?)fp.VerifiedAt?.ToString("O") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@trust_observations", fp.TrustObservations);
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
@@ -496,6 +510,58 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
         InvalidateFingerprintCache(fingerprintId);
+    }
+
+    /// <summary>
+    ///     Persistent trust state write. Updates <c>claim_status</c> /
+    ///     <c>verification_method</c> / <c>verified_at</c> on the fingerprint
+    ///     row so future requests can short-circuit re-verification while
+    ///     within <c>TrustOptions.TrustCacheTtl</c>. Dict-authoritative LFU
+    ///     façade: mutates the cached fingerprint first so the next L1 read
+    ///     sees the new state immediately, then writes through to SQLite.
+    ///     Per <c>feedback_write_behind_lfu_facade</c>.
+    /// </summary>
+    public async Task UpdateClaimVerificationAsync(
+        string fingerprintId,
+        string claimStatus,
+        string? verificationMethod,
+        DateTime? verifiedAt,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+        if (string.IsNullOrEmpty(claimStatus)) claimStatus = "unverified";
+
+        // Dict-authoritative replace so the next L1 read sees the trust
+        // transition without waiting for the SQL commit. Same pattern as
+        // RecordVerdictAsync (cached_bot_probability / cached_risk_band).
+        if (_fingerprintById.TryGetValue(fingerprintId, out var existing))
+        {
+            _fingerprintById[fingerprintId] = existing with
+            {
+                ClaimStatus = claimStatus,
+                VerificationMethod = verificationMethod,
+                VerifiedAt = verifiedAt,
+            };
+        }
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprints
+               SET claim_status        = @claim_status,
+                   verification_method = @verification_method,
+                   verified_at         = @verified_at
+             WHERE fingerprint_id = @id
+            """;
+        cmd.Parameters.AddWithValue("@claim_status", claimStatus);
+        cmd.Parameters.AddWithValue("@verification_method",
+            (object?)verificationMethod ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@verified_at",
+            (object?)verifiedAt?.ToString("O") ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>
@@ -820,7 +886,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
                    display_name, display_name_updated_at,
-                   root_centroid, root_centroid_at, root_source
+                   root_centroid, root_centroid_at, root_source,
+                   claim_status, verification_method, verified_at, trust_observations
               FROM fingerprints
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -876,7 +943,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
                    display_name, display_name_updated_at,
-                   root_centroid, root_centroid_at, root_source
+                   root_centroid, root_centroid_at, root_source,
+                   claim_status, verification_method, verified_at, trust_observations
               FROM fingerprints
              WHERE observation_count > 0
                AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
@@ -1585,6 +1653,14 @@ public class SqliteFingerprintStore : IFingerprintStore
             ? null
             : DateTime.Parse(reader.GetString(21), null, System.Globalization.DateTimeStyles.RoundtripKind),
         RootSource = reader.IsDBNull(22) ? null : reader.GetString(22),
+        // Trust state (gap #4). Older rows pre-migration default to
+        // 'unverified' / NULL / NULL / 0 via the ALTER TABLE column defaults.
+        ClaimStatus = reader.IsDBNull(23) ? "unverified" : reader.GetString(23),
+        VerificationMethod = reader.IsDBNull(24) ? null : reader.GetString(24),
+        VerifiedAt = reader.IsDBNull(25)
+            ? null
+            : DateTime.Parse(reader.GetString(25), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        TrustObservations = reader.IsDBNull(26) ? 0 : reader.GetInt32(26),
     };
 
     /// <summary>

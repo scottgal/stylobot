@@ -92,6 +92,15 @@ public sealed class NullFingerprintStore : IFingerprintStore
         string fingerprintId, bool isAmbiguityEvent, double alpha, CancellationToken ct = default)
         => Task.FromResult(0.0);
 
+    // ── Trust state ──────────────────────────────────────────────────────────
+    public Task UpdateClaimVerificationAsync(
+        string fingerprintId,
+        string claimStatus,
+        string? verificationMethod,
+        DateTime? verifiedAt,
+        CancellationToken ct = default)
+        => Task.CompletedTask;
+
     // ── Display name ─────────────────────────────────────────────────────────
     public Task UpdateDisplayNameAsync(
         string fingerprintId, string displayName, DateTime updatedAt, CancellationToken ct = default)

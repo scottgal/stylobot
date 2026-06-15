@@ -99,6 +99,35 @@ public interface IFingerprintStore : IFingerprintReader
         int newMaturity,
         CancellationToken ct = default);
 
+    // ── Trust state (claim verification) ────────────────────────────────────
+    /// <summary>
+    ///     Write-behind verifier hook: records the outcome of a successful
+    ///     verifier run (rDNS, NodeInfo, IP-range, forward DNS, ...) onto the
+    ///     fingerprint's persistent trust columns so future requests for the
+    ///     same fingerprint can short-circuit re-verification while within
+    ///     <c>TrustOptions.TrustCacheTtl</c>. Dict-authoritative LFU façade:
+    ///     mutates the in-memory <c>_fingerprintById</c> entry first so the next
+    ///     L1 read sees the new state immediately, then persists to the durable
+    ///     store. Per <c>feedback_write_behind_lfu_facade</c>: never a
+    ///     synchronous DB write on the request hot path; if the SQL throws,
+    ///     the in-memory state is still consistent.
+    ///     <para>
+    ///     <paramref name="claimStatus"/> values: <c>verified</c>, <c>spoofed</c>,
+    ///     <c>behaviourally-trusted</c>. Pass <c>unverified</c> to reset the
+    ///     trust state. <paramref name="verificationMethod"/> records the path
+    ///     that decided it (<c>ip_range</c>, <c>fcrdns</c>, <c>nodeinfo</c>,
+    ///     <c>forward_dns</c>, <c>behavioural-trust</c>, ...).
+    ///     <paramref name="verifiedAt"/> is the timestamp of the verification;
+    ///     pass <c>null</c> on <c>unverified</c> / <c>spoofed</c> resets.
+    ///     </para>
+    /// </summary>
+    Task UpdateClaimVerificationAsync(
+        string fingerprintId,
+        string claimStatus,
+        string? verificationMethod,
+        DateTime? verifiedAt,
+        CancellationToken ct = default);
+
     // ── Display name ─────────────────────────────────────────────────────────
     Task UpdateDisplayNameAsync(
         string fingerprintId, string displayName, DateTime updatedAt, CancellationToken ct = default);

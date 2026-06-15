@@ -645,6 +645,17 @@ public class BotDetectionOptions
     public RetentionOptions Retention { get; set; } = new();
 
     /// <summary>
+    ///     Persistent claim-verification trust knobs. Owns
+    ///     <c>TrustCacheTtl</c> (default 24h) and
+    ///     <c>ShortCircuitOnCachedTrust</c>; consumed by
+    ///     <c>VerifiedBotContributor</c> + <c>FediverseDomainContributor</c>
+    ///     to decide whether a fingerprint with <c>claim_status='verified'</c>
+    ///     can skip re-running rDNS / NodeInfo within the TTL. Added in the
+    ///     2026-06-15 claim-verify-trust gap fix (#4).
+    /// </summary>
+    public TrustOptions Trust { get; set; } = new();
+
+    /// <summary>
     ///     Maximum number of weight entries to cache in memory (LRU cache).
     ///     This enables high-read/low-write access pattern (CQRS-style).
     ///     Reads hit memory cache, writes go to SQLite and update cache.

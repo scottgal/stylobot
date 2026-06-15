@@ -31,7 +31,22 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     display_name_updated_at     TEXT NOT NULL DEFAULT '',
     root_centroid               BLOB,
     root_centroid_at            TEXT,
-    root_source                 TEXT
+    root_source                 TEXT,
+    -- Persistent trust state (gap analysis 2026-06-15, Gap #4).
+    -- claim_status: 'unverified' | 'verified' | 'spoofed' | 'behaviourally-trusted'.
+    -- The CLAIMED identity's verification state; the request-path verifier
+    -- contributors read claim_status + verified_at to short-circuit
+    -- re-verification when still within TrustOptions.TrustCacheTtl.
+    -- verification_method records HOW the claim was verified
+    -- ('ip_range', 'fcrdns', 'forward_dns', 'nodeinfo', 'behavioural-trust', ...);
+    -- NULL when unverified.
+    -- verified_at is the ISO-8601 UTC timestamp of first successful verification.
+    -- trust_observations counts how many requests have matched the claimed
+    -- identity's expected behaviour (incremented separately by Gap #5 work).
+    claim_status                TEXT NOT NULL DEFAULT 'unverified',
+    verification_method         TEXT,
+    verified_at                 TEXT,
+    trust_observations          INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS fingerprint_root_history (

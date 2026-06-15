@@ -49,6 +49,24 @@ internal static class IdentitySchema
             "ALTER TABLE fingerprints ADD COLUMN root_centroid_at TEXT", ct);
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN root_source TEXT", ct);
+
+        // Persistent trust state (gap analysis 2026-06-15, Gap #4). Trust was
+        // an in-memory one-way latch on SignatureCoordinator and vanished on
+        // process restart; the verifier contributors now read these columns at
+        // request entry and short-circuit re-verification while within
+        // TrustOptions.TrustCacheTtl. claim_status enumerates the verification
+        // state ('unverified' / 'verified' / 'spoofed' / 'behaviourally-trusted');
+        // verification_method records the path that verified it; verified_at is
+        // the timestamp of first successful verification; trust_observations is
+        // a counter for behavioural-trust accumulation (Gap #5 increments).
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN claim_status TEXT NOT NULL DEFAULT 'unverified'", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN verification_method TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN verified_at TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN trust_observations INTEGER NOT NULL DEFAULT 0", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)

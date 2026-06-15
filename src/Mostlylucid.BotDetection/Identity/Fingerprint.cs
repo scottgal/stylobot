@@ -73,6 +73,48 @@ public sealed record Fingerprint
     ///     <c>bootstrap</c> for legacy rows backfilled on the migration boundary.
     /// </summary>
     public string? RootSource { get; init; }
+
+    /// <summary>
+    ///     Persistent verification state for the CLAIMED identity attached to
+    ///     this fingerprint. Per gap analysis 2026-06-15 (Gap #4) -- previously
+    ///     trust was an in-memory one-way latch on <c>SignatureCoordinator</c>
+    ///     and vanished on process restart. Values:
+    ///     <list type="bullet">
+    ///         <item><c>unverified</c> -- default; no verifier has corroborated the claim yet.</item>
+    ///         <item><c>verified</c> -- a verifier corroborated the claim (rDNS / NodeInfo / IP range / forward DNS).</item>
+    ///         <item><c>spoofed</c> -- a verifier ran and refuted the claim (e.g. UA claims Googlebot but rDNS fails).</item>
+    ///         <item><c>behaviourally-trusted</c> -- Gap #5: behavioural-trust accumulation across N consistent observations.</item>
+    ///     </list>
+    ///     The request-path verifier contributors read this + <see cref="VerifiedAt"/>
+    ///     to short-circuit re-verification when still within <c>TrustOptions.TrustCacheTtl</c>.
+    /// </summary>
+    public string ClaimStatus { get; init; } = "unverified";
+
+    /// <summary>
+    ///     How the claim was verified. Values: <c>ip_range</c> (vendor-published CIDR
+    ///     match), <c>fcrdns</c> (reverse + forward DNS round-trip), <c>forward_dns</c>
+    ///     (claimed instance's A/AAAA records contain the client IP), <c>nodeinfo</c>
+    ///     (fediverse NodeInfo lookup confirmed ActivityPub software), or
+    ///     <c>behavioural-trust</c> (Gap #5: N consistent observations).
+    ///     <c>null</c> when <see cref="ClaimStatus"/> is <c>unverified</c>.
+    /// </summary>
+    public string? VerificationMethod { get; init; }
+
+    /// <summary>
+    ///     UTC timestamp of first successful verification. Used by the request-path
+    ///     short-circuit: if (now - VerifiedAt) is within <c>TrustOptions.TrustCacheTtl</c>
+    ///     the verifier contributors emit <c>verifiedbot.cached</c> and skip
+    ///     re-verification. <c>null</c> when <see cref="ClaimStatus"/> is <c>unverified</c>.
+    /// </summary>
+    public DateTime? VerifiedAt { get; init; }
+
+    /// <summary>
+    ///     Counter for behavioural-trust accumulation (Gap #5, separate work item):
+    ///     incremented when a request matches the claimed identity's expected
+    ///     behavioural pattern. When it crosses a configured threshold the
+    ///     <see cref="ClaimStatus"/> transitions to <c>behaviourally-trusted</c>.
+    /// </summary>
+    public int TrustObservations { get; init; }
 }
 
 /// <summary>
