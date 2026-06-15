@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Services;
 
@@ -55,6 +56,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // production registration is TryAddSingleton<ICommonUserAgentService,
         // CommonUserAgentService>); GetService<concrete> would miss it.
         _services.GetService<ICommonUserAgentService>();
+        _services.GetService<Ja3CorpusRefreshService>();
         return Task.CompletedTask;
     }
 

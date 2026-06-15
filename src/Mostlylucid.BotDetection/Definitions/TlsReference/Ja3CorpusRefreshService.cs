@@ -1,9 +1,9 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Definitions.TlsReference;
@@ -28,8 +28,20 @@ namespace Mostlylucid.BotDetection.Definitions.TlsReference;
 ///         via a forged envelope.</item>
 ///     </list>
 ///     </para>
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(RefreshInterval)</c> loop; now subscribes to
+///         <see cref="TickCadence.Tick1h"/> on
+///         <see cref="IScheduleCoordinator"/> and gates the fetch on
+///         "last-success older than <see cref="TlsCorpusOptions.RefreshInterval"/>".
+///         The in-memory <see cref="Ja3ReferenceIndex"/> is rebuilt from the
+///         signed envelope on every successful refresh; loss-on-restart is
+///         covered by the embedded baseline corpus. See
+///         <c>feedback_no_background_services</c>.
+///     </para>
 /// </summary>
-public sealed class Ja3CorpusRefreshService : BackgroundService
+public sealed class Ja3CorpusRefreshService : IDisposable
 {
     private static readonly TimeSpan MinimumInterval = TimeSpan.FromMinutes(5);
 
@@ -38,60 +50,78 @@ public sealed class Ja3CorpusRefreshService : BackgroundService
     private readonly Ja3CorpusEnvelopeVerifier _verifier;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<Ja3CorpusRefreshService> _logger;
+    private readonly IDisposable _subscription;
+    private DateTime? _lastSuccessfulRefreshUtc;
+    private int _disposed;
 
     public Ja3CorpusRefreshService(
         IOptionsMonitor<BotDetectionOptions> options,
         Ja3ReferenceIndex index,
         Ja3CorpusEnvelopeVerifier verifier,
         IHttpClientFactory httpClientFactory,
-        ILogger<Ja3CorpusRefreshService> logger)
+        ILogger<Ja3CorpusRefreshService> logger,
+        IScheduleCoordinator coordinator)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _options = options;
         _index = index;
         _verifier = verifier;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1h,
+            "Ja3CorpusRefreshService",
+            CostHint.Medium,
+            OnTickAsync);
     }
 
     /// <summary>HTTP client name registered in DI for this service.</summary>
     public const string HttpClientName = "stylobot.tls-corpus-refresh";
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     The coordinator's tick handler. Fires every Tick1h; gates the
+    ///     remote fetch on "last-success older than configured
+    ///     <see cref="TlsCorpusOptions.RefreshInterval"/>" (clamped to a
+    ///     5-minute floor). On boot, <see cref="_lastSuccessfulRefreshUtc"/>
+    ///     is null so the first eligible tick refreshes immediately --
+    ///     matching the pre-Wave-2 "refresh immediately, then loop" shape.
+    ///     Public so tests can drive a single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        // Initial guard: bail out cleanly with a warning if the operator
-        // registered the service without a URL or key. We don't crash --
-        // the embedded baseline corpus continues to serve.
+        if (_disposed != 0) return;
+
+        // Initial guard: idle when the operator registered the service
+        // without a URL or key. We don't crash -- the embedded baseline
+        // corpus continues to serve.
         var opts = _options.CurrentValue.TlsCorpus;
         if (string.IsNullOrWhiteSpace(opts.RefreshUrl))
         {
-            _logger.LogWarning("TLS corpus refresh enabled but RefreshUrl is empty; service idle");
+            _logger.LogDebug("TLS corpus refresh enabled but RefreshUrl is empty; tick idle");
             return;
         }
         if (opts.ResolvePublicKey() is null)
         {
-            _logger.LogWarning(
-                "TLS corpus refresh enabled but no public key resolvable (config + {EnvVar} both empty); service idle",
+            _logger.LogDebug(
+                "TLS corpus refresh enabled but no public key resolvable (config + {EnvVar} both empty); tick idle",
                 TlsCorpusOptions.OverridePublicKeyEnvironmentVariable);
             return;
         }
 
-        // First refresh runs immediately so the operator sees a fresh corpus
-        // on boot rather than waiting RefreshInterval. Subsequent refreshes
-        // honour the interval. Exceptions inside RefreshOnceAsync are caught
-        // there; the loop keeps running.
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await RefreshOnceAsync(stoppingToken);
-            var interval = _options.CurrentValue.TlsCorpus.RefreshInterval;
-            if (interval < MinimumInterval) interval = MinimumInterval;
-            try { await Task.Delay(interval, stoppingToken); }
-            catch (OperationCanceledException) { break; }
-        }
+        var interval = opts.RefreshInterval;
+        if (interval < MinimumInterval) interval = MinimumInterval;
+
+        var lastSuccess = _lastSuccessfulRefreshUtc;
+        if (lastSuccess != null && now.UtcDateTime - lastSuccess.Value < interval)
+            return; // Not yet due.
+
+        await RefreshOnceAsync(ct);
     }
 
     /// <summary>
     ///     Fetch once, verify, parse, swap. Public for tests; the running
-    ///     service calls this from <see cref="ExecuteAsync"/>.
+    ///     service calls this from <see cref="OnTickAsync"/>.
     /// </summary>
     public async Task<bool> RefreshOnceAsync(CancellationToken cancellationToken)
     {
@@ -139,9 +169,18 @@ public sealed class Ja3CorpusRefreshService : BackgroundService
         if (corpus is null) return false;
 
         _index.ReplaceCorpus(corpus);
+        _lastSuccessfulRefreshUtc = DateTime.UtcNow;
         _logger.LogInformation(
             "TLS corpus refreshed from {Url} (envelope generated {GeneratedAt}, key id {KeyId})",
             url, envelope.GeneratedAt, envelope.KeyId);
         return true;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 }
