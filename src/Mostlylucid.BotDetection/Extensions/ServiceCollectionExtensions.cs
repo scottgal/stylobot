@@ -1138,7 +1138,13 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IOptions<BotDetectionOptions>>(),
                 sp.GetService<ISessionVectorSearch>()));
         services.AddHostedService<Services.SignatureCoordinatorWarmupService>();
-        services.AddHostedService<Services.DeploymentNormCalibrationService>();
+        // Wave 2 migrated: DeploymentNormCalibrationService is now a plain
+        // singleton that subscribes to ScheduleCoordinator.Tick1s at
+        // construction. The BotDetectionHostedSingletonsBootstrap shim (below)
+        // eagerly resolves it at boot so the subscription is live before any
+        // requests land.
+        services.AddSingleton<Services.DeploymentNormCalibrationService>();
+        services.AddHostedService<Scheduling.BotDetectionHostedSingletonsBootstrap>();
         services.AddHostedService<Data.SessionPersistenceService>();
         // Per-request persistence (every request → SQLite, LFU sampled under load)
         services.AddSingleton<Data.RequestPersistenceService>();
