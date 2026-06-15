@@ -1187,7 +1187,10 @@ public static class ServiceCollectionExtensions
         // Markov chain path learning and drift detection
         services.TryAddSingleton<Markov.MarkovTracker>();
         services.TryAddSingleton<Clustering.AdaptiveSimilarityWeighter>();
-        services.AddHostedService<Markov.PopulationMarkovService>();
+        // Wave 2: migrated to ScheduleCoordinator tick.10s. Eager-resolved by
+        // BotDetectionHostedSingletonsBootstrap so the constructor's Subscribe(...)
+        // fires at boot.
+        services.AddSingleton<Markov.PopulationMarkovService>();
 
         // Bot cluster detection - discovers bot products and coordinated campaigns
         services.TryAddSingleton<CountryReputationTracker>();

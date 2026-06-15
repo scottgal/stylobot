@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Licensing;
+using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Scheduling;
@@ -63,6 +64,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<SessionAtomizerService>();
         _services.GetService<VectorCompactionService>();
         _services.GetService<FingerprintDriftService>();
+        _services.GetService<PopulationMarkovService>();
         return Task.CompletedTask;
     }
 
