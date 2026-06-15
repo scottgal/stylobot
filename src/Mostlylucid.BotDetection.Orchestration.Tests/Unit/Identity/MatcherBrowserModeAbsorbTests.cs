@@ -72,7 +72,7 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
         _modeStore = new SqliteFingerprintBrowserModeStore(
             _store, options, NullLogger<SqliteFingerprintBrowserModeStore>.Instance);
         _drainer = new FingerprintModeAbsorptionService(
-            NullLogger<FingerprintModeAbsorptionService>.Instance, _modeStore, options);
+            NullLogger<FingerprintModeAbsorptionService>.Instance, _modeStore, archetypes, options);
         var modes = new BrowserModeRegistry(
             NullLogger<BrowserModeRegistry>.Instance, fallbackModeId: "unknown");
         var modeResolver = new CachingBrowserModeResolver(modes);
@@ -213,6 +213,130 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
         Assert.Single(modes);
         Assert.Equal(concurrentCount + 1, modes[0].ObservationCount);
         Assert.Equal(concurrentCount + 1, modes[0].CentroidMaturity);
+    }
+
+    [Fact]
+    public async Task DrainerComputesInferredArchetype_AgainstYamlChromeCentroid()
+    {
+        // The umbrella-centroid Bug 3 symptom: signature detail's per-mode "Nearest
+        // archetype" column rendered "-" even after 20+ observations because the
+        // mode absorption never ran the archetype matcher against the merged
+        // centroid. The drainer copied the existing InferredArchetype (null on
+        // seed -> null forever) instead of recomputing like the parent
+        // FingerprintAbsorptionService does.
+        //
+        // After the fix the drainer must compute the nearest archetype every tick
+        // and persist it when it clears IdentityOptions.BrowserMode.MinInferredArchetypeScore.
+        var encoder = new IdentityVectorEncoder(_layout);
+        var chromeRaw = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hdr.ua_family"] = "Chrome",
+            ["hdr.accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            ["hdr.accept_encoding_ordered"] = "gzip, deflate, br, zstd",
+            ["hdr.sec_ch_ua_mobile"] = false,
+            ["hdr.sec_fetch_pattern"] = 15,
+            ["hdr.upgrade_insecure_requests"] = true,
+        };
+        var chromeVector = encoder.Encode(chromeRaw);
+
+        var s1 = await RunMatcherAsync(chromeVector, "sig-arch", browserMode: "navigation");
+        var fpId = (string)s1[SignalKeys.IdentityFingerprintId];
+
+        var folded = await DrainAsync();
+        Assert.Equal(1, folded);
+
+        var modes = await _modeStore.GetModesAsync(fpId);
+        var nav = Assert.Single(modes);
+        Assert.NotNull(nav.InferredArchetype);
+        Assert.StartsWith("chrome", nav.InferredArchetype, StringComparison.OrdinalIgnoreCase);
+        Assert.True(nav.InferredConfidence is > 0,
+            $"InferredConfidence must be positive when an archetype is set; got {nav.InferredConfidence}");
+    }
+
+    [Fact]
+    public async Task DrainerRecomputesArchetype_OnSubsequentAbsorptions()
+    {
+        // Stability of the recompute: every drain tick re-runs FindNearest, so an
+        // evolving centroid is reflected in the per-mode InferredArchetype as
+        // observations accumulate. Closes the gap where the field copied through
+        // unchanged once seeded.
+        var encoder = new IdentityVectorEncoder(_layout);
+        var chromeRaw = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hdr.ua_family"] = "Chrome",
+            ["hdr.accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            ["hdr.accept_encoding_ordered"] = "gzip, deflate, br, zstd",
+            ["hdr.sec_ch_ua_mobile"] = false,
+            ["hdr.sec_fetch_pattern"] = 15,
+            ["hdr.upgrade_insecure_requests"] = true,
+        };
+        var chromeVector = encoder.Encode(chromeRaw);
+
+        var s1 = await RunMatcherAsync(chromeVector, "sig-arch-evolve", browserMode: "navigation");
+        var fpId = (string)s1[SignalKeys.IdentityFingerprintId];
+        await DrainAsync();
+        var first = (await _modeStore.GetModesAsync(fpId))[0];
+        Assert.NotNull(first.InferredArchetype);
+
+        // Three more requests -> drain -> archetype confidence must update (not stay null).
+        await RunMatcherAsync(chromeVector, "sig-arch-evolve", browserMode: "navigation");
+        await RunMatcherAsync(chromeVector, "sig-arch-evolve", browserMode: "navigation");
+        await RunMatcherAsync(chromeVector, "sig-arch-evolve", browserMode: "navigation");
+        await DrainAsync();
+        var after = (await _modeStore.GetModesAsync(fpId))[0];
+        Assert.Equal(4, after.CentroidMaturity);
+        Assert.NotNull(after.InferredArchetype);
+        Assert.True(after.InferredConfidence is > 0,
+            $"InferredConfidence must be positive after recompute; got {after.InferredConfidence}");
+    }
+
+    [Fact]
+    public async Task DrainerSuppressesArchetype_WhenScoreBelowMinThreshold()
+    {
+        // Configurable gate per feedback_all_settings_configurable: when the
+        // nearest archetype's score falls below MinInferredArchetypeScore the
+        // field stays null. Sparse / noisy mode centroids must not latch onto
+        // an umbrella centroid just because something scored marginally higher.
+        var encoder = new IdentityVectorEncoder(_layout);
+        // Sparse observation -- only one dim populated. The Gaussian-NLL scorer
+        // returns a non-zero but low score; with a high threshold the drainer
+        // must refuse to label the mode.
+        var sparseRaw = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hdr.ua_family"] = "UnknownBrowser",
+        };
+        var sparseVector = encoder.Encode(sparseRaw);
+
+        // Rebuild the drainer with a threshold high enough that no archetype clears it.
+        var options = Options.Create(new BotDetectionOptions
+        {
+            DatabasePath = _store is not null ? Path.Combine(_tempDir, "botdetection.db") : string.Empty,
+            Identity = new IdentityOptions
+            {
+                Enabled = true,
+                Engine = new IdentityEngineOptions { PreferSqliteVec = false },
+                BrowserMode = new BrowserModeOptions
+                {
+                    Enabled = true,
+                    FallbackModeId = "unknown",
+                    // Score is bounded to (0, 1) by the sigmoid; 0.99 is unreachable for sparse obs.
+                    MinInferredArchetypeScore = 0.99,
+                },
+            }
+        });
+        var archetypes = new IdentityArchetypeRegistry(
+            NullLogger<IdentityArchetypeRegistry>.Instance, encoder);
+        var strictDrainer = new FingerprintModeAbsorptionService(
+            NullLogger<FingerprintModeAbsorptionService>.Instance, _modeStore, archetypes, options);
+
+        var s1 = await RunMatcherAsync(sparseVector, "sig-sparse", browserMode: "navigation");
+        var fpId = (string)s1[SignalKeys.IdentityFingerprintId];
+        await strictDrainer.TickOnceAsync(5_000, CancellationToken.None);
+
+        var modes = await _modeStore.GetModesAsync(fpId);
+        var nav = Assert.Single(modes);
+        Assert.Null(nav.InferredArchetype);
+        Assert.Null(nav.InferredConfidence);
     }
 
     [Fact]

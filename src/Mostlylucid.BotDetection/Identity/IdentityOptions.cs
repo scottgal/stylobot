@@ -89,6 +89,23 @@ public sealed class BrowserModeOptions
     ///     orders by oldest-mode-row-last-seen.
     /// </summary>
     public int RollupMaxFingerprintsPerTick { get; set; } = 1_000;
+
+    /// <summary>
+    ///     Minimum archetype similarity required before
+    ///     <c>FingerprintModeAbsorptionService</c> persists the nearest archetype as
+    ///     the per-mode row's <c>InferredArchetype</c>. Below this floor the field stays
+    ///     <c>null</c> and the signature detail's "Nearest archetype" column renders as
+    ///     <c>-</c> — explicit "no confident match" beats a noise-driven false positive.
+    ///
+    ///     <para>
+    ///     The post-Gaussian-NLL scoring is bounded to (0, 1) with ~0.5 corresponding
+    ///     to "no information"; populated-but-distant observations score below ~0.55
+    ///     and populated-and-close observations land above ~0.7. Default of 0.55
+    ///     filters the umbrella-centroid floor while letting genuine matches through
+    ///     after a single absorption.
+    ///     </para>
+    /// </summary>
+    public double MinInferredArchetypeScore { get; set; } = 0.55;
 }
 
 /// <summary>

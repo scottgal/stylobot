@@ -1,0 +1,22 @@
+archetype_id: mobile-safari
+name: Mobile Safari
+description: Apple Safari on iOS (iPhone / iPad) and Mobile Safari UI/WKWebView. The uap-core parser emits the family token "Mobile Safari" for these UAs; without this archetype iOS sessions miss the safari-* family and the umbrella-centroid scoring lets headless-chrome / brave-* win on coincidental sec_fetch_pattern + UIR + accept_encoding overlap.
+archetype_kind: human-browser
+dimensions:
+  hdr.ua_family:
+    value: "Mobile Safari"
+    confidence: 0.95
+  hdr.accept:
+    value: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    confidence: 0.7
+  hdr.accept_encoding_ordered:
+    value: "gzip, deflate, br"
+    confidence: 0.85
+  hdr.sec_ch_ua_mobile:
+    # iOS Safari does not emit Sec-CH-UA-* client hints at all; the contributor
+    # reads the absent header as false, matching the archetype's false claim.
+    value: false
+    confidence: 0.7
+  hdr.upgrade_insecure_requests:
+    value: true
+    confidence: 0.85

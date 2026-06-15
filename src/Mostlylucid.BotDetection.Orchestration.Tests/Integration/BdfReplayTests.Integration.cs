@@ -132,7 +132,7 @@ public sealed class BdfReplayTests
             ("chrome",  new[] { "chrome", "mobile-chrome", "headless-chrome" }),
             ("brave",   new[] { "brave" }),
             ("firefox", new[] { "firefox" }),
-            ("safari",  new[] { "safari" }),
+            ("safari",  new[] { "safari", "mobile-safari" }),
             ("edge",    new[] { "edge" }),
             ("opera",   new[] { "opera" }),
             ("vivaldi", new[] { "vivaldi" }),

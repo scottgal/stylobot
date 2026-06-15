@@ -179,6 +179,124 @@ public sealed class ArchetypeMatchScoringTests
     }
 
     [Fact]
+    public void SafariIos_FromComposeRawValues_LandsOnMobileSafari()
+    {
+        // Run the EXACT codepath the BDF rig + production orchestrator runs: HttpContext
+        // built from the BDF JSON, IdentityVectorContributor.ComposeRawValues called to
+        // build the raw map, encoder.EncodeRaw to build the raw vector, then
+        // FindNearestRaw. This is the per-request seeding pick the matcher uses on
+        // allocation. The probe below isolated the umbrella behaviour to a thinner raw
+        // set; this test pins the contract through the full ComposeRawValues map so a
+        // regression in the orchestrator side of the picker also fails here.
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = "/";
+        ctx.Request.Headers["User-Agent"] =
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1";
+        ctx.Request.Headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+        ctx.Request.Headers["Accept-Language"] = "en-US,en;q=0.9";
+        ctx.Request.Headers["Accept-Encoding"] = "gzip, deflate, br";
+        ctx.Request.Headers["Sec-Fetch-Dest"] = "document";
+        ctx.Request.Headers["Sec-Fetch-Mode"] = "navigate";
+        ctx.Request.Headers["Sec-Fetch-Site"] = "none";
+        ctx.Request.Headers["Upgrade-Insecure-Requests"] = "1";
+
+        var state = new BlackboardState
+        {
+            HttpContext = ctx,
+            Signals = new System.Collections.Concurrent.ConcurrentDictionary<string, object>(),
+            CurrentRiskScore = 0,
+            DetectionConfidence = 0,
+            CompletedDetectors = new HashSet<string>(),
+            FailedDetectors = new HashSet<string>(),
+            Contributions = new List<DetectionContribution>(),
+            RequestId = "test",
+            Elapsed = TimeSpan.Zero,
+            SignalWriter = new System.Collections.Concurrent.ConcurrentDictionary<string, object>(),
+        };
+
+        var rawValues = IdentityVectorContributor.ComposeRawValues(state);
+        _output.WriteLine("hdr.ua_family = " + rawValues.GetValueOrDefault("hdr.ua_family"));
+        _output.WriteLine("hdr.sec_fetch_pattern = " + rawValues.GetValueOrDefault("hdr.sec_fetch_pattern"));
+        _output.WriteLine("hdr.upgrade_insecure_requests = " + rawValues.GetValueOrDefault("hdr.upgrade_insecure_requests"));
+
+        var rawVector = _encoder.EncodeRaw(rawValues);
+        var normVector = _encoder.Encode(rawValues);
+
+        var scored = _registry.All
+            .Select(a => (a.ArchetypeId,
+                Norm: _registry.ScoreAgainst(normVector, a) ?? double.NegativeInfinity,
+                Raw: _registry.ScoreAgainstRaw(rawVector, a)))
+            .OrderByDescending(x => x.Raw)
+            .Take(10)
+            .ToList();
+        foreach (var (id, n, r) in scored)
+            _output.WriteLine($"{id,-22} norm={n:F4}  raw={r:F4}");
+
+        var match = _registry.FindNearestRaw(rawVector);
+        Assert.NotNull(match);
+        var winner = match!.Archetype.ArchetypeId;
+        Assert.True(
+            winner.StartsWith("safari", StringComparison.OrdinalIgnoreCase)
+                || winner.StartsWith("mobile-safari", StringComparison.OrdinalIgnoreCase),
+            $"Safari iOS first request landed on '{winner}' from ComposeRawValues path, " +
+            $"expected safari-* or mobile-safari-*. Top: " +
+            string.Join(", ", scored.Select(x => $"{x.ArchetypeId}=raw{x.Raw:F3}/norm{x.Norm:F3}")));
+    }
+
+    [Fact]
+    public void SafariIos_Navigation_LandsOnSafari_NotHeadlessChrome()
+    {
+        // Reproduces fp-02-safari-ios.bdf.json first request: a mobile Safari navigation
+        // that staging recently misclassified as headless-chrome. The UA parser produces
+        // "Safari" (mobile Safari shares the family token), sec_fetch_pattern collapses
+        // to 7 (Dest+Mode+Site, no Sec-Fetch-User on the entry hit), Accept matches the
+        // Safari desktop archetype's canonical string. Despite all that, headless-chrome
+        // was winning because its high-confidence sec_fetch_pattern=7 + UIR=true plus the
+        // Mahalanobis sigmoid pinning its score above Safari's smaller set of asserted dims.
+        // After the fix the safari-* archetype must win.
+        var layout = IdentityVectorLayout.DefaultV1();
+        var encoder = new IdentityVectorEncoder(layout);
+        var registry = new IdentityArchetypeRegistry(
+            NullLogger<IdentityArchetypeRegistry>.Instance, encoder);
+
+        var raw = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            // uap-core parses iPhone Safari as "Mobile Safari", not "Safari" -- the safari-desktop
+            // archetype must accept the mobile-Safari family token (or a sibling mobile-safari
+            // archetype must exist), otherwise iOS sessions fall through to whichever bot archetype
+            // has more dim overlap with the leftover header shape.
+            ["hdr.ua_family"] = "Mobile Safari",
+            ["hdr.accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            ["hdr.accept_encoding_ordered"] = "gzip, deflate, br",
+            ["hdr.sec_fetch_pattern"] = 7,
+            ["hdr.upgrade_insecure_requests"] = true,
+            ["session.method_pattern"] = "GET",
+        };
+        var vector = encoder.Encode(raw);
+        var rawVector = encoder.EncodeRaw(raw);
+
+        var scored = registry.All
+            .Select(a => (a.ArchetypeId,
+                Norm: registry.ScoreAgainst(vector, a) ?? double.NegativeInfinity,
+                Raw: registry.ScoreAgainstRaw(rawVector, a)))
+            .OrderByDescending(x => x.Raw)
+            .Take(10)
+            .ToList();
+        foreach (var (id, n, r) in scored)
+            _output.WriteLine($"{id,-22} norm={n:F4}  raw={r:F4}");
+
+        var match = registry.FindNearestRaw(rawVector);
+        Assert.NotNull(match);
+        var winner = match!.Archetype.ArchetypeId;
+        Assert.True(
+            winner.StartsWith("safari", StringComparison.OrdinalIgnoreCase)
+                || winner.StartsWith("mobile-safari", StringComparison.OrdinalIgnoreCase),
+            $"Safari iOS navigation landed on '{winner}', expected safari-* or mobile-safari-*. " +
+            "Top scores: " + string.Join(", ", scored.Select(x => $"{x.ArchetypeId}=raw{x.Raw:F3}/norm{x.Norm:F3}")));
+    }
+
+    [Fact]
     public void Chrome_XHR_Observation_DoesNotMatchGooglebot_OrMastodon()
     {
         var layout = IdentityVectorLayout.DefaultV1();

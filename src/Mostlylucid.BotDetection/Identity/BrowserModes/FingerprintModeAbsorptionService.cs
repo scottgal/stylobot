@@ -29,16 +29,19 @@ public sealed class FingerprintModeAbsorptionService : BackgroundService
 {
     private readonly ILogger<FingerprintModeAbsorptionService> _logger;
     private readonly IFingerprintBrowserModeStore _modeStore;
+    private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
     public FingerprintModeAbsorptionService(
         ILogger<FingerprintModeAbsorptionService> logger,
         IFingerprintBrowserModeStore modeStore,
+        IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _modeStore = modeStore;
+        _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled && _options.BrowserMode.Enabled;
     }
@@ -170,6 +173,27 @@ public sealed class FingerprintModeAbsorptionService : BackgroundService
             weights = existing.Weights;
         }
 
+        // Recompute the per-mode nearest archetype against the freshly merged centroid.
+        // Mirrors what FingerprintAbsorptionService does for the parent fingerprint:
+        // every absorption recomputes the inferred archetype, so the per-mode row's
+        // "Nearest archetype" cell on the signature detail tracks the centroid as it
+        // evolves. Gated by IdentityOptions.BrowserMode.MinInferredArchetypeScore so
+        // sparse / noisy modes don't latch onto an umbrella centroid — under threshold
+        // the field stays null and the UI renders "-" (explicit "no confident match"
+        // beats a confident-looking false positive).
+        //
+        // Per project_centroid_learning_feedback_loop, the same registry will eventually
+        // hold BDF-derived archetypes alongside the hand-curated YAML; this call is the
+        // single read-site they both feed.
+        string? inferredArchetype = null;
+        double? inferredConfidence = null;
+        var nearest = _archetypes.FindNearest(mergedCentroid);
+        if (nearest is not null && nearest.Score >= _options.BrowserMode.MinInferredArchetypeScore)
+        {
+            inferredArchetype = nearest.Archetype.ArchetypeId;
+            inferredConfidence = nearest.Score;
+        }
+
         var updated = new FingerprintBrowserMode
         {
             FingerprintId = fingerprintId,
@@ -180,8 +204,8 @@ public sealed class FingerprintModeAbsorptionService : BackgroundService
             ObservationCount = newObservationCount,
             FirstSeen = firstSeen,
             LastSeen = lastSeen,
-            InferredArchetype = existing?.InferredArchetype,
-            InferredConfidence = existing?.InferredConfidence,
+            InferredArchetype = inferredArchetype,
+            InferredConfidence = inferredConfidence,
         };
 
         var ids = new long[count];
