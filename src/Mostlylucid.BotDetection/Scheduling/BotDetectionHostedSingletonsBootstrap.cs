@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Scheduling;
@@ -49,6 +50,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // sidecar) may not register a particular migrated singleton; the
         // bootstrap should not crash the host when the singleton is absent.
         _services.GetService<DeploymentNormCalibrationService>();
+        _services.GetService<LicenseStateRefreshService>();
         return Task.CompletedTask;
     }
 

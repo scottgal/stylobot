@@ -539,12 +539,17 @@ public static class ServiceCollectionExtensions
                 return sp.GetRequiredService<LicenseState>();
             return new FossLicenseState();
         });
-        services.AddHostedService<LicenseStateRefreshService>(sp =>
+        // Wave 2 migrated: LicenseStateRefreshService is a plain singleton
+        // that subscribes to ScheduleCoordinator.Tick1m at construction. The
+        // BotDetectionHostedSingletonsBootstrap shim eagerly resolves it at
+        // boot so the subscription is live before the first tick.
+        services.AddSingleton<LicenseStateRefreshService>(sp =>
             new LicenseStateRefreshService(
                 sp.GetRequiredService<LicenseState>(),
                 sp.GetRequiredService<IOptionsMonitor<BotDetectionOptions>>(),
                 sp.GetRequiredService<ILicenseGraceStore>(),
-                sp.GetRequiredService<ILogger<LicenseStateRefreshService>>()));
+                sp.GetRequiredService<ILogger<LicenseStateRefreshService>>(),
+                sp.GetRequiredService<Scheduling.IScheduleCoordinator>()));
 
         // Register bot list update background service
         services.AddHostedService<BotListUpdateService>();
