@@ -74,6 +74,9 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // MonitoringPack.Mode is Local; the GetService probe returns null in
         // every other host so this is the safe place to drive eager resolution.
         _services.GetService<MeterListenerService>();
+        // GatewayMeterAccumulator is only registered when the dashboard's
+        // MonitoringPack.Mode is GatewayServer; same null-safe pattern.
+        _services.GetService<GatewayMeterAccumulator>();
         return Task.CompletedTask;
     }
 

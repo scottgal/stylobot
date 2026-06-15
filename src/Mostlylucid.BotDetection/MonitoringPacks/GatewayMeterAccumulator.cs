@@ -1,15 +1,35 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Mostlylucid.BotDetection.MonitoringPacks;
 
-public sealed class GatewayMeterAccumulator : BackgroundService, IDisposable
+/// <summary>
+///     Gateway-side meter accumulator. Subscribes to .NET
+///     <see cref="MeterListener"/> measurements from every registered
+///     <see cref="IMonitoringPack"/>, and exposes the latest accumulated
+///     snapshot via <see cref="GetCurrentSnapshot"/> for the remote-mode
+///     dashboard host to pull on demand. No periodic flush -- the remote
+///     client owns its own polling cadence.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> only called <see cref="StartListening"/> and
+///         then returned; the rest of the loop body was empty. There is no
+///         periodic work to schedule, so the migration collapses the class to
+///         a plain singleton + <see cref="IDisposable"/> -- the BotDetection
+///         bootstrap shim drives the eager resolution that runs
+///         <see cref="StartListening"/> at boot. Per the Wave 2 plan, this is
+///         the "registration collapses to a plain singleton on the
+///         coordinator's resolver shim" case.
+///     </para>
+/// </summary>
+public sealed class GatewayMeterAccumulator : IDisposable
 {
     private readonly IReadOnlyList<IMonitoringPack> _packs;
     private readonly ILogger<GatewayMeterAccumulator> _logger;
     private MeterListener? _listener;
+    private int _disposed;
 
     private readonly ConcurrentDictionary<string, long> _counters = new();
     private readonly ConcurrentDictionary<string, double> _gauges = new();
@@ -22,17 +42,13 @@ public sealed class GatewayMeterAccumulator : BackgroundService, IDisposable
     {
         _packs = packs.ToList();
         _logger = logger;
-    }
-
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
-    {
         StartListening();
         _logger.LogInformation("GatewayMeterAccumulator started");
-        return Task.CompletedTask;
     }
 
     public void StartListening()
     {
+        _listener?.Dispose();
         _listener = new MeterListener();
         _listener.InstrumentPublished = (instrument, listener) =>
         {
@@ -119,10 +135,10 @@ public sealed class GatewayMeterAccumulator : BackgroundService, IDisposable
         }
     }
 
-    public override void Dispose()
+    public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _listener?.Dispose();
-        base.Dispose();
     }
 }
 

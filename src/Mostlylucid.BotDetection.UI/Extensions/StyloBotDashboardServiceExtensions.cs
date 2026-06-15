@@ -527,11 +527,15 @@ public static class StyloBotDashboardServiceExtensions
             {
                 services.AddSingleton<IMonitoringPack>(
                     new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
+                // Wave 2: GatewayMeterAccumulator no longer inherits from
+                // BackgroundService. It has no periodic body -- StartListening
+                // runs in the constructor and the remote dashboard host pulls
+                // GetCurrentSnapshot() on its own polling cadence. The
+                // BotDetection bootstrap shim drives eager resolution at boot.
                 services.AddSingleton<GatewayMeterAccumulator>(sp =>
                     new GatewayMeterAccumulator(
                         sp.GetServices<IMonitoringPack>(),
                         sp.GetRequiredService<ILogger<GatewayMeterAccumulator>>()));
-                services.AddHostedService(sp => sp.GetRequiredService<GatewayMeterAccumulator>());
             }
             else if (options.MonitoringPack.Mode == MonitoringMode.RemoteClient
                      && options.MonitoringPack.GatewayMetricsUrl != null)
