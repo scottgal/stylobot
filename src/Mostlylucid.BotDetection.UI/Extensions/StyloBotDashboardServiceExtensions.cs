@@ -435,8 +435,13 @@ public static class StyloBotDashboardServiceExtensions
         // Stateless UA aggregator - used by broadcaster beacon + view components with params
         services.TryAddSingleton<DashboardUserAgentAggregator>();
 
-        // Background beacon - computes all dashboard aggregates periodically
-        services.AddHostedService<DashboardSummaryBroadcaster>();
+        // Background beacon - computes all dashboard aggregates periodically.
+        // Wave 2 migrated: subscribes to ScheduleCoordinator.Tick10s at
+        // construction and gates the compute pass on the configured interval.
+        // UiHostedSingletonsBootstrap eagerly resolves it at boot so the
+        // subscription is live before the first tick.
+        services.AddSingleton<DashboardSummaryBroadcaster>();
+        services.AddHostedService<UiHostedSingletonsBootstrap>();
 
         // Server-side visitor cache for HTMX rendering
         services.AddSingleton<VisitorListCache>();
