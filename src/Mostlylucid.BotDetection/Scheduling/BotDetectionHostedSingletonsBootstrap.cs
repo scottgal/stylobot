@@ -60,6 +60,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<VerifiedBotRegistry>();
         _services.GetService<EntityResolutionService>();
         _services.GetService<SessionAtomizerService>();
+        _services.GetService<VectorCompactionService>();
         return Task.CompletedTask;
     }
 

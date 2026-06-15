@@ -1,9 +1,9 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Similarity;
 
 namespace Mostlylucid.BotDetection.Services;
@@ -30,8 +30,18 @@ namespace Mostlylucid.BotDetection.Services;
 ///     High-risk bots, entity-mapped identities, and recent visitors retain L0 longest.
 ///     The velocity centroid is preserved through all compaction levels so downstream
 ///     analysis can see not just "what this client looks like" but "how it was changing."
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> that
+///         slept until the configured compaction-hour and then ran. Now
+///         subscribes to <see cref="TickCadence.Tick1h"/> and runs only when
+///         the current UTC hour matches
+///         <see cref="RetentionOptions.CompactionHourUtc"/> AND we haven't
+///         already run this UTC day. See
+///         <c>feedback_no_background_services</c>.
+///     </para>
 /// </summary>
-public sealed class VectorCompactionService : BackgroundService
+public sealed class VectorCompactionService : IDisposable
 {
     private readonly ISessionStore _store;
     private readonly ISessionVectorSearch? _vectorSearch;
@@ -41,6 +51,9 @@ public sealed class VectorCompactionService : BackgroundService
     private readonly ISessionCentroidStore _sessionCentroidStore;
     private readonly IIntentCentroidStore _intentCentroidStore;
     private readonly ILogger<VectorCompactionService> _logger;
+    private readonly IDisposable _subscription;
+    private DateOnly _lastRunDateUtc = DateOnly.MinValue;
+    private int _disposed;
 
     public VectorCompactionService(
         ISessionStore store,
@@ -49,8 +62,10 @@ public sealed class VectorCompactionService : BackgroundService
         ISignatureCentroidStore signatureCentroidStore,
         ISessionCentroidStore sessionCentroidStore,
         IIntentCentroidStore intentCentroidStore,
+        IScheduleCoordinator coordinator,
         ISessionVectorSearch? vectorSearch = null)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _store = store;
         _vectorSearch = vectorSearch;
         _retention = options.Value.Retention;
@@ -59,41 +74,49 @@ public sealed class VectorCompactionService : BackgroundService
         _sessionCentroidStore = sessionCentroidStore;
         _intentCentroidStore = intentCentroidStore;
         _logger = logger;
+
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1h,
+            "VectorCompactionService",
+            CostHint.High,
+            OnTickAsync);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     The coordinator's tick handler. Fires every Tick1h; runs the full
+    ///     compaction pass only when the current UTC hour matches the
+    ///     configured <see cref="RetentionOptions.CompactionHourUtc"/> AND we
+    ///     haven't already run today. Public so tests can drive a single
+    ///     beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        // Delay initial run until configured hour today (or wait until tomorrow if past)
-        try { await WaitForCompactionWindowAsync(stoppingToken); }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
+        if (_disposed != 0) return;
 
-        while (!stoppingToken.IsCancellationRequested)
+        var utcNow = now.UtcDateTime;
+        if (utcNow.Hour != _retention.CompactionHourUtc) return;
+
+        var today = DateOnly.FromDateTime(utcNow);
+        if (_lastRunDateUtc == today) return; // Already ran this UTC day.
+
+        try
         {
-            try
-            {
-                await RunCompactionAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) { return; }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Vector compaction cycle failed — will retry next scheduled window");
-            }
-
-            // Wait for the next nightly window
-            try { await WaitForCompactionWindowAsync(stoppingToken); }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
+            await RunCompactionAsync(ct);
+            _lastRunDateUtc = today;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Vector compaction cycle failed - will retry next scheduled window");
         }
     }
 
-    private async Task WaitForCompactionWindowAsync(CancellationToken ct)
+    /// <inheritdoc />
+    public void Dispose()
     {
-        var now = DateTime.UtcNow;
-        var nextRun = new DateTime(now.Year, now.Month, now.Day, _retention.CompactionHourUtc, 0, 0, DateTimeKind.Utc);
-        if (nextRun <= now) nextRun = nextRun.AddDays(1);
-
-        var delay = nextRun - now;
-        _logger.LogDebug("Vector compaction scheduled at {NextRun:O} (in {Delay:g})", nextRun, delay);
-        await Task.Delay(delay, ct);
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     internal async Task RunCompactionAsync(CancellationToken ct)

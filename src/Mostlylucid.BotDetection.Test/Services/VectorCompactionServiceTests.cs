@@ -5,6 +5,7 @@ using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
 namespace Mostlylucid.BotDetection.Test.Services;
 
@@ -101,7 +102,8 @@ public class VectorCompactionServiceTests
             NullLogger<VectorCompactionService>.Instance,
             sigStore,
             sessStore,
-            intentStore);
+            intentStore,
+            new RecordingScheduleCoordinator());
     }
 
     // -----------------------------------------------------------------------

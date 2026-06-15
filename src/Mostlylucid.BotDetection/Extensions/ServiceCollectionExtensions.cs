@@ -1386,8 +1386,12 @@ public static class ServiceCollectionExtensions
 
         // Warmup: seeds the Slim* caches from SQLite centroids on first startup
         services.AddHostedService<Services.SessionVectorWarmupService>();
-        // Nightly compaction: SQLite session compaction + centroid pruning
-        services.AddHostedService<Services.VectorCompactionService>();
+        // Nightly compaction: SQLite session compaction + centroid pruning.
+        // Wave 2: subscribes to IScheduleCoordinator.Tick1h at construction and
+        // gates the work on "current UTC hour matches CompactionHourUtc AND
+        // we haven't run today". Drop AddHostedService and add to the
+        // BotDetectionHostedSingletonsBootstrap eager-resolve chain.
+        services.AddSingleton<Services.VectorCompactionService>();
 
         // Learning handler that feeds high-confidence detections into the similarity index
         services.AddSingleton<ILearningEventHandler, SimilarityLearningHandler>();
