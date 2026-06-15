@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -31,27 +31,58 @@ public interface IBrowserVersionService
 }
 
 /// <summary>
-///     Background service that periodically fetches current browser versions.
+///     Service that periodically fetches current browser versions.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         24h <c>Task.Delay</c> loop; now subscribes to
+///         <see cref="TickCadence.Tick1h"/> on
+///         <see cref="IScheduleCoordinator"/> and gates the fetch on
+///         "last-success older than <see cref="VersionAgeOptions.UpdateIntervalHours"/>".
+///         No state moved: the <see cref="ConcurrentDictionary{TKey,TValue}"/>
+///         is in-memory and falls back to seeded values on cold start, which
+///         is acceptable per the Wave 2 plan (the loss-on-restart semantics
+///         match the original). See <c>feedback_no_background_services</c>.
+///     </para>
+///     <para>
+///         Note: this service is registered as a DI singleton but its
+///         pre-Wave-2 form was NEVER registered via
+///         <c>AddHostedService</c>; the loop never ran in production. The
+///         migration both moves it onto the coordinator AND wires it into
+///         <c>BotDetectionHostedSingletonsBootstrap</c> so the periodic
+///         refresh now actually fires.
+///     </para>
 /// </summary>
-public partial class BrowserVersionService : BackgroundService, IBrowserVersionService
+public sealed partial class BrowserVersionService : IBrowserVersionService, IDisposable
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BrowserVersionService> _logger;
     private readonly BotDetectionOptions _options;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private readonly ConcurrentDictionary<string, int> _versions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IDisposable _subscription;
+    private int _disposed;
+    private DateTime? _lastSuccessfulFetchUtc;
 
     public BrowserVersionService(
         ILogger<BrowserVersionService> logger,
         IOptions<BotDetectionOptions> options,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IScheduleCoordinator coordinator)
     {
+        ArgumentNullException.ThrowIfNull(coordinator);
         _logger = logger;
         _options = options.Value;
         _httpClientFactory = httpClientFactory;
 
         // Initialize with fallback versions
         foreach (var (browser, version) in _options.VersionAge.FallbackBrowserVersions) _versions[browser] = version;
+
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1h,
+            "BrowserVersionService",
+            CostHint.Medium,
+            OnTickAsync);
     }
 
     public DateTime? LastUpdated { get; private set; }
@@ -75,43 +106,36 @@ public partial class BrowserVersionService : BackgroundService, IBrowserVersionS
         return new Dictionary<string, int>(_versions);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     The coordinator's tick handler. Fires every Tick1h; gates the
+    ///     remote fetch on "last-success older than configured update
+    ///     interval" so the actual scraping cadence honours
+    ///     <see cref="VersionAgeOptions.UpdateIntervalHours"/>. Public so
+    ///     tests can drive a single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (!_options.VersionAge.Enabled)
-        {
-            _logger.LogInformation("Version age detection is disabled. Browser version updates skipped.");
-            return;
-        }
+        if (_disposed != 0) return;
 
-        _logger.LogInformation(
-            "Browser version service started. Update interval: {Hours}h",
-            _options.VersionAge.UpdateIntervalHours);
+        if (!_options.VersionAge.Enabled) return;
 
-        // Initial update (with delay to not slow startup)
-        try { await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-        await UpdateVersionsSafeAsync(stoppingToken);
+        var intervalHours = _options.VersionAge.UpdateIntervalHours;
+        if (intervalHours <= 0) return;
 
-        // Periodic updates
-        while (!stoppingToken.IsCancellationRequested)
-            try
-            {
-                await Task.Delay(
-                    TimeSpan.FromHours(_options.VersionAge.UpdateIntervalHours),
-                    stoppingToken);
+        var lastSuccess = _lastSuccessfulFetchUtc;
+        if (lastSuccess != null && now.UtcDateTime - lastSuccess.Value < TimeSpan.FromHours(intervalHours))
+            return; // Not yet due.
 
-                await UpdateVersionsSafeAsync(stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in browser version update loop");
-            }
+        await UpdateVersionsSafeAsync(ct);
+    }
 
-        _logger.LogInformation("Browser version service stopped");
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription.Dispose(); }
+        catch { /* coordinator already torn down */ }
+        _updateLock.Dispose();
     }
 
     private async Task UpdateVersionsSafeAsync(CancellationToken ct)
@@ -140,6 +164,7 @@ public partial class BrowserVersionService : BackgroundService, IBrowserVersionS
             if (updated)
             {
                 LastUpdated = DateTime.UtcNow;
+                _lastSuccessfulFetchUtc = DateTime.UtcNow;
                 _logger.LogInformation(
                     "Browser versions updated successfully. Versions: {Versions}",
                     string.Join(", ", _versions.Select(kv => $"{kv.Key}={kv.Value}")));

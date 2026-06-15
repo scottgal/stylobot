@@ -14,6 +14,7 @@ using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 using Xunit.Abstractions;
@@ -511,7 +512,7 @@ public class LearningFeedbackLoopTests : IAsyncLifetime
         });
 
         var httpClientFactory = new TestHttpClientFactory();
-        var versionService = new BrowserVersionService(versionServiceLogger, options, httpClientFactory);
+        var versionService = new BrowserVersionService(versionServiceLogger, options, httpClientFactory, NullScheduleCoordinator.Instance);
 
         var detector = new VersionAgeDetector(detectorLogger, options, versionService);
 
@@ -559,7 +560,7 @@ public class LearningFeedbackLoopTests : IAsyncLifetime
         });
 
         var httpClientFactory = new TestHttpClientFactory();
-        var versionService = new BrowserVersionService(versionServiceLogger, options, httpClientFactory);
+        var versionService = new BrowserVersionService(versionServiceLogger, options, httpClientFactory, NullScheduleCoordinator.Instance);
 
         var detector = new VersionAgeDetector(detectorLogger, options, versionService);
 
