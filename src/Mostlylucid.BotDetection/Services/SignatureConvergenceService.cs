@@ -1,21 +1,35 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Similarity;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Background service that evaluates merge/split candidates for signature families.
-///     Detects when multiple signatures from the same IP should be grouped (UA rotation)
+///     Periodic merge/split evaluator for signature families. Detects when
+///     multiple signatures from the same IP should be grouped (UA rotation)
 ///     and when divergent members should be split from a family.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(EvaluationIntervalSeconds)</c> loop (default 15 s,
+///         load-sensor-adaptive); now subscribes to
+///         <see cref="TickCadence.Tick10s"/> and gates each
+///         <see cref="RunEvaluation"/> pass on
+///         "<see cref="PipelineLoadSensor.GetAdaptiveInterval"/>-stretched
+///         interval since last run". Default cadence rounds 15 s up to 20 s
+///         (every other tick); shorter configured intervals fire every tick.
+///         The 20-second warm-up sleep on first start is dropped -- the first
+///         tick lands within 10 s of boot, which is shorter than the old warm
+///         period anyway.
+///     </para>
 /// </summary>
-public class SignatureConvergenceService : BackgroundService
+public sealed class SignatureConvergenceService : IDisposable
 {
     private readonly ILogger<SignatureConvergenceService> _logger;
     private readonly SignatureConvergenceOptions _options;
@@ -26,67 +40,75 @@ public class SignatureConvergenceService : BackgroundService
 
     private readonly PipelineLoadSensor? _loadSensor;
     private readonly ISessionVectorSearch? _vectorSearch;
+    private readonly IDisposable? _subscription;
+    private DateTime _lastRunUtc = DateTime.MinValue;
+    private int _disposed;
 
     public SignatureConvergenceService(
         ILogger<SignatureConvergenceService> logger,
         IOptions<BotDetectionOptions> options,
         SignatureCoordinator signatureCoordinator,
         PipelineLoadSensor? loadSensor = null,
-        ISessionVectorSearch? vectorSearch = null)
+        ISessionVectorSearch? vectorSearch = null,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _options = options.Value.SignatureConvergence;
         _signatureCoordinator = signatureCoordinator;
         _loadSensor = loadSensor;
         _vectorSearch = vectorSearch;
+
+        // Optional so unit tests that drive RunEvaluation() directly (without
+        // scheduling) keep working. Production DI passes the real coordinator.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick10s,
+                "SignatureConvergenceService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Fires every Tick10s; gates the
+    ///     evaluation pass on the load-sensor-adapted EvaluationIntervalSeconds
+    ///     so under steady-state the cadence honours configuration while under
+    ///     pressure the sensor can stretch it. Public so tests can drive a
+    ///     single beat deterministically.
+    /// </summary>
+    public Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (!_options.Enabled)
+        if (_disposed != 0) return Task.CompletedTask;
+        if (!_options.Enabled) return Task.CompletedTask;
+
+        var baseInterval = TimeSpan.FromSeconds(Math.Max(1, _options.EvaluationIntervalSeconds));
+        var adaptive = _loadSensor?.GetAdaptiveInterval(baseInterval) ?? baseInterval;
+        if (_lastRunUtc != DateTime.MinValue &&
+            now.UtcDateTime - _lastRunUtc < adaptive)
         {
-            _logger.LogInformation("SignatureConvergenceService disabled");
-            return;
+            return Task.CompletedTask; // Not yet due.
         }
 
-        _logger.LogInformation(
-            "SignatureConvergenceService started (interval={Interval}s, mergeThreshold={MergeThreshold}, splitThreshold={SplitThreshold})",
-            _options.EvaluationIntervalSeconds,
-            _options.MergeScoreThreshold,
-            _options.SplitDivergenceThreshold);
-
-        // Let the system warm up before first evaluation
-        try { await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken); }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
-            {
-                await Task.Factory.StartNew(
-                    RunEvaluation,
-                    stoppingToken,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error during convergence evaluation");
-            }
-
-            var baseInterval = TimeSpan.FromSeconds(_options.EvaluationIntervalSeconds);
-            var adaptiveInterval = _loadSensor?.GetAdaptiveInterval(baseInterval) ?? baseInterval;
-
-            try
-            {
-                await Task.Delay(adaptiveInterval, stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
+            RunEvaluation();
+            _lastRunUtc = DateTime.UtcNow;
         }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Error during convergence evaluation");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     internal void RunEvaluation()

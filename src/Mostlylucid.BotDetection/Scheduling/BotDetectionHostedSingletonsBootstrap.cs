@@ -67,6 +67,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<PopulationMarkovService>();
         _services.GetService<IdentityGlobalWeightsCache>();
         _services.GetService<IdentityWeightCalibrationService>();
+        _services.GetService<SignatureConvergenceService>();
         return Task.CompletedTask;
     }
 

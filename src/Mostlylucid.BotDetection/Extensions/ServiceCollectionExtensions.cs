@@ -1235,8 +1235,10 @@ public static class ServiceCollectionExtensions
         // doesn't have to walk all clusters per signature.
         services.TryAddSingleton<IClusterMembershipLookup>(sp => sp.GetRequiredService<BotClusterService>());
         // Signature convergence - merges/splits related signatures (same IP, rotating UAs)
+        // Wave 2: migrated to ScheduleCoordinator tick.10s. Eager-resolved by
+        // BotDetectionHostedSingletonsBootstrap so the constructor's Subscribe(...)
+        // fires at boot.
         services.TryAddSingleton<SignatureConvergenceService>();
-        services.AddHostedService(sp => sp.GetRequiredService<SignatureConvergenceService>());
         services.AddSingleton<IContributingDetector, ClusterContributor>();
 
         // Content sequence detection — Priority 4, runs before all other detectors
