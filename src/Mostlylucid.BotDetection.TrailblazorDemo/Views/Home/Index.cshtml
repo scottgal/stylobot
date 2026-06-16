@@ -61,7 +61,17 @@ BotDetectionResult present:  @hasResult
 
 <bot-detection-details collapsed="false"></bot-detection-details>
 
-<h2>2. Risk-gated content (<code>&lt;sb-risk&gt;</code>)</h2>
+<h2>2. Compact detection card (<code>&lt;sb-summary variant=&quot;card&quot; /&gt;</code>)</h2>
+
+<p>
+    Same detection data, condensed into the inline card the dashboard
+    uses on dense rows. Drop-in for a sidebar, a row badge, or a wide
+    inline indicator next to a CTA.
+</p>
+
+<sb-summary variant="card" />
+
+<h2>3. Risk-gated content (<code>&lt;sb-risk&gt;</code>)</h2>
 
 <sb-risk max="Low">
     <p style="background: #d1fae5; padding: 1rem; border-radius: 0.5rem;">
@@ -89,7 +99,7 @@ BotDetectionResult present:  @hasResult
     </div>
 </sb-risk>
 
-<h2>3. Signal-driven variation (<code>&lt;sb-signal&gt;</code>)</h2>
+<h2>4. Signal-driven variation (<code>&lt;sb-signal&gt;</code>)</h2>
 
 <sb-signal signal="ip.is_datacenter" condition="true">
     <p>You appear to be on a <strong>datacentre IP</strong>. Some
@@ -112,7 +122,7 @@ BotDetectionResult present:  @hasResult
     detector.</p>
 </sb-signal>
 
-<h2>4. Honeypot form (<code>&lt;sb-honeypot /&gt;</code>)</h2>
+<h2>5. Honeypot form (<code>&lt;sb-honeypot /&gt;</code>)</h2>
 
 <p>This form contains three offscreen trap fields. Humans don't see them;
 bots fill them in. View source to confirm they're there.</p>
@@ -125,7 +135,19 @@ bots fill them in. View source to confirm they're there.</p>
     <button type="submit">Subscribe</button>
 </form>
 
-<h2>5. Endpoint traffic shaping</h2>
+<h2>6. Inline signal table (<code>&lt;vc:sb-all-signals show-descriptions=&quot;false&quot; /&gt;</code>)</h2>
+
+<p>
+    Condensed inline form of the <a asp-controller="Home" asp-action="Signals">All signals</a>
+    page. Renders every key/value pair the detection pipeline wrote to
+    this request's signal blackboard, grouped by namespace prefix. Same
+    view component the dedicated /Home/Signals page uses, just with the
+    longform descriptions collapsed for embedding.
+</p>
+
+<vc:sb-all-signals show-descriptions="false" />
+
+<h2>7. Endpoint traffic shaping</h2>
 
 <p>The opening Razor view from the talk also wires up three minimal-API
 endpoints at the routing layer:</p>
