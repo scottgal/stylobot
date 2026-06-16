@@ -115,30 +115,39 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 Measured via YAML-driven BenchmarkDotNet harness (`Mostlylucid.BotDetection.Benchmarks/Scenarios/*.benchmark.yaml`). Run: `dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*DetectorBenchmarkRunner*'`
 
+Benchmarks run on Apple M5 (arm64), .NET 10. Numbers are per-scenario means from the full `DetectorBenchmarkRunner` pipeline (all contributors active, in-process, warm cache).
+
 | Detector | Scenario | Mean | Allocated |
 |----------|----------|------|-----------|
-| Intent | Navigation | 2,341 ns | 5,448 B |
-| Heuristic | Bot | 4,255 ns | 2,504 B |
-| Heuristic | Human | 3,424 ns | 2,488 B |
-| Behavioral | Normal | 1,446 ns | 2,112 B |
-| Haxxor | SQL Injection | 1,306 ns | 1,608 B |
-| Header | Bot (curl) | 507 ns | 1,520 B |
-| Header | Human (Chrome) | 496 ns | 1,448 B |
-| CacheBehavior | Normal | 1,335 ns | 1,400 B |
-| Ip | Datacenter | 537 ns | 1,152 B |
-| MultiLayerCorrelation | Full signals | 330 ns | 1,088 B |
-| UserAgent | Googlebot | 829 ns | 1,072 B |
-| AiScraper | GPTBot | 572 ns | 1,016 B |
-| FastPathReputation | Cached signature | 308 ns | 928 B |
-| UserAgent | Chrome | 2,058 ns | 928 B |
-| Ip | Residential | 557 ns | 840 B |
-| TransportProtocol | Document | 145 ns | 504 B |
-| TlsFingerprint | Chrome/Bot | ~100-260 ns | 424 B |
-| Inconsistency | TLS/UA mismatch | 135 ns | 376 B |
-| CookieBehavior | With cookies | 33 ns | 184 B |
-| Http2Fingerprint | Chrome | 120 ns | 152 B |
-| HeaderCorrelation | Full headers | 50 ns | 104 B |
-| Haxxor | Clean request | 204 ns | **0 B** |
+| Intent | Navigation | 2,540 ns | 5,784 B |
+| Heuristic | Bot | 1,653 ns | 2,528 B |
+| Heuristic | Human | 1,704 ns | 2,512 B |
+| Behavioral | Normal | 9,619 ns | 21,686 B |
+| Haxxor | SQL Injection | 1,202 ns | 1,744 B |
+| Header | Bot (curl) | 424 ns | 1,544 B |
+| Header | Human (Chrome) | 417 ns | 1,320 B |
+| Inconsistency | TLS/UA mismatch (full) | 530 ns | 1,904 B |
+| CacheBehavior | Normal | 416 ns | 1,400 B |
+| Ip | Datacenter | 320 ns | 1,136 B |
+| MultiLayerCorrelation | Full signals | 239 ns | 1,088 B |
+| Inconsistency | Kameleo mouse | 311 ns | 1,064 B |
+| Inconsistency | ICE no-srflx | 280 ns | 1,064 B |
+| Inconsistency | Android no voices | 303 ns | 1,064 B |
+| AiScraper | GPTBot | 269 ns | 1,008 B |
+| FastPathReputation | Cached signature | 265 ns | 928 B |
+| TlsFingerprint | Chrome (version delta) | 361 ns | 1,608 B |
+| TlsFingerprint | Chrome/Bot | 262 ns | 896 B |
+| Ip | Residential | 411 ns | 824 B |
+| Inconsistency | TLS/UA mismatch | 84 ns | 376 B |
+| Http2Fingerprint | Chrome | 110 ns | 176 B |
+| TransportProtocol | Document | 135 ns | 552 B |
+| HeaderCorrelation | Full headers | 15 ns | 104 B |
+| CookieBehavior | With cookies | 18 ns | 184 B |
+| Haxxor | Clean request | 198 ns | **0 B** |
+| UserAgent | Googlebot | 13,272 ns | 2,568 B |
+| UserAgent | Chrome (full pipeline) | 104,821 ns | 1,817 B |
+
+**Notes:** `UserAgent_Googlebot` (13 µs) and `UserAgent_HumanChrome` (105 µs) reflect the full orchestration pipeline (all 57 contributors), not just the UA detector. `Behavioral_Normal` (9.6 µs) allocates more due to feature vector computation. The `WellKnownBotIndex` scan (635 compiled regexes for arcjet catalog) is cached via `BoundedCache<string, WellKnownBotMatch?>` so repeat UAs hit O(1) — the scan only runs on the first occurrence of each unique UA string.
 
 ### Session Vector Architecture
 

@@ -130,27 +130,42 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
             foreach (var key in expiredKeys)
                 _entries.TryRemove(key, out _);
 
-            // Phase 2: If still over limit, evict LFU (least-frequently-used first).
-            // Entries with the lowest hit count are evicted first, so popular IPs
-            // (Googlebot crawling from many addresses, UptimeRobot, etc.) survive
-            // while one-off IPs are dropped. Evict down to 75% capacity so the
-            // next burst of new IPs doesn't immediately trigger another eviction round.
+            // Phase 2: If still over limit, evict the LFU quarter without a full sort.
+            // A full O(N log N) sort over 4 000+ entries is expensive. Instead,
+            // single-pass O(N) to find the median hit count, then remove all entries
+            // below that threshold. This evicts the cold tail (LFU approximation)
+            // while keeping the hot head, without materialising a sorted list.
+            // Evict to 75% capacity so the next burst doesn't trigger immediately.
             if (_entries.Count > _maxSize)
             {
-                // Avoid LINQ's ICollection.CopyTo fast path over ConcurrentDictionary:
-                // under heavy mutation it can observe a stale count and throw.
+                // Snapshot to avoid ConcurrentDictionary mutation hazards.
                 var snapshot = new List<KeyValuePair<TKey, CacheEntry>>(_entries.Count);
                 foreach (var entry in _entries)
                     snapshot.Add(entry);
 
-                var toEvict = snapshot
-                    .OrderBy(kv => kv.Value.HitCount)
-                    .Take(Math.Max(0, snapshot.Count - (_maxSize * 3 / 4)))
-                    .Select(kv => kv.Key)
-                    .ToList();
+                var targetEvict = snapshot.Count - (_maxSize * 3 / 4);
+                if (targetEvict > 0)
+                {
+                    // Partition-select: find the HitCount threshold below which
+                    // we'd remove exactly targetEvict entries. One linear pass
+                    // to collect all HitCount values, then the median/percentile.
+                    var counts = new long[snapshot.Count];
+                    for (var i = 0; i < snapshot.Count; i++)
+                        counts[i] = snapshot[i].Value.HitCount;
+                    Array.Sort(counts);
+                    var threshold = counts[Math.Min(targetEvict - 1, counts.Length - 1)];
 
-                foreach (var key in toEvict)
-                    _entries.TryRemove(key, out _);
+                    var removed = 0;
+                    foreach (var kvp in snapshot)
+                    {
+                        if (removed >= targetEvict) break;
+                        if (kvp.Value.HitCount <= threshold)
+                        {
+                            _entries.TryRemove(kvp.Key, out _);
+                            removed++;
+                        }
+                    }
+                }
             }
         }
         finally
