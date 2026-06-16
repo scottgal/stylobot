@@ -2,8 +2,11 @@
 
 **Enterprise bot detection and anonymous entity resolution for ASP.NET Core.** Probabilistic, behavioural, and protocol-deep — not just User-Agent matching.
 
+This is the detection engine that powers **[StyloBot](https://stylobot.net)** — a self-hosted bot defense platform you can run in front of any web application.
+
 [![NuGet](https://img.shields.io/nuget/v/mostlylucid.botdetection.svg)](https://www.nuget.org/packages/mostlylucid.botdetection)
 [![GitHub](https://img.shields.io/badge/GitHub-scottgal%2Fstylobot-blue)](https://github.com/scottgal/stylobot)
+[![StyloBot](https://img.shields.io/badge/Website-stylobot.net-blue)](https://stylobot.net)
 
 ---
 
@@ -204,6 +207,7 @@ Use [`Stylobot.Gateway`](https://hub.docker.com/r/scottgal/stylobot-gateway) or 
 
 ## Links
 
+- [**StyloBot**](https://stylobot.net) — hosted platform and live demo powered by this engine
 - [GitHub](https://github.com/scottgal/stylobot)
 - [NuGet](https://www.nuget.org/packages/mostlylucid.botdetection/)
 - [Documentation](https://github.com/scottgal/stylobot/tree/main/src/Mostlylucid.BotDetection/docs)
