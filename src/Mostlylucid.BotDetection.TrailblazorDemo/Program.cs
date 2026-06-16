@@ -28,6 +28,13 @@ builder.Services.AddStyloBot(
     configureDashboard: dashboard =>
     {
         dashboard.BasePath = "/_stylobot";
+        // Keep the SignalR hub path under the same prefix as the dashboard
+        // so the rendered <sb-live-updates> data-hub-url + the route the
+        // FOSS UseStyloBot pipeline registers via MapHub agree. Default
+        // HubPath is "/stylobot/hub"; without this override the dashboard
+        // tries to negotiate against a hub the middleware never mapped at
+        // the demo's mount, and the live status pill silently sits red.
+        dashboard.HubPath = "/_stylobot/hub";
         dashboard.AllowUnauthenticatedAccess = true; // dev only
     },
     configureDetection: detection =>
@@ -145,8 +152,10 @@ app.MapBotDetectionEndpoints();
 app.MapBotDetectionScript();
 app.MapBotDetectionFingerprintEndpoint();
 
-// Required so <sb-live-updates> in the dashboard can connect.
-app.MapHub<StyloBotDashboardHub>("/_stylobot/hub");
+// The FOSS UseStyloBot() pipeline already calls MapHub against
+// StyloBotDashboardOptions.HubPath, so the demo doesn't need its own
+// MapHub registration -- the configureDashboard block above sets HubPath
+// to /_stylobot/hub and the FOSS extension wires the route from there.
 
 app.Run();
 
