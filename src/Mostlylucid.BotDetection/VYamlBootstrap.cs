@@ -3,7 +3,9 @@ using Mostlylucid.BotDetection.Compliance;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Definitions.VendorHomeHosts;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Identity.BrowserModes;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Policies.Signals;
@@ -166,6 +168,22 @@ internal static class VYamlBootstrap
         Ja3CorpusEntry.__RegisterVYamlFormatter();
         GeneratedResolver.Register(new DictionaryFormatter<int, Ja3CorpusPlatforms>());
         GeneratedResolver.Register(new DictionaryFormatter<string, Dictionary<int, Ja3CorpusPlatforms>>());
+
+        // Browser-mode YAML: BrowserModeRegistry deserialises these at first request.
+        // Missing registration surfaced as "not registered in resolver" at AOT runtime,
+        // silently disabling all browser-mode classification (bot-raw, navigation, xhr, etc.).
+        BrowserModeYaml.__RegisterVYamlFormatter();
+        RequestCharacterPredicateYaml.__RegisterVYamlFormatter();
+        GeneratedResolver.Register(new ListFormatter<string>());
+
+        // UAP-core UA parser: UapCoreUserAgentParser deserialises uap-regexes.yaml
+        // and ua-categories.yaml. Missing registrations killed UA family detection in AOT.
+        UapCoreYaml.__RegisterVYamlFormatter();
+        UapCoreUserAgentEntryYaml.__RegisterVYamlFormatter();
+        UapCoreDeviceEntryYaml.__RegisterVYamlFormatter();
+        UaCategoriesYaml.__RegisterVYamlFormatter();
+        GeneratedResolver.Register(new ListFormatter<UapCoreUserAgentEntryYaml>());
+        GeneratedResolver.Register(new ListFormatter<UapCoreDeviceEntryYaml>());
 
         YamlSerializer.DefaultOptions = new YamlSerializerOptions
         {
