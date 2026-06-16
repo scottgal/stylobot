@@ -85,6 +85,14 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // SessionFinalized; the lifecycle host (separately registered) handles
         // boot init + graceful-shutdown drain.
         _services.GetService<SessionPersistenceService>();
+        // Wave 2 Cat-C* paired wave window: all three subscribe to Tick5m so a
+        // rollup recompute on this tick sees consistent parent + per-mode state.
+        // FingerprintAbsorptionService also wires its ObservationAppended CLR-event
+        // fast-path at construction; eager-resolve so the hook is live before the
+        // first observation lands.
+        _services.GetService<Identity.FingerprintAbsorptionService>();
+        _services.GetService<Identity.BrowserModes.FingerprintModeAbsorptionService>();
+        _services.GetService<Identity.BrowserModes.FingerprintRollupRecomputeService>();
         // BoundedChannelLearningBus subscribes to Tick1s; HP-mode drains
         // the front-end channel to the inner bus per tick. Resolved via
         // its concrete type because the ILearningEventBus interface

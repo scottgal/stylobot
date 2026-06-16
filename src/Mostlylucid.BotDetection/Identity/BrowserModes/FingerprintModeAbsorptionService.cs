@@ -1,7 +1,8 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Identity.BrowserModes;
 
@@ -9,74 +10,96 @@ namespace Mostlylucid.BotDetection.Identity.BrowserModes;
 ///     Drains the append-only <c>fingerprint_mode_observations</c> table on a
 ///     fixed tick, computing the batched EWMA per (fingerprint_id, mode_id)
 ///     tuple in a single pass and writing one UPSERT per tuple per tick.
-///     Mirrors <see cref="FingerprintAbsorptionService"/> exactly — same
-///     BackgroundService shape, same fixed-cadence loop, same per-tick batch
-///     fetch and in-memory grouping. Closes the read-modify-write race the
-///     matcher's previous direct-UPSERT absorb had under concurrent requests
-///     for the same fingerprint+mode tuple.
+///     Mirrors <see cref="FingerprintAbsorptionService"/> exactly -- same
+///     <see cref="IScheduleCoordinator"/>-driven tick shape, same per-tick
+///     batch fetch and in-memory grouping. Closes the read-modify-write race
+///     the matcher's previous direct-UPSERT absorb had under concurrent
+///     requests for the same fingerprint+mode tuple.
 ///
 ///     Dormant when <c>BotDetectionOptions.Identity.Enabled</c> or
 ///     <c>BotDetectionOptions.Identity.BrowserMode.Enabled</c> is false.
 ///
-///     NOTE: this service uses <see cref="BackgroundService"/> to match the
-///     parent <see cref="FingerprintAbsorptionService"/>'s existing shape,
-///     which the project rule [[feedback_no_background_services]] flags as
-///     drift to migrate when the schedule coordinator lands. Both services
-///     should migrate to the coordinator + tick-signal subscription pattern
-///     in the same pass to keep the absorption semantics aligned.
+///     <para>
+///         <b>Wave 2 Cat-C* migration.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>while + Task.Delay</c> loop driven by
+///         <c>Drift.DriftCheckIntervalSeconds</c>. Now subscribes to
+///         <see cref="TickCadence.Tick5m"/> -- the SAME cadence as
+///         <see cref="FingerprintAbsorptionService"/> and
+///         <see cref="FingerprintRollupRecomputeService"/> -- so all three
+///         services land on the same wave window. A rollup recompute on this
+///         tick sees consistent parent-absorption + per-mode-absorption state
+///         per <c>project_absorption_services_migration</c>.
+///     </para>
 /// </summary>
-public sealed class FingerprintModeAbsorptionService : BackgroundService
+public sealed class FingerprintModeAbsorptionService : IDisposable
 {
     private readonly ILogger<FingerprintModeAbsorptionService> _logger;
     private readonly IFingerprintBrowserModeStore _modeStore;
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     public FingerprintModeAbsorptionService(
         ILogger<FingerprintModeAbsorptionService> logger,
         IFingerprintBrowserModeStore modeStore,
         IdentityArchetypeRegistry archetypes,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _modeStore = modeStore;
         _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled && _options.BrowserMode.Enabled;
-    }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
         if (!_enabled)
         {
             _logger.LogDebug(
                 "FingerprintModeAbsorptionService dormant: Identity.Enabled={Identity}, BrowserMode.Enabled={BrowserMode}",
                 _options.Enabled, _options.BrowserMode.Enabled);
-            return;
         }
 
-        // Same cadence as FingerprintAbsorptionService so per-mode and parent
-        // absorptions land in the same wave window. The DriftCheckInterval is
-        // the closest existing knob; a future BrowserModeOptions.DrainInterval
-        // can split the cadences if profiling justifies it.
-        var tick = TimeSpan.FromSeconds(Math.Max(1, _options.Drift.DriftCheckIntervalSeconds));
-
-        while (!stoppingToken.IsCancellationRequested)
+        // Optional so existing direct-construction tests (MatcherBrowserModeAbsorbTests)
+        // keep working without spinning up a real coordinator. The test rigs call
+        // TickOnceAsync directly to drive a deterministic drain.
+        if (scheduleCoordinator is not null && _enabled)
         {
-            try
-            {
-                var absorbed = await TickOnceAsync(_options.BrowserMode.DrainMaxRowsPerTick, stoppingToken);
-                if (absorbed > 0)
-                    _logger.LogDebug("BrowserMode drain folded {Count} mode observations", absorbed);
-            }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                _logger.LogWarning(ex, "BrowserMode drain tick failed");
-            }
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick5m,
+                "FingerprintModeAbsorptionService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
+    }
 
-            try { await Task.Delay(tick, stoppingToken); }
-            catch (OperationCanceledException) { return; }
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: drain whatever
+    ///     unabsorbed mode observations landed since the last tick. Paired with
+    ///     <see cref="FingerprintAbsorptionService"/> and
+    ///     <see cref="FingerprintRollupRecomputeService"/> on the same Tick5m
+    ///     wave window so a rollup recompute sees consistent state.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        if (_disposed != 0) return;
+        if (!_enabled) return;
+
+        try
+        {
+            var absorbed = await TickOnceAsync(_options.BrowserMode.DrainMaxRowsPerTick, ct);
+            if (absorbed > 0)
+                _logger.LogDebug("BrowserMode drain folded {Count} mode observations", absorbed);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Shutdown; not an error.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "BrowserMode drain tick failed");
         }
     }
 
@@ -91,7 +114,7 @@ public sealed class FingerprintModeAbsorptionService : BackgroundService
         var batch = await _modeStore.ListUnabsorbedModeObservationsAsync(maxRows, ct);
         if (batch.Count == 0) return 0;
 
-        // Group in document order — the store returns rows sorted by
+        // Group in document order -- the store returns rows sorted by
         // (fingerprint_id, mode_id, id), so adjacent rows share a tuple.
         var folded = 0;
         var i = 0;
@@ -178,7 +201,7 @@ public sealed class FingerprintModeAbsorptionService : BackgroundService
         // every absorption recomputes the inferred archetype, so the per-mode row's
         // "Nearest archetype" cell on the signature detail tracks the centroid as it
         // evolves. Gated by IdentityOptions.BrowserMode.MinInferredArchetypeScore so
-        // sparse / noisy modes don't latch onto an umbrella centroid — under threshold
+        // sparse / noisy modes don't latch onto an umbrella centroid -- under threshold
         // the field stays null and the UI renders "-" (explicit "no confident match"
         // beats a confident-looking false positive).
         //
@@ -211,5 +234,13 @@ public sealed class FingerprintModeAbsorptionService : BackgroundService
         var ids = new long[count];
         for (var k = 0; k < count; k++) ids[k] = batch[start + k].ObservationId;
         await _modeStore.AbsorbModeObservationsAsync(updated, ids, ct);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 }

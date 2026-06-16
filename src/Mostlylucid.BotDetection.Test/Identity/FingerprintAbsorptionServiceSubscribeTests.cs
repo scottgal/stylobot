@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Identity;
@@ -9,9 +10,16 @@ namespace Mostlylucid.BotDetection.Test.Identity;
 /// <summary>
 ///     Task 4 of the Identity Async Un-Drift plan: pins the contract that
 ///     <see cref="FingerprintAbsorptionService"/> absorbs on
-///     <see cref="IFingerprintStore.ObservationAppended"/> with per-fp debounce,
-///     and that the backstop loop uses <see cref="IdentityVectorOptions.BackstopSweepIntervalSeconds"/>
-///     rather than the old Drift.DriftCheckIntervalSeconds.
+///     <see cref="IFingerprintStore.ObservationAppended"/> with per-fp debounce.
+///     <para>
+///         Wave 2 Cat-C* update: the backstop loop is now driven by
+///         <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator"/>'s
+///         Tick5m subscription rather than a self-managed
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> + Task.Delay
+///         loop. The event-driven fast-path is wired at construction (no StartAsync
+///         needed) and remains the primary absorption mechanism; the tick is the
+///         catch-up that the rollup service expects to see consistent state on.
+///     </para>
 /// </summary>
 public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
 {
@@ -29,8 +37,8 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
     }
 
     private async Task<(SqliteFingerprintStore Store, FingerprintAbsorptionService Service)> BuildAsync(
-        int backstopSweepSeconds = 300,
-        int debounceMs = 250)
+        int debounceMs = 250,
+        RecordingScheduleCoordinator? coordinator = null)
     {
         var options = Options.Create(new BotDetectionOptions
         {
@@ -43,7 +51,6 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
                     AbsorptionMaturityThreshold = 1,   // absorb after 1 observation so tests fire fast
                     AbsorptionAgeDays = 30,
                     ActiveWindowDays = 90,
-                    BackstopSweepIntervalSeconds = backstopSweepSeconds,
                     SubscriptionDebounceMs = debounceMs
                 }
             }
@@ -60,7 +67,8 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
             NullLogger<FingerprintAbsorptionService>.Instance,
             store,
             archetypes,
-            options);
+            options,
+            coordinator);
 
         return (store, service);
     }
@@ -95,10 +103,7 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
     public async Task ObservationAppended_TriggersAbsorptionWithinDebounce()
     {
         // debounce = 200ms, so absorption should fire within 200ms + buffer.
-        var (store, service) = await BuildAsync(backstopSweepSeconds: 300, debounceMs: 200);
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-
-        await service.StartAsync(cts.Token);
+        var (store, service) = await BuildAsync(debounceMs: 200);
         try
         {
             var fpId = await SeedFingerprintAsync(store, "fp-absorb-1");
@@ -115,7 +120,7 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
         }
         finally
         {
-            await service.StopAsync(CancellationToken.None);
+            service.Dispose();
         }
     }
 
@@ -123,10 +128,7 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
     public async Task RapidObservations_CollapseToSingleAbsorptionWithinDebounce()
     {
         // Debounce = 200ms. 10 rapid observations for the same fp must coalesce to one absorption run.
-        var (store, service) = await BuildAsync(backstopSweepSeconds: 300, debounceMs: 200);
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-
-        await service.StartAsync(cts.Token);
+        var (store, service) = await BuildAsync(debounceMs: 200);
         try
         {
             var fpId = await SeedFingerprintAsync(store, "fp-burst-1");
@@ -149,31 +151,29 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
         }
         finally
         {
-            await service.StopAsync(CancellationToken.None);
+            service.Dispose();
         }
     }
 
     [Fact]
-    public async Task BackstopSweep_RunsAtConfiguredCadence_NotAtSubSecondFloor()
+    public async Task BackstopTick_RunsBackstopSweep()
     {
-        // backstopSweepSeconds = 1; run for 2.5s; expect 1-4 backstop ticks (not hundreds).
-        var (store, service) = await BuildAsync(backstopSweepSeconds: 1, debounceMs: 50);
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-
-        await service.StartAsync(cts.Token);
+        // Wave 2 Cat-C*: the backstop sweep now fires on the schedule
+        // coordinator's tick; tests drive the captured handler directly under a
+        // RecordingScheduleCoordinator. Three ticks => three backstop sweeps.
+        var coord = new RecordingScheduleCoordinator();
+        var (_, service) = await BuildAsync(debounceMs: 200, coordinator: coord);
         try
         {
-            await Task.Delay(2500, CancellationToken.None);
-
-            // 1 second cadence over 2.5s: expect 1, 2, or at most 4 (allowing for timing jitter).
-            // The old 5s DriftCheckIntervalSeconds-driven path was 1s-floored, which would never
-            // give 500 ticks; but the math here is: with 1s cadence and 2.5s window we expect 2.
-            // We assert > 0 (ran at least once) and < 10 (did not tick every few ms).
-            Assert.InRange(service.BackstopSweepCount, 1, 9);
+            var sub = Assert.Single(coord.Subscriptions);
+            await sub.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
+            await sub.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
+            await sub.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
+            Assert.Equal(3, service.BackstopSweepCount);
         }
         finally
         {
-            await service.StopAsync(CancellationToken.None);
+            service.Dispose();
         }
     }
 }

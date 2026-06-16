@@ -1,7 +1,8 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Identity.BrowserModes;
 
@@ -9,7 +10,7 @@ namespace Mostlylucid.BotDetection.Identity.BrowserModes;
 ///     Composite-spec step 4: recomputes the parent fingerprint's centroid as
 ///     the maturity-weighted mean of its child mode centroids on a fixed tick.
 ///     Per the architecture doc the parent centroid is the rollup of the per-
-///     mode evolution — Pass 2 + index search read it as before, but its
+///     mode evolution -- Pass 2 + index search read it as before, but its
 ///     content is now derived from the per-mode learning that landed in steps
 ///     3 and 3.5.
 ///
@@ -20,65 +21,93 @@ namespace Mostlylucid.BotDetection.Identity.BrowserModes;
 ///     <c>TickOnceAsync(dryRun: true)</c> testing entry-point before any
 ///     production behavioural change.
 ///
-///     Mirrors the BackgroundService shape of FingerprintAbsorptionService and
-///     FingerprintModeAbsorptionService so all three migrate to the schedule
-///     coordinator + tick-signal pattern in the same future pass per the
-///     <c>project_absorption_services_migration</c> memory.
+///     <para>
+///         <b>Wave 2 Cat-C* migration.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>while + Task.Delay</c> loop driven by
+///         <c>BrowserMode.RollupRecomputeIntervalSeconds</c> (default 300s).
+///         Now subscribes to <see cref="TickCadence.Tick5m"/> -- the SAME
+///         cadence as <see cref="FingerprintAbsorptionService"/> and
+///         <see cref="FingerprintModeAbsorptionService"/> -- so all three sit
+///         on the same wave window per
+///         <c>project_absorption_services_migration</c>. A rollup recompute on
+///         this tick sees consistent parent + per-mode state.
+///     </para>
 /// </summary>
-public sealed class FingerprintRollupRecomputeService : BackgroundService
+public sealed class FingerprintRollupRecomputeService : IDisposable
 {
     private readonly ILogger<FingerprintRollupRecomputeService> _logger;
     private readonly IFingerprintStore _store;
     private readonly IFingerprintBrowserModeStore _modeStore;
     private readonly IdentityOptions _options;
     private readonly bool _serviceEnabled;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     public FingerprintRollupRecomputeService(
         ILogger<FingerprintRollupRecomputeService> logger,
         IFingerprintStore store,
         IFingerprintBrowserModeStore modeStore,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _store = store;
         _modeStore = modeStore;
         _options = options.Value.Identity;
         _serviceEnabled = _options.Enabled && _options.BrowserMode.Enabled;
-    }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
         if (!_serviceEnabled)
         {
             _logger.LogDebug(
                 "FingerprintRollupRecomputeService dormant: Identity.Enabled={Identity}, BrowserMode.Enabled={BrowserMode}",
                 _options.Enabled, _options.BrowserMode.Enabled);
-            return;
         }
 
-        var tick = TimeSpan.FromSeconds(Math.Max(10, _options.BrowserMode.RollupRecomputeIntervalSeconds));
-
-        while (!stoppingToken.IsCancellationRequested)
+        // Optional so existing direct-construction tests (FingerprintRollupRecomputeTests)
+        // keep working without spinning up a real coordinator. The test rigs call
+        // TickOnceAsync directly to drive a deterministic recompute.
+        if (scheduleCoordinator is not null && _serviceEnabled)
         {
-            try
-            {
-                var (visited, written) = await TickOnceAsync(
-                    _options.BrowserMode.RollupMaxFingerprintsPerTick,
-                    dryRun: !_options.BrowserMode.RollupEnabled,
-                    stoppingToken);
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick5m,
+                "FingerprintRollupRecomputeService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
+    }
 
-                if (visited > 0)
-                    _logger.LogDebug(
-                        "Rollup tick visited {Visited} fingerprints, wrote {Written} (dryRun={DryRun})",
-                        visited, written, !_options.BrowserMode.RollupEnabled);
-            }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-            {
-                _logger.LogWarning(ex, "Rollup tick failed");
-            }
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: run one rollup pass.
+    ///     Paired with <see cref="FingerprintAbsorptionService"/> and
+    ///     <see cref="FingerprintModeAbsorptionService"/> on the same Tick5m
+    ///     wave window so the rollup math sees consistent parent + per-mode
+    ///     state.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        if (_disposed != 0) return;
+        if (!_serviceEnabled) return;
 
-            try { await Task.Delay(tick, stoppingToken); }
-            catch (OperationCanceledException) { return; }
+        try
+        {
+            var (visited, written) = await TickOnceAsync(
+                _options.BrowserMode.RollupMaxFingerprintsPerTick,
+                dryRun: !_options.BrowserMode.RollupEnabled,
+                ct);
+
+            if (visited > 0)
+                _logger.LogDebug(
+                    "Rollup tick visited {Visited} fingerprints, wrote {Written} (dryRun={DryRun})",
+                    visited, written, !_options.BrowserMode.RollupEnabled);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Shutdown; not an error.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rollup tick failed");
         }
     }
 
@@ -89,7 +118,7 @@ public sealed class FingerprintRollupRecomputeService : BackgroundService
     ///     mode centroids, and writes it to the parent fingerprint row via
     ///     <see cref="IFingerprintStore.UpdateRollupCentroidAsync"/>. When
     ///     <paramref name="dryRun"/> is true the math runs but the parent row
-    ///     is not written — used by the BrowserMode.RollupEnabled=false gate
+    ///     is not written -- used by the BrowserMode.RollupEnabled=false gate
     ///     and the unit tests' inspection path.
     ///
     ///     Returns (visited fingerprints, fingerprints whose centroid was
@@ -128,7 +157,7 @@ public sealed class FingerprintRollupRecomputeService : BackgroundService
     ///     Maturity-weighted mean of mode centroids. Each mode contributes
     ///     <c>centroid * centroid_maturity</c> to the sum; the final centroid
     ///     divides by the total maturity. Returns null when total maturity is
-    ///     zero (every mode row is freshly seeded with no observations yet —
+    ///     zero (every mode row is freshly seeded with no observations yet --
     ///     no reliable rollup signal).
     /// </summary>
     internal static (float[] Centroid, int Maturity)? ComputeRollup(IReadOnlyList<FingerprintBrowserMode> modes)
@@ -154,5 +183,13 @@ public sealed class FingerprintRollupRecomputeService : BackgroundService
 
         for (var d = 0; d < dim; d++) weighted[d] /= totalMaturity;
         return (weighted, totalMaturity);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 }

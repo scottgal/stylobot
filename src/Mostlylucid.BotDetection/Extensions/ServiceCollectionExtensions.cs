@@ -960,24 +960,17 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.BrowserModes.IFingerprintBrowserModeStore>(
             sp => sp.GetRequiredService<Identity.BrowserModes.SqliteFingerprintBrowserModeStore>());
 
-        // Mode-observation drainer: batched EWMA absorption per
-        // (fingerprint_id, mode_id) tuple on a fixed tick. Mirrors the
-        // FingerprintAbsorptionService shape so both services migrate to the
-        // schedule coordinator together when that lands.
+        // Wave 2 Cat-C* (paired wave window): mode-observation drainer + rollup
+        // recompute + parent absorption all subscribe to IScheduleCoordinator.Tick5m
+        // at construction. Drop the AddHostedService trampolines;
+        // BotDetectionHostedSingletonsBootstrap eagerly resolves the singletons at
+        // boot so the constructor's Subscribe(...) fires before the first tick. The
+        // three services land on the same wave window so a rollup recompute sees
+        // consistent parent + per-mode state per project_absorption_services_migration.
         services.AddSingleton<Identity.BrowserModes.FingerprintModeAbsorptionService>();
-        services.AddHostedService(sp =>
-            sp.GetRequiredService<Identity.BrowserModes.FingerprintModeAbsorptionService>());
-        // Rollup recompute: parent centroid as maturity-weighted mean of child
-        // mode centroids on a tick (composite spec step 4). Runs the math
-        // unconditionally; the BrowserMode.RollupEnabled gate decides whether
-        // each tick writes the parent row or stays dry-run while staging
-        // validates the rollup before identity-stability behaviour changes.
         services.AddSingleton<Identity.BrowserModes.FingerprintRollupRecomputeService>();
-        services.AddHostedService(sp =>
-            sp.GetRequiredService<Identity.BrowserModes.FingerprintRollupRecomputeService>());
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
-        services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());
         // Wave 2: FingerprintDriftService subscribes to
         // IScheduleCoordinator.Tick10s at construction. Drop the
         // AddHostedService trampoline; BotDetectionHostedSingletonsBootstrap

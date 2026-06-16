@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Identity;
 
@@ -13,14 +14,27 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     "per-fingerprint absorption fires per maturity threshold" -- this service
 ///     subscribes to <see cref="IFingerprintStore.ObservationAppended"/> for the hot path
 ///     (per-fp debounce, absorbs within ~250ms of the first new observation) and runs a
-///     safety-net backstop sweep at 5-minute cadence for crash recovery and missed events.
+///     safety-net backstop sweep on the schedule-coordinator's <see cref="TickCadence.Tick5m"/>
+///     cadence for crash recovery and missed events.
 ///
 ///     Inferred client type recompute and archetype refinement live in later slices; this
 ///     service is purely the centroid + stability path.
 ///
 ///     Dormant when <c>BotDetectionOptions.Identity.Enabled</c> is false.
+///     <para>
+///         <b>Wave 2 Cat-C* migration.</b> Was a <see cref="Microsoft.Extensions.Hosting.BackgroundService"/>
+///         whose <c>ExecuteAsync</c> ran a <c>while + Task.Delay(backstop)</c> loop. Now subscribes to
+///         <see cref="TickCadence.Tick5m"/> via <see cref="IScheduleCoordinator"/>; each tick runs
+///         the backstop sweep. The inline event-driven debounced fast-path
+///         (<see cref="OnObservationAppended"/>) is preserved -- the tick is the catch-up for
+///         observations the debounce path didn't pick up. Subscribed at the SAME cadence as
+///         <see cref="BrowserModes.FingerprintModeAbsorptionService"/> and
+///         <see cref="BrowserModes.FingerprintRollupRecomputeService"/> so all three sit on
+///         the same wave window per <c>project_absorption_services_migration</c>: a rollup
+///         recompute on Tick5m sees consistent parent-absorption + per-mode-absorption state.
+///     </para>
 /// </summary>
-public sealed class FingerprintAbsorptionService : BackgroundService
+public sealed class FingerprintAbsorptionService : IDisposable
 {
     private readonly ILogger<FingerprintAbsorptionService> _logger;
     private readonly IFingerprintStore _store;
@@ -32,8 +46,12 @@ public sealed class FingerprintAbsorptionService : BackgroundService
     private readonly ConcurrentDictionary<string, DateTime> _pendingByFingerprint
         = new(StringComparer.Ordinal);
 
-    // Captured from ExecuteAsync so the event handler can propagate cancellation inward.
-    private CancellationToken _stoppingToken;
+    // Captured handler so Dispose can unhook the CLR event subscription (B10).
+    private readonly Action<string> _onObservationAppendedHandler;
+    private readonly IDisposable? _subscription;
+
+    private readonly CancellationTokenSource _serviceCts = new();
+    private int _disposed;
 
     // Test instrumentation: counts how many event-driven absorptions and backstop ticks have run.
     // internal so tests in Mostlylucid.BotDetection.Test can read them without leaking to callers.
@@ -44,61 +62,80 @@ public sealed class FingerprintAbsorptionService : BackgroundService
         ILogger<FingerprintAbsorptionService> logger,
         IFingerprintStore store,
         IdentityArchetypeRegistry archetypes,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _store = store;
         _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
-    }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        if (!_enabled)
+        // Wire the event-driven fast-path immediately so observations recorded
+        // between construction and the first tick still get folded inside the
+        // debounce window. Capture the handler delegate so Dispose can unhook
+        // it -- otherwise the store keeps a stale subscription after disposal
+        // and post-dispose ObservationAppended events would enqueue work for
+        // a torn-down service (B10).
+        _onObservationAppendedHandler = OnObservationAppended;
+        if (_enabled)
+        {
+            _store.ObservationAppended += _onObservationAppendedHandler;
+        }
+        else
         {
             _logger.LogDebug("FingerprintAbsorptionService dormant: Identity.Enabled = false");
-            return;
         }
 
-        _stoppingToken = stoppingToken;
+        // Optional so existing direct-construction tests (MatcherBrowserModeAbsorbTests,
+        // FingerprintAbsorptionServiceSubscribeTests' debounce + backstop coverage) keep
+        // working without spinning up a real coordinator.
+        if (scheduleCoordinator is not null && _enabled)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick5m,
+                "FingerprintAbsorptionService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
+    }
 
-        // Subscribe to the event-driven hot path before entering the backstop loop.
-        _store.ObservationAppended += OnObservationAppended;
-
-        var backstop = TimeSpan.FromSeconds(
-            Math.Max(1, _options.Vector.BackstopSweepIntervalSeconds));
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: run the backstop sweep
+    ///     across all fingerprints with pending observations. Catches anything
+    ///     the per-fp debounced fast-path missed (handler exception, crash
+    ///     recovery, late SQLite rows). Paired with
+    ///     <see cref="BrowserModes.FingerprintModeAbsorptionService"/> and
+    ///     <see cref="BrowserModes.FingerprintRollupRecomputeService"/> on the
+    ///     same Tick5m wave window so a rollup recompute sees consistent
+    ///     parent + per-mode state.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        if (_disposed != 0) return;
+        if (!_enabled) return;
 
         try
         {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                try
-                {
-                    // Backstop sweep: catches any fingerprints missed by the subscription
-                    // (handler exception, crash recovery, late SQLite rows).
-                    var absorbed = await TickOnceAsync(stoppingToken);
-                    Interlocked.Increment(ref BackstopSweepCount);
-                    if (absorbed > 0)
-                        _logger.LogDebug("Backstop absorption tick folded {Count} observations", absorbed);
-                }
-                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-                {
-                    _logger.LogWarning(ex, "Backstop absorption tick failed");
-                }
-
-                try { await Task.Delay(backstop, stoppingToken); }
-                catch (OperationCanceledException) { return; }
-            }
+            var absorbed = await TickOnceAsync(ct);
+            Interlocked.Increment(ref BackstopSweepCount);
+            if (absorbed > 0)
+                _logger.LogDebug("Backstop absorption tick folded {Count} observations", absorbed);
         }
-        finally
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _store.ObservationAppended -= OnObservationAppended;
+            // Shutdown; not an error.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Backstop absorption tick failed");
         }
     }
 
     private void OnObservationAppended(string fingerprintId)
     {
+        if (_disposed != 0) return;
+
         // Stamp the next-fire deadline; race-tolerant.
         var debounceMs = Math.Max(1, _options.Vector.SubscriptionDebounceMs);
         var fire = DateTime.UtcNow.AddMilliseconds(debounceMs);
@@ -111,13 +148,16 @@ public sealed class FingerprintAbsorptionService : BackgroundService
         }
 
         // Fire-and-forget task: waits the debounce window then absorbs this fingerprint.
+        // Bound the lifetime by the service's CTS so dispose halts in-flight debounces.
+        var ct = _serviceCts.Token;
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(debounceMs).ConfigureAwait(false);
+                await Task.Delay(debounceMs, ct).ConfigureAwait(false);
                 _pendingByFingerprint.TryRemove(fingerprintId, out _);
-                await RunAbsorptionForAsync(fingerprintId, _stoppingToken).ConfigureAwait(false);
+                if (_disposed != 0) return;
+                await RunAbsorptionForAsync(fingerprintId, ct).ConfigureAwait(false);
                 Interlocked.Increment(ref EventDrivenAbsorptionCount);
             }
             catch (OperationCanceledException)
@@ -130,7 +170,7 @@ public sealed class FingerprintAbsorptionService : BackgroundService
                 _pendingByFingerprint.TryRemove(fingerprintId, out _);
                 _logger.LogWarning(ex, "Event-driven absorption failed for {Id}", fingerprintId);
             }
-        });
+        }, ct);
     }
 
     /// <summary>
@@ -264,5 +304,23 @@ public sealed class FingerprintAbsorptionService : BackgroundService
         }
 
         return (newCentroid, newMaturity, newWeights, newInferredType);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        // B10: unhook the CLR event subscription on the upstream store BEFORE
+        // releasing the tick subscription. Otherwise post-dispose
+        // ObservationAppended events would still enqueue debounce tasks for a
+        // service that's been torn down.
+        try { _store.ObservationAppended -= _onObservationAppendedHandler; }
+        catch { /* event source may already be torn down */ }
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
+        try { _serviceCts.Cancel(); }
+        catch { /* idempotent */ }
+        try { _serviceCts.Dispose(); }
+        catch { /* idempotent */ }
     }
 }
