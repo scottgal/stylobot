@@ -99,22 +99,28 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         var (isWhitelisted, whitelistName) = CheckWhitelist(userAgent);
         if (isWhitelisted)
         {
+            // Compose display name with per-instance discriminator so Mastodon/Pleroma/etc.
+            // show as "Mastodon mastodon.social" not plain "Mastodon" in every code path
+            // (including when the Identity layer is disabled or hasn't run yet).
+            var whitelistDisplay = !string.IsNullOrEmpty(botInstance)
+                ? $"{whitelistName} {botInstance}"
+                : whitelistName;
             state.WriteSignals([
                 new(SignalKeys.UserAgent, userAgent),
                 new(SignalKeys.UserAgentIsBot, true),
                 new(SignalKeys.UserAgentBotType, BotType.SearchEngine.ToString()),
-                new(SignalKeys.UserAgentBotName, whitelistName!),
-                new(SignalKeys.UserAgentFamily, whitelistName!),
+                new(SignalKeys.UserAgentBotName, whitelistDisplay!),
+                new(SignalKeys.UserAgentFamily, whitelistDisplay!),
                 new(SignalKeys.UserAgentFamilyVersion, familyVersion ?? "")
             ]);
             if (!string.IsNullOrEmpty(botInstance))
                 state.WriteSignal(SignalKeys.UserAgentBotInstance, botInstance);
             return Task.FromResult(Single(BotContribution(
                     "UserAgent",
-                    $"Known bot UA pattern: {whitelistName}",
+                    $"Known bot UA pattern: {whitelistDisplay}",
                     confidenceOverride: PatternMatchConfidence,
                     botType: BotType.SearchEngine.ToString(),
-                    botName: whitelistName)
+                    botName: whitelistDisplay)
                 with
                 {
                     Weight = WeightBotSignal
@@ -130,12 +136,19 @@ public partial class UserAgentContributor : ConfiguredContributorBase
             if (botType == BotType.Tool)
                 confidence = VerifyToolHeaders(state, confidence, botName, out reason);
 
+            // Compose display name: include per-instance discriminator so fediverse
+            // instances ("Mastodon mastodon.social", "Mastodon mas.to") are distinct
+            // at every layer, not just when FingerprintMatchContributor fires.
+            var displayBotName = !string.IsNullOrEmpty(botInstance) && !string.IsNullOrEmpty(botName)
+                ? $"{botName} {botInstance}"
+                : botName;
+
             state.WriteSignals([
                 new(SignalKeys.UserAgent, userAgent),
                 new(SignalKeys.UserAgentIsBot, true),
                 new(SignalKeys.UserAgentBotType, botType?.ToString() ?? "Unknown"),
-                new(SignalKeys.UserAgentBotName, botName ?? ""),
-                new(SignalKeys.UserAgentFamily, botName ?? family),
+                new(SignalKeys.UserAgentBotName, displayBotName ?? ""),
+                new(SignalKeys.UserAgentFamily, displayBotName ?? family),
                 new(SignalKeys.UserAgentFamilyVersion, familyVersion ?? "")
             ]);
             if (!string.IsNullOrEmpty(botInstance))
@@ -145,7 +158,7 @@ public partial class UserAgentContributor : ConfiguredContributorBase
                     reason,
                     confidenceOverride: confidence,
                     botType: botType?.ToString(),
-                    botName: botName)
+                    botName: displayBotName)
                 with
                 {
                     Weight = WeightBotSignal

@@ -273,10 +273,16 @@ if (!string.IsNullOrWhiteSpace(originTunnelHost))
 }
 
 var upstream = cliUpstream ?? positionalUpstream ?? originTunnelEffectiveUpstream ?? envUpstream ?? "http://localhost:8080";
-var mode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE") ?? "demo";
+// --tunnel implies public traffic → default to production mode so the policy
+// stack is active. Operators that want observe-only on a tunnel can still pass
+// --mode demo explicitly.
+var hasTunnel = cmdArgs.Any(a => a.Equals("--tunnel", StringComparison.OrdinalIgnoreCase));
+var modeDefault = hasTunnel ? "production" : "demo";
+var mode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE") ?? modeDefault;
 var isDemoLikeMode = mode.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
                      mode.Equals("learning", StringComparison.OrdinalIgnoreCase);
-var defaultActionPolicy = mode.Equals("production", StringComparison.OrdinalIgnoreCase) ? "block" : "logonly";
+// production → use the policy stack (no flat override); demo → logonly shadow mode
+var defaultActionPolicy = mode.Equals("production", StringComparison.OrdinalIgnoreCase) ? null : "logonly";
 var actionPolicy = GetArg(cmdArgs, "--policy") ?? Environment.GetEnvironmentVariable("STYLOBOT_POLICY") ?? defaultActionPolicy;
 var certPath = GetArg(cmdArgs, "--cert");
 var keyPath = GetArg(cmdArgs, "--key");
@@ -653,7 +659,10 @@ try
     // Apply CLI overrides
     builder.Services.PostConfigure<Mostlylucid.BotDetection.Models.BotDetectionOptions>(opts =>
     {
-        opts.DefaultActionPolicyName = actionPolicy;
+        // null = production mode; let the policy stack handle action routing.
+        // non-null = explicit policy override (e.g. logonly in demo mode, or --policy flag).
+        if (actionPolicy != null)
+            opts.DefaultActionPolicyName = actionPolicy;
 #pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (botThreshold.HasValue) opts.BotThreshold = botThreshold.Value;
         if (llmProvider != null) opts.EnableLlmDetection = true;

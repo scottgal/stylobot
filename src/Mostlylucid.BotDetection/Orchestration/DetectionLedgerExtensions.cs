@@ -359,12 +359,17 @@ public static class DetectionLedgerExtensions
 
     /// <summary>
     ///     Resolves the display name for this visitor: the matcher-set signal first, then the
-    ///     ledger's classifier-supplied <c>BotName</c>. Returns null when neither is present;
-    ///     the dashboard's render layer (SbTopBots.DescriptiveBotName etc.) synthesises a
-    ///     descriptive label from threat / behaviour signals on the row in that case.
-    ///     Previously this also called FingerprintNameComposer.Compose as a third fallback,
-    ///     which is now redundant -- the matcher already calls Compose at allocation time
-    ///     and only writes the signal when a real name was derivable.
+    ///     ledger's classifier-supplied <c>BotName</c>. Returns null only when no UA
+    ///     is available at all; the dashboard's render layer handles that residual.
+    ///     Tier order:
+    ///     1. <see cref="SignalKeys.IdentityDisplayName"/> — set by FingerprintMatchContributor
+    ///        when the identity layer runs (composed name with discriminator already applied).
+    ///     2. <paramref name="fallback"/> — classifier-supplied BotName from the ledger
+    ///        (e.g. "Mastodon mastodon.social" after the UserAgentContributor fix).
+    ///     3. <see cref="Services.FingerprintNameComposer.Compose"/> — fallback for human
+    ///        visitors when Identity is disabled: produces "Chrome 124 / Windows", "Safari /
+    ///        iOS", etc. from the raw UA signals so the CLI live table and the dashboard
+    ///        never fall back to a signature-hash label.
     /// </summary>
     private static string? ResolveDisplayName(
         IReadOnlyDictionary<string, object> signals, string? fallback)
@@ -372,7 +377,10 @@ public static class DetectionLedgerExtensions
         var fromSignal = signals.TryGetValue(SignalKeys.IdentityDisplayName, out var v)
             ? v as string : null;
         if (!string.IsNullOrEmpty(fromSignal)) return fromSignal;
-        return string.IsNullOrEmpty(fallback) ? null : fallback;
+        if (!string.IsNullOrEmpty(fallback)) return fallback;
+        // Compose from UA signals so humans get "Chrome 124 / Windows" instead of a
+        // signature hash when the Identity layer is disabled or hasn't allocated yet.
+        return Services.FingerprintNameComposer.Compose(signals);
     }
 
     private static (double ThreatScore, ThreatBand Band) ExtractThreatScore(

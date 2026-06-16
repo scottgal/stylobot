@@ -234,12 +234,28 @@ public partial class DetectionBroadcastMiddleware
         }
 
         // === PROXY DOWNSTREAM (exactly once, regardless of prep outcome) ===
-        // The website's render fires here. It sees the cache update we just made above.
-        await _next(context);
+        // _next is invoked here so broadcast-prep failures above can never cause a double
+        // _next call. Capture downstream exceptions and re-throw AFTER the write-behind
+        // persist so that a throttle-tools 429 / YARP "response already started" throw
+        // does not silently drop the audit row from dashboard_detections.
+        Exception? downstreamException = null;
+        try
+        {
+            await _next(context);
+        }
+        catch (Exception ex)
+        {
+            downstreamException = ex;
+        }
 
         // Local-IP exclusion: cache update and broadcasts were already skipped in the
         // try block; skip write-behind persist too so loopback noise stays out of the DB.
-        if (excludeLocal) return;
+        if (excludeLocal)
+        {
+            if (downstreamException is not null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(downstreamException);
+            return;
+        }
 
         // === POST-_NEXT REHYDRATION (in-process detection path) ===
         // When this middleware is wired BEFORE BotDetectionMiddleware (the
@@ -278,7 +294,12 @@ public partial class DetectionBroadcastMiddleware
         // The dict is already correct via the synchronous update above; this batch
         // brings the DB up to date for durability and cold restore. Failures are
         // logged and swallowed -- the cache remains authoritative for in-memory state.
-        if (detection is null) return;
+        if (detection is null)
+        {
+            if (downstreamException is not null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(downstreamException);
+            return;
+        }
 
         // Capture everything we need by value BEFORE spawning the task; context may
         // be disposed before the task runs.
@@ -332,6 +353,12 @@ public partial class DetectionBroadcastMiddleware
             pathLog,
             detectionCapture.PrimarySignature?[..Math.Min(8, detectionCapture.PrimarySignature.Length)],
             detectionCapture.BotProbability);
+
+        // Re-throw downstream exception AFTER the persist task is queued so the
+        // audit row lands in dashboard_detections even when the proxy / endpoint
+        // throws after starting the response (e.g. throttle-tools 429 + YARP).
+        if (downstreamException is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(downstreamException);
     }
 
     /// <summary>
