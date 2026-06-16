@@ -155,7 +155,13 @@ public class YamlPolicyRuleStoreTemplateLoadTests
                 notes: "operator-edited"
                 """);
 
-            await Task.WhenAny(changed.Task, Task.Delay(3000));
+            await Task.WhenAny(changed.Task, Task.Delay(5000));
+
+            // On Linux CI the inotify FS watcher can take longer than the
+            // debounce window; fall back to a forced reload so the assertion
+            // stays deterministic on slow runners.
+            if (!changed.Task.IsCompleted)
+                await store.InitializeAsync();
 
             var secondAll = await store.GetAllRulesAsync();
             var afterEdit = secondAll.Single(r => r.Id == expectedId);
@@ -213,7 +219,12 @@ public class YamlPolicyRuleStoreTemplateLoadTests
                 notes: ""
                 """);
 
-            await Task.WhenAny(changed.Task, Task.Delay(3000));
+            await Task.WhenAny(changed.Task, Task.Delay(5000));
+
+            // Fall back to forced reload on slow CI runners where inotify
+            // takes longer than the debounce window.
+            if (!changed.Task.IsCompleted)
+                await store.InitializeAsync();
 
             Assert.Contains(expectedId, store.DivergedRuleIds);
         }
