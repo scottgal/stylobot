@@ -45,5 +45,14 @@ public sealed class ProfileAnalysisChannel
     public IAsyncEnumerable<ProfileRequestSnapshot> ReadAllAsync(CancellationToken ct) =>
         _channel.Reader.ReadAllAsync(ct);
 
+    /// <summary>
+    ///     Non-blocking single-item read used by the tick-driven drainer
+    ///     (<see cref="ProfileAnalysisWorker"/>'s ScheduleCoordinator handler).
+    ///     Returns <c>false</c> when the channel is empty so the tick can
+    ///     finish its drain pass and yield to the next tick.
+    /// </summary>
+    public bool TryRead(out ProfileRequestSnapshot snapshot) =>
+        _channel.Reader.TryRead(out snapshot!);
+
     public void Complete() => _channel.Writer.Complete();
 }

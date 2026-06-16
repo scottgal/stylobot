@@ -232,7 +232,11 @@ public static class ServiceCollectionExtensions
             return new ProfileCalibrationStore(dbPath);
         });
 
-        services.AddHostedService<ProfileAnalysisWorker>();
+        // Wave 2 migrated: subscribes to ScheduleCoordinator.Tick10s at
+        // construction. GatewayHostedSingletonsBootstrap eagerly resolves it
+        // at boot so the subscription is live before the first tick.
+        services.AddSingleton<ProfileAnalysisWorker>();
+        services.AddHostedService<GatewayHostedSingletonsBootstrap>();
 
         return services;
     }
