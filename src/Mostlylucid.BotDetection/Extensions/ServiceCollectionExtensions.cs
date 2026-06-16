@@ -841,7 +841,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ThreatIntel.IThreatIntelCoordinator, ThreatIntel.ThreatIntelCoordinator>();
         services.TryAddSingleton<ThreatIntel.ThreatIntelEnrichmentQueue>();
         services.AddHostedService<ThreatIntel.ThreatIntelRefreshService>();
-        services.AddHostedService<ThreatIntel.ThreatIntelEnrichmentService>();
+        // Wave 2 (Category B): dropped BackgroundService inheritance and now
+        // subscribes to ScheduleCoordinator Tick10s at construction.
+        // BotDetectionHostedSingletonsBootstrap eagerly resolves it at boot so
+        // the subscription is live before the first tick.
+        services.AddSingleton<ThreatIntel.ThreatIntelEnrichmentService>();
         services.AddHttpClient<ThreatIntel.Providers.SpamhausDropProvider>(c =>
         {
             c.Timeout = TimeSpan.FromSeconds(30);

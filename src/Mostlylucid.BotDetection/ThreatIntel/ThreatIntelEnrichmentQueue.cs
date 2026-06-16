@@ -1,8 +1,9 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.ThreatIntel;
 
@@ -68,70 +69,108 @@ public sealed class ThreatIntelEnrichmentQueue
 ///     through <see cref="IThreatIntelCoordinator.EnrichAsync"/>. One reader, no
 ///     concurrency control needed - per-provider in-flight coalescing happens
 ///     inside <see cref="ThreatIntelLiveProviderBase"/>.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B).</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c> on
+///         <see cref="ChannelReader{T}.ReadAllAsync"/>. Now subscribes to
+///         <see cref="TickCadence.Tick10s"/> via
+///         <see cref="IScheduleCoordinator"/>; each tick drains whatever is
+///         available right now via <see cref="ChannelReader{T}.TryRead"/> and
+///         routes each subject through <see cref="IThreatIntelCoordinator.EnrichAsync"/>
+///         under the same per-subject timeout. The coordinator-disabled and
+///         no-live-providers checks happen inside the tick handler -- a dormant
+///         coordinator simply early-returns each tick.
+///     </para>
+///     <para>
+///         Latency budget: enrichment subjects can sit in the queue up to one
+///         tick interval (~10s) before processing starts. The queue is
+///         <see cref="BoundedChannelFullMode.DropOldest"/> so a tick that skips
+///         while enrichment work is in flight is harmless -- the oldest item is
+///         the most stale to begin with. Cadence matches
+///         <c>BackgroundEnrichmentService</c> for operational symmetry.
+///     </para>
 /// </summary>
-internal sealed class ThreatIntelEnrichmentService : BackgroundService
+internal sealed class ThreatIntelEnrichmentService : IDisposable
 {
     private readonly ThreatIntelEnrichmentQueue _queue;
     private readonly IThreatIntelCoordinator _coordinator;
     private readonly ILogger<ThreatIntelEnrichmentService> _logger;
     private readonly TimeSpan _perSubjectTimeout;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     public ThreatIntelEnrichmentService(
         ThreatIntelEnrichmentQueue queue,
         IThreatIntelCoordinator coordinator,
         IOptions<BotDetectionOptions> options,
-        ILogger<ThreatIntelEnrichmentService> logger)
+        ILogger<ThreatIntelEnrichmentService> logger,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _queue = queue;
         _coordinator = coordinator;
         _perSubjectTimeout = TimeSpan.FromSeconds(Math.Max(1, options.Value.ThreatIntel.EnrichmentTimeoutSeconds));
         _logger = logger;
+
+        // Optional so existing direct-construction tests that exercise the
+        // queue + coordinator in isolation keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick10s,
+                "ThreatIntelEnrichmentService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: short-circuit when the
+    ///     coordinator is disabled or has no live providers, otherwise drain
+    ///     whatever subjects landed since the last tick via
+    ///     <see cref="ChannelReader{T}.TryRead"/> and route each through
+    ///     <see cref="IThreatIntelCoordinator.EnrichAsync"/> under the
+    ///     per-subject timeout. Single-reader by contract (the channel is
+    ///     configured with <c>SingleReader = true</c>) so no fan-out is
+    ///     attempted -- enrichments are processed sequentially within the tick.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (!_coordinator.IsEnabled)
-        {
-            _logger.LogInformation("Threat intel disabled; enrichment service inactive");
-            return;
-        }
+        if (_disposed != 0) return;
+        if (!_coordinator.IsEnabled) return;
+        if (!_coordinator.Providers.Any(p => p.Mode == ThreatIntelMode.Live)) return;
 
-        var hasLive = _coordinator.Providers.Any(p => p.Mode == ThreatIntelMode.Live);
-        if (!hasLive)
+        while (_queue.Reader.TryRead(out var subject))
         {
-            _logger.LogInformation("Threat intel enabled but no live providers registered; enrichment service inactive");
-            return;
-        }
-
-        _logger.LogInformation(
-            "ThreatIntelEnrichmentService started (per-subject cap={Timeout}, single-reader)",
-            _perSubjectTimeout);
-
-        try
-        {
-            await foreach (var subject in _queue.Reader.ReadAllAsync(stoppingToken))
+            if (ct.IsCancellationRequested) break;
+            try
             {
-                try
-                {
-                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-                    cts.CancelAfter(_perSubjectTimeout);
-                    await _coordinator.EnrichAsync(subject, cts.Token);
-                }
-                catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
-                {
-                    _logger.LogDebug(
-                        "ThreatIntel enrichment for {Subject} timed out ({Timeout} cap)",
-                        subject, _perSubjectTimeout);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "ThreatIntel enrichment failed for {Subject}", subject);
-                }
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(_perSubjectTimeout);
+                await _coordinator.EnrichAsync(subject, cts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogDebug(
+                    "ThreatIntel enrichment for {Subject} timed out ({Timeout} cap)",
+                    subject, _perSubjectTimeout);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ThreatIntel enrichment failed for {Subject}", subject);
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Host shutdown.
-        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 }
