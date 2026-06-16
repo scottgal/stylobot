@@ -1,16 +1,17 @@
 using System.Collections.Concurrent;
 using System.Net;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.ApiHolodeck.Models;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Common.Scheduling;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.ApiHolodeck.Services;
 
 /// <summary>
-///     Background service that reports detected bots to Project Honeypot.
+///     Reports detected bots to Project Honeypot.
 ///     This contributes data back to the community, helping other sites block malicious IPs.
 /// </summary>
 /// <remarks>
@@ -23,77 +24,141 @@ namespace Mostlylucid.BotDetection.ApiHolodeck.Services;
 ///         You need to host a honeypot script on your site to contribute data.
 ///         This service prepares data for submission when you have such a setup.
 ///     </para>
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B pilot).</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> that ran two
+///         parallel loops: an <c>await foreach</c> on
+///         <see cref="ILearningEventBus.Reader"/> for fan-in plus a 1-minute
+///         <c>Task.Delay</c> loop that drained an in-memory
+///         <see cref="ConcurrentQueue{ReportEntry}"/> and POSTed batches. Now subscribes
+///         to <see cref="TickCadence.Tick1m"/>; each tick first drains the learning-event
+///         channel non-blocking via <see cref="System.Threading.Channels.ChannelReader{T}.TryRead"/>
+///         and then runs the existing batched report-queue submission. Trade-off: a
+///         learning event may sit in the channel for up to one tick interval (~60s) before
+///         it is converted to a queued report. That is well within the original 60s
+///         report-drain cadence and well below the
+///         <see cref="HolodeckOptions.MaxReportsPerHour"/> throttle (100 reports/hour
+///         default × batch cap 10/tick × 60 ticks/hour leaves plenty of slack).
+///     </para>
+///     <para>
+///         The in-memory <see cref="ConcurrentQueue{T}"/> stays per
+///         <c>feedback_no_inmemory_stores</c> -- Project Honeypot reporting is explicitly
+///         "best effort", queued reports lost on restart are acceptable. Persistence
+///         would be the right move if/when this service grows beyond best-effort.
+///     </para>
 /// </remarks>
-public class HoneypotReporter : BackgroundService
+public sealed class HoneypotReporter : IDisposable
 {
-    // Queue of IPs to report
-    private static readonly ConcurrentQueue<ReportEntry> _reportQueue = new();
+    // Queue of IPs to report. Per-instance (not static) so a singleton DI lifetime is
+    // the source of truth; the previous static field was incidentally a single global
+    // because AddHostedService<T> registered the service as a singleton anyway.
+    private readonly ConcurrentQueue<ReportEntry> _reportQueue = new();
 
-    // Rate limiting
-    private static int _reportsThisHour;
-    private static DateTime _hourStart = DateTime.UtcNow;
+    // Rate limiting state -- per-instance for the same reason as _reportQueue.
+    private int _reportsThisHour;
+    private DateTime _hourStart = DateTime.UtcNow;
+
     private readonly ILearningEventBus? _learningEventBus;
     private readonly ILogger<HoneypotReporter> _logger;
     private readonly HolodeckOptions _options;
+    private readonly IDisposable? _subscription;
+
+    private bool _startupLogged;
+    private bool _disabledLogged;
+    private int _disposed;
 
     public HoneypotReporter(
         ILogger<HoneypotReporter> logger,
         IOptions<HolodeckOptions> options,
-        ILearningEventBus? learningEventBus = null)
+        ILearningEventBus? learningEventBus = null,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _options = options.Value;
         _learningEventBus = learningEventBus;
+
+        // Optional so existing direct-construction tests keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick1m,
+                "HoneypotReporter",
+                CostHint.Low,
+                OnTickAsync);
+        }
     }
 
     /// <summary>
     ///     Get the current queue size.
     /// </summary>
-    public static int QueueSize => _reportQueue.Count;
+    public int QueueSize => _reportQueue.Count;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: drain any available learning
+    ///     events from the bus channel, classify them, enqueue matching detections;
+    ///     then process up to <c>min(10, MaxReportsPerHour - reportsThisHour)</c>
+    ///     queued reports against the rate-limit budget. Public so tests can drive a
+    ///     single beat deterministically.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
+        if (_disposed != 0) return;
+
         if (!_options.ReportToProjectHoneypot)
         {
-            _logger.LogInformation("Project Honeypot reporting is disabled");
+            if (!_disabledLogged)
+            {
+                _logger.LogInformation("Project Honeypot reporting is disabled");
+                _disabledLogged = true;
+            }
             return;
         }
 
         if (string.IsNullOrWhiteSpace(_options.ProjectHoneypotAccessKey))
         {
-            _logger.LogWarning("Project Honeypot reporting enabled but no access key configured");
+            if (!_disabledLogged)
+            {
+                _logger.LogWarning("Project Honeypot reporting enabled but no access key configured");
+                _disabledLogged = true;
+            }
             return;
         }
 
-        _logger.LogInformation(
-            "Honeypot reporter started. Reporting threshold: {Threshold}, Max reports/hour: {Max}",
-            _options.MinRiskToReport,
-            _options.MaxReportsPerHour);
-
-        // Process learning events and queue for reporting
-        if (_learningEventBus != null) _ = ProcessLearningEventsAsync(stoppingToken);
-
-        // Process queue periodically
-        while (!stoppingToken.IsCancellationRequested)
+        if (!_startupLogged)
         {
-            await ProcessReportQueueAsync(stoppingToken);
-            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+            _logger.LogInformation(
+                "Honeypot reporter started. Reporting threshold: {Threshold}, Max reports/hour: {Max}",
+                _options.MinRiskToReport,
+                _options.MaxReportsPerHour);
+            _startupLogged = true;
         }
-    }
 
-    private async Task ProcessLearningEventsAsync(CancellationToken stoppingToken)
-    {
-        try
+        // 1) Drain any pending learning events into the report queue. This replaces
+        //    the legacy fire-and-forget `await foreach (... ReadAllAsync(ct))` loop.
+        //    TryRead is non-blocking; we read whatever is available right now.
+        if (_learningEventBus is not null)
         {
-            await foreach (var evt in _learningEventBus!.Reader.ReadAllAsync(stoppingToken))
+            while (_learningEventBus.Reader.TryRead(out var evt))
+            {
+                if (ct.IsCancellationRequested) break;
                 if (evt.Type == LearningEventType.HighConfidenceDetection ||
                     evt.Type == LearningEventType.FullDetection)
+                {
                     ProcessLearningEvent(evt);
+                }
+            }
         }
-        catch (OperationCanceledException)
-        {
-            // Expected during shutdown
-        }
+
+        // 2) Process the bounded batch from the report queue (existing logic).
+        await ProcessReportQueueAsync(ct);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     private void ProcessLearningEvent(LearningEvent evt)
@@ -294,7 +359,7 @@ public class HoneypotReporter : BackgroundService
     /// <summary>
     ///     Manually queue an IP for reporting (for testing or manual flagging).
     /// </summary>
-    public static void QueueReport(string ipAddress, ReportableVisitorType type, double riskScore)
+    public void QueueReport(string ipAddress, ReportableVisitorType type, double riskScore)
     {
         _reportQueue.Enqueue(new ReportEntry
         {

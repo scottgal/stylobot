@@ -75,7 +75,12 @@ public static class ServiceCollectionExtensions
         // Mostlylucid.BotDetection.Honeypot (registered automatically via
         // AddBotDetection). This package still wires the holodeck engagement +
         // beacon side of the system.
-        services.AddHostedService<HoneypotReporter>();
+        //
+        // Wave 2 Cat-B pilot: HoneypotReporter is now a singleton that
+        // subscribes to Tick1m at construction. The bootstrap shim below
+        // eagerly resolves it at boot so the subscription fires.
+        services.AddSingleton<HoneypotReporter>();
+        services.AddHostedService<ApiHolodeckHostedSingletonsBootstrap>();
 
         // Holodeck coordinator for per-fingerprint engagement slots
         services.AddSingleton<HolodeckCoordinator>();
@@ -136,7 +141,11 @@ public static class ServiceCollectionExtensions
         // (Mostlylucid.BotDetection.Honeypot) and is wired by AddBotDetection.
         services.AddSingleton<HolodeckActionPolicy>();
         services.AddSingleton<IActionPolicy>(sp => sp.GetRequiredService<HolodeckActionPolicy>());
-        services.AddHostedService<HoneypotReporter>();
+
+        // Wave 2 Cat-B pilot: see comment in the AddApiHolodeck(configure)
+        // overload above.
+        services.AddSingleton<HoneypotReporter>();
+        services.AddHostedService<ApiHolodeckHostedSingletonsBootstrap>();
 
         // Holodeck coordinator for per-fingerprint engagement slots
         services.AddSingleton<HolodeckCoordinator>();
