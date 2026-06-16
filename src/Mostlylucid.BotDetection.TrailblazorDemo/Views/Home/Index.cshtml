@@ -47,7 +47,21 @@ BotDetectionResult present:  @hasResult
     </div>
 </div>
 
-<h2>1. Risk-gated content (<code>&lt;sb-risk&gt;</code>)</h2>
+<h2 id="fingerprint">1. Your fingerprint card (<code>&lt;bot-detection-details /&gt;</code>)</h2>
+
+<p>
+    Per-request fingerprint computed by the in-process detection pipeline.
+    Verdict, bot probability, risk band, recommended action, top reasons,
+    and the centroid-projection radar. all read from the same
+    <code>DetectionDisplayModel</code> the detection middleware populated
+    before this view rendered. The whole upper card links to your
+    signature's detail page on the embedded dashboard at
+    <a href="/_stylobot">/_stylobot</a>.
+</p>
+
+<bot-detection-details collapsed="false"></bot-detection-details>
+
+<h2>2. Risk-gated content (<code>&lt;sb-risk&gt;</code>)</h2>
 
 <sb-risk max="Low">
     <p style="background: #d1fae5; padding: 1rem; border-radius: 0.5rem;">
@@ -75,7 +89,7 @@ BotDetectionResult present:  @hasResult
     </div>
 </sb-risk>
 
-<h2>2. Signal-driven variation (<code>&lt;sb-signal&gt;</code>)</h2>
+<h2>3. Signal-driven variation (<code>&lt;sb-signal&gt;</code>)</h2>
 
 <sb-signal signal="ip.is_datacenter" condition="true">
     <p>You appear to be on a <strong>datacentre IP</strong>. Some
@@ -98,7 +112,7 @@ BotDetectionResult present:  @hasResult
     detector.</p>
 </sb-signal>
 
-<h2>3. Honeypot form (<code>&lt;sb-honeypot /&gt;</code>)</h2>
+<h2>4. Honeypot form (<code>&lt;sb-honeypot /&gt;</code>)</h2>
 
 <p>This form contains three offscreen trap fields. Humans don't see them;
 bots fill them in. View source to confirm they're there.</p>
@@ -111,7 +125,7 @@ bots fill them in. View source to confirm they're there.</p>
     <button type="submit">Subscribe</button>
 </form>
 
-<h2>4. Endpoint traffic shaping</h2>
+<h2>5. Endpoint traffic shaping</h2>
 
 <p>The opening Razor view from the talk also wires up three minimal-API
 endpoints at the routing layer:</p>
