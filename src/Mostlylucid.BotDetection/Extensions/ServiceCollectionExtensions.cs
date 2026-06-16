@@ -1343,8 +1343,11 @@ public static class ServiceCollectionExtensions
         // ==========================================
         // Background Enrichment Service (async DNS lookups for ProjectHoneypot)
         // ==========================================
+        // Wave 2: dropped BackgroundService inheritance; subscribes to
+        // ScheduleCoordinator Tick10s at construction. BotDetectionHosted-
+        // SingletonsBootstrap eagerly resolves it at boot so the subscription
+        // is live before the first tick.
         services.AddSingleton<BackgroundEnrichmentService>();
-        services.AddHostedService(sp => sp.GetRequiredService<BackgroundEnrichmentService>());
 
         // ==========================================
         // Background LLM Classification Coordinator

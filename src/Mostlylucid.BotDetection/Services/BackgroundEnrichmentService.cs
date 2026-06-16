@@ -1,10 +1,11 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+using Mostlylucid.Common.Scheduling;
+using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -39,8 +40,30 @@ public record EnrichmentRequest
 ///     This is the first step toward a general tiered detection architecture:
 ///     fast path produces verdict -> low confidence triggers background enrichment ->
 ///     results improve future verdicts.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B).</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c> on
+///         <see cref="ChannelReader{T}.ReadAllAsync"/> and fired
+///         <c>ProcessRequestAsync</c> per item under a
+///         <see cref="SemaphoreSlim"/>-gated fan-out. Now subscribes to
+///         <see cref="TickCadence.Tick10s"/> via <see cref="IScheduleCoordinator"/>;
+///         each tick drains whatever is available right now via
+///         <see cref="ChannelReader{T}.TryRead"/> and fires the same per-item
+///         processing under the same shared semaphore. Processing tasks are
+///         intentionally fire-and-forget across ticks because the original
+///         design was already fire-and-forget; the semaphore bounds concurrency,
+///         not the tick interval.
+///     </para>
+///     <para>
+///         Latency budget: enrichment events can sit in the channel up to one
+///         tick interval (~10s) before processing starts. The channel is
+///         <see cref="BoundedChannelFullMode.DropOldest"/> so a tick that
+///         skips while enrichment work fans out is harmless -- the oldest item
+///         is the most stale to begin with.
+///     </para>
 /// </summary>
-public class BackgroundEnrichmentService : BackgroundService
+public sealed class BackgroundEnrichmentService : IDisposable
 {
     private readonly Channel<EnrichmentRequest> _channel;
     private readonly ILogger<BackgroundEnrichmentService> _logger;
@@ -49,6 +72,9 @@ public class BackgroundEnrichmentService : BackgroundService
     private readonly IPatternReputationCache _reputationCache;
     private readonly PatternReputationUpdater _updater;
     private readonly BackgroundEnrichmentOptions _options;
+    private readonly SemaphoreSlim _semaphore;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     private long _totalProcessed;
     private long _totalEnqueued;
@@ -63,7 +89,8 @@ public class BackgroundEnrichmentService : BackgroundService
         VerifiedBotRegistry verifiedBots,
         IPatternReputationCache reputationCache,
         PatternReputationUpdater updater,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _honeypotLookup = honeypotLookup;
@@ -79,6 +106,22 @@ public class BackgroundEnrichmentService : BackgroundService
                 SingleReader = false, // Multiple consumers via SemaphoreSlim
                 SingleWriter = false
             });
+
+        // Semaphore is shared across ticks (previously was a method-local inside
+        // ExecuteAsync). MaxConcurrency bounds concurrent ProcessRequestAsync
+        // invocations regardless of how many ticks fire per second.
+        _semaphore = new SemaphoreSlim(_options.MaxConcurrency);
+
+        // Optional so existing direct-construction tests that exercise
+        // TryEnqueue / ProcessRequestAsync in isolation keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick10s,
+                "BackgroundEnrichmentService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
     }
 
     /// <summary>Current number of items waiting in the queue.</summary>
@@ -114,27 +157,36 @@ public class BackgroundEnrichmentService : BackgroundService
         return result;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: drain any available
+    ///     enrichment requests from the channel via
+    ///     <see cref="ChannelReader{T}.TryRead"/> (non-blocking) and fire
+    ///     per-item <see cref="ProcessRequestAsync"/> under the shared
+    ///     concurrency semaphore. Processing is fire-and-forget (matches the
+    ///     legacy <c>ExecuteAsync</c> shape) so the tick handler returns
+    ///     promptly; the next tick can fire even while previous DNS lookups
+    ///     are still completing.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        _logger.LogInformation(
-            "BackgroundEnrichmentService started (capacity={Capacity}, concurrency={Concurrency})",
-            _options.ChannelCapacity, _options.MaxConcurrency);
+        if (_disposed != 0) return;
 
-        using var semaphore = new SemaphoreSlim(_options.MaxConcurrency);
-
-        try
+        while (_channel.Reader.TryRead(out var request))
         {
-            await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
+            if (ct.IsCancellationRequested) break;
+            try
             {
-                await semaphore.WaitAsync(stoppingToken);
-
-                // Fire-and-forget with semaphore release
-                _ = ProcessRequestAsync(request, semaphore, stoppingToken);
+                await _semaphore.WaitAsync(ct);
             }
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Expected during host shutdown.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            // Fire-and-forget with semaphore release (matches the legacy
+            // ExecuteAsync shape); ProcessRequestAsync releases the semaphore
+            // in its finally block.
+            _ = ProcessRequestAsync(request, _semaphore, ct);
         }
     }
 
@@ -452,5 +504,15 @@ public class BackgroundEnrichmentService : BackgroundService
             honest.ClaimedDomain,
             honest.ResolvedHostname,
             mismatchUpdated.BotScore);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
+        try { _semaphore.Dispose(); }
+        catch { /* already disposed */ }
     }
 }
