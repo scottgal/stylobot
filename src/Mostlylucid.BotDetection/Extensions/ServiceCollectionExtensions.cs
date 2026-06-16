@@ -1177,7 +1177,13 @@ public static class ServiceCollectionExtensions
         // requests land.
         services.AddSingleton<Services.DeploymentNormCalibrationService>();
         services.AddHostedService<Scheduling.BotDetectionHostedSingletonsBootstrap>();
-        services.AddHostedService<Data.SessionPersistenceService>();
+        // Wave 2 (Category B): SessionPersistenceService dropped BackgroundService
+        // inheritance; subscribes to ScheduleCoordinator Tick10s + the
+        // SessionStore.SessionFinalized event at construction. The lifecycle
+        // shim handles boot-time ISessionStore init + graceful-shutdown drain
+        // (these are not part of any tick).
+        services.AddSingleton<Data.SessionPersistenceService>();
+        services.AddHostedService<Data.SessionPersistenceLifecycleHostedService>();
         // Per-request persistence (every request → SQLite, LFU sampled under load)
         services.AddSingleton<Data.RequestPersistenceService>();
         // Pipeline load sensor — tracks req/s via EMA; used by background services to self-throttle

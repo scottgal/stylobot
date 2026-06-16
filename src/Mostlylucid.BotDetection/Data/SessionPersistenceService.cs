@@ -3,75 +3,121 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Analysis;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Data;
 
 /// <summary>
-///     Background service that persists completed sessions to the ISessionStore.
-///     Listens to SessionStore.SessionFinalized events and writes asynchronously
-///     via a bounded channel to avoid blocking the request pipeline.
+///     Persists completed sessions to <see cref="ISessionStore"/>. Subscribes
+///     to <see cref="SessionStore.SessionFinalized"/> and writes asynchronously
+///     via a bounded channel to keep the request pipeline off the SQLite
+///     write path.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B).</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c> over the
+///         bounded channel. Now subscribes to <see cref="TickCadence.Tick10s"/>
+///         via <see cref="IScheduleCoordinator"/>; each tick drains whatever
+///         landed since the last tick via
+///         <see cref="ChannelReader{T}.TryRead"/> and persists each snapshot
+///         sequentially. The 10s cadence keeps session writes off the request
+///         path while bounding the worst-case persistence latency.
+///     </para>
+///     <para>
+///         Store-init at boot and graceful shutdown drain (flush active
+///         sessions + persist any remaining channel entries) moved out to
+///         <see cref="SessionPersistenceLifecycleHostedService"/> so this
+///         class itself is loop-free and matches the Cat-B recipe.
+///     </para>
 /// </summary>
-public sealed class SessionPersistenceService : BackgroundService
+public sealed class SessionPersistenceService : IDisposable
 {
     private readonly ISessionStore _store;
     private readonly SessionStore _sessionStore;
     private readonly ILogger<SessionPersistenceService> _logger;
     private readonly Channel<(SessionSnapshot Snapshot, IReadOnlyList<SessionRequest> Requests)> _channel;
+    private readonly Action<SessionSnapshot, IReadOnlyList<SessionRequest>> _onFinalizedHandler;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     public SessionPersistenceService(
         ISessionStore store,
         SessionStore sessionStore,
-        ILogger<SessionPersistenceService> logger)
+        ILogger<SessionPersistenceService> logger,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _store = store;
         _sessionStore = sessionStore;
         _logger = logger;
         _channel = Channel.CreateBounded<(SessionSnapshot, IReadOnlyList<SessionRequest>)>(
             new BoundedChannelOptions(500) { FullMode = BoundedChannelFullMode.DropOldest });
-    }
 
-    public override async Task StartAsync(CancellationToken cancellationToken)
-    {
-        await _store.InitializeAsync(cancellationToken);
-        await base.StartAsync(cancellationToken);
-    }
+        // Wire the event source. SessionFinalized is event-driven (sessions
+        // fire whenever they expire / complete); the channel decouples the
+        // event firing thread from the SQLite write thread.
+        _onFinalizedHandler = OnSessionFinalized;
+        _sessionStore.SessionFinalized += _onFinalizedHandler;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        // Subscribe to session finalization events
-        _sessionStore.SessionFinalized += OnSessionFinalized;
-
-        _logger.LogInformation("Session persistence service started");
-
-        try
+        // Optional so existing direct-construction tests that exercise
+        // OnSessionFinalized / PersistSessionAsync in isolation keep working.
+        if (scheduleCoordinator is not null)
         {
-            await foreach (var (snapshot, requests) in _channel.Reader.ReadAllAsync(stoppingToken))
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick10s,
+                "SessionPersistenceService",
+                CostHint.Medium,
+                OnTickAsync);
+        }
+    }
+
+    /// <summary>Channel reader exposed for the lifecycle host's shutdown drain.</summary>
+    internal ChannelReader<(SessionSnapshot Snapshot, IReadOnlyList<SessionRequest> Requests)> Reader => _channel.Reader;
+
+    /// <summary>Internal hook so the lifecycle host can complete the writer on shutdown.</summary>
+    internal void CompleteWriter() => _channel.Writer.TryComplete();
+
+    /// <summary>Visible depth for tests + dashboards.</summary>
+    public int QueueDepth => _channel.Reader.Count;
+
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: drain whatever
+    ///     finalized sessions landed since the last tick via
+    ///     <see cref="ChannelReader{T}.TryRead"/> and persist each
+    ///     sequentially. SQLite writes are the bottleneck; processing within a
+    ///     single tick keeps the writer contention bounded.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        if (_disposed != 0) return;
+
+        while (_channel.Reader.TryRead(out var item))
+        {
+            if (ct.IsCancellationRequested) break;
+            try
             {
-                try
-                {
-                    await PersistSessionAsync(snapshot, requests, stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to persist session for {Signature}", snapshot.Signature);
-                }
+                await PersistSessionAsync(item.Snapshot, item.Requests, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist session for {Signature}", item.Snapshot.Signature);
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Shutdown signal received - fall through to drain active sessions
-        }
-        finally
-        {
-            _sessionStore.SessionFinalized -= OnSessionFinalized;
-        }
+    }
 
-        // Graceful shutdown: flush all active in-memory sessions first (they fire SessionFinalized),
-        // then drain whatever landed in the channel. This ensures no sessions are silently dropped.
-        await _sessionStore.FlushAllActiveSessionsAsync();
-
-        _channel.Writer.TryComplete();
-        await foreach (var (snapshot, requests) in _channel.Reader.ReadAllAsync())
+    /// <summary>
+    ///     Internal entry point used by
+    ///     <see cref="SessionPersistenceLifecycleHostedService"/> during
+    ///     graceful shutdown to flush any sessions that landed on the channel
+    ///     after the last tick fired.
+    /// </summary>
+    internal async Task DrainAndPersistAllAsync(CancellationToken ct)
+    {
+        await foreach (var (snapshot, requests) in _channel.Reader.ReadAllAsync(ct))
         {
             try
             {
@@ -82,8 +128,6 @@ public sealed class SessionPersistenceService : BackgroundService
                 _logger.LogWarning(ex, "Failed to persist session during shutdown for {Signature}", snapshot.Signature);
             }
         }
-
-        _logger.LogInformation("Session persistence service stopped; all pending sessions written");
     }
 
     private void OnSessionFinalized(SessionSnapshot snapshot, IReadOnlyList<SessionRequest> requests)
@@ -196,5 +240,72 @@ public sealed class SessionPersistenceService : BackgroundService
         }
 
         return (float)entropy;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _sessionStore.SessionFinalized -= _onFinalizedHandler; }
+        catch { /* event source may already be torn down */ }
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
+    }
+}
+
+/// <summary>
+///     Boot- and shutdown-time bookend for
+///     <see cref="SessionPersistenceService"/>. On <see cref="StartAsync"/>
+///     this initializes the underlying <see cref="ISessionStore"/> (SQLite
+///     schema creation + cold-tier load) BEFORE the persistence service's
+///     channel starts receiving session-finalize events. On
+///     <see cref="StopAsync"/> it flushes any active in-memory sessions
+///     (which fire SessionFinalized) then drains whatever landed on the
+///     channel since the last tick -- mirrors the legacy
+///     <c>BackgroundService.ExecuteAsync</c> shutdown-drain semantics.
+///     <para>
+///         Pattern matches the
+///         <see cref="Mostlylucid.BotDetection.Storage.StoreInitService{TStore}"/>
+///         style of one-shot boot initializers; promoted to its own type
+///         because the persistence service has shutdown work in addition to
+///         the initialisation work.
+///     </para>
+/// </summary>
+internal sealed class SessionPersistenceLifecycleHostedService : IHostedService
+{
+    private readonly ISessionStore _store;
+    private readonly SessionStore _sessionStore;
+    private readonly SessionPersistenceService _persistence;
+    private readonly ILogger<SessionPersistenceLifecycleHostedService> _logger;
+
+    public SessionPersistenceLifecycleHostedService(
+        ISessionStore store,
+        SessionStore sessionStore,
+        SessionPersistenceService persistence,
+        ILogger<SessionPersistenceLifecycleHostedService> logger)
+    {
+        _store = store;
+        _sessionStore = sessionStore;
+        _persistence = persistence;
+        _logger = logger;
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await _store.InitializeAsync(cancellationToken);
+        _logger.LogInformation("Session persistence lifecycle started; store initialised");
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        // Flush all active in-memory sessions first -- they fire SessionFinalized
+        // and land on the persistence channel.
+        await _sessionStore.FlushAllActiveSessionsAsync();
+
+        // Then complete the writer + drain whatever landed.
+        _persistence.CompleteWriter();
+        await _persistence.DrainAndPersistAllAsync(CancellationToken.None);
+
+        _logger.LogInformation("Session persistence service stopped; all pending sessions written");
     }
 }
