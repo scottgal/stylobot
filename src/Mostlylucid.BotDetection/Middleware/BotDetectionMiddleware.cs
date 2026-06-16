@@ -739,7 +739,9 @@ public class BotDetectionMiddleware(
             var logOnlyPolicy = actionPolicyRegistry.GetPolicy("logonly");
             if (logOnlyPolicy != null)
             {
-                await logOnlyPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+                var logOnlyResult = await logOnlyPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+                if (!logOnlyResult.Continue)
+                    return;
             }
             await InvokeNextWithResponseMutationAsync(context);
             return;
@@ -857,7 +859,10 @@ public class BotDetectionMiddleware(
                     _options.ObserveOnly ? " [observe-only shadow]" : "",
                     context.Request.Path, aggregatedResult.BotProbability, aggregatedResult.PrimaryBotType);
 
-                await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+                var fallbackResult = await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+
+                if (!fallbackResult.Continue)
+                    return;
 
                 // DefaultActionPolicyName replaces ShouldBlockRequest - continue pipeline
                 // after the action (e.g., throttle-stealth adds delay then lets the
@@ -2206,8 +2211,8 @@ public class BotDetectionMiddleware(
                         _options.ObserveOnly ? " [observe-only shadow]" : "",
                         context.Request.Path, aggregatedResult.BotProbability, aggregatedResult.PrimaryBotType);
 
-                    await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
-                    return false;
+                    var fallbackResult = await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+                    return !fallbackResult.Continue;
                 }
             }
         }
