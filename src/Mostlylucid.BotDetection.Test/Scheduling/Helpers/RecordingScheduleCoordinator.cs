@@ -1,3 +1,4 @@
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Test.Scheduling.Helpers;

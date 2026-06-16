@@ -5,6 +5,7 @@ using Moq;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;

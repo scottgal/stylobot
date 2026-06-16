@@ -526,7 +526,7 @@ public static class StyloBotDashboardServiceExtensions
                         sp.GetRequiredService<IMetricSnapshotStore>(),
                         sp.GetRequiredService<ILogger<MeterListenerService>>(),
                         sp.GetRequiredService<IPackRuntimeController>(),
-                        sp.GetService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
+                        sp.GetService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>()));
             }
             else if (options.MonitoringPack.Mode == MonitoringMode.GatewayServer)
             {
@@ -559,7 +559,7 @@ public static class StyloBotDashboardServiceExtensions
                         options.MonitoringPack.RemotePollInterval,
                         sp.GetRequiredService<IMetricSnapshotStore>(),
                         sp.GetRequiredService<ILogger<RemoteMetricCollector>>(),
-                        sp.GetService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>()));
+                        sp.GetService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>()));
             }
         }
 

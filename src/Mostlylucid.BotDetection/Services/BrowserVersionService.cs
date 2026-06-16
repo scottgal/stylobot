@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;

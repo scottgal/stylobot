@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.MonitoringPacks;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Configuration;

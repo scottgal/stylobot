@@ -2,6 +2,7 @@ using System.Net;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;

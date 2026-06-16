@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;

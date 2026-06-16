@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Scheduling;
+namespace Mostlylucid.Common.Scheduling;
 
 /// <summary>
 ///     No-op <see cref="IScheduleCoordinator"/> for tests that construct a
@@ -14,11 +14,12 @@ namespace Mostlylucid.BotDetection.Scheduling;
 ///     </para>
 ///     <para>
 ///         <b>Production callers must NEVER resolve this type.</b> The real
-///         <see cref="ScheduleCoordinator"/> is the one and only coordinator the
-///         FOSS DI graph registers. This sibling lives in the same FOSS namespace
-///         so tests get the convenience without taking a test-assembly reference
-///         from production code; it's a no-cost alternative to forcing every test
-///         to spin a real coordinator just to construct a subscriber.
+///         <c>ScheduleCoordinator</c> (Mostlylucid.BotDetection.Scheduling) is
+///         the one and only coordinator the FOSS DI graph registers. This
+///         sibling lives in Mostlylucid.Common so tests get the convenience
+///         without taking a test-assembly reference from production code; it's
+///         a no-cost alternative to forcing every test to spin a real
+///         coordinator just to construct a subscriber.
 ///     </para>
 /// </summary>
 public sealed class NullScheduleCoordinator : IScheduleCoordinator

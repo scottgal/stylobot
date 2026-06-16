@@ -192,7 +192,7 @@ public static class PrometheusPackServiceCollectionExtensions
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<LocalMeterStreamOptions>>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LocalMeterStream>>(),
             sp.GetRequiredService<IMeterSignalSink>(),
-            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(),
+            sp.GetRequiredService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(),
             sp.GetService<MeterDescriptionRegistry>()));
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<LocalMeterStream>());
 
@@ -256,7 +256,7 @@ public static class PrometheusPackServiceCollectionExtensions
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RemoteMeterStream>>(),
             sp.GetService<IMeterSignalSink>(),
             sp.GetRequiredService<IHttpClientFactory>(),
-            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(),
+            sp.GetRequiredService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(),
             sp.GetService<MeterDescriptionRegistry>()));
         services.AddSingleton<IMeterStream>(sp => sp.GetRequiredService<RemoteMeterStream>());
 
@@ -338,7 +338,7 @@ public static class PrometheusPackServiceCollectionExtensions
 
         services.TryAddSingleton<MeterSignalsAtom>(sp => new MeterSignalsAtom(
             sp.GetRequiredService<IMeterStream>(),
-            sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(),
+            sp.GetRequiredService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(),
             sp.GetService<Microsoft.Extensions.Logging.ILogger<MeterSignalsAtom>>(),
             sp.GetService<Microsoft.Extensions.Options.IOptions<MeterSignalsAtomOptions>>()));
 
@@ -365,7 +365,7 @@ public static class PrometheusPackServiceCollectionExtensions
 
     /// <summary>
     ///     Registers <see cref="Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator" />
-    ///     as the canonical tick source if no <see cref="Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator" />
+    ///     as the canonical tick source if no <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator" />
     ///     is already in DI. Mirrors the registration block inside
     ///     <c>AddBotDetection</c> in the core assembly. Idempotent under
     ///     repeated calls and respects callers that registered their own
@@ -381,14 +381,14 @@ public static class PrometheusPackServiceCollectionExtensions
         // our additional AddSingleton<IScheduleCoordinator>(factory) would
         // override the test's recording coordinator -- the last AddSingleton
         // wins on resolve.
-        if (services.Any(d => d.ServiceType == typeof(Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator)))
+        if (services.Any(d => d.ServiceType == typeof(Mostlylucid.Common.Scheduling.IScheduleCoordinator)))
             return;
 
         services.AddOptions<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions>()
             .BindConfiguration(Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions.SectionName);
 
         services.AddSingleton<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>();
-        services.AddSingleton<Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator>(
+        services.AddSingleton<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(
             sp => sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>());
         services.AddHostedService(
             sp => sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>());

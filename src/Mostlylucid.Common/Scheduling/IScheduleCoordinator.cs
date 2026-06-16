@@ -1,4 +1,4 @@
-namespace Mostlylucid.BotDetection.Scheduling;
+namespace Mostlylucid.Common.Scheduling;
 
 /// <summary>
 ///     Project-wide tick cadences emitted by <see cref="IScheduleCoordinator"/>.
@@ -28,7 +28,7 @@ public enum TickCadence
 /// <summary>
 ///     Operator hint for how expensive a subscriber's handler is. Used by the
 ///     resource-aware pipelining surface (currently advisory only; the
-///     coordinator honours <see cref="ScheduleCoordinatorOptions.MaxConcurrentSubscribersPerTick"/>
+///     coordinator honours the project's MaxConcurrentSubscribersPerTick option
 ///     when set).
 /// </summary>
 public enum CostHint
@@ -46,11 +46,13 @@ public enum CostHint
 /// <summary>
 ///     The single source of truth for time-based ticks across the process.
 ///     <para>
-///         <see cref="ScheduleCoordinator"/> emits stable wall-clock-aligned
-///         ticks at the five cadences in <see cref="TickCadence"/> and lets units
-///         subscribe to the cadence they care about. Replaces the ~39 ad-hoc
-///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> timer
-///         loops the project had accumulated.
+///         The canonical concrete implementation lives in
+///         <c>Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator</c> and
+///         emits stable wall-clock-aligned ticks at the five cadences in
+///         <see cref="TickCadence"/>. Lifting the interface here lets downstream
+///         packages (GeoDetection, Common-only subprojects) subscribe to ticks
+///         without taking a project reference on the heavier
+///         <c>Mostlylucid.BotDetection</c> assembly.
 ///     </para>
 ///     <para>
 ///         Subscribers depend on this interface as nullable: a viewer host that

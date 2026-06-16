@@ -6,7 +6,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// <summary>
 ///     Tiny bootstrap <see cref="IHostedService"/> whose only job is to RESOLVE
 ///     the UI assembly's migrated singletons at application start so their
-///     constructors fire <see cref="Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator.Subscribe"/>
+///     constructors fire <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator.Subscribe"/>
 ///     against the project-wide coordinator.
 ///     <para>
 ///         Mirrors the

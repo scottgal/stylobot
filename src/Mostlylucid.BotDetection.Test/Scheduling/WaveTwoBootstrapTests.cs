@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Mostlylucid.BotDetection.PrometheusPack.Extensions;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 

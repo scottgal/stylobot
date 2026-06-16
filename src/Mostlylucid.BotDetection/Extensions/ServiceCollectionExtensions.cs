@@ -498,7 +498,7 @@ public static class ServiceCollectionExtensions
         services.AddOptions<Scheduling.ScheduleCoordinatorOptions>()
             .BindConfiguration(Scheduling.ScheduleCoordinatorOptions.SectionName);
         services.TryAddSingleton<Scheduling.ScheduleCoordinator>();
-        services.TryAddSingleton<Scheduling.IScheduleCoordinator>(
+        services.TryAddSingleton<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(
             sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
         services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
 
@@ -549,7 +549,7 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IOptionsMonitor<BotDetectionOptions>>(),
                 sp.GetRequiredService<ILicenseGraceStore>(),
                 sp.GetRequiredService<ILogger<LicenseStateRefreshService>>(),
-                sp.GetRequiredService<Scheduling.IScheduleCoordinator>()));
+                sp.GetRequiredService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>()));
 
         // Register bot list update service.
         // Wave 2: migrated to ScheduleCoordinator tick.1h. Eager-resolved by

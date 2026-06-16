@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.PrometheusPack.Extensions;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Test.Telemetry;

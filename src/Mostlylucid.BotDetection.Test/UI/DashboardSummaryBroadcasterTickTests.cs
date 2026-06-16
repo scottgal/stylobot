@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 using Mostlylucid.BotDetection.UI.Adapters.Remote;

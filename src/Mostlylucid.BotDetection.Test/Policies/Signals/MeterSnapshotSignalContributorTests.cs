@@ -1,5 +1,6 @@
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 
 namespace Mostlylucid.BotDetection.Test.Policies.Signals;

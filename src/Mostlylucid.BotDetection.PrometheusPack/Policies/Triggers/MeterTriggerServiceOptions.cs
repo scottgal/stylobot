@@ -8,9 +8,9 @@ namespace Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers;
 /// </summary>
 /// <remarks>
 ///     The tick cadence itself is owned by
-///     <see cref="Mostlylucid.BotDetection.Scheduling.IScheduleCoordinator"/>.
+///     <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator"/>.
 ///     The service subscribes to
-///     <see cref="Mostlylucid.BotDetection.Scheduling.TickCadence.Tick1s"/> in
+///     <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1s"/> in
 ///     its constructor and the coordinator's single-flight gate decides whether
 ///     a slow tick gets skipped. The <see cref="TickInterval"/> field below is
 ///     documentation parity with the pre-Wave-2 class; the coordinator's

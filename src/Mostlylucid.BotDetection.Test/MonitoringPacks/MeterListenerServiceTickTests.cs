@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.MonitoringPacks;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 using Mostlylucid.BotDetection.UI.Services;

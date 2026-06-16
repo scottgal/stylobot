@@ -102,6 +102,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.Common\Mostlylucid.Common.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
         <None Include="ReleaseNotes.txt" />
         <Content Include="docs\ai-detection.md" />
     </ItemGroup>

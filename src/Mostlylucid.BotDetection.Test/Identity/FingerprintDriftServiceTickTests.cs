@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
