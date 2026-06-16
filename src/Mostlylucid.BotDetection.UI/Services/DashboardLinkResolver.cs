@@ -50,6 +50,7 @@ public sealed class DashboardLinkResolver : IDashboardLinkResolver
 {
     private readonly string _navBasePath;
 
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public DashboardLinkResolver(IOptions<StyloBotDashboardOptions> options)
     {
         var opts = options.Value;
