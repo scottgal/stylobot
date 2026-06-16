@@ -5,6 +5,181 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.0] - 2026-06-16
+
+Seven distinct workstreams land in this release. The most structural is the Wave 2 ScheduleCoordinator migration: 30+ background services that previously ran their own `System.Threading.Timer` loops are now tick subscribers on a single coordinator, giving operators a unified watchdog for every periodic task in the process. The security headline is the transport header trust gate, which closes the X-JA3/JA3-string spoofing surface identified in a previous audit. Detection quality improves on two fronts: an arcjet well-known-bots catalog integration fills classification gaps for bots absent from StyloBot's own YAML patterns, and forward-DNS confirmation for ActivityPub `+URL` claims catches spoofed Mastodon/fediverse UAs that previously passed on NodeInfo alone.
+
+### Headline
+
+- **Transport header trust gate (security fix).** `X-JA3-Hash`, `X-JA3-String`, `X-JA4`, `X-Client-TLS-*`, `X-Client-HTTP-Version`, QUIC headers, and `X-Client-ASN` are now silently discarded unless the connecting peer IP matches a `BotDetection:TransportTrust:TrustedProxyIps` CIDR entry. Before this fix an attacker hitting the gateway over direct HTTPS could inject a known-Chrome JA3 and receive the human-signal bias it would earn from a real Cloudflare edge. Operators behind a reverse proxy: configure `TrustedProxyIps` exactly as you would `ForwardedHeaders` and all injected signals continue to work as before.
+- **ScheduleCoordinator: 30+ background services unified under one watchdog.** All periodic background loops (heartbeat, session atomizer, entity resolution, vector compaction, calibration, JA3 corpus refresh, and more) now subscribe to named tick signals (`tick.1s` through `tick.1h`) emitted by a central `ScheduleCoordinator`. A stalled or exception-throwing subscriber surfaces through the shared fault channel instead of silently disappearing into the host's unobserved-exception handler. No timer cadences change; no persistence paths change.
+- **arcjet well-known-bots catalog integration.** `WellKnownBotIndex` is a new third-tier UA classification fallback that closes coverage gaps for bots not defined in StyloBot's YAML patterns (TurnitinBot, CrunchBot, aiHitBot, SemanticScholarBot, and others). The index refreshes on a `tick.1h` subscription and has zero impact on bots already classified by the primary and secondary tiers.
+- **Forward-DNS confirmation for ActivityPub `+URL` claims.** `FediverseDomainContributor` now resolves the A/AAAA records of the claimed instance hostname and compares them against the client IP before issuing `FriendlyDomainVerified=true`. An IP mismatch writes `verifiedbot.forward_dns_matched=false` and the spoofed claim is rejected rather than trusted on NodeInfo alone.
+- **Persistent verified-bot trust state.** Fingerprint records now persist `claim_status`, `verification_method`, `verified_at`, and `trust_observations` to SQLite. rDNS and NodeInfo checks short-circuit on repeat visits within the configurable `BotDetection:Trust:TrustCacheTtl` window (default 24 h), eliminating per-request DNS round-trips for known verified bots.
+- **Claim-first display naming.** `FingerprintNameComposer` now leads with what the UA actually claims (Priority 1: `ua.bot_name` catalog match, Priority 2: parsed product token) before consulting archetype or centroid-derived names. A Mastodon UA is always named after its claim; a raw UA prefix (capped at 48 chars) is the Priority 4 fallback rather than null. Fixes the staging regression where Googlebot and Mastodon instances appeared as "Chrome on macOS (privacy headers)" after a low-drift match recycled a stale stored name.
+- **Policy editor: full seven-kind action matrix.** The dashboard policy editor covers all action kinds (Block, LogOnly, SilentDrop, StickyDeny, Throttle, RateLimit, Challenge, Tag) as dedicated HTMX-swapped partials, a scope picker for host/method/geo/identity granularity, a promote-observe button per rule row, and a `IPolicyCanEditPolicy` seam that gives FOSS deployments full read-only visibility while gating write affordances on the commercial tier.
+- **robots.txt and sitemap extensions.** New `endpoints.MapStyloBotRobotsTxt()` and `endpoints.MapStyloBotSitemap()` minimal-API extensions make it a single call to serve a policy-aware robots.txt (auto-derives `Disallow:` lines from live Block-action rules) and an adaptive sitemap.xml that serves different URL lists by detection verdict.
+
+### Wave 2: ScheduleCoordinator Migration
+
+Before this release, every periodic background task in StyloBot owned its own `System.Threading.Timer` or `BackgroundService` timer loop. A timer that stalled or threw an unhandled exception would silently stop firing with no log entry and no recovery path. `ScheduleCoordinator` replaces all of these with a named-tick signal bus (`tick.1s`, `tick.10s`, `tick.1m`, `tick.5m`, `tick.1h`, and a `tick-drain` slot for queue-flush work). Each service subscribes to the relevant tick; the coordinator's watchdog detects overdue handlers and routes faults through the shared fault channel. `IScheduleCoordinator` and its supporting types live in `Mostlylucid.Common` so the gateway, sidecar, UI, and third-party packs can subscribe without a hard dependency on the core detection assembly.
+
+Operator impact: zero. All cadences are identical to the pre-migration timers. The only observable change is that a stalled background service now produces a structured log warning rather than disappearing.
+
+Migrated services:
+
+- `HeartbeatService` -- `tick.5m`
+- `DeploymentNormCalibrationService` -- `tick.1s`
+- `LicenseStateRefreshService` -- `tick.1m`
+- `BrowserVersionService` -- `tick.1h`
+- `CommonUserAgentService` -- `tick.1h`
+- `Ja3CorpusRefreshService` -- `tick.1h`
+- `VerifiedBotRegistry` -- `tick.1h`
+- `EntityResolutionService` -- `tick.1m`
+- `SessionAtomizerService` -- `tick.1m`
+- `VectorCompactionService` (session vector snapshot compaction) -- `tick.1h`
+- `FingerprintDriftService` -- `tick.10s`
+- `PopulationMarkovService` -- `tick.10s`
+- `IdentityGlobalWeightsCache` -- `tick.10s`
+- `IdentityWeightCalibrationService` -- `tick.1m`
+- `SignatureConvergenceService` -- `tick.10s`
+- `BotListUpdateService` -- `tick.1h`
+- `MeterListenerService` -- `tick.1m`
+- `DashboardSummaryBroadcaster` -- `tick.10s`
+- `RemoteMetricCollector` -- `tick.10s`
+- `GeoLite2UpdateService` (MaxMind database refresh) -- `tick.1h`
+- `HoneypotReporter` -- `tick-drain`
+- `BackgroundEnrichmentService` (FCrDNS + LLM enrichment queue) -- `tick-drain`
+- `ThreatIntelEnrichmentService` -- `tick-drain`
+- `LlmClassificationCoordinator` and `IntentClassificationCoordinator` -- `tick-drain`
+- `SessionPersistenceService` (session vector SQLite flush) -- `tick-drain`
+- `ProfileAnalysisWorker` (YARP gateway post-request analysis) -- `tick-drain`
+- `LearningBackgroundService` and `BoundedChannelLearningBus` (adaptive learning pipeline) -- `tick-drain`
+- `FingerprintAbsorption`, `FingerprintModeAbsorption`, and `FingerprintRollupRecompute` -- paired wave window (absorption and recompute guaranteed to fire in order within the same tick)
+- Three hosted services inside `PrometheusPack` -- tick subscriptions; `PrometheusPack` now self-registers `ScheduleCoordinator` in viewer-host mode so standalone dashboard hosts do not fail to boot when no other component has registered it
+
+### Security: Transport Header Trust Gate
+
+Resolves the X-JA3 header spoofing vulnerability noted in a prior audit. TLS/JA3, HTTP/2, QUIC (HTTP/3), and TCP/IP fingerprint headers injected by a reverse proxy are now gated behind a peer-IP trust check (`ITransportHeaderTrust` / `TransportTrustOptions`).
+
+**The gap:** An attacker hitting the gateway directly over HTTPS could send `X-JA3-Hash: <known Chrome hash>` and receive the `-0.15` human-signal bias a real Cloudflare or Caddy edge would have earned. The header was trusted unconditionally with no check on where the request came from.
+
+**The fix:** `PeerTrustDecisionService` resolves the connecting peer IP against `BotDetection:TransportTrust:TrustedProxyIps` (CIDR list). Untrusted peers have the injected headers silently discarded; their actual Kestrel TLS context is still read normally. Trust decisions are written to the blackboard as `transport.trust.peer_trusted`, `transport.trust.trust_mode`, and `transport.trust.distrust_reason` so downstream detectors and the policy stack can observe them. A `spoofed_edge_header_penalty` is applied to requests from untrusted peers that send these headers. The `X-Forwarded-For`-chain-derived topology trust arm has been removed; it was forgeable by the same class of attacker.
+
+**Operator action:** If you run behind Cloudflare, Caddy, nginx, or any other edge proxy, add the proxy's egress IP(s) or CIDR blocks to `BotDetection:TransportTrust:TrustedProxyIps`. Operators not behind a proxy need no configuration change and gain fail-closed protection immediately. Running `Mode: Off` disables the gate and is documented as a risk for public-facing deployments.
+
+- Added `TransportTrustOptions` config model with `TrustedProxyIps` (CIDR list) and `Mode` (Off / Strict).
+- Added `transport.trust.*` signal keys so downstream consumers can observe trust decisions.
+- Introduced `PeerTrustDecisionService` with CIDR allowlist resolution, bare IPv4/IPv6 support, and IPv4-mapped IPv6 normalisation.
+- Gated `X-JA3-Hash`, `X-JA3-String`, `X-JA4`, `X-Client-TLS-*` in `TlsFingerprintContributor` behind peer trust.
+- Gated `X-Client-HTTP-Version` / `Sb-Http-Version` in `Http2FingerprintContributor` behind peer trust.
+- Gated QUIC / HTTP/3 injected headers in `Http3FingerprintContributor` behind peer trust.
+- Gated `X-Client-ASN` and p0f-derived TCP/IP headers in `TcpIpFingerprintContributor` behind peer trust.
+- Exposed `spoofed_edge_header_penalty` as a tunable in `TransportTrustOptions`; emitted in all four transport-protocol contributor YAML manifests.
+- Removed the forgeable topology-trust arm (`X-Forwarded-For` chain inspection).
+- Added regression test: direct-peer JA3 spoof scores as bot; same request from a configured trusted proxy scores as human.
+- Added operator documentation covering design rationale, per-proxy configuration recipes, and an `Mode: Off` risk warning.
+
+### Detection: Well-Known Bots Catalog
+
+StyloBot now integrates the [arcjet well-known-bots](https://github.com/arcjet/well-known-bots) catalog as a third-tier fallback for user-agent and AI-scraper classification.
+
+**Classification tier order (unchanged precedence):**
+1. StyloBot YAML bot patterns (primary)
+2. AI-scraper YAML patterns (secondary)
+3. arcjet catalog (`WellKnownBotIndex`) -- new third-tier fallback
+
+Bots now correctly classified that previously fell through as unidentified: TurnitinBot, CrunchBot, aiHitBot, SemanticScholarBot, and others present in the arcjet catalog but absent from StyloBot's own YAML definitions. The index refreshes via a `tick.1h` subscription (`WellKnownBotRefreshService`) and contributes zero overhead to the hot detection path for bots already classified by tiers 1 or 2.
+
+- Added `WellKnownBotIndex` with a three-tier lookup and the arcjet catalog as the third tier.
+- Added `WellKnownBotRefreshService` subscribing to `tick.1h` for catalog refresh.
+- Fixed `DashboardLinkResolver` constructor ambiguity that caused a boot crash in every host calling `AddStyloBotDashboard` after the DI changes; added `[ActivatorUtilitiesConstructor]` to the `IOptions<>` overload.
+- Added a k6 5-minute mixed load and soak test validating the `WellKnownBotIndex` fallback path at approximately 700 RPS (p50=2ms, p95=171ms, errors=0%).
+
+### Detection: Forward-DNS Verified Bot Confirmation
+
+Closes the spoofed-ActivityPub claim gap. Previously, a request bearing a `Mozilla/5.0 (compatible; Mastodon/4.x; +https://evil.example/)` UA could pass the NodeInfo check and receive `FriendlyDomainVerified=true` without any confirmation that the client IP actually belongs to the claimed instance.
+
+`FediverseDomainContributor` now:
+
+1. Extracts the instance hostname from `ua.bot_instance` (the canonical signal emitted by `UserAgentContributor` -- both contributors now read the same signal rather than running independent regexes).
+2. Resolves the A/AAAA records of that hostname via a 5-minute DNS cache.
+3. Compares the resolved addresses against the client IP.
+4. Writes `verifiedbot.forward_dns_matched=true` on a match or `verifiedbot.forward_dns_matched=false` on a mismatch; a mismatch suppresses `FriendlyDomainVerified`.
+
+The rDNS-after-the-fact path was also broken by `skip_when: detection.early_exit` in the manifest -- once `FastPathReputation` pinned a verdict, `verifiedbot.method=fcrdns` never fired. rDNS work is now moved to a fire-and-forget background sink so the hot path is not blocked and the check always runs regardless of early-exit state.
+
+### Identity: Persistent Trust State and Claim-First Naming
+
+**Persistent trust state.** Fingerprint records gained four new columns: `claim_status`, `verification_method`, `verified_at`, and `trust_observations`. The schema migration is idempotent. A new `UpdateClaimVerificationAsync` write-behind hook lets the verifier contributors skip re-verification within `BotDetection:Trust:TrustCacheTtl` (default 24 h), eliminating redundant rDNS and NodeInfo calls on repeat visits from known identities.
+
+**Claim-first display naming.** `FingerprintMatchContributor` was short-circuiting to the stored `DisplayName` on low-drift matches regardless of the current request's signals. Bots whose stored name was stale (Googlebot, Bytespider, Mastodon) inherited incorrect labels like "Chrome on macOS (privacy headers)". Display names are now always recomposed from fresh signals. `FingerprintNameComposer` applies this priority order:
+
+1. `ua.bot_name` from the YAML catalog (highest authority)
+2. Parsed UA product token
+3. Archetype-derived name (only when `archetype_kind == "human-browser"`)
+4. Raw UA prefix, capped at 48 chars (`IsFallback = true`, cannot overwrite a previously stored authoritative name)
+
+**Per-mode archetype recompute.** `FingerprintModeAbsorptionService` was copying the parent fingerprint's `InferredArchetype` (null on seed) instead of recomputing against the freshly merged centroid. The per-mode "Nearest archetype" column in the signature detail page rendered as "-" indefinitely. The drainer now invokes `IdentityArchetypeRegistry.FindNearest` and persists the result when the score clears the new `BrowserMode.MinInferredArchetypeScore` gate (default 0.55).
+
+### Dashboard: Policy Editor UI
+
+The dashboard policy editor now covers the full action-kind surface. All seven kinds render as dedicated HTMX-swapped partials so operators see only the fields relevant to their chosen action; switching kind mid-edit does not lose data from other kind fields.
+
+**Action partials:**
+- **Block, LogOnly, SilentDrop, StickyDeny** -- zero required fields; render immediately.
+- **Tag** -- tag name input.
+- **Challenge** -- kind selector (PoW / CAPTCHA) with a per-kind subfield that swaps inline.
+- **RateLimit** -- RPM, burst size, key mode (IP / Subnet / ASN / Signature), mitigation strategy, and over-limit response.
+- **Throttle** -- RPS target and reason label.
+
+Additional changes:
+
+- **Scope picker:** `SbScopePicker` reused in a multi-mode wrapper for the Apply Template flow; operators set host, method, geo, and identity scope in one step.
+- **Promote-observe button:** Each rule row carries a promote button targeting a dedicated endpoint, giving a one-click path from observe-only monitoring to active enforcement.
+- **`IPolicyCanEditPolicy` seam:** FOSS deployments default to read-only. The full policy stack is always visible; write affordances are gated on commercial tier.
+- **Policy stack filter bar:** Sortable columns, status-code filter chips (All / 2xx / 3xx / 4xx / 5xx), and an aggregate strip on the endpoints table.
+- **Stable `data-testid` selectors** on editor affordances for Playwright coverage.
+- **Configurable debounce timings:** Auto-save latency on the edit row is now driven by `PolicyStackOptions` rather than hard-coded JS constants.
+- **`InMemoryPolicyRuleStore` promoted to shared test support** with documented key-vocabulary bridge so unit and integration tests share identical rule-resolution semantics.
+
+### Core: robots.txt and Sitemap Extensions
+
+Two new minimal-API extension methods make it a single call to serve crawler-aware files from any ASP.NET Core host.
+
+- **`endpoints.MapStyloBotRobotsTxt()`** composes a `/robots.txt` from configured `User-agent` / `Allow` / `Disallow` / `Crawl-delay` rules and auto-derives the `Sitemap:` directive from the request scheme and host (override via `StyloBotRobotsTxtOptions.SitemapUrl`). Policy-derived `Disallow` lines: the extension consults `IPolicyRuleStore` and appends a `Disallow:` entry for every live Block-action rule scoped to a single endpoint, keeping the public crawl contract automatically consistent with live enforcement. Opt out via `StyloBotRobotsTxtOptions.IncludePolicyDerivedDisallows = false`.
+- **`endpoints.MapStyloBotSitemap()`** serves an adaptive `/sitemap.xml` that returns different URL lists by detection verdict: `PublicUrls` for humans and verified crawlers, `HoneypotPath` for confirmed bots, and optional `UncertainUrls` for the grey zone. All thresholds are configurable via `StyloBotSitemapOptions`.
+
+Also shipped: **`TrailblazorDemo`** -- a self-contained ASP.NET Core MVC reference app for the Trailblazor 2026 conference talk. Demonstrates in-process middleware mode (no separate gateway), `<sb-risk-pill>`, `<sb-signal>`, `<sb-honeypot>`, `.BlockBots()`, named action policies, client-side fingerprinting (`MapBotDetectionScript` + `MapBotDetectionFingerprintEndpoint`), BotD probe, `UseForwardedHeaders` for Cloudflare tunnel, and a `/Signals` page backed by the new `SbAllSignals` view component. Ships with a `Dockerfile` and subdomain banner for hosting at `aspnet.stylobot.net`.
+
+### Session: Dashboard Expiry Filter
+
+The session dashboard was producing 404 responses on click for paginated session lists that referenced records outside the configured retention window. `GetSessionsAsync` now applies an expiry filter at query time so session list pages never surface records that no longer exist in SQLite.
+
+### Performance
+
+- **`VerifiedBotContributor` log level: `Information` -> `Debug`.** At 100 RPS the contributor emitted approximately 100 structured log entries per second to every registered sink. Downgraded to `Debug`; production deployments typically run at `Information` or above so the overhead disappears with no configuration change required.
+- **`BoundedCache` eviction: LRU -> LFU.** Under cache pressure, popular bot IPs (Googlebot, UptimeRobot, known-bad repeat offenders) were being evicted because they hit the LRU tail while one-off IPs held newer slots. LFU eviction retains high-frequency entries and drops the long tail first, improving cache hit rates for the most active signatures.
+- **`IScheduleCoordinator` abstracted to `Mostlylucid.Common`.** The gateway, sidecar, UI, and third-party packs (PrometheusPack) share the coordinator interface without taking a dependency on the core detection assembly, reducing binary coupling for composite deployments.
+
+### Testing
+
+- **`RecordingScheduleCoordinator` and `FixedTimeProvider` promoted to shared test support.** Every migrated background service can use the same deterministic fakes without re-rolling them per test project.
+- **k6 5-minute soak test** for the `WellKnownBotIndex` fallback path: mixed YAML bots, arcjet catalog bots, and human browsers at approximately 700 RPS; p50=2ms, p95=171ms, errors=0%.
+- **In-process throughput harness** for the detection pipeline, enabling performance regression validation without external tooling.
+- **Transport-trust regression test:** direct-peer JA3 spoof scores as bot; loopback traffic unchanged.
+- **Security regression tests:** CSRF, rate-limit bypass, secret redaction, and SSRF attack surfaces from the PR #29/#30 review cycle.
+- **`PrometheusPack` viewer-host self-registration regression tests** confirming that remote dashboard mode boots correctly without requiring the concrete coordinator type.
+- **TLS corpus integration tests:** embedded JA3 reference corpus load, subset detection, and version-delta identification; expanded edge cases from code review.
+- **Live dashboard routing tests via `DemoAppFactory`:** path-segment routing, tab redirects, pack dispatch, case-insensitive pack IDs, bare pack identifiers, and query-string stripping on 301 redirects.
+- **Playwright navigation suite** auditing all dashboard links against a live staging host; suites are skipped by default in local dev runs (`--filter Category=Integration` to enable after starting Demo manually) and run unconditionally in CI.
+- **Client-side detector Playwright tests:** BotD, WebRTC ICE, and TTS voice probe scenarios previously blocked by fixture race conditions are now passing after a cold-start timing fix.
+- **Puppeteer replaced with Playwright** across the entire integration test surface, with 2026 client-side detection research scenarios for damru/CDP fingerprint probes.
+- **Identity contract tests:** Mahalanobis-style (Gaussian log-likelihood) archetype scorer pinned against regression; verdict-cache reads asserted to come from the fingerprint dictionary, not a parallel in-memory store.
+- **BenchmarkDotNet regression scenarios** for cloak-detection probes (damru, Multilogin, Kameleo) and Phase 1/2 action-policy hot path.
+- **`SignatureRiskVerdictComposer` scenario suite** covering the four axes: probability, threat band, reputation, and browser attestation.
+- **`PolicyResolverTests` and `SbPolicyStackTests` isolated** from the global wildcard seed so test scenarios produce deterministic results regardless of the shipped baseline rule set.
+
 ## [7.0.0] - 2026-05-31
 
 The identity layer becomes pluggable, the standalone AOT gateway gets perf
