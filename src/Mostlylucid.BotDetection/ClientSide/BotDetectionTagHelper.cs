@@ -114,7 +114,21 @@ public class BotDetectionTagHelper : TagHelper
         // /bot-detection/script.js endpoint and can be CSP-restricted to
         // 'self'. The bootstrap is a single object literal -- no logic, no
         // function definitions -- so it stays trivially auditable.
-        var nonceAttr = string.IsNullOrEmpty(Nonce) ? "" : $" nonce=\"{System.Net.WebUtility.HtmlEncode(Nonce)}\"";
+        // Auto-pick the request's CSP nonce when no explicit `nonce=` attribute
+        // was passed -- the dashboard middleware writes one to
+        // HttpContext.Items["CspNonce"] and emits `script-src 'self'
+        // 'nonce-...' 'unsafe-eval'` so an inline script without the nonce is
+        // blocked outright. Honour an explicit attribute first; otherwise fall
+        // back to the shared per-request nonce.
+        var resolvedNonce = Nonce;
+        if (string.IsNullOrEmpty(resolvedNonce)
+            && httpContext.Items.TryGetValue("CspNonce", out var nonceObj)
+            && nonceObj is string ctxNonce
+            && !string.IsNullOrEmpty(ctxNonce))
+        {
+            resolvedNonce = ctxNonce;
+        }
+        var nonceAttr = string.IsNullOrEmpty(resolvedNonce) ? "" : $" nonce=\"{System.Net.WebUtility.HtmlEncode(resolvedNonce)}\"";
         var deferAttr = Defer ? " defer" : "";
         var asyncAttr = Async ? " async" : "";
 

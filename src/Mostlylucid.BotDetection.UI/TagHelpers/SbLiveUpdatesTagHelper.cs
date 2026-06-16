@@ -33,6 +33,8 @@ public class SbLiveUpdatesTagHelper : TagHelper
 {
     private const string AssetCssPath       = "/_content/Mostlylucid.BotDetection.UI/vendor/css/sb-live-updates.css";
     private const string AssetJsPath        = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
+    private const string HtmxScriptPath     = "/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js";
+    private const string SignalRScriptPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js";
     private const string IdiomorphScriptPath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/idiomorph-ext.min.js";
     private const string TooltipPortalPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-tooltip-portal.js";
     private const string PolicyStackRealtimePath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-realtime.js";
@@ -86,6 +88,25 @@ public class SbLiveUpdatesTagHelper : TagHelper
     [HtmlAttributeName("show-status")]
     public bool ShowStatus { get; set; } = true;
 
+    /// <summary>
+    ///     When true (default) the tag helper emits the vendored
+    ///     <c>htmx.min.js</c> + <c>signalr.min.js</c> scripts before the
+    ///     coordinator script. Both are required by the coordinator + by the
+    ///     OOB-swap pipeline; emitting them here means a host that drops
+    ///     <c>&lt;sb-live-updates /&gt;</c> gets a complete bundle and the
+    ///     dashboard never fails with "ReferenceError: htmx is not defined"
+    ///     or "signalR client not loaded" simply because the host layout
+    ///     forgot the script tags.
+    ///     <para>
+    ///         Set <c>false</c> in hosts that ship their own htmx + signalR
+    ///         (e.g. a marketing site with a centrally-vendored bundle). The
+    ///         FOSS scripts install module-level globals; loading them twice
+    ///         is safe but wastes bytes.
+    ///     </para>
+    /// </summary>
+    [HtmlAttributeName("include-vendor-scripts")]
+    public bool IncludeVendorScripts { get; set; } = true;
+
     public override void Process(TagHelperContext context, TagHelperOutput output)
     {
         var basePath = BasePath ?? _options?.BasePath.TrimEnd('/') ?? "/_stylobot";
@@ -101,6 +122,18 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // transition opt-out rule. Inline <style> would force unsafe-inline in the
         // CSP; the <link> reference stays self-hosted and nonceable.
         output.Content.AppendHtml($@"<link rel=""stylesheet"" href=""{AssetCssPath}?v={AssetVersion}"" />");
+
+        // Vendor scripts -- htmx + signalR client. Both are dependencies of the
+        // coordinator below; emitting them here means the host doesn't have to
+        // remember the docstring example's two extra script tags. Hosts that
+        // ship their own htmx / signalR bundle can suppress with
+        // include-vendor-scripts="false". Per the strict-CSP setup the script
+        // tags carry the same nonce as the rest of the live-update stack.
+        if (IncludeVendorScripts)
+        {
+            output.Content.AppendHtml($@"<script src=""{HtmxScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
+            output.Content.AppendHtml($@"<script src=""{SignalRScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
+        }
 
         // Idiomorph -- official htmx extension that swaps DOM in place via a morph
         // algorithm (unchanged nodes are left alone, only deltas mutate). Combined
