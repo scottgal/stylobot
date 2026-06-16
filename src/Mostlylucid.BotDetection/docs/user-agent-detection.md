@@ -5,28 +5,22 @@ matching strategies.
 
 ## How It Works
 
-The detector analyzes the `User-Agent` header against several pattern sources:
+The detector analyzes the `User-Agent` header against a three-tier pattern source chain:
 
-1. **Known Good Bots** - Verified search engine crawlers that should be allowed
-2. **Malicious Bot Patterns** - String patterns associated with bad actors
-3. **Automation Frameworks** - Tools like Selenium, Puppeteer, Playwright
-4. **Source-Generated Regex** - Build-time compiled patterns for maximum speed
-5. **Downloaded Patterns** - Runtime patterns from external bot databases
+1. **YAML bot-pattern catalog** (`Definitions/BotPatterns/*.bot-patterns.yaml`) - Substring match over every catalogued search engine, AI scraper, fediverse server, developer tool, social media, monitoring, and SEO tool. This is the primary source and the one edited to add new patterns.
+2. **Heuristic checks** - Structural analysis of the UA string (length, presence of URL, automation-framework keywords, missing platform details).
+3. **WellKnownBotIndex fallback** (7.5+) - When neither tier above matches, `BotPatternLoader.MatchUserAgent` falls through to `WellKnownBotIndex.TryMatch`. This scans compiled regex patterns from the periodically-downloaded arcjet well-known-bots catalog (~635 entries at N patterns each). The index is empty until the first successful download by `WellKnownBotRefreshService`. YAML remains the authoritative source; the arcjet catalog is a safety net for bots not yet in YAML.
 
 ## Detection Flow
 
 ```
-User-Agent → Whitelist Check → Skip (verified bot)
+User-Agent → YAML bot-pattern catalog (substring match) → bot name + type identified
+          ↓ (no match)
+          → Heuristic checks (length, URL, keywords) → confidence contribution
+          ↓ (no YAML match)
+          → WellKnownBotIndex (arcjet catalog, regex, 7.5+) → bot name + type
           ↓
-          → Malicious Pattern Check → +0.3 confidence
-          ↓
-          → Automation Framework Check → +0.5 confidence
-          ↓
-          → Compiled Regex Patterns → +0.2 confidence per match
-          ↓
-          → Downloaded Patterns → +0.25 confidence
-          ↓
-          → Heuristics (length, URL in UA) → +0.3-0.4 confidence
+          → Signals written: ua.bot_name, ua.bot_type, ua.family, ua.bot_instance
 ```
 
 ## Configuration
@@ -34,34 +28,21 @@ User-Agent → Whitelist Check → Skip (verified bot)
 ```json
 {
   "BotDetection": {
-    "EnableUserAgentDetection": true,
-    "BotThreshold": 0.7,
-    "WhitelistedBotPatterns": [
-      "Googlebot",
-      "Bingbot",
-      "DuckDuckBot",
-      "Slackbot"
-    ]
+    "Detectors": {
+      "UserAgentContributor": {
+        "Enabled": true,
+        "Parameters": {
+          "short_ua_threshold": 20,
+          "short_ua_confidence": 0.4,
+          "url_in_ua_confidence": 0.3
+        }
+      }
+    }
   }
 }
 ```
 
-## Whitelisted Patterns
-
-By default, verified search engine bots are whitelisted. When detected, they receive:
-
-- `Confidence: 0.0` (not a threat)
-- `BotType: VerifiedBot`
-- `BotName`: The identified bot name
-
-Add patterns to `WhitelistedBotPatterns` to allow specific bots:
-
-```csharp
-services.AddBotDetection(options =>
-{
-    options.WhitelistedBotPatterns.Add("MyMonitoringBot");
-});
-```
+Bot patterns live in `Definitions/BotPatterns/*.bot-patterns.yaml` (embedded resources). To add a new bot, edit the appropriate YAML file -- not C# code. The arcjet catalog fallback is populated automatically by `WellKnownBotRefreshService` on startup; no configuration is needed to enable it.
 
 ## Detection Signals
 
@@ -101,36 +82,13 @@ Detects automation tools commonly used for scraping:
 
 ## Pattern Sources
 
-### Static Patterns (Build-Time)
+### YAML bot-pattern catalog (primary, build-time embedded)
 
-Source-generated regex patterns compiled at build time for optimal performance. These are embedded in
-`BotSignatures.cs`:
+All bot patterns ship as embedded YAML files in `Definitions/BotPatterns/`. Each file covers one category (search engines, AI scrapers, fediverse servers, social media, developer tools, monitoring, SEO). `BotPatternLoader` reads them once at startup and builds an O(1) substring match table and a name-to-type index. Adding a new pattern is a YAML edit; no C# change is required.
 
-```csharp
-// Source-generated - compiled at build time
-[GeneratedRegex(@"bot|crawler|spider|scraper", RegexOptions.IgnoreCase)]
-public static partial Regex BotKeywordPattern { get; }
-```
+### WellKnownBotIndex (arcjet catalog fallback, 7.5+)
 
-### Downloaded Patterns (Runtime)
-
-The system can download patterns from external sources on startup:
-
-```json
-{
-  "BotDetection": {
-    "PatternUpdateUrl": "https://raw.githubusercontent.com/.../bot-patterns.txt",
-    "PatternUpdateIntervalHours": 24
-  }
-}
-```
-
-Downloaded patterns are:
-
-- Compiled once with `RegexOptions.Compiled`
-- Cached in memory
-- Auto-refreshed based on interval
-- Falls back to static patterns if download fails
+`WellKnownBotRefreshService` downloads the arcjet well-known-bots catalog on startup and on a configurable refresh interval. The downloaded entries are compiled to regexes and loaded into `WellKnownBotIndex.Default` atomically. `BotPatternLoader.MatchUserAgent` consults this index after the YAML catalog when no match is found. The index starts empty and becomes available after the first successful download; the YAML catalog always fires first.
 
 ## Performance
 
@@ -186,34 +144,9 @@ Reputation states affect UA detection weight:
 
 ## Extending User-Agent Detection
 
-Add custom patterns via configuration:
+Add new bot patterns by editing the appropriate YAML file in `Definitions/BotPatterns/`. Each entry needs a `pattern` (substring to match), `bot_name` (display name), and `bot_type`. For AI bots add an `ai_category` field. The YAML change is picked up at next startup.
 
-```csharp
-services.AddBotDetection(options =>
-{
-    // Block specific user agents
-    options.BlockedUserAgentPatterns.Add("MyBadBot");
-
-    // Allow specific bots
-    options.WhitelistedBotPatterns.Add("MyGoodBot");
-});
-```
-
-Or implement a custom detector for complex logic:
-
-```csharp
-public class CustomUaDetector : IDetector
-{
-    public string Name => "Custom UA Detector";
-    public DetectorStage Stage => DetectorStage.RawSignals;
-
-    public Task<DetectorResult> DetectAsync(HttpContext context, CancellationToken ct)
-    {
-        var ua = context.Request.Headers.UserAgent.ToString();
-        // Custom logic...
-    }
-}
-```
+For custom detection logic beyond UA pattern matching, implement `IContributingDetector` (see the 5-file checklist in CLAUDE.md) and register it in DI.
 
 ## Accessing Results
 

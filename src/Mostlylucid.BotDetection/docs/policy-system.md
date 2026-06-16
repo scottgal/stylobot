@@ -24,7 +24,7 @@ Key properties:
 | `LoadShed.DropFractionAtHigh` | 0.0 | Fraction of requests to skip at High load |
 | `Transitions` | (empty) | Per-condition action-policy escalation |
 
-Built-in policy names: `default`, `strict`, `relaxed`, `static`, `learning`, `monitor`, `api`.
+Built-in policy names (registered at startup): `default`, `demo`, `strict`, `relaxed`, `static`, `allowVerifiedBots`, `learning`, `yarpLearning`, `monitor`, `profile`, `api`, `fastWithOnnx`, `fastWithAi`.
 
 ## Action Policy
 
@@ -81,6 +81,38 @@ Two layers exist today:
 2. Per-transition `PolicyTransition` thresholds (`WhenRiskExceeds`, `WhenRiskBelow`) for multi-step action selection.
 
 The legacy `BotDetectionOptions.BotThreshold`, `MinConfidenceToBlock`, and detector enable/disable booleans (`EnableUserAgentDetection`, `EnableHeaderAnalysis`, etc.) are deprecated and scheduled for removal in a future major release. Until then, customers using them should migrate to the per-policy equivalents. Documentation in `appsettings.json` examples now uses the per-policy form.
+
+## Policy editor (7.5+)
+
+The `SbPolicyStack` view component renders the policy stack for a given scope in three embed shapes (`Full`, `EffectiveOnly`, `StatusBadge`). Edit affordances (pencil, drag handle, + Add rule, kind selector) are controlled by the `IPolicyCanEditPolicy` seam:
+
+```csharp
+// In Mostlylucid.BotDetection.UI.Services
+public interface IPolicyCanEditPolicy
+{
+    bool CanEdit(ClaimsPrincipal? user);
+}
+```
+
+The FOSS default (`AlwaysReadOnlyPolicyCanEditPolicy`) always returns `false` - the dashboard is read-only by construction. The commercial overlay registers a license-aware implementation via `services.Replace(...)` that gates on license and the `dashboard-write` role.
+
+The `IPolicyCanEditPolicy` check is UI-only (controls visibility of edit affordances). The actual security boundary is `[Authorize(Policy = AuthPolicies.DashboardWrite)]` on the commercial mutation API.
+
+The policy editor supports 7 action kinds, each with a dedicated partial:
+
+| Kind | Partial |
+|------|---------|
+| `block` | `_EditAction_Block` |
+| `allow` | `_EditAction_Allow` |
+| `throttle` | `_EditAction_Throttle` |
+| `ratelimit` | `_EditAction_RateLimit` |
+| `challenge` | `_EditAction_Challenge` |
+| `tag` | `_EditAction_Tag` |
+| `observe` | `_EditAction_Observe` |
+
+The kind selector uses HTMX to swap the per-kind slot on change. The full action kind list is driven by `PolicyActionEditorViewPaths.KindsForSelector` - a single source of truth for both the dropdown and the dispatcher.
+
+All dashboard URLs are routed through `IDashboardLinkResolver` (7.5+), which reads `StyloBotDashboardOptions.NavBasePath` (or falls back to `BasePath`) so links work regardless of the mount point.
 
 ## Pack disambiguation
 

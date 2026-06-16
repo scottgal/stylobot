@@ -12,7 +12,7 @@ Stylobot.Gateway is a standalone Docker image that provides:
 - Zero-config reverse proxy (just set `DEFAULT_UPSTREAM`)
 - YARP-based routing with hot-reload configuration
 - Admin API for health checks, config inspection, and metrics
-- Optional database persistence (Postgres, SQL Server)
+- SQLite persistence (FOSS); PostgreSQL/SQL Server via commercial add-on packs
 - Multi-architecture support (amd64, arm64, arm/v7 for Raspberry Pi)
 
 ## Quick Start
@@ -24,6 +24,14 @@ docker run -p 8080:8080 -e DEFAULT_UPSTREAM=http://your-backend:3000 scottgal/st
 # With file configuration
 docker run -p 8080:8080 -v ./config:/app/config:ro scottgal/stylobot-gateway
 ```
+
+## Transport fingerprint headers and trust gate
+
+When `Stylobot.Gateway` sits behind a CDN or upstream reverse proxy that injects transport fingerprint headers (`X-JA3-*`, `X-JA4*`, `X-Client-TLS-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`), the gateway gates those headers on the **immediate TCP peer IP** before passing them to the detection pipeline. Headers from untrusted public-IP peers are rejected and generate a bot signal rather than a human bias.
+
+Configure trusted upstream proxies under `BotDetection:TransportTrust:TrustedProxyIps` (CIDR list). When the gateway itself terminates TLS (no upstream proxy), Kestrel provides TLS metadata natively and no header forwarding is needed.
+
+See [`docs/REVERSE_PROXY_SIGNALS.md`](../../../docs/REVERSE_PROXY_SIGNALS.md#trusted-proxy-gate-transport-fingerprint-headers) for the full configuration reference and per-CDN recipes.
 
 ## Using with BotDetection
 

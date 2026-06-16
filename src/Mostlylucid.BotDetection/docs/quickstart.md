@@ -1,6 +1,6 @@
 # Enterprise Bot Detection with Minimal Code
 
-StyloBot gives you 49-detector bot detection with anonymous entity resolution in two lines of code. No external services, no database setup, no API keys. It runs entirely self-contained with SQLite storage, in-process similarity search, and progressive identity resolution that learns who keeps coming back - even when they rotate their fingerprint.
+StyloBot gives you 57-contributor bot detection with anonymous entity resolution in two lines of code. No external services, no database setup, no API keys. It runs entirely self-contained with SQLite storage, in-process similarity search, and progressive identity resolution that learns who keeps coming back - even when they rotate their fingerprint.
 
 ```
 NuGet: dotnet add package Mostlylucid.BotDetection
@@ -57,7 +57,7 @@ Every detected bot gets a 403. Search engines, social media previews, and monito
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddBotDetection();          // ← registers all 49 detectors
+builder.Services.AddBotDetection();          // ← registers all 57 contributors
 
 var app = builder.Build();
 app.UseBotDetection();                       // ← detection middleware
@@ -130,6 +130,33 @@ app.MapBotDetectionEndpoints();
 // GET  /bot-detection/stats    → aggregate statistics
 // GET  /bot-detection/health   → system health
 // POST /bot-detection/feedback → report false positives/negatives
+
+// Policy-aware robots.txt: Disallow lines are derived from live Block-action
+// policy rules and merged with any static rules you configure.
+app.MapStyloBotRobotsTxt(options =>
+{
+    options.Rules.Clear();
+    options.Rules.Add(new RobotsRule
+    {
+        UserAgent = "*",
+        Disallow = ["/admin/", "/internal/"]
+    });
+    options.Rules.Add(new RobotsRule
+    {
+        UserAgent = "Googlebot",
+        CrawlDelaySeconds = 1
+    });
+    // SitemapUrl defaults to {scheme}://{host}/sitemap.xml
+});
+
+// Adaptive sitemap.xml: verified crawlers and humans get PublicUrls;
+// high-probability bots get a single honeypot path instead.
+app.MapStyloBotSitemap(options =>
+{
+    options.PublicUrls = ["/", "/products", "/about", "/blog"];
+    options.HoneypotPath = "/honeypot/admin";
+    options.BotProbabilityThreshold = 0.7;
+});
 
 app.Run();
 ```
@@ -326,6 +353,18 @@ No `appsettings.json` section needed. Defaults:
 | `BlockDetectedBots` | false | Detection only - use `.BlockBots()` to block |
 | `EnableLlmDetection` | false | No LLM needed |
 | Storage | SQLite (auto) | File-based, self-creating `botdetection.db` |
+
+### Ephemeral Mode (Tests and CI)
+
+`AddBotDetectionInMemory()` replaces all SQLite stores with null/in-memory stubs so no `.db` files are created. Identity, session learning, entity resolution, and content-sequence detection are silently degraded; per-request detection runs unchanged. Use this in integration test fixtures and CI pipelines where a persistent file is a problem.
+
+```csharp
+// Integration test fixture or CI pipeline
+builder.Services.AddBotDetectionInMemory();
+app.UseBotDetection();
+```
+
+This is intentionally weaker than the default SQLite-backed mode. For production use `AddBotDetection()`.
 
 ### Optional Tuning
 
@@ -525,11 +564,11 @@ StyloBot is designed to start with zero dependencies and scale to a full product
 Your App + AddBotDetection()
     └── SQLite (auto-created botdetection.db)
     └── In-process HNSW similarity search
-    └── 49 detectors, <1ms per request
+    └── 57 contributors, <1ms per request
     └── No external services
 ```
 
-**What runs:** All 49 detectors execute in a wave-based pipeline. Fast-path detectors (UserAgent, Header, IP, SecurityTool, VersionAge, AiScraper, VerifiedBot, etc.) run in parallel in <1ms. Protocol fingerprinting (TLS, TCP/IP, HTTP/2, HTTP/3) catches bots that spoof everything else. Heuristic scoring extracts ~50 features and runs a lightweight scoring model. Everything persists to SQLite for learning across restarts.
+**What runs:** All 57 contributors execute in a wave-based pipeline. Fast-path detectors (UserAgent, Header, IP, SecurityTool, VersionAge, AiScraper, VerifiedBot, etc.) run in parallel in <1ms. Protocol fingerprinting (TLS, TCP/IP, HTTP/2, HTTP/3) catches bots that spoof everything else. Heuristic scoring extracts ~50 features and runs a lightweight scoring model. Everything persists to SQLite for learning across restarts.
 
 **Good for:** Single app, <100K requests/day, getting started.
 

@@ -31,8 +31,8 @@ flowchart TB
         Aggregate[Evidence Aggregation] --> Response([Response])
     end
 
-    subgraph Learning["Learning Path (Slow Path, Background)"]
-        Response --> Bus[Learning Event Bus]
+    subgraph Learning["Learning Path (Async, Off Request)"]
+        Response --> Bus[Learning Event Bus<br/>TryPublish — lock-free enqueue]
         Bus --> SigHandler[SignatureFeedbackHandler]
         Bus --> RepHandler[ReputationMaintenanceService]
         SigHandler --> WeightStore[(Weight Store<br/>SQLite)]
@@ -378,7 +378,7 @@ Request arrives
 └─────────────────────────────────────────────────────────────┘
     │
     ▼
-Response + Learning Event → Background Update Loop
+Response + Learning Event → ILearningEventBus (TryPublish) → LearningBackgroundService drains on Tick1s
 ```
 
 ### Evidence Aggregation
@@ -487,7 +487,12 @@ Patterns are eligible for removal when:
 
 ## Learning Event Bus
 
-The inter-request learning bus handles async pattern learning:
+The inter-request learning bus handles async pattern learning. The bus is implemented as a
+bounded `Channel<LearningEvent>`. Callers on the request path call `TryPublish` (lock-free
+enqueue, ~20ns). A single `LearningBackgroundService` subscriber drains the channel on every
+`Tick1s` from `IScheduleCoordinator` and dispatches each event to the registered
+`ILearningEventHandler` implementations. The coordinator's single-flight guarantee prevents
+re-entry if a drain pass outlasts 1 second.
 
 ### Event Types
 
@@ -503,9 +508,10 @@ The inter-request learning bus handles async pattern learning:
 ### Publishing Events
 
 ```csharp
-_learningBus.Publish(new LearningEvent
+_learningBus.TryPublish(new LearningEvent
 {
     Type = LearningEventType.HighConfidenceDetection,
+    Source = nameof(MyContributor),
     Confidence = 0.95,
     Features = extractedFeatures,
     Label = true, // bot
@@ -732,7 +738,7 @@ sequenceDiagram
     participant H as SignatureFeedbackHandler
     participant W as WeightStore
 
-    D->>B: Publish(HighConfidenceDetection)
+    D->>B: TryPublish(HighConfidenceDetection)
     B->>H: HandleAsync(event)
     H->>H: Extract signatures from context
     H->>W: UpdateWeightAsync(UaPattern, ...)

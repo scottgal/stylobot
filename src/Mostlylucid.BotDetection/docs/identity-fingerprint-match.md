@@ -51,13 +51,26 @@ A separate SQLite file from the main detection DB, so you can rotate or delete t
 
 | Table | Holds |
 |---|---|
-| `fingerprints` | One row per identity. Centroid + per-fp weight vector + maturity + cached bot probability + inferred client type + counts. |
+| `fingerprints` | One row per identity. Centroid + per-fp weight vector + maturity + cached bot probability + inferred client type + counts + persistent trust state (see below). |
 | `fingerprint_keys` | `primary_signature → fingerprint_id` for the L1 point lookup. Re-bound atomically when Pass 2 corrects Pass 1. |
 | `fingerprint_observations` | Per-request vectors awaiting absorption. Background ticks fold mature ones into the centroid. |
 | `fingerprint_corrections` | One row per Pass-2-corrects-Pass-1 disagreement, with the differentiator that drove the per-fp weight update. Audit + tuning trail. |
 | `identity_dimension_weights` | Single row holding the calibrated global per-dim weight vector. |
 | `identity_archetypes` | Refined archetype centroids (the YAML-loaded versions live in memory; persisted versions are the calibration-refined ones). |
 | `identity_vector_layout` | Versioned vector layout. Mismatch on startup = fail loud, not silent corruption. |
+
+### Persistent trust state (7.5+)
+
+The `fingerprints` table gained four columns in 7.5 to survive process restarts (gap analysis 2026-06-15, Gap #4). Previously trust was an in-memory one-way latch on `SignatureCoordinator` and was lost on restart.
+
+| Column | Type | Description |
+|---|---|---|
+| `claim_status` | TEXT | `unverified` (default) / `verified` / `spoofed` / `behaviourally-trusted` |
+| `verification_method` | TEXT | How the claim was verified: `ip_range`, `fcrdns`, `forward_dns`, `nodeinfo`, or `behavioural-trust`. Null when `unverified`. |
+| `verified_at` | TEXT (ISO-8601 UTC) | Timestamp of first successful verification. Null when `unverified`. |
+| `trust_observations` | INTEGER | Counter incremented on each request that matches the claimed identity's expected behavioural pattern. Transitions to `behaviourally-trusted` when it crosses the configured threshold (Gap #5). |
+
+The verifier contributors (`VerifiedBotContributor`, `FediverseDomainContributor`) read `claim_status` and `verified_at` at request entry and skip re-verification when the cached result is still within `TrustOptions.TrustCacheTtl`, emitting `verifiedbot.cached` instead.
 
 ## The four background services
 
@@ -119,6 +132,19 @@ Nine starter archetypes ship as embedded YAML in `Definitions/IdentityArchetypes
 - **Self-refining anchors** - calibration blends each archetype's centroid toward the mean of its descendant fingerprints (cap-bounded). The YAML-defined `dimension_mask` stays untouched; only the centroid learns.
 
 The system infers client type from observed behaviour. There is no manual tagging.
+
+## Display name composition (7.5+, claim-first)
+
+`FingerprintNameComposer` applies a four-priority naming chain. The key change in 7.5 is that Priority 1 is now the UA-string claim, not the matched archetype. The matcher runs at Priority 6 before `UserAgentContributor` at Priority 10, so the YAML bot-pattern catalog is scanned directly from the raw UA string rather than waiting for the cached `ua.bot_name` signal.
+
+| Priority | Source | When it fires |
+|---|---|---|
+| 1 | UA-string CLAIM via YAML bot-pattern catalog (`BotPatternLoader.MatchUserAgent`) | UA matches a catalogued bot/tool/fediverse/AI-scraper pattern. Per-instance discriminator (`+URL` hostname) appended for fediverse UAs. `(!)` appended when `VerifiedBotContributor` flagged spoofed or rDNS mismatch. |
+| 2 | Matched archetype name + drift variance (`identity.archetype_name`) | Only when archetype kind is `human-browser`. Bot-shaped archetypes fall through to Priority 3 to avoid mislabelling real browsers that drift onto a bot centroid. |
+| 3 | UA family + OS characterization (`ua.family` / `user_agent.os`) | Parsed from signals or directly from the raw UA string when signals haven't been written yet. |
+| 4 | Raw UA prefix (first 48 chars, truncated with `…`) | Last resort when no structured name is available. Treated as a fallback by hysteresis so a later real Priority 1-3 name can override it. |
+
+Returns null only when the request carries no UA at all.
 
 ## Signals downstream consumers should read
 

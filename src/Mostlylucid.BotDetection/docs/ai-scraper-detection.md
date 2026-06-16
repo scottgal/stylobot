@@ -6,7 +6,12 @@ The `AiScraperContributor` identifies AI bots, LLM training crawlers, and AI-pow
 
 ## Detection Layers
 
-### 1. Known AI Bot User-Agents (50+ patterns)
+### 1. Known AI Bot User-Agents (50+ patterns + arcjet catalog fallback)
+
+Recognized bots are categorized by purpose. The lookup runs in two tiers:
+
+1. **YAML bot-pattern catalog** (`Definitions/BotPatterns/*.bot-patterns.yaml`) -- substring match over every AI scraper, training crawler, search agent, and scraping-service entry in the embedded YAML files. This is the primary source.
+2. **WellKnownBotIndex fallback** (arcjet well-known-bots catalog, 7.5+) -- when the YAML catalog produces no match, `BotPatternLoader.MatchUserAgent` falls through to `WellKnownBotIndex.TryMatch`, which runs compiled regex patterns from the periodically-downloaded arcjet catalog (~635 entries). This catches bots that appear in the arcjet catalog but have not yet been added to the YAML files. The index is populated by `WellKnownBotRefreshService` on startup and on each scheduled refresh; it is empty until the first successful download, so YAML remains the authoritative source.
 
 Recognized bots are categorized by purpose:
 

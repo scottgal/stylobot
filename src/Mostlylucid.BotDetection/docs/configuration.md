@@ -1331,6 +1331,62 @@ Configure bot network clustering and LLM-based descriptions:
 
 ---
 
+## Transport Trust (Proxy Deployments)
+
+When the gateway runs behind Cloudflare, Caddy, nginx, or another edge proxy that forwards edge-computed fingerprint headers (`X-JA3-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`, `X-Client-TLS-*`), configure which peers are allowed to inject those headers.
+
+Section path: `BotDetection:TransportTrust`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Mode` | `Auto` \| `Strict` \| `Off` | `Auto` | `Auto` trusts loopback and private-range peers plus anything in `TrustedProxyIps`. `Strict` trusts only `TrustedProxyIps`. `Off` trusts all peers (legacy; logs a startup warning). |
+| `TrustedProxyIps` | `string[]` | `[]` | CIDRs or exact IPs of trusted reverse proxies, e.g. `["10.0.0.0/8", "203.0.113.5"]`. Required when the edge proxy has a public IP (Cloudflare egress, AWS ALB, etc.) and `Mode` is not `Off`. |
+| `TrustPrivatePeers` | `bool` | `true` | Auto mode only: also trust loopback and RFC1918/RFC4193 private addresses. |
+
+```json
+{
+  "BotDetection": {
+    "TransportTrust": {
+      "Mode": "Auto",
+      "TrustedProxyIps": ["10.0.0.0/8", "172.16.0.0/12", "203.0.113.42"]
+    }
+  }
+}
+```
+
+> **Strict mode for public-IP edges:** If your edge proxy (Cloudflare, AWS ALB) has a routable IP, add its CIDR to `TrustedProxyIps` and set `Mode: Strict`. Without this, a direct HTTPS connection can spoof JA3/JA4 headers and obtain a human bias.
+
+Environment variable: `BotDetection__TransportTrust__Mode`, `BotDetection__TransportTrust__TrustedProxyIps__0`, etc.
+
+---
+
+## Well-Known Bots Catalog
+
+StyloBot downloads the arcjet well-known-bots catalog on startup and refreshes it periodically. The catalog covers ~635 named bots and is used for initial UA classification and centroid naming. Disable the download entirely by setting `Url` to empty.
+
+Section path: `BotDetection:WellKnownBots`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Url` | `string` | `https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json` | Catalog URL. Set to `""` to disable all downloads; the built-in fallback patterns are used instead. |
+| `RefreshInterval` | `TimeSpan` | `24:00:00` | How often to re-download. Minimum enforced at 1 hour. |
+| `MaxResponseBytes` | `int` | `2097152` | Hard cap on download size (2 MB). Guards against a malicious mirror. |
+
+```json
+{
+  "BotDetection": {
+    "WellKnownBots": {
+      "Url": "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json",
+      "RefreshInterval": "24:00:00"
+    }
+  }
+}
+```
+
+Set `Url` to `""` for air-gapped deployments. The embedded baseline patterns remain active.
+
+---
+
 ## Licensing
 
 Commercial licenses only. FOSS mode: omit `Token` entirely.

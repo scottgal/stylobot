@@ -195,6 +195,22 @@ Detectors are aware of transport protocol context (API, SignalR, WebSocket, gRPC
 
 Detectors that consume transport context: HeuristicFeatureExtractor (8 features), InconsistencyDetector, MultiLayerCorrelation, ResponseBehavior, AdvancedBehavioral, Header, CacheBehavior.
 
+### Transport Header Trust (`ITransportHeaderTrust` / `TransportTrustOptions`)
+
+Edge proxies inject transport fingerprint headers (`X-JA3-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`, `X-Client-TLS-*`) that are used by `TlsFingerprintContributor` and related detectors. `ITransportHeaderTrust` (impl: `TransportHeaderTrust`) gates whether those headers are accepted based on the immediate peer's IP:
+
+- `Auto` mode (default): trust loopback, RFC1918/RFC4193 private peers, and anything in `BotDetection:TransportTrust:TrustedProxyIps`.
+- `Strict` mode: trust only `TrustedProxyIps`. Required when the edge has a public IP (Cloudflare egress, AWS ALB, etc.).
+- `Off`: trust all peers; logs a startup warning. Legacy behaviour only.
+
+`TransportHeaderTrust.Evaluate(state)` writes `transport.trust_reason` to the blackboard. TLS/TCP/H2/H3 contributors read this signal and skip header injection when trust is denied.
+
+Config: `BotDetection:TransportTrust:Mode` and `BotDetection:TransportTrust:TrustedProxyIps`.
+
+### Well-Known Bot Index (`WellKnownBotIndex`)
+
+`WellKnownBotIndex` is a singleton that holds the arcjet well-known-bots catalog (~635 named bots). It is registered via `TryAddSingleton` so it is always available. `WellKnownBotRefreshService` (hosted service) downloads the catalog on startup and refreshes it per `BotDetection:WellKnownBots:RefreshInterval` (default 24 h). The index is used by `AiScraperContributor`, `UserAgentContributor`, and the middleware UA-fallback path to name and classify bots whose UA patterns are not in the embedded baseline. Set `BotDetection:WellKnownBots:Url` to `""` to disable downloads (air-gapped deployments).
+
 ### Configuration Pattern
 
 Detectors are configured via YAML manifests with appsettings.json overrides:
@@ -230,6 +246,12 @@ app.UseStyloBot();  // broadcast → detection → dashboard, all wired correctl
 // Detection only (no dashboard)
 builder.Services.AddBotDetection();
 app.UseBotDetection();
+
+// Ephemeral mode (integration tests, CI): replaces all SQLite stores with
+// null/in-memory stubs. Identity, session learning, entity resolution, and
+// content-sequence detection are silently degraded; per-request detection
+// runs unchanged. No .db files are created.
+builder.Services.AddBotDetectionInMemory();
 
 // User-agent only (minimal)
 builder.Services.AddSimpleBotDetection();
@@ -466,11 +488,13 @@ Detailed docs in `Mostlylucid.BotDetection/docs/`:
 - `blocking-and-filters.md` - All bot type allow flags, geo/network blocking
 - `signals-and-custom-filters.md` - Signal access API, custom filters, GeoDetection integration
 - `action-policies.md` - Block, Throttle, Challenge, Redirect, LogOnly responses
-- `configuration.md` - Full options reference
+- `configuration.md` - Full options reference (includes TransportTrust + WellKnownBots sections)
+- `configuration-reference.md` - Complete property-level reference for all config keys
 - `ai-detection.md` - Heuristic model and LLM escalation
 - `learning-and-reputation.md` - Adaptive learning system
 - `identity-fingerprint-match.md` (6.4.7+) - Metastable fingerprint identity layer (two-pass match, drift, calibration)
 - `fingerprint-verdict-cache.md` - Per-signature verdict cache and gate
+- `proxy-topologies.md` - Proxy auto-detection and TransportTrust configuration
 - `yarp-integration.md` - Reverse proxy setup
 
 Architecture specs in `docs/architecture/`:

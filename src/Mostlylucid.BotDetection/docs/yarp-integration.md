@@ -136,3 +136,24 @@ app.Run();
 ```
 
 See `Examples/YarpBotDetectionExample.cs` in the demo project for more integration patterns.
+
+## Transport fingerprint headers behind a reverse proxy
+
+If your YARP host sits behind a CDN or upstream proxy that injects transport fingerprint headers (`X-JA3-*`, `X-JA4*`, `X-Client-TLS-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`), configure the trusted-proxy gate so those headers are honoured:
+
+```json
+{
+  "BotDetection": {
+    "TransportTrust": {
+      "Mode": "Auto",
+      "TrustedProxyIps": ["10.0.0.0/8", "203.0.113.5"]
+    }
+  }
+}
+```
+
+- `Auto` (default): trusts loopback and RFC 1918/4193 private peers automatically. Sufficient for a local-loopback topology (nginx/Caddy → YARP on the same host).
+- `Strict`: trusts only IPs in `TrustedProxyIps`. Use this when your upstream has a public IP (Cloudflare anycast, AWS ALB, etc.).
+- `Off`: trusts all peers (legacy, emits a startup warning).
+
+Public-IP edges must be added to `TrustedProxyIps` in either `Auto` or `Strict` mode; the gate never infers trust from forwarded headers such as `X-Forwarded-For`. See [`docs/REVERSE_PROXY_SIGNALS.md`](../../../docs/REVERSE_PROXY_SIGNALS.md#trusted-proxy-gate-transport-fingerprint-headers) for full details.

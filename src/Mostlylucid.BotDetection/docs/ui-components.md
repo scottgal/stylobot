@@ -310,6 +310,81 @@ public IActionResult Submit()
 }
 ```
 
+## Dashboard View Components (7.5+)
+
+### `<vc:sb-policy-stack />`
+
+Renders the Policy Stack control for a given scope in one of three embed shapes.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `scope` | `PolicyScope` | (required) | Global, Endpoint, or Signature scope |
+| `embed` | `PolicyStackEmbed` | `Full` | `Full` (breadcrumb + tabs + rows), `EffectiveOnly`, or `StatusBadge` |
+| `active-tab` | string | `"effective"` | Initial tab |
+| `aggregate-window` | TimeSpan | 24h | Window for aggregate stats |
+| `can-edit` | bool? | null | Override for read/write (null = use `IPolicyCanEditPolicy`) |
+| `filter-expression` | string | null | Filter the rule list |
+| `sort-key` / `sort-dir` | string | null | Sort state |
+
+Edit affordances are controlled by `IPolicyCanEditPolicy` (see [policy-system.md](policy-system.md#policy-editor-75)). In FOSS, the dashboard is always read-only.
+
+```cshtml
+@* Full policy stack for global scope *@
+<vc:sb-policy-stack scope="PolicyScope.Global" />
+
+@* Compact status badge only *@
+<vc:sb-policy-stack scope="PolicyScope.Global" embed="PolicyStackEmbed.StatusBadge" />
+```
+
+### `<vc:sb-all-signals />`
+
+Renders every signal key/value pair from the current request's blackboard, grouped by key prefix (the segment before the first dot). Each row carries the signal-catalog short description as a tooltip when the catalog knows the key.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `view-name` | string | `"Default"` | Razor view to render |
+| `css-class` | string | null | Extra CSS class on the outer container |
+| `show-descriptions` | bool | `false` | Show catalog short descriptions inline (not just in tooltip) |
+
+Requires `ISignalCatalog` to be registered (optional - rows render without descriptions if absent).
+
+```cshtml
+@* Compact grouping of all signals *@
+<vc:sb-all-signals />
+
+@* With inline descriptions (useful for demos) *@
+<vc:sb-all-signals show-descriptions="true" />
+```
+
+The `headless.framework` signal (Puppeteer / Playwright / Selenium / PhantomJS / CDP) surfaces automatically in this component when present.
+
+### Status-Code Filter Chips (Endpoints View)
+
+The Endpoints dashboard view (`SbEndpointsList`) includes a filter bar with status-code chips (All, 2xx, 3xx, 4xx, 5xx) and a free-text path filter. Chips are hidden on compact layouts. The path filter HTMX-debounces at 350ms. Selecting a chip or entering a path drops back to page 1 and preserves all other active filter/sort state.
+
+## IDashboardLinkResolver (7.5+)
+
+All dashboard URLs are resolved through `IDashboardLinkResolver` rather than hard-coded prefixes. This ensures links work correctly when the dashboard is mounted at a non-default `BasePath` (for example, `/_stylobot` vs `/dashboard`).
+
+```csharp
+public interface IDashboardLinkResolver
+{
+    string NavBasePath { get; }
+    string Resolve(string subpath);
+}
+```
+
+`NavBasePath` is `StyloBotDashboardOptions.NavBasePath` when set, falling back to `BasePath`. Pass a subpath to `Resolve()` to get the full dashboard-relative URL:
+
+```cshtml
+@inject IDashboardLinkResolver DashboardLinks
+
+<a href="@DashboardLinks.Resolve("/policies")">Policies</a>
+<a href="@DashboardLinks.Resolve("signature/abc123")">Signature</a>
+```
+
+The `DashboardLinkResolver` default implementation is registered by `AddStyloBotDashboard()`. Tests and custom hosts can substitute their own implementation via the DI container.
+
 ## CSS Classes Reference
 
 All components use the `sb-` prefix. Include `sb-components.css` for default styling.

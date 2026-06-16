@@ -167,7 +167,7 @@ timing dims for human browsing) are noisy -- deviations are expected.
   vector; falls back to cosine distance (scaled) for plain L0 entries
 - Results are ordered by ascending distance (closest match first)
 
-**When it fires:** Only meaningful after the first nightly compaction (Phase 3) runs and L1
+**When it fires:** Only meaningful after the first compaction pass (Phase 3) runs and L1
 centroids exist with variance envelopes. Before that, all entries are L0 and Mahalanobis
 falls back to cosine.
 
@@ -177,17 +177,23 @@ falls back to cosine.
 
 ### Per-session write path
 
+`SessionPersistenceService` subscribes to `Tick10s` on `IScheduleCoordinator`. When a session
+finalizes (`SessionStore.SessionFinalized` event fires), the snapshot is enqueued into a
+bounded channel (capacity 500, drops oldest). Every 10-second tick drains the channel and
+writes each snapshot to SQLite sequentially. This keeps SQLite writes off the request path
+while bounding worst-case persistence latency to ~10 seconds.
+
 ```
 FinalizeSession()
   → FrequencyFingerprintEncoder.Encode(requests) → snapshot.FrequencyFingerprint
   → SessionVectorizer.ComputeDriftVector(priorHistory) → snapshot.DriftVector
-  → SessionFinalized event → SessionPersistenceService
-      → SerializeVector(FrequencyFingerprint) → PersistedSession.FrequencyFingerprintBlob
-      → SerializeVector(DriftVector)          → PersistedSession.DriftVectorBlob
-      → SqliteSessionStore.AddSessionAsync()  → sessions table (BLOBs)
-      → AddToVectorSearchAsync()
-          → DeserializeVector(FrequencyFingerprintBlob) → HNSW AddAsync(frequencyFingerprint:)
-          → DeserializeVector(DriftVectorBlob)          → HNSW AddAsync(driftVector:)
+  → SessionFinalized event → SessionPersistenceService (bounded channel enqueue)
+      [Tick10s drain] → SerializeVector(FrequencyFingerprint) → PersistedSession.FrequencyFingerprintBlob
+                      → SerializeVector(DriftVector)          → PersistedSession.DriftVectorBlob
+                      → SqliteSessionStore.AddSessionAsync()  → sessions table (BLOBs)
+                      → AddToVectorSearchAsync()
+                          → DeserializeVector(FrequencyFingerprintBlob) → HNSW AddAsync(frequencyFingerprint:)
+                          → DeserializeVector(DriftVectorBlob)          → HNSW AddAsync(driftVector:)
 ```
 
 ### Startup warmup
@@ -201,6 +207,12 @@ If graph files are present (normal operation after first run), warmup is skipped
 full index with all metadata is loaded from disk in < 1 second.
 
 ### Nightly compaction (VectorCompactionService)
+
+`VectorCompactionService` subscribes to `Tick1h` on `IScheduleCoordinator`. Each hourly tick
+checks whether `DateTime.UtcNow.Hour == RetentionOptions.CompactionHourUtc` and whether the
+job has already run today. When both conditions are met it executes the three compaction
+phases below. This replaces the old `BackgroundService` sleep-until-target-hour pattern; the
+coordinator's single-flight guarantee prevents overlapping compaction passes.
 
 **Phase 2 - SQLite session compaction** (triggers when a signature exceeds `MaxSessionsPerSignature`):
 - Reads all session rows including `frequency_fingerprint`

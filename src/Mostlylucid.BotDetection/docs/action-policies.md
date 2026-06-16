@@ -3,6 +3,8 @@
 Action policies define **HOW** to respond when a bot is detected. They are separate from detection policies (which
 define **WHAT** to detect) for maximum composability.
 
+The 7.5 dashboard policy editor (`SbPolicyStack`) exposes a UI-level action kind picker with 7 kinds: `block`, `allow`, `throttle`, `ratelimit`, `challenge`, `tag`, `observe`. These map onto the underlying action policy types documented below. The editor is read-only in FOSS; see [policy-system.md](policy-system.md#policy-editor-75) for the `IPolicyCanEditPolicy` seam.
+
 ## Architecture Overview
 
 ```mermaid

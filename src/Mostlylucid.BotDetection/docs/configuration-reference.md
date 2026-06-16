@@ -813,3 +813,39 @@ ASP.NET Core maps nested configuration keys using double-underscore (`__`) separ
 | `STYLOBOT_MODEL_CACHE` | `AiDetection.LlamaSharp.ModelCacheDir` | `/app/models` |
 
 Arrays can be set with indexed keys: `BotDetection__ExcludedPaths__0=/health`, `BotDetection__ExcludedPaths__1=/metrics`.
+
+---
+
+## Transport Trust Settings
+
+Section path: `BotDetection:TransportTrust`. Controls which peers may inject edge-computed transport fingerprint headers (`X-JA3-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`, `X-Client-TLS-*`).
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `Mode` | `Auto` \| `Strict` \| `Off` | `Auto` | Trust mode. `Auto` trusts loopback, private-range peers, and anything in `TrustedProxyIps`. `Strict` trusts only `TrustedProxyIps`. `Off` trusts all peers (legacy; logs a startup warning). |
+| `TrustedProxyIps` | `List<string>` | `[]` | CIDRs or exact IPs of trusted reverse proxies. Required for public-IP edges (Cloudflare egress, AWS ALB, etc.) when `Mode` is not `Off`. |
+| `TrustPrivatePeers` | `bool` | `true` | `Auto` mode: also trust loopback and RFC1918/RFC4193 private-range peers. |
+
+| Environment Variable | Maps To |
+|---------------------|---------|
+| `BotDetection__TransportTrust__Mode` | `TransportTrust.Mode` |
+| `BotDetection__TransportTrust__TrustedProxyIps__0` | First entry in `TransportTrust.TrustedProxyIps` |
+| `BotDetection__TransportTrust__TrustPrivatePeers` | `TransportTrust.TrustPrivatePeers` |
+
+---
+
+## Well-Known Bots Options
+
+Section path: `BotDetection:WellKnownBots`. Configuration for the arcjet well-known-bots catalog download, which provides UA pattern coverage for ~635 known bots.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `Url` | `string` | `https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json` | Catalog URL. Set to `""` to disable downloads; the embedded baseline patterns remain active. |
+| `RefreshInterval` | `TimeSpan` | `24:00:00` | How often to refresh. Minimum enforced at 1 hour by the refresh service. |
+| `MaxResponseBytes` | `int` | `2097152` | Hard cap on downloaded response size (default 2 MB). |
+
+| Environment Variable | Maps To |
+|---------------------|---------|
+| `BotDetection__WellKnownBots__Url` | `WellKnownBots.Url` |
+| `BotDetection__WellKnownBots__RefreshInterval` | `WellKnownBots.RefreshInterval` |
+| `BotDetection__WellKnownBots__MaxResponseBytes` | `WellKnownBots.MaxResponseBytes` |

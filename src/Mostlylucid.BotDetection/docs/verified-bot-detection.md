@@ -10,7 +10,22 @@ The detector runs in Wave 0 (priority 4) with no dependencies. It uses a `Verifi
 
 **Honest bot detection**: When a User-Agent is not a known bot but contains a URL (e.g., `MostlylucidBot/1.0 (+https://example.com/bot)`), the detector extracts the domain and performs reverse DNS on the client IP. If the rDNS hostname matches the UA-claimed domain, the bot is classified as an "honest bot" -- transparent about its identity but not from a known registry. If rDNS resolves to a different domain, a weak mismatch signal is emitted (low confidence, since CDNs and shared hosting can cause legitimate mismatches).
 
-Reverse DNS results are cached for 30 minutes to avoid repeated lookups. The cache is capped at 50,000 entries.
+Reverse DNS results are cached for 30 minutes to avoid repeated lookups. The cache is capped at 5,000 entries (LRU eviction).
+
+## Fediverse Domain Verification (FediverseDomainContributor, 7.5+)
+
+For fediverse User-Agents (Mastodon, Pleroma, Misskey, Akkoma, GoToSocial, etc., which carry a `+https://instance/` URL in the UA), a separate contributor (`FediverseDomainContributor`, Priority 5) runs NodeInfo verification followed by a forward-DNS confirmation step.
+
+**Why forward-DNS is required:** NodeInfo alone is insufficient -- anyone can put `+https://mastodon.social/` in their UA from any IP and NodeInfo will confirm the instance exists, so `FriendlyDomainVerified=true` would fire for a spoofer. The forward-DNS step resolves the claimed instance domain's A/AAAA records and checks whether the client IP is in the result set. This binds the claim to the request.
+
+- Forward-DNS results are cached per instance hostname with a 5-minute TTL (bounded at 5,000 entries).
+- A positive match emits `verifiedbot.forward_dns_matched = true` and `verifiedbot.method = "forward_dns"`.
+- A failed DNS lookup emits `verifiedbot.forward_dns_error` with the exception type; absence of `verifiedbot.forward_dns_matched` stays distinguishable from a failed lookup.
+- The `FediverseDomainVerifier` maintains a 24h positive / 1h negative cache for NodeInfo results, so only first-encounter domains pay the outbound HTTPS cost.
+
+## Persistent Trust State (7.5+)
+
+Verification results are now persisted to the `fingerprints` table so they survive process restarts. Previously, trust was an in-memory one-way latch on `SignatureCoordinator` and was lost on restart. The columns added in 7.5 are `claim_status`, `verification_method`, `verified_at`, and `trust_observations`. The verifier contributors read these at request entry and emit `verifiedbot.cached` to skip re-verification when the result is still within `TrustOptions.TrustCacheTtl`. See [`identity-fingerprint-match.md`](identity-fingerprint-match.md) for the full schema.
 
 ## Signals Emitted
 
@@ -19,9 +34,13 @@ Reverse DNS results are cached for 30 minutes to avoid repeated lookups. The cac
 | `verifiedbot.checked` | boolean | Whether verification was attempted |
 | `verifiedbot.confirmed` | boolean | Whether bot identity was confirmed |
 | `verifiedbot.name` | string | Name of the verified bot |
-| `verifiedbot.method` | string | Verification method: `ip_range`, `fcrdns`, `none` |
+| `verifiedbot.method` | string | Verification method: `ip_range`, `fcrdns`, `forward_dns`, `nodeinfo`, or `none` |
 | `verifiedbot.spoofed` | boolean | UA claims known bot but IP fails verification |
 | `verifiedbot.rdns_mismatch` | boolean | UA domain does not match rDNS hostname |
+| `verifiedbot.forward_dns_matched` | boolean | Client IP was found in the claimed fediverse instance's resolved A/AAAA records (FediverseDomainContributor) |
+| `verifiedbot.forward_dns_error` | string | Exception type when forward-DNS lookup failed (SocketException, OperationCanceledException) |
+| `verifiedbot.cached` | boolean | Re-verification was skipped because a prior result is within TrustOptions.TrustCacheTtl |
+| `fediverse.domain_verified` | boolean | NodeInfo confirmed the claimed fediverse instance hosts ActivityPub software |
 
 ## Configuration
 

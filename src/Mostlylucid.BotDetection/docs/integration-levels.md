@@ -2,7 +2,7 @@
 
 StyloBot supports five integration levels, from lightweight attribute-based protection on individual endpoints up to a full YARP gateway with real-time dashboard. Each level builds on the previous one. Mix and match to suit your architecture.
 
-> **Working reference:** The `Mostlylucid.BotDetection.MinimalDemo` project demonstrates Levels 1 and 2 with zero external dependencies. See also [quickstart.md](quickstart.md) for a step-by-step guide.
+> **Working reference:** The `Mostlylucid.BotDetection.Demo` project demonstrates all integration levels with zero external dependencies. See also [quickstart.md](quickstart.md) for a step-by-step guide.
 
 | Level | What it does | Requires |
 |-------|-------------|----------|

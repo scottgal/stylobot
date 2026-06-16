@@ -33,7 +33,9 @@ The gateway reads the protocol header from these names in order, taking the firs
 3. `X-Forwarded-Proto-Version`
 4. `X-Client-Protocol` (Caddy idiom)
 
-TLS, ASN, and JA3 headers have a single canonical name each (table below). If you're hand-rolling proxy config, pick `Sb-Http-Version` for HTTP version; everything else uses the `X-Client-*` / `X-JA3-*` names.
+TLS, ASN, and JA3/JA4 headers have a single canonical name each (table below). If you're hand-rolling proxy config, pick `Sb-Http-Version` for HTTP version; everything else uses the `X-Client-*` / `X-JA3-*` / `X-JA4` names.
+
+> **Security note - trusted-proxy gate:** The transport fingerprint headers (`X-JA3-*`, `X-JA4*`, `X-Client-TLS-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`) are only honoured when they arrive from a trusted reverse proxy. A client reaching the origin directly and sending these headers earns a bot signal, not a human bias. See the [Trusted-proxy gate](#trusted-proxy-gate-transport-fingerprint-headers) section below before deploying. If your edge has a public IP (Cloudflare, AWS ALB, Fastly), you **must** add it to `BotDetection:TransportTrust:TrustedProxyIps`.
 
 ## Cloudflare Tunnel (free tier)
 
@@ -64,14 +66,15 @@ After deploy, hit any page from a modern browser. The signature detail card's TL
 
 ### If you have Cloudflare Bot Management (Enterprise SKU)
 
-Bot Management Enterprise exposes a JA3 hash (`cf.bot_management.ja3_hash`) and a JA4 fingerprint (`cf.bot_management.ja4`) as Transform Rule fields. Map them into the canonical `X-JA3-Hash` / `X-JA3-String` header names that the gateway already reads:
+Bot Management Enterprise exposes a JA3 hash (`cf.bot_management.ja3_hash`) and a JA4 fingerprint (`cf.bot_management.ja4`) as Transform Rule fields. Map them into the canonical header names that the gateway already reads:
 
 | Header name | CF Enterprise expression | What it tells you |
 |---|---|---|
 | `X-JA3-Hash` | `cf.bot_management.ja3_hash` | JA3 TLS handshake fingerprint - read by `TlsFingerprintContributor` |
+| `X-JA4` | `cf.bot_management.ja4` | JA4 fingerprint - read by `TlsFingerprintContributor` (also accepts `X-JA4-Fingerprint` or `X-JA4-Hash`) |
 | `X-Client-TLS-Ext-Sha1` | `cf.tls_client_extensions_sha1` | (already in the free-tier table above; included here for completeness) |
 
-That's it - no extra middleware or plugin needed. The same `X-JA3-Hash` header that nginx-with-ssl_ja3 or HAProxy-with-Lua sends is what the gateway expects from CF Enterprise too. Pick the single header name and the gateway doesn't care which edge produced it.
+That's it - no extra middleware or plugin needed. The same `X-JA3-Hash` / `X-JA4` headers that nginx-with-ssl_ja3 or a Caddy JA4 plugin sends are what the gateway expects from CF Enterprise too. Pick the single header name per signal and the gateway doesn't care which edge produced it.
 
 (If you also want to forward CF's own `cf.bot_management.score` or `cf.bot_management.verified_bot` for use in your own gateway / WAF rules, you can - the gateway doesn't read them today.)
 

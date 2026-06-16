@@ -16,14 +16,23 @@ A policy defines:
 
 ## Built-in Policies
 
-Four policies are registered by default:
+The following policies are registered at startup:
 
-| Policy              | Description                    | Use Case                    |
-|---------------------|--------------------------------|-----------------------------|
-| `default`           | Balanced detection             | General-purpose endpoints   |
-| `strict`            | Deep analysis, AI escalation   | Login, payment, admin       |
-| `relaxed`           | Fast, minimal detection        | Static content, public APIs |
-| `allowVerifiedBots` | Allows verified search engines | SEO-friendly endpoints      |
+| Policy              | Description                                      | Use Case                    |
+|---------------------|--------------------------------------------------|-----------------------------|
+| `default`           | Balanced detection                               | General-purpose endpoints   |
+| `strict`            | Deep analysis, AI escalation                     | Login, payment, admin       |
+| `relaxed`           | Fast, minimal detection                          | Static content, public APIs |
+| `static`            | Fast-path only (UA + Header + FastPathReputation)| Static assets               |
+| `allowVerifiedBots` | Allows verified search engines through           | SEO-friendly endpoints      |
+| `learning`          | Observation-only, feeds learning system          | Calibration window          |
+| `yarpLearning`      | YARP-gateway learning variant                    | YARP reverse proxy          |
+| `monitor`           | Log-only, no blocking                            | Shadow mode                 |
+| `profile`           | Behavioural profiling without action             | Analytics                   |
+| `api`               | API-optimised (UA + Header + Ip only)            | REST API endpoints          |
+| `fastWithOnnx`      | Fast path + ONNX AI escalation                   | ONNX-enabled deployments    |
+| `fastWithAi`        | Fast path + LLM AI escalation                    | LLM-enabled deployments     |
+| `demo`              | Demo mode with full evidence                     | Development / demo          |
 
 ## Configuration
 
@@ -88,7 +97,7 @@ services.AddBotDetection(options =>
     options.PathPolicies["/public/*"] = "relaxed";
 
     // Define custom policy
-    options.Policies["myPolicy"] = new PolicyOptions
+    options.Policies["myPolicy"] = new DetectionPolicyConfig
     {
         Description = "My custom policy",
         FastPath = ["UserAgent", "Header", "Ip"],
@@ -250,8 +259,8 @@ var result = await _orchestrator.DetectAsync(httpContext);
 // Explicit policy by name
 var result = await _orchestrator.DetectAsync(httpContext, "strict");
 
-// Custom policy object
-var policy = new DetectionPolicy
+// Custom policy object (DetectionPolicy is immutable; use with-expressions or init-only setters)
+var policy = DetectionPolicy.Default with
 {
     Name = "adhoc",
     FastPathDetectors = ["UserAgent"],

@@ -67,6 +67,45 @@ Override auto-detection when the first request cannot be trusted (e.g., during s
 
 Valid values: `Auto` (default), `Direct`, `Cloudflare`, `CloudFront`, `Fastly`, `Nginx`, `Generic`. Case-insensitive.
 
+## Transport fingerprint header trust
+
+StyloBot gates edge-injected transport fingerprint headers (`X-JA3-*`, `X-JA4*`, `X-Client-TLS-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`) on the **immediate TCP peer** of the gateway process. A request that originates from a public IP and carries these headers without going through a trusted proxy generates a bot signal instead of being treated as an edge-enriched request.
+
+Configured at `BotDetection:TransportTrust`:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `Mode` | `Auto` | `Auto` trusts loopback/private peers and any peer in `TrustedProxyIps`. `Strict` trusts only `TrustedProxyIps`. `Off` trusts everything (legacy; logs a startup warning). |
+| `TrustedProxyIps` | `[]` | CIDRs or host IPs of reverse proxies. Bare IPs are treated as `/32` or `/128` host routes. |
+| `TrustPrivatePeers` | `true` | In `Auto` mode, trust loopback (`127.0.0.0/8`, `::1`) and RFC 1918/4193 private addresses. |
+
+### How this maps to each topology
+
+| Topology | Gateway peer | Required config |
+|----------|-------------|-----------------|
+| `Direct` | Public client IP | No transport headers flow; nothing to configure. |
+| `Nginx` / `Caddy` (loopback) | `127.0.0.1` or `::1` | `Auto` mode trusts loopback by default - no extra config. |
+| `Nginx` / `Caddy` (separate host, private net) | RFC 1918 address | `Auto` mode trusts private peers by default - no extra config. |
+| `Cloudflare` Tunnel | `cloudflared` connects from loopback or private Docker network | `Auto` trusts by default - no extra config. |
+| `Cloudflare` edge (direct anycast, no tunnel) | Cloudflare public IP | **Must** add Cloudflare's IP ranges to `TrustedProxyIps`. |
+| `CloudFront` / AWS ALB | ALB public or VPC IP | Add ALB IP range to `TrustedProxyIps`, or use `Strict` with explicit CIDRs. |
+| `Fastly` | Fastly public IP | Add Fastly IP ranges to `TrustedProxyIps`. |
+
+Example for a Cloudflare direct-anycast deployment (no cloudflared tunnel):
+
+```json
+{
+  "BotDetection": {
+    "TransportTrust": {
+      "Mode": "Strict",
+      "TrustedProxyIps": ["103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "104.16.0.0/13", "104.24.0.0/14"]
+    }
+  }
+}
+```
+
+See [`docs/REVERSE_PROXY_SIGNALS.md`](../../../docs/REVERSE_PROXY_SIGNALS.md#trusted-proxy-gate-transport-fingerprint-headers) for the full behavioural description of the trust gate.
+
 ## H2C (HTTP/2 cleartext) for Cloudflare Tunnel
 
 When `http2Origin: true` is enabled in the Cloudflare Tunnel dashboard, cloudflared speaks H2C to the origin. The gateway is configured to accept both H1 and H2C:
