@@ -76,6 +76,10 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // (ThreatIntelEnrichmentQueue) is its producer side and remains a plain
         // singleton resolved lazily by contributors.
         _services.GetService<ThreatIntelEnrichmentService>();
+        // LLM-bound coordinators subscribe to Tick10s; resolved here so the
+        // subscriptions are live before the first detection event lands.
+        _services.GetService<LlmClassificationCoordinator>();
+        _services.GetService<IntentClassificationCoordinator>();
         // MeterListenerService is only registered when the dashboard's
         // MonitoringPack.Mode is Local; the GetService probe returns null in
         // every other host so this is the safe place to drive eager resolution.

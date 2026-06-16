@@ -1,23 +1,35 @@
 using System.Text.Json;
 using System.Threading.Channels;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Similarity;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Background service that processes LLM intent classification requests sequentially.
-///     Uses a bounded Channel with DropOldest backpressure.
-///     On result: (1) updates reputation cache, (2) vectorizes + adds to intent HNSW,
+///     Processes LLM intent classification requests sequentially out of a
+///     bounded Channel&lt;T&gt; with DropOldest backpressure. On result:
+///     (1) updates reputation cache, (2) vectorizes + adds to intent HNSW,
 ///     (3) publishes IntentClassified learning event for the learning loop.
-///     When no LlmClassificationService is registered (no LLM provider), uses heuristic fallback.
+///     When no LlmClassificationService is registered (no LLM provider), uses
+///     heuristic fallback.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B).</b> Mirror
+///         of <see cref="LlmClassificationCoordinator"/>: was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c>; now
+///         subscribes to <see cref="TickCadence.Tick10s"/> via
+///         <see cref="IScheduleCoordinator"/> and each tick drains the channel
+///         via <see cref="ChannelReader{T}.TryRead"/>, processing each request
+///         sequentially within the tick.
+///     </para>
 /// </summary>
-public class IntentClassificationCoordinator : BackgroundService
+public class IntentClassificationCoordinator : IDisposable
 {
     private const int DefaultChannelCapacity = 100;
 
@@ -28,6 +40,8 @@ public class IntentClassificationCoordinator : BackgroundService
     private readonly IPatternReputationCache _reputationCache;
     private readonly ILearningEventBus? _learningBus;
     private readonly ILogger<IntentClassificationCoordinator> _logger;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     private long _totalProcessed;
 
@@ -37,7 +51,8 @@ public class IntentClassificationCoordinator : BackgroundService
         IIntentSimilaritySearch intentSearch,
         IntentVectorizer vectorizer,
         IPatternReputationCache reputationCache,
-        ILearningEventBus? learningBus = null)
+        ILearningEventBus? learningBus = null,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
@@ -53,6 +68,17 @@ public class IntentClassificationCoordinator : BackgroundService
                 SingleReader = true,
                 SingleWriter = false
             });
+
+        // Optional so existing direct-construction tests that exercise
+        // TryEnqueue / ProcessRequestAsync in isolation keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick10s,
+                "IntentClassificationCoordinator",
+                CostHint.High,
+                OnTickAsync);
+        }
     }
 
     /// <summary>Current number of items waiting in the queue.</summary>
@@ -81,40 +107,45 @@ public class IntentClassificationCoordinator : BackgroundService
         return true;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: drain any intent
+    ///     classification requests landed since the last tick via
+    ///     <see cref="ChannelReader{T}.TryRead"/> and process each sequentially.
+    ///     LLM dispatch is slow; ScheduleCoordinator's single-flight guarantee
+    ///     prevents re-entry while a tick is still draining.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        _logger.LogInformation(
-            "IntentClassificationCoordinator started (capacity={Capacity}, sequential processing)",
-            DefaultChannelCapacity);
+        if (_disposed != 0) return;
 
-        try
+        while (_channel.Reader.TryRead(out var request))
         {
-            await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
+            if (ct.IsCancellationRequested) break;
+            try
             {
-                try
-                {
-                    await ProcessRequestAsync(request, stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Intent classification failed for {RequestId}", request.RequestId);
-                }
-                finally
-                {
-                    Interlocked.Increment(ref _totalProcessed);
-                }
+                await ProcessRequestAsync(request, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Intent classification failed for {RequestId}", request.RequestId);
+            }
+            finally
+            {
+                Interlocked.Increment(ref _totalProcessed);
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Expected on shutdown
-        }
+    }
 
-        _logger.LogInformation("IntentClassificationCoordinator stopped. Total processed: {Count}", TotalProcessed);
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     private async Task ProcessRequestAsync(IntentClassificationRequest request, CancellationToken ct)

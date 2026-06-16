@@ -1,21 +1,34 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Background service that processes LLM classification requests sequentially.
-///     Uses a bounded Channel&lt;T&gt; with DropOldest backpressure.
-///     Fire-and-forget from the detection pipeline - no parallelism, one at a time.
-///     Tracks queue depth and provides adaptive sampling rates.
-///     When no LlmClassificationService is registered (no LLM provider), becomes a no-op.
+///     Processes LLM classification requests sequentially out of a bounded
+///     Channel&lt;T&gt; with DropOldest backpressure. Fire-and-forget from the
+///     detection pipeline - no parallelism, one at a time. Tracks queue depth
+///     and provides adaptive sampling rates. When no LlmClassificationService
+///     is registered (no LLM provider), becomes a no-op.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B).</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c> on the
+///         channel reader. Now subscribes to <see cref="TickCadence.Tick10s"/>
+///         via <see cref="IScheduleCoordinator"/>; each tick drains whatever
+///         landed since the last tick via <see cref="ChannelReader{T}.TryRead"/>
+///         and processes each request sequentially within the tick. LLM calls
+///         are slow (seconds), so a 10s tick cadence matches the natural pacing
+///         while ScheduleCoordinator's single-flight guarantee prevents
+///         re-entry on overlap.
+///     </para>
 /// </summary>
-public class LlmClassificationCoordinator : BackgroundService
+public class LlmClassificationCoordinator : IDisposable
 {
     private readonly Channel<LlmClassificationRequest> _channel;
     private readonly IServiceProvider _serviceProvider;
@@ -26,6 +39,8 @@ public class LlmClassificationCoordinator : BackgroundService
     private readonly IPatternReputationCache _reputationCache;
     private readonly PatternReputationUpdater _updater;
     private readonly ILlmResultCallback? _resultCallback;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     private long _totalProcessed;
 
@@ -37,7 +52,8 @@ public class LlmClassificationCoordinator : BackgroundService
         IOptions<BotDetectionOptions> options,
         ILlmResultCallback? resultCallback = null,
         ILearningEventBus? learningBus = null,
-        IBotNameSynthesizer? nameSynthesizer = null)
+        IBotNameSynthesizer? nameSynthesizer = null,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
@@ -55,6 +71,17 @@ public class LlmClassificationCoordinator : BackgroundService
                 SingleReader = true,
                 SingleWriter = false
             });
+
+        // Optional so existing direct-construction tests that exercise
+        // TryEnqueue / ProcessRequestAsync in isolation keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick10s,
+                "LlmClassificationCoordinator",
+                CostHint.High,
+                OnTickAsync);
+        }
     }
 
     /// <summary>Current number of items waiting in the queue.</summary>
@@ -103,43 +130,51 @@ public class LlmClassificationCoordinator : BackgroundService
         return true;
     }
 
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: drain whatever LLM
+    ///     classification requests landed since the last tick via
+    ///     <see cref="ChannelReader{T}.TryRead"/> and process each sequentially
+    ///     through <see cref="ProcessRequestAsync"/>. LLM dispatch is slow
+    ///     (seconds), so the tick handler may run well past the 10s cadence
+    ///     for a single tick -- ScheduleCoordinator's single-flight guarantee
+    ///     prevents re-entry while a tick is still draining.
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026",
         Justification = "Dispatches to ProcessRequestAsync which is reflective by design; LLM classification is JIT-only.")]
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050",
         Justification = "Reflective LLM dispatch; not AOT-compatible.")]
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        _logger.LogInformation("LlmClassificationCoordinator started (capacity={Capacity}, sequential processing)",
-            _options.LlmCoordinator.ChannelCapacity);
+        if (_disposed != 0) return;
 
-        try
+        while (_channel.Reader.TryRead(out var request))
         {
-            await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
+            if (ct.IsCancellationRequested) break;
+            try
             {
-                try
-                {
-                    await ProcessRequestAsync(request, stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "LLM classification failed for {RequestId}", request.RequestId);
-                }
-                finally
-                {
-                    Interlocked.Increment(ref _totalProcessed);
-                }
+                await ProcessRequestAsync(request, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "LLM classification failed for {RequestId}", request.RequestId);
+            }
+            finally
+            {
+                Interlocked.Increment(ref _totalProcessed);
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Normal shutdown
-        }
+    }
 
-        _logger.LogInformation("LlmClassificationCoordinator stopped");
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(

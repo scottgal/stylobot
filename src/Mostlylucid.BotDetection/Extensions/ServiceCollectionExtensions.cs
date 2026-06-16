@@ -1356,14 +1356,19 @@ public static class ServiceCollectionExtensions
         // ==========================================
         // Background LLM Classification Coordinator
         // ==========================================
+        // Wave 2 (Category B): dropped BackgroundService inheritance; subscribes
+        // to ScheduleCoordinator Tick10s at construction. BotDetectionHosted-
+        // SingletonsBootstrap eagerly resolves it at boot so the subscription
+        // is live before the first tick.
         services.AddSingleton<LlmClassificationCoordinator>();
-        services.AddHostedService(sp => sp.GetRequiredService<LlmClassificationCoordinator>());
 
         // ==========================================
         // Background Intent Classification Coordinator (threat scoring)
         // ==========================================
+        // Wave 2 (Category B): mirror of LlmClassificationCoordinator -- now a
+        // singleton that subscribes to ScheduleCoordinator Tick10s; eagerly
+        // resolved by BotDetectionHostedSingletonsBootstrap.
         services.AddSingleton<IntentClassificationCoordinator>();
-        services.AddHostedService(sp => sp.GetRequiredService<IntentClassificationCoordinator>());
 
         // ==========================================
         // Similarity Search (Slim* bounded in-memory, SQLite-backed centroids)
