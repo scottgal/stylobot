@@ -1,0 +1,62 @@
+{
+  "scenarioName": "well-known-catalog-bots",
+  "description": "Bots from the arcjet well-known-bots catalog that are not in StyloBot YAML definitions. Validates that WellKnownBotIndex fallback classification works: TurnitinBot (AI/academic), SemanticScholarBot (AI/academic), aiHitBot (AI), CrunchBot (AI). These require the catalog to be downloaded; if the index is empty the fallback falls through to generic heuristics which still score as bot.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "TurnitinBot (https://turnitin.com/robot/crawlerinfo.html)",
+        "Accept": "text/html,application/xhtml+xml"
+      },
+      "delayAfter": 0.3,
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/docs",
+      "headers": {
+        "User-Agent": "SemanticScholarBot/1.0 (+http://s2.allenai.org/bot.html)",
+        "Accept": "text/html"
+      },
+      "delayAfter": 0.4,
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (compatible; aiHitBot/2.9; +https://www.aihitdata.com/about)",
+        "Accept": "text/html"
+      },
+      "delayAfter": 0.3,
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/blog",
+      "headers": {
+        "User-Agent": "CrunchBot/1.0 (+http://www.leadcrunch.com/crunchbot)",
+        "Accept": "text/html,application/xhtml+xml"
+      },
+      "delayAfter": 0.5,
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.7,
+        "riskBand": "Medium"
+      }
+    }
+  ]
+}

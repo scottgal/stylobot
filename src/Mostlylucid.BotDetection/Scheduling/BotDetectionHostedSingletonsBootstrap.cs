@@ -62,6 +62,7 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // CommonUserAgentService>); GetService<concrete> would miss it.
         _services.GetService<ICommonUserAgentService>();
         _services.GetService<Ja3CorpusRefreshService>();
+        _services.GetService<Definitions.WellKnownBots.WellKnownBotRefreshService>();
         _services.GetService<VerifiedBotRegistry>();
         _services.GetService<EntityResolutionService>();
         _services.GetService<SessionAtomizerService>();

@@ -57,7 +57,10 @@ public sealed class BotPatternLoader
         if (idx.TryGetValue(botName, out var bt)) return bt;
         var space = botName.IndexOf(' ');
         if (space > 0 && idx.TryGetValue(botName[..space], out var bt2)) return bt2;
-        return null;
+
+        // Fallback: arcjet well-known-bots catalog for names originating from
+        // WellKnownBotIndex (display names like "Google Crawler" that aren't in YAML).
+        return Definitions.WellKnownBots.WellKnownBotIndex.Default.TryFindBotTypeByDisplayName(botName);
     }
 
     /// <summary>
@@ -76,13 +79,24 @@ public sealed class BotPatternLoader
     ///     Mastodon rows from being labelled with a stale "Scraper" tag
     ///     persisted before earlier HeuristicEarly fixes landed.
     /// </summary>
-    public (string? BotType, string? BotName) MatchUserAgent(string? userAgent)
+    public (string? BotType, string? BotName) MatchUserAgent(
+        string? userAgent,
+        Definitions.WellKnownBots.WellKnownBotIndex? wellKnownBots = null)
     {
         if (string.IsNullOrEmpty(userAgent)) return (null, null);
         var table = _uaMatchTable ??= BuildUaMatchTable();
         foreach (var (pattern, type, name) in table)
             if (userAgent.Contains(pattern, StringComparison.OrdinalIgnoreCase))
                 return (type, name);
+
+        // Fallback: arcjet well-known-bots catalog (downloaded periodically).
+        if (wellKnownBots?.Count > 0)
+        {
+            var match = wellKnownBots.TryMatch(userAgent);
+            if (match is not null)
+                return (match.BotType.ToString(), match.DisplayName);
+        }
+
         return (null, null);
     }
 

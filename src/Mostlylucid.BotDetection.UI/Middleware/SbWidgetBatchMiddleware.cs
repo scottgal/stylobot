@@ -427,7 +427,8 @@ public sealed class SbWidgetBatchMiddleware
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
         const int maxFetch = 500;
         var fetchCount = Math.Min(page * pageSize + pageSize, maxFetch);
-        var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
+        var since = DateTime.UtcNow - _options.DetectionRetention;
+        var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
         var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
 
         var sigLookup = await _eventStore.LoadSignatureLookupAsync();

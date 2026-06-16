@@ -20,11 +20,11 @@ internal sealed class RemoteSessionStore : ISessionStore
         return list ?? new List<PersistedSession>();
     }
 
-    public async Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, CancellationToken ct = default)
+    public async Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, DateTime? since = null, CancellationToken ct = default)
     {
-        var query = isBot is null
-            ? $"/api/v1/sessions/recent?limit={limit}"
-            : $"/api/v1/sessions/recent?limit={limit}&isBot={isBot.Value.ToString().ToLowerInvariant()}";
+        var query = $"/api/v1/sessions/recent?limit={limit}";
+        if (isBot.HasValue) query += $"&isBot={isBot.Value.ToString().ToLowerInvariant()}";
+        if (since.HasValue) query += $"&since={Uri.EscapeDataString(since.Value.ToString("O"))}";
         var list = await _api.GetEnvelopeAsync<List<PersistedSession>>(query, ct);
         return list ?? new List<PersistedSession>();
     }

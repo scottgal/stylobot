@@ -1091,12 +1091,14 @@ public static class ServiceCollectionExtensions
         // registration is safe to include unconditionally; the operator
         // controls activation via TlsCorpus:Enabled.
         services.AddHttpClient(Ja3CorpusRefreshService.HttpClientName);
-        // Wave 2: drop AddHostedService -- the service subscribes to
-        // IScheduleCoordinator.Tick1h at construction. The
-        // BotDetectionHostedSingletonsBootstrap shim forces resolution at boot
-        // so the subscription is not dormant until first request-time
-        // resolution. See the migration plan dated 2026-06-15.
         services.TryAddSingleton<Ja3CorpusRefreshService>();
+
+        // Arcjet well-known-bots catalog: ~635 bot UA patterns downloaded periodically.
+        // Returns WellKnownBotIndex.Default so DI consumers and static callers
+        // (FingerprintNameComposer, BotPatternLoader) share the same instance.
+        services.TryAddSingleton(Definitions.WellKnownBots.WellKnownBotIndex.Default);
+        services.AddHttpClient(Definitions.WellKnownBots.WellKnownBotRefreshService.HttpClientName);
+        services.TryAddSingleton<Definitions.WellKnownBots.WellKnownBotRefreshService>();
         services.AddSingleton<IContributingDetector, TlsFingerprintContributor>();
         services.AddSingleton<IContributingDetector, TcpIpFingerprintContributor>();
         services.AddSingleton<IContributingDetector, Http2FingerprintContributor>();

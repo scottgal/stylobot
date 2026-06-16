@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Definitions.WellKnownBots;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 
@@ -356,7 +357,7 @@ internal static class FingerprintNameComposer
             return cached;
 
         if (string.IsNullOrEmpty(rawUa)) return null;
-        var (_, botName) = BotPatternLoader.Default.MatchUserAgent(rawUa);
+        var (_, botName) = BotPatternLoader.Default.MatchUserAgent(rawUa, WellKnownBotIndex.Default);
         return string.IsNullOrEmpty(botName) ? null : botName;
     }
 }

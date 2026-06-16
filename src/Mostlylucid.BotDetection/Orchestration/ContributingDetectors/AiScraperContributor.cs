@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Definitions.WellKnownBots;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -27,6 +28,8 @@ public class AiScraperContributor : ConfiguredContributorBase
     // Loaded from ai-scrapers.bot-patterns.yaml (and any other YAML with ai_category set).
     // To add or modify AI bot patterns, edit the YAML files — never add hardcoded entries here.
     private readonly IReadOnlyList<BotPatternEntry> _knownAiBots;
+    private readonly WellKnownBotIndex _wellKnownBots;
+    private readonly ILogger<AiScraperContributor> _logger;
 
     /// <summary>
     ///     AI discovery endpoint paths that only AI systems request.
@@ -38,17 +41,17 @@ public class AiScraperContributor : ConfiguredContributorBase
         "/.well-known/http-message-signatures-directory"
     };
 
-    private readonly ILogger<AiScraperContributor> _logger;
-
     public AiScraperContributor(
         ILogger<AiScraperContributor> logger,
         IDetectorConfigProvider configProvider,
-        BotPatternLoader? patternLoader = null)
+        BotPatternLoader? patternLoader = null,
+        WellKnownBotIndex? wellKnownBots = null)
         : base(configProvider)
     {
         _logger = logger;
         var loader = patternLoader ?? BotPatternLoader.Default;
         _knownAiBots = loader.AiPatterns.ToList();
+        _wellKnownBots = wellKnownBots ?? WellKnownBotIndex.Default;
     }
 
     public override string Name => "AiScraper";
@@ -107,6 +110,31 @@ public class AiScraperContributor : ConfiguredContributorBase
                             botName: bot.BotName));
 
                         break;
+                    }
+                }
+
+                // Fallback: arcjet well-known-bots catalog for AI bots not in YAML.
+                // Only fires when YAML patterns produced no match AND the index has
+                // an entry with BotType.AiBot for this UA.
+                if (!foundBot && _wellKnownBots.Count > 0)
+                {
+                    var wkbMatch = _wellKnownBots.TryMatch(userAgent);
+                    if (wkbMatch is { BotType: BotType.AiBot })
+                    {
+                        state.WriteSignals([
+                            new(SignalKeys.AiScraperDetected, true),
+                            new(SignalKeys.AiScraperName, wkbMatch.DisplayName),
+                            new(SignalKeys.AiScraperOperator, ""),
+                            new(SignalKeys.AiScraperCategory, "Unknown")
+                        ]);
+                        foundBot = true;
+                        contributions.Add(BotContribution(
+                            "AI Scraper",
+                            $"Known AI bot (well-known catalog): {wkbMatch.DisplayName}",
+                            confidenceOverride: KnownAiBotConfidence,
+                            weightMultiplier: 2.0,
+                            botType: BotType.AiBot.ToString(),
+                            botName: wkbMatch.DisplayName));
                     }
                 }
             }

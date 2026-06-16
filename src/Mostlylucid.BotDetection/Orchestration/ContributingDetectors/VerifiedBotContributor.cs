@@ -66,12 +66,7 @@ public partial class VerifiedBotContributor : ConfiguredContributorBase
         var userAgent = state.UserAgent;
         var clientIp = state.ClientIp;
 
-        // Diagnostic: log every entry so we can confirm the orchestrator is
-        // even invoking this contributor. Today we cannot tell from the
-        // dashboard whether the contributor ran-and-returned-no-match, or
-        // never ran at all (e.g. orchestrator skip_when filter for
-        // detection.early_exit pruning it on cached signatures).
-        _logger.LogInformation(
+        _logger.LogDebug(
             "VerifiedBotContributor invoked: ua-prefix={UaPrefix} ip-present={HasIp}",
             string.IsNullOrEmpty(userAgent) ? "<empty>" : userAgent[..Math.Min(60, userAgent.Length)],
             !string.IsNullOrEmpty(clientIp));

@@ -3,9 +3,11 @@ using System.Collections.Concurrent;
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Thread-safe bounded cache with TTL expiry and LRU eviction.
+///     Thread-safe bounded cache with TTL expiry and LFU eviction.
 ///     Use this instead of raw ConcurrentDictionary for all lookup caches
 ///     (DNS, ASN, CIDR, RDNS, honeypot, etc.) to prevent unbounded growth.
+///     LFU (least-frequently-used) eviction keeps hot entries (e.g. popular
+///     bot IPs verified every hour) while evicting cold entries first.
 ///
 ///     This is a lightweight alternative to IMemoryCache for cases where
 ///     the cache is internal to a service and doesn't need DI.
@@ -16,7 +18,6 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
     private readonly int _maxSize;
     private readonly TimeSpan _defaultTtl;
     private readonly object _evictionLock = new();
-    private long _accessCounter;
 
     public BoundedCache(int maxSize = 10_000, TimeSpan? defaultTtl = null)
     {
@@ -27,13 +28,15 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
     public int Count => _entries.Count;
 
     /// <summary>
-    ///     Gets a value if present and not expired. Returns false if missing or expired.
+    ///     Gets a value if present and not expired. Increments the hit counter
+    ///     so frequently-accessed entries survive LFU eviction longer.
+    ///     Returns false if missing or expired.
     /// </summary>
     public bool TryGet(TKey key, out TValue value)
     {
         if (_entries.TryGetValue(key, out var entry) && DateTime.UtcNow < entry.ExpiresAt)
         {
-            entry.LastAccessed = Interlocked.Increment(ref _accessCounter);
+            Interlocked.Increment(ref entry.HitCount);
             value = entry.Value;
             return true;
         }
@@ -55,12 +58,9 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
     /// </summary>
     public void Set(TKey key, TValue value, TimeSpan ttl)
     {
-        _entries[key] = new CacheEntry
-        {
-            Value = value,
-            ExpiresAt = DateTime.UtcNow + ttl,
-            LastAccessed = Interlocked.Increment(ref _accessCounter)
-        };
+        // Preserve hit count when refreshing (e.g. DNS TTL renewal keeps popularity score).
+        var prevHits = _entries.TryGetValue(key, out var existing) ? existing.HitCount : 0;
+        _entries[key] = new CacheEntry { Value = value, ExpiresAt = DateTime.UtcNow + ttl, HitCount = prevHits };
 
         EvictIfNeeded();
     }
@@ -130,7 +130,11 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
             foreach (var key in expiredKeys)
                 _entries.TryRemove(key, out _);
 
-            // Phase 2: If still over limit, evict LRU (oldest accessed)
+            // Phase 2: If still over limit, evict LFU (least-frequently-used first).
+            // Entries with the lowest hit count are evicted first, so popular IPs
+            // (Googlebot crawling from many addresses, UptimeRobot, etc.) survive
+            // while one-off IPs are dropped. Evict down to 75% capacity so the
+            // next burst of new IPs doesn't immediately trigger another eviction round.
             if (_entries.Count > _maxSize)
             {
                 // Avoid LINQ's ICollection.CopyTo fast path over ConcurrentDictionary:
@@ -140,8 +144,8 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
                     snapshot.Add(entry);
 
                 var toEvict = snapshot
-                    .OrderBy(kv => kv.Value.LastAccessed)
-                    .Take(Math.Max(0, snapshot.Count - (_maxSize * 3 / 4))) // Evict down to 75% capacity
+                    .OrderBy(kv => kv.Value.HitCount)
+                    .Take(Math.Max(0, snapshot.Count - (_maxSize * 3 / 4)))
                     .Select(kv => kv.Key)
                     .ToList();
 
@@ -159,6 +163,7 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
     {
         public required TValue Value { get; init; }
         public required DateTime ExpiresAt { get; init; }
-        public long LastAccessed { get; set; }
+        // Field (not property) so Interlocked.Increment can take ref.
+        public long HitCount;
     }
 }

@@ -2161,7 +2161,8 @@ public class StyloBotDashboardMiddleware
         var botFilter = context.Request.Query["isBot"].FirstOrDefault();
         bool? isBot = botFilter switch { "true" => true, "false" => false, _ => null };
 
-        var sessions = await sessionStore.GetRecentSessionsAsync(limit, isBot);
+        var since = DateTime.UtcNow - _options.DetectionRetention;
+        var sessions = await sessionStore.GetRecentSessionsAsync(limit, isBot, since);
 
         var result = sessions.Select(s => new
         {
@@ -6827,12 +6828,19 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         }
 
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
-        var sessions = await sessionStore.GetRecentSessionsAsync(pageSize, isBot);
+        var since = DateTime.UtcNow - _options.DetectionRetention;
+        const int maxFetch = 500;
+        var fetchCount = Math.Min(page * pageSize + pageSize, maxFetch);
+        var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
+        var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
 
         var sigLookup = await _eventStore.LoadSignatureLookupAsync();
         var uaLookup  = await _eventStore.LoadUserAgentLookupAsync();
 
-        var entries = sessions.Select(s => new SessionListEntry
+        var entries = sessions
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(s => new SessionListEntry
         {
             Id = s.Id,
             Signature = s.Signature,
@@ -6861,7 +6869,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             BasePath = _options.BasePath.TrimEnd('/'),
             Page = page,
             PageSize = pageSize,
-            TotalCount = entries.Count,
+            TotalCount = totalCount,
             Filter = filter
         };
     }

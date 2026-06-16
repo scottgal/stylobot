@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Definitions.WellKnownBots;
 using Mostlylucid.BotDetection.Filters;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -428,7 +429,7 @@ public class BotDetectionMiddleware(
                     // hit refreshes the friendly classification (SearchEngine for
                     // googlebot/bingbot, SocialMediaBot for Mastodon, etc.).
                     var liveUa = context.Request.Headers.UserAgent.ToString();
-                    var (uaBotTypeStr, uaBotName) = BotPatternLoader.Default.MatchUserAgent(liveUa);
+                    var (uaBotTypeStr, uaBotName) = BotPatternLoader.Default.MatchUserAgent(liveUa, WellKnownBotIndex.Default);
                     BotType? cachedPrimaryBotType = null;
                     if (!string.IsNullOrEmpty(uaBotTypeStr)
                         && Enum.TryParse<BotType>(uaBotTypeStr, ignoreCase: true, out var parsedBotType))

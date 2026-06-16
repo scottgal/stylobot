@@ -198,7 +198,7 @@ public sealed class SessionPersistenceServiceTickTests
         public Task<List<PersistedRequest>> GetRecentRequestsAsync(int limit = 5000, DateTime? sinceUtc = null, CancellationToken ct = default) => Task.FromResult(new List<PersistedRequest>());
         public Task LinkRequestsToSessionAsync(long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default) => Task.CompletedTask;
         public Task<List<PersistedSession>> GetSessionsAsync(string signature, int limit = 20, CancellationToken ct = default) => Task.FromResult(new List<PersistedSession>());
-        public Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, CancellationToken ct = default) => Task.FromResult(new List<PersistedSession>());
+        public Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, DateTime? since = null, CancellationToken ct = default) => Task.FromResult(new List<PersistedSession>());
         public Task<PersistedSignature?> GetSignatureAsync(string signatureId, CancellationToken ct = default) => Task.FromResult<PersistedSignature?>(null);
         public Task<string> ResolveSignatureAsync(string requestedSignatureId, CancellationToken ct = default) => Task.FromResult(requestedSignatureId);
         public Task RecordSignatureMergeAsync(string oldSignatureId, string newSignatureId, string reason, CancellationToken ct = default) => Task.CompletedTask;

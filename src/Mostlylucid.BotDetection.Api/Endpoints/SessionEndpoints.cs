@@ -28,10 +28,19 @@ public static class SessionEndpoints
         [FromServices] ISessionStore? store,
         int limit = 50,
         bool? isBot = null,
+        string? since = null,
         CancellationToken ct = default)
     {
         if (store is null) return ApiEndpointHelpers.StoreUnavailable("Session store");
-        var sessions = await store.GetRecentSessionsAsync(Math.Min(limit, 200), isBot, ct);
+        DateTime? sinceUtc = null;
+        if (!string.IsNullOrEmpty(since) && DateTime.TryParse(since, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+        {
+            var candidate = parsed.ToUniversalTime();
+            // Clamp to 30-day max history so callers cannot retrieve arbitrarily old sessions.
+            var floor = DateTime.UtcNow.AddDays(-30);
+            sinceUtc = candidate < floor ? floor : candidate;
+        }
+        var sessions = await store.GetRecentSessionsAsync(Math.Min(limit, 200), isBot, sinceUtc, ct);
         return ApiEndpointHelpers.Paginated(sessions, limit);
     }
 

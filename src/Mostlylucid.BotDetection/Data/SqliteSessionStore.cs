@@ -536,17 +536,28 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         return await ReadSessionsAsync(cmd, ct);
     }
 
-    public async Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, CancellationToken ct = default)
+    public async Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, DateTime? since = null, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
 
-        if (isBot.HasValue)
+        if (isBot.HasValue && since.HasValue)
+        {
+            cmd.CommandText = "SELECT * FROM sessions WHERE is_bot = @isBot AND ended_at >= @since ORDER BY ended_at DESC LIMIT @limit";
+            cmd.Parameters.AddWithValue("@isBot", isBot.Value ? 1 : 0);
+            cmd.Parameters.AddWithValue("@since", since.Value.ToString("O"));
+        }
+        else if (isBot.HasValue)
         {
             cmd.CommandText = "SELECT * FROM sessions WHERE is_bot = @isBot ORDER BY ended_at DESC LIMIT @limit";
             cmd.Parameters.AddWithValue("@isBot", isBot.Value ? 1 : 0);
+        }
+        else if (since.HasValue)
+        {
+            cmd.CommandText = "SELECT * FROM sessions WHERE ended_at >= @since ORDER BY ended_at DESC LIMIT @limit";
+            cmd.Parameters.AddWithValue("@since", since.Value.ToString("O"));
         }
         else
         {
@@ -1490,8 +1501,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
     {
         Id = reader.GetInt64(reader.GetOrdinal("id")),
         Signature = reader.GetString(reader.GetOrdinal("signature")),
-        StartedAt = DateTime.Parse(reader.GetString(reader.GetOrdinal("started_at"))),
-        EndedAt = DateTime.Parse(reader.GetString(reader.GetOrdinal("ended_at"))),
+        StartedAt = DateTime.Parse(reader.GetString(reader.GetOrdinal("started_at")),
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind),
+        EndedAt = DateTime.Parse(reader.GetString(reader.GetOrdinal("ended_at")),
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind),
         RequestCount = reader.GetInt32(reader.GetOrdinal("request_count")),
         Vector = reader.IsDBNull(reader.GetOrdinal("vector")) ? [] : (byte[])reader["vector"],
         Maturity = reader.GetFloat(reader.GetOrdinal("maturity")),

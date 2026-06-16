@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StyloBot** is an enterprise-grade bot detection and anonymous entity resolution framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 49 detectors in 4 waves, real-time inference with <1ms fast path, intent classification with threat scoring, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection with optional LLM enrichment (not decision-making) for edge cases. Sessions are the primary behavioral unit - compressed into 129-dimensional Markov chain vectors with unified fingerprint dimensions and per-transition timing anomaly detection, enabling inter-session velocity analysis and behavioral anomaly detection. **Metastable fingerprint identity** (6.4.7+, opt-in via `Identity:Enabled = true`) treats each visitor as a learned vector *shape* - centroid + per-fp weight vector + observation cloud - and uses a two-pass match (L1 IP+UA point lookup → L2 weighted-cosine via `IIdentityAnchorIndex`) so the fast path stays sub-ms for stable visitors while rotated identities still resolve to a single fingerprint. Drift verifier, calibration via Fisher discriminant ratios, and self-refining archetypes close the learning loop. See [`docs/architecture/fingerprint-match.md`](docs/architecture/fingerprint-match.md). **Anonymous Entity Resolution** progressively builds identity from multiple factors (IP+UA → TLS → HTTP/2 → client-side JS → behavioral patterns), discovers stable identity anchors per visitor (PersonalStability × GlobalRarity scoring), and detects rotation trails via cosine neighbor walking. Entity merge/split/rewind operations are backed by immutable session snapshots. Persistence uses SQLite everywhere (zero-dependency) for the FOSS product, with PostgreSQL as the commercial upgrade path (in the `stylobot-commercial` repo). The website/portal has been moved to `stylobot-commercial` as it depends on commercial packages. The real-time dashboard features session timeline visualization with Markov chain drill-in, behavioral shape radar charts (8-axis projection from 129-dim vectors), world threat map, traffic charts, country analytics, cluster visualization, threat scoring, deterministic bot naming, live signature feed, and Threats tab for CVE probe monitoring. All dashboard data persists to SQLite (no in-memory stores). **Simulation packs** (WordPress FOSS, others commercial) simulate vulnerable endpoints to detect CVE-targeting bots. The `UseStyloBot()` method provides single-call setup with correct middleware ordering.
+**StyloBot** is an enterprise-grade bot detection and anonymous entity resolution framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 57 contributors across 4 waves, real-time inference with <1ms fast path, intent classification with threat scoring, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection with optional LLM enrichment (not decision-making) for edge cases. Sessions are the primary behavioral unit - compressed into 129-dimensional Markov chain vectors with unified fingerprint dimensions and per-transition timing anomaly detection, enabling inter-session velocity analysis and behavioral anomaly detection. **Metastable fingerprint identity** (6.4.7+, opt-in via `Identity:Enabled = true`) treats each visitor as a learned vector *shape* - centroid + per-fp weight vector + observation cloud - and uses a two-pass match (L1 IP+UA point lookup → L2 weighted-cosine via `IIdentityAnchorIndex`) so the fast path stays sub-ms for stable visitors while rotated identities still resolve to a single fingerprint. Drift verifier, calibration via Fisher discriminant ratios, and self-refining archetypes close the learning loop. See [`docs/architecture/fingerprint-match.md`](docs/architecture/fingerprint-match.md). **Anonymous Entity Resolution** progressively builds identity from multiple factors (IP+UA → TLS → HTTP/2 → client-side JS → behavioral patterns), discovers stable identity anchors per visitor (PersonalStability × GlobalRarity scoring), and detects rotation trails via cosine neighbor walking. Entity merge/split/rewind operations are backed by immutable session snapshots. Persistence uses SQLite everywhere (zero-dependency) for the FOSS product, with PostgreSQL as the commercial upgrade path (in the `stylobot-commercial` repo). The website/portal has been moved to `stylobot-commercial` as it depends on commercial packages. The real-time dashboard features session timeline visualization with Markov chain drill-in, behavioral shape radar charts (8-axis projection from 129-dim vectors), world threat map, traffic charts, country analytics, cluster visualization, threat scoring, deterministic bot naming, live signature feed, and Threats tab for CVE probe monitoring. All dashboard data persists to SQLite (no in-memory stores). **Simulation packs** (WordPress FOSS, others commercial) simulate vulnerable endpoints to detect CVE-targeting bots. The `UseStyloBot()` method provides single-call setup with correct middleware ordering.
 
 ## Critical Rules
 
@@ -25,7 +25,7 @@ dotnet build mostlylucid.stylobot.sln
 # Build specific project
 dotnet build src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
 
-# Run the full demo application (all 49 detectors + dashboard)
+# Run the full demo application (all 57 contributors + dashboard)
 dotnet run --project src/Mostlylucid.BotDetection.Demo
 # Visit: https://localhost:5001/SignatureDemo
 # Dashboard: http://localhost:5080/_stylobot
@@ -97,15 +97,19 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 **Content Sequence (Priority 4, Wave 0)**: ContentSequence -tracks document→asset→API page-load order per fingerprint; writes `sequence.*` signals that gate 5 deferred detectors; detects machine-speed timing (<20ms), phase-window divergence, cache-warm, and expected SignalR; `CentroidSequenceStore` (SQLite) holds per-cluster expected chains; `EndpointDivergenceTracker` + `AssetHashMiddleware` suppress false positives during deploys
 
-**Fast Path (<1ms)**: UserAgent, Header, Ip, SecurityTool, Behavioral, ClientSide, Inconsistency, VersionAge, Heuristic, FastPathReputation, CacheBehavior, CookieBehavior, ResourceWaterfall, ReputationBias, AiScraper, Haxxor, CveProbe, PiiQueryString
+**Fast Path (<1ms)**: UserAgent, Header, Ip, SecurityTool, Behavioral, ClientSide, Inconsistency, VersionAge, Heuristic, FastPathReputation, CacheBehavior, CookieBehavior, ResourceWaterfall, ReputationBias, AiScraper, Haxxor, CveProbe, PiiQueryString, VerifiedBot, VerifiedBotInline, FediverseDomain, BrowserModeClassifier, CveFingerprint, HeuristicLate, ClaimedIdentity, ThreatIntel
 
 **Slow Path (~100ms)**: ProjectHoneypot (DNS lookup)
 
 **Advanced Fingerprinting**: TlsFingerprint (JA3/JA4), TcpIpFingerprint (p0f), Http2Fingerprint (AKAMAI), Http3Fingerprint (QUIC), MultiLayerCorrelation, BehavioralWaveform, ResponseBehavior, TransportProtocol, StreamAbuse
 
-**Session Analysis**: SessionVector (Markov chain → 129-dim vector, partial chain archetypes at 3-5 requests, inter-session velocity), Periodicity (rotation cadence, temporal patterns via autocorrelation)
+**Session Analysis**: SessionVector (Markov chain → 129-dim vector, partial chain archetypes at 3-5 requests, inter-session velocity), Periodicity (rotation cadence, temporal patterns via autocorrelation), ReactivePattern, Similarity, Cluster
 
-**Entity Resolution**: Merge (cosine neighbor walking), Split (velocity oscillation), Convergence (parallel behavioral vectors), L0-L5 confidence levels
+**Entity Resolution**: Merge (cosine neighbor walking), Split (velocity oscillation), Convergence (parallel behavioral vectors), L0-L5 confidence levels, AccountTakeover, IdentityChange, GeoChange, PoolCollision
+
+**Post-Round-Trip**: ChallengeVerification, FingerprintApproval, ClickFraud, Honeypot.EndpointHistory, Honeypot.HoneypotLink
+
+**LLM Escalation**: Llm (enrichment only, not decision-making)
 
 ### Detector Benchmark Numbers
 
@@ -177,7 +181,7 @@ Sessions are the primary behavioral unit. Per-request Markov chain transitions a
 
 - `Extensions/ServiceCollectionExtensions.cs` - DI registration entry points
 - `Orchestration/BlackboardOrchestrator.cs` - Main detection orchestration
-- `Orchestration/ContributingDetectors/` - All 49 detector implementations
+- `Orchestration/ContributingDetectors/` - All 57 contributor implementations
 - `Orchestration/Manifests/detectors/*.yaml` - Detector configurations
 - `Models/BotDetectionOptions.cs` - Configuration model
 - `Actions/*.cs` - Response policies (block, throttle, challenge, redirect)
@@ -446,7 +450,7 @@ Internet → Cloudflare Tunnel → Caddy (TLS) → YARP Gateway (bot detection) 
                                             → Website (direct for /_stylobot* / SignalR)
 ```
 
-- **Gateway** (`Stylobot.Gateway`) - YARP reverse proxy with all 49 detectors, no dashboard
+- **Gateway** (`Stylobot.Gateway`) - YARP reverse proxy with all 57 contributors, no dashboard
 - **Website** (`mostlylucid.stylobot.website`) - ASP.NET Core MVC + dashboard UI + SignalR hub
 - **Caddy** routes `/_stylobot*` directly to website (bypasses gateway for SignalR WebSocket)
 - **PostgreSQL** - Dashboard event persistence (commercial); SQLite for core product (FOSS)

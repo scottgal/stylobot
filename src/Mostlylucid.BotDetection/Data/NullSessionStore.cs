@@ -49,7 +49,7 @@ public sealed class NullSessionStore : ISessionStore
     public Task<List<PersistedSession>> GetSessionsAsync(string signature, int limit = 20, CancellationToken ct = default)
         => Task.FromResult(new List<PersistedSession>());
 
-    public Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, CancellationToken ct = default)
+    public Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, DateTime? since = null, CancellationToken ct = default)
         => Task.FromResult(new List<PersistedSession>());
 
     // === Read path: Signatures ===

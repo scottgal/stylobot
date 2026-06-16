@@ -28,7 +28,8 @@ public class SbSessionsListViewComponent(
         // Fetch only enough sessions for the current and any future pages the user is likely to reach.
         // The store has no server-side pagination, so we over-fetch conservatively.
         var fetchCount = Math.Min((page * pageSize) + pageSize, 200);
-        var allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
+        var since = DateTime.UtcNow - options.Value.DetectionRetention;
+        var allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
 
         var sigLookup = await eventStore.LoadSignatureLookupAsync();
         var uaLookup  = await eventStore.LoadUserAgentLookupAsync();

@@ -201,6 +201,13 @@ public class BotDetectionOptions
     public Definitions.TlsReference.TlsCorpusOptions TlsCorpus { get; set; } = new();
 
     /// <summary>
+    ///     Settings for the arcjet well-known-bots catalog download.
+    ///     Provides UA pattern coverage for ~635 known bots; used for
+    ///     initial centroid naming and UA fallback classification.
+    /// </summary>
+    public Definitions.WellKnownBots.WellKnownBotsOptions WellKnownBots { get; set; } = new();
+
+    /// <summary>
     ///     When true, detections from local/private IPs are excluded from SignalR broadcasts
     ///     and the live feed. Prevents self-detection from contaminating production data.
     ///     Default: true (set to false for local development/testing).

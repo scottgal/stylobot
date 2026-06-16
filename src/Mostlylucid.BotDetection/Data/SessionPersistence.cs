@@ -252,8 +252,8 @@ public interface ISessionStore
     /// <summary>Get sessions for a signature, ordered by most recent.</summary>
     Task<List<PersistedSession>> GetSessionsAsync(string signature, int limit = 20, CancellationToken ct = default);
 
-    /// <summary>Get recent sessions across all signatures.</summary>
-    Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, CancellationToken ct = default);
+    /// <summary>Get recent sessions across all signatures, optionally filtered to those that ended on or after <paramref name="since"/>.</summary>
+    Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, DateTime? since = null, CancellationToken ct = default);
 
     // === Read path: Signatures ===
 

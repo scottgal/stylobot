@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Definitions.WellKnownBots;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -24,12 +25,14 @@ public partial class UserAgentContributor : ConfiguredContributorBase
     private readonly ILogger<UserAgentContributor> _logger;
     private readonly BotDetectionOptions _options;
     private readonly ICompiledPatternCache? _patternCache;
+    private readonly WellKnownBotIndex? _wellKnownBots;
     private readonly (string Pattern, BotType Type, string Name)[] _botPatterns;
 
     public UserAgentContributor(
         ILogger<UserAgentContributor> logger,
         IOptions<BotDetectionOptions> options,
         IDetectorConfigProvider configProvider,
+        WellKnownBotIndex? wellKnownBots = null,
         BotPatternLoader? patternLoader = null,
         ICompiledPatternCache? patternCache = null)
         : base(configProvider)
@@ -37,6 +40,7 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         _logger = logger;
         _options = options.Value;
         _patternCache = patternCache;
+        _wellKnownBots = wellKnownBots;
 
         var loader = patternLoader ?? BotPatternLoader.Default;
         _botPatterns = loader.AllPatterns
@@ -192,7 +196,7 @@ public partial class UserAgentContributor : ConfiguredContributorBase
     private (bool isBot, double confidence, BotType? type, string? name, string reason)
         AnalyzeUserAgent(string userAgent)
     {
-        // Check common bot indicators FIRST - these provide specific names and types
+        // YAML-defined patterns first: specific names and typed entries take priority
         if (IsCommonBotPattern(userAgent, out var botType, out var botName))
             return (true, PatternMatchConfidence, botType, botName, $"Known bot pattern: {botName}");
 
@@ -200,13 +204,23 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         if (_patternCache != null)
             if (_patternCache.MatchesAnyPattern(userAgent, out var matchedValue))
             {
-                // Try to extract a meaningful name from the UA string
                 var extractedName = ExtractNameFromUserAgent(userAgent);
                 return (true, PatternMatchConfidence, BotType.Unknown, extractedName,
                     extractedName != null
                         ? $"Known bot pattern: {extractedName}"
                         : DescribeMatchedUserAgent(userAgent, matchedValue));
             }
+
+        // Fallback: arcjet well-known-bots catalog (downloaded periodically).
+        // Covers ~635 bots not necessarily in the YAML files; provides the
+        // initial centroid name for newly-seen fingerprints.
+        if (_wellKnownBots?.Count > 0)
+        {
+            var match = _wellKnownBots.TryMatch(userAgent);
+            if (match is not null)
+                return (true, PatternMatchConfidence, match.BotType, match.DisplayName,
+                    $"Well-known bot: {match.Id}");
+        }
 
         // Check for suspicious patterns
         if (IsSuspiciousUserAgent(userAgent, out var suspiciousReason))
