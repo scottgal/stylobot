@@ -1,31 +1,87 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Text;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.GeoDetection.Models;
 
 namespace Mostlylucid.GeoDetection.Services;
 
 /// <summary>
-///     Background service for downloading and updating GeoLite2 databases
+///     Downloads and updates the MaxMind GeoLite2 database on a periodic
+///     schedule, then asks <see cref="MaxMindGeoLocationService"/> to hot-reload
+///     the reader.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation.</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         <c>Task.Delay(_options.UpdateCheckInterval)</c> loop; now a plain
+///         singleton that subscribes to <see cref="TickCadence.Tick1h"/> on
+///         <see cref="IScheduleCoordinator"/>. The handler reuses the existing
+///         "is the file older than 7 days?" gate, so the per-hour wake-up is
+///         cheap (a single <see cref="File.GetLastWriteTimeUtc"/> call) and the
+///         actual MaxMind fetch still happens at most weekly. See
+///         <c>feedback_no_background_services</c>.
+///     </para>
+///     <para>
+///         <see cref="IScheduleCoordinator"/> is taken as nullable: a host that
+///         hasn't called <c>AddBotDetection</c> won't have a coordinator
+///         registered, and the GeoDetection package should not crash that host.
+///         When absent, the on-startup download still runs once (via
+///         <see cref="EnsureStartupDownloadAsync"/> driven by the hosted
+///         bootstrap) but the periodic refresh is skipped.
+///     </para>
 /// </summary>
-public class GeoLite2UpdateService(
-    ILogger<GeoLite2UpdateService> logger,
-    IOptions<GeoLite2Options> options,
-    IHttpClientFactory httpClientFactory,
-    IGeoLocationService geoService) : BackgroundService
+public sealed class GeoLite2UpdateService : IDisposable
 {
     private const string DownloadBaseUrl = "https://download.maxmind.com/geoip/databases";
-    private readonly MaxMindGeoLocationService? _geoService = geoService as MaxMindGeoLocationService;
-    private readonly GeoLite2Options _options = options.Value;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    private readonly ILogger<GeoLite2UpdateService> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly MaxMindGeoLocationService? _geoService;
+    private readonly GeoLite2Options _options;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
+    private int _startupRan;
+    private DateTimeOffset _lastSuccessfulFetch = DateTimeOffset.MinValue;
+
+    public GeoLite2UpdateService(
+        ILogger<GeoLite2UpdateService> logger,
+        IOptions<GeoLite2Options> options,
+        IHttpClientFactory httpClientFactory,
+        IGeoLocationService geoService,
+        IScheduleCoordinator? coordinator = null)
     {
+        _logger = logger;
+        _httpClientFactory = httpClientFactory;
+        _geoService = geoService as MaxMindGeoLocationService;
+        _options = options.Value;
+
+        if (!_options.IsAutoDownloadConfigured || !_options.EnableAutoUpdate || coordinator is null)
+            return;
+
+        // GeoLite2 updates weekly so the per-hour tick is more than enough.
+        // The handler's CheckForUpdateAsync gate keeps the actual MaxMind
+        // fetch at most weekly (when the file is >7 days old).
+        _subscription = coordinator.Subscribe(
+            TickCadence.Tick1h,
+            "GeoLite2UpdateService",
+            CostHint.High,
+            OnTickAsync);
+    }
+
+    /// <summary>
+    ///     One-shot on-startup download check. The bootstrap shim calls this
+    ///     once at host startup; if the database file is missing it kicks off
+    ///     the initial fetch synchronously with respect to the bootstrap.
+    /// </summary>
+    public async Task EnsureStartupDownloadAsync(CancellationToken ct = default)
+    {
+        if (Interlocked.Exchange(ref _startupRan, 1) != 0) return;
+
         if (!_options.IsAutoDownloadConfigured)
         {
-            logger.LogInformation(
+            _logger.LogInformation(
                 "GeoLite2 auto-update disabled. Configure AccountId and LicenseKey in GeoLite2Options " +
                 "to enable automatic database downloads. Get a free account at https://www.maxmind.com/en/geolite2/signup");
             return;
@@ -33,36 +89,42 @@ public class GeoLite2UpdateService(
 
         if (!_options.EnableAutoUpdate)
         {
-            logger.LogInformation("GeoLite2 auto-update is disabled in configuration");
+            _logger.LogInformation("GeoLite2 auto-update is disabled in configuration");
             return;
         }
 
-        // Download on startup if database doesn't exist
-        if (_options.DownloadOnStartup)
-        {
-            var dbPath = GetDatabasePath();
-            if (!File.Exists(dbPath))
-            {
-                logger.LogInformation("GeoLite2 database not found, downloading...");
-                await DownloadDatabaseAsync(stoppingToken);
-            }
-        }
+        if (!_options.DownloadOnStartup) return;
 
-        // Periodic update check
-        while (!stoppingToken.IsCancellationRequested)
-            try
-            {
-                await Task.Delay(_options.UpdateCheckInterval, stoppingToken);
-                await CheckForUpdateAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error during GeoLite2 update check");
-            }
+        var dbPath = GetDatabasePath();
+        if (!File.Exists(dbPath))
+        {
+            _logger.LogInformation("GeoLite2 database not found, downloading...");
+            await DownloadDatabaseAsync(ct);
+        }
+    }
+
+    /// <summary>
+    ///     The coordinator's tick handler. Public so tests can drive a single
+    ///     beat deterministically. Reuses the existing CheckForUpdateAsync
+    ///     "is file older than 7 days?" gate so the per-hour wake-up doesn't
+    ///     hit MaxMind unless an actual update is due.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        if (_disposed != 0) return;
+
+        try
+        {
+            await CheckForUpdateAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // shutdown
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during GeoLite2 update check");
+        }
     }
 
     private async Task CheckForUpdateAsync(CancellationToken cancellationToken)
@@ -70,7 +132,7 @@ public class GeoLite2UpdateService(
         var dbPath = GetDatabasePath();
         if (!File.Exists(dbPath))
         {
-            logger.LogInformation("GeoLite2 database missing, downloading...");
+            _logger.LogInformation("GeoLite2 database missing, downloading...");
             await DownloadDatabaseAsync(cancellationToken);
             return;
         }
@@ -81,7 +143,7 @@ public class GeoLite2UpdateService(
         // GeoLite2 updates weekly, so check if database is older than 7 days
         if (age > TimeSpan.FromDays(7))
         {
-            logger.LogInformation("GeoLite2 database is {Age:F1} days old, checking for updates...", age.TotalDays);
+            _logger.LogInformation("GeoLite2 database is {Age:F1} days old, checking for updates...", age.TotalDays);
             await DownloadDatabaseAsync(cancellationToken);
         }
     }
@@ -93,7 +155,7 @@ public class GeoLite2UpdateService(
     {
         if (!_options.IsAutoDownloadConfigured)
         {
-            logger.LogWarning("Cannot download GeoLite2 database: AccountId and LicenseKey not configured");
+            _logger.LogWarning("Cannot download GeoLite2 database: AccountId and LicenseKey not configured");
             return false;
         }
 
@@ -109,9 +171,9 @@ public class GeoLite2UpdateService(
 
             var downloadUrl = $"{DownloadBaseUrl}/{dbName}/download?suffix=tar.gz";
 
-            logger.LogInformation("Downloading GeoLite2 database from MaxMind...");
+            _logger.LogInformation("Downloading GeoLite2 database from MaxMind...");
 
-            using var client = httpClientFactory.CreateClient("GeoLite2");
+            using var client = _httpClientFactory.CreateClient("GeoLite2");
 
             // Set up Basic Authentication
             var credentials = Convert.ToBase64String(
@@ -123,7 +185,7 @@ public class GeoLite2UpdateService(
 
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogError("Failed to download GeoLite2 database: {StatusCode} {Reason}",
+                _logger.LogError("Failed to download GeoLite2 database: {StatusCode} {Reason}",
                     response.StatusCode, response.ReasonPhrase);
                 return false;
             }
@@ -142,7 +204,7 @@ public class GeoLite2UpdateService(
                     await response.Content.CopyToAsync(fileStream, cancellationToken);
                 }
 
-                logger.LogDebug("Downloaded {Size} bytes to {Path}",
+                _logger.LogDebug("Downloaded {Size} bytes to {Path}",
                     new FileInfo(tarGzPath).Length, tarGzPath);
 
                 // Extract tar.gz
@@ -150,7 +212,7 @@ public class GeoLite2UpdateService(
 
                 if (extractedMmdb == null)
                 {
-                    logger.LogError("Failed to extract .mmdb file from downloaded archive");
+                    _logger.LogError("Failed to extract .mmdb file from downloaded archive");
                     return false;
                 }
 
@@ -164,7 +226,9 @@ public class GeoLite2UpdateService(
 
                 File.Move(extractedMmdb, dbPath);
 
-                logger.LogInformation("GeoLite2 database updated successfully at {Path}", dbPath);
+                _logger.LogInformation("GeoLite2 database updated successfully at {Path}", dbPath);
+
+                _lastSuccessfulFetch = DateTimeOffset.UtcNow;
 
                 // Reload the database reader
                 if (_geoService != null) await _geoService.ReloadDatabaseAsync(cancellationToken);
@@ -180,13 +244,13 @@ public class GeoLite2UpdateService(
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning(ex, "Failed to cleanup temp directory {Path}", tempDir);
+                    _logger.LogWarning(ex, "Failed to cleanup temp directory {Path}", tempDir);
                 }
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to download GeoLite2 database");
+            _logger.LogError(ex, "Failed to download GeoLite2 database");
             return false;
         }
     }
@@ -259,5 +323,13 @@ public class GeoLite2UpdateService(
         var path = _options.DatabasePath;
         if (!Path.IsPathRooted(path)) path = Path.Combine(AppContext.BaseDirectory, path);
         return path;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 }

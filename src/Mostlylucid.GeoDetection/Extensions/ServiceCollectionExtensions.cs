@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -113,8 +114,14 @@ public static class ServiceCollectionExtensions
         // Register DataHub as hosted service for startup loading
         services.AddHostedService(sp => sp.GetRequiredService<DataHubGeoLocationService>());
 
-        // Register background update service for MaxMind
-        services.AddHostedService<GeoLite2UpdateService>();
+        // Wave 2 migrated: GeoLite2UpdateService is a plain singleton that
+        // subscribes to ScheduleCoordinator.Tick1h at construction. The
+        // GeoDetectionHostedSingletonsBootstrap shim resolves it at boot so
+        // the subscription is live and the on-startup download runs before
+        // the first request.
+        services.AddSingleton<GeoLite2UpdateService>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IHostedService, GeoDetectionHostedSingletonsBootstrap>());
 
         return services;
     }
