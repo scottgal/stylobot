@@ -1,461 +1,210 @@
-# StyloBot: Mostlylucid.BotDetection
+# Mostlylucid.BotDetection
 
-> **Package rename notice:** On June 1, 2025, this package (`mostlylucid.botdetection`) will be renamed to `stylobot`. The new package ships with the same API under a new namespace (`Stylobot.*`). Version 7.0 will be published under the new name; this package will be deprecated on NuGet at that point. See the [migration guide](https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md) for full details.
-
-**DESTROY ALL ROBOTS!** (politely, with HTTP 403s)
-
-Built on **StyloFlow**, the ephemeral workflow engine.
-
-Bot detection middleware for ASP.NET Core with multi-signal detection, **AI-powered classification with continuous
-learning**, auto-updated blocklists, YARP integration, and full observability.
+**Enterprise bot detection and anonymous entity resolution for ASP.NET Core.** Probabilistic, behavioural, and protocol-deep — not just User-Agent matching.
 
 [![NuGet](https://img.shields.io/nuget/v/mostlylucid.botdetection.svg)](https://www.nuget.org/packages/mostlylucid.botdetection)
+[![GitHub](https://img.shields.io/badge/GitHub-scottgal%2Fstylobot-blue)](https://github.com/scottgal/stylobot)
 
-## Key Features
+---
 
-- **49 detectors across 4 waves** (wave-gated -typically 5-15 run per request; slow-path and session detectors only fire when triggered): User-Agent, headers, IP, behavioral, protocol fingerprinting, AI classification, intent classification, cluster detection, cookie behavior, resource waterfall, JS timing probes, periodicity, CVE probes, and more
-- **Anonymous entity resolution**: Progressive identity that learns who keeps coming back - even when they rotate IPs, UAs, or TLS fingerprints. Merge/split/rewind operations backed by immutable session snapshots. L0-L5 confidence levels.
-- **Intent classification and threat scoring**: HNSW-backed similarity search classifies request intent and assigns threat scores orthogonal to bot probability
-- **Protocol-deep fingerprinting**: JA3/JA4 TLS, p0f TCP/IP, AKAMAI HTTP/2, QUIC HTTP/3 - catch bots even when they spoof everything
-- **Simulation packs**: Honeypots that look like real products (WordPress 5.9 included). CVE probe detection feeds threat intelligence.
-- **Stream-aware detection**: WebSocket, SSE, SignalR, gRPC traffic classified early; downstream false positives suppressed; dedicated stream abuse detection
-- **AI-powered classification**: Heuristic model (<1ms, ~50 features) with optional LLM escalation (default: gemma4 with thinking support)
-- **Continuous learning**: Heuristic weights adapt over time based on detection feedback; identity anchors scored by PersonalStability × GlobalRarity
-- **Bot network discovery**: Leiden clustering finds coordinated campaigns; convergence detection identifies related entities across devices
-- **Headless framework identification**: Names specific automation (Puppeteer, Playwright, Selenium) instead of "Unknown Bot"
-- **Geo intelligence**: Country reputation, geographic drift detection, VPN/proxy/Tor/datacenter identification
-- **Composable policies**: Separate detection (WHAT) from action (HOW) for maximum flexibility
-- **Stealth responses**: Throttle, challenge, or honeypot bots without revealing detection
-- **Response PII masking (opt-in)**: `mask-pii`/`strip-pii` stream-mask response payloads for risky traffic
-- **Real-time dashboard**: World map, country stats, cluster visualization, user agent breakdown, live signature feed
-- **Zero PII**: All persistence uses HMAC-SHA256 hashed signatures - no raw IPs or user agents stored
-- **Auto-updated threat intel**: Pulls isbot patterns and cloud IP ranges automatically
-- **First-class YARP support**: Bot-aware routing and header injection for any-language backends
-- **Full observability**: OpenTelemetry traces and metrics baked in
+## What it does
 
-## Why Use This?
+57 contributors fire in a wave-based pipeline. The fast path (<1 ms) handles 90% of traffic. Slow-path and session contributors only activate when upstream signals justify it.
 
-**When commercial WAF isn't an option:**
+- **57 detection contributors** across 4 waves — UA, headers, IP, protocol fingerprinting (JA3/JA4/H2/QUIC/TCP-IP), behavioural, AI, cluster discovery, CVE probes
+- **Transport header trust gate** (7.5) — X-JA3/X-JA4/X-H2/QUIC headers are gated behind peer-IP trust so attackers can't inject spoofed fingerprints
+- **arcjet well-known-bots catalog** (7.5) — 635 additional bot UA patterns downloaded hourly; fills gaps in YAML definitions (TurnitinBot, SemanticScholarBot, monitoring bots, etc.)
+- **Forward-DNS verified-bot confirmation** (7.5) — ActivityPub `+URL` claims in fediverse UAs are confirmed against A/AAAA records; spoofed Mastodon UAs are rejected
+- **Metastable fingerprint identity** — each visitor is a learned vector *shape*, not a static cookie. Persistent trust state, claim-first display naming.
+- **Blackboard architecture** via StyloFlow — detectors read/write ephemeral signals; zero-PII design (all persistence uses HMAC-SHA256 hashes)
+- **Leiden clustering** finds coordinated bot campaigns
+- **129-dim Markov chain session vectors** — inter-session velocity, partial-chain archetypes, snapshot compaction
+- **Anonymous entity resolution** — merge/split/rewind backed by immutable session snapshots; L0-L5 confidence levels
+- **Policy stack** — YAML-backed rules separate detection (WHAT) from action (HOW); full editor in the dashboard (7.5)
+- **robots.txt + sitemap** extensions (7.5) — `MapStyloBotRobotsTxt()` generates policy-aware Disallow lines; `MapStyloBotSitemap()` serves verdict-adaptive sitemaps
+- **SQLite everywhere** for FOSS — zero-dependency persistence; PostgreSQL is the commercial upgrade path
 
-- Self-hosted apps without Cloudflare/AWS/Azure
-- Compliance requirements prohibiting third-party request inspection
-- Cost-sensitive projects where $3K+/month WAF isn't justified
+---
 
-**When you need more than User-Agent matching:**
-
-- Bots spoofing browser User-Agents
-- Scripts missing Accept-Language, cookies, or timing signals
-- API abuse from datacenter IPs
-
-**When you want adaptive protection:**
-
-- Detection that improves over time with learning
-- Different policies per endpoint (strict for checkout, relaxed for static content)
-- Stealth throttling that bots can't detect
-
-> **Note**: For enterprise applications with stringent security requirements, consider commercial services
-> like [Cloudflare Bot Management](https://www.cloudflare.com/products/bot-management/)
-> or [AWS WAF Bot Control](https://aws.amazon.com/waf/features/bot-control/).
-
-## Quick Start
-
-### 1. Install
+## Quick start
 
 ```bash
 dotnet add package Mostlylucid.BotDetection
 ```
 
-### 2. Configure Services
+```csharp
+// Program.cs
+builder.Services.AddStyloBot(dashboard =>
+{
+    dashboard.AllowUnauthenticatedAccess = true; // dev only
+});
+app.UseRouting();
+app.UseStyloBot();  // detection + dashboard, correct middleware ordering
+```
+
+That's it. The dashboard is at `/_stylobot`. All 57 contributors are active. SQLite databases are created in the working directory.
+
+---
+
+## Common configurations
 
 ```csharp
-using Mostlylucid.BotDetection.Extensions;
-
-var builder = WebApplication.CreateBuilder(args);
-
+// Detection only — no dashboard
 builder.Services.AddBotDetection();
-
-var app = builder.Build();
-
 app.UseBotDetection();
-app.Run();
-```
 
-### 3. Recommended Configuration (appsettings.json)
-
-```json
-{
-  "BotDetection": {
-    "BotThreshold": 0.7,
-    "BlockDetectedBots": true,
-    "DefaultActionPolicyName": "throttle-stealth",
-
-    "EnableAiDetection": true,
-    "AiDetection": {
-      "Provider": "Heuristic",
-      "Heuristic": {
-        "Enabled": true,
-        "EnableWeightLearning": true
-      }
-    },
-
-    "Learning": {
-      "Enabled": true,
-      "EnableDriftDetection": true
-    },
-
-    "PathPolicies": {
-      "/api/login": "strict",
-      "/api/checkout/*": "strict",
-      "/sitemap.xml": "allowVerifiedBots"
-    }
-  }
-}
-```
-
-This enables:
-
-- **AI detection** with Heuristic model (sub-millisecond, learns from feedback)
-- **Learning system** that improves detection over time
-- **Stealth throttling** (bots don't know they're being slowed)
-- **Path-based policies** (strict for sensitive endpoints)
-
-## Basic Usage
-
-### HttpContext Extensions
-
-```csharp
-if (context.IsBot())
-    return Results.StatusCode(403);
-
-var confidence = context.GetBotConfidence();
-var botType = context.GetBotType();
-```
-
-### Endpoint Filters
-
-```csharp
-app.MapGet("/api/data", () => "sensitive")
-   .BlockBots();
-
-app.MapPost("/api/submit", () => "ok")
-   .RequireHuman();
-```
-
-### MVC Attributes
-
-```csharp
-[BlockBots(AllowVerifiedBots = true)]
-public IActionResult Index() => View();
-```
-
-## Detection Methods (31 Detectors)
-
-All detectors execute in a wave-based pipeline. Fast-path detectors run in parallel in <1ms. Advanced detectors fire only when triggered by upstream signals.
-
-### Wave 0 - Fast Path (<1ms)
-
-| Detector | Description |
-|----------|-------------|
-| **UserAgent** | Pattern matching against 1000+ known bot signatures with category classification |
-| **Header** | Suspicious/missing header detection (Accept-Language, encoding, connection patterns) |
-| **IP** | Datacenter, cloud provider, and known botnet IP range identification |
-| **SecurityTool** | Penetration testing tool detection (Nikto, sqlmap, Burp Suite, Metasploit) |
-| **CacheBehavior** | HTTP cache header interaction analysis (ETag, If-Modified-Since, gzip) |
-| **VersionAge** | Browser/OS version staleness detection (outdated clients = suspicious) |
-| **AiScraper** | AI training bot detection (GPTBot, ClaudeBot, PerplexityBot, Google-Extended) |
-| **FastPathReputation** | Ultra-fast cached reputation from previous detections (ConfirmedGood/Bad) |
-| **ReputationBias** | Signature-based reputation tracking from historical patterns |
-| **Haxxor** | SQL injection, XSS, path traversal, command injection detection |
-| **TransportProtocol** | WebSocket, gRPC, GraphQL, SSE protocol violation detection |
-| **Inconsistency** | UA/header mismatch and cross-signal inconsistency detection |
-| **VerifiedBot** | DNS-verified identification of Googlebot, Bingbot, and 30+ legitimate crawlers |
-
-### Wave 1 - Behavioral (1-5ms)
-
-| Detector | Description |
-|----------|-------------|
-| **Behavioral** | Rate limiting, request pattern analysis, timing anomalies |
-| **AdvancedBehavioral** | Deep statistical analysis - entropy, Markov chains, anomaly detection |
-| **BehavioralWaveform** | FFT-based spectral fingerprinting of request timing patterns |
-| **ClientSide** | Headless browser detection via JavaScript fingerprinting signals |
-| **GeoChange** | Geographic drift detection, country reputation, origin verification |
-| **AccountTakeover** | Credential stuffing, brute force, and account takeover detection |
-| **ResponseBehavior** | Honeypot path detection, response-side behavioral patterns |
-
-### Wave 2 - Protocol Fingerprinting (<1ms)
-
-| Detector | Description |
-|----------|-------------|
-| **TLS Fingerprint** | JA3/JA4 TLS fingerprint analysis - identifies client libraries |
-| **TCP/IP Fingerprint** | p0f-style passive OS fingerprinting via TCP stack behavior |
-| **HTTP/2 Fingerprint** | AKAMAI-style HTTP/2 frame analysis (settings, priorities, pseudo-headers) |
-| **HTTP/3 Fingerprint** | QUIC transport parameter fingerprinting and version negotiation analysis |
-| **MultiLayerCorrelation** | Cross-layer consistency analysis (does TLS match TCP match HTTP match UA?) |
-
-### Wave 3 - AI + Learning (1-500ms)
-
-| Detector | Description |
-|----------|-------------|
-| **Heuristic** | Feature-weighted classification extracting ~50 features with online learning |
-| **HeuristicLate** | Post-AI refinement with full evidence from all prior waves |
-| **Similarity** | Fuzzy signature matching via HNSW/Qdrant vector search |
-| **Cluster** | Bot network detection with Leiden community discovery |
-| **TimescaleReputation** | Time-series IP/signature reputation aggregation |
-| **LLM** | Background classification via LLM plugin (LlamaSharp CPU or Ollama HTTP) |
-
-### Slow Path
-
-| Detector | Description |
-|----------|-------------|
-| **ProjectHoneypot** | HTTP:BL IP reputation via DNS lookup (~100ms) |
-
-## AI Detection & Learning (Key Differentiator)
-
-The AI detection and learning system is what sets this library apart:
-
-```
-Request → Fast Detectors → Heuristic Model → Decision → Learning Bus
-                ↓                                ↓            ↓
-           Quick signals                   Risk score    Pattern Reputation
-                                                ↓            ↓
-                                         Action Policy   Weight Updates
-```
-
-### Enable with:
-
-```json
-{
-  "BotDetection": {
-    "EnableAiDetection": true,
-    "AiDetection": {
-      "Provider": "Heuristic",
-      "Heuristic": { "Enabled": true, "EnableWeightLearning": true }
-    },
-    "Learning": { "Enabled": true }
-  }
-}
-```
-
-See [ai-detection.md](docs/ai-detection.md) and [learning-and-reputation.md](docs/learning-and-reputation.md) for
-details.
-
-## Action Policies
-
-Control HOW to respond to detected bots:
-
-| Policy              | Description                        |
-|---------------------|------------------------------------|
-| `block`             | Return 403 Forbidden               |
-| `throttle-stealth`  | Delay response (bots don't notice) |
-| `challenge`         | Present CAPTCHA or proof-of-work   |
-| `redirect-honeypot` | Silent redirect to trap            |
-| `logonly`           | Shadow mode (log but allow)        |
-| `mask-pii`          | Stream-mask PII in response payload |
-
-See [action-policies.md](docs/action-policies.md) for full details.
-See [response-pii-masking.md](docs/response-pii-masking.md) for rollout and configuration.
-
-## Architecture: StyloFlow & Entity Types
-
-BotDetection is built on **StyloFlow**, a YAML-driven orchestration framework. Each detector is configured via a manifest file that defines its inputs, outputs, and behavior.
-
-### Entity Types
-
-Entity types define the data contracts between detectors:
-
-| Entity Type | Description | Persistence |
-|-------------|-------------|-------------|
-| `botdetection.request` | HTTP request with all detection signals | Ephemeral |
-| `botdetection.signature` | Aggregated signals for classification | Ephemeral |
-| `botdetection.contribution` | Single detector contribution | Ephemeral |
-| `botdetection.ledger` | Accumulated detection evidence | Ephemeral |
-| `botdetection.result` | Final classification result | JSON |
-| `botdetection.learning_record` | Training data for learning system | Database |
-| `botdetection.embedding` | Vector embedding for similarity search | Embedded |
-| `botdetection.multivector_embedding` | Multi-vector ColBERT-style embedding | Embedded |
-
-### Detector Manifests
-
-Each detector has a YAML manifest defining its input/output contracts:
-
-```yaml
-# useragent.detector.yaml
-name: UserAgentContributor
-priority: 10
-enabled: true
-
-input:
-  accepts:
-    - type: botdetection.request
-      required: true
-      signal_pattern: request.headers.*
-  required_signals:
-    - request.headers.user-agent
-
-output:
-  produces:
-    - type: botdetection.contribution
-    - type: botdetection.ua_signal
-  signals:
-    - key: detection.useragent.confidence
-      entity_type: number
-      salience: 0.8
-
-defaults:
-  weights:
-    bot_signal: 1.5
-    verified: 2.0
-  confidence:
-    bot_detected: 0.3
-    strong_signal: 0.85
-  parameters:
-    min_ua_length: 10
-    verify_known_bots: true
-```
-
-### Overriding Configuration
-
-Override detector defaults via `appsettings.json`:
-
-```json
-{
-  "BotDetection": {
-    "Detectors": {
-      "UserAgentContributor": {
-        "Weights": {
-          "BotSignal": 2.0
-        },
-        "Parameters": {
-          "min_ua_length": 20
-        }
-      }
-    }
-  }
-}
-```
-
-### Multi-Vector Embeddings
-
-For advanced similarity-based detection, embeddings support named vectors:
-
-```yaml
-# In botdetection.entity.yaml
-- type: botdetection.multivector_embedding
-  persistence: embedded
-  schema:
-    properties:
-      vectors:
-        items:
-          properties:
-            name:
-              description: Vector identifier (e.g., "ua", "ip", "tls")
-            vector:
-              type: array
-            weight:
-              description: Relative importance for MaxSim scoring
-      aggregation:
-        enum: [maxsim, avgpool, concat]
-```
-
-## Documentation
-
-| Feature                        | Description                               | Docs                                                                |
-|--------------------------------|-------------------------------------------|---------------------------------------------------------------------|
-| **Quick Start**                | Two-line setup, all 30 detectors          | [quickstart.md](docs/quickstart.md)                                 |
-| **Configuration**              | Full options reference                    | [configuration.md](docs/configuration.md)                           |
-| **AI Detection**               | Heuristic model, LLM escalation, learning | [ai-detection.md](docs/ai-detection.md)                             |
-| **AI Scraper Detection**       | GPTBot, ClaudeBot, PerplexityBot          | [ai-scraper-detection.md](docs/ai-scraper-detection.md)             |
-| **Learning & Reputation**      | Pattern learning, drift detection         | [learning-and-reputation.md](docs/learning-and-reputation.md)       |
-| **Action Policies**            | Block, throttle, challenge, redirect      | [action-policies.md](docs/action-policies.md)                       |
-| **Detection Policies**         | Path-based detection configuration        | [policies.md](docs/policies.md)                                     |
-| **Extensibility**              | Custom detectors and policies             | [extensibility.md](docs/extensibility.md)                           |
-| **User-Agent Detection**       | Pattern matching with reputation          | [user-agent-detection.md](docs/user-agent-detection.md)             |
-| **Header Detection**           | HTTP header anomaly analysis              | [header-detection.md](docs/header-detection.md)                     |
-| **IP Detection**               | Datacenter and cloud IP identification    | [ip-detection.md](docs/ip-detection.md)                             |
-| **Version Age Detection**      | Browser/OS version staleness detection    | [version-age-detection.md](docs/version-age-detection.md)           |
-| **Security Tools Detection**   | Penetration testing tool detection        | [security-tools-detection.md](docs/security-tools-detection.md)     |
-| **Project Honeypot**           | HTTP:BL IP reputation checking            | [project-honeypot.md](docs/project-honeypot.md)                     |
-| **Behavioral Analysis**        | Rate limiting and anomaly detection       | [behavioral-analysis.md](docs/behavioral-analysis.md)               |
-| **Advanced Behavioral**        | Entropy, Markov chains, anomalies         | [advanced-behavioral-detection.md](docs/advanced-behavioral-detection.md) |
-| **Behavioral Waveform**        | FFT spectral request timing analysis      | [behavioral-waveform.md](docs/behavioral-waveform.md)               |
-| **Client-Side Fingerprinting** | Headless browser detection                | [client-side-fingerprinting.md](docs/client-side-fingerprinting.md) |
-| **Cache Behavior**             | HTTP cache header analysis                | [cache-behavior-detection.md](docs/cache-behavior-detection.md)     |
-| **Response Behavior**          | Honeypot and response-side patterns       | [response-behavior.md](docs/response-behavior.md)                   |
-| **TLS/TCP/HTTP2 Fingerprinting** | JA3/JA4, p0f, AKAMAI fingerprints      | [AdvancedFingerprintingDetectors.md](docs/AdvancedFingerprintingDetectors.md) |
-| **HTTP/3 Fingerprinting**      | QUIC transport parameter analysis         | [http3-fingerprinting.md](docs/http3-fingerprinting.md)             |
-| **Multi-Layer Correlation**    | Cross-layer consistency analysis          | [multi-layer-correlation.md](docs/multi-layer-correlation.md)       |
-| **Cluster Detection**          | Leiden clustering for bot networks        | [cluster-detection.md](docs/cluster-detection.md)                   |
-| **TCP/IP Fingerprint**         | Passive OS fingerprinting (p0f)           | [tcp-ip-fingerprint.md](docs/tcp-ip-fingerprint.md)                 |
-| **Timescale Reputation**       | Time-series reputation aggregation        | [timescale-reputation.md](docs/timescale-reputation.md)             |
-| **Haxxor Detection**           | SQL injection, XSS, attack payload detection | [haxxor-detection.md](docs/haxxor-detection.md)                  |
-| **Account Takeover**           | Credential stuffing, brute force detection | [account-takeover-detection.md](docs/account-takeover-detection.md) |
-| **Transport Protocol**         | WebSocket, gRPC, GraphQL violation detection | [transport-protocol-detection.md](docs/transport-protocol-detection.md) |
-| **Geo Change Detection**       | Geographic drift, country reputation      | [geo-change-detection.md](docs/geo-change-detection.md)             |
-| **Verified Bot Detection**     | DNS-verified crawler identification       | [verified-bot-detection.md](docs/verified-bot-detection.md)         |
-| **Inconsistency Detection**    | UA/header mismatch detection              | [inconsistency-detection.md](docs/inconsistency-detection.md)       |
-| **YARP Integration**           | Bot-aware reverse proxy                   | [yarp-integration.md](docs/yarp-integration.md)                     |
-| **Telemetry**                  | OpenTelemetry traces and metrics          | [telemetry-and-metrics.md](docs/telemetry-and-metrics.md)           |
-| **Stylobot Gateway**           | Companion Docker gateway                  | [yarp-gateway.md](docs/yarp-gateway.md)                             |
-
-## Companion Project: Stylobot Gateway
-
-For edge deployments, use **[Stylobot.Gateway](../Stylobot.Gateway/)** - a lightweight Docker-first
-reverse proxy:
-
-[![Docker Hub](https://img.shields.io/docker/pulls/scottgal/stylobot-gateway?label=Docker%20Hub)](https://hub.docker.com/r/scottgal/stylobot-gateway)
-
-```bash
-# Zero-config reverse proxy in seconds
-docker run -p 80:8080 -e DEFAULT_UPSTREAM=http://your-app:3000 scottgal/stylobot-gateway
-```
-
-**Why use it with BotDetection?**
-
-- Edge routing and load balancing
-- Hot-reload YARP configuration
-- Admin API for health/metrics
-- Multi-arch: amd64, arm64, **Raspberry Pi** (arm/v7)
-- ~90MB Alpine image
-
-See [yarp-gateway.md](docs/yarp-gateway.md) for integration patterns.
-
-## Diagnostic Endpoints
-
-```csharp
-app.MapBotDetectionEndpoints("/bot-detection");
-
-// GET /bot-detection/check   - Current request analysis
-// GET /bot-detection/stats   - Detection statistics
-// GET /bot-detection/health  - Health check
-```
-
-## Service Registration Options
-
-```csharp
-// Default: all detectors + Heuristic AI with learning (no LLM)
-builder.Services.AddBotDetection();
-
-// Add in-process CPU LLM provider (LlamaSharp, zero external deps)
-builder.Services.AddStylobotLlamaSharp();
-
-// OR: Add external Ollama HTTP provider (GPU capable)
-builder.Services.AddStylobotOllama("http://localhost:11434", "gemma4");
-
-// User-agent only (fastest, minimal)
+// User-agent only — minimal footprint
 builder.Services.AddSimpleBotDetection();
+
+// Ephemeral mode — no SQLite, state evaporates on restart (dev/serverless)
+builder.Services.AddBotDetectionInMemory();
+
+// LLM escalation for edge cases
+builder.Services.AddAdvancedBotDetection("http://localhost:11434", "gemma4");
+
+// robots.txt + sitemap driven by policy rules
+app.MapStyloBotRobotsTxt();   // serves Disallow: lines for blocked bots
+app.MapStyloBotSitemap();     // serves different URLs by detection verdict
 ```
+
+---
+
+## Transport header trust (new in 7.5 — security fix)
+
+If you run behind a reverse proxy (Cloudflare, nginx, Caddy, YARP), configure the trust list so injected edge headers (JA3/JA4, HTTP/2, QUIC, TCP/IP) are accepted only from your proxy:
+
+```json
+{
+  "BotDetection": {
+    "TransportTrust": {
+      "TrustedProxyIps": ["10.0.0.1/24", "172.16.0.0/12"],
+      "Mode": "Strict"
+    }
+  }
+}
+```
+
+Without this, an attacker hitting the gateway over direct HTTPS can inject a known-Chrome JA3 and receive a human-signal bias. See [proxy-topologies.md](docs/proxy-topologies.md).
+
+---
+
+## HttpContext extensions
+
+```csharp
+if (context.IsBot()) return Results.StatusCode(403);
+
+var confidence = context.GetBotConfidence();  // 0.0–1.0
+var botType    = context.GetBotType();        // BotType enum
+var botName    = context.GetBotName();        // "Googlebot", "curl", etc.
+```
+
+---
+
+## Action policies
+
+| Policy | Effect |
+|--------|--------|
+| `block` | HTTP 403 |
+| `throttle-stealth` | Silent delay (bots don't know they're throttled) |
+| `throttle-tools` | HTTP 429 + `Retry-After` |
+| `throttle-status` | Fast HTTP 429 for friendly bots (Mastodon, UptimeRobot) |
+| `challenge` | Proof-of-work or CAPTCHA |
+| `redirect-honeypot` | Silent redirect to trap |
+| `logonly` | Shadow mode — observe without acting |
+
+Apply globally or per-path:
+
+```json
+{
+  "BotDetection": {
+    "DefaultActionPolicyName": "throttle-stealth",
+    "BlockDetectedBots": true
+  }
+}
+```
+
+---
+
+## Detection waves
+
+### Fast path (<1 ms, every request)
+
+UserAgent (YAML + arcjet catalog fallback), Header, IP, SecurityTool, Behavioral, ClientSide, Inconsistency, VersionAge, Heuristic, FastPathReputation, CacheBehavior, CookieBehavior, ResourceWaterfall, ReputationBias, AiScraper (YAML + arcjet AI fallback), Haxxor, CveProbe, PiiQueryString, VerifiedBot, VerifiedBotInline, FediverseDomain, BrowserModeClassifier, CveFingerprint, HeuristicLate, ClaimedIdentity, ThreatIntel
+
+### Advanced fingerprinting
+
+TlsFingerprint (JA3/JA4), TcpIpFingerprint (p0f), Http2Fingerprint (AKAMAI), Http3Fingerprint (QUIC), MultiLayerCorrelation, BehavioralWaveform, ResponseBehavior, TransportProtocol, StreamAbuse
+
+### Session / behavioural analysis
+
+SessionVector (Markov chain → 129-dim vector), Periodicity, ReactivePattern, Similarity, Cluster
+
+### Entity resolution
+
+AccountTakeover, IdentityChange, GeoChange, PoolCollision
+
+### Post-round-trip
+
+ChallengeVerification, FingerprintApproval, ClickFraud, Honeypot.EndpointHistory, Honeypot.HoneypotLink
+
+### LLM escalation (opt-in)
+
+Llm (enrichment only, not the decision-maker)
+
+### Slow path (~100 ms, opt-in)
+
+ProjectHoneypot (DNS lookup against http:BL)
+
+---
+
+## Detector timing (Apple M5, .NET 10, warm cache, full 57-contributor pipeline)
+
+| Scenario | Mean | Allocated |
+|----------|------|-----------|
+| AiScraper — GPTBot | 269 ns | 1,008 B |
+| Haxxor — clean | 198 ns | 0 B |
+| Haxxor — SQL injection | 1,202 ns | 1,744 B |
+| Heuristic — bot | 1,653 ns | 2,528 B |
+| Heuristic — human | 1,704 ns | 2,512 B |
+| Intent — navigation | 2,540 ns | 5,784 B |
+| IP — datacenter | 320 ns | 1,136 B |
+| TLS fingerprint — Chrome | 262 ns | 896 B |
+| Header — curl (bot) | 424 ns | 1,544 B |
+| Header — Chrome (human) | 417 ns | 1,320 B |
+| CookieBehavior — cookies | 18 ns | 184 B |
+| Http2 — Chrome | 110 ns | 176 B |
+| HeaderCorrelation — full | 15 ns | 104 B |
+| UserAgent — Googlebot (full pipeline) | 13,272 ns | 2,568 B |
+| UserAgent — Chrome (full pipeline) | 104,821 ns | 1,817 B |
+
+The full-pipeline Chrome number (105 µs) reflects all 57 contributors running; the detection-code share of a typical gateway request is ~0.1% of total latency (remainder is network + Kestrel).
+
+---
+
+## Real-time dashboard
+
+Mount at `/_stylobot` (or configure `BasePath`). Features: live signature feed, session timeline with Markov drill-in, behavioural radar, world threat map, cluster visualisation, UA breakdown, Threats tab, policy editor (7.5).
+
+---
+
+## YARP / gateway integration
+
+Use [`Stylobot.Gateway`](https://hub.docker.com/r/scottgal/stylobot-gateway) or [`stylobot` CLI](https://github.com/scottgal/stylobot/releases) for edge deployments. Edge-injected client signals (X-JA3-Hash, X-Client-HTTP-Version, X-Client-TLS-*) are forwarded by the gateway and read by the contributors — gated by `TransportTrust` config.
+
+---
 
 ## Requirements
 
 - .NET 10.0
-- Optional: LlamaSharp (in-process CPU) or Ollama (external HTTP) for LLM classification
+- LlamaSharp or Ollama for optional LLM escalation
 
 ## License
 
-[GNU AGPLv3](https://www.gnu.org/licenses/agpl-3.0)
+[GNU AGPL-3.0-only](https://www.gnu.org/licenses/agpl-3.0) — free for open-source and internal use; public-facing SaaS deployments must share source or obtain a commercial licence.
 
 ## Links
 
-- [GitHub](https://github.com/scottgal/mostlylucid.stylobot/tree/main/Mostlylucid.BotDetection)
+- [GitHub](https://github.com/scottgal/stylobot)
 - [NuGet](https://www.nuget.org/packages/mostlylucid.botdetection/)
-- [Full Documentation](docs/)
+- [Documentation](https://github.com/scottgal/stylobot/tree/main/src/Mostlylucid.BotDetection/docs)
+- [Changelog](https://github.com/scottgal/stylobot/blob/main/CHANGELOG.md)
