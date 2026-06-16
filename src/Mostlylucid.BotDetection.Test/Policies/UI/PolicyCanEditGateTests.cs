@@ -130,6 +130,12 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
         builder.Services.AddSingleton(canEditPolicy);
+        // Resolver-driven dashboard URLs replaced hard-coded /dashboard prefixes
+        // in the policy-stack partials; tests that render those partials must
+        // resolve IDashboardLinkResolver or @inject fails to activate the page.
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>(
+            new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+                new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions { BasePath = "/stylobot" }));
 
         var app = builder.Build();
         app.UseRouting();

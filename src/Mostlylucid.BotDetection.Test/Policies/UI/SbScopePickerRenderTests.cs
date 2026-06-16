@@ -87,6 +87,13 @@ public sealed class SbScopePickerRenderTests : IAsyncDisposable
             .AddApplicationPart(typeof(SbScopePickerRenderTests).Assembly)
             .AddApplicationPart(typeof(SbScopePickerViewComponent).Assembly);
 
+        // _Multi.cshtml takes IDashboardLinkResolver via @inject for the
+        // "+ Add scope" hx-get URL; without the registration Razor fails
+        // page activation before rendering anything.
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>(
+            new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+                new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions { BasePath = "/stylobot" }));
+
         var app = builder.Build();
         app.UseRouting();
         app.MapControllers();

@@ -1,11 +1,12 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Policies
 @using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackViewModel
 @{
     var ancestorHashes = string.Join(",", PolicyScopeKeys.AncestorHashes(Model.Scope));
     // StatusBadge has no rule list; the rows-url refreshes the whole badge.
-    var rowsUrl = $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab=badge";
+    var rowsUrl = DashboardLinks.Resolve($"/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab=badge");
 }
 <aside class="sb-policy-stack-status-badge"
        data-policy-stack-embed="status-badge"

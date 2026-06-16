@@ -1,6 +1,7 @@
 @using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackRowViewModel
 @{
     var modeLower = Model.Mode.ToString().ToLowerInvariant();
@@ -8,14 +9,15 @@
         ? "badge source-pill is-inherited"
         : "badge source-pill";
     var explainScope = PolicyScopeUrl.Encode(Model.SourceScope);
-    var explainUrl = $"/dashboard/policystack/explain?scope={explainScope}&focusRule={Model.RuleId}";
+    var explainUrl = DashboardLinks.Resolve($"/policystack/explain?scope={explainScope}&focusRule={Model.RuleId}");
+    var editUrl = DashboardLinks.Resolve($"/policystack/edit?ruleId={Model.RuleId}");
     // C7 -- inherited rows are not reorderable from a descendant view; their
     // source pill becomes a click target that navigates to the owning scope
     // where the drag handle DOES render. PolicyScopeUrl.Encode handles the
     // round-trip; the actual dashboard route picks the scope up from
     // ?scope=<encoded>.
     var sourcePillHref = Model.IsInherited
-        ? $"/dashboard/policies?scope={PolicyScopeUrl.Encode(Model.SourceScope)}"
+        ? DashboardLinks.Resolve($"/policies?scope={PolicyScopeUrl.Encode(Model.SourceScope)}")
         : null;
 }
 <article class="sb-policy-stack-row"
@@ -98,7 +100,7 @@
                     data-action="edit"
                     data-rule-id="@Model.RuleId"
                     aria-label="Edit rule"
-                    hx-get="/dashboard/policystack/edit?ruleId=@Model.RuleId"
+                    hx-get="@editUrl"
                     hx-target="closest article"
                     hx-swap="outerHTML">&#x270e;</button>
         }

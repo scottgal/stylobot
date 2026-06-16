@@ -344,6 +344,16 @@ public static class StyloBotDashboardServiceExtensions
         // RequestServices on each call.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackSummaryBuilder>();
 
+        // Single chokepoint for "what URL should a dashboard link to". Reads
+        // StyloBotDashboardOptions.BasePath (or NavBasePath when set) and
+        // prefixes every subpath the health-summary providers + pack-row
+        // links + signature/entity card hrefs need. Replaces a sweep of
+        // hard-coded "/dashboard/..." strings that 404'd anywhere the
+        // middleware was mounted at a non-default path (e.g. the ASP.NET
+        // Trailblazor demo's /_stylobot mount).
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver,
+            Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver>();
+
         // Pack Metrics C1 -- dashboard overview pack-health row. The three FOSS
         // providers ship here; each one wraps an existing summary builder in
         // process (no HTTP loopback into the gateway's own JSON endpoints). The
@@ -362,7 +372,8 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider>(sp =>
             new Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthSummaryProvider(
                 sp.GetService<Mostlylucid.BotDetection.PrometheusPack.Telemetry.IMeterStream>(),
-                sp.GetService<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>()));
+                sp.GetService<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>(),
+                sp.GetService<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>()));
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();
 
         // #122 -- Centralised dashboard freshness beacon. ONE invalidation

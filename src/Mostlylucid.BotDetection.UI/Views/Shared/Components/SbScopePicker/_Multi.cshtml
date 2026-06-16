@@ -1,4 +1,6 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model ScopePickerMultiViewModel
 @*
     Traffic-shaping plan Task 10 -- multi-scope wrapper around the existing
@@ -48,7 +50,7 @@
     <button type="button"
             class="btn btn-outline btn-sm sb-scope-row-add"
             data-add-scope-row
-            hx-get="/dashboard/policystack/scope-picker?mode=inline-row&fieldNamePrefix=@Model.FieldNamePrefix"
+            hx-get="@DashboardLinks.Resolve($"/policystack/scope-picker?mode=inline-row&fieldNamePrefix={Model.FieldNamePrefix}")"
             hx-target="closest [data-multi-scope-rows]"
             hx-swap="beforeend">
         + Add scope

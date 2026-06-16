@@ -72,16 +72,25 @@ public sealed class PolicyEditPresenter
 
     private readonly IPolicyRuleStore _ruleStore;
     private readonly IOptions<PolicyEditTimingsOptions> _timings;
+    private readonly IDashboardLinkResolver? _links;
 
     public PolicyEditPresenter(
         IPolicyRuleStore ruleStore,
-        IOptions<PolicyEditTimingsOptions>? timings = null)
+        IOptions<PolicyEditTimingsOptions>? timings = null,
+        IDashboardLinkResolver? links = null)
     {
         _ruleStore = ruleStore;
         // Composition-light hosts (tests, AOT bundles) may skip binding the
         // timings options; fall back to the FOSS-literal defaults so the
         // presenter is always self-sufficient.
         _timings = timings ?? Microsoft.Extensions.Options.Options.Create(new PolicyEditTimingsOptions());
+        _links = links;
+    }
+
+    private string CancelUrlFor(PolicyScope scope)
+    {
+        var sub = $"/policystack/rows?scope={PolicyScopeUrl.Encode(scope)}&tab=effective";
+        return _links?.Resolve(sub) ?? "/stylobot" + sub;
     }
 
     /// <summary>
@@ -114,7 +123,7 @@ public sealed class PolicyEditPresenter
             Notes: rule.Notes,
             SubmitUrl: $"/api/v1/policies/{rule.Id}",
             HttpMethod: "PUT",
-            CancelUrl: $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(rule.Scope)}&tab=effective",
+            CancelUrl: CancelUrlFor(rule.Scope),
             Backtest: null,
             ParseDebounceMs: timings.ParseDebounceMs,
             BacktestDebounceMs: timings.BacktestDebounceMs);
@@ -141,7 +150,7 @@ public sealed class PolicyEditPresenter
             Notes: string.Empty,
             SubmitUrl: "/api/v1/policies",
             HttpMethod: "POST",
-            CancelUrl: $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(scope)}&tab=effective",
+            CancelUrl: CancelUrlFor(scope),
             Backtest: null,
             ParseDebounceMs: timings.ParseDebounceMs,
             BacktestDebounceMs: timings.BacktestDebounceMs);

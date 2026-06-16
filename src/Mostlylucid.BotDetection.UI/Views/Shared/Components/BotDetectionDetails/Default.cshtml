@@ -1,4 +1,5 @@
 @model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+@inject Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver DashboardLinks
 
 @if (!Model.HasData)
 {
@@ -40,9 +41,9 @@
     // edge-headers hydrator hasn't populated EntityId yet (older gateways, or
     // a brand-new actor whose entity allocation is still flushing).
     var cardHref = !string.IsNullOrEmpty(Model.EntityId)
-        ? $"/dashboard/entity/{Uri.EscapeDataString(Model.EntityId)}"
+        ? DashboardLinks.Resolve($"/entity/{Uri.EscapeDataString(Model.EntityId)}")
         : !string.IsNullOrEmpty(primarySig)
-            ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
+            ? DashboardLinks.Resolve($"/signature/{Uri.EscapeDataString(primarySig)}")
             : null;
 }
 <div class="bot-detection-container" data-sb-widget="your-detection">

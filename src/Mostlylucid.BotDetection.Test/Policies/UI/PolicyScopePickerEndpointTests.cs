@@ -262,6 +262,10 @@ public sealed class PolicyScopePickerEndpointTests : IAsyncDisposable
             .AddApplicationPart(typeof(PolicyScopePickerEndpointTests).Assembly)
             .AddApplicationPart(typeof(SbScopePickerViewComponent).Assembly);
 
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>(
+            new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+                new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions { BasePath = "/stylobot" }));
+
         var app = builder.Build();
         app.UseRouting();
         app.MapControllers();

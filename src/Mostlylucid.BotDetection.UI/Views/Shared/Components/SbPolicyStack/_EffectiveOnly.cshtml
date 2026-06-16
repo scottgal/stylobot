@@ -1,10 +1,11 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Policies
 @using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackViewModel
 @{
     var ancestorHashes = string.Join(",", PolicyScopeKeys.AncestorHashes(Model.Scope));
-    var rowsUrl = $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab=effective";
+    var rowsUrl = DashboardLinks.Resolve($"/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab=effective");
 }
 <section class="sb-policy-stack sb-policy-stack--effective-only"
          data-policy-stack-embed="effective-only"

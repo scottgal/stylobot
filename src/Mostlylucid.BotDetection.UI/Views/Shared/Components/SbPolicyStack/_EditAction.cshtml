@@ -1,5 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Policies
+@using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyEditRowViewModel
 @*
     Task 8 -- kind selector + per-kind slot. The <select name="action.kind">
@@ -20,7 +22,7 @@
         Action
         <select name="action.kind"
                 data-action-kind-select
-                hx-get="/dashboard/policystack/action-editor"
+                hx-get="@DashboardLinks.Resolve("/policystack/action-editor")"
                 hx-target="[data-action-editor-slot]"
                 hx-swap="innerHTML"
                 hx-include="this"

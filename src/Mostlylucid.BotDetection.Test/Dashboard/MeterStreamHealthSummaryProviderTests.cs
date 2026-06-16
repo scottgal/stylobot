@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 
 namespace Mostlylucid.BotDetection.Test.Dashboard;
@@ -38,7 +40,10 @@ public sealed class MeterStreamHealthSummaryProviderTests
         tile.Value.Should().Be("9");
         tile.Unit.Should().Be("meters");
         tile.HealthBand.Should().Be(HealthBand.Good);
-        tile.DrillHref.Should().Be(MeterStreamHealthSummaryProvider.DrillPath);
+        // Default-mount fallback: provider with no IDashboardLinkResolver
+        // prefixes /stylobot. The new mount-aware path is covered by
+        // BuildTileAsync_resolves_drill_href_against_dashboard_link_resolver.
+        tile.DrillHref.Should().Be("/stylobot" + MeterStreamHealthSummaryProvider.DrillSubPath);
         tile.DrillLabel.Should().Be("Open insights");
     }
 
@@ -76,6 +81,32 @@ public sealed class MeterStreamHealthSummaryProviderTests
 
         tile.Should().NotBeNull();
         tile!.HealthBand.Should().Be(HealthBand.Good);
+    }
+
+    // ---------- 4. Custom dashboard mount -> drill href follows the resolver. ----------
+
+    [Fact]
+    public async Task BuildTileAsync_resolves_drill_href_against_dashboard_link_resolver()
+    {
+        // Same per-mount story as the other tile providers: a /_stylobot
+        // mount must produce /_stylobot/insights, not /dashboard/insights.
+        var stream = new FakeMeterStream();
+        stream.Add(new MeterCatalogEntry(
+            Name: "meter_0",
+            Namespace: "test",
+            Kind: MeterKind.Counter,
+            Unit: null,
+            Description: null));
+        var links = new DashboardLinkResolver(new StyloBotDashboardOptions
+        {
+            BasePath = "/_stylobot"
+        });
+        var provider = new MeterStreamHealthSummaryProvider(stream, links: links);
+
+        var tile = await provider.BuildTileAsync(default);
+
+        tile.Should().NotBeNull();
+        tile!.DrillHref.Should().Be("/_stylobot/insights");
     }
 
     // ============================================================

@@ -21,20 +21,25 @@ namespace Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 public sealed class MeterStreamHealthSummaryProvider : IPackHealthSummaryProvider
 {
     /// <summary>
-    ///     Drill anchor for the tile footer. Targets the global insights page
-    ///     where the operator can browse the full meter catalog.
+    ///     Drill subpath for the tile footer; resolved through
+    ///     <see cref="IDashboardLinkResolver" /> at render time so the tile
+    ///     follows the dashboard's configured BasePath rather than
+    ///     hard-coding the default <c>/dashboard</c> prefix.
     /// </summary>
-    public const string DrillPath = "/dashboard/insights";
+    public const string DrillSubPath = "/insights";
 
     private readonly IMeterStream? _stream;
     private readonly MeterStreamHealthTileCache? _cache;
+    private readonly IDashboardLinkResolver? _links;
 
     public MeterStreamHealthSummaryProvider(
         IMeterStream? stream = null,
-        MeterStreamHealthTileCache? cache = null)
+        MeterStreamHealthTileCache? cache = null,
+        IDashboardLinkResolver? links = null)
     {
         _stream = stream;
         _cache = cache;
+        _links = links;
     }
 
     /// <inheritdoc />
@@ -55,12 +60,15 @@ public sealed class MeterStreamHealthSummaryProvider : IPackHealthSummaryProvide
         var catalog = await _stream.ListAsync(ct).ConfigureAwait(false);
         var count = catalog.Count;
 
+        var drill = _links?.Resolve(DrillSubPath)
+                    ?? "/stylobot" + DrillSubPath;
+
         var tile = new StatTileViewModel(
             Title: "Metrics",
             Value: count.ToString("N0", CultureInfo.InvariantCulture),
             Unit: "meters",
             HealthBand: count > 0 ? HealthBand.Good : HealthBand.Caution,
-            DrillHref: DrillPath,
+            DrillHref: drill,
             DrillLabel: "Open insights",
             BeaconKey: DashboardFreshnessBeacon.Surfaces.MeterStreamHealth);
 

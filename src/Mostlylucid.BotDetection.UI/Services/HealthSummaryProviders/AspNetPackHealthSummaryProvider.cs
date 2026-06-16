@@ -20,20 +20,25 @@ namespace Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 public sealed class AspNetPackHealthSummaryProvider : IPackHealthSummaryProvider
 {
     /// <summary>
-    ///     Drill anchor for the tile footer. Lives on the same dashboard
-    ///     middleware (B2 wired this route).
+    ///     Drill subpath for the tile footer; resolved through
+    ///     <see cref="IDashboardLinkResolver" /> at render time so the tile
+    ///     follows the dashboard's configured BasePath rather than
+    ///     hard-coding the default <c>/dashboard</c> prefix.
     /// </summary>
-    public const string DrillPath = "/dashboard/aspnet-hub";
+    public const string DrillSubPath = "/aspnet-hub";
 
     private readonly IAspNetPackHubBuilder? _builder;
     private readonly AspNetPackHubTileCache? _cache;
+    private readonly IDashboardLinkResolver? _links;
 
     public AspNetPackHealthSummaryProvider(
         IAspNetPackHubBuilder? builder = null,
-        AspNetPackHubTileCache? cache = null)
+        AspNetPackHubTileCache? cache = null,
+        IDashboardLinkResolver? links = null)
     {
         _builder = builder;
         _cache = cache;
+        _links = links;
     }
 
     /// <inheritdoc />
@@ -56,12 +61,15 @@ public sealed class AspNetPackHealthSummaryProvider : IPackHealthSummaryProvider
             ? "-"
             : summary.EndpointCount.Value.ToString("N0", CultureInfo.InvariantCulture);
 
+        var drill = _links?.Resolve(DrillSubPath)
+                    ?? "/stylobot" + DrillSubPath;
+
         var tile = new StatTileViewModel(
             Title: "ASP.NET Pack",
             Value: value,
             Unit: "endpoints",
             HealthBand: summary.HealthBand,
-            DrillHref: DrillPath,
+            DrillHref: drill,
             DrillLabel: "View pack",
             BeaconKey: DashboardFreshnessBeacon.Surfaces.AspNetPackHub);
 

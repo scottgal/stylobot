@@ -279,6 +279,13 @@ public sealed class PolicyActionEditorRenderTests : IAsyncDisposable
             .AddApplicationPart(typeof(PolicyActionEditorRenderTests).Assembly)
             .AddApplicationPart(typeof(SbPolicyStackViewComponent).Assembly);
 
+        // _EditAction.cshtml takes IDashboardLinkResolver via @inject so the
+        // policystack/action-editor hx-get URL follows the configured dashboard
+        // mount instead of hard-coding /dashboard.
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>(
+            new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+                new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions { BasePath = "/stylobot" }));
+
         var app = builder.Build();
         app.UseRouting();
         app.MapControllers();

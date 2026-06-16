@@ -1,6 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Policies
 @using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackViewModel
 @{
     var effectiveActive = !string.Equals(Model.ActiveTab, "stack", StringComparison.OrdinalIgnoreCase);
@@ -8,7 +9,9 @@
     // Ancestor hashes the client glue joins on mount. A Domain-level change
     // reaches every Subdomain / Endpoint browser through these joins.
     var ancestorHashes = string.Join(",", PolicyScopeKeys.AncestorHashes(Model.Scope));
-    var rowsUrl = $"/dashboard/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab={activeTabToken}";
+    var rowsUrl = DashboardLinks.Resolve($"/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab={activeTabToken}");
+    var applyTemplateUrl = DashboardLinks.Resolve($"/policies/templates/apply?scope={PolicyScopeUrl.Encode(Model.Scope)}");
+    var newRuleUrl = DashboardLinks.Resolve($"/policystack/edit/new?scope={PolicyScopeUrl.Encode(Model.Scope)}");
 }
 <section class="sb-policy-stack"
          data-policy-stack-embed="full"
@@ -58,14 +61,14 @@
                 <button type="button"
                         class="btn btn-primary btn-sm join-item sb-policy-stack-apply-template"
                         data-action="apply-template"
-                        hx-get="/dashboard/policies/templates/apply?scope=@PolicyScopeUrl.Encode(Model.Scope)"
+                        hx-get="@applyTemplateUrl"
                         hx-target="closest section"
                         hx-swap="afterbegin">+ Apply template</button>
                 <button type="button"
                         class="btn btn-ghost btn-sm join-item sb-policy-stack-add-rule"
                         data-action="add-rule"
                         data-add-raw-rule
-                        hx-get="/dashboard/policystack/edit/new?scope=@PolicyScopeUrl.Encode(Model.Scope)"
+                        hx-get="@newRuleUrl"
                         hx-target="closest section"
                         hx-swap="afterbegin">+ Raw rule</button>
             </div>

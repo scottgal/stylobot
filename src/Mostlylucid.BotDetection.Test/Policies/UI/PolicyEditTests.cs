@@ -109,7 +109,12 @@ public sealed class PolicyEditTests : IAsyncDisposable
         var htmlEdit = await GetHtmlAsync(client, EndpointScope, canEdit: true);
         Assert.Contains("sb-policy-stack-row-edit", htmlEdit);
         Assert.Contains("data-action=\"edit\"", htmlEdit);
-        Assert.Contains("hx-get=\"/dashboard/policystack/edit?ruleId=", htmlEdit);
+        // Resolver-driven path: the default dashboard mount under
+        // WebApplicationFactory<TestStartup> is /stylobot (the FOSS
+        // option default). DashboardLinkResolver prefixes that onto the
+        // /policystack/edit subpath; old hard-coded /dashboard path
+        // would 404 against the actual mount.
+        Assert.Contains("hx-get=\"/stylobot/policystack/edit?ruleId=", htmlEdit);
     }
 
     [Fact]
@@ -124,7 +129,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
         var htmlEdit = await GetHtmlAsync(client, EndpointScope, canEdit: true);
         Assert.Contains("sb-policy-stack-add-rule", htmlEdit);
         Assert.Contains("data-action=\"add-rule\"", htmlEdit);
-        Assert.Contains("hx-get=\"/dashboard/policystack/edit/new?scope=", htmlEdit);
+        Assert.Contains("hx-get=\"/stylobot/policystack/edit/new?scope=", htmlEdit);
     }
 
     // ---- _EditRow.cshtml render coverage ----
@@ -279,7 +284,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
         Assert.Contains("name=\"action.kind\"", html);
         Assert.Contains("data-action-editor-slot", html);
         Assert.Contains("data-edit-action-kind=\"ratelimit\"", html);   // server-rendered active slot
-        Assert.Contains("hx-get=\"/dashboard/policystack/action-editor\"", html);
+        Assert.Contains("hx-get=\"/stylobot/policystack/action-editor\"", html);
         Assert.Contains("hx-target=\"[data-action-editor-slot]\"", html);
     }
 
@@ -485,6 +490,9 @@ public sealed class PolicyEditTests : IAsyncDisposable
         // tests pin canEdit via the controller param so the gate is
         // only consulted when canEdit is null.
         builder.Services.AddSingleton<IPolicyCanEditPolicy, AlwaysReadOnlyPolicyCanEditPolicy>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>(
+            new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+                new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions { BasePath = "/stylobot" }));
 
         var app = builder.Build();
         app.UseRouting();

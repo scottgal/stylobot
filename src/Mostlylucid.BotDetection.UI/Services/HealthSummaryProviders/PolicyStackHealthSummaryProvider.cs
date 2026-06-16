@@ -24,20 +24,26 @@ namespace Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 public sealed class PolicyStackHealthSummaryProvider : IPackHealthSummaryProvider
 {
     /// <summary>
-    ///     Drill anchor for the tile footer. Targets the existing FOSS
-    ///     /dashboard/policies row.
+    ///     Drill subpath for the tile footer; resolved through
+    ///     <see cref="IDashboardLinkResolver" /> at render time so the tile
+    ///     follows the dashboard's configured BasePath. Default deployments
+    ///     mount at <c>/stylobot</c>, the ASP.NET Trailblazor demo at
+    ///     <c>/_stylobot</c>.
     /// </summary>
-    public const string DrillPath = "/dashboard/policies";
+    public const string DrillSubPath = "/policies";
 
     private readonly PolicyStackSummaryBuilder? _builder;
     private readonly PolicyStackSummaryCache? _cache;
+    private readonly IDashboardLinkResolver? _links;
 
     public PolicyStackHealthSummaryProvider(
         PolicyStackSummaryBuilder? builder = null,
-        PolicyStackSummaryCache? cache = null)
+        PolicyStackSummaryCache? cache = null,
+        IDashboardLinkResolver? links = null)
     {
         _builder = builder;
         _cache = cache;
+        _links = links;
     }
 
     /// <inheritdoc />
@@ -66,13 +72,19 @@ public sealed class PolicyStackHealthSummaryProvider : IPackHealthSummaryProvide
         var draft = summary.DraftRules.ToString(CultureInfo.InvariantCulture);
         var delta = $"{observe} observe / {draft} draft";
 
+        // Resolve against the configured dashboard base path. The resolver
+        // is optional here only so the existing unit-test rig that omits DI
+        // keeps working; production registration always supplies it.
+        var drill = _links?.Resolve(DrillSubPath)
+                    ?? "/stylobot" + DrillSubPath;
+
         return new StatTileViewModel(
             Title: "Policy Stack",
             Value: value,
             Unit: "live",
             Delta: delta,
             HealthBand: summary.HealthBand,
-            DrillHref: DrillPath,
+            DrillHref: drill,
             DrillLabel: "View rules",
             BeaconKey: DashboardFreshnessBeacon.Surfaces.PolicyStackSummary);
     }

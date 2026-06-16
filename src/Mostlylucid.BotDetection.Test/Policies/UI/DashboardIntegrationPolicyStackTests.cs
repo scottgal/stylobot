@@ -127,7 +127,11 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         var source = File.ReadAllText(LocatePartial("_Endpoints.cshtml"));
         Assert.Contains("dashboard-endpoint-policy", source);
         Assert.Contains("lazy-policy-stack", source);
-        Assert.Contains("/dashboard/policystack/rows", source);
+        // The path is composed via DashboardLinks.Resolve(...) so the
+        // source carries the BasePath-relative subpath; the resolver
+        // adds the configured mount prefix at render time.
+        Assert.Contains("/policystack/rows", source);
+        Assert.Contains("DashboardLinks.Resolve", source);
     }
 
     [Fact]
@@ -303,7 +307,10 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
             "/_test/dashboard/endpoints-collapsible?host=acme.com");
 
         Assert.Contains("dashboard-endpoint-policy", html);
-        Assert.Contains("/dashboard/policystack/rows", html);
+        // Resolved against the default test mount (/stylobot) via
+        // DashboardLinkResolver; alternative mounts produce alternative
+        // prefixes, see DashboardLinkResolverTests.
+        Assert.Contains("/stylobot/policystack/rows", html);
     }
 
     private async Task<HttpClient> BuildClientAsync()
@@ -347,6 +354,9 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         // FOSS default keeps them read-only as the production FOSS host
         // does.
         builder.Services.AddSingleton<IPolicyCanEditPolicy, AlwaysReadOnlyPolicyCanEditPolicy>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>(
+            new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+                new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions { BasePath = "/stylobot" }));
 
         var app = builder.Build();
         app.UseRouting();
@@ -561,7 +571,9 @@ public sealed class DashboardIntegrationStubController : Controller
             ? (PolicyScope)PolicyScope.Wildcard()
             : PolicyScope.Domain(host);
         var encoded = PolicyScopeUrl.Encode(pageScope);
-        var rowsUrl = $"/dashboard/policystack/rows?scope={encoded}&tab=effective";
+        // Matches the resolver-driven URL the production _Endpoints.cshtml
+        // partial now emits at the default test mount (/stylobot).
+        var rowsUrl = $"/stylobot/policystack/rows?scope={encoded}&tab=effective";
         var html = $"""
             <details class="dashboard-endpoint-policy mt-4" data-endpoint="{host}">
                 <summary>Show effective policy stack for this site</summary>

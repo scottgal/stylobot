@@ -3,6 +3,7 @@ using FluentAssertions;
 using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
@@ -70,7 +71,10 @@ public sealed class PolicyStackHealthSummaryProviderTests
         tile.Value.Should().Be("17");
         tile.Unit.Should().Be("live");
         tile.HealthBand.Should().Be(HealthBand.Good);
-        tile.DrillHref.Should().Be(PolicyStackHealthSummaryProvider.DrillPath);
+        // Default-mount fallback: provider with no IDashboardLinkResolver
+        // prefixes /stylobot. The new mount-aware path is covered by
+        // BuildTileAsync_resolves_drill_href_against_dashboard_link_resolver.
+        tile.DrillHref.Should().Be("/stylobot" + PolicyStackHealthSummaryProvider.DrillSubPath);
         tile.DrillLabel.Should().Be("View rules");
     }
 
@@ -96,6 +100,28 @@ public sealed class PolicyStackHealthSummaryProviderTests
         tile.Delta.Should().Contain("2");
         tile.Delta.Should().Contain("observe");
         tile.Delta.Should().Contain("draft");
+    }
+
+    // ---------- 5. Custom dashboard mount -> drill href follows the resolver. ----------
+
+    [Fact]
+    public async Task BuildTileAsync_resolves_drill_href_against_dashboard_link_resolver()
+    {
+        // The dashboard mount lives on StyloBotDashboardOptions.BasePath; the
+        // ASP.NET Trailblazor demo configures /_stylobot. Pre-resolver code
+        // hard-coded "/dashboard/policies" which 404'd against that mount.
+        var store = new InMemoryPolicyRuleStore(Wildcard(PolicyMode.Live));
+        var summaryBuilder = new PolicyStackSummaryBuilder(ruleStore: store);
+        var links = new DashboardLinkResolver(new StyloBotDashboardOptions
+        {
+            BasePath = "/_stylobot"
+        });
+        var provider = new PolicyStackHealthSummaryProvider(summaryBuilder, links: links);
+
+        var tile = await provider.BuildTileAsync(default);
+
+        tile.Should().NotBeNull();
+        tile!.DrillHref.Should().Be("/_stylobot/policies");
     }
 
     // ============================================================

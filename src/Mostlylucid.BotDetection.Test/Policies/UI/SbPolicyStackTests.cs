@@ -611,8 +611,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         // pointing at /dashboard/policystack/explain with a scope + focusRule,
         // plus the swap target. Razor encodes & as &amp; inside attributes so
         // the regex tolerates either form.
+        // Default test mount is /stylobot via DashboardLinkResolver; the
+        // path is the configured BasePath + the /policystack/explain
+        // subpath the resolver prefixes. Old "/dashboard/..." literal
+        // was the hard-coded prefix that 404'd on non-default mounts.
         Assert.Matches(
-            new Regex("hx-get=\"/dashboard/policystack/explain\\?scope=[^\"]+(&|&amp;)focusRule=[0-9a-fA-F\\-]+\""),
+            new Regex("hx-get=\"/stylobot/policystack/explain\\?scope=[^\"]+(&|&amp;)focusRule=[0-9a-fA-F\\-]+\""),
             html);
         Assert.Contains("hx-target=\"#sb-policy-stack-explainer\"", html);
         Assert.Contains("hx-swap=\"outerHTML\"", html);
@@ -769,7 +773,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
             new Regex("data-policy-stack-ancestors=\"[0-9a-f]{16},[0-9a-f]{16},[0-9a-f]{16},[0-9a-f]{16}\""),
             html);
         Assert.Matches(
-            new Regex("data-policy-stack-rows-url=\"/dashboard/policystack/rows[^\"]*\""),
+            new Regex("data-policy-stack-rows-url=\"/stylobot/policystack/rows[^\"]*\""),
             html);
         Assert.Matches(new Regex("id=\"sb-policy-stack-rows-[0-9a-f]{16}\""), html);
     }
@@ -959,8 +963,11 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         // The SUBDOMAIN row at the endpoint scope is inherited; its source
         // pill must carry data-source-pill-href so the JS can navigate to
         // the owning scope. The DOMAIN row is also inherited.
-        Assert.Contains("data-source-pill-href=\"/dashboard/policies?scope=subdomain", html);
-        Assert.Contains("data-source-pill-href=\"/dashboard/policies?scope=domain", html);
+        // Default test mount is /stylobot (FOSS option default); the new
+        // resolver prefixes the configured BasePath so the source pill no
+        // longer 404s against alternative mounts (the demo's /_stylobot).
+        Assert.Contains("data-source-pill-href=\"/stylobot/policies?scope=subdomain", html);
+        Assert.Contains("data-source-pill-href=\"/stylobot/policies?scope=domain", html);
     }
 
     [Fact]
@@ -1156,6 +1163,9 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         // FOSS default needs to be in the container for view-component
         // construction.
         builder.Services.AddSingleton<IPolicyCanEditPolicy, AlwaysReadOnlyPolicyCanEditPolicy>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>(
+            new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+                new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions { BasePath = "/stylobot" }));
 
         var app = builder.Build();
         app.UseRouting();

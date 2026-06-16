@@ -1,5 +1,6 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackViewModel
 @*
     Explainer panel input picker. Operator either pastes a fingerprint id or
@@ -8,7 +9,7 @@
     rewrites the panel via hx-target=#sb-policy-stack-explainer.
 *@
 <div class="sb-policy-stack-explainer-picker">
-    <form hx-get="/dashboard/policystack/explain"
+    <form hx-get="@DashboardLinks.Resolve("/policystack/explain")"
           hx-target="#sb-policy-stack-explainer"
           hx-swap="outerHTML">
         <input type="hidden" name="scope" value="@PolicyScopeUrl.Encode(Model.Scope)" />

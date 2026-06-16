@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
@@ -46,7 +47,10 @@ public sealed class AspNetPackHealthSummaryProviderTests
         tile.Value.Should().Be("132");
         tile.Unit.Should().Be("endpoints");
         tile.HealthBand.Should().Be(HealthBand.Good);
-        tile.DrillHref.Should().Be(AspNetPackHealthSummaryProvider.DrillPath);
+        // Default-mount fallback: provider with no IDashboardLinkResolver
+        // prefixes /stylobot. The new mount-aware path is covered by
+        // BuildTileAsync_resolves_drill_href_against_dashboard_link_resolver.
+        tile.DrillHref.Should().Be("/stylobot" + AspNetPackHealthSummaryProvider.DrillSubPath);
         tile.DrillLabel.Should().Be("View pack");
     }
 
@@ -69,6 +73,34 @@ public sealed class AspNetPackHealthSummaryProviderTests
 
         tile.Should().NotBeNull();
         tile!.Value.Should().Be("-");
+    }
+
+    // ---------- 4. Custom dashboard mount -> drill href follows the resolver. ----------
+
+    [Fact]
+    public async Task BuildTileAsync_resolves_drill_href_against_dashboard_link_resolver()
+    {
+        // ASP.NET Trailblazor demo mounts the dashboard at /_stylobot, not
+        // the default /stylobot. The tile must follow the configured mount;
+        // hard-coding the prefix here is what produced the production 404 on
+        // /dashboard/aspnet-hub before the resolver shipped.
+        var builder = new FakeAspNetPackHubBuilder(new AspNetPackSummary(
+            EndpointCount: 42,
+            MeterFamilyCount: 1,
+            ObservationsLast15m: 0,
+            InferredEndpointsLast15m: null,
+            HealthBand: HealthBand.Good,
+            ComputedAtUtc: new DateTimeOffset(2026, 6, 9, 12, 0, 0, TimeSpan.Zero)));
+        var links = new DashboardLinkResolver(new StyloBotDashboardOptions
+        {
+            BasePath = "/_stylobot"
+        });
+        var provider = new AspNetPackHealthSummaryProvider(builder, links: links);
+
+        var tile = await provider.BuildTileAsync(default);
+
+        tile.Should().NotBeNull();
+        tile!.DrillHref.Should().Be("/_stylobot/aspnet-hub");
     }
 
     // ============================================================

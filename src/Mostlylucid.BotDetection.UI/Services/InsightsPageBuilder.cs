@@ -23,6 +23,13 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// </summary>
 public sealed class InsightsPageBuilder
 {
+    private readonly IDashboardLinkResolver? _links;
+
+    public InsightsPageBuilder(IDashboardLinkResolver? links = null)
+    {
+        _links = links;
+    }
+
     /// <summary>Default sparkline window when the query string omits <c>window</c>.</summary>
     public const string DefaultWindow = "15m";
 
@@ -151,7 +158,7 @@ public sealed class InsightsPageBuilder
 
     // ---------- Row + facet helpers ----------
 
-    internal static MeterTableRowViewModel BuildRow(MeterCatalogEntry entry, MeterTimeSeries? ts)
+    internal MeterTableRowViewModel BuildRow(MeterCatalogEntry entry, MeterTimeSeries? ts)
     {
         var values = ts?.Values ?? Array.Empty<double>();
         SparklineViewModel? spark = values.Count > 0
@@ -160,6 +167,9 @@ public sealed class InsightsPageBuilder
 
         var current = ts is null ? "-" : FormatNumber(ts.Current);
 
+        var drill = _links?.Resolve($"/insights/{Uri.EscapeDataString(entry.Name)}")
+                    ?? $"/stylobot/insights/{Uri.EscapeDataString(entry.Name)}";
+
         return new MeterTableRowViewModel(
             Name: entry.Name,
             Kind: entry.Kind.ToString(),
@@ -167,7 +177,7 @@ public sealed class InsightsPageBuilder
             Unit: entry.Unit,
             Sparkline: spark,
             HealthBand: HealthBand.Neutral,
-            DrillHref: $"/dashboard/insights/{Uri.EscapeDataString(entry.Name)}",
+            DrillHref: drill,
             Description: entry.Description,
             Label: entry.Label);
     }

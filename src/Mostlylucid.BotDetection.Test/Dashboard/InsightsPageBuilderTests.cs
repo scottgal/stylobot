@@ -229,6 +229,7 @@ public sealed class InsightsPageBuilderTests
     [Fact]
     public async Task Row_drill_href_round_trips_meter_name()
     {
+        // Default-mount fallback path: no resolver, prefix /stylobot.
         var stream = new FakeMeterStream();
         stream.AddCounter("stylobot.aspnet.observations.received");
 
@@ -238,7 +239,33 @@ public sealed class InsightsPageBuilderTests
 
         vm.Table.Rows.Should().ContainSingle();
         vm.Table.Rows[0].DrillHref.Should().Be(
-            "/dashboard/insights/stylobot.aspnet.observations.received");
+            "/stylobot/insights/stylobot.aspnet.observations.received");
+    }
+
+    // ---------- Custom mount -> drill follows configured BasePath ----------
+
+    [Fact]
+    public async Task Row_drill_href_resolves_against_custom_dashboard_mount()
+    {
+        // The Trailblazor demo mounts the dashboard at /_stylobot. The
+        // resolver-aware builder threads the configured BasePath onto
+        // every per-meter drill href so the row link actually resolves
+        // instead of 404'ing into the default /dashboard path.
+        var stream = new FakeMeterStream();
+        stream.AddCounter("stylobot.aspnet.observations.received");
+        var links = new Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver(
+            new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions
+            {
+                BasePath = "/_stylobot"
+            });
+
+        var vm = await new InsightsPageBuilder(links).BuildAsync(
+            stream, kind: null, @namespace: null, query: null,
+            sort: null, window: null, buckets: null, ct: default);
+
+        vm.Table.Rows.Should().ContainSingle();
+        vm.Table.Rows[0].DrillHref.Should().Be(
+            "/_stylobot/insights/stylobot.aspnet.observations.received");
     }
 
     // ============================================================
