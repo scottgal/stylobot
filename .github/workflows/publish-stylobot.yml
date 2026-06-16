@@ -189,15 +189,16 @@ jobs:
           stylobot 5080 https://www.example.com --mode production
           stylobot 5080 https://www.example.com --tunnel  # public quick tunnel
 
-          # Brownfield retrofit (6.8.2+): private origin via Cloudflare Tunnel,
+          # Brownfield retrofit: private origin via Cloudflare Tunnel,
           # zero public exposure on the legacy box.
           stylobot 5080 --origin-tunnel oldsite.tunnel.example.org --tunnel TOKEN
 
         Full CLI reference:  stylobot man        (embedded; no internet needed)
 
-        Out of the box (6.8+): malicious bots blocked, search and AI bots
+        Out of the box: malicious bots blocked, search and AI bots
         rate-limited, humans untouched, bot rate limits tighten when the
-        upstream slows down.
+        upstream slows down. New in 7.5: arcjet well-known-bots catalog
+        (635 entries), transport header trust gate, forward-DNS verified bot.
 
         macOS first-run note:
           Browsers add com.apple.quarantine to downloaded files. The bundled
@@ -208,7 +209,7 @@ jobs:
             ./clear-quarantine.sh        # bundled helper
             xattr -dr com.apple.quarantine .   # same thing, one-liner
 
-          Proper Developer-ID-signed + notarized releases land before v7.
+          Developer-ID signing is planned for a future release.
           Until then this one-time strip is the cleanest workaround.
           Or use Homebrew: brew install scottgal/stylobot/stylobot
 
