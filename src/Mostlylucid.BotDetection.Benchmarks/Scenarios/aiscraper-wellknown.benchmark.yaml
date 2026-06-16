@@ -1,0 +1,13 @@
+name: AiScraper_WellKnown_SemanticScholarBot
+description: AiScraperContributor arcjet-catalog fallback for SemanticScholarBot (AI/academic, not in YAML). Measures the new arcjet AI-category fallback path.
+detector: AiScraper
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.88
+  headers:
+    user-agent: "SemanticScholarBot/1.0 (+http://s2.allenai.org/bot.html)"
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 4096
+tags: [fast-path, aiscraper, bot, well-known-bots, arcjet]

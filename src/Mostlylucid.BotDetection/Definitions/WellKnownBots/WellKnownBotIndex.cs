@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Definitions.WellKnownBots;
 
@@ -8,6 +9,13 @@ namespace Mostlylucid.BotDetection.Definitions.WellKnownBots;
 ///     Pre-compiles UA regex patterns on load; each request does an O(N) scan of
 ///     compiled regexes (N ≈ 635). Replaced atomically by
 ///     <see cref="WellKnownBotRefreshService"/> on each successful download.
+///     <para>
+///         <b>Performance:</b> scan results (positive and null/miss) are cached via
+///         the canonical <see cref="BoundedCache{TKey,TValue}"/> with LFU eviction so
+///         popular UAs (Chrome, Safari) pay the O(N-regex) cost only once per catalog
+///         lifetime. Cache is cleared on <see cref="Replace"/> so stale negatives
+///         never block entries added by a later catalog refresh.
+///     </para>
 ///     <para>
 ///         The static <see cref="Default"/> singleton is shared by callers that
 ///         live in static contexts (e.g. <c>FingerprintNameComposer</c>,
@@ -27,6 +35,14 @@ public sealed class WellKnownBotIndex
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(50);
 
     private volatile IndexEntry[] _entries = [];
+
+    // UA-keyed scan result cache. Uses BoundedCache (LFU eviction, 30-min TTL)
+    // per the project rule: grep for the canonical pattern before writing infra.
+    // Positive hits AND confirmed misses (null) are both cached so repeat UAs
+    // (human Chrome, Safari) never re-scan all 635 regexes.
+    // Cleared on Replace so stale negatives don't survive a catalog refresh.
+    private BoundedCache<string, WellKnownBotMatch?> _scanCache =
+        new(maxSize: 4_000, defaultTtl: TimeSpan.FromMinutes(30));
 
     public int Count => _entries.Length;
 
@@ -61,24 +77,42 @@ public sealed class WellKnownBotIndex
                 CompilePatterns(e.Pattern.Forbidden)));
         }
         _entries = compiled.ToArray();
+        // Invalidate the scan cache so a catalog update is seen immediately.
+        _scanCache.Clear();
     }
 
     /// <summary>
     ///     Returns a match for the first arcjet entry whose accepted patterns
     ///     match <paramref name="userAgent"/> and none of whose forbidden patterns match.
     ///     Returns null when no entry matches or the index is empty (not yet loaded).
+    ///     Results are cached per UA string via <see cref="BoundedCache{TKey,TValue}"/>
+    ///     so repeat UAs hit the cache instead of re-scanning all 635 regexes.
     /// </summary>
     public WellKnownBotMatch? TryMatch(string? userAgent)
     {
         if (string.IsNullOrEmpty(userAgent)) return null;
         var entries = _entries;
+        if (entries.Length == 0) return null;
+
+        // Cache hit: BoundedCache.TryGet also increments the LFU hit count so
+        // popular human UAs (Chrome, Safari) stay resident while cold bot UAs
+        // that appear once and never return are evicted first.
+        if (_scanCache.TryGet(userAgent, out var cached))
+            return cached;
+
+        WellKnownBotMatch? result = null;
         foreach (var e in entries)
         {
             if (!MatchesAny(e.Accepted, userAgent)) continue;
             if (MatchesAny(e.Forbidden, userAgent)) continue;
-            return new WellKnownBotMatch(e.Id, e.BotType, e.DisplayName);
+            result = new WellKnownBotMatch(e.Id, e.BotType, e.DisplayName);
+            break;
         }
-        return null;
+
+        // Cache positive matches and confirmed misses (null) alike.
+        // BoundedCache handles LFU eviction and TTL expiry — no manual trim.
+        _scanCache.Set(userAgent, result);
+        return result;
     }
 
     private static bool MatchesAny(Regex[] patterns, string ua)

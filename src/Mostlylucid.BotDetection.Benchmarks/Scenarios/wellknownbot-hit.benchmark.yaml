@@ -1,0 +1,13 @@
+name: WellKnownBot_Hit_TurnitinBot
+description: WellKnownBotIndex match for TurnitinBot — not in StyloBot YAML, only in arcjet catalog (AI/academic). Measures the catalog hit path after warmup.
+detector: UserAgent
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.99
+  headers:
+    user-agent: "TurnitinBot (https://turnitin.com/robot/crawlerinfo.html)"
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 4096
+tags: [fast-path, useragent, bot, well-known-bots, arcjet, cache]
