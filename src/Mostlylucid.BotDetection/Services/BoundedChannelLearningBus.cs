@@ -1,9 +1,10 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -18,18 +19,43 @@ namespace Mostlylucid.BotDetection.Services;
 ///     The background consumer drains this front-end channel and forwards to the inner bus.
 ///     Events are dropped (oldest first) only when the front-end channel is full, keeping
 ///     memory bounded on low-resource deployments.
+///
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B).</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c> on the
+///         front-end channel and forwarded each entry to the inner bus. Now
+///         subscribes to <see cref="TickCadence.Tick1s"/> via
+///         <see cref="IScheduleCoordinator"/>; each tick drains whatever
+///         landed since the last tick via
+///         <see cref="ChannelReader{T}.TryRead"/> and forwards to the inner
+///         bus. The HP-mode latency budget is "as fast as possible without
+///         blocking the request thread"; a 1-second tick floor is the
+///         shortest cadence the coordinator emits and matches that intent
+///         while the existing front-end channel absorbs bursts.
+///     </para>
+///     <para>
+///         When HP mode is OFF the tick handler is registered but early-
+///         returns each tick (since the front-end channel never sees writes
+///         in non-HP mode). This keeps the subscription wiring uniform
+///         across modes; the cost is one TryRead-against-empty per tick,
+///         which is sub-microsecond.
+///     </para>
 /// </summary>
-public sealed class BoundedChannelLearningBus : BackgroundService, ILearningEventBus
+public sealed class BoundedChannelLearningBus : ILearningEventBus, IDisposable
 {
     private readonly ILearningEventBus _inner;
     private readonly Channel<LearningEvent> _channel;
     private readonly ILogger<BoundedChannelLearningBus> _logger;
     private readonly bool _enabled;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     public BoundedChannelLearningBus(
         LearningEventBus inner,
         IOptions<BotDetectionOptions> options,
-        ILogger<BoundedChannelLearningBus> logger)
+        ILogger<BoundedChannelLearningBus> logger,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _inner = inner;
         _logger = logger;
@@ -43,6 +69,17 @@ public sealed class BoundedChannelLearningBus : BackgroundService, ILearningEven
             SingleWriter = false,
             AllowSynchronousContinuations = false,
         });
+
+        // Optional so existing direct-construction tests + ASP.NET fixtures
+        // that don't register a coordinator keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick1s,
+                "BoundedChannelLearningBus",
+                CostHint.High,
+                OnTickAsync);
+        }
     }
 
     /// <inheritdoc />
@@ -86,36 +123,43 @@ public sealed class BoundedChannelLearningBus : BackgroundService, ILearningEven
         _inner.Complete();
     }
 
+    /// <summary>Visible depth for tests + diagnostics.</summary>
+    public int FrontEndQueueDepth => _channel.Reader.Count;
+
     /// <summary>
-    ///     Background loop: drains the front-end channel and forwards each event to the
-    ///     inner bus. Only runs when HP mode is on; returns immediately otherwise.
+    ///     ScheduleCoordinator tick handler. When HP mode is on, drain
+    ///     whatever events landed on the front-end channel since the last
+    ///     tick via <see cref="ChannelReader{T}.TryRead"/> and forward each
+    ///     to the inner bus. When HP mode is off the front-end channel
+    ///     never sees writes, so the TryRead loop exits immediately.
     /// </summary>
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (!_enabled) return;
+        if (_disposed != 0) return Task.CompletedTask;
 
-        _logger.LogInformation("HP learning bus consumer started (queue depth: {Depth})",
-            _channel.Reader.Count);
-
-        try
+        while (_channel.Reader.TryRead(out var evt))
         {
-            await foreach (var evt in _channel.Reader.ReadAllAsync(stoppingToken))
+            if (ct.IsCancellationRequested) break;
+            try
             {
-                try
-                {
-                    _inner.TryPublish(evt);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "HP learning consumer error for {EventType}", evt.Type);
-                }
+                _inner.TryPublish(evt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "HP learning consumer error for {EventType}", evt.Type);
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Normal shutdown
-        }
 
-        _logger.LogInformation("HP learning bus consumer stopped");
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
+        try { _channel.Writer.TryComplete(); }
+        catch { /* already torn down */ }
     }
 }

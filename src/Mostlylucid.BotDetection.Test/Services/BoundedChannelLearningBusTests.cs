@@ -7,19 +7,25 @@ using Mostlylucid.BotDetection.Services;
 namespace Mostlylucid.BotDetection.Test.Services;
 
 /// <summary>
-///     Unit tests for <see cref="BoundedChannelLearningBus"/>.
+///     Unit tests for <see cref="BoundedChannelLearningBus"/>. Post-Wave-2:
+///     the bus is a plain singleton that drains its HP-mode front-end channel
+///     on a ScheduleCoordinator Tick1s. These tests construct the bus without
+///     a coordinator and drive the migrated <see cref="BoundedChannelLearningBus.OnTickAsync"/>
+///     handler directly to assert the drain semantics that the old
+///     <c>ExecuteAsync</c> loop used to provide.
 /// </summary>
 public class BoundedChannelLearningBusTests : IAsyncDisposable
 {
     private readonly List<BoundedChannelLearningBus> _busesToDispose = new();
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         foreach (var bus in _busesToDispose)
         {
-            bus.Complete();
-            await bus.StopAsync(CancellationToken.None);
+            try { bus.Complete(); } catch { /* already torn down */ }
+            try { bus.Dispose(); } catch { /* already torn down */ }
         }
+        return ValueTask.CompletedTask;
     }
 
     // -----------------------------------------------------------------------
@@ -76,35 +82,32 @@ public class BoundedChannelLearningBusTests : IAsyncDisposable
     }
 
     // -----------------------------------------------------------------------
-    // Test 2: HP mode ON — TryPublish returns before the inner bus receives
-    //         the event; the background consumer delivers it asynchronously.
+    // Test 2: HP mode ON — TryPublish writes the event to the front-end
+    //         channel; OnTickAsync forwards it to the inner bus.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task TryPublish_WhenHpModeOn_ReturnsImmediately_InnerBusReceivesLater()
+    public async Task TryPublish_WhenHpModeOn_FrontEndChannel_DrainedOnTick()
     {
         // Arrange
         var inner = new LearningEventBus(capacity: 10_000);
         var bus = CreateBus(hpMode: true, inner: inner);
         var evt = MakeEvent("hp-source");
 
-        // Start the background consumer. Use a generous timeout so this is not flaky
-        // on slow CI runners; the actual forwarding happens in microseconds when the
-        // scheduler is responsive.
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await bus.StartAsync(cts.Token);
-
-        // Act: TryPublish returns before the consumer forwards the event.
+        // Act: TryPublish writes to the front-end channel; inner bus does not
+        // see the event until the tick handler runs.
         var result = bus.TryPublish(evt);
         Assert.True(result);
 
-        // Wait directly on the inner reader. WaitToReadAsync is the canonical
-        // channel-aware wait; no Task.Run + TaskCompletionSource shim needed.
-        var hasData = await inner.Reader.WaitToReadAsync(cts.Token);
-        Assert.True(hasData, "Inner reader signalled completion before delivering the event");
-        Assert.True(inner.Reader.TryRead(out var delivered),
-            "WaitToReadAsync returned true but TryRead found no item");
+        // Before the tick fires, the inner bus has no event.
+        Assert.False(inner.Reader.TryRead(out _));
 
+        // Drive the tick handler directly -- ScheduleCoordinator is not wired
+        // in these unit tests; we call the public OnTickAsync as a test seam.
+        await bus.OnTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        // After the tick the event is on the inner bus.
+        Assert.True(inner.Reader.TryRead(out var delivered));
         Assert.Equal(evt.Source, delivered!.Source);
         Assert.Equal(evt.Type, delivered.Type);
     }
@@ -122,8 +125,6 @@ public class BoundedChannelLearningBusTests : IAsyncDisposable
         var inner = new LearningEventBus(capacity: 10_000);
         var bus = CreateBus(hpMode: true, depth: depth, inner: inner);
 
-        // Do NOT start the background consumer — keeps the front-end channel full.
-
         // Fill the queue to capacity
         var first = MakeEvent("first");
         var second = MakeEvent("second");
@@ -138,18 +139,16 @@ public class BoundedChannelLearningBusTests : IAsyncDisposable
         // Assert: TryPublish returns true (channel accepted the write)
         Assert.True(result);
 
-        // Now start the consumer and let it drain into the inner bus. Use a generous
-        // deadline so this is not flaky on slow CI runners; the actual drain is
-        // microseconds when the scheduler is responsive.
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await bus.StartAsync(cts.Token);
+        // Drive the tick to drain the front-end channel into the inner bus.
+        await bus.OnTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
 
         var received = new List<string>();
         for (var i = 0; i < depth; i++)
         {
-            if (!await inner.Reader.WaitToReadAsync(cts.Token)) break;
             if (inner.Reader.TryRead(out var evt))
                 received.Add(evt.Source);
+            else
+                break;
         }
 
         // "first" should have been dropped (oldest); "second" and "third" survive

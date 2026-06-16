@@ -85,6 +85,15 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // SessionFinalized; the lifecycle host (separately registered) handles
         // boot init + graceful-shutdown drain.
         _services.GetService<SessionPersistenceService>();
+        // BoundedChannelLearningBus subscribes to Tick1s; HP-mode drains
+        // the front-end channel to the inner bus per tick. Resolved via
+        // its concrete type because the ILearningEventBus interface
+        // forwards to a different code path (the inner bus).
+        _services.GetService<BoundedChannelLearningBus>();
+        // LearningBackgroundService subscribes to Tick1s; drains the
+        // ILearningEventBus reader per tick and dispatches each event
+        // to the registered ILearningEventHandlers.
+        _services.GetService<LearningBackgroundService>();
         // MeterListenerService is only registered when the dashboard's
         // MonitoringPack.Mode is Local; the GetService probe returns null in
         // every other host so this is the safe place to drive eager resolution.

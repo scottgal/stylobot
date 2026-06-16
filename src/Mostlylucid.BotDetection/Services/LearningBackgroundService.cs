@@ -1,60 +1,102 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Background service that processes learning events.
-///     Listens for triggers and runs inference/learning asynchronously.
+///     Processes learning events. Listens for triggers and runs inference /
+///     learning asynchronously on a per-tick drain pass.
+///     <para>
+///         <b>Wave 2 architectural-drift remediation (Category B).</b> Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
+///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c> on the
+///         learning bus reader. Now subscribes to <see cref="TickCadence.Tick1s"/>
+///         via <see cref="IScheduleCoordinator"/>; each tick drains whatever
+///         landed since the last tick via
+///         <see cref="System.Threading.Channels.ChannelReader{T}.TryRead"/> and
+///         dispatches each event sequentially to the relevant handlers. The
+///         1-second cadence matches the legacy "process as fast as events
+///         arrive" semantics within a one-tick latency budget; learning is
+///         high-throughput off the hot path so <see cref="CostHint.High"/>
+///         signals the per-tick concurrency cap.
+///     </para>
+///     <para>
+///         The <see cref="ILearningEventBus"/> is wired separately (the
+///         project registers <see cref="BoundedChannelLearningBus"/> as the
+///         default implementation); this class only reads from
+///         <see cref="ILearningEventBus.Reader"/>.
+///     </para>
 /// </summary>
-public class LearningBackgroundService : BackgroundService
+public sealed class LearningBackgroundService : IDisposable
 {
     private readonly ILearningEventBus _eventBus;
     private readonly IEnumerable<ILearningEventHandler> _handlers;
     private readonly ILicenseState _licenseState;
     private readonly ILogger<LearningBackgroundService> _logger;
     private readonly BotDetectionOptions _options;
+    private readonly IDisposable? _subscription;
+    private int _disposed;
 
     public LearningBackgroundService(
         ILearningEventBus eventBus,
         ILogger<LearningBackgroundService> logger,
         IOptions<BotDetectionOptions> options,
         IEnumerable<ILearningEventHandler> handlers,
-        ILicenseState licenseState)
+        ILicenseState licenseState,
+        IScheduleCoordinator? scheduleCoordinator = null)
     {
         _eventBus = eventBus;
         _logger = logger;
         _options = options.Value;
         _handlers = handlers;
         _licenseState = licenseState;
+
+        // Optional so existing direct-construction tests that exercise
+        // ProcessEventAsync in isolation keep working.
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick1s,
+                "LearningBackgroundService",
+                CostHint.High,
+                OnTickAsync);
+        }
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    ///     ScheduleCoordinator tick handler. Each tick: drain whatever
+    ///     learning events landed since the last tick via
+    ///     <see cref="System.Threading.Channels.ChannelReader{T}.TryRead"/>
+    ///     and dispatch each through the registered handlers. Learning is
+    ///     off the hot path so a 1-second latency budget per event is
+    ///     acceptable; the ScheduleCoordinator's single-flight guarantee
+    ///     prevents re-entry while a tick is still draining.
+    /// </summary>
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        _logger.LogInformation("Learning background service started");
+        if (_disposed != 0) return;
 
-        try
+        while (_eventBus.Reader.TryRead(out var evt))
         {
-            await foreach (var evt in _eventBus.Reader.ReadAllAsync(stoppingToken))
-                try
-                {
-                    await ProcessEventAsync(evt, stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error processing learning event: {Type}", evt.Type);
-                }
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                await ProcessEventAsync(evt, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing learning event: {Type}", evt.Type);
+            }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            // Normal shutdown
-        }
-
-        _logger.LogInformation("Learning background service stopped");
     }
 
     private async Task ProcessEventAsync(LearningEvent evt, CancellationToken ct)
@@ -73,6 +115,14 @@ public class LearningBackgroundService : BackgroundService
             .ToList();
 
         foreach (var handler in relevantHandlers) await handler.HandleAsync(evt, ct);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _subscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
     }
 }
 

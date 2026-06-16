@@ -677,9 +677,13 @@ public static class ServiceCollectionExtensions
         // BoundedChannelLearningBus wraps it with a smaller front-end channel (~20ns TryWrite)
         // when HighPerformanceMode is enabled; otherwise it passes through with zero overhead.
         services.TryAddSingleton<LearningEventBus>();
+        // Wave 2 migrated: BoundedChannelLearningBus subscribes to
+        // ScheduleCoordinator.Tick1s at construction (HP-mode front-end
+        // channel drains to inner bus via TryRead per tick). Plain singleton
+        // registration; BotDetectionHostedSingletonsBootstrap eagerly resolves
+        // it at boot so the subscription is live before the first event lands.
         services.TryAddSingleton<BoundedChannelLearningBus>();
         services.TryAddSingleton<ILearningEventBus>(sp => sp.GetRequiredService<BoundedChannelLearningBus>());
-        services.AddHostedService(sp => sp.GetRequiredService<BoundedChannelLearningBus>());
 
         // Register learning event handlers
         services.AddSingleton<ILearningEventHandler, InferenceHandler>();
@@ -687,8 +691,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ILearningEventHandler, FeedbackHandler>();
         services.AddSingleton<ILearningEventHandler, DriftDetectionHandler>();
 
-        // Register learning background service (processes learning events asynchronously)
-        services.AddHostedService<LearningBackgroundService>();
+        // Wave 2 migrated: LearningBackgroundService subscribes to
+        // ScheduleCoordinator.Tick1s at construction (per-tick TryRead drain
+        // of ILearningEventBus.Reader). Plain singleton registration;
+        // BotDetectionHostedSingletonsBootstrap eagerly resolves it at boot
+        // so the subscription is live before the first event lands.
+        services.TryAddSingleton<LearningBackgroundService>();
 
         // Register fast-path decider for UA short-circuit with sampling
         services.TryAddSingleton<FastPathDecider>();
