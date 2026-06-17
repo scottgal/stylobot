@@ -161,6 +161,20 @@ public interface IFingerprintStore : IFingerprintReader
 
     Task UpsertArchetypeAsync(IdentityArchetype archetype, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Cold-seed an archetype only if no row with the same archetype_id already
+    ///     exists. Used by <see cref="IdentityWeightCalibrationService"/>'s
+    ///     first-tick cold-seed pass to populate the durable table with the full
+    ///     root taxonomy at startup WITHOUT overwriting refined centroids that
+    ///     accumulated in previous process runs. Default implementation falls back
+    ///     to <see cref="UpsertArchetypeAsync"/> for stores that don't yet
+    ///     distinguish "insert-only" -- those stores keep the destructive cold-seed
+    ///     semantic but at least nothing else breaks. Concrete stores (Sqlite,
+    ///     PostgreSQL) override with <c>INSERT ... ON CONFLICT DO NOTHING</c>.
+    /// </summary>
+    Task InsertArchetypeIfMissingAsync(IdentityArchetype archetype, CancellationToken ct = default)
+        => UpsertArchetypeAsync(archetype, ct);
+
     // ── Vec KNN ──────────────────────────────────────────────────────────────
     Task<IReadOnlyList<(string FingerprintId, double Distance)>> SearchVecCentroidsAsync(
         float[] queryVector, int k, CancellationToken ct = default);

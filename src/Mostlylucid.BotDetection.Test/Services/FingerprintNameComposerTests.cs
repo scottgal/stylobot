@@ -52,6 +52,26 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
+    public void Compose_Priority2_HumanAdblockerArchetype_NamesTheVisitor()
+    {
+        // Adblockers are first-class human-positive identities in this system,
+        // so the composer must treat human-adblocker the same way it treats
+        // human-browser -- the matched archetype name (uBlock Origin, AdGuard,
+        // generic-adblocker) wins the visitor's display name. Without this,
+        // a real Chrome + uBlock Origin visitor would render as plain "Chrome"
+        // and the entire reason for adding the adblocker roots disappears
+        // (the basin exists but never produces a visible name).
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["identity.archetype_name"] = "uBlock Origin",
+            ["identity.archetype_kind"] = "human-adblocker",
+            ["ua.family"] = "Chrome"
+        });
+
+        Assert.StartsWith("uBlock Origin", name);
+    }
+
+    [Fact]
     public void Compose_Priority2_BotArchetypeKind_DoesNotName_WhenUaIsNotBot()
     {
         // Naming invariant: a visitor whose UA is a real browser (Priority 1 -- ua.bot_name --

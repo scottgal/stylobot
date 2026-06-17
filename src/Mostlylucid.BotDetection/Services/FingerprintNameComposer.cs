@@ -162,7 +162,13 @@ internal static class FingerprintNameComposer
         // label for the actual UA. Self-declared bot UAs are already handled at Priority 1.
         var archetypeName = GetString(signals, SignalKeys.IdentityArchetypeName);
         var archetypeKind = GetString(signals, SignalKeys.IdentityArchetypeKind);
-        if (!string.IsNullOrEmpty(archetypeName) && archetypeKind == "human-browser")
+        // human-browser AND human-adblocker are both "real human" kinds for
+        // naming purposes -- the adblocker variant is the system's first-class
+        // human-positive signal, so a fingerprint that lands on a uBlock
+        // Origin / AdGuard / generic-adblocker root must surface that name
+        // as the display name instead of falling through to plain UA family.
+        if (!string.IsNullOrEmpty(archetypeName)
+            && (archetypeKind == "human-browser" || archetypeKind == "human-adblocker"))
         {
             var variance = GetVarianceTerm(signals);
             return string.IsNullOrEmpty(variance) ? archetypeName : $"{archetypeName} ({variance})";

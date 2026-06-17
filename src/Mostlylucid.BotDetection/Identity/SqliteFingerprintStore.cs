@@ -1611,6 +1611,32 @@ public class SqliteFingerprintStore : IFingerprintStore
                     descendant_count = excluded.descendant_count,
                     last_refined_at  = excluded.last_refined_at
             """;
+        BindArchetypeParams(cmd, archetype);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task InsertArchetypeIfMissingAsync(IdentityArchetype archetype, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // INSERT ... ON CONFLICT DO NOTHING preserves the existing row -- the
+        // calibration tick's UpsertArchetypeAsync remains the ONLY path that
+        // can mutate a refined centroid after first seeding.
+        cmd.CommandText = """
+            INSERT INTO identity_archetypes
+                (archetype_id, name, description, centroid, dimension_mask, archetype_kind,
+                 descendant_count, last_refined_at)
+                VALUES (@id, @name, @desc, @centroid, @mask, @kind, @count, @ts)
+                ON CONFLICT(archetype_id) DO NOTHING
+            """;
+        BindArchetypeParams(cmd, archetype);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static void BindArchetypeParams(SqliteCommand cmd, IdentityArchetype archetype)
+    {
         cmd.Parameters.AddWithValue("@id", archetype.ArchetypeId);
         cmd.Parameters.AddWithValue("@name", archetype.Name);
         cmd.Parameters.AddWithValue("@desc", (object?)archetype.Description ?? DBNull.Value);
@@ -1619,7 +1645,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.Parameters.AddWithValue("@kind", archetype.ArchetypeKind);
         cmd.Parameters.AddWithValue("@count", archetype.DescendantCount);
         cmd.Parameters.AddWithValue("@ts", archetype.LastRefinedAt.ToString("O"));
-        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private Fingerprint ReadFingerprint(SqliteDataReader reader) => new()

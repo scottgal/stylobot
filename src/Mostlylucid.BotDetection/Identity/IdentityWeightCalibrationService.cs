@@ -116,16 +116,16 @@ public sealed class IdentityWeightCalibrationService : IDisposable
     /// </summary>
     public async Task<CalibrationResult> RunOnceAsync(CancellationToken ct)
     {
-        // Cold-seed pass: on the very first calibration run, upsert every
-        // registered archetype so the durable identity_archetypes table is
-        // populated with the full root taxonomy before any traffic arrives.
-        // Without this, an archetype only lands in the DB when it accumulates
-        // descendant fingerprints -- so the StyloBot.Internal / Mastodon /
-        // GPTBot roots were missing on staging after the wipe and the system
-        // had nothing to anchor "verified internal" / "fediverse" / "trusted
-        // AI" identities against. Upserts are idempotent (ON CONFLICT DO
-        // UPDATE in the underlying store), so this is safe to repeat on
-        // process restart and cheap on subsequent ticks.
+        // Cold-seed pass: on the very first calibration run, INSERT every
+        // registered archetype IF NOT ALREADY PRESENT so the durable
+        // identity_archetypes table is populated with the full root taxonomy
+        // before any traffic arrives. Critical: uses InsertArchetypeIfMissingAsync
+        // (INSERT ... ON CONFLICT DO NOTHING) so refined centroids that the
+        // calibration tick wrote in a previous process run survive restart.
+        // The destructive UpsertArchetypeAsync path stays reserved for the
+        // refinement loop below, which writes a centroid derived from real
+        // descendants -- not the sparse synthetic centroid the cold-seed
+        // carries from the YAML / BotPatterns / WellKnownBots synthesizer.
         if (Interlocked.CompareExchange(ref _initialColdSeedDone, 1, 0) == 0)
         {
             var seeded = 0;
@@ -133,19 +133,19 @@ public sealed class IdentityWeightCalibrationService : IDisposable
             {
                 try
                 {
-                    await _store.UpsertArchetypeAsync(archetype, ct);
+                    await _store.InsertArchetypeIfMissingAsync(archetype, ct);
                     seeded++;
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "Cold-seed upsert failed for archetype {Id}; registry retains the in-memory copy",
+                        "Cold-seed insert failed for archetype {Id}; registry retains the in-memory copy",
                         archetype.ArchetypeId);
                 }
             }
             _logger.LogInformation(
-                "Cold-seeded {Count} root archetypes into identity_archetypes table",
+                "Cold-seed pass attempted {Count} insert-if-missing operations on identity_archetypes",
                 seeded);
         }
 
