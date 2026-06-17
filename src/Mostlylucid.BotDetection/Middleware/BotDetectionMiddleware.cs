@@ -408,11 +408,23 @@ public class BotDetectionMiddleware(
                     // proxied request, so website-side lookups miss the cache forever
                     // and the "You:" pill stays "Detection pending…" on every
                     // verdict-cache hit.
-                    // Capacity 3 -- the verdict-cache hit path writes at most three
-                    // entries (PrimarySignature + UserAgentBotType + UserAgentBotName).
-                    // Without a hint the default capacity-0 dict resizes twice on the
-                    // first two adds; at 50 RPS that's 100+ resize/rehash ops/s avoided.
-                    var cachedSignals = new Dictionary<string, object>(capacity: 3, StringComparer.Ordinal);
+                    //
+                    // Seed from v.LatestSignals (the snapshot from the most recent
+                    // pipeline-running observation) so the dashboard's
+                    // important_signals chips repopulate on cache hits. Without this,
+                    // every Skip-served signature detail page rendered an empty signals
+                    // panel even when the underlying pipeline pass had populated
+                    // dozens of detector signals (TLS JA4, header order hash,
+                    // archetype anchor, drift slot, etc.) -- the whole point of the
+                    // detail page disappeared for the ~90% of traffic served from
+                    // cache.
+                    //
+                    // Live overrides (PrimarySignature, UserAgentBotType, UserAgentBotName)
+                    // land on top of the snapshot so the live UA matcher's fresh
+                    // classification still wins.
+                    var cachedSignals = v.LatestSignals is { Count: > 0 }
+                        ? new Dictionary<string, object>(v.LatestSignals, StringComparer.Ordinal)
+                        : new Dictionary<string, object>(capacity: 3, StringComparer.Ordinal);
                     if (!string.IsNullOrEmpty(precomputedSig))
                     {
                         cachedSignals[SignalKeys.PrimarySignature] = precomputedSig;
@@ -468,8 +480,29 @@ public class BotDetectionMiddleware(
                         ? v.RiskBand // preserve the cached band -- the verdict is "known bot, accepted"
                         : v.RiskBand;
 
+                    // Build a ledger that carries the cached contributions through to
+                    // AggregatedEvidence.Contributions -- without this, the
+                    // DetectionBroadcastMiddleware path that reads evidence.Contributions
+                    // for upstream-trusted detection events sees an empty list on every
+                    // Skip-served row, and the dashboard's detector_contributions chips
+                    // (the signature detail page's primary panel) render blank. The
+                    // contributions list is the WHOLE POINT of the signature detail
+                    // page; without it the detail page is just metadata. Skipping
+                    // ledger construction when no cached contributions exist is fine --
+                    // it keeps the cold-start / first-Skip behaviour identical.
+                    DetectionLedger? cachedLedger = null;
+                    if (v.LatestContributions is { Count: > 0 })
+                    {
+                        cachedLedger = new DetectionLedger(
+                            requestId: context.TraceIdentifier,
+                            fingerprint: precomputedSig);
+                        foreach (var contribution in v.LatestContributions)
+                            cachedLedger.AddContribution(contribution);
+                    }
+
                     var cachedEvidence = new AggregatedEvidence
                     {
+                        Ledger = cachedLedger,
                         BotProbability = cachedBotProbability,
                         Confidence = v.Confidence,
                         PriorProbability = v.BotProbability,

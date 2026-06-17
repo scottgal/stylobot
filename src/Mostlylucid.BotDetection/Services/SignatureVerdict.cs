@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Orchestration;
+using DetectionContribution = Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionContribution;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -45,4 +46,28 @@ public sealed record SignatureVerdict
     ///     even if their primary signature has changed.
     /// </summary>
     public bool FromIdentityCache { get; init; }
+
+    /// <summary>
+    ///     Contributions from the most recent pipeline-running observation. Carried on
+    ///     the verdict so the verdict-gate Skip path can rebuild the dashboard's
+    ///     detector_contributions chips on a cache hit -- without this, every
+    ///     Skip-served detection rendered with an empty contributions panel on the
+    ///     signature detail page (the WHOLE-point-of-the-system signal disappeared).
+    ///     <para>
+    ///     Null when this verdict was synthesised from the identity cache (no
+    ///     contribution history exists at that layer) or when no pipeline-running
+    ///     request has been observed for this signature yet.
+    ///     </para>
+    /// </summary>
+    public IReadOnlyList<DetectionContribution>? LatestContributions { get; init; }
+
+    /// <summary>
+    ///     Signals snapshot from the most recent pipeline-running observation. The Skip
+    ///     path's <c>cachedSignals</c> dict carried only PrimarySignature + UserAgent
+    ///     bot type/name; rebuilding the dashboard's important_signals chip set without
+    ///     this means every Skip-served row showed a near-empty signals panel even
+    ///     when the underlying pipeline pass had populated dozens of detector signals
+    ///     (TLS JA4, header order, archetype anchor, drift slot, etc.).
+    /// </summary>
+    public IReadOnlyDictionary<string, object>? LatestSignals { get; init; }
 }

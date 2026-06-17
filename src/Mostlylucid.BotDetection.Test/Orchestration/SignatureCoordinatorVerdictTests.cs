@@ -5,6 +5,7 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
 using Xunit;
+using DetectionContribution = Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionContribution;
 
 namespace Mostlylucid.BotDetection.Test.Orchestration;
 
@@ -203,5 +204,146 @@ public class SignatureCoordinatorVerdictTests
 
         Assert.Null(v1);
         Assert.Null(v2);
+    }
+
+    // ============================================================================
+    // P6: SignatureVerdict carries cached Contributions + Signals across cache
+    // hits so the verdict-gate Skip path can rebuild the dashboard's
+    // detector_contributions + important_signals chips without re-running the
+    // pipeline. Before this, every Skip-served row rendered with empty panels.
+    // ============================================================================
+
+    [Fact]
+    public async Task TryGetVerdictAsync_AfterPipelineRecord_CarriesLatestContributions()
+    {
+        await using var coord = CreateCoordinator();
+
+        var contributions = new List<DetectionContribution>
+        {
+            new()
+            {
+                DetectorName = "Heuristic",
+                Category = "Behaviour",
+                ConfidenceDelta = 0.45,
+                Reason = "rapid GET burst",
+                Weight = 1.0,
+                ProcessingTimeMs = 0.4
+            },
+            new()
+            {
+                DetectorName = "UserAgent",
+                Category = "Identity",
+                ConfidenceDelta = 0.30,
+                Reason = "headless UA family",
+                Weight = 1.0,
+                ProcessingTimeMs = 0.2
+            }
+        };
+
+        await coord.RecordRequestAsync(
+            signature: "sig-with-contribs",
+            requestId: "req-1",
+            path: "/api/x",
+            botProbability: 0.7,
+            signals: new Dictionary<string, object>
+            {
+                ["intent.threat_score"] = 0.42,
+                ["ua.family"] = "Chrome"
+            },
+            detectorsRan: new HashSet<string> { "Heuristic", "UserAgent" },
+            contributions: contributions);
+
+        var verdict = await WaitForVerdictAsync(coord, "sig-with-contribs", minRequests: 1);
+
+        Assert.NotNull(verdict);
+        Assert.NotNull(verdict!.LatestContributions);
+        Assert.Equal(2, verdict.LatestContributions!.Count);
+        Assert.NotNull(verdict.LatestSignals);
+        // The signals snapshot carries the full dict from the recorded pass --
+        // the Skip path uses these to repopulate important_signals on the
+        // signature detail page.
+        Assert.Contains("intent.threat_score", verdict.LatestSignals!.Keys);
+        Assert.Contains("ua.family", verdict.LatestSignals.Keys);
+    }
+
+    [Fact]
+    public async Task TryGetVerdictAsync_WithoutContributions_LeavesLatestContributionsNull()
+    {
+        await using var coord = CreateCoordinator();
+
+        // Skip-path / warmup path -- no contributions list passed. The verdict
+        // must still construct, but LatestContributions stays null so the Skip
+        // path's ledger build short-circuits and the existing capacity-3
+        // cachedSignals dict is used as a fallback.
+        await RecordAsync(coord, "sig-no-contribs", 0.5);
+
+        var verdict = await WaitForVerdictAsync(coord, "sig-no-contribs", minRequests: 1);
+
+        Assert.NotNull(verdict);
+        Assert.Null(verdict!.LatestContributions);
+    }
+
+    [Fact]
+    public async Task TryGetVerdictAsync_LatestContributionsTracksMostRecentNonEmpty()
+    {
+        await using var coord = CreateCoordinator();
+
+        var firstContribs = new[]
+        {
+            new DetectionContribution
+            {
+                DetectorName = "FastPathReputation",
+                Category = "Reputation",
+                ConfidenceDelta = 0.95,
+                Reason = "first-pass reputation hit"
+            }
+        };
+
+        await coord.RecordRequestAsync(
+            signature: "sig-rolling",
+            requestId: "req-1",
+            path: "/api/x",
+            botProbability: 0.95,
+            signals: new Dictionary<string, object> { ["k"] = "first" },
+            detectorsRan: new HashSet<string> { "FastPathReputation" },
+            contributions: firstContribs);
+
+        // Second pass with a fresh contribution list -- the atom's _latestContributions
+        // must move to the new list (most-recent-wins semantics), not append.
+        var secondContribs = new[]
+        {
+            new DetectionContribution
+            {
+                DetectorName = "Honeypot",
+                Category = "Behaviour",
+                ConfidenceDelta = 0.80,
+                Reason = "second-pass honeypot hit"
+            },
+            new DetectionContribution
+            {
+                DetectorName = "Heuristic",
+                Category = "Behaviour",
+                ConfidenceDelta = 0.40,
+                Reason = "second-pass heuristic burst"
+            }
+        };
+
+        await coord.RecordRequestAsync(
+            signature: "sig-rolling",
+            requestId: "req-2",
+            path: "/admin",
+            botProbability: 0.90,
+            signals: new Dictionary<string, object> { ["k"] = "second" },
+            detectorsRan: new HashSet<string> { "Honeypot", "Heuristic" },
+            contributions: secondContribs);
+
+        var verdict = await WaitForVerdictAsync(coord, "sig-rolling", minRequests: 2);
+
+        Assert.NotNull(verdict);
+        Assert.NotNull(verdict!.LatestContributions);
+        Assert.Equal(2, verdict.LatestContributions!.Count);
+        Assert.Contains(verdict.LatestContributions, c => c.DetectorName == "Honeypot");
+        Assert.Contains(verdict.LatestContributions, c => c.DetectorName == "Heuristic");
+        Assert.DoesNotContain(verdict.LatestContributions, c => c.DetectorName == "FastPathReputation");
     }
 }

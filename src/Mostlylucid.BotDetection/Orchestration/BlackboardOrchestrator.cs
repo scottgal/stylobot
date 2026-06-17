@@ -815,6 +815,16 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                         // FriendlyIpVerified absorption into _latestThreatScore /
                         // _isConfirmedFriendly. Discovered during the perf re-audit
                         // following the throughput-harness work.
+                        // Snapshot Contributions so the coordinator can surface them via
+                        // SignatureVerdict.LatestContributions on the Skip path -- without
+                        // this, the dashboard's detector_contributions chips disappear on
+                        // every cache hit (rendered blank on every Skip-served signature
+                        // detail page; the "WHOLE POINT OF THE SYSTEM" disappears for
+                        // 90% of traffic).
+                        var contributionsSnapshot = result.Contributions.Count > 0
+                            ? result.Contributions.ToArray()
+                            : null;
+
                         _ = _signatureCoordinator.RecordRequestAsync(
                             signature,
                             requestId,
@@ -826,7 +836,8 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                             countryCode: geoCountryCode,
                             asn: geoAsn,
                             isDatacenter: geoIsDatacenter,
-                            ipHash: ipHash);
+                            ipHash: ipHash,
+                            contributions: contributionsSnapshot);
 
                         // Record path transition in Markov chain (non-blocking)
                         if (_markovTracker != null)

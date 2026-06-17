@@ -7,6 +7,7 @@ using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.KeyedSequential;
 using Mostlylucid.Ephemeral.Atoms.SlidingCache;
 using CacheStats = Mostlylucid.Ephemeral.Atoms.SlidingCache.CacheStats;
+using DetectionContribution = Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionContribution;
 
 namespace Mostlylucid.BotDetection.Orchestration;
 
@@ -94,6 +95,16 @@ public record SignatureRequest
     public bool Escalated { get; set; }
     /// <summary>Bytes sent in response; updated asynchronously after response completes.</summary>
     public long ResponseBytes { get; set; }
+
+    /// <summary>
+    ///     Contributions list from the pipeline pass that produced this request, when
+    ///     available. Null on Skip-path observations (no fresh pipeline pass) and on the
+    ///     warmup-rehydration path (snapshot of behavior only, not per-contribution
+    ///     detail). The atom captures the most recent non-null value into the cached
+    ///     verdict so the Skip path can rebuild detector_contributions on the dashboard
+    ///     without re-running the pipeline.
+    /// </summary>
+    public IReadOnlyList<DetectionContribution>? Contributions { get; init; }
 }
 
 /// <summary>
@@ -131,6 +142,21 @@ public record SignatureBehavior
 
     /// <summary>True if a pipeline-running request marked this signature as a confirmed bad actor.</summary>
     public bool IsConfirmedBad { get; init; }
+
+    /// <summary>
+    ///     Contributions from the most recent pipeline-running observation. Snapshot
+    ///     carried so the verdict gate's Skip path can rebuild the dashboard's
+    ///     detector_contributions chips on a cache hit. Null until at least one
+    ///     pipeline-running pass has populated them.
+    /// </summary>
+    public IReadOnlyList<DetectionContribution>? LatestContributions { get; init; }
+
+    /// <summary>
+    ///     Signals snapshot from the most recent pipeline-running observation. Lets the
+    ///     verdict gate's Skip path rebuild important_signals on a cache hit without
+    ///     re-running the pipeline.
+    /// </summary>
+    public IReadOnlyDictionary<string, object>? LatestSignals { get; init; }
 
     /// <summary>
     ///     True if a pipeline-running request marked this signature as a confirmed friendly
@@ -354,7 +380,8 @@ public class SignatureCoordinator : IAsyncDisposable
         string? asn = null,
         bool isDatacenter = false,
         string? ipHash = null,
-        DateTime? timestampUtc = null)
+        DateTime? timestampUtc = null,
+        IReadOnlyList<DetectionContribution>? contributions = null)
     {
         // Create request record
         var request = new SignatureRequest
@@ -365,7 +392,8 @@ public class SignatureCoordinator : IAsyncDisposable
             BotProbability = botProbability,
             Signals = signals,
             DetectorsRan = detectorsRan,
-            Escalated = false
+            Escalated = false,
+            Contributions = contributions
         };
 
         // Extract enriched geo context from signals dict
@@ -617,7 +645,9 @@ public class SignatureCoordinator : IAsyncDisposable
             RiskBand = riskBand,
             ThreatScore = behavior.LatestThreatScore,
             RequestCount = behavior.RequestCount,
-            LastSeenUtc = behavior.LastSeen
+            LastSeenUtc = behavior.LastSeen,
+            LatestContributions = behavior.LatestContributions,
+            LatestSignals = behavior.LatestSignals
         };
     }
 
@@ -922,6 +952,15 @@ internal class SignatureTrackingAtom : IDisposable
     private bool _isConfirmedBad;
     private bool _isConfirmedFriendly;
 
+    // Latest pipeline-pass snapshot of contributions + signals. The verdict gate's
+    // Skip path reads these off the surfaced SignatureBehavior so dashboard
+    // detector_contributions + important_signals chips survive a cache hit (without
+    // this every Skip-served row renders blank panels). Updated only by pipeline-
+    // running observations -- Skip-path NotifyObservationAsync calls leave them
+    // alone so the snapshot stays representative of the most recent fresh pass.
+    private IReadOnlyList<DetectionContribution>? _latestContributions;
+    private IReadOnlyDictionary<string, object>? _latestSignals;
+
     // Cached behavior (recomputed on each request)
     private SignatureBehavior? _cachedBehavior;
 
@@ -990,6 +1029,15 @@ internal class SignatureTrackingAtom : IDisposable
             // non-empty values rather than clobbering them with zeros.
             if (request.Signals.Count > 0)
             {
+                // Snapshot the latest signals dict so the verdict gate's Skip path can
+                // rebuild important_signals on a cache hit. The dict passed to
+                // RecordRequestAsync is already a defensive copy (the orchestrator
+                // copies before queueing because the source pool resets after the
+                // request returns), so we can hold the reference directly.
+                _latestSignals = request.Signals;
+                if (request.Contributions is { Count: > 0 })
+                    _latestContributions = request.Contributions;
+
                 if (request.Signals.TryGetValue(SignalKeys.IntentThreatScore, out var rawThreat)
                     && TryReadDouble(rawThreat, out var threat))
                 {
@@ -1073,7 +1121,9 @@ internal class SignatureTrackingAtom : IDisposable
                 TotalResponseBytes = _totalResponseBytes,
                 LatestThreatScore = _latestThreatScore,
                 IsConfirmedBad = _isConfirmedBad,
-                IsConfirmedFriendly = _isConfirmedFriendly
+                IsConfirmedFriendly = _isConfirmedFriendly,
+                LatestContributions = _latestContributions,
+                LatestSignals = _latestSignals
             };
 
         // ComputeBehavior runs inside the per-signature lock on every
@@ -1165,7 +1215,9 @@ internal class SignatureTrackingAtom : IDisposable
             TotalResponseBytes = _totalResponseBytes,
             LatestThreatScore = _latestThreatScore,
             IsConfirmedBad = _isConfirmedBad,
-            IsConfirmedFriendly = _isConfirmedFriendly
+            IsConfirmedFriendly = _isConfirmedFriendly,
+            LatestContributions = _latestContributions,
+            LatestSignals = _latestSignals
         };
     }
 
