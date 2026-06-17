@@ -200,7 +200,7 @@ public static class DetectionLedgerExtensions
             ? CopyWithCapacity(premergedSignals)
             : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-        var (threatScore, signalsThreatBand) = ExtractThreatScore(signals);
+        var (rawThreatScore, signalsThreatBand) = ExtractThreatScore(signals);
 
         // HostilePin override: signals-derived threat band can be None when the
         // bad-actor signal is a reputation latch or honeypot tag rather than a
@@ -212,6 +212,16 @@ public static class DetectionLedgerExtensions
         var threatBand = verdict.HostilePinFired
             ? (ThreatBand)Math.Max((int)signalsThreatBand, (int)verdict.ThreatBand)
             : signalsThreatBand;
+
+        // Lift threat score to the band floor when the verdict promoted the band.
+        // Otherwise DetectionBroadcastMiddleware ships (ThreatBand=Critical,
+        // ThreatScore=null) -- it nulls score==0 -- and the dashboard shows a
+        // band with no underlying number, which reads as "the bot detector is
+        // confused" rather than "reputation latch fired". A floor of 0.80 for
+        // Critical gives operators a number consistent with the band.
+        var threatScore = threatBand > signalsThreatBand
+            ? Math.Max(rawThreatScore, Risk.SignatureRiskVerdictComposer.ThreatBandFloor(threatBand))
+            : rawThreatScore;
 
         // Write risk justification back to signals so downstream consumers can read it
         if (!string.IsNullOrEmpty(riskJustification))

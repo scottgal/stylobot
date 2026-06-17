@@ -48,6 +48,26 @@ public sealed class HostilePinOverrideTests
     }
 
     [Fact]
+    public void ConfirmedBad_With_FriendlyUa_ThreatScore_LiftedToBandFloor()
+    {
+        // Without the lift, ThreatBand=Critical pairs with ThreatScore=0.0
+        // (reputation latch has no underlying threat score), and
+        // DetectionBroadcastMiddleware nulls score==0 -- the dashboard then
+        // renders "Critical, --" which reads as "detector is confused" instead
+        // of "reputation latch fired". The lift floors the score at the band's
+        // lower bound so the two numbers agree.
+        var ledger = BuildConfirmedBadLedger(
+            uaClaimedBotType: BotType.GoodBot,
+            uaClaimedBotName: "Amazonbot");
+
+        var evidence = ledger.ToAggregatedEvidence();
+
+        Assert.Equal(ThreatBand.Critical, evidence.ThreatBand);
+        Assert.True(evidence.ThreatScore >= 0.80,
+            $"Expected ThreatScore lifted to >= 0.80 (Critical floor); got {evidence.ThreatScore}");
+    }
+
+    [Fact]
     public void FriendlyUa_WithoutHostilePin_KeepsItsBotType()
     {
         // Sanity: the override must only fire when HostilePin = true.

@@ -268,6 +268,25 @@ public static class SignatureRiskVerdictComposer
     };
 
     /// <summary>
+    ///     Reverse of <see cref="BucketThreat"/>: the lower-bound threat score that
+    ///     produces each band. Used to lift a raw threat score onto a verdict-pinned
+    ///     band (e.g. hostile-pin promoted ThreatBand from None to Critical because
+    ///     the bad-actor signal was a reputation latch / cluster membership, not a
+    ///     raw threat score). Without the lift, the dashboard renders (Critical,
+    ///     null) because <c>DetectionBroadcastMiddleware</c> nulls score==0, and
+    ///     operators see a band that no underlying number corroborates.
+    /// </summary>
+    public static double ThreatBandFloor(ThreatBand band) => band switch
+    {
+        ThreatBand.None     => 0.0,
+        ThreatBand.Low      => 0.15,
+        ThreatBand.Elevated => 0.35,
+        ThreatBand.High     => 0.55,
+        ThreatBand.Critical => 0.80,
+        _                   => 0.0
+    };
+
+    /// <summary>
     ///     Probability + confidence bucketing for the per-request risk band when
     ///     no AI / persistence context is available (e.g. the /api/v1/topbots
     ///     overlay path). Confidence scales the band height so a 0.8 probability

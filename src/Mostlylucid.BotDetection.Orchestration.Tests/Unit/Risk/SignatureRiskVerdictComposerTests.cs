@@ -422,6 +422,20 @@ public sealed class SignatureRiskVerdictComposerTests
     }
 
     [Theory]
+    [InlineData(ThreatBand.None,     0.0)]
+    [InlineData(ThreatBand.Low,      0.15)]
+    [InlineData(ThreatBand.Elevated, 0.35)]
+    [InlineData(ThreatBand.High,     0.55)]
+    [InlineData(ThreatBand.Critical, 0.80)]
+    public void ThreatBandFloor_IsInverseOfBucketThreat(ThreatBand band, double expectedFloor)
+    {
+        var floor = SignatureRiskVerdictComposer.ThreatBandFloor(band);
+        Assert.Equal(expectedFloor, floor);
+        // Round-trip: the floor of a band re-buckets to the same band (boundary inclusive).
+        Assert.Equal(band, SignatureRiskVerdictComposer.BucketThreat(floor));
+    }
+
+    [Theory]
     // At confidence=1.0 scaled == probability, so each prob hits the bucket directly.
     [InlineData(0.0,  1.0, RiskBand.VeryLow)]
     [InlineData(0.19, 1.0, RiskBand.VeryLow)]
