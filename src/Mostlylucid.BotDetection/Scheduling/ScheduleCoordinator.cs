@@ -210,6 +210,42 @@ public sealed class ScheduleCoordinator : IScheduleCoordinator, IHostedService, 
     }
 
     /// <summary>
+    ///     Detached test hook: fires one tick using the SAME fire-and-forget
+    ///     semantics as the production cadence loop in <see cref="RunCadenceLoop"/>.
+    ///     Returns immediately even if a subscriber hangs forever; the
+    ///     <see cref="Subscription.BusyFlag"/> CAS still prevents the same
+    ///     subscriber from overlapping with itself.
+    ///     <para>
+    ///         Use this instead of <see cref="TickOnceAsync"/> when the
+    ///         regression you're covering depends on the cadence loop NOT
+    ///         awaiting <see cref="FireTickAsync"/> -- specifically, that a
+    ///         hung subscriber on tick N does not block subscribers on tick
+    ///         N+1 from being invoked. <see cref="TickOnceAsync"/> awaits
+    ///         the fan-out so a hung handler hangs the awaiter; that's the
+    ///         wrong shape for verifying the detached-cadence property.
+    ///     </para>
+    /// </summary>
+    /// <remarks>
+    ///     <c>internal</c> + <c>InternalsVisibleTo("Mostlylucid.BotDetection.Test")</c>.
+    /// </remarks>
+    internal void TickOnceDetached(TickCadence cadence, CancellationToken ct = default)
+    {
+        var enabled = cadence switch
+        {
+            TickCadence.Tick1s  => _options.EnableTick1s,
+            TickCadence.Tick10s => _options.EnableTick10s,
+            TickCadence.Tick1m  => _options.EnableTick1m,
+            TickCadence.Tick5m  => _options.EnableTick5m,
+            TickCadence.Tick1h  => _options.EnableTick1h,
+            _ => false
+        };
+        if (!enabled) return;
+
+        var now = _timeProvider.GetUtcNow();
+        _ = FireTickSafelyAsync(cadence, now, ct);
+    }
+
+    /// <summary>
     ///     Build the cancellation token a subscriber handler observes. The
     ///     handler sees the linked union of the per-tick token (if any) and the
     ///     coordinator's shutdown token, so <see cref="StopAsync"/> reliably

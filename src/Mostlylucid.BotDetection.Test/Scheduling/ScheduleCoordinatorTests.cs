@@ -303,6 +303,93 @@ public sealed class ScheduleCoordinatorTests
             .Should().Be(new DateTime(2026, 6, 10, 13, 0, 0, DateTimeKind.Utc));
     }
 
+    // ---- Detached cadence: hung subscriber must NOT stall siblings ----------
+
+    [Fact]
+    public async Task TickOnceDetached_returns_synchronously_even_when_a_subscriber_hangs()
+    {
+        // Regression: production RunCadenceLoop fires ticks fire-and-forget so
+        // a hung subscriber on tick N cannot block subscribers on tick N+1.
+        // Pre-fix the loop awaited FireTickAsync -> Task.WhenAll, so a hung
+        // handler also hung the watchdog's own bookkeeping subscriber and the
+        // gateway got SIGTERM'd every ~60s on staging. This test calls the
+        // production-shape entry (TickOnceDetached) and asserts the call
+        // returns even though one subscriber is parked on a TaskCompletionSource.
+        var (coord, _) = Build();
+
+        var parked = new TaskCompletionSource();
+        coord.Subscribe(TickCadence.Tick10s, "hangs-forever", CostHint.Low, async (_, _) =>
+        {
+            await parked.Task; // never released for the duration of the test
+        });
+
+        int siblingHits = 0;
+        coord.Subscribe(TickCadence.Tick10s, "sibling-counter", CostHint.Low, (_, _) =>
+        {
+            Interlocked.Increment(ref siblingHits);
+            return Task.CompletedTask;
+        });
+
+        // Fire 5 ticks via the production-shape detached path. The pre-fix
+        // production code would have awaited FireTickAsync -> Task.WhenAll
+        // and hung on tick 1; the post-fix production code (and this test
+        // hook) discards the returned Task and returns immediately.
+        coord.TickOnceDetached(TickCadence.Tick10s);
+        coord.TickOnceDetached(TickCadence.Tick10s);
+        coord.TickOnceDetached(TickCadence.Tick10s);
+        coord.TickOnceDetached(TickCadence.Tick10s);
+        coord.TickOnceDetached(TickCadence.Tick10s);
+
+        // The sibling counter handler completes synchronously, so by the time
+        // each TickOnceDetached call returns, the sibling for THAT tick has
+        // already executed. Five ticks => five hits. WaitFor handles the
+        // hand-off scheduling delay.
+        await WaitFor(() => Volatile.Read(ref siblingHits) >= 5, timeoutMs: 2000);
+        siblingHits.Should().Be(5,
+            "the production cadence loop must not await FireTickAsync, so a hung " +
+            "subscriber on one tick cannot starve a fast sibling on the next tick");
+
+        // Release the hung handler so the test exits cleanly.
+        parked.SetResult();
+    }
+
+    [Fact]
+    public async Task Hung_subscriber_skips_itself_via_BusyFlag_but_does_not_skip_siblings()
+    {
+        // Pairs with TickOnceDetached_returns_synchronously: prove the
+        // single-flight guard is per-subscriber, not per-cadence. The slow
+        // subscriber's BusyFlag CAS rejects its OWN re-entry on subsequent
+        // ticks while the fast sibling continues to be invoked.
+        var (coord, _) = Build();
+
+        int slowEntries = 0;
+        var parked = new TaskCompletionSource();
+        coord.Subscribe(TickCadence.Tick10s, "slow", CostHint.Low, async (_, _) =>
+        {
+            Interlocked.Increment(ref slowEntries);
+            await parked.Task;
+        });
+
+        int fastHits = 0;
+        coord.Subscribe(TickCadence.Tick10s, "fast", CostHint.Low, (_, _) =>
+        {
+            Interlocked.Increment(ref fastHits);
+            return Task.CompletedTask;
+        });
+
+        for (var i = 0; i < 4; i++) coord.TickOnceDetached(TickCadence.Tick10s);
+
+        await WaitFor(() => Volatile.Read(ref fastHits) >= 4, timeoutMs: 2000);
+
+        // slow ran once and is parked; the BusyFlag rejects the remaining
+        // three invocations. fast ran four times because it returns
+        // synchronously and never trips its own BusyFlag.
+        slowEntries.Should().Be(1, "BusyFlag CAS must reject re-entry while the previous invocation is still running");
+        fastHits.Should().Be(4, "the fast subscriber must not be starved by the slow one");
+
+        parked.SetResult();
+    }
+
     // ---- Helpers ------------------------------------------------------------
 
     private static (ScheduleCoordinator coord, FixedTimeProvider time) Build(
