@@ -6,7 +6,15 @@ namespace Mostlylucid.BotDetection.AspNetPack.Ui;
 ///     Renders the current request's <see cref="System.Security.Claims.ClaimsPrincipal" />.
 ///     Used by the dashboard's Identity sub-row so operators can quickly see
 ///     which principal is hitting the gateway right now. Read-only.
+///     <para>
+///     Explicit <c>[ViewComponent(Name = "FossSbAspNetIdentity")]</c> -- see
+///     the same note on <c>SbAspNetEndpointsViewComponent</c>: the commercial
+///     pack defines a class with the same simple name in
+///     <c>Stylobot.Commercial.AspNetPack.Ui</c>, and MVC's short-name
+///     resolution throws when both load into the same host.
+///     </para>
 /// </summary>
+[ViewComponent(Name = "FossSbAspNetIdentity")]
 public sealed class SbAspNetIdentityViewComponent : ViewComponent
 {
     public IViewComponentResult Invoke()

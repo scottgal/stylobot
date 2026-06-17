@@ -22,7 +22,14 @@ public sealed class AspNetPackReadOnlyDashboardPack : IDashboardPack
 
     public IReadOnlyList<DashboardSubRow> SubRows { get; } =
     [
-        new DashboardSubRow("routes",   "Routes",   "SbAspNetEndpoints"),
-        new DashboardSubRow("identity", "Identity", "SbAspNetIdentity"),
+        // Foss-prefixed view component names so the FOSS pack's sub-rows
+        // resolve to this assembly's view components, not the same-class-name
+        // ones in Stylobot.Commercial.AspNetPack. When both packs ship in the
+        // same MVC host (the website / Enterprise SKU consumer) the bare
+        // names collide; the commercial pack keeps "SbAspNet*" and the FOSS
+        // pack uses the Foss prefix here + the [ViewComponent(Name = ...)]
+        // attribute on the FOSS view component classes.
+        new DashboardSubRow("routes",   "Routes",   "FossSbAspNetEndpoints"),
+        new DashboardSubRow("identity", "Identity", "FossSbAspNetIdentity"),
     ];
 }

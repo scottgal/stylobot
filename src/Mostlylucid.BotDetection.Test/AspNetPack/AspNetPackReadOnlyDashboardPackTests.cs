@@ -28,8 +28,8 @@ public class AspNetPackReadOnlyDashboardPackTests
         IDashboardPack pack = new AspNetPackReadOnlyDashboardPack();
 
         pack.SubRows.Should().HaveCount(2);
-        pack.SubRows[0].Should().Be(new DashboardSubRow("routes",   "Routes",   "SbAspNetEndpoints"));
-        pack.SubRows[1].Should().Be(new DashboardSubRow("identity", "Identity", "SbAspNetIdentity"));
+        pack.SubRows[0].Should().Be(new DashboardSubRow("routes",   "Routes",   "FossSbAspNetEndpoints"));
+        pack.SubRows[1].Should().Be(new DashboardSubRow("identity", "Identity", "FossSbAspNetIdentity"));
     }
 
     [Fact]
