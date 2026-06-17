@@ -50,7 +50,6 @@ public sealed class DashboardLinkResolver : IDashboardLinkResolver
 {
     private readonly string _navBasePath;
 
-    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public DashboardLinkResolver(IOptions<StyloBotDashboardOptions> options)
     {
         var opts = options.Value;
@@ -61,8 +60,13 @@ public sealed class DashboardLinkResolver : IDashboardLinkResolver
     /// <summary>
     ///     Test seam: bypass DI and construct the resolver from a raw
     ///     options value. Production code always uses the IOptions overload.
+    ///     Marked <c>internal</c> so the ASP.NET DI container's "most-parameters"
+    ///     constructor selector does not see two public ctors with resolvable
+    ///     parameters and throw "constructors are ambiguous" at Razor inject
+    ///     time (which is the path that ignores
+    ///     <see cref="Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructorAttribute"/>).
     /// </summary>
-    public DashboardLinkResolver(StyloBotDashboardOptions options)
+    internal DashboardLinkResolver(StyloBotDashboardOptions options)
         : this(Microsoft.Extensions.Options.Options.Create(options))
     {
     }
