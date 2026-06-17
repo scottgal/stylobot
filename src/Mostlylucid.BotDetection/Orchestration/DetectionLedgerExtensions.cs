@@ -181,14 +181,21 @@ public static class DetectionLedgerExtensions
         // routes Internal -> logonly instead of Tool -> throttle-tools.
         // Beats UA-derived BotType because UA is trivially spoofable from
         // inside the network too -- the network position is the trust anchor.
-        // Hostile pins (ConfirmedBad latch, raw-threat-above-gate, hostile
-        // cluster) still win: an internal-network attacker is still hostile.
+        // Beats the hostile-pin too: reputation latches and raw-threat scores
+        // can survive into a fresh test run from an earlier hostile session
+        // (BDF replay burst, attack probe) and would otherwise lock the
+        // operator out of their own LAN. If the LAN itself is compromised,
+        // throttling admin curl is the least of the operator's problems --
+        // network position is the trust signal here, full stop. The
+        // honeypot path tagger + the hostile actor pipeline still record
+        // the bad behaviour to the dashboard; only the action is suppressed
+        // for LAN sources.
         var isLocalIp = preSignals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalRaw)
                         && ipLocalRaw is true;
-        var primaryBotType = verdict.HostilePinFired
-            ? BotType.MaliciousBot
-            : isLocalIp
-                ? BotType.Internal
+        var primaryBotType = isLocalIp
+            ? BotType.Internal
+            : verdict.HostilePinFired
+                ? BotType.MaliciousBot
                 : (isActuallyBot ? ledgerPrimaryBotType : null);
 
         // PrimaryBotName is NEVER gated — every fingerprint always has a name (verdict label
