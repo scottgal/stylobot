@@ -1331,8 +1331,24 @@ public class BotDetectionOptions
     ///     The visitor's signature is computed and stored in HttpContext.Items
     ///     so downstream middleware can look them up in the visitor cache,
     ///     but no detectors run and no detection events are broadcast.
+    ///     <para>
+    ///         Defaults cover the canonical container / k8s healthcheck paths so
+    ///         the gateway's own docker healthcheck (e.g. <c>wget /admin/alive</c>
+    ///         from inside the container) does not pollute dashboard_detections
+    ///         with every-30-second "VeryHigh / wget" false-positive audit rows.
+    ///         Override via <c>BotDetection:SignatureOnlyPaths</c> if your host
+    ///         exposes a different healthcheck path.
+    ///     </para>
     /// </summary>
-    public List<string> SignatureOnlyPaths { get; set; } = [];
+    public List<string> SignatureOnlyPaths { get; set; } =
+    [
+        "/admin/alive",
+        "/health",
+        "/healthz",
+        "/readyz",
+        "/livez",
+        "/_health"
+    ];
 
     /// <summary>
     ///     Path overrides that always allow requests through, even if detected as bots.

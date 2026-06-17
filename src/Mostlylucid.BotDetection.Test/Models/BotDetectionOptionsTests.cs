@@ -20,6 +20,26 @@ public class BotDetectionOptionsTests
     }
 
     [Fact]
+    public void Constructor_SeedsDefaultHealthcheckPaths_OnSignatureOnlyPaths()
+    {
+        // The gateway's own docker healthcheck (wget /admin/alive every 30s)
+        // and the standard k8s/k3s probe paths must be excluded from the
+        // detection pipeline by default, otherwise dashboard_detections
+        // accumulates a "VeryHigh / wget" row every 30 seconds on every
+        // deployment. SignatureOnlyPaths still runs signature generation
+        // (so visitor cache lookups work) but skips detector evaluation
+        // and broadcast emission.
+        var options = new BotDetectionOptions();
+
+        Assert.Contains("/admin/alive", options.SignatureOnlyPaths);
+        Assert.Contains("/health",      options.SignatureOnlyPaths);
+        Assert.Contains("/healthz",     options.SignatureOnlyPaths);
+        Assert.Contains("/readyz",      options.SignatureOnlyPaths);
+        Assert.Contains("/livez",       options.SignatureOnlyPaths);
+        Assert.Contains("/_health",     options.SignatureOnlyPaths);
+    }
+
+    [Fact]
     public void Constructor_SetsDefaultTestModeDisabled()
     {
         // Act
