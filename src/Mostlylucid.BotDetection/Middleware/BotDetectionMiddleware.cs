@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Definitions.WellKnownBots;
 using Mostlylucid.BotDetection.Filters;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Audit;
@@ -451,6 +452,17 @@ public class BotDetectionMiddleware(
                         if (!string.IsNullOrEmpty(uaBotName))
                             cachedSignals[SignalKeys.UserAgentBotName] = uaBotName;
                     }
+                    // Local-network override on the Skip path too: mirrors the Miss-path
+                    // BotType.Internal classification in DetectionLedgerExtensions. Without
+                    // this, the first request (Miss) classifies a LAN client as Internal,
+                    // and every subsequent Skip-served request would re-label the same
+                    // signature back to the UA-derived BotType (Tool / Scraper / etc.) --
+                    // the dashboard would flip from "Internal -> Allow" to "Tool ->
+                    // throttle-tools" between cache miss and hit for the same visitor.
+                    // Network position is the trust anchor; UA is the description.
+                    var skipIsLocalIp = NetworkHelper.IsLocalIp(context.Connection.RemoteIpAddress);
+                    if (skipIsLocalIp)
+                        cachedPrimaryBotType = BotType.Internal;
 
                     // ThreatBand is not stored on SignatureVerdict, so it can't be
                     // restored verbatim. Hardcoding ThreatBand.Low (the original
