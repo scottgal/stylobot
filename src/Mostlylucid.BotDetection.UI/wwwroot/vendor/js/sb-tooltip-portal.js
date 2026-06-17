@@ -132,7 +132,33 @@
         el.addEventListener('focusout', hide);
     }
 
+    // Lift native `title="..."` attributes into daisyUI tooltip semantics so
+    // operators only ever see the styled tooltip, never the native browser
+    // bubble alongside it. Restricted to text-content elements (span/div/td/
+    // a/h*/code/etc.) so form-validation, iframe, and image accessibility
+    // titles stay intact. Idempotent: tagged elements are skipped on rescan.
+    var TITLE_UPGRADE_SELECTORS = 'span[title], div[title], td[title], th[title], a[title], button[title], code[title], h1[title], h2[title], h3[title], h4[title], h5[title], h6[title], p[title], li[title], strong[title], em[title], summary[title], dt[title], dd[title]';
+    function upgradeNativeTitles(root) {
+        var nodes = (root || document).querySelectorAll(TITLE_UPGRADE_SELECTORS);
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            var titleVal = el.getAttribute('title');
+            if (!titleVal) continue;
+            if (!el.hasAttribute('data-tip')) {
+                el.setAttribute('data-tip', titleVal);
+            }
+            el.removeAttribute('title');
+            if (!el.classList.contains('tooltip')) {
+                el.classList.add('tooltip');
+                if (!el.className.match(/\btooltip-(top|bottom|left|right)\b/)) {
+                    el.classList.add('tooltip-bottom');
+                }
+            }
+        }
+    }
+
     function scan(root) {
+        upgradeNativeTitles(root);
         var nodes = (root || document).querySelectorAll('.tooltip[data-tip]');
         for (var i = 0; i < nodes.length; i++) bind(nodes[i]);
     }
@@ -147,6 +173,10 @@
                 for (var j = 0; j < m.addedNodes.length; j++) {
                     var n = m.addedNodes[j];
                     if (n.nodeType !== 1) continue;
+                    // Upgrade any [title] in the added subtree to daisy before
+                    // binding, so HTMX/SignalR swaps don't reintroduce native
+                    // browser tooltips alongside daisy.
+                    upgradeNativeTitles(n);
                     if (n.matches && n.matches('.tooltip[data-tip]')) bind(n);
                     if (n.querySelectorAll) {
                         var inner = n.querySelectorAll('.tooltip[data-tip]');
