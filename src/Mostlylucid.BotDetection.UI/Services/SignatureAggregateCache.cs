@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Mostlylucid.BotDetection.Grouping;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -22,13 +23,25 @@ public sealed class SignatureAggregateCache
     private readonly ConcurrentDictionary<string, SignatureAggregate> _entries = new();
     private readonly object _sortLock = new();
     private readonly StyloBotDashboardOptions _options;
+    private readonly IBehaviouralGrouper? _grouper;
     private IReadOnlyList<DashboardTopBotEntry>? _sortedCache;
     private volatile bool _sortDirty = true;
     private long _updateCounter;
 
     public SignatureAggregateCache(StyloBotDashboardOptions options)
+        : this(options, null) { }
+
+    /// <summary>
+    ///     DI-friendly ctor: <see cref="IBehaviouralGrouper" /> drives the
+    ///     row-collapse logic in <see cref="GetFiltered" /> (verified bots that
+    ///     share an identity name fold into one card). Optional so tests can
+    ///     construct without a grouper; production wires the real implementation
+    ///     via <see cref="ServiceCollectionExtensions" />.
+    /// </summary>
+    public SignatureAggregateCache(StyloBotDashboardOptions options, IBehaviouralGrouper? grouper)
     {
         _options = options;
+        _grouper = grouper;
     }
 
     /// <summary>Maximum entries before LFU eviction kicks in.</summary>
@@ -369,6 +382,264 @@ public sealed class SignatureAggregateCache
         return agg;
     }
 
+    // ─── Visitor-list surface (collapsed from VisitorListCache) ───────────
+    // The visitor card / SbVisitorList view used to live behind a second cache
+    // that held its own BotName + BotType + RiskBand per signature. Two stores,
+    // two write paths, regular divergence ("two names at the same instant").
+    // The methods below let the same callers project off this one LFU cache.
+
+    /// <summary>
+    ///     Single visitor projection by signature -- equivalent of the old
+    ///     <c>VisitorListCache.Get</c>. Returns null when the signature is not
+    ///     in the hot tier. Callers wanting cold-tier fallback should use
+    ///     <see cref="TryGet" /> + cold-tier seed.
+    /// </summary>
+    public CachedVisitor? GetVisitor(string primarySignature)
+    {
+        return _entries.TryGetValue(primarySignature, out var agg)
+            ? Project(primarySignature, agg)
+            : null;
+    }
+
+    /// <summary>
+    ///     Filter / sort / page the visitor projections. Single source of truth
+    ///     for the visitor card list and any other surface that historically
+    ///     went through <c>VisitorListCache.GetFiltered</c>. Filtering happens
+    ///     against the canonical aggregate state; collapse-by-group folds
+    ///     verified-bot identity rows into one card via the behavioural grouper.
+    /// </summary>
+    public (IReadOnlyList<CachedVisitor> Items, int TotalCount, int Page, int PageSize) GetFiltered(
+        string? filter, string sortField, string sortDir, int page, int pageSize)
+    {
+        var snapshot = SnapshotAllAsVisitors();
+
+        IEnumerable<CachedVisitor> items = snapshot;
+
+        items = filter switch
+        {
+            "humans" => items.Where(v => !v.IsBot),
+            "bots"   => items.Where(v => v.IsBot),
+            "ai"     => items.Where(v => v.IsBot && IsAiBot(v)),
+            "search" => items.Where(v => v.IsBot && IsSearchBot(v)),
+            "tools"  => items.Where(v => v.IsBot && IsToolBot(v)),
+            _        => items
+        };
+
+        items = CollapseGroupable(items);
+
+        items = (sortField, sortDir) switch
+        {
+            ("name", "asc") => items.OrderBy(v => v.BotName ?? v.PrimarySignature),
+            ("name", _)     => items.OrderByDescending(v => v.BotName ?? v.PrimarySignature),
+            ("hits", "asc") => items.OrderBy(v => v.Hits),
+            ("hits", _)     => items.OrderByDescending(v => v.Hits),
+            ("risk", "asc") => items.OrderBy(v => RiskOrder(v.RiskBand)),
+            ("risk", _)     => items.OrderByDescending(v => RiskOrder(v.RiskBand)),
+            (_, "asc")      => items.OrderBy(v => v.LastSeen),
+            _               => items.OrderByDescending(v => v.LastSeen)
+        };
+
+        var materialized = items.ToList();
+        var totalCount = materialized.Count;
+        var paged = materialized.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return (paged, totalCount, page, pageSize);
+    }
+
+    /// <summary>Convenience overload preserving the old VisitorListCache shape.</summary>
+    public IReadOnlyList<CachedVisitor> GetFilteredVisitors(
+        string? filter, string sortField, string sortDir, int limit = 50)
+        => GetFiltered(filter, sortField, sortDir, page: 1, pageSize: limit).Items;
+
+    /// <summary>
+    ///     Filter badge counts. Single pass over the hot tier instead of
+    ///     three separate filter calls.
+    /// </summary>
+    public FilterCounts GetVisitorCounts()
+    {
+        var all = SnapshotAllAsVisitors();
+        return new FilterCounts
+        {
+            All    = all.Count,
+            Humans = all.Count(v => !v.IsBot),
+            Bots   = all.Count(v =>  v.IsBot),
+            Ai     = all.Count(v =>  v.IsBot && IsAiBot(v)),
+            Search = all.Count(v =>  v.IsBot && IsSearchBot(v)),
+            Tools  = all.Count(v =>  v.IsBot && IsToolBot(v))
+        };
+    }
+
+    /// <summary>
+    ///     Top-N bot visitors by hit count -- equivalent of the old
+    ///     <c>VisitorListCache.GetTopBots(count)</c>. Note this is a DIFFERENT
+    ///     surface from <see cref="GetTopBots" /> which returns
+    ///     <see cref="DashboardTopBotEntry" /> for the SbTopBots widget.
+    /// </summary>
+    public IReadOnlyList<CachedVisitor> GetTopBotVisitors(int count = 5)
+    {
+        return SnapshotAllAsVisitors()
+            .Where(v => v.IsBot)
+            .OrderByDescending(v => v.Hits)
+            .Take(count)
+            .ToList();
+    }
+
+    // ─── Visitor projection internals ─────────────────────────────────────
+
+    private List<CachedVisitor> SnapshotAllAsVisitors()
+    {
+        var result = new List<CachedVisitor>(_entries.Count);
+        foreach (var kvp in _entries)
+            result.Add(Project(kvp.Key, kvp.Value));
+        return result;
+    }
+
+    /// <summary>
+    ///     Project a stable, lock-bounded snapshot of an aggregate as a
+    ///     <see cref="CachedVisitor" /> for the visitor card / list surfaces.
+    ///     Held under SyncRoot so mutable collections (Paths, ring buffers)
+    ///     don't tear during the copy.
+    /// </summary>
+    private static CachedVisitor Project(string signature, SignatureAggregate agg)
+    {
+        lock (agg.SyncRoot)
+        {
+            return new CachedVisitor
+            {
+                PrimarySignature = signature,
+                Hits = agg.HitCount,
+                FirstSeen = agg.FirstSeen,
+                LastSeen = agg.LastSeen,
+                IsBot = agg.IsBot,
+                BotProbability = agg.BotProbability,
+                Confidence = agg.Confidence,
+                RiskBand = agg.RiskBand ?? "Medium",
+                LastPath = agg.LastPath,
+                Paths = agg.Paths.ToList(),
+                Action = agg.Action ?? "Allow",
+                BotName = agg.BotName,
+                BotType = agg.BotType,
+                CountryCode = agg.CountryCode,
+                UserAgent = agg.UserAgent,
+                Narrative = agg.Narrative,
+                Description = agg.Description,
+                TopReasons = agg.TopReasons?.ToList() ?? new List<string>(),
+                ProcessingTimeMs = agg.ProcessingTimeMs,
+                MaxProcessingTimeMs = agg.MaxProcessingTimeMs,
+                MinProcessingTimeMs = agg.MinProcessingTimeMs,
+                ProcessingTimeHistory = new Queue<double>(agg.ProcessingTimeHistory),
+                BotProbabilityHistory = new Queue<double>(agg.ScoreHistory),
+                ConfidenceHistory = new Queue<double>(agg.ConfidenceHistory),
+                LastRequestId = agg.LastRequestId,
+                ThreatScore = agg.ThreatScore,
+                ThreatBand = agg.ThreatBand,
+                Protocol = agg.Protocol,
+                IpSubnetSignature = agg.IpSubnetSignature,
+                UaFamily = agg.UaFamily,
+                FingerprintId = agg.FingerprintId,
+                ClusterId = agg.ClusterId,
+                RadarShape = agg.RadarShape,
+                GroupKey = agg.GroupKey,
+                GroupMemberCount = agg.GroupMemberCount,
+            };
+        }
+    }
+
+    // ─── Collapse-by-group (verified-bot identity folding) ────────────────
+
+    private string ResolveGroupCanonical(CachedVisitor v)
+    {
+        if (_grouper is not null)
+            return _grouper.Resolve(BuildGrouperInput(v)).Canonical;
+
+        return Middleware.WidgetRenderHelpers.IsGroupableIdentity(
+                   customBotName: null, v.BotName, v.BotType)
+            ? "name:" + v.BotName
+            : "sig:" + v.PrimarySignature;
+    }
+
+    private IEnumerable<CachedVisitor> CollapseGroupable(IEnumerable<CachedVisitor> source)
+    {
+        var list = source.ToList();
+        foreach (var grp in list.GroupBy(v => ResolveGroupCanonical(v), StringComparer.Ordinal))
+        {
+            var members = grp.ToList();
+            if (members.Count == 1) { yield return members[0]; continue; }
+
+            var canonical = members.OrderByDescending(v => v.LastSeen).First();
+            var resolvedKey = _grouper?.Resolve(BuildGrouperInput(canonical));
+            yield return new CachedVisitor
+            {
+                PrimarySignature = canonical.PrimarySignature,
+                Hits = members.Sum(v => v.Hits),
+                FirstSeen = members.Min(v => v.FirstSeen == default ? DateTime.MaxValue : v.FirstSeen),
+                LastSeen = members.Max(v => v.LastSeen),
+                IsBot = canonical.IsBot,
+                BotProbability = members.Max(v => v.BotProbability),
+                Confidence = canonical.Confidence,
+                RiskBand = canonical.RiskBand,
+                LastPath = canonical.LastPath,
+                Paths = canonical.Paths,
+                Action = canonical.Action,
+                BotName = canonical.BotName,
+                BotType = canonical.BotType,
+                CountryCode = canonical.CountryCode,
+                UserAgent = canonical.UserAgent,
+                Narrative = canonical.Narrative,
+                Description = canonical.Description,
+                TopReasons = canonical.TopReasons,
+                ProcessingTimeMs = canonical.ProcessingTimeMs,
+                MaxProcessingTimeMs = members.Max(v => v.MaxProcessingTimeMs),
+                MinProcessingTimeMs = members.Min(v => v.MinProcessingTimeMs > 0 ? v.MinProcessingTimeMs : double.MaxValue),
+                ProcessingTimeHistory = canonical.ProcessingTimeHistory,
+                BotProbabilityHistory = canonical.BotProbabilityHistory,
+                ConfidenceHistory = canonical.ConfidenceHistory,
+                LastRequestId = canonical.LastRequestId,
+                ThreatScore = members.Max(v => v.ThreatScore),
+                ThreatBand = canonical.ThreatBand,
+                Protocol = canonical.Protocol,
+                IpSubnetSignature = canonical.IpSubnetSignature,
+                UaFamily = canonical.UaFamily,
+                FingerprintId = canonical.FingerprintId,
+                ClusterId = canonical.ClusterId,
+                GroupKey = resolvedKey,
+                GroupMemberCount = members.Count
+            };
+        }
+    }
+
+    private static GroupingInput BuildGrouperInput(CachedVisitor v) => new()
+    {
+        Signature = v.PrimarySignature,
+        BotProbability = v.BotProbability,
+        RiskBand = v.RiskBand,
+        IsBot = v.IsBot,
+        BotName = v.BotName,
+        BotType = v.BotType,
+        IpSubnetSignature = v.IpSubnetSignature,
+        UaFamily = v.UaFamily,
+        CountryCode = v.CountryCode,
+        FingerprintId = v.FingerprintId,
+        ClusterId = v.ClusterId
+    };
+
+    // ─── Filter predicates + ordering (formerly VisitorListCache statics) ─
+
+    private static bool IsAiBot(CachedVisitor v) => v.BotType is "AiBot";
+    private static bool IsSearchBot(CachedVisitor v) =>
+        v.BotType is "SearchEngine" or "VerifiedBot" or "GoodBot";
+    private static bool IsToolBot(CachedVisitor v) =>
+        v.BotType is "Scraper" or "MonitoringBot" or "SocialMediaBot" or "Tool";
+
+    private static int RiskOrder(string? band) => band switch
+    {
+        "VeryHigh" => 5,
+        "High" => 4,
+        "Medium" or "Elevated" => 3,
+        "Low" => 2,
+        "VeryLow" => 1,
+        _ => 0
+    };
+
     private static string? MajorityBand<T>(
         IReadOnlyList<T> rows, Func<T, string?> selector, Func<string, int> severity)
     {
@@ -402,6 +673,7 @@ public sealed class SignatureAggregateCache
 
     private SignatureAggregate CreateNew(DashboardDetectionEvent detection)
     {
+        var path = detection.Path;
         var agg = new SignatureAggregate
         {
             HitCount = 1,
@@ -413,6 +685,8 @@ public sealed class SignatureAggregateCache
             Action = detection.Action,
             CountryCode = detection.CountryCode,
             ProcessingTimeMs = detection.ProcessingTimeMs,
+            MinProcessingTimeMs = detection.ProcessingTimeMs,
+            MaxProcessingTimeMs = detection.ProcessingTimeMs,
             TopReasons = detection.TopReasons,
             FirstSeen = detection.Timestamp,
             LastSeen = detection.Timestamp,
@@ -425,13 +699,54 @@ public sealed class SignatureAggregateCache
             UaFamily = ExtractUaFamilySignal(detection),
             UserAgent = detection.UserAgentRaw ?? detection.UserAgent,
             EntityId = detection.EntityId,
+            // CachedVisitor-equivalents moved onto the aggregate so the visitor
+            // card and the signature detail page read off the same record.
+            LastPath = path,
+            Paths = string.IsNullOrEmpty(path) ? new List<string>() : new List<string> { path },
+            LastRequestId = detection.RequestId,
+            Protocol = ExtractProtocolSignal(detection),
+            IpSubnetSignature = ExtractSignal(detection, "ip.subnet"),
+            FingerprintId = ExtractSignal(detection, "identity.fingerprint_id"),
+            ClusterId = ExtractSignal(detection, "cluster.id"),
+            RadarShape = detection.RadarShape,
         };
 
         // No lock needed - object is not yet visible to other threads
         agg.ScoreHistory.AddLast(detection.BotProbability);
+        agg.ProcessingTimeHistory.Enqueue(detection.ProcessingTimeMs);
+        agg.ConfidenceHistory.Enqueue(detection.Confidence);
         agg.RecordHit(detection.Timestamp.ToUniversalTime());
 
         return agg;
+    }
+
+    /// <summary>
+    ///     Read the protocol off the detection's important_signals -- HTTP/1.1
+    ///     when nothing more specific is set; HTTP/2 when an h2.* signal is
+    ///     present; HTTP/3 when an h3.* signal is present. Mirrors the helper
+    ///     that used to live on VisitorListCache.
+    /// </summary>
+    private static string? ExtractProtocolSignal(DashboardDetectionEvent detection)
+    {
+        if (detection.ImportantSignals is null) return null;
+        if (detection.ImportantSignals.TryGetValue("request.protocol", out var proto))
+            return proto?.ToString();
+        if (detection.ImportantSignals.ContainsKey("h3.protocol")) return "HTTP/3";
+        if (detection.ImportantSignals.ContainsKey("h2.protocol")) return "HTTP/2";
+        return null;
+    }
+
+    /// <summary>
+    ///     Read a single signal value off the detection event by key. Used to
+    ///     populate the behavioural-grouper inputs (ip.subnet, identity.fingerprint_id,
+    ///     cluster.id) onto the aggregate without expanding the model surface area.
+    /// </summary>
+    private static string? ExtractSignal(DashboardDetectionEvent detection, string key)
+    {
+        if (detection.ImportantSignals is null) return null;
+        if (detection.ImportantSignals.TryGetValue(key, out var v) && v is not null)
+            return v.ToString();
+        return null;
     }
 
     /// <summary>
@@ -543,6 +858,33 @@ public sealed class SignatureAggregateCache
             existing.ScoreHistory.AddLast(detection.BotProbability);
             while (existing.ScoreHistory.Count > ScoreHistorySize)
                 existing.ScoreHistory.RemoveFirst();
+
+            // CachedVisitor-equivalents -- maintained under the same SyncRoot
+            // lock so visitor-card / signature-detail reads see consistent state.
+            existing.LastPath = detection.Path;
+            if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
+            {
+                existing.Paths.Add(detection.Path);
+                if (existing.Paths.Count > 20) existing.Paths.RemoveAt(0);
+            }
+            existing.LastRequestId = detection.RequestId;
+            var proto = ExtractProtocolSignal(detection);
+            if (!string.IsNullOrEmpty(proto)) existing.Protocol = proto;
+            var subnet = ExtractSignal(detection, "ip.subnet");
+            if (!string.IsNullOrEmpty(subnet)) existing.IpSubnetSignature = subnet;
+            var fpid = ExtractSignal(detection, "identity.fingerprint_id");
+            if (!string.IsNullOrEmpty(fpid)) existing.FingerprintId = fpid;
+            var clusterId = ExtractSignal(detection, "cluster.id");
+            if (!string.IsNullOrEmpty(clusterId)) existing.ClusterId = clusterId;
+            if (detection.RadarShape is { Length: 16 }) existing.RadarShape = detection.RadarShape;
+            if (detection.ProcessingTimeMs > existing.MaxProcessingTimeMs)
+                existing.MaxProcessingTimeMs = detection.ProcessingTimeMs;
+            if (existing.MinProcessingTimeMs == 0 || detection.ProcessingTimeMs < existing.MinProcessingTimeMs)
+                existing.MinProcessingTimeMs = detection.ProcessingTimeMs;
+            existing.ProcessingTimeHistory.Enqueue(detection.ProcessingTimeMs);
+            while (existing.ProcessingTimeHistory.Count > 20) existing.ProcessingTimeHistory.Dequeue();
+            existing.ConfidenceHistory.Enqueue(detection.Confidence);
+            while (existing.ConfidenceHistory.Count > 20) existing.ConfidenceHistory.Dequeue();
 
             existing.RecordHit(detection.Timestamp.ToUniversalTime());
         }
@@ -719,6 +1061,63 @@ public sealed class SignatureAggregate
     ///     through to the signature URL.
     /// </summary>
     public string? EntityId;
+
+    // ─── Fields moved off CachedVisitor in the cache-collapse refactor ────
+    // These were duplicated state on VisitorListCache; the visitor card and
+    // the signature detail page now both read them off this aggregate so the
+    // "two names / two paths at the same instant" regression cannot happen.
+
+    /// <summary>Most recent request path (the row's "Last path" column).</summary>
+    public string? LastPath;
+
+    /// <summary>
+    ///     Distinct recent paths (capped). Append on every detection if the
+    ///     path isn't already present; rotate FIFO when the cap is hit.
+    /// </summary>
+    public List<string> Paths = new();
+
+    /// <summary>Request id of the most recent detection that wrote to this aggregate.</summary>
+    public string? LastRequestId;
+
+    /// <summary>HTTP protocol of the most recent detection (HTTP/1.1 / HTTP/2 / HTTP/3).</summary>
+    public string? Protocol;
+
+    /// <summary>HMAC of the visitor's /24 IP subnet -- feeds the behavioural grouper.</summary>
+    public string? IpSubnetSignature;
+
+    /// <summary>Metastable fingerprint id from FingerprintMatchContributor.</summary>
+    public string? FingerprintId;
+
+    /// <summary>Leiden community cluster id -- feeds the grouper's cluster tier.</summary>
+    public string? ClusterId;
+
+    /// <summary>16-dim radar shape vector from the most recent detection.</summary>
+    public float[]? RadarShape;
+
+    /// <summary>Maximum processing time observed across all detections for this signature.</summary>
+    public double MaxProcessingTimeMs;
+
+    /// <summary>Minimum non-zero processing time observed across all detections for this signature.</summary>
+    public double MinProcessingTimeMs;
+
+    /// <summary>
+    ///     Ring buffer of recent processing times (last 20 detections) -- powers
+    ///     the per-row sparkline column on the visitor card.
+    /// </summary>
+    public Queue<double> ProcessingTimeHistory = new();
+
+    /// <summary>Ring buffer of recent confidence values (last 20 detections).</summary>
+    public Queue<double> ConfidenceHistory = new();
+
+    /// <summary>
+    ///     Behavioural grouper's resolved key when this row represents a collapsed
+    ///     group (members &gt; 1). Null when standalone or grouper not configured.
+    ///     Projected onto group rows by <c>CollapseGroupable</c>.
+    /// </summary>
+    public Mostlylucid.BotDetection.Grouping.GroupKey? GroupKey;
+
+    /// <summary>Number of member signatures this row represents. 1 when standalone.</summary>
+    public int GroupMemberCount = 1;
 
     /// <summary>LFU access counter - incremented on read, periodically aged.</summary>
     public long AccessCount;
