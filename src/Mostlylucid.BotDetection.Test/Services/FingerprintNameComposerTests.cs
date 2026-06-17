@@ -609,4 +609,60 @@ public class FingerprintNameComposerTests
         Assert.Equal("Mastodon mas.to", name);
     }
 
+    // ============================================================================
+    // GetVarianceTerm slot coverage (P9)
+    //
+    // The variance term is what surfaces inside the "(...)" decoration on the
+    // composed name (e.g. "Chrome Desktop (from JP)"). Slots from the identity
+    // vector layout that the original switch never named would fall through to
+    // the generic "drifted" / category-bucket terms, hiding real signal from
+    // operators. Each row below pins one slot to its specific label.
+    // ============================================================================
+
+    [Theory]
+    [InlineData("transport.tls_ja4",          "TLS shift")]
+    [InlineData("transport.h2_settings_hash", "H2 settings shift")]
+    [InlineData("transport.alpn",             "ALPN shift")]
+    [InlineData("transport.tcp_p0f",          "TCP shift")]
+    [InlineData("session.cookie_count",          "cookie state shift")]
+    [InlineData("session.has_returning_cookie",  "cookie state shift")]
+    [InlineData("session.entry_page_family",     "entry page shift")]
+    [InlineData("session.referer_host_family",   "referer shift")]
+    [InlineData("session.request_rate",          "rate shift")]
+    [InlineData("session.session_age",           "session age shift")]
+    [InlineData("session.method_pattern",        "method shift")]
+    [InlineData("session.path_entropy",          "path entropy shift")]
+    [InlineData("hdr.ua_family",                 "UA family shift")]
+    [InlineData("quality.dimension_presence_ratio", "sparse signal")]
+    [InlineData("quality.transport_quality",        "low transport quality")]
+    [InlineData("quality.cleartext_flag",           "cleartext")]
+    [InlineData("quality.layout_version",           "layout version shift")]
+    public void GetVarianceTerm_RecognizesPreviouslyUnnamedSlots(string slot, string expected)
+    {
+        var term = FingerprintNameComposer.GetVarianceTerm(new Dictionary<string, object>
+        {
+            [SignalKeys.IdentityDriftTopSlot] = slot
+        });
+
+        Assert.Equal(expected, term);
+    }
+
+    [Theory]
+    [InlineData("transport", "transport drift")]
+    [InlineData("session",   "session drift")]
+    [InlineData("quality",   "quality drift")]
+    public void GetVarianceTerm_FallsBackToCategoryLabel_ForUnknownSlot(string category, string expected)
+    {
+        var term = FingerprintNameComposer.GetVarianceTerm(new Dictionary<string, object>
+        {
+            // A slot the named-slot switch does not cover, but whose category
+            // bucket should still surface a meaningful label rather than the
+            // generic "drifted" fallback.
+            [SignalKeys.IdentityDriftTopSlot] = $"{category}.unknown_future_slot",
+            [SignalKeys.IdentityDriftTopCategory] = category
+        });
+
+        Assert.Equal(expected, term);
+    }
+
 }

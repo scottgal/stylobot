@@ -274,7 +274,35 @@ internal static class FingerprintNameComposer
             "hdr.accept" or "hdr.accept_encoding_ordered" => "stripped headers",
             "hdr.header_order_hash" or "hdr.header_case_pattern" => "reordered headers",
             "hdr.upgrade_insecure_requests" or "hdr.dnt" or "hdr.sec_gpc" => "privacy headers",
+            "hdr.ua_family" => "UA family shift",
             var s when s.StartsWith("hdr.sec_ch_ua_", StringComparison.OrdinalIgnoreCase) => "missing client hints",
+            // Transport-layer drift: TLS / HTTP/2 / ALPN / TCP fingerprint slots
+            // mean the on-the-wire shape changed, not the application headers.
+            // Each slot deserves a specific label so operators can tell a JA4
+            // change ("different TLS client lib") from an ALPN change ("h2->h1
+            // downgrade") at a glance.
+            "transport.tls_ja4" => "TLS shift",
+            "transport.h2_settings_hash" => "H2 settings shift",
+            "transport.alpn" => "ALPN shift",
+            "transport.tcp_p0f" => "TCP shift",
+            // Session-shape drift: cookie state, rate, age, navigation pattern.
+            // Returning vs new-cookie is the most operator-relevant binary here;
+            // the rest collapse to descriptive labels mapped to their slot.
+            "session.cookie_count" or "session.has_returning_cookie" => "cookie state shift",
+            "session.entry_page_family" => "entry page shift",
+            "session.referer_host_family" => "referer shift",
+            "session.request_rate" => "rate shift",
+            "session.session_age" => "session age shift",
+            "session.method_pattern" => "method shift",
+            "session.path_entropy" => "path entropy shift",
+            // Quality / coverage signals: the fingerprint is sparser, lower-
+            // quality transport, or running cleartext compared to the archetype.
+            // These read as "the input got worse" rather than a behavioural
+            // shift, but they still drive nearest-archetype movement.
+            "quality.dimension_presence_ratio" => "sparse signal",
+            "quality.transport_quality" => "low transport quality",
+            "quality.cleartext_flag" => "cleartext",
+            "quality.layout_version" => "layout version shift",
             var s when s.StartsWith("tool.", StringComparison.OrdinalIgnoreCase) => "tooled",
             _ => GetString(signals, SignalKeys.IdentityDriftTopCategory) switch
             {
@@ -282,6 +310,9 @@ internal static class FingerprintNameComposer
                 "hdr" => "header drift",
                 "locale" => "locale drift",
                 "tool" => "tooled",
+                "transport" => "transport drift",
+                "session" => "session drift",
+                "quality" => "quality drift",
                 _ => "drifted"
             }
         };
