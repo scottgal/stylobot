@@ -462,6 +462,18 @@ public class BotDetectionMiddleware(
                     // but tracks severity instead of always-Low.
                     var cachedThreatBand = Risk.SignatureRiskVerdictComposer.BucketThreat(v.BotProbability);
 
+                    // Lift the cached threat score to the band's floor so persist sees
+                    // a positive number consistent with the band. Without this, the Skip
+                    // path writes (ThreatBand=Critical, ThreatScore=null) on every
+                    // cache-hit row because the verdict's stored raw threat (often 0
+                    // for reputation-latch / honeypot signals) gets nulled by the
+                    // broadcast middleware's `score > 0 ? score : null` projection --
+                    // and SQLite's @threat parameter then writes 0.0. Mirrors the
+                    // P8 lift in DetectionLedgerExtensions for the Miss path.
+                    var cachedThreatScore = Math.Max(
+                        v.ThreatScore,
+                        Risk.SignatureRiskVerdictComposer.ThreatBandFloor(cachedThreatBand));
+
                     // When the live UA matcher stamps a real bot type (Tool, Scraper,
                     // SearchEngine, etc.) the row IS a bot regardless of what the
                     // cached BotProbability says. The cached probability comes from
@@ -509,6 +521,7 @@ public class BotDetectionMiddleware(
                         RequestContributionDelta = 0.0,
                         RiskBand = cachedRiskBand,
                         ThreatBand = cachedThreatBand,
+                        ThreatScore = cachedThreatScore,
                         TotalProcessingTimeMs = 0.0,
                         PrimaryBotType = cachedPrimaryBotType,
                         PrimaryBotName = uaBotName,
