@@ -144,12 +144,14 @@ public partial class DetectionBroadcastMiddleware
     public async Task InvokeAsync(
         HttpContext context,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
-        Mostlylucid.BotDetection.UI.Services.DashboardPersistCoordinator persistCoordinator,
+        IDashboardEventStore eventStore,
         IOptions<BotDetectionOptions> optionsAccessor,
         IOptions<StyloBotDashboardOptions> dashboardOptionsAccessor,
         VisitorListCache visitorListCache,
         SignatureAggregateCache signatureAggregateCache,
-        IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null)
+        Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
+        IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
+        SignatureDescriptionService? signatureDescriptionService = null)
     {
         // Build the detection from context.Items (populated by UseBotDetection earlier in
         // the pipeline) BEFORE proxying downstream. The in-memory cache update has to
@@ -299,32 +301,58 @@ public partial class DetectionBroadcastMiddleware
             return;
         }
 
+        // Capture everything we need by value BEFORE spawning the task; context may
+        // be disposed before the task runs.
+        var detectionCapture = detection;
+        var publisherCapture = detectionEventPublisher;
+        var sigDescService = signatureDescriptionService;
+        var signalsCapture = evidenceCapture?.Signals;
+        var pathLog = isUpstreamPath ? "upstream" : "evidence";
+
         // Guard against double-persist when this middleware is wired into the pipeline
         // twice (host accidentally calls both UseStyloBot and UseStyloBotDashboard).
         if (context.Items.ContainsKey(DetectionStoredFlag)) return;
         context.Items[DetectionStoredFlag] = true;
 
-        // Factors must be parsed NOW because they read HttpContext.Items, which the
-        // framework disposes after the request completes. The coordinator processes
-        // items asynchronously off the hot path -- by the time it runs, this context
-        // will already be gone.
+        // Factors must be parsed BEFORE the fire-and-forget task because they read
+        // HttpContext.Items, which the framework disposes after the request completes.
         var factorsCapture = ParseSignatureFactors(context);
-        var signalsCapture = evidenceCapture?.Signals;
-        var pathLog = isUpstreamPath ? "upstream" : "evidence";
 
-        // Enqueue to the dashboard-domain persistence coordinator (framework-owned
-        // EphemeralWorkCoordinator<T>). Returns immediately; the framework drains
-        // its internal channel in turn (MaxConcurrency=1 by default, configurable
-        // via DashboardPersistCoordinatorOptions). No Task.Run, no IHostedService,
-        // no per-request fire-and-forget; the coordinator owns the lifecycle.
-        persistCoordinator.Enqueue(detection, factorsCapture.ToShared(), signalsCapture);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await PersistDetectionAndSignatureAsync(detectionCapture, factorsCapture, eventStore);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Detection persist (write-behind) failed: {Path} sig={Sig} -- cache stays authoritative",
+                    detectionCapture.Path,
+                    detectionCapture.PrimarySignature?[..Math.Min(8, detectionCapture.PrimarySignature.Length)]);
+            }
+            try { await PublishEventAsync(publisherCapture, detectionCapture, context: null, evidence: null); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Detection event publish failed"); }
+
+            // Description service: feeds humans + bots into the name/description synthesizer.
+            if (sigDescService is not null
+                && !string.IsNullOrEmpty(detectionCapture.PrimarySignature)
+                && signalsCapture is { Count: > 0 })
+            {
+                try
+                {
+                    var nullableSignals = signalsCapture.ToDictionary(s => s.Key, s => (object?)s.Value);
+                    sigDescService.TrackSignature(detectionCapture.PrimarySignature, nullableSignals);
+                }
+                catch (Exception ex) { _logger.LogDebug(ex, "TrackSignature failed"); }
+            }
+        });
 
         _logger.LogDebug(
-            "Broadcast detection ({Path}): sig={Sig} prob={Prob:F2} queued (pending={Pending})",
+            "Broadcast detection ({Path}): sig={Sig} prob={Prob:F2}",
             pathLog,
-            detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature.Length)],
-            detection.BotProbability,
-            persistCoordinator.PendingCount);
+            detectionCapture.PrimarySignature?[..Math.Min(8, detectionCapture.PrimarySignature.Length)],
+            detectionCapture.BotProbability);
 
         // Re-throw downstream exception AFTER the persist task is queued so the
         // audit row lands in dashboard_detections even when the proxy / endpoint
@@ -333,11 +361,49 @@ public partial class DetectionBroadcastMiddleware
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(downstreamException);
     }
 
+    /// <summary>
+    ///     Persist detection + signature rows. Called from the write-behind fire-and-forget
+    ///     path -- never on the request hot path. Idempotent: callers guard against
+    ///     double-persist via <see cref="DetectionStoredFlag"/>; this method just writes.
+    /// </summary>
+    private async Task PersistDetectionAndSignatureAsync(
+        DashboardDetectionEvent detection,
+        SignatureFactors factors,
+        IDashboardEventStore eventStore)
+    {
+        await eventStore.AddDetectionAsync(detection);
+
+        var signature = new DashboardSignatureEvent
+        {
+            SignatureId = Guid.NewGuid().ToString("N")[..12],
+            Timestamp = DateTime.UtcNow,
+            PrimarySignature = detection.PrimarySignature ?? detection.RequestId,
+            IpSignature = factors.IpSig,
+            UaSignature = factors.UaSig,
+            ClientSideSignature = factors.ClientSig,
+            FactorCount = factors.FactorCount,
+            RiskBand = detection.RiskBand,
+            HitCount = 1, // DB increments on conflict
+            IsKnownBot = detection.IsBot,
+            BotName = detection.BotName,
+            BotProbability = detection.BotProbability,
+            Confidence = detection.Confidence,
+            ProcessingTimeMs = detection.ProcessingTimeMs,
+            BotType = detection.BotType,
+            Action = detection.Action,
+            LastPath = detection.Path,
+            Narrative = detection.Narrative,
+            Description = detection.Description,
+            TopReasons = detection.TopReasons?.ToList(),
+            ThreatScore = detection.ThreatScore,
+            ThreatBand = detection.ThreatBand,
+            RiskJustification = detection.RiskJustification,
+        };
+
+        await eventStore.AddSignatureAsync(signature);
+    }
+
     // ─── Shared storage: ONE path for detection + signature ───────────────
-    // Persist responsibility moved to DashboardPersistCoordinator (which wraps
-    // the Mostlylucid.Ephemeral EphemeralWorkCoordinator<T> framework primitive).
-    // This middleware now only ENQUEUES; the coordinator owns drain ordering,
-    // concurrency, and back-pressure.
 
     /// <summary>Marker key on <see cref="HttpContext.Items"/> set the first time a
     /// detection has been persisted for the current request. Guards against the
@@ -545,13 +611,7 @@ public partial class DetectionBroadcastMiddleware
     /// <summary>
     ///     Parse signature factors from HttpContext.Items - ONE place, not three.
     /// </summary>
-    internal record SignatureFactors(string? IpSig, string? UaSig, string? ClientSig, int FactorCount)
-    {
-        // Bridge to the top-level alias used by DashboardPersistCoordinator so
-        // both files reference the same shape.
-        public Services.SignatureFactors ToShared() =>
-            new(IpSig, UaSig, ClientSig, FactorCount);
-    }
+    private record SignatureFactors(string? IpSig, string? UaSig, string? ClientSig, int FactorCount);
 
     private static SignatureFactors ParseSignatureFactors(HttpContext context)
     {
@@ -944,4 +1004,61 @@ public partial class DetectionBroadcastMiddleware
         public List<string>? Reasons;
     }
 
+    /// <summary>
+    ///     Projects the in-process <c>DashboardDetectionEvent</c> into the transport-friendly
+    ///     <c>DetectionEvent</c> record and hands it to the registered publisher. Catches and
+    ///     logs any failure - publish errors must never affect request processing.
+    /// </summary>
+    private async Task PublishEventAsync(
+        Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher publisher,
+        DashboardDetectionEvent detection,
+        HttpContext? context,
+        AggregatedEvidence? evidence = null)
+    {
+        try
+        {
+            // Both topReasons and detector contributions were already aggregated when the
+            // DashboardDetectionEvent was built in BuildDetectionFromEvidence. Reading them
+            // off the detection object instead of recomputing from evidence.Contributions
+            // saves a second LINQ chain (Where + OrderByDescending + Take + Select + ToList)
+            // plus a second GroupBy + Sum pass per request.
+            var topReasons = detection.TopReasons;
+            Dictionary<string, double>? detectorContribs = null;
+            if (detection.DetectorContributions is { Count: > 0 } dc)
+            {
+                detectorContribs = new Dictionary<string, double>(dc.Count, StringComparer.Ordinal);
+                foreach (var kv in dc)
+                    detectorContribs[kv.Key] = kv.Value.Contribution;
+            }
+
+            var evt = new Mostlylucid.BotDetection.Orchestration.Telemetry.DetectionEvent
+            {
+                Timestamp = detection.Timestamp,
+                RequestId = context?.TraceIdentifier ?? detection.RequestId ?? string.Empty,
+                Signature = detection.PrimarySignature ?? "",
+                Path = detection.Path,
+                Method = detection.Method,
+                StatusCode = detection.StatusCode,
+                IsBot = detection.IsBot,
+                BotProbability = detection.BotProbability,
+                Confidence = detection.Confidence,
+                RiskBand = detection.RiskBand,
+                ThreatBand = detection.ThreatBand,
+                Action = detection.Action,
+                BotName = detection.BotName,
+                BotType = detection.BotType,
+                CountryCode = detection.CountryCode,
+                ProcessingTimeMs = evidence?.TotalProcessingTimeMs ?? 0,
+                DetectorContributions = detectorContribs,
+                TopReasons = topReasons,
+                GatewayId = Environment.GetEnvironmentVariable("STYLOBOT_GATEWAY_ID")
+                            ?? Environment.MachineName
+            };
+            await publisher.PublishAsync(evt, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Detection event publisher {Name} threw - dropping event", publisher.Name);
+        }
+    }
 }

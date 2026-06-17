@@ -209,25 +209,15 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
             .Setup(p => p.PublishAsync(It.IsAny<DetectionEvent>(), It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
-        // The middleware now hands persistence off to the framework-owned
-        // DashboardPersistCoordinator (wraps EphemeralWorkCoordinator<T>).
-        // The coordinator drains its internal channel on its own task, so the
-        // test polls CapturingEventStore.AddDetectionAsyncCallCount with a
-        // short bounded wait at the assertion site.
-        var coordinator = new DashboardPersistCoordinator(
-            store: eventStore,
-            publisher: publisher.Object,
-            sigDescService: null,
-            logger: NullLogger<DashboardPersistCoordinator>.Instance);
-
         return middleware.InvokeAsync(
             ctx,
             hubCtxMock.Object,
-            coordinator,
+            eventStore,
             Options.Create(detOptions),
             Options.Create(dashOptions),
             visitorCache,
-            sigCache);
+            sigCache,
+            publisher.Object);
     }
 
     private static DefaultHttpContext NewHttpContext()

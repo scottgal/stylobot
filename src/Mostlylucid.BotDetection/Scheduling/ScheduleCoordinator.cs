@@ -238,24 +238,11 @@ public sealed class ScheduleCoordinator : IScheduleCoordinator, IHostedService, 
             // emit a tick BEFORE the first WaitForNextTickAsync (otherwise
             // the first real tick fires `period` after alignment, defeating
             // the point).
-            //
-            // Fire-and-forget: a slow subscriber CANNOT stall the cadence loop.
-            // FireTickAsync uses Task.WhenAll over all subscriber handlers --
-            // if any one hangs (synchronous I/O, deadlock, long-running CPU
-            // work), the WhenAll waits indefinitely. Before this change, the
-            // cadence loop awaited that WhenAll directly, so a single bad
-            // subscriber starved every other subscriber on the same cadence
-            // -- including the ScheduleCoordinatorWatchdog's own bookkeeping
-            // handler, which is what made the watchdog kill the gateway on
-            // staging every ~60s. The BusyFlag CAS in InvokeSubscriberAsync
-            // still prevents the SAME subscriber from overlapping with
-            // itself; FireTickSafelyAsync catches + logs handler exceptions
-            // internally so swallowing the returned Task is safe.
-            _ = FireTickSafelyAsync(cadence, _timeProvider.GetUtcNow(), ct);
+            await FireTickSafelyAsync(cadence, _timeProvider.GetUtcNow(), ct).ConfigureAwait(false);
 
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
-                _ = FireTickSafelyAsync(cadence, _timeProvider.GetUtcNow(), ct);
+                await FireTickSafelyAsync(cadence, _timeProvider.GetUtcNow(), ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
