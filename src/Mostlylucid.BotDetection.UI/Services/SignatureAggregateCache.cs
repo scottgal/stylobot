@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Grouping;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -24,24 +26,41 @@ public sealed class SignatureAggregateCache
     private readonly object _sortLock = new();
     private readonly StyloBotDashboardOptions _options;
     private readonly IBehaviouralGrouper? _grouper;
+    private readonly IDashboardEventStore? _eventStore;
+    private readonly IFingerprintStore? _fingerprintStore;
+    private readonly ILogger<SignatureAggregateCache>? _logger;
     private IReadOnlyList<DashboardTopBotEntry>? _sortedCache;
     private volatile bool _sortDirty = true;
     private long _updateCounter;
 
     public SignatureAggregateCache(StyloBotDashboardOptions options)
-        : this(options, null) { }
+        : this(options, null, null, null, null) { }
+
+    public SignatureAggregateCache(StyloBotDashboardOptions options, IBehaviouralGrouper? grouper)
+        : this(options, grouper, null, null, null) { }
 
     /// <summary>
-    ///     DI-friendly ctor: <see cref="IBehaviouralGrouper" /> drives the
-    ///     row-collapse logic in <see cref="GetFiltered" /> (verified bots that
-    ///     share an identity name fold into one card). Optional so tests can
-    ///     construct without a grouper; production wires the real implementation
-    ///     via <see cref="ServiceCollectionExtensions" />.
+    ///     DI-friendly ctor. <see cref="IBehaviouralGrouper"/> drives the
+    ///     row-collapse logic in <see cref="GetFiltered"/> (verified bots that share
+    ///     an identity name fold into one card). <see cref="IDashboardEventStore"/>
+    ///     and <see cref="IFingerprintStore"/> are the cold-tier the cache writes
+    ///     through to when a bot name is applied -- the cache owns durability so
+    ///     callers never need to dual-write (the parasitic write paths were the
+    ///     source of "two names at the same instant" regressions). All are
+    ///     optional so test fixtures can construct without the stores.
     /// </summary>
-    public SignatureAggregateCache(StyloBotDashboardOptions options, IBehaviouralGrouper? grouper)
+    public SignatureAggregateCache(
+        StyloBotDashboardOptions options,
+        IBehaviouralGrouper? grouper,
+        IDashboardEventStore? eventStore,
+        IFingerprintStore? fingerprintStore,
+        ILogger<SignatureAggregateCache>? logger)
     {
         _options = options;
         _grouper = grouper;
+        _eventStore = eventStore;
+        _fingerprintStore = fingerprintStore;
+        _logger = logger;
     }
 
     /// <summary>Maximum entries before LFU eviction kicks in.</summary>
@@ -85,8 +104,12 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
-    ///     Apply an LLM-generated bot name and description to a cached signature.
-    ///     Called by <see cref="LlmResultSignalRCallback"/> when background LLM naming completes.
+    ///     Apply an LLM-generated bot name and description to the in-memory aggregate.
+    ///     Does NOT touch the durable stores -- use <see cref="ApplyBotNameAsync"/> for
+    ///     that. This sync overload exists for tests and for in-process callers that
+    ///     have already persisted (the warm-up path replays cache state from
+    ///     <see cref="IDashboardEventStore"/>, so a write-through there would be a
+    ///     no-op + extra round-trip).
     /// </summary>
     public void ApplyBotName(string signature, string name, string? description = null)
     {
@@ -100,6 +123,66 @@ public sealed class SignatureAggregateCache
         }
 
         _sortDirty = true;
+    }
+
+    /// <summary>
+    ///     The single entry point for "this signature just got a new name". Writes
+    ///     the name + description through to the cold tier (dashboard_signatures and,
+    ///     if a fingerprint store is registered, the matcher's display name) BEFORE
+    ///     updating the in-memory aggregate, so a crash between stores and dict
+    ///     leaves durability ahead of memory rather than the other way around.
+    ///     Called by <see cref="LlmResultSignalRCallback"/> when background LLM naming
+    ///     completes; nothing else should write a bot name -- if it does, the dashboard
+    ///     can show two different names for the same signature at the same instant,
+    ///     which is the regression this method was built to make impossible.
+    /// </summary>
+    public async Task ApplyBotNameAsync(
+        string signature,
+        string name,
+        string? description = null,
+        CancellationToken ct = default)
+    {
+        if (_eventStore is not null)
+        {
+            try
+            {
+                await _eventStore.UpdateSignatureBotNameAsync(signature, name, description, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "ApplyBotNameAsync: event-store write failed for {Signature}",
+                    signature[..Math.Min(8, signature.Length)]);
+            }
+        }
+
+        if (_fingerprintStore is not null)
+        {
+            try
+            {
+                await _fingerprintStore.UpdateDisplayNameForSignatureAsync(signature, name, DateTime.UtcNow, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "ApplyBotNameAsync: fingerprint-store write failed for {Signature}",
+                    signature[..Math.Min(8, signature.Length)]);
+            }
+        }
+
+        ApplyBotName(signature, name, description);
+    }
+
+    /// <summary>
+    ///     Apply a scoring narrative to the in-memory aggregate. Narratives are
+    ///     transient -- they describe the most recent scoring pass, not durable
+    ///     identity -- so this is in-memory only.
+    /// </summary>
+    public void ApplyNarrative(string signature, string narrative)
+    {
+        if (!_entries.TryGetValue(signature, out var agg)) return;
+        lock (agg.SyncRoot)
+        {
+            agg.Narrative = narrative;
+        }
     }
 
     /// <summary>
