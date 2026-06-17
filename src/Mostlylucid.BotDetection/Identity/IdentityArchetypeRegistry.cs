@@ -18,6 +18,17 @@ public sealed class IdentityArchetypeRegistry
 {
     private readonly ILogger<IdentityArchetypeRegistry> _logger;
     private readonly IdentityVectorEncoder _encoder;
+    // _writeGate serialises Replace + IngestWellKnownBots. Pre-fix, only the
+    // calibration tick called Replace. Now the well-known-bot refresh tick
+    // also writes via IngestWellKnownBots, and -- because RunCadenceLoop's
+    // fire-and-forget detach means subscribers fire concurrently across
+    // cadences -- calibration's Replace can interleave with a refresh's
+    // read-then-write on _archetypes. Without the gate, a calibration's
+    // refined centroids could be overwritten by the refresh's stale snapshot
+    // plus the new arcjet entries, losing the refinement. Read paths (All,
+    // TryGetById, FindNearest) are lock-free and accept eventual consistency
+    // -- a stale read just resolves the visitor with last-tick data.
+    private readonly object _writeGate = new();
     private IReadOnlyList<IdentityArchetype> _archetypes;
 
     public IdentityArchetypeRegistry(
@@ -38,7 +49,7 @@ public sealed class IdentityArchetypeRegistry
     /// </summary>
     public void Replace(IReadOnlyList<IdentityArchetype> refreshed)
     {
-        _archetypes = refreshed;
+        lock (_writeGate) _archetypes = refreshed;
     }
 
     /// <summary>
@@ -55,57 +66,60 @@ public sealed class IdentityArchetypeRegistry
     public int IngestWellKnownBots(
         IEnumerable<(string Id, string DisplayName, string BotType)> entries)
     {
-        var current = new List<IdentityArchetype>(_archetypes);
-        var seenIds = new HashSet<string>(
-            current.Select(a => a.ArchetypeId),
-            StringComparer.OrdinalIgnoreCase);
-
-        var added = 0;
-        foreach (var entry in entries)
+        lock (_writeGate)
         {
-            if (string.IsNullOrWhiteSpace(entry.DisplayName)) continue;
-            var archetypeId = KebabCase(entry.DisplayName);
-            if (string.IsNullOrEmpty(archetypeId)) continue;
-            if (!seenIds.Add(archetypeId)) continue;
+            var current = new List<IdentityArchetype>(_archetypes);
+            var seenIds = new HashSet<string>(
+                current.Select(a => a.ArchetypeId),
+                StringComparer.OrdinalIgnoreCase);
 
-            try
+            var added = 0;
+            foreach (var entry in entries)
             {
-                var dto = new IdentityArchetypeYaml
+                if (string.IsNullOrWhiteSpace(entry.DisplayName)) continue;
+                var archetypeId = KebabCase(entry.DisplayName);
+                if (string.IsNullOrEmpty(archetypeId)) continue;
+                if (!seenIds.Add(archetypeId)) continue;
+
+                try
                 {
-                    ArchetypeId = archetypeId,
-                    Name = entry.DisplayName,
-                    Description = $"Auto-promoted from arcjet well-known-bots catalogue (id: {entry.Id}).",
-                    ArchetypeKind = MapBotTypeToArchetypeKind(entry.BotType),
-                    ArchetypeRole = "client",
-                    Dimensions = new Dictionary<string, IdentityArchetypeDimensionYaml>(StringComparer.OrdinalIgnoreCase)
+                    var dto = new IdentityArchetypeYaml
                     {
-                        ["hdr.ua_family"] = new IdentityArchetypeDimensionYaml
+                        ArchetypeId = archetypeId,
+                        Name = entry.DisplayName,
+                        Description = $"Auto-promoted from arcjet well-known-bots catalogue (id: {entry.Id}).",
+                        ArchetypeKind = MapBotTypeToArchetypeKind(entry.BotType),
+                        ArchetypeRole = "client",
+                        Dimensions = new Dictionary<string, IdentityArchetypeDimensionYaml>(StringComparer.OrdinalIgnoreCase)
                         {
-                            Value = entry.DisplayName,
-                            Confidence = 0.9,
+                            ["hdr.ua_family"] = new IdentityArchetypeDimensionYaml
+                            {
+                                Value = entry.DisplayName,
+                                Confidence = 0.9,
+                            }
                         }
-                    }
-                };
-                current.Add(Compile(dto));
-                added++;
+                    };
+                    current.Add(Compile(dto));
+                    added++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to promote arcjet well-known-bot {Id} to archetype",
+                        entry.Id);
+                }
             }
-            catch (Exception ex)
+
+            if (added > 0)
             {
-                _logger.LogWarning(ex,
-                    "Failed to promote arcjet well-known-bot {Id} to archetype",
-                    entry.Id);
+                _archetypes = current;
+                _logger.LogInformation(
+                    "Promoted {Added} arcjet well-known-bot entries to root archetypes (total now {Total})",
+                    added, current.Count);
             }
-        }
 
-        if (added > 0)
-        {
-            _archetypes = current;
-            _logger.LogInformation(
-                "Promoted {Added} arcjet well-known-bot entries to root archetypes (total now {Total})",
-                added, current.Count);
+            return added;
         }
-
-        return added;
     }
 
     /// <summary>
