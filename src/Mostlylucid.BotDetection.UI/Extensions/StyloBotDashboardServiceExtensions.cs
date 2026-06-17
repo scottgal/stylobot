@@ -433,6 +433,21 @@ public static class StyloBotDashboardServiceExtensions
         // Commercial PostgreSQL package overrides via TryAddSingleton.
         services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
 
+        // Dashboard persistence coordinator: wraps Mostlylucid.Ephemeral's
+        // EphemeralWorkCoordinator<T> so DetectionBroadcastMiddleware can
+        // hand off detection + signature writes via a sync Enqueue and never
+        // spawn its own Task.Run. The framework primitive owns the internal
+        // channel, the drain loop, and the configurable concurrency cap.
+        services.AddOptions<Mostlylucid.BotDetection.UI.Services.DashboardPersistCoordinatorOptions>()
+            .BindConfiguration("BotDetection:Dashboard:PersistCoordinator");
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardPersistCoordinator>(sp =>
+            new Mostlylucid.BotDetection.UI.Services.DashboardPersistCoordinator(
+                store:          sp.GetRequiredService<IDashboardEventStore>(),
+                publisher:      sp.GetService<Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher>(),
+                sigDescService: sp.GetService<Mostlylucid.BotDetection.Services.SignatureDescriptionService>(),
+                logger:         sp.GetRequiredService<ILogger<Mostlylucid.BotDetection.UI.Services.DashboardPersistCoordinator>>(),
+                optionsAccessor: sp.GetService<IOptions<Mostlylucid.BotDetection.UI.Services.DashboardPersistCoordinatorOptions>>()));
+
         // Operator-supplied signature labels (for detector weighting / ground truth).
         // In-memory by default; production hosts can register SQLite / PostgreSQL impls.
         services.TryAddSingleton<ISignatureLabelStore, SqliteSignatureLabelStore>();
