@@ -51,7 +51,7 @@ replay_suite() {
   local result
   result=$(curl -sf -X POST "$REPLAY_ENDPOINT" \
     -H "Content-Type: application/json" \
-    -H "X-SB-Api-Key: $API_KEY" \
+    -H "X-BdfReplay-Api-Key: $API_KEY" \
     -d @"$file" 2>&1)
 
   if [[ $? -ne 0 ]]; then
@@ -123,7 +123,16 @@ echo ""
 echo "StyloBot Detection Test Suite"
 echo "=============================="
 echo "Server: $BASE_URL"
-echo "Key:    $API_KEY"
+# Show only a fingerprint of the key so the full secret never lands in
+# terminal scrollback / CI logs / screenshots. The key is forwarded to
+# the gateway via the X-BdfReplay-Api-Key header on the curl below.
+if [[ -n "$API_KEY" && ${#API_KEY} -ge 12 ]]; then
+  echo "Key:    ${API_KEY:0:6}...${API_KEY: -6} (${#API_KEY} chars)"
+elif [[ -n "$API_KEY" ]]; then
+  echo "Key:    [redacted -- short key, replace with a 32+ byte secret]"
+else
+  echo "Key:    [unset]"
+fi
 echo ""
 
 # === BOT SCENARIOS (should be detected) ===
