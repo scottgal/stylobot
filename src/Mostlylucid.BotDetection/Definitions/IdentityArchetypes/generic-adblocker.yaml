@@ -1,0 +1,9 @@
+archetype_id: generic-adblocker
+name: Generic Adblocker
+description: Catch-all root archetype for browsers running an adblocker the system can't fingerprint to a specific product (Brave's built-in shields, less common extensions, DNS-level blocking). Provides a basin so visitor centroids that exhibit adblocker behaviour but don't match uBlock Origin / AdGuard precisely still drift into "human-adblocker" instead of "scraper" or "headless".
+archetype_kind: human-adblocker
+archetype_role: client
+dimensions:
+  hdr.ua_family:
+    value: "Chrome"
+    confidence: 0.4

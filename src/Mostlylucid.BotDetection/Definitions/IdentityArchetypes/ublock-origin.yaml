@@ -1,0 +1,15 @@
+archetype_id: ublock-origin
+name: uBlock Origin
+description: Chromium-family browser running uBlock Origin (or comparable strict adblocker). Per the system's "treat adblockers as a first-class human-positive signal" principle, this archetype anchors the shape so a real human protecting their browser doesn't drift into headless-chrome or scraper neighbourhoods just because the adblocker stripped tracking headers / third-party requests / cosmetic resources. Confidence on Sec-CH-UA family is low because some adblockers strip those.
+archetype_kind: human-adblocker
+archetype_role: client
+dimensions:
+  hdr.ua_family:
+    value: "Chrome"
+    confidence: 0.7
+  # uBlock Origin commonly strips client hints; the AbsenceOfClientHints axis
+  # SHOULD pull a real Chrome+uBO closer to this archetype than to
+  # plain chrome-desktop.
+  hdr.sec_ch_ua_mobile:
+    value: false
+    confidence: 0.5

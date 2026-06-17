@@ -48,6 +48,58 @@ public sealed class IdentityWeightCalibrationServiceTickTests
     }
 
     [Fact]
+    public async Task First_RunOnceAsync_cold_seeds_every_archetype_into_the_store()
+    {
+        // Without this, only archetypes that accumulate descendant fingerprints
+        // get upserted via the calibration path -- so a fresh DB stays missing
+        // every root for which no observation has landed yet. That's what
+        // produced the StyloBot.Internal / Mastodon / GPTBot gaps after the
+        // staging wipe; the in-memory registry had those roots, the DB did not.
+        var store = new Mock<IFingerprintStore>(MockBehavior.Loose);
+        store.SetupGet(s => s.Layout).Returns(IdentityVectorLayout.DefaultV1());
+        store
+            .Setup(s => s.ListFingerprintsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Fingerprint>)Array.Empty<Fingerprint>());
+
+        var upserted = new List<string>();
+        store
+            .Setup(s => s.UpsertArchetypeAsync(It.IsAny<IdentityArchetype>(), It.IsAny<CancellationToken>()))
+            .Callback<IdentityArchetype, CancellationToken>((a, _) => upserted.Add(a.ArchetypeId))
+            .Returns(Task.CompletedTask);
+
+        var options = Options.Create(new BotDetectionOptions
+        {
+            Identity = new IdentityOptions { Enabled = true }
+        });
+        var encoder = new IdentityVectorEncoder(IdentityVectorLayout.DefaultV1());
+        var registry = new IdentityArchetypeRegistry(
+            NullLogger<IdentityArchetypeRegistry>.Instance, encoder);
+
+        var sut = new IdentityWeightCalibrationService(
+            NullLogger<IdentityWeightCalibrationService>.Instance,
+            store.Object,
+            registry,
+            options,
+            scheduleCoordinator: null); // bypass scheduling -- drive RunOnceAsync directly
+
+        await sut.RunOnceAsync(CancellationToken.None);
+
+        upserted.Count.Should().Be(registry.All.Count,
+            "the first RunOnceAsync call must upsert every registered root so the durable " +
+            "identity_archetypes table holds the full taxonomy before any traffic-driven " +
+            "refinement begins");
+        upserted.Should().Contain("chrome-desktop");
+        upserted.Should().Contain("ublock-origin");
+
+        // Second pass must NOT re-cold-seed (the flag is one-shot per process).
+        upserted.Clear();
+        await sut.RunOnceAsync(CancellationToken.None);
+        upserted.Should().BeEmpty(
+            "subsequent calibration passes only upsert archetypes that accumulated descendants " +
+            "since the previous run; with no fingerprints in the store, none should be touched");
+    }
+
+    [Fact]
     public void Constructor_subscribes_to_Tick1m_with_service_name()
     {
         var coordinator = new RecordingScheduleCoordinator();

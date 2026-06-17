@@ -41,6 +41,7 @@ public sealed class IdentityWeightCalibrationService : IDisposable
     private readonly bool _enabled;
     private readonly IDisposable? _subscription;
     private DateTime _lastSuccessfulRunUtc = DateTime.MinValue;
+    private int _initialColdSeedDone;
     private int _disposed;
 
     public IdentityWeightCalibrationService(
@@ -115,6 +116,39 @@ public sealed class IdentityWeightCalibrationService : IDisposable
     /// </summary>
     public async Task<CalibrationResult> RunOnceAsync(CancellationToken ct)
     {
+        // Cold-seed pass: on the very first calibration run, upsert every
+        // registered archetype so the durable identity_archetypes table is
+        // populated with the full root taxonomy before any traffic arrives.
+        // Without this, an archetype only lands in the DB when it accumulates
+        // descendant fingerprints -- so the StyloBot.Internal / Mastodon /
+        // GPTBot roots were missing on staging after the wipe and the system
+        // had nothing to anchor "verified internal" / "fediverse" / "trusted
+        // AI" identities against. Upserts are idempotent (ON CONFLICT DO
+        // UPDATE in the underlying store), so this is safe to repeat on
+        // process restart and cheap on subsequent ticks.
+        if (Interlocked.CompareExchange(ref _initialColdSeedDone, 1, 0) == 0)
+        {
+            var seeded = 0;
+            foreach (var archetype in _archetypes.All)
+            {
+                try
+                {
+                    await _store.UpsertArchetypeAsync(archetype, ct);
+                    seeded++;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Cold-seed upsert failed for archetype {Id}; registry retains the in-memory copy",
+                        archetype.ArchetypeId);
+                }
+            }
+            _logger.LogInformation(
+                "Cold-seeded {Count} root archetypes into identity_archetypes table",
+                seeded);
+        }
+
         var fingerprints = await _store.ListFingerprintsAsync(ct);
         var dimension = _store.Layout.Dimension;
 

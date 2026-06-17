@@ -61,6 +61,18 @@ public sealed class WellKnownBotIndex
         return null;
     }
 
+    /// <summary>
+    ///     Enumerate the catalogue as (id, displayName, botType) triples so the
+    ///     identity archetype registry can promote each entry to a root archetype
+    ///     without taking a dependency on the internal IndexEntry record. Returns
+    ///     empty when the catalogue has not yet been loaded.
+    /// </summary>
+    public IEnumerable<(string Id, string DisplayName, string BotType)> EnumerateForArchetypePromotion()
+    {
+        foreach (var e in _entries)
+            yield return (e.Id, e.DisplayName, e.BotType.ToString());
+    }
+
     /// <summary>Atomically replaces the index from a freshly-downloaded bot list.</summary>
     public void Replace(IReadOnlyList<WellKnownBotEntry> entries)
     {

@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Identity;
@@ -38,6 +39,73 @@ public sealed class IdentityArchetypeRegistry
     public void Replace(IReadOnlyList<IdentityArchetype> refreshed)
     {
         _archetypes = refreshed;
+    }
+
+    /// <summary>
+    ///     Promote a freshly-loaded arcjet well-known-bot catalogue into the
+    ///     archetype registry. Called by <c>WellKnownBotRefreshService</c>
+    ///     after a successful catalog download. Each entry that does NOT
+    ///     already exist (by archetype_id) becomes a new root archetype with
+    ///     a UA-family pin at 0.9 confidence -- slightly lower than the
+    ///     BotPatterns synthesizer (0.95) because arcjet ids are sometimes
+    ///     pattern shells rather than human-recognised UA tokens. Existing
+    ///     archetypes (YAML or BotPatterns-derived) win and are preserved.
+    ///     Idempotent: repeat refreshes don't duplicate entries.
+    /// </summary>
+    public int IngestWellKnownBots(
+        IEnumerable<(string Id, string DisplayName, string BotType)> entries)
+    {
+        var current = new List<IdentityArchetype>(_archetypes);
+        var seenIds = new HashSet<string>(
+            current.Select(a => a.ArchetypeId),
+            StringComparer.OrdinalIgnoreCase);
+
+        var added = 0;
+        foreach (var entry in entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.DisplayName)) continue;
+            var archetypeId = KebabCase(entry.DisplayName);
+            if (string.IsNullOrEmpty(archetypeId)) continue;
+            if (!seenIds.Add(archetypeId)) continue;
+
+            try
+            {
+                var dto = new IdentityArchetypeYaml
+                {
+                    ArchetypeId = archetypeId,
+                    Name = entry.DisplayName,
+                    Description = $"Auto-promoted from arcjet well-known-bots catalogue (id: {entry.Id}).",
+                    ArchetypeKind = MapBotTypeToArchetypeKind(entry.BotType),
+                    ArchetypeRole = "client",
+                    Dimensions = new Dictionary<string, IdentityArchetypeDimensionYaml>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["hdr.ua_family"] = new IdentityArchetypeDimensionYaml
+                        {
+                            Value = entry.DisplayName,
+                            Confidence = 0.9,
+                        }
+                    }
+                };
+                current.Add(Compile(dto));
+                added++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to promote arcjet well-known-bot {Id} to archetype",
+                    entry.Id);
+            }
+        }
+
+        if (added > 0)
+        {
+            _archetypes = current;
+            _logger.LogInformation(
+                "Promoted {Added} arcjet well-known-bot entries to root archetypes (total now {Total})",
+                added, current.Count);
+        }
+
+        return added;
     }
 
     /// <summary>
@@ -252,6 +320,7 @@ public sealed class IdentityArchetypeRegistry
         var assembly = typeof(IdentityArchetypeRegistry).Assembly;
 
         var results = new List<IdentityArchetype>();
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var resourceName in assembly.GetManifestResourceNames())
         {
             if (!resourceName.Contains("IdentityArchetypes", StringComparison.OrdinalIgnoreCase))
@@ -269,14 +338,139 @@ public sealed class IdentityArchetypeRegistry
                 if (dto is null || string.IsNullOrEmpty(dto.ArchetypeId)) continue;
 
                 var compiled = Compile(dto);
-                results.Add(compiled);
+                if (seenIds.Add(compiled.ArchetypeId))
+                    results.Add(compiled);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to load identity archetype from {Resource}", resourceName);
             }
         }
+
+        // Promote every BotPatternEntry to a synthetic root archetype.
+        // Roots are seed basins (per the system's identity architecture):
+        // they aren't gospel verdicts, behaviour overrides them per-fingerprint
+        // via centroid drift, and specific variants emerge as descendants.
+        // Without a root for each known bot identity, a Mastodon-shape can
+        // only drift toward the nearest of the few hand-written YAML
+        // archetypes (chrome-xhr's umbrella warning describes this exact
+        // failure mode). Each pattern entry produces a UA-family-pinned root
+        // with confidence 0.95 so the matcher actually scores it; the rest
+        // of the centroid is unconstrained so descendants emerge from real
+        // observations rather than from guessed shape.
+        var explicitCount = results.Count;
+        foreach (var entry in BotPatternLoader.Default.AllPatterns)
+        {
+            try
+            {
+                var synthesized = SynthesizeFromBotPattern(entry);
+                if (synthesized is null) continue;
+                // Explicit YAML wins on ID collision -- the hand-crafted root
+                // expresses richer dimensional pins (Sec-Fetch shape, Accept
+                // collapse, etc.) than the single UA-family assertion the
+                // synthesizer can derive from a pattern row.
+                if (!seenIds.Add(synthesized.ArchetypeId)) continue;
+                results.Add(Compile(synthesized));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to synthesize archetype from bot pattern {Pattern}", entry.Pattern);
+            }
+        }
+        _logger.LogInformation(
+            "Identity archetype catalogue: {Explicit} from IdentityArchetypes/*.yaml + {Synthesized} promoted from BotPatterns/*.yaml = {Total} roots",
+            explicitCount, results.Count - explicitCount, results.Count);
         return results;
+    }
+
+    /// <summary>
+    ///     Promote a <see cref="BotPatternEntry"/> to a synthetic
+    ///     <see cref="IdentityArchetypeYaml"/>. The synthesized root carries
+    ///     a single UA-family assertion at high confidence -- enough for the
+    ///     matcher to recognise the bot's UA shape, with no further
+    ///     dimensional constraints so observations are free to refine the
+    ///     centroid in whichever direction the bot actually behaves.
+    /// </summary>
+    internal static IdentityArchetypeYaml? SynthesizeFromBotPattern(BotPatternEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.BotName)) return null;
+
+        var archetypeId = KebabCase(entry.BotName);
+        if (string.IsNullOrEmpty(archetypeId)) return null;
+
+        // ai_category is an orthogonal signal in the bot pattern catalogue --
+        // a bot can be bot_type=GoodBot AND ai_category=Search (PerplexityBot,
+        // OpenAI search variants). Operators care about the AI distinction
+        // for routing / rate-limit reasons, so promote ai_category-bearing
+        // rows to ai-bot regardless of trust posture. Trust still rides on
+        // the per-fingerprint centroid (drift toward verified-bot basin if
+        // the bot behaves; toward malicious-bot basin if it doesn't).
+        var kind = !string.IsNullOrWhiteSpace(entry.AiCategory)
+            ? "ai-bot"
+            : MapBotTypeToArchetypeKind(entry.BotType);
+
+        return new IdentityArchetypeYaml
+        {
+            ArchetypeId = archetypeId,
+            Name = entry.BotName,
+            Description = string.IsNullOrEmpty(entry.Vendor)
+                ? $"Auto-promoted from BotPatterns catalogue (pattern: {entry.Pattern})."
+                : $"Auto-promoted from BotPatterns catalogue (pattern: {entry.Pattern}, vendor: {entry.Vendor}).",
+            ArchetypeKind = kind,
+            ArchetypeRole = "client",
+            Dimensions = new Dictionary<string, IdentityArchetypeDimensionYaml>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["hdr.ua_family"] = new IdentityArchetypeDimensionYaml
+                {
+                    Value = entry.BotName,
+                    Confidence = 0.95,
+                }
+            }
+        };
+    }
+
+    /// <summary>
+    ///     Map a <see cref="BotPatternEntry.BotType"/> string to an
+    ///     <c>archetype_kind</c> value. Mirrors the kinds used in the
+    ///     hand-written IdentityArchetypes/*.yaml files so dashboard
+    ///     groupings stay consistent across explicit + synthesized roots.
+    /// </summary>
+    internal static string MapBotTypeToArchetypeKind(string? botType) => botType?.ToLowerInvariant() switch
+    {
+        "searchengine" or "verifiedbot" or "monitoringbot" => "verified-bot",
+        "goodbot"                                          => "verified-bot",
+        "aibot"                                            => "ai-bot",
+        "socialmediabot"                                   => "social-bot",
+        "scraper"                                          => "scraper",
+        "tool"                                             => "tool",
+        "exploitscanner" or "maliciousbot" or "clickfraud" => "malicious-bot",
+        _                                                  => "bot"
+    };
+
+    /// <summary>
+    ///     Lower-case identifier with non-alphanumerics collapsed to single
+    ///     hyphens. Used to derive deterministic <c>archetype_id</c> values
+    ///     from bot names ("GPTBot" -> "gptbot", "Bytespider" -> "bytespider",
+    ///     "AhrefsBot" -> "ahrefsbot", "Mastodon" -> "mastodon").
+    /// </summary>
+    internal static string KebabCase(string input)
+    {
+        var sb = new System.Text.StringBuilder(input.Length);
+        var lastWasHyphen = true;
+        foreach (var c in input)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                sb.Append(char.ToLowerInvariant(c));
+                lastWasHyphen = false;
+            }
+            else if (!lastWasHyphen)
+            {
+                sb.Append('-');
+                lastWasHyphen = true;
+            }
+        }
+        return sb.ToString().Trim('-');
     }
 
     private IdentityArchetype Compile(IdentityArchetypeYaml dto)

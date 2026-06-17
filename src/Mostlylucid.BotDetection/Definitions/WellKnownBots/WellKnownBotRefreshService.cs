@@ -33,6 +33,7 @@ public sealed class WellKnownBotRefreshService : IDisposable
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<WellKnownBotRefreshService> _logger;
     private readonly IDisposable _subscription;
+    private readonly Mostlylucid.BotDetection.Identity.IdentityArchetypeRegistry? _archetypeRegistry;
     private DateTime? _lastSuccessfulRefreshUtc;
     private int _disposed;
 
@@ -41,12 +42,18 @@ public sealed class WellKnownBotRefreshService : IDisposable
         WellKnownBotIndex index,
         IHttpClientFactory httpClientFactory,
         ILogger<WellKnownBotRefreshService> logger,
-        IScheduleCoordinator coordinator)
+        IScheduleCoordinator coordinator,
+        Mostlylucid.BotDetection.Identity.IdentityArchetypeRegistry? archetypeRegistry = null)
     {
         _options = options;
         _index = index;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        // Optional so hosts without identity-tracking (the FOSS console for
+        // simple UA matching, the benchmarks) keep working. When present
+        // each refresh seeds the new arcjet entries into the registry so
+        // every known bot id has a root archetype.
+        _archetypeRegistry = archetypeRegistry;
 
         _subscription = coordinator.Subscribe(
             TickCadence.Tick1h,
@@ -104,6 +111,25 @@ public sealed class WellKnownBotRefreshService : IDisposable
         _index.Replace(entries);
         _lastSuccessfulRefreshUtc = DateTime.UtcNow;
         _logger.LogInformation("WellKnownBots: loaded {Count} entries from {Url}", entries.Count, url);
+
+        // Push the catalogue into the identity archetype registry so each
+        // arcjet bot id becomes a root archetype basin (idempotent: existing
+        // archetypes from explicit YAML or the BotPatterns catalogue win).
+        if (_archetypeRegistry is not null)
+        {
+            try
+            {
+                var added = _archetypeRegistry.IngestWellKnownBots(_index.EnumerateForArchetypePromotion());
+                if (added > 0)
+                    _logger.LogInformation(
+                        "WellKnownBots: promoted {Added} new entries to root archetypes", added);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "WellKnownBots: failed to promote catalogue to identity archetype registry");
+            }
+        }
         return true;
     }
 

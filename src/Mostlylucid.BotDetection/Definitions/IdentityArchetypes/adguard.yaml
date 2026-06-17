@@ -1,0 +1,9 @@
+archetype_id: adguard
+name: AdGuard
+description: Browser running AdGuard (extension or DNS-redirect mode). AdGuard's request-stripping pattern overlaps less with uBlock Origin than the two adblockers seem -- AdGuard typically preserves more client hints but rewrites the User-Agent in mobile flows. Separate archetype so descendants emerge cleanly under each product instead of fighting for one shared adblocker centroid.
+archetype_kind: human-adblocker
+archetype_role: client
+dimensions:
+  hdr.ua_family:
+    value: "Chrome"
+    confidence: 0.6
