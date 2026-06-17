@@ -1180,6 +1180,15 @@ public class BotDetectionOptions
         ["VerifiedBot"]    = "rate-limit-search",
         ["SocialMediaBot"] = "rate-limit-social",
         ["MonitoringBot"]  = "rate-limit-monitoring",
+        // Internal (LAN / loopback / docker bridge): detection ran, the row
+        // lands in the dashboard so operators see what their own admin
+        // curls / dashboard self-polls / test runners look like, but the
+        // action is logonly -- never throttle the gateway's own admin
+        // traffic. Distinct from InternalNetworkBotTypeActionPolicies which
+        // overrides the ACTION while keeping the original UA-derived
+        // BotType label ("Tool -> logonly"); here the LABEL itself is
+        // Internal so the dashboard heading reads coherently.
+        ["Internal"]       = "logonly",
     };
 
     /// <summary>

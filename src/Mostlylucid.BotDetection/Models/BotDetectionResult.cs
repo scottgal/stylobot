@@ -76,5 +76,21 @@ public enum BotType
     AiBot,
     Tool,
     ExploitScanner,
-    ClickFraud
+    ClickFraud,
+    /// <summary>
+    ///     Traffic originating from inside the local network -- loopback,
+    ///     RFC1918, or the docker bridge -- that the operator owns by
+    ///     definition. Detection still runs and the request still lands in
+    ///     the dashboard so admins can see what their own service-to-service
+    ///     calls / test runners / admin curls look like, but action policies
+    ///     route Internal through <c>logonly</c> instead of <c>throttle-tools</c>
+    ///     / <c>throttle-aggressive</c>: throttling the gateway's own admin
+    ///     traffic was the cause of the BDF replay 429 loop and similar
+    ///     dashboard-self-poll latency spikes. Distinct from
+    ///     <see cref="Tool"/> so the dashboard label reads "Internal" instead
+    ///     of "Tool", and from <see cref="InternalNetworkBotTypeActionPolicies"/>
+    ///     which only overrides the action while keeping the original UA-
+    ///     derived classification.
+    /// </summary>
+    Internal
 }

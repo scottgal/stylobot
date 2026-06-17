@@ -174,9 +174,22 @@ public static class DetectionLedgerExtensions
         // name still flows through PrimaryBotName for operator triage.
         var isActuallyBot = botProbability >= 0.5;
         var ledgerPrimaryBotType = ParseBotType(ledger.BotType);
+        // Local-network override: traffic from loopback / RFC1918 / docker
+        // bridge is operator-owned by definition (admin curl, dashboard self-
+        // poll, BDF test runner, service-to-service). Classify as Internal so
+        // the dashboard still LISTS the request but the action-policy mapping
+        // routes Internal -> logonly instead of Tool -> throttle-tools.
+        // Beats UA-derived BotType because UA is trivially spoofable from
+        // inside the network too -- the network position is the trust anchor.
+        // Hostile pins (ConfirmedBad latch, raw-threat-above-gate, hostile
+        // cluster) still win: an internal-network attacker is still hostile.
+        var isLocalIp = preSignals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalRaw)
+                        && ipLocalRaw is true;
         var primaryBotType = verdict.HostilePinFired
             ? BotType.MaliciousBot
-            : (isActuallyBot ? ledgerPrimaryBotType : null);
+            : isLocalIp
+                ? BotType.Internal
+                : (isActuallyBot ? ledgerPrimaryBotType : null);
 
         // PrimaryBotName is NEVER gated — every fingerprint always has a name (verdict label
         // and name are separate concerns). Prefer the matcher-set identity.display_name
