@@ -318,23 +318,16 @@ public partial class DetectionBroadcastMiddleware
         // HttpContext.Items, which the framework disposes after the request completes.
         var factorsCapture = ParseSignatureFactors(context);
 
-        _logger.LogInformation("[DIAG-A] persist task ABOUT TO QUEUE: path={Path} sig={Sig} prob={Prob:F2}",
-            detectionCapture.Path,
-            detectionCapture.PrimarySignature?[..Math.Min(8, detectionCapture.PrimarySignature.Length)],
-            detectionCapture.BotProbability);
         _ = Task.Run(async () =>
         {
-            _logger.LogInformation("[DIAG-B] persist task ENTERED: path={Path}", detectionCapture.Path);
             try
             {
-                _logger.LogInformation("[DIAG-C] AddDetectionAsync ABOUT TO CALL: path={Path}", detectionCapture.Path);
                 await PersistDetectionAndSignatureAsync(detectionCapture, factorsCapture, eventStore);
-                _logger.LogInformation("[DIAG-D] persist task COMPLETED: path={Path}", detectionCapture.Path);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex,
-                    "[DIAG-E] Detection persist (write-behind) FAILED: {Path} sig={Sig} -- cache stays authoritative",
+                _logger.LogWarning(ex,
+                    "Detection persist (write-behind) failed: {Path} sig={Sig} -- cache stays authoritative",
                     detectionCapture.Path,
                     detectionCapture.PrimarySignature?[..Math.Min(8, detectionCapture.PrimarySignature.Length)]);
             }
