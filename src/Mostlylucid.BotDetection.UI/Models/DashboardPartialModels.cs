@@ -354,6 +354,21 @@ public sealed class SignatureDetailModel
     public List<double> ConfidenceHistory { get; init; } = [];
     public List<double> ProcessingTimeHistory { get; init; } = [];
 
+    // ── Ground-truth UA surface ────────────────────────────────────────────
+    // Carry the parsed UA family / version / OS alongside the (mutable, LLM-
+    // renameable) BotName so the title can show "Name · Chrome 119 / macOS"
+    // and the operator always has the raw claim next to the inference. The
+    // verification triple (state + method + reason) drives the trust badge:
+    //  - verified  : VerifiedBotConfirmed=true  (claim matched rDNS / IP / nodeinfo)
+    //  - spoofed   : VerifiedBotSpoofed=true    (claim made, verification failed)
+    //  - unverified: claim made, no verifier ran or result inconclusive
+    //  - none      : no bot claim in the UA (human browser)
+    public string? UaFamily { get; init; }
+    public string? UaVersion { get; init; }
+    public string? UaOs { get; init; }
+    public string UaTrustState { get; init; } = "none";
+    public string? UaTrustMethod { get; init; }
+
     // From DB detections (recent per-request records)
     public List<SignatureDetectionRow> RecentDetections { get; init; } = [];
 

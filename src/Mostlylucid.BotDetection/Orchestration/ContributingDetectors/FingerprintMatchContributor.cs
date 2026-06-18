@@ -418,11 +418,19 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         var rawVector = state.Signals.TryGetValue(SignalKeys.IdentityVectorRaw, out var rawObj)
             ? rawObj as float[]
             : null;
+        // UA family is the gate the user demanded: archetype is an overlay on UA, not a
+        // replacement for it. Pull the parsed family from signals so the matcher drops
+        // candidates whose own UA assertion contradicts this request's claim BEFORE the
+        // cosine pick. Without this, a Chrome request can match "freshping" at 0.95
+        // when the 2-dim LSH of "Chrome" collides with the 2-dim LSH of "Freshping".
+        var observedUaFamily = state.GetSignal<string>(SignalKeys.UserAgentFamily);
+        if (string.IsNullOrEmpty(observedUaFamily) || string.Equals(observedUaFamily, "Other", StringComparison.OrdinalIgnoreCase))
+            observedUaFamily = state.GetSignal<string>(SignalKeys.UserAgentBotName);
         var nearestArchetype = rawVector is not null
-            ? _archetypes.FindNearestRaw(rawVector)
-            : _archetypes.FindNearest(vector);
+            ? _archetypes.FindNearestRaw(rawVector, observedUaFamily)
+            : _archetypes.FindNearest(vector, observedUaFamily);
         var nearestClient = nearestArchetype is { Archetype.IsMode: true }
-            ? _archetypes.FindNearestClient(vector)
+            ? _archetypes.FindNearestClient(vector, observedUaFamily)
             : nearestArchetype;
         float[] seedCentroid;
         float[] seedWeights;

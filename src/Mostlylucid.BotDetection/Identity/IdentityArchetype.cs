@@ -63,6 +63,22 @@ public sealed record IdentityArchetype
 
     /// <summary>True when <see cref="ArchetypeRole"/> is "mode" (case-insensitive).</summary>
     public bool IsMode => string.Equals(ArchetypeRole, "mode", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     The raw <c>hdr.ua_family</c> string the YAML asserts (or the well-known-bot
+    ///     display name for arcjet-promoted ghosts). Preserved separately from the
+    ///     <see cref="Centroid"/>'s 2-dim LSH encoding of the same value because the LSH
+    ///     hash has ~4 buckets to disambiguate hundreds of UA families -- relying on cosine
+    ///     in the hash space let a Chrome observation match a "freshping" archetype at
+    ///     0.95 just because their hashes collided.
+    ///
+    ///     Consumed by <see cref="IdentityArchetypeRegistry.FindNearest"/> as a hard
+    ///     candidacy gate: when the caller supplies the observation's UA family string,
+    ///     archetypes whose <c>AssertedUaFamily</c> differs are dropped before cosine
+    ///     scoring. Archetypes that don't assert a UA family (this field is null) are
+    ///     universal candidates.
+    /// </summary>
+    public string? AssertedUaFamily { get; init; }
 }
 
 /// <summary>

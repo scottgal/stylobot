@@ -17,6 +17,29 @@
     ViewData["Title"] = signatureDisplayName ?? "Not Found";
     var bp = Model.BasePath;
     var navBp = Model.ResolvedNavBasePath;
+
+    // The header is a triplet: NAME · UA · TRUST. Name is LLM-renameable / archetype-
+    // driven and can be wrong; the UA chip is the raw claim (Chrome 119 / macOS,
+    // Googlebot/2.1 / Linux); the trust badge is the verifiedbot.confirmed/spoofed
+    // signal. Operator always reads the ground truth next to the inference.
+    var uaPretty = "";
+    if (!string.IsNullOrEmpty(Model.UaFamily))
+    {
+        uaPretty = Model.UaFamily!;
+        if (!string.IsNullOrEmpty(Model.UaVersion)) uaPretty += " " + Model.UaVersion;
+        if (!string.IsNullOrEmpty(Model.UaOs)) uaPretty += " / " + Model.UaOs;
+    }
+
+    var (trustText, trustClass, trustTooltip) = Model.UaTrustState switch
+    {
+        "verified"   => ("verified",   "bg-success/20 text-success border-success/30",
+                         $"UA claim verified ({Model.UaTrustMethod ?? "rDNS"})"),
+        "spoofed"    => ("UA spoofed", "bg-error/20 text-error border-error/40",
+                         $"UA claims a known bot but verification failed ({Model.UaTrustMethod ?? "rDNS"})"),
+        "unverified" => ("unverified", "bg-base-300/40 text-base-content/60 border-base-300",
+                         $"Verification attempted but inconclusive ({Model.UaTrustMethod ?? "no method"})"),
+        _            => ("",           "", "")
+    };
     bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
     string FlagUrl(string code) => $"/_content/Mostlylucid.BotDetection.UI/flags/{code.ToLowerInvariant()}.svg";
 
@@ -99,12 +122,21 @@ else
        The inner one duplicated it ("Dashboard / Signature Detail" showed twice). *@
 
     <!-- Header -->
-    <div class="flex items-center gap-3 mb-2">
+    <div class="flex items-center gap-3 mb-2 flex-wrap">
         @if (HasFlag(Model.CountryCode))
         {
             <img src="@FlagUrl(Model.CountryCode!)" alt="@Model.CountryCode" class="w-6 h-4 object-cover rounded-sm" />
         }
         <h1 class="text-lg font-bold text-base-content" title="@SignatureDisplayName.TitleAttr(Model.SignatureId)">@signatureDisplayName</h1>
+        @if (!string.IsNullOrEmpty(uaPretty))
+        {
+            <span class="text-base-content/40">·</span>
+            <span class="text-sm font-medium text-base-content/80" title="@Model.UserAgent" sb-tooltip="header.ua">@uaPretty</span>
+        }
+        @if (!string.IsNullOrEmpty(trustText))
+        {
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold border @trustClass" title="@trustTooltip" sb-tooltip="header.ua_trust">@trustText</span>
+        }
         @{
             var (badgeText, badgeBg) = Model.BotProbability switch
             {

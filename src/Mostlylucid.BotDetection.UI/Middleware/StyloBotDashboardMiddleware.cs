@@ -5591,6 +5591,39 @@ public class StyloBotDashboardMiddleware
             }
         }
 
+        // Parse the UA into (family, version, os) so the title can show the raw
+        // claim next to the inferred name. Falls back to nulls when no UA was
+        // recorded; the view treats null as "don't render the chip".
+        string? uaFamily = null, uaVersion = null, uaOs = null;
+        if (!string.IsNullOrEmpty(userAgent))
+        {
+            var (fam, ver) = Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(userAgent);
+            uaFamily = string.IsNullOrEmpty(fam) || fam == "Other" ? null : fam;
+            uaVersion = string.IsNullOrEmpty(ver) ? null : ver;
+            uaOs = Mostlylucid.BotDetection.Helpers.UserAgentParser.ExtractOs(userAgent);
+        }
+
+        // Verification triple from the latest detection's signals. VerifiedBotContributor
+        // writes verifiedbot.confirmed/spoofed/method on every check; we project them
+        // into a single trust state for the title badge. "spoofed" wins over "confirmed"
+        // on the rare case both are set (a re-check that flipped) -- showing the failure
+        // is safer than hiding it.
+        string uaTrustState = "none";
+        string? uaTrustMethod = null;
+        if (latest.ImportantSignals != null)
+        {
+            latest.ImportantSignals.TryGetValue("verifiedbot.method", out var methodObj);
+            uaTrustMethod = methodObj?.ToString();
+            var spoofed = latest.ImportantSignals.TryGetValue("verifiedbot.spoofed", out var sObj)
+                          && sObj is bool sb && sb;
+            var confirmed = latest.ImportantSignals.TryGetValue("verifiedbot.confirmed", out var cObj)
+                            && cObj is bool cb && cb;
+            var checkedFlag = latest.ImportantSignals.ContainsKey("verifiedbot.checked");
+            if (spoofed) uaTrustState = "spoofed";
+            else if (confirmed) uaTrustState = "verified";
+            else if (checkedFlag || !string.IsNullOrEmpty(uaTrustMethod)) uaTrustState = "unverified";
+        }
+
         // Headline fields ALL come from the latest detection, never from the cache. This
         // is what keeps the signature-detail page in agreement with the home "Your
         // Detection" card and the Top Bots row -- all three surfaces now read the same
@@ -5624,6 +5657,11 @@ public class StyloBotDashboardMiddleware
             Paths = paths,
             EndpointStats = endpointStats,
             UserAgent = userAgent,
+            UaFamily = uaFamily,
+            UaVersion = uaVersion,
+            UaOs = uaOs,
+            UaTrustState = uaTrustState,
+            UaTrustMethod = uaTrustMethod,
             Protocol = protocol,
             FirstSeen = firstSeen,
             BotProbabilityHistory = botProbHistory,

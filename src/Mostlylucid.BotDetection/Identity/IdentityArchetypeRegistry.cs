@@ -161,12 +161,48 @@ public sealed class IdentityArchetypeRegistry
     ///     behaviour the rest of the pipeline relies on).
     /// </summary>
     public ArchetypeMatch? FindNearest(float[] vector)
+        => FindNearest(vector, observedUaFamily: null);
+
+    /// <summary>
+    ///     <para>
+    ///     Same as <see cref="FindNearest(float[])"/> but with a UA-family eligibility
+    ///     gate. When <paramref name="observedUaFamily"/> is provided, archetypes whose
+    ///     own <see cref="IdentityArchetype.AssertedUaFamily"/> contradicts the
+    ///     observation are dropped before scoring -- so a Chrome request can never match
+    ///     a "Freshping" archetype just because their 2-dim LSH hashes happen to collide.
+    ///     </para>
+    ///     <para>
+    ///     The gate keeps the architectural contract the user stated: <b>UA is the
+    ///     starter, archetype is the overlay</b>. Pure-vector cosine alone was treating
+    ///     UA as one weak signal among many; the gate makes it a precondition. An
+    ///     archetype with <c>AssertedUaFamily=null</c> (legacy / mode / untyped) is a
+    ///     universal candidate and not eliminated.
+    ///     </para>
+    ///     <para>
+    ///     When the gate eliminates ALL candidates (e.g. unknown UA family with no
+    ///     universal archetypes), the gate is lifted and the full set scored -- this is
+    ///     the "no compatible archetype known" fallback, not a confidence statement.
+    ///     </para>
+    /// </summary>
+    public ArchetypeMatch? FindNearest(float[] vector, string? observedUaFamily)
     {
         if (_archetypes.Count == 0) return null;
+
         IdentityArchetype? best = null;
         var bestScore = double.NegativeInfinity;
+        var hasUaGate = !string.IsNullOrEmpty(observedUaFamily);
+        var gateMatchedAny = false;
+
         foreach (var a in _archetypes)
         {
+            if (hasUaGate
+                && !string.IsNullOrEmpty(a.AssertedUaFamily)
+                && !string.Equals(a.AssertedUaFamily, observedUaFamily, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            gateMatchedAny = true;
+
             var s = MaskedSimilarity(vector, a);
             if (s > bestScore)
             {
@@ -174,19 +210,55 @@ public sealed class IdentityArchetypeRegistry
                 best = a;
             }
         }
+
+        // Gate eliminated every candidate -- no archetype declared this UA family and no
+        // universals exist either. Fall back to unfiltered scoring; the caller still has
+        // the InferredArchetypeScore threshold to drop a confident-looking false positive.
+        if (hasUaGate && !gateMatchedAny)
+        {
+            foreach (var a in _archetypes)
+            {
+                var s = MaskedSimilarity(vector, a);
+                if (s > bestScore)
+                {
+                    bestScore = s;
+                    best = a;
+                }
+            }
+        }
+
         return best is null ? null : new ArchetypeMatch(best, bestScore);
     }
 
     /// <summary>
-    ///     Same as <see cref="FindNearest"/> but uses <see cref="ScoreAgainstRaw"/> for scoring.
+    ///     Same as <see cref="FindNearest(float[])"/> but uses <see cref="ScoreAgainstRaw"/>.
     /// </summary>
     public ArchetypeMatch? FindNearestRaw(float[] rawVector)
+        => FindNearestRaw(rawVector, observedUaFamily: null);
+
+    /// <summary>
+    ///     Raw-vector variant of <see cref="FindNearest(float[], string?)"/>. Applies the
+    ///     same UA-family gate before scoring, then uses raw-centroid similarity instead
+    ///     of mask-weighted similarity.
+    /// </summary>
+    public ArchetypeMatch? FindNearestRaw(float[] rawVector, string? observedUaFamily)
     {
         if (_archetypes.Count == 0 || rawVector is null) return null;
         IdentityArchetype? best = null;
         var bestScore = double.NegativeInfinity;
+        var hasUaGate = !string.IsNullOrEmpty(observedUaFamily);
+        var gateMatchedAny = false;
+
         foreach (var a in _archetypes)
         {
+            if (hasUaGate
+                && !string.IsNullOrEmpty(a.AssertedUaFamily)
+                && !string.Equals(a.AssertedUaFamily, observedUaFamily, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            gateMatchedAny = true;
+
             var s = ScoreAgainstRaw(rawVector, a);
             if (s > bestScore)
             {
@@ -194,6 +266,20 @@ public sealed class IdentityArchetypeRegistry
                 best = a;
             }
         }
+
+        if (hasUaGate && !gateMatchedAny)
+        {
+            foreach (var a in _archetypes)
+            {
+                var s = ScoreAgainstRaw(rawVector, a);
+                if (s > bestScore)
+                {
+                    bestScore = s;
+                    best = a;
+                }
+            }
+        }
+
         return best is null ? null : new ArchetypeMatch(best, bestScore);
     }
 
@@ -510,6 +596,20 @@ public sealed class IdentityArchetypeRegistry
                 mask[i] = confidence;
         }
 
+        // Preserve the raw hdr.ua_family STRING (not its 2-dim LSH hash) on the
+        // compiled archetype so FindNearest can use it as a hard candidacy gate.
+        // The hash space is too small to reliably differentiate hundreds of UA
+        // families; the string is the source of truth and the matcher MUST defer
+        // to it before falling through to cosine.
+        string? assertedUaFamily = null;
+        if (dto.Dimensions is not null
+            && dto.Dimensions.TryGetValue("hdr.ua_family", out var uaDim)
+            && uaDim?.Value is string uaStr
+            && !string.IsNullOrWhiteSpace(uaStr))
+        {
+            assertedUaFamily = uaStr.Trim();
+        }
+
         return new IdentityArchetype
         {
             ArchetypeId = dto.ArchetypeId,
@@ -521,7 +621,8 @@ public sealed class IdentityArchetypeRegistry
             CentroidRaw = centroidRaw,
             DimensionMask = mask,
             DescendantCount = 0,
-            LastRefinedAt = DateTime.UtcNow
+            LastRefinedAt = DateTime.UtcNow,
+            AssertedUaFamily = assertedUaFamily
         };
     }
 
@@ -543,13 +644,33 @@ public sealed class IdentityArchetypeRegistry
     ///     </para>
     /// </summary>
     public ArchetypeMatch? FindNearestClient(float[] vector)
+        => FindNearestClient(vector, observedUaFamily: null);
+
+    /// <summary>
+    ///     UA-family-gated variant of <see cref="FindNearestClient(float[])"/>. Same
+    ///     candidacy rule as <see cref="FindNearest(float[], string?)"/>: archetypes
+    ///     whose <see cref="IdentityArchetype.AssertedUaFamily"/> differs from
+    ///     <paramref name="observedUaFamily"/> are dropped before scoring.
+    /// </summary>
+    public ArchetypeMatch? FindNearestClient(float[] vector, string? observedUaFamily)
     {
         if (_archetypes.Count == 0) return null;
         IdentityArchetype? best = null;
         var bestScore = double.NegativeInfinity;
+        var hasUaGate = !string.IsNullOrEmpty(observedUaFamily);
+        var gateMatchedAny = false;
+
         foreach (var a in _archetypes)
         {
             if (a.IsMode) continue;
+            if (hasUaGate
+                && !string.IsNullOrEmpty(a.AssertedUaFamily)
+                && !string.Equals(a.AssertedUaFamily, observedUaFamily, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            gateMatchedAny = true;
+
             var s = MaskedSimilarity(vector, a);
             if (s > bestScore)
             {
@@ -557,6 +678,21 @@ public sealed class IdentityArchetypeRegistry
                 best = a;
             }
         }
+
+        if (hasUaGate && !gateMatchedAny)
+        {
+            foreach (var a in _archetypes)
+            {
+                if (a.IsMode) continue;
+                var s = MaskedSimilarity(vector, a);
+                if (s > bestScore)
+                {
+                    bestScore = s;
+                    best = a;
+                }
+            }
+        }
+
         return best is null ? null : new ArchetypeMatch(best, bestScore);
     }
 }
