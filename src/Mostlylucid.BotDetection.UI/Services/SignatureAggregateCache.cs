@@ -204,12 +204,17 @@ public sealed class SignatureAggregateCache
                 if (!string.IsNullOrEmpty(agg.BotName)) continue;
                 if (string.IsNullOrEmpty(agg.UserAgent)) continue;
 
-                // Empty signal dict -- the composer's Priority 3 self-rescues via
-                // the explicit userAgent param + UserAgentParser, which is exactly
-                // the path we want here.
-                var emptySignals = new Dictionary<string, object>(0);
+                // Single source: the composer. It receives whatever distinguishing
+                // signals we have (country at minimum from the aggregate) and is the
+                // only place that decides the final name. No collision detection here
+                // -- collision-distinction is part of the composer's job, applied via
+                // BuildDistinctiveModifier against signals it can see. The cache's
+                // role is to read whatever the composer wrote and store it.
+                var signals = new Dictionary<string, object>(2);
+                if (!string.IsNullOrEmpty(agg.CountryCode))
+                    signals[Mostlylucid.BotDetection.Models.SignalKeys.GeoCountryCode] = agg.CountryCode;
                 newName = Mostlylucid.BotDetection.Services.FingerprintNameComposer.Compose(
-                    emptySignals, userAgent: agg.UserAgent);
+                    signals, userAgent: agg.UserAgent);
                 if (string.IsNullOrEmpty(newName)) continue;
                 agg.BotName = newName;
             }

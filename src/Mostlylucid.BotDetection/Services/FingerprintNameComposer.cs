@@ -198,9 +198,23 @@ internal static class FingerprintNameComposer
 
         if (!string.IsNullOrEmpty(family) && family != "Other")
         {
-            var composed = !string.IsNullOrEmpty(os) ? $"{family} on {os}" : family;
-            var variance = GetVarianceTerm(signals);
-            return string.IsNullOrEmpty(variance) ? composed : $"{composed} ({variance})";
+            // Short-form, distinguisher-baked-in. User contract (2026-06-18):
+            //   "Win Chrome UK is FINE. Chrome on Windows (header drift 45) is NOT."
+            // Format: "{osShort} {familyShort} {distinguisher}" -- compact, scannable,
+            // always carries the most-relevant distinguishing signal (ASN > country >
+            // /16 IP block, picked by BuildDistinctiveModifier). Two distinct fingerprints
+            // that would otherwise share a name show different distinguishers because
+            // those distinguishers are what made them distinct fingerprints in the
+            // first place. NO variance prose -- "(header drift)" is a separate concern
+            // for the drift surface, not the name.
+            var familyShort = ShortenFamily(family);
+            var osShort = ShortenOs(os);
+            var distinguisher = BuildDistinctiveModifier(signals);
+            var parts = new List<string>(3);
+            if (!string.IsNullOrEmpty(osShort)) parts.Add(osShort);
+            parts.Add(familyShort);
+            if (!string.IsNullOrEmpty(distinguisher)) parts.Add(distinguisher);
+            return string.Join(' ', parts);
         }
         // Priorities used to flow through a Unique() wrapper that appended a
         // "(country:sigprefix)" suffix. That was removed (operators objected to the
@@ -365,6 +379,42 @@ internal static class FingerprintNameComposer
         if (colon > 0) return ip[..Math.Min(ip.Length, colon + 5)] + "::/32";
         return null;
     }
+
+    /// <summary>
+    ///     Compress the parsed UA family for the dashboard's short-name format.
+    ///     Most families already read tight ("Chrome", "Firefox", "Safari", "Edge",
+    ///     "Bingbot", "curl"); a few canonical ones get trimmed for the table
+    ///     column. Returns the input unchanged when no short form is defined.
+    /// </summary>
+    private static string ShortenFamily(string family) => family switch
+    {
+        "Chrome Mobile"   => "Chrome",
+        "Chrome Mobile iOS" => "Chrome",
+        "Mobile Safari"   => "Safari",
+        "Firefox Mobile"  => "Firefox",
+        "Samsung Internet" => "Samsung",
+        _                 => family
+    };
+
+    /// <summary>
+    ///     Compress the parsed OS name into a 3-4 char tag for the short-name format.
+    ///     Empty input returns empty so the joiner skips the OS slot.
+    /// </summary>
+    private static string ShortenOs(string? os) => os switch
+    {
+        null or ""        => "",
+        "Windows"         => "Win",
+        "Mac OS X"        => "Mac",
+        "macOS"           => "Mac",
+        "iOS"             => "iOS",
+        "Android"         => "And",
+        "Linux"           => "Lin",
+        "Chrome OS"       => "CrOS",
+        "Ubuntu"          => "Lin",
+        "Fedora"          => "Lin",
+        "Debian"          => "Lin",
+        _                 => os.Length <= 4 ? os : os[..4]
+    };
 
     internal static string? GetString(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;
