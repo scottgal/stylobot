@@ -51,6 +51,11 @@
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Test" />
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Orchestration.Tests" />
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Benchmarks" />
+        <!-- DetectionBroadcastMiddleware uses FingerprintNameComposer as a request-path
+             backstop when evidence.PrimaryBotName is null (matcher race against
+             UserAgentContributor leaving signals[ua.raw] unset). Same composer, just
+             one more call site with the raw UA from HttpContext threaded in. -->
+        <InternalsVisibleTo Include="Mostlylucid.BotDetection.UI" />
     </ItemGroup>
     <PropertyGroup>
         <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
