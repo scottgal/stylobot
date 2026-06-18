@@ -281,6 +281,82 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         return ids;
     }
 
+    public async Task<IReadOnlyList<ModeReconciliationCandidate>> ListModeReconciliationCandidatesAsync(
+        int maxRows, CancellationToken ct = default)
+    {
+        if (maxRows <= 0) return Array.Empty<ModeReconciliationCandidate>();
+        await _parent.EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // Correlated subquery picks the most-recent ua_family the parent
+        // fingerprint has seen. Rows whose parent never recorded a ua_family
+        // are filtered out -- the gate is a no-op for them and there's no
+        // reclassification work to do. Order by m.last_seen ASC so the most
+        // stale rows (the ones absorbed before the UA gate landed) get
+        // reconciled first.
+        cmd.CommandText = """
+            SELECT m.fingerprint_id, m.mode_id, m.centroid,
+                   m.inferred_archetype,
+                   (SELECT o.ua_family
+                      FROM fingerprint_observations o
+                     WHERE o.fingerprint_id = m.fingerprint_id
+                       AND o.ua_family IS NOT NULL
+                     ORDER BY o.id DESC
+                     LIMIT 1) AS parent_ua_family
+              FROM fingerprint_modes m
+             WHERE m.inferred_archetype IS NOT NULL
+               AND EXISTS (
+                   SELECT 1 FROM fingerprint_observations o2
+                    WHERE o2.fingerprint_id = m.fingerprint_id
+                      AND o2.ua_family IS NOT NULL
+               )
+             ORDER BY m.last_seen ASC
+             LIMIT @lim
+            """;
+        cmd.Parameters.AddWithValue("@lim", maxRows);
+
+        var rows = new List<ModeReconciliationCandidate>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var ua = reader.IsDBNull(4) ? null : reader.GetString(4);
+            if (string.IsNullOrEmpty(ua)) continue;
+            rows.Add(new ModeReconciliationCandidate(
+                FingerprintId: reader.GetString(0),
+                ModeId: reader.GetString(1),
+                Centroid: SqliteFingerprintStore.BlobToFloats((byte[])reader.GetValue(2)),
+                CurrentInferredArchetype: reader.IsDBNull(3) ? null : reader.GetString(3),
+                ParentUaFamily: ua));
+        }
+        return rows;
+    }
+
+    public async Task UpdateModeInferredArchetypeAsync(
+        string fingerprintId, string modeId,
+        string? inferredArchetype, double? inferredConfidence,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId) || string.IsNullOrEmpty(modeId)) return;
+        await _parent.EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprint_modes
+               SET inferred_archetype  = @arch,
+                   inferred_confidence = @conf
+             WHERE fingerprint_id = @fp
+               AND mode_id        = @mode
+            """;
+        cmd.Parameters.AddWithValue("@fp", fingerprintId);
+        cmd.Parameters.AddWithValue("@mode", modeId);
+        cmd.Parameters.AddWithValue("@arch", (object?)inferredArchetype ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@conf", inferredConfidence.HasValue ? (object)inferredConfidence.Value : DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(ct);
+        InvalidateModes(fingerprintId);
+    }
+
     private void InvalidateModes(string fingerprintId)
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;

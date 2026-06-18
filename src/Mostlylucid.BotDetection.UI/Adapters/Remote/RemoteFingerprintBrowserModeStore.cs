@@ -65,4 +65,16 @@ internal sealed class RemoteFingerprintBrowserModeStore : IFingerprintBrowserMod
         int maxRows, CancellationToken ct = default)
         => throw new NotSupportedException(
             "ListFingerprintIdsWithModesAsync is gateway-only — only the rollup recompute sweeps fingerprints with modes.");
+
+    public Task<IReadOnlyList<ModeReconciliationCandidate>> ListModeReconciliationCandidatesAsync(
+        int maxRows, CancellationToken ct = default)
+        => throw new NotSupportedException(
+            "ListModeReconciliationCandidatesAsync is gateway-only — the reconciliation pass runs on the gateway where the absorption service lives.");
+
+    public Task UpdateModeInferredArchetypeAsync(
+        string fingerprintId, string modeId,
+        string? inferredArchetype, double? inferredConfidence,
+        CancellationToken ct = default)
+        => throw new NotSupportedException(
+            "UpdateModeInferredArchetypeAsync is gateway-only — the reconciliation pass writes from the gateway.");
 }

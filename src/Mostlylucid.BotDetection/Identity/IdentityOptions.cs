@@ -62,6 +62,23 @@ public sealed class BrowserModeOptions
     public int DrainMaxRowsPerTick { get; set; } = 5_000;
 
     /// <summary>
+    ///     Per-tick cap on the reconciliation pass that re-runs the UA-family-
+    ///     gated <see cref="IdentityArchetypeRegistry.FindNearest"/> over
+    ///     pre-existing <c>fingerprint_modes</c> rows. Necessary because
+    ///     <see cref="FingerprintModeAbsorptionService"/> only writes
+    ///     <c>inferred_archetype</c> when a fresh observation lands -- mode
+    ///     rows whose last observation predates a matcher-contract change
+    ///     (e.g. the UA gate added 2026-06-18) keep their stale classification
+    ///     forever otherwise. The reconciliation pass walks N rows per tick,
+    ///     looks up the parent fingerprint's latest <c>ua_family</c> from
+    ///     <c>fingerprint_observations</c>, runs the gated FindNearest, and
+    ///     updates the row when the classification differs. Bounded so the
+    ///     pass amortises across ticks instead of spiking CPU on the first
+    ///     wave window after the deploy.
+    /// </summary>
+    public int ReconcileMaxRowsPerTick { get; set; } = 200;
+
+    /// <summary>
     ///     Composite spec step 4: parent fingerprint centroid becomes a
     ///     maturity-weighted mean of its child mode centroids, recomputed on
     ///     a tick. Default false initially so this lands as observable

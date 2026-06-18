@@ -101,6 +101,78 @@ public sealed class FingerprintModeAbsorptionService : IDisposable
         {
             _logger.LogWarning(ex, "BrowserMode drain tick failed");
         }
+
+        // Reconciliation pass: re-classify a bounded batch of pre-existing
+        // mode rows against the current matcher contract. Independent of the
+        // drain above -- runs even when no new observations arrived this
+        // tick, because the rows that need reconciling are the ones with
+        // NO recent traffic (the drain reabsorbs the active ones). Bounded
+        // by IdentityOptions.BrowserMode.ReconcileMaxRowsPerTick so the pass
+        // amortises across ticks instead of spiking CPU after deploy.
+        try
+        {
+            var reclassified = await ReconcileOnceAsync(_options.BrowserMode.ReconcileMaxRowsPerTick, ct);
+            if (reclassified > 0)
+                _logger.LogInformation("BrowserMode reconcile reclassified {Count} mode rows", reclassified);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "BrowserMode reconcile tick failed");
+        }
+    }
+
+    /// <summary>
+    ///     One reconciliation pass. Fetches up to <paramref name="maxRows"/>
+    ///     mode rows whose <c>inferred_archetype</c> may be stale relative to
+    ///     the current archetype-matcher contract (UA gate + future
+    ///     contracts), looks up the parent fingerprint's most-recent
+    ///     <c>ua_family</c>, re-runs <see cref="IdentityArchetypeRegistry.FindNearest"/>
+    ///     under that gate, and writes the new classification when it
+    ///     differs from what the row currently holds. Returns the number of
+    ///     rows reclassified (zero when everything was already consistent or
+    ///     when the threshold filtered all candidates out).
+    ///
+    ///     The store filters out rows whose parent never recorded a
+    ///     <c>ua_family</c>, so the matcher gate always fires here -- this is
+    ///     not a "rerun the unfiltered matcher" pass.
+    /// </summary>
+    public async Task<int> ReconcileOnceAsync(int maxRows, CancellationToken ct)
+    {
+        if (maxRows <= 0) return 0;
+
+        var candidates = await _modeStore.ListModeReconciliationCandidatesAsync(maxRows, ct);
+        if (candidates.Count == 0) return 0;
+
+        var reclassified = 0;
+        foreach (var c in candidates)
+        {
+            if (ct.IsCancellationRequested) break;
+            var match = _archetypes.FindNearest(c.Centroid, c.ParentUaFamily);
+
+            string? newArchetype = null;
+            double? newConfidence = null;
+            if (match is not null && match.Score >= _options.BrowserMode.MinInferredArchetypeScore)
+            {
+                newArchetype = match.Archetype.ArchetypeId;
+                newConfidence = match.Score;
+            }
+
+            // No-op when the row is already consistent with the gated result.
+            if (string.Equals(newArchetype, c.CurrentInferredArchetype, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            await _modeStore.UpdateModeInferredArchetypeAsync(
+                c.FingerprintId, c.ModeId, newArchetype, newConfidence, ct);
+            reclassified++;
+            _logger.LogDebug(
+                "Reconciled mode row {Fp}/{Mode}: {Old} -> {New} (ua={Ua})",
+                c.FingerprintId, c.ModeId,
+                c.CurrentInferredArchetype ?? "(none)",
+                newArchetype ?? "(none)",
+                c.ParentUaFamily);
+        }
+        return reclassified;
     }
 
     /// <summary>
