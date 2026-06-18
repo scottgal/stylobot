@@ -185,12 +185,6 @@
                         // model-build time in WidgetRenderHelpers.CollapseGroupableIdentities,
                         // so Model.Bots already comes pre-grouped and pagination matches the
                         // visible rows.
-                        //
-                        // Per-render dedup dictionary: two distinct signatures producing the
-                        // same composite label (e.g. "GB Chrome User" twice) get suffixed
-                        // " 2", " 3", ... by SignatureDisplayName.Resolve. The dictionary
-                        // is renderer-local so the count starts at 1 for each page render.
-                        var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
                     }
                     <!-- DATA REGION: only this element gets hx-swap-oob="innerHTML" on SignalR
                          beacons. Scroll position on the .overflow-auto parent is preserved
@@ -204,29 +198,16 @@
                                 _ => "text-success"
                             };
                             var isCustomNamed = bot.CustomBotName != null;
-                            @* Single source of truth for the row label. Every visible
-                               surface in the dashboard goes through SignatureDisplayName
-                               so the same signature renders the same label everywhere --
-                               Live Activity, Visitors, Sessions, Endpoint detail, the
-                               signature page itself, all read from this one resolver.
-                               The "· {shortHash}" suffix in the composite form already
-                               disambiguates distinct signatures that share the same
-                               country/UA, so we no longer carry per-widget local logic
-                               that appended `#2` / `(first seen ...)` -- that produced
-                               labels that diverged from the rest of the dashboard. *@
-                            // DashboardTopBotEntry has UaFamily but not raw UserAgent yet -- the SQL
-                            // projection only carries the parsed family. Until the GetTopBotsAsync
-                            // SELECT is widened to include user_agent_raw, the top-bots widget falls
-                            // back to the family-only label path inside Resolve. Tracked separately.
-                            var displayName = SignatureDisplayName.Resolve(
-                                bot.PrimarySignature,
-                                bot.BotName,
-                                bot.BotType,
-                                bot.CustomBotName,
-                                bot.CountryCode,
-                                isBot: bot.BotProbability >= 0.5,
-                                bot.UaFamily,
-                                seenNames);
+                            // ONE name per fingerprint. The composer writes Fingerprint.DisplayName
+                            // on the gateway; the broadcast event carries it as BotName; the
+                            // dashboard cache projects it into bot.BotName. No view-side resolver,
+                            // no per-render seenNames disambiguation. CustomBotName is the
+                            // operator's rename and wins when set.
+                            var displayName = !string.IsNullOrEmpty(bot.CustomBotName)
+                                ? bot.CustomBotName
+                                : (string.IsNullOrEmpty(bot.BotName)
+                                    ? bot.PrimarySignature[..Math.Min(8, bot.PrimarySignature.Length)]
+                                    : bot.BotName);
                             var displayIntent = bot.BotType ?? BotDisplayHelpers.DeterministicIntent(bot.BotProbability);
                             var displayThreat = BotDisplayHelpers.ResolvedThreat(bot.ThreatBand, bot.BotProbability);
                             var threatBand = string.IsNullOrEmpty(displayThreat) ? "None" : displayThreat;

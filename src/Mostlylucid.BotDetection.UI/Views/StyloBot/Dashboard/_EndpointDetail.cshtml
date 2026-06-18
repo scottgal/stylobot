@@ -206,7 +206,7 @@
                     </thead>
                     <tbody>
                         @{
-                            var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
+                            // ONE name per fingerprint -- written by FingerprintNameComposer.
                         }
                         @foreach (var bot in Model.TopBots.Take(10))
                         {
@@ -216,7 +216,11 @@
                                 "Medium" or "Elevated" => "text-warning",
                                 _ => "text-success"
                             };
-                            var visitorName = SignatureDisplayName.Resolve(bot.PrimarySignature, bot.BotName, bot.BotType, bot.CustomBotName, bot.CountryCode, isBot: true, uaFamily: bot.UaFamily, seen: seenNames, userAgent: bot.UserAgent);
+                            var visitorName = !string.IsNullOrEmpty(bot.CustomBotName)
+                                ? bot.CustomBotName
+                                : (string.IsNullOrEmpty(bot.BotName)
+                                    ? bot.PrimarySignature[..Math.Min(8, bot.PrimarySignature.Length)]
+                                    : bot.BotName);
                             <tr class="hover:bg-base-300/40">
                                 <td class="py-1 w-5">
                                     @if (HasFlag(bot.CountryCode))

@@ -11,8 +11,14 @@
     // call -- three copies of the same chrome stacked (one from website _Layout,
     // one from here, plus the breadcrumb/title), and the host could never customise
     // it.
+    // Single source of truth: the name written by FingerprintNameComposer.Compose
+    // on the gateway, persisted to Fingerprint.DisplayName, broadcast as
+    // DashboardDetectionEvent.BotName, propagated into Model.BotName by the cache.
+    // No view-side resolver -- there is exactly ONE name path per fingerprint.
     var signatureDisplayName = Model.Found
-        ? SignatureDisplayName.Resolve(Model.SignatureId, Model.BotName, Model.BotType, null, Model.CountryCode, Model.IsBot, userAgent: Model.UserAgent)
+        ? (string.IsNullOrEmpty(Model.BotName)
+            ? Model.SignatureId[..Math.Min(8, Model.SignatureId.Length)]
+            : Model.BotName)
         : null;
     ViewData["Title"] = signatureDisplayName ?? "Not Found";
     var bp = Model.BasePath;
@@ -131,11 +137,11 @@ else
         @if (!string.IsNullOrEmpty(uaPretty))
         {
             <span class="text-base-content/40">·</span>
-            <span class="text-sm font-medium text-base-content/80" title="@Model.UserAgent" sb-tooltip="header.ua">@uaPretty</span>
+            <span class="text-sm font-medium text-base-content/80" title="@Model.UserAgent">@uaPretty</span>
         }
         @if (!string.IsNullOrEmpty(trustText))
         {
-            <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold border @trustClass" title="@trustTooltip" sb-tooltip="header.ua_trust">@trustText</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold border @trustClass" title="@trustTooltip">@trustText</span>
         }
         @{
             var (badgeText, badgeBg) = Model.BotProbability switch

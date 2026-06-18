@@ -45,7 +45,7 @@
                         </thead>
                         <tbody>
                             @{
-                                var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
+                                // ONE name per fingerprint, written by FingerprintNameComposer.
                             }
                             @foreach (var threat in Model.Threats)
                             {
@@ -76,7 +76,7 @@
                                         <span class="badge @severityClass badge-xs">@(threat.CveSeverity ?? "probe")</span>
                                     </td>
                                     <td class="text-xs font-mono max-w-[200px] truncate" title="@threat.Path">@threat.Path</td>
-                                    <td class="text-xs" title="@SignatureDisplayName.TitleAttr(threat.Signature)">@SignatureDisplayName.Resolve(threat.Signature, threat.BotName, threat.BotType, null, threat.CountryCode, true, null, seenNames, threat.UserAgent)</td>
+                                    <td class="text-xs" title="@SignatureDisplayName.TitleAttr(threat.Signature)">@(string.IsNullOrEmpty(threat.BotName) ? threat.Signature[..Math.Min(8, threat.Signature.Length)] : threat.BotName)</td>
                                     <td>
                                         @{
                                             var threatClass = threat.ThreatScore switch

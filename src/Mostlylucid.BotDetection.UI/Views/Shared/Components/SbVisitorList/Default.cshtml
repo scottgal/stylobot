@@ -101,12 +101,13 @@
                     </tr>
                 </thead>
                 <tbody id="visitor-rows" data-sb-data-region>
-                    @{
-                        var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
-                    }
                     @foreach (var v in Model.Visitors)
                     {
-                        var displayName = SignatureDisplayName.Resolve(v.PrimarySignature, v.BotName, v.BotType, null, v.CountryCode, v.IsBot, v.UaFamily, seenNames, v.UserAgent);
+                        // ONE name per fingerprint, written by FingerprintNameComposer on
+                        // the gateway. No per-render seenNames dict, no view-side resolver.
+                        var displayName = string.IsNullOrEmpty(v.BotName)
+                            ? v.PrimarySignature[..Math.Min(8, v.PrimarySignature.Length)]
+                            : v.BotName;
                         var probPct = (v.BotProbability * 100).ToString("F0");
                         var probClass = v.RiskBand switch { "VeryHigh" or "High" => "text-error", "Medium" or "Elevated" => "text-warning", _ => "text-success" };
                         var riskBadge = v.RiskBand switch { "VeryHigh" => "badge-error", "High" => "badge-error", "Medium" => "badge-warning", "Elevated" => "badge-warning", "Low" => "badge-success", _ => "badge-ghost" };
