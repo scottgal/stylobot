@@ -202,7 +202,6 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
             ExcludeLocalIpFromBroadcast = false,
         };
         var sigCache = new SignatureAggregateCache(dashOptions);
-        var visitorCache = new VisitorListCache(sigCache);
         var publisher = new Mock<IDetectionEventPublisher>(MockBehavior.Loose);
         publisher.SetupGet(p => p.Name).Returns("test-publisher");
         publisher
@@ -215,7 +214,6 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
             eventStore,
             Options.Create(detOptions),
             Options.Create(dashOptions),
-            visitorCache,
             sigCache,
             publisher.Object);
     }

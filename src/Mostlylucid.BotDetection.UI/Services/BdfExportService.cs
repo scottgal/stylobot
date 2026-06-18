@@ -15,7 +15,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 public class BdfExportService
 {
     private readonly IDashboardEventStore _eventStore;
-    private readonly VisitorListCache _visitorCache;
+    private readonly SignatureAggregateCache _signatureCache;
     private readonly ILogger<BdfExportService> _logger;
 
     /// <summary>Cache: signature → (document, expiry). Thread-safe, short TTL.</summary>
@@ -60,11 +60,11 @@ public class BdfExportService
 
     public BdfExportService(
         IDashboardEventStore eventStore,
-        VisitorListCache visitorCache,
+        SignatureAggregateCache signatureCache,
         ILogger<BdfExportService> logger)
     {
         _eventStore = eventStore;
-        _visitorCache = visitorCache;
+        _signatureCache = signatureCache;
         _logger = logger;
     }
 
@@ -109,7 +109,7 @@ public class BdfExportService
         detections.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
 
         // 2. Get visitor cache for behavioral history
-        var visitor = _visitorCache.Get(signature);
+        var visitor = _signatureCache.GetVisitor(signature);
 
         // Use latest detection for summary data
         var latest = detections[^1];

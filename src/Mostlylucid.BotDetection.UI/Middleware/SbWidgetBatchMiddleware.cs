@@ -156,9 +156,9 @@ public sealed class SbWidgetBatchMiddleware
         var summary = await _eventStore.GetSummaryAsync();
         var model = new SummaryStatsModel { Summary = summary, BasePath = _options.BasePath.TrimEnd('/') };
 
-        var visitorCache = context.RequestServices.GetService<VisitorListCache>();
-        if (visitorCache != null)
-            PopulateSessionAnalytics(model, visitorCache);
+        var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
+        if (signatureCache != null)
+            PopulateSessionAnalytics(model, signatureCache);
 
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbSummaryStats/Default.cshtml", model, context);
@@ -166,16 +166,16 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<string> RenderVisitorsAsync(HttpContext context, IQueryCollection q)
     {
-        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+        var signatureCache = context.RequestServices.GetRequiredService<SignatureAggregateCache>();
         var filter = q["filter"].FirstOrDefault() ?? "all";
         var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = WidgetRenderHelpers.QueryPage(q);
-        var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, 24);
+        var (items, totalCount, _, _) = signatureCache.GetFiltered(filter, sortField, sortDir, page, 24);
         var model = new VisitorListModel
         {
             Visitors = items,
-            Counts = visitorCache.GetCounts(),
+            Counts = signatureCache.GetVisitorCounts(),
             Filter = filter,
             SortField = sortField,
             SortDir = sortDir,
@@ -606,11 +606,11 @@ public sealed class SbWidgetBatchMiddleware
 
     private Dictionary<string, object> BuildVisitorsContext(HttpContext context)
     {
-        var visitorCache = context.RequestServices.GetService<VisitorListCache>();
-        if (visitorCache == null)
+        var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
+        if (signatureCache == null)
             return new Dictionary<string, object> { ["visitors"] = new List<object>() };
 
-        var (items, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 50);
+        var (items, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, 50);
         var visitors = items.Select(v => new Dictionary<string, object?>
         {
             ["signature_id"] = v.PrimarySignature,
@@ -713,11 +713,11 @@ public sealed class SbWidgetBatchMiddleware
         return new Dictionary<string, object> { ["threats"] = threats };
     }
 
-    private static void PopulateSessionAnalytics(SummaryStatsModel model, VisitorListCache visitorCache)
+    private static void PopulateSessionAnalytics(SummaryStatsModel model, SignatureAggregateCache signatureCache)
     {
-        // maxCachedVisitors must be >= VisitorListCache._maxVisitors (default 100) to get full snapshot.
+        // pageSize > cache's MaxEntries returns the whole snapshot in one page.
         const int maxCachedVisitors = 1_000;
-        var (allVisitors, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, maxCachedVisitors);
+        var (allVisitors, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, maxCachedVisitors);
 
         // Single pass to collect all counters — avoids 6 separate LINQ iterations over the same list.
         var activeThreshold = DateTime.UtcNow.AddMinutes(-5);

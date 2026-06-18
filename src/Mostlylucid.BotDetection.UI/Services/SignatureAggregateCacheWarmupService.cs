@@ -59,9 +59,8 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
         {
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
 
-            // MaxEntries is the cap; pull at most that many. 24h window matches the
-            // VisitorListCache warmup so both caches agree on "what was happening
-            // recently" after a restart.
+            // MaxEntries is the cap; pull at most that many. 24h window covers the
+            // typical operator's "what was happening recently" view after a restart.
             var topBots = await _eventStore.GetTopBotsAsync(
                 count: _cache.MaxEntries,
                 startTime: DateTime.UtcNow.AddHours(-24),

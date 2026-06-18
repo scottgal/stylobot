@@ -446,7 +446,7 @@ public sealed class SignatureAggregateCache
             UaFamily = detections
                 .Select(ExtractUaFamilySignal)
                 .FirstOrDefault(f => !string.IsNullOrEmpty(f))
-                ?? VisitorListCache.DeriveUaFamily(latest.UserAgentRaw ?? latest.UserAgent),
+                ?? DeriveUaFamily(latest.UserAgentRaw ?? latest.UserAgent),
             EntityId = detections
                 .Select(d => d.EntityId)
                 .FirstOrDefault(e => !string.IsNullOrEmpty(e)),
@@ -850,6 +850,17 @@ public sealed class SignatureAggregateCache
             return string.IsNullOrWhiteSpace(s) ? null : s;
         }
         return null;
+    }
+
+    /// <summary>
+    ///     Last-ditch UA family derivation when the persisted event store didn't carry an
+    ///     ua.family signal (warm-up events strip ImportantSignals).
+    /// </summary>
+    private static string? DeriveUaFamily(string? userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return null;
+        var family = Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(userAgent).Family;
+        return string.IsNullOrEmpty(family) ? null : family;
     }
 
     /// <summary>

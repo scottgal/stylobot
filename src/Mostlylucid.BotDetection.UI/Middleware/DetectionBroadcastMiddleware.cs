@@ -147,7 +147,6 @@ public partial class DetectionBroadcastMiddleware
         IDashboardEventStore eventStore,
         IOptions<BotDetectionOptions> optionsAccessor,
         IOptions<StyloBotDashboardOptions> dashboardOptionsAccessor,
-        VisitorListCache visitorListCache,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
         IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
@@ -207,7 +206,6 @@ public partial class DetectionBroadcastMiddleware
                 {
                     // === SYNCHRONOUS CACHE UPDATE (microseconds; the write-through hot tier) ===
                     signatureAggregateCache.UpdateFromDetection(detection);
-                    visitorListCache.Upsert(detection);
 
                     // === SIGNALR BEACONS (throttled by SignalRBroadcastConstrainer) ===
                     SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashOpts.BroadcastMinIntervalMs);

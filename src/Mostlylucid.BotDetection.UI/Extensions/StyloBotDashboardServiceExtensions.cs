@@ -454,9 +454,6 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton<DashboardSummaryBroadcaster>();
         services.AddHostedService<UiHostedSingletonsBootstrap>();
 
-        // Server-side visitor cache for HTMX rendering
-        services.AddSingleton<VisitorListCache>();
-
         // BDF export service. Also registered in AddStyloBotApi for hosts that call
         // AddStyloBotApi but not AddStyloBotDashboard (the gateway); TryAdd is safe.
         services.TryAddSingleton<BdfExportService>();
@@ -475,12 +472,9 @@ public static class StyloBotDashboardServiceExtensions
         // Pinned endpoint store - persists operator-added paths to SQLite
         services.TryAddSingleton<IPinnedEndpointStore, SqlitePinnedEndpointStore>();
 
-        // Warm visitor cache from DB on startup so the visitors tab isn't empty after restart.
-        services.AddHostedService<VisitorCacheWarmupService>();
-        // Same fail-soft warm for the SignatureAggregateCache that feeds Top Bots / Live
-        // Activity / live-visitors widgets. Without this, every restart wiped the cache
-        // and "Top Bots" stayed empty until fresh traffic arrived (cache is in-memory
-        // read-through; persistence is the source of truth in IDashboardEventStore).
+        // Warm the SignatureAggregateCache from DB on startup so Top Bots / Live Activity /
+        // visitor list aren't empty after restart. Cache is in-memory read-through;
+        // persistence is the source of truth in IDashboardEventStore.
         services.AddHostedService<SignatureAggregateCacheWarmupService>();
 
         // Route catalog: discovery + manual names + OpenAPI cross-reference. FOSS feature,
@@ -821,9 +815,6 @@ public static class StyloBotDashboardServiceExtensions
         // Stateless UA aggregator - used by view components with audience/range params
         services.TryAddSingleton<DashboardUserAgentAggregator>();
 
-        // Server-side visitor cache used by the visitor-list widget
-        services.TryAddSingleton<VisitorListCache>();
-
         return services;
     }
 
@@ -895,15 +886,9 @@ public static class StyloBotDashboardServiceExtensions
         // Stateless UA aggregator - used by broadcaster beacon + view components with params
         services.TryAddSingleton<DashboardUserAgentAggregator>();
 
-        // Server-side visitor cache (needed by broadcast middleware)
-        services.TryAddSingleton<VisitorListCache>();
-
-        // Warm visitor cache from DB on startup so the visitors tab isn't empty after restart.
-        services.AddHostedService<VisitorCacheWarmupService>();
-        // Same fail-soft warm for the SignatureAggregateCache that feeds Top Bots / Live
-        // Activity / live-visitors widgets. Without this, every restart wiped the cache
-        // and "Top Bots" stayed empty until fresh traffic arrived (cache is in-memory
-        // read-through; persistence is the source of truth in IDashboardEventStore).
+        // Warm the SignatureAggregateCache from DB on startup so Top Bots / Live Activity /
+        // visitor list aren't empty after restart. Cache is in-memory read-through;
+        // persistence is the source of truth in IDashboardEventStore.
         services.AddHostedService<SignatureAggregateCacheWarmupService>();
 
         // LLM result callback (needed if LLM classification is enabled)

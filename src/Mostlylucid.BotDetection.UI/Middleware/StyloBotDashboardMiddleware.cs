@@ -1148,14 +1148,11 @@ public class StyloBotDashboardMiddleware
         var tab = rowRef.Area;
 
         // Build all partial models server-side - fully rendered, no JSON serialization needed.
-        // Visitor list reads through the event store (audience=all) instead of the local
-        // VisitorListCache so remote-mode hosts get fresh data; the cache stays as a
-        // write-through hot path on the gateway but is no longer this widget's read source.
-        // visitorCache is still resolved for Session Analytics on the Summary stats card
-        // (PopulateSessionAnalytics reads per-visitor session aggregates from it -- a
-        // separate concern from the visitor list rendering and a separate follow-up to
-        // route through the event store later).
-        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+        // Visitor list reads through the event store (audience=all) so remote-mode hosts
+        // get fresh data. The cache is still resolved for Session Analytics on the Summary
+        // stats card (PopulateSessionAnalytics reads per-visitor session aggregates from
+        // it).
+        var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitorRaw = await _eventStore.GetTopBotsAsync(
             count: _visitorListMaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),
@@ -1234,7 +1231,7 @@ public class StyloBotDashboardMiddleware
             ActiveRow = rowRef,
             Version = DashboardVersion,
             RenderShell = _options.RenderShell,
-            Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, visitorCache),
+            Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, sigCacheForSummary),
             Visitors = new VisitorListModel
             {
                 Visitors = visitors, Counts = visitorCounts,
@@ -1279,7 +1276,7 @@ public class StyloBotDashboardMiddleware
     /// <summary>
     ///     Builds the "You" panel JSON by looking up the current visitor in the cache.
     ///     Since /_stylobot is excluded from detection, we compute the visitor's signature
-    ///     using MultiFactorSignatureService and look them up in VisitorListCache.
+    ///     using MultiFactorSignatureService and look them up in SignatureAggregateCache.
     /// </summary>
     private async Task<string> BuildYourDetectionJson(HttpContext context)
     {
@@ -1287,10 +1284,10 @@ public class StyloBotDashboardMiddleware
         {
             var sigService = context.RequestServices.GetService(typeof(MultiFactorSignatureService))
                 as MultiFactorSignatureService;
-            var visitorCache = context.RequestServices.GetService(typeof(VisitorListCache))
-                as VisitorListCache;
+            var signatureCache = context.RequestServices.GetService(typeof(SignatureAggregateCache))
+                as SignatureAggregateCache;
 
-            // sigService and visitorCache are OPTIONAL on remote-mode dashboard
+            // sigService and signatureCache are OPTIONAL on remote-mode dashboard
             // viewer hosts. Hydrator-populated Items + the event-store fallback
             // below are sufficient; only short-circuit when we have NO source of
             // signatures at all (resolved below after the lookup chain).
@@ -1323,7 +1320,7 @@ public class StyloBotDashboardMiddleware
                 sigs = sigService.GenerateSignatures(context);
             if (sigs is null)
                 return "null";
-            var visitor = visitorCache?.Get(sigs.PrimarySignature);
+            var visitor = signatureCache?.GetVisitor(sigs.PrimarySignature);
 
             if (visitor != null)
             {
@@ -1904,12 +1901,12 @@ public class StyloBotDashboardMiddleware
         var detections = await _eventStore.GetDetectionsAsync(filter);
         var signatures = await _eventStore.GetSignaturesAsync(200);
 
-        // Get visitor cache if available
-        var visitorCache = context.RequestServices
-            .GetService(typeof(VisitorListCache)) as VisitorListCache;
+        // Get signature cache if available
+        var signatureCache = context.RequestServices
+            .GetService(typeof(SignatureAggregateCache)) as SignatureAggregateCache;
 
-        var topBots = visitorCache?.GetTopBots(10);
-        var filterCounts = visitorCache?.GetCounts();
+        var topBots = signatureCache?.GetTopBotVisitors(10);
+        var filterCounts = signatureCache?.GetVisitorCounts();
 
         var diagnostics = new
         {
@@ -2679,10 +2676,10 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Fall back to VisitorListCache (has richer history with processing times)
-        var visitorCache = context.RequestServices
-            .GetService(typeof(VisitorListCache)) as VisitorListCache;
-        var visitor = visitorCache?.Get(decodedSignature);
+        // Fall back to SignatureAggregateCache (has richer history with processing times)
+        var signatureCache = context.RequestServices
+            .GetService(typeof(SignatureAggregateCache)) as SignatureAggregateCache;
+        var visitor = signatureCache?.GetVisitor(decodedSignature);
 
         List<double> processingTimes, botProbabilities, confidences;
 
@@ -2981,12 +2978,11 @@ public class StyloBotDashboardMiddleware
         var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 24;
 
-        // Read through the event store -- same antipattern + same fix as Top Bots: the
-        // local VisitorListCache freezes at startup-warm values on remote-mode hosts
-        // because no DetectionBroadcastMiddleware runs in-process to Upsert it. Fetching
-        // audience=all here gives the Visitors tab a fresh cross-cutting top-N every
-        // partial render; ProjectAsVisitors mirrors VisitorListCache.GetFiltered's
-        // filter/sort/page semantics so the view consumes the same shape.
+        // Read through the event store so remote-mode hosts (whose SignatureAggregateCache
+        // may be empty -- no DetectionBroadcastMiddleware runs in-process) still get a
+        // fresh cross-cutting top-N every partial render. ProjectAsVisitors mirrors
+        // SignatureAggregateCache.GetFiltered's filter/sort/page semantics so the view
+        // consumes the same shape.
         var raw = await _eventStore.GetTopBotsAsync(
             count: _visitorListMaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),
@@ -3014,7 +3010,7 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    // 500 mirrors VisitorListCache's default cap, keeps the event-store fetch bounded.
+    // Keeps the event-store fetch bounded; matches the visitor-list page sizes.
     private const int _visitorListMaxEntries = 500;
 
     /// <summary>Render the summary stats partial.</summary>
@@ -3027,19 +3023,20 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    /// <summary>Build a SummaryStatsModel with session analytics from a pre-fetched VisitorListCache.</summary>
+    /// <summary>Build a SummaryStatsModel with session analytics from the signature cache.</summary>
     private static SummaryStatsModel BuildSummaryStatsModelFromVisitorCache(
-        DashboardSummary summary, string basePath, VisitorListCache visitorCache)
+        DashboardSummary summary, string basePath, SignatureAggregateCache? signatureCache)
     {
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
-        PopulateSessionAnalytics(model, visitorCache);
+        if (signatureCache is not null)
+            PopulateSessionAnalytics(model, signatureCache);
         return model;
     }
 
-    /// <summary>Populate session analytics fields on an existing SummaryStatsModel from the visitor cache.</summary>
-    private static void PopulateSessionAnalytics(SummaryStatsModel model, VisitorListCache visitorCache)
+    /// <summary>Populate session analytics fields on an existing SummaryStatsModel from the signature cache.</summary>
+    private static void PopulateSessionAnalytics(SummaryStatsModel model, SignatureAggregateCache signatureCache)
     {
-        var (allVisitors, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, int.MaxValue);
+        var (allVisitors, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, int.MaxValue);
         var humanVisitors = allVisitors.Where(v => !v.IsBot).ToList();
         var botVisitors = allVisitors.Where(v => v.IsBot).ToList();
 
@@ -3075,9 +3072,9 @@ public class StyloBotDashboardMiddleware
         var basePath = _options.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
-        var visitorCache = context.RequestServices.GetService<VisitorListCache>();
-        if (visitorCache != null)
-            PopulateSessionAnalytics(model, visitorCache);
+        var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
+        if (signatureCache != null)
+            PopulateSessionAnalytics(model, signatureCache);
 
         return model;
     }
@@ -5153,10 +5150,10 @@ public class StyloBotDashboardMiddleware
         if (!string.IsNullOrEmpty(sig))
         {
             // Get the most recent detection for this signature to show lockable values
-            var visitorCache = context.RequestServices.GetService<VisitorListCache>();
-            if (visitorCache != null)
+            var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
+            if (signatureCache != null)
             {
-                var (visitors, _, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 100);
+                var (visitors, _, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, 100);
                 // Find matching visitor and extract signal-like properties
                 currentSignals = new Dictionary<string, string>();
                 // Common lockable dimensions
@@ -5512,18 +5509,18 @@ public class StyloBotDashboardMiddleware
             }
         }
 
-        // Optional enrichment from VisitorListCache (paths / UA / protocol / per-request
-        // ring buffers). On remote-mode hosts the visitor cache is also frozen at startup
-        // so these are best-effort; the event-store recent-detections list above is the
+        // Optional enrichment from SignatureAggregateCache (paths / UA / protocol /
+        // per-request ring buffers). On remote-mode hosts the cache may be empty so
+        // these are best-effort; the event-store recent-detections list above is the
         // fallback for the history charts.
-        var visitorCache = context.RequestServices.GetService<VisitorListCache>();
-        var visitor = visitorCache?.Get(decodedSignature);
+        var visitorCache = context.RequestServices.GetService<SignatureAggregateCache>();
+        var visitor = visitorCache?.GetVisitor(decodedSignature);
         List<string> paths = [];
-        // Seed UA from the latest detection event so remote-mode dashboard
-        // hosts (whose VisitorListCache freezes at startup) still surface the
-        // raw UA on the signature-detail h1. Without this the h1 falls back
-        // to "GB User N" even though the persisted row has the full UA -- the
-        // same hide-what-we-know pattern that motivated task #110.
+        // Seed UA from the latest detection event so remote-mode dashboard hosts
+        // (whose cache may be empty) still surface the raw UA on the signature-detail
+        // h1. Without this the h1 falls back to "GB User N" even though the persisted
+        // row has the full UA -- the same hide-what-we-know pattern that motivated
+        // task #110.
         string? userAgent = detections[0].UserAgentRaw ?? detections[0].UserAgent;
         string? protocol = null;
         DateTime firstSeen = detections[^1].Timestamp;
@@ -6447,10 +6444,10 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         {
             var sigService = context.RequestServices.GetService(typeof(MultiFactorSignatureService))
                 as MultiFactorSignatureService;
-            var visitorCache = context.RequestServices.GetService(typeof(VisitorListCache))
-                as VisitorListCache;
+            var signatureCache = context.RequestServices.GetService(typeof(SignatureAggregateCache))
+                as SignatureAggregateCache;
 
-            // sigService and visitorCache are OPTIONAL: pure dashboard-viewer hosts
+            // sigService and signatureCache are OPTIONAL: pure dashboard-viewer hosts
             // (no AddBotDetection / detection pipeline) don't register them. The
             // hydrator middleware still populates the same Items keys from the
             // gateway's X-Bot-Detection-* headers, and the event-store fallback below
@@ -6493,7 +6490,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 {
                     HasData = false, BasePath = _options.BasePath.TrimEnd('/')
                 };
-            var visitor = visitorCache?.Get(sigs.PrimarySignature);
+            var visitor = signatureCache?.GetVisitor(sigs.PrimarySignature);
 
             if (visitor != null)
             {
