@@ -70,7 +70,7 @@ public sealed class NullFingerprintStore : IFingerprintStore
     public Task UpsertKeyAsync(string primarySignature, string fingerprintId, CancellationToken ct = default)
         => Task.CompletedTask;
 
-    public Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default)
+    public Task RecordObservationAsync(string fingerprintId, float[] vector, string? uaFamily = null, CancellationToken ct = default)
         => Task.CompletedTask;
 
     public Task RecordCorrectionAsync(

@@ -600,19 +600,24 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>Append an unabsorbed observation row.</summary>
-    public async Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default)
+    public async Task RecordObservationAsync(
+        string fingerprintId,
+        float[] vector,
+        string? uaFamily = null,
+        CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
         await using var conn = await OpenConnectionWithVecAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at)
-            VALUES (@id, @vec, @ts, NULL);
+            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at, ua_family)
+            VALUES (@id, @vec, @ts, NULL, @ua);
             SELECT last_insert_rowid();
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         cmd.Parameters.AddWithValue("@vec", FloatsToBlob(vector));
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("@ua", (object?)uaFamily ?? DBNull.Value);
         var observationId = (long)(await cmd.ExecuteScalarAsync(ct))!;
 
         await using var bump = conn.CreateCommand();
@@ -831,7 +836,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.CommandText = """
             SELECT o.id, o.fingerprint_id, o.vector, o.observed_at,
                    f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen,
-                   f.inferred_client_type
+                   f.inferred_client_type, o.ua_family
               FROM fingerprint_observations o
               JOIN fingerprints f ON f.fingerprint_id = o.fingerprint_id
              WHERE o.absorbed_at IS NULL
@@ -865,7 +870,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                 Centroid = BlobToFloats((byte[])reader.GetValue(4)),
                 CentroidMaturity = reader.GetInt32(5),
                 Weights = BlobToFloats((byte[])reader.GetValue(6)),
-                InferredClientType = reader.GetString(9)
+                InferredClientType = reader.GetString(9),
+                UaFamily = reader.IsDBNull(10) ? null : reader.GetString(10)
             });
         }
         return results;

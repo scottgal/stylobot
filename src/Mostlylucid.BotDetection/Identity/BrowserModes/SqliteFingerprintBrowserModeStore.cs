@@ -134,7 +134,9 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
     }
 
     public async Task RecordModeObservationAsync(
-        string fingerprintId, string modeId, float[] vector, CancellationToken ct = default)
+        string fingerprintId, string modeId, float[] vector,
+        string? uaFamily = null,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(fingerprintId) || string.IsNullOrEmpty(modeId)) return;
         await _parent.EnsureInitialisedAsync(ct);
@@ -143,13 +145,14 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO fingerprint_mode_observations
-                (fingerprint_id, mode_id, vector, observed_at, absorbed_at)
-            VALUES (@fp, @mode, @vec, @ts, NULL)
+                (fingerprint_id, mode_id, vector, observed_at, absorbed_at, ua_family)
+            VALUES (@fp, @mode, @vec, @ts, NULL, @ua)
             """;
         cmd.Parameters.AddWithValue("@fp", fingerprintId);
         cmd.Parameters.AddWithValue("@mode", modeId);
         cmd.Parameters.AddWithValue("@vec", SqliteFingerprintStore.FloatsToBlob(vector));
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("@ua", (object?)uaFamily ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -165,7 +168,7 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         // arrival order — the EWMA result is otherwise indistinguishable, but
         // grouping in C# is one pass instead of a sort.
         cmd.CommandText = """
-            SELECT id, fingerprint_id, mode_id, vector, observed_at
+            SELECT id, fingerprint_id, mode_id, vector, observed_at, ua_family
               FROM fingerprint_mode_observations
              WHERE absorbed_at IS NULL
              ORDER BY fingerprint_id, mode_id, id
@@ -182,7 +185,8 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
                 FingerprintId: reader.GetString(1),
                 ModeId: reader.GetString(2),
                 Vector: SqliteFingerprintStore.BlobToFloats((byte[])reader.GetValue(3)),
-                ObservedAt: DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind)));
+                ObservedAt: DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                UaFamily: reader.IsDBNull(5) ? null : reader.GetString(5)));
         }
         return rows;
     }

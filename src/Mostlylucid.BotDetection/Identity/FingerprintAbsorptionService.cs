@@ -275,8 +275,10 @@ public sealed class FingerprintAbsorptionService : IDisposable
 
         // Recompute inferred client type against the new centroid. If the nearest archetype has
         // changed, the fingerprint's behavioural classification has drifted; the next request
-        // will emit identity.client_type_drift.
-        var nearest = _archetypes.FindNearest(newCentroid);
+        // will emit identity.client_type_drift. obs.UaFamily was persisted at observation time
+        // (column added in IdentitySchema migration) so the matcher's UA gate fires: a Chrome
+        // observation can no longer match a "freshping" archetype via 2-dim LSH collision.
+        var nearest = _archetypes.FindNearest(newCentroid, obs.UaFamily);
         var newInferredType = nearest?.Archetype.ArchetypeId ?? obs.InferredClientType;
         var newInferredConfidence = nearest?.Score ?? 0.0;
         var typeChanged = !string.Equals(newInferredType, obs.InferredClientType, StringComparison.OrdinalIgnoreCase);

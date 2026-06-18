@@ -109,7 +109,7 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
             var fpId = await SeedFingerprintAsync(store, "fp-absorb-1");
 
             // Record one observation; this fires ObservationAppended.
-            await store.RecordObservationAsync(fpId, new float[store.Layout.Dimension], CancellationToken.None);
+            await store.RecordObservationAsync(fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
 
             // Wait debounce + 300ms buffer.
             await Task.Delay(500, CancellationToken.None);
@@ -136,7 +136,7 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
 
             // Record 10 observations in quick succession.
             for (var i = 0; i < 10; i++)
-                await store.RecordObservationAsync(fpId, new float[dim], CancellationToken.None);
+                await store.RecordObservationAsync(fpId, new float[dim], ct: CancellationToken.None);
 
             // Wait debounce + 400ms buffer.
             await Task.Delay(600, CancellationToken.None);

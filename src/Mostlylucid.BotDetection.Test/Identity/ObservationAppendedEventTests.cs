@@ -77,7 +77,7 @@ public class ObservationAppendedEventTests : IDisposable
         string? capturedId = null;
         store.ObservationAppended += id => capturedId = id;
 
-        await store.RecordObservationAsync(fpId, new float[dim], CancellationToken.None);
+        await store.RecordObservationAsync(fpId, new float[dim], ct: CancellationToken.None);
 
         Assert.Equal(fpId, capturedId);
     }
@@ -103,7 +103,7 @@ public class ObservationAppendedEventTests : IDisposable
                 .GetResult();
         };
 
-        await store.RecordObservationAsync(fpId, new float[dim], CancellationToken.None);
+        await store.RecordObservationAsync(fpId, new float[dim], ct: CancellationToken.None);
 
         // The observation row must already exist (count >= 1) when the handler ran.
         Assert.True(countInsideHandler.HasValue, "handler was never invoked");

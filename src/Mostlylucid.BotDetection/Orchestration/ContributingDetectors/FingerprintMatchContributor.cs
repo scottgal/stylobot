@@ -179,7 +179,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             if (confirmScore >= _options.Match.MergeThreshold)
             {
                 EmitConfirmedSignals(state, vector, l1Candidate, confirmScore, primarySig);
-                await _store.RecordObservationAsync(l1Candidate.FingerprintId, vector, cancellationToken);
+                await _store.RecordObservationAsync(l1Candidate.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
                 await EmitPostObservationSignalsAsync(state, l1Candidate.ObservationCount + 1, l1Candidate.CentroidMaturity, cancellationToken);
                 await AbsorbIntoBrowserModeAsync(state, l1Candidate.FingerprintId, vector, cancellationToken);
                 // Clean L1 confirm = non-ambiguity event; pulls EWMA toward 0.
@@ -260,7 +260,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Already seen this identity. Bind this primary_signature so future L1 lookups
             // skip even the SHA + GetFingerprint call; record the observation; emit signals.
             await _store.UpsertKeyAsync(primarySig, canonicalId, ct);
-            await _store.RecordObservationAsync(canonicalId, vector, ct);
+            await _store.RecordObservationAsync(canonicalId, vector, ResolveObservedUaFamily(state), ct);
             await AbsorbIntoBrowserModeAsync(state, canonicalId, vector, ct);
             EmitConfirmedSignals(state, vector, existing, matchScore: 1.0, primarySig);
             await BumpAmbiguityAsync(state, canonicalId, isAmbiguous: false, ct);
@@ -353,7 +353,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             var isCorrection = l1Candidate is not null
                 && !string.Equals(l1Candidate.FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, isCorrection: isCorrection);
-            await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+            await _store.RecordObservationAsync(best.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
             await EmitPostObservationSignalsAsync(state, best.ObservationCount + 1, best.CentroidMaturity, cancellationToken);
             await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
 
@@ -386,7 +386,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         {
             // Rotation candidate band: assign to the candidate, observe-and-drift, signal it.
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, rotationCandidate: true);
-            await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+            await _store.RecordObservationAsync(best.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
             await EmitPostObservationSignalsAsync(state, best.ObservationCount + 1, best.CentroidMaturity, cancellationToken);
             await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
             // Rotation-band match = ambiguity event by definition.
@@ -419,13 +419,11 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             ? rawObj as float[]
             : null;
         // UA family is the gate the user demanded: archetype is an overlay on UA, not a
-        // replacement for it. Pull the parsed family from signals so the matcher drops
-        // candidates whose own UA assertion contradicts this request's claim BEFORE the
-        // cosine pick. Without this, a Chrome request can match "freshping" at 0.95
-        // when the 2-dim LSH of "Chrome" collides with the 2-dim LSH of "Freshping".
-        var observedUaFamily = state.GetSignal<string>(SignalKeys.UserAgentFamily);
-        if (string.IsNullOrEmpty(observedUaFamily) || string.Equals(observedUaFamily, "Other", StringComparison.OrdinalIgnoreCase))
-            observedUaFamily = state.GetSignal<string>(SignalKeys.UserAgentBotName);
+        // replacement for it. The matcher drops candidates whose own UA assertion
+        // contradicts this request's claim BEFORE the cosine pick. Without this, a
+        // Chrome request can match "freshping" at 0.95 when the 2-dim LSH of "Chrome"
+        // collides with the 2-dim LSH of "Freshping".
+        var observedUaFamily = ResolveObservedUaFamily(state);
         var nearestArchetype = rawVector is not null
             ? _archetypes.FindNearestRaw(rawVector, observedUaFamily)
             : _archetypes.FindNearest(vector, observedUaFamily);
@@ -660,7 +658,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         try
         {
             var modeId = ResolveBrowserModeId(state);
-            await _modeStore.RecordModeObservationAsync(fingerprintId, modeId, vector, cancellationToken);
+            await _modeStore.RecordModeObservationAsync(fingerprintId, modeId, vector, ResolveObservedUaFamily(state), cancellationToken);
 
             // Diagnostic signals reflect the current cached state (before this
             // observation is folded by the drainer). unseen flips true the
@@ -703,6 +701,22 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         var signal = state.GetSignal<string>(SignalKeys.IdentityBrowserMode);
         if (!string.IsNullOrEmpty(signal)) return signal;
         return _modeResolver.Resolve(state.HttpContext);
+    }
+
+    /// <summary>
+    ///     Resolve the request's UA family for the archetype matcher's UA gate.
+    ///     Prefers <see cref="SignalKeys.UserAgentFamily"/> (parsed family string,
+    ///     e.g. "Chrome", "Googlebot"); falls back to <see cref="SignalKeys.UserAgentBotName"/>
+    ///     when the family is "Other" / missing (the bot-pattern matcher resolved a
+    ///     specific name before uap-core did). Returns null when neither is present;
+    ///     the matcher treats null as "no gate" and behaves like the pre-gate code.
+    /// </summary>
+    private static string? ResolveObservedUaFamily(BlackboardState state)
+    {
+        var family = state.GetSignal<string>(SignalKeys.UserAgentFamily);
+        if (string.IsNullOrEmpty(family) || string.Equals(family, "Other", StringComparison.OrdinalIgnoreCase))
+            family = state.GetSignal<string>(SignalKeys.UserAgentBotName);
+        return string.IsNullOrEmpty(family) ? null : family;
     }
 
     private void EmitConfirmedSignals(

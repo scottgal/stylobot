@@ -208,9 +208,21 @@ public sealed class FingerprintModeAbsorptionService : IDisposable
         // Per project_centroid_learning_feedback_loop, the same registry will eventually
         // hold BDF-derived archetypes alongside the hand-curated YAML; this call is the
         // single read-site they both feed.
+        // Pick the most recently observed UA family in the batch as the gate input. The
+        // batch covers one (fingerprint, mode) tuple's recent observations so the family
+        // is typically stable across them; "latest in the batch" matches what the operator
+        // sees as the current request's claim. Falls back to null when the column was
+        // null on every row (legacy data); the matcher treats null as "no gate".
+        string? batchUaFamily = null;
+        for (var k = count - 1; k >= 0; k--)
+        {
+            var ua = batch[start + k].UaFamily;
+            if (!string.IsNullOrEmpty(ua)) { batchUaFamily = ua; break; }
+        }
+
         string? inferredArchetype = null;
         double? inferredConfidence = null;
-        var nearest = _archetypes.FindNearest(mergedCentroid);
+        var nearest = _archetypes.FindNearest(mergedCentroid, batchUaFamily);
         if (nearest is not null && nearest.Score >= _options.BrowserMode.MinInferredArchetypeScore)
         {
             inferredArchetype = nearest.Archetype.ArchetypeId;

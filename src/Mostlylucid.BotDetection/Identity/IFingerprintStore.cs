@@ -60,7 +60,11 @@ public interface IFingerprintStore : IFingerprintReader
 
     Task UpsertKeyAsync(string primarySignature, string fingerprintId, CancellationToken ct = default);
 
-    Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default);
+    Task RecordObservationAsync(
+        string fingerprintId,
+        float[] vector,
+        string? uaFamily = null,
+        CancellationToken ct = default);
 
     Task RecordCorrectionAsync(
         string requestId,

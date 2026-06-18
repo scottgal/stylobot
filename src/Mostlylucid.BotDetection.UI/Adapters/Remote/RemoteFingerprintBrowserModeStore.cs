@@ -45,7 +45,9 @@ internal sealed class RemoteFingerprintBrowserModeStore : IFingerprintBrowserMod
             "DeleteModeAsync is gateway-only — the dashboard host must not delete mode rows over REST.");
 
     public Task RecordModeObservationAsync(
-        string fingerprintId, string modeId, float[] vector, CancellationToken ct = default)
+        string fingerprintId, string modeId, float[] vector,
+        string? uaFamily = null,
+        CancellationToken ct = default)
         => throw new NotSupportedException(
             "RecordModeObservationAsync is gateway-only — the matcher's append-only log is local to the detection gateway.");
 

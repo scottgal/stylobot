@@ -139,4 +139,13 @@ public sealed record AbsorbableObservation
     public required int CentroidMaturity { get; init; }
     public required float[] Weights { get; init; }
     public required string InferredClientType { get; init; }
+
+    /// <summary>
+    ///     The UA family string emitted at the time this observation was recorded,
+    ///     preserved on the row so the absorption path can pass it to the archetype
+    ///     matcher's UA-family gate. Null on legacy rows recorded before the column
+    ///     existed; the matcher treats null as "no gate" and falls back to unfiltered
+    ///     scoring -- same behavior as before this field existed.
+    /// </summary>
+    public string? UaFamily { get; init; }
 }

@@ -67,6 +67,18 @@ internal static class IdentitySchema
             "ALTER TABLE fingerprints ADD COLUMN verified_at TEXT", ct);
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN trust_observations INTEGER NOT NULL DEFAULT 0", ct);
+
+        // Observation-time UA family. Persisted alongside the vector so the absorption
+        // path can pass it to the archetype matcher's UA-family gate; the 2-dim LSH
+        // hash baked into the vector is too low-resolution to differentiate hundreds
+        // of UA families and lets a Chrome request collide with a "freshping"
+        // ghost archetype at high cosine. NULL on legacy rows; the matcher treats
+        // null as "no gate" and falls back to unfiltered scoring -- same behavior
+        // as before this column existed.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprint_observations ADD COLUMN ua_family TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprint_mode_observations ADD COLUMN ua_family TEXT", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)

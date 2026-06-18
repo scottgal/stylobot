@@ -53,7 +53,9 @@ public interface IFingerprintBrowserModeStore
     ///     tuple on a tick.
     /// </summary>
     Task RecordModeObservationAsync(
-        string fingerprintId, string modeId, float[] vector, CancellationToken ct = default);
+        string fingerprintId, string modeId, float[] vector,
+        string? uaFamily = null,
+        CancellationToken ct = default);
 
     /// <summary>
     ///     Returns up to <paramref name="maxRows"/> unabsorbed mode observation
@@ -95,4 +97,5 @@ public sealed record UnabsorbedModeObservation(
     string FingerprintId,
     string ModeId,
     float[] Vector,
-    DateTime ObservedAt);
+    DateTime ObservedAt,
+    string? UaFamily = null);
