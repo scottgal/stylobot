@@ -202,21 +202,31 @@ public sealed class SignatureAggregateCache
             string? oldName = null;
             lock (agg.SyncRoot)
             {
-                if (string.IsNullOrEmpty(agg.UserAgent)) continue;
+                // Reconcile needs SOMETHING for the composer to chew on: either
+                // a raw UA string OR a parsed UaFamily already on the aggregate.
+                // SeedFromTopBots populates UaFamily on every warmed row but the
+                // SQL projection doesn't include raw UA -- the family-only path
+                // is the load-bearing case here.
+                if (string.IsNullOrEmpty(agg.UserAgent) && string.IsNullOrEmpty(agg.UaFamily)) continue;
 
                 // Compose under the current contract using whatever distinguishing
-                // signals the cache holds (country at minimum). The composer is THE
-                // source -- if its output differs from what's currently stored, the
-                // stored value is stale (verbose pre-contract form, missing distinguisher,
-                // double-discriminator bug, etc.) and we overwrite. No "preserve first
+                // signals the cache holds. Feed UaFamily into signals so the
+                // composer's Priority 3 short-name path can fire even when raw UA
+                // isn't on the aggregate. Country feeds BuildDistinctiveModifier's
+                // attempt-1 fallback. Composer is THE source -- if its output
+                // differs from what's currently stored, the stored value is stale
+                // (verbose pre-contract form, missing distinguisher, double-
+                // discriminator bug, etc.) and we overwrite. No "preserve first
                 // write" hysteresis here -- that lets stale forms persist forever.
                 // Hysteresis lives in the matcher's hot-path Compose call where it
                 // belongs (don't replace a real name with a Priority-4 fallback);
                 // this is a deliberate "rewrite to the current composer's truth"
                 // pass, fires on warmup and periodically thereafter.
-                var signals = new Dictionary<string, object>(2);
+                var signals = new Dictionary<string, object>(3);
                 if (!string.IsNullOrEmpty(agg.CountryCode))
                     signals[Mostlylucid.BotDetection.Models.SignalKeys.GeoCountryCode] = agg.CountryCode;
+                if (!string.IsNullOrEmpty(agg.UaFamily))
+                    signals[Mostlylucid.BotDetection.Models.SignalKeys.UserAgentFamily] = agg.UaFamily;
                 newName = Mostlylucid.BotDetection.Services.FingerprintNameComposer.Compose(
                     signals, userAgent: agg.UserAgent);
                 if (string.IsNullOrEmpty(newName)) continue;
