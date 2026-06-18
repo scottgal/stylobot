@@ -175,6 +175,53 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
+    ///     Walks cache entries with empty <c>BotName</c> but populated <c>UserAgent</c>
+    ///     and back-fills the name by calling the canonical
+    ///     <c>FingerprintNameComposer.Compose</c> with the stored UA. Heals legacy
+    ///     rows where the broadcast event arrived with PrimaryBotName=null (matcher
+    ///     race against UserAgentContributor at allocation time) -- those rows were
+    ///     warmed back from the persistent event store with bot_name=NULL and the
+    ///     view layer falls back to a bare signature hash, which is zero signal for
+    ///     the operator. Running this pass on startup (via the warmup service) and
+    ///     on a periodic tick fills them in with composer-derived names ("Chrome on
+    ///     macOS", "Chrome Mobile on Android", "curl", etc.) WITHOUT needing fresh
+    ///     traffic per fingerprint. Per [[feedback_single_name_path]]: same composer,
+    ///     additional call site, no parasitic resolver.
+    ///     <para>
+    ///     Returns the number of aggregates that received a name. Bounded internally
+    ///     by the cache size (MaxEntries=500); cheap because the composer is pure.
+    ///     </para>
+    /// </summary>
+    public int ReconcileDisplayNames()
+    {
+        var filled = 0;
+        foreach (var kvp in _entries)
+        {
+            var agg = kvp.Value;
+            string? newName = null;
+            lock (agg.SyncRoot)
+            {
+                if (!string.IsNullOrEmpty(agg.BotName)) continue;
+                if (string.IsNullOrEmpty(agg.UserAgent)) continue;
+
+                // Empty signal dict -- the composer's Priority 3 self-rescues via
+                // the explicit userAgent param + UserAgentParser, which is exactly
+                // the path we want here.
+                var emptySignals = new Dictionary<string, object>(0);
+                newName = Mostlylucid.BotDetection.Services.FingerprintNameComposer.Compose(
+                    emptySignals, userAgent: agg.UserAgent);
+                if (string.IsNullOrEmpty(newName)) continue;
+                agg.BotName = newName;
+            }
+            filled++;
+            _logger?.LogDebug("Reconciled BotName for {Sig}: {Name}",
+                kvp.Key[..Math.Min(8, kvp.Key.Length)], newName);
+        }
+        if (filled > 0) _sortDirty = true;
+        return filled;
+    }
+
+    /// <summary>
     ///     Apply a scoring narrative to the in-memory aggregate. Narratives are
     ///     transient -- they describe the most recent scoring pass, not durable
     ///     identity -- so this is in-memory only.

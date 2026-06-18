@@ -72,6 +72,25 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
                     "Warmed signature aggregate cache with {Count} signatures from last 24h",
                     topBots.Count);
 
+                // Heal any legacy rows that loaded with BotName=null but have a stored
+                // UserAgent. The composer self-rescues from the UA string ("Chrome on
+                // macOS", "Chrome Mobile on Android", etc.) so post-warmup the
+                // dashboard never falls back to bare signature-hash placeholders.
+                // Per [[feedback_single_name_path]] -- one composer, post-warmup pass.
+                try
+                {
+                    var filled = _cache.ReconcileDisplayNames();
+                    if (filled > 0)
+                        _logger.LogInformation(
+                            "Reconciled BotName on {Count} cached signatures via composer",
+                            filled);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Display-name reconciliation pass failed -- legacy rows will keep their stored bot_name");
+                }
+
                 // Pre-warm the per-signature hit ring buffers from the last hour of stored
                 // detections so the Live Activity sparkline column shows real trend on
                 // first paint after restart. The cap is generous; on light traffic this
