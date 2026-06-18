@@ -322,7 +322,9 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
-    ///     Try to get aggregate data for a specific signature.
+    ///     Try to get aggregate data for a specific signature from the hot tier.
+    ///     Does NOT fall through to the durable store -- callers that want the
+    ///     transparent layered read use <see cref="GetOrLoadAsync"/> instead.
     /// </summary>
     public bool TryGet(string signature, out SignatureAggregate? aggregate)
     {
@@ -335,6 +337,60 @@ public sealed class SignatureAggregateCache
 
         aggregate = null;
         return false;
+    }
+
+    /// <summary>
+    ///     Transparent layered read: hot tier first (the LFU dict), cold tier
+    ///     (<see cref="IDashboardEventStore"/>) on miss with auto-populate so the
+    ///     next caller hits hot. This is the EF-L2 shape the user asked for --
+    ///     no read surface should have to know about a cold-tier fallback path;
+    ///     they ask the cache, and the cache is always at-least-as-fresh-as-DB
+    ///     because every writer goes through it.
+    ///     <para>
+    ///     A miss with no event store registered (test fixtures, OSS hosts that
+    ///     don't wire one) returns null without throwing -- the caller still sees
+    ///     "unknown signature" rather than a 500.
+    ///     </para>
+    ///     <para>
+    ///     Concurrent misses for the same signature race the cold-tier read; both
+    ///     populate via <see cref="WarmFromDetections"/> which is idempotent
+    ///     (last-write-wins on identical data). No per-signature locking -- the
+    ///     extra DB call on the loser is cheaper than the lock-table bookkeeping
+    ///     for the steady state where misses are rare.
+    ///     </para>
+    /// </summary>
+    public async Task<SignatureAggregate?> GetOrLoadAsync(
+        string signature, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(signature)) return null;
+        if (_entries.TryGetValue(signature, out var hot))
+        {
+            Interlocked.Increment(ref hot.AccessCount);
+            return hot;
+        }
+        if (_eventStore is null) return null;
+
+        IReadOnlyList<DashboardDetectionEvent> detections;
+        try
+        {
+            detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
+            {
+                SignatureId = signature,
+                Limit = ScoreHistorySize * 2
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "GetOrLoadAsync cold-tier read failed for {Signature}",
+                signature[..Math.Min(8, signature.Length)]);
+            return null;
+        }
+
+        if (detections.Count == 0) return null;
+
+        var agg = WarmFromDetections(signature, (IReadOnlyList<DashboardDetectionEvent>)detections);
+        if (agg is not null) Interlocked.Increment(ref agg.AccessCount);
+        return agg;
     }
 
     /// <summary>

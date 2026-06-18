@@ -77,11 +77,13 @@ public static class ReadEndpoints
         // written behind by the fire-and-forget drainer. Synthesise a one-row
         // DashboardDetectionEvent from the aggregate so the remote caller (the dashboard
         // host's BuildYourDetectionPartialModel) gets a single source of truth for the
-        // headline fields without a parallel header / second source.
+        // headline fields without a parallel header / second source. GetOrLoadAsync's
+        // transparent cold-tier fallback warms the cache from the event store on miss
+        // so subsequent /Reads for the same signature stay hot.
         if (!string.IsNullOrEmpty(signature) && cappedLimit == 1 && offset == 0
             && isBot is null && since is null)
         {
-            var agg = signatureCache.TryGet(signature, out var a) ? a : null;
+            var agg = await signatureCache.GetOrLoadAsync(signature);
             if (agg is not null)
             {
                 var det = SynthesizeDetectionFromAggregate(signature, agg);
@@ -92,7 +94,8 @@ public static class ReadEndpoints
                     Meta = new ResponseMeta()
                 });
             }
-            // Cache miss falls through to store -- cold sig (evicted or never warmed).
+            // Truly unknown signature -- no detections in the durable store either.
+            // Fall through to the empty-shaped paginated response below.
         }
 
         var filter = new DashboardFilter
