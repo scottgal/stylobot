@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Grouping;
+
 namespace Mostlylucid.BotDetection.UI.Models;
 
 /// <summary>
@@ -10,8 +12,6 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// </summary>
 public class CachedVisitor
 {
-    internal readonly object SyncRoot = new();
-
     public required string PrimarySignature { get; set; }
     public int Hits { get; set; }
     public DateTime FirstSeen { get; set; }
@@ -49,7 +49,7 @@ public class CachedVisitor
     public string? ClusterId { get; set; }
     public float[]? RadarShape { get; set; }
 
-    public Mostlylucid.BotDetection.Grouping.GroupKey? GroupKey { get; set; }
+    public GroupKey? GroupKey { get; set; }
     public int GroupMemberCount { get; set; } = 1;
 
     public string TimeAgo

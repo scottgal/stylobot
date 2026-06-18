@@ -10,11 +10,10 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// <summary>
 ///     Broadcasts background LLM classification results via SignalR and routes the
 ///     new name through the one cache (<see cref="SignatureAggregateCache"/>) that
-///     owns per-signature state. The cache writes through to durability
-///     (<see cref="IDashboardEventStore"/> + <see cref="IFingerprintStore"/>) so the
-///     callback never dual-writes -- the previous "callback writes DB + FP store +
-///     SignatureAggregateCache + VisitorListCache" shape was the source of "two
-///     names at the same instant" regressions.
+///     owns per-signature state. The cache writes through to the durable stores
+///     (event store + fingerprint store) so the callback never dual-writes -- the
+///     previous "callback writes DB + FP store + two caches" shape was the source
+///     of "two names at the same instant" regressions.
 /// </summary>
 public class LlmResultSignalRCallback : ILlmResultCallback
 {

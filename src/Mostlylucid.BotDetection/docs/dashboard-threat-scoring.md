@@ -13,8 +13,7 @@ IntentContributor
   -> DetectionBroadcastMiddleware
      -> DashboardDetectionEvent.ThreatScore / ThreatBand
      -> DashboardSignatureEvent.ThreatScore / ThreatBand
-     -> SignatureAggregateCache (top bots)
-     -> VisitorListCache (visitor list)
+     -> SignatureAggregateCache (top bots + visitor list)
      -> StyloBotDashboardMiddleware APIs
      -> SignalR broadcasts
      -> Frontend (Alpine.js + Razor)
@@ -50,10 +49,10 @@ The `intent.` prefix is included in `DetectionBroadcastMiddleware.AllowedSignalP
 
 ### Cache Layer
 
-Both `SignatureAggregateCache` and `VisitorListCache` carry `ThreatScore` and `ThreatBand` fields:
+`SignatureAggregateCache` carries `ThreatScore` and `ThreatBand` fields on each aggregate:
 - New entries: populated from the detection event
 - Existing entries: updated with null coalescing (`detection.ThreatScore ?? existing.ThreatScore`) to preserve values when new detections lack threat data
-- Thread safety: all mutations are under existing `SyncRoot` locks
+- Thread safety: all mutations are under the aggregate's `SyncRoot` lock
 
 ### API Endpoints
 

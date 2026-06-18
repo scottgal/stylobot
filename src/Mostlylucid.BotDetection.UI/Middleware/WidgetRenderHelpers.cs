@@ -167,8 +167,8 @@ internal static class WidgetRenderHelpers
 
     /// <summary>
     ///     Primitive-typed predicate overload so non-DashboardTopBotEntry surfaces
-    ///     (CachedVisitor in VisitorListCache.GetFiltered, anything else) can share
-    ///     the same "is safe to collapse" rule without re-implementing it.
+    ///     (CachedVisitor in SignatureAggregateCache.GetFiltered, anything else) can
+    ///     share the same "is safe to collapse" rule without re-implementing it.
     /// </summary>
     public static bool IsGroupableIdentity(string? customBotName, string? botName, string? botType)
     {
@@ -245,15 +245,14 @@ internal static class WidgetRenderHelpers
     /// <summary>
     ///     Project a top-bots fetch (read-through path via IDashboardEventStore) into the
     ///     CachedVisitor shape the Visitors-tab view consumes, applying the same audience
-    ///     filter / sort / page rules <see cref="Services.VisitorListCache.GetFiltered"/>
+    ///     filter / sort / page rules <see cref="Services.SignatureAggregateCache.GetFiltered"/>
     ///     does. Counts header is computed from the full unfiltered projection so the
     ///     All / Humans / Bots header stays honest when an audience switch is active.
     ///     <para>
-    ///     This is the visitor-list parallel to <see cref="SortTopBots"/>: in remote-mode
-    ///     hosts the local VisitorListCache freezes at startup-warm values because no
-    ///     DetectionBroadcastMiddleware runs in-process to call Upsert on new detections.
-    ///     Calling this on the result of <c>eventStore.GetTopBotsAsync(audience: "all")</c>
-    ///     gives the Visitors tab fresh data on every render.
+    ///     This is the visitor-list parallel to <see cref="SortTopBots"/>: lets the
+    ///     dashboard render the Visitors tab off a fresh event-store top-N every request,
+    ///     so a remote-mode host whose local cache only warms on startup still gets
+    ///     up-to-date visitors.
     ///     </para>
     /// </summary>
     public static (IReadOnlyList<CachedVisitor> Items, int TotalCount, FilterCounts Counts) ProjectAsVisitors(
@@ -290,11 +289,10 @@ internal static class WidgetRenderHelpers
         }).ToList();
 
         // Counts are derived from the full unfiltered projection. AI / Search / Tools
-        // sub-classifications rely on per-visitor helpers that live on VisitorListCache
-        // (IsAiBot / IsSearchBot / IsToolBot). They peek at bot_type substring matches; we
-        // fold the same heuristic here so the badges work off the event-store data. Leaving
-        // them at 0 would still be correct for All/Humans/Bots but the sub-buckets would
-        // mis-report on remote-mode hosts.
+        // sub-classifications use the bot_type substring rules inlined below (mirroring
+        // SignatureAggregateCache's IsAiBot / IsSearchBot / IsToolBot). Leaving them at 0
+        // would still be correct for All/Humans/Bots but the sub-buckets would mis-report
+        // on remote-mode hosts.
         var counts = new FilterCounts
         {
             All = snapshot.Count,
@@ -342,8 +340,8 @@ internal static class WidgetRenderHelpers
         _ => 0
     };
 
-    // Same BotType predicates VisitorListCache uses (kept inline rather than exposing the
-    // private methods so the helper has no dependency on the cache itself).
+    // Same BotType predicates SignatureAggregateCache uses (kept inline rather than
+    // exposing the private methods so the helper has no dependency on the cache itself).
     private static bool IsAiBotByType(string? botType)     => botType is "AiBot";
     private static bool IsSearchBotByType(string? botType) => botType is "SearchEngine" or "VerifiedBot" or "GoodBot";
     private static bool IsToolBotByType(string? botType)   => botType is "Scraper" or "MonitoringBot" or "SocialMediaBot" or "Tool";

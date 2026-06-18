@@ -23,11 +23,10 @@ public class SbVisitorListViewComponent(
         int page = 1,
         int pageSize = 24)
     {
-        // Read through the event store -- the dashboard's <sb-visitor-list /> tag helper
-        // SSR's the Visitors tab from this view component. The previous VisitorListCache
-        // read returned empty on remote-mode hosts because no in-process
-        // DetectionBroadcastMiddleware feeds it. ProjectAsVisitors mirrors
-        // ServeVisitorListPartialAsync so SSR + partial swap agree.
+        // Read through the event store so remote-mode hosts (no in-process
+        // DetectionBroadcastMiddleware feeding the local cache) still get fresh
+        // data. ProjectAsVisitors mirrors ServeVisitorListPartialAsync so the
+        // SSR pass and the HTMX partial swap render the same rows.
         var raw = await eventStore.GetTopBotsAsync(
             count: MaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),

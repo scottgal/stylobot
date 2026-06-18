@@ -2683,14 +2683,14 @@ public class StyloBotDashboardMiddleware
 
         List<double> processingTimes, botProbabilities, confidences;
 
+        // CachedVisitor is a per-call projection (SignatureAggregateCache.Project copies
+        // the ring buffers under the aggregate's SyncRoot before returning), so the
+        // history queues are already stable snapshots -- no lock needed here.
         if (visitor != null)
         {
-            lock (visitor.SyncRoot)
-            {
-                processingTimes = visitor.ProcessingTimeHistory.ToList();
-                botProbabilities = visitor.BotProbabilityHistory.ToList();
-                confidences = visitor.ConfidenceHistory.ToList();
-            }
+            processingTimes = visitor.ProcessingTimeHistory.ToList();
+            botProbabilities = visitor.BotProbabilityHistory.ToList();
+            confidences = visitor.ConfidenceHistory.ToList();
         }
         else
         {
@@ -5529,18 +5529,17 @@ public class StyloBotDashboardMiddleware
         List<double> botProbHistory = detections.AsEnumerable().Reverse().Select(d => d.BotProbability).ToList();
         List<double> confHistory = detections.AsEnumerable().Reverse().Select(d => d.Confidence).ToList();
         List<double> procTimeHistory = detections.AsEnumerable().Reverse().Select(d => (double)d.ProcessingTimeMs).ToList();
+        // CachedVisitor is a per-call projection; the underlying lock happens inside
+        // SignatureAggregateCache.Project so the fields read here are already stable.
         if (visitor != null)
         {
-            lock (visitor.SyncRoot)
-            {
-                if (visitor.Paths.Count > 0) paths = visitor.Paths.ToList();
-                if (!string.IsNullOrEmpty(visitor.UserAgent)) userAgent = visitor.UserAgent;
-                if (!string.IsNullOrEmpty(visitor.Protocol)) protocol = visitor.Protocol;
-                if (visitor.FirstSeen != default && visitor.FirstSeen < firstSeen) firstSeen = visitor.FirstSeen;
-                if (visitor.BotProbabilityHistory.Count > 0) botProbHistory = visitor.BotProbabilityHistory.ToList();
-                if (visitor.ConfidenceHistory.Count > 0) confHistory = visitor.ConfidenceHistory.ToList();
-                if (visitor.ProcessingTimeHistory.Count > 0) procTimeHistory = visitor.ProcessingTimeHistory.ToList();
-            }
+            if (visitor.Paths.Count > 0) paths = visitor.Paths.ToList();
+            if (!string.IsNullOrEmpty(visitor.UserAgent)) userAgent = visitor.UserAgent;
+            if (!string.IsNullOrEmpty(visitor.Protocol)) protocol = visitor.Protocol;
+            if (visitor.FirstSeen != default && visitor.FirstSeen < firstSeen) firstSeen = visitor.FirstSeen;
+            if (visitor.BotProbabilityHistory.Count > 0) botProbHistory = visitor.BotProbabilityHistory.ToList();
+            if (visitor.ConfidenceHistory.Count > 0) confHistory = visitor.ConfidenceHistory.ToList();
+            if (visitor.ProcessingTimeHistory.Count > 0) procTimeHistory = visitor.ProcessingTimeHistory.ToList();
         }
         if (paths.Count == 0)
         {

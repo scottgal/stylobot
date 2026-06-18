@@ -17,9 +17,8 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     window of "zero rows after restart" closes.
 ///     </para>
 ///     <para>
-///     Mirrors <see cref="VisitorCacheWarmupService"/>: same 2s delay for the DB
-///     connection pool, same try/catch fallback to "populate from live traffic"
-///     if persistence is unreachable.
+///     2s startup delay lets the DB connection pool come up; try/catch falls
+///     back to "populate from live traffic" if persistence is unreachable.
 ///     </para>
 /// </summary>
 public sealed class SignatureAggregateCacheWarmupService : BackgroundService
@@ -110,8 +109,7 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            // Same fail-soft model as VisitorCacheWarmupService -- cache starts
-            // empty, live traffic fills it. No detection-path impact.
+            // Fail-soft: cache starts empty, live traffic fills it. No detection-path impact.
             _logger.LogWarning(ex,
                 "Failed to warm signature aggregate cache from event store -- will populate from live traffic");
         }
