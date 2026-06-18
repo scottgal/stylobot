@@ -16,8 +16,10 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     is rebuilt lazily under <see cref="_sortLock"/> with double-checked locking.
 ///     </para>
 ///     <para>
-///     MaxEntries is capped at 200 by default. Eviction scans are O(n) but batched
-///     to amortize cost - eviction only triggers when 10% over capacity.
+///     MaxEntries is capped at 500 by default -- matches the visitor-list depth the
+///     pre-collapse VisitorListCache held, so dashboard surfaces that read from this
+///     cache don't silently shrink their universe of actors. Eviction scans are O(n)
+///     but batched to amortize cost - eviction only triggers when 10% over capacity.
 ///     </para>
 /// </summary>
 public sealed class SignatureAggregateCache
@@ -63,8 +65,9 @@ public sealed class SignatureAggregateCache
         _logger = logger;
     }
 
-    /// <summary>Maximum entries before LFU eviction kicks in.</summary>
-    public int MaxEntries { get; init; } = 200;
+    /// <summary>Maximum entries before LFU eviction kicks in. 500 matches the
+    /// pre-collapse VisitorListCache depth so dashboard surfaces don't shrink.</summary>
+    public int MaxEntries { get; init; } = 500;
 
     /// <summary>Number of score history points to keep per signature (for sparklines).</summary>
     public int ScoreHistorySize { get; init; } = 20;
@@ -390,6 +393,14 @@ public sealed class SignatureAggregateCache
 
         var agg = WarmFromDetections(signature, (IReadOnlyList<DashboardDetectionEvent>)detections);
         if (agg is not null) Interlocked.Increment(ref agg.AccessCount);
+
+        // Cold-tier inserts bypass UpdateFromDetection's eviction trigger. On a remote-mode
+        // dashboard host where DetectionBroadcastMiddleware never runs, an operator browsing
+        // many cold signatures would grow the dict unboundedly without this check.
+        var overage = _entries.Count - MaxEntries;
+        if (overage > MaxEntries / 10)
+            EvictLfuBatch(overage);
+
         return agg;
     }
 
@@ -470,6 +481,18 @@ public sealed class SignatureAggregateCache
         // row by the GetDetectionsAsync timestamp DESC ordering.
         var latest = detections[0];
 
+        // Min/max processing time across the warmed window. Live Update tracks these
+        // as rolling stats; warmup must seed them or CollapseGroupable's "min across
+        // members" math degenerates to double.MaxValue for any group whose members
+        // have never seen a live detection since the last cold-load.
+        double minProc = 0, maxProc = 0;
+        foreach (var d in detections)
+        {
+            if (d.ProcessingTimeMs > maxProc) maxProc = d.ProcessingTimeMs;
+            if (d.ProcessingTimeMs > 0 && (minProc == 0 || d.ProcessingTimeMs < minProc))
+                minProc = d.ProcessingTimeMs;
+        }
+
         var agg = new SignatureAggregate
         {
             HitCount = detections.Count,
@@ -481,6 +504,8 @@ public sealed class SignatureAggregateCache
             Action = latest.Action,
             CountryCode = latest.CountryCode,
             ProcessingTimeMs = latest.ProcessingTimeMs,
+            MinProcessingTimeMs = minProc,
+            MaxProcessingTimeMs = maxProc,
             TopReasons = latest.TopReasons,
             FirstSeen = detections[^1].Timestamp,
             LastSeen = latest.Timestamp,
@@ -728,7 +753,13 @@ public sealed class SignatureAggregateCache
                 TopReasons = canonical.TopReasons,
                 ProcessingTimeMs = canonical.ProcessingTimeMs,
                 MaxProcessingTimeMs = members.Max(v => v.MaxProcessingTimeMs),
-                MinProcessingTimeMs = members.Min(v => v.MinProcessingTimeMs > 0 ? v.MinProcessingTimeMs : double.MaxValue),
+                // Min across known mins, 0 when every member is unset. The previous
+                // sentinel-MaxValue pattern leaked to the UI as 1.79e+308 whenever a
+                // group's members had all been warmed from the DB without live traffic
+                // (Min/Max default to 0 in that path).
+                MinProcessingTimeMs = members.Any(v => v.MinProcessingTimeMs > 0)
+                    ? members.Where(v => v.MinProcessingTimeMs > 0).Min(v => v.MinProcessingTimeMs)
+                    : 0,
                 ProcessingTimeHistory = canonical.ProcessingTimeHistory,
                 BotProbabilityHistory = canonical.BotProbabilityHistory,
                 ConfidenceHistory = canonical.ConfidenceHistory,
