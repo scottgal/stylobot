@@ -175,14 +175,26 @@ internal static class FingerprintNameComposer
         }
 
         // Priority 3: UA family + OS characterization. Reads the signals first; falls back
-        // to parsing the supplied UA string when signals are absent (matcher hot path runs
-        // before UserAgentContributor).
+        // to parsing the raw UA string when signals are absent. Two sources of the raw UA:
+        // the explicit userAgent parameter (matcher's hot path passes it) AND signals[ua.raw]
+        // (UserAgentContributor writes it on every request). Either one is enough to
+        // self-rescue Priority 3 when ua.family / user_agent.os signals haven't been
+        // written yet -- matcher Priority 6 runs before UserAgentContributor Priority 10,
+        // so signals[ua.family] is missing on the matcher's first call but signals[ua.raw]
+        // is populated by the time BuildEvidenceFromLedger calls ResolveDisplayName.
+        // Reading signals[ua.raw] here closes the gap that left "Chrome on macOS" humans
+        // falling through to a UA prefix label at Priority 4 (or null when even that
+        // failed). The dashboard was rendering 8-char signature hashes for these rows
+        // before this fix.
         var family = GetString(signals, SignalKeys.UserAgentFamily);
         var os = GetString(signals, SignalKeys.UserAgentOs);
-        if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(userAgent))
-            family = UserAgentParser.Parse(userAgent).Family;
-        if (string.IsNullOrEmpty(os) && !string.IsNullOrEmpty(userAgent))
-            os = UserAgentParser.ExtractOs(userAgent);
+        var rawUaForParse = !string.IsNullOrEmpty(userAgent)
+            ? userAgent
+            : GetString(signals, SignalKeys.UserAgent);
+        if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(rawUaForParse))
+            family = UserAgentParser.Parse(rawUaForParse).Family;
+        if (string.IsNullOrEmpty(os) && !string.IsNullOrEmpty(rawUaForParse))
+            os = UserAgentParser.ExtractOs(rawUaForParse);
 
         if (!string.IsNullOrEmpty(family) && family != "Other")
         {
