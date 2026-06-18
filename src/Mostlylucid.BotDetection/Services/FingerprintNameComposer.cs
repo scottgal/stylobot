@@ -144,7 +144,15 @@ internal static class FingerprintNameComposer
             var discriminator = GetString(signals, SignalKeys.UserAgentBotInstance);
             if (string.IsNullOrEmpty(discriminator))
                 discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUaForClaim);
+            // Don't double-append the discriminator when the cached UserAgentBotName
+            // already carries it. UserAgentContributor pre-composes "{name} {instance}"
+            // when it writes the cached bot_name signal, so reading that back here and
+            // appending the instance again produced "SemrushBot semrush.com semrush.com".
+            // Suffix-check on the claimed name catches that path without losing the
+            // discriminator on the matcher-runs-first race where the cached signal
+            // isn't written yet.
             var composed = string.IsNullOrEmpty(discriminator)
+                  || claimedBotName.EndsWith(discriminator, StringComparison.OrdinalIgnoreCase)
                 ? claimedBotName
                 : $"{claimedBotName} {discriminator}";
             if (IsSpoofedClaim(signals)) composed += SpoofedMarker;
@@ -209,7 +217,17 @@ internal static class FingerprintNameComposer
             // for the drift surface, not the name.
             var familyShort = ShortenFamily(family);
             var osShort = ShortenOs(os);
-            var distinguisher = BuildDistinctiveModifier(signals);
+            // BuildDistinctiveModifier returns ONE signal value per attempt (attempt 0
+            // tries ASN, 1 tries country, 2 tries /16 IP). For the default Priority 3
+            // path we want the first available distinguisher -- ordered ASN -> country
+            // -> /16 -- so loop through attempts and take the first non-null. The
+            // matcher's collision-detection path still calls BuildDistinctiveModifier
+            // per-attempt (that's how it walks alternatives when the first taken name
+            // is already in use); only the default name-composition path needs the
+            // loop semantics here.
+            string? distinguisher = null;
+            for (var attempt = 0; attempt < 3 && string.IsNullOrEmpty(distinguisher); attempt++)
+                distinguisher = BuildDistinctiveModifier(signals, attempt);
             var parts = new List<string>(3);
             if (!string.IsNullOrEmpty(osShort)) parts.Add(osShort);
             parts.Add(familyShort);

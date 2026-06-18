@@ -199,28 +199,36 @@ public sealed class SignatureAggregateCache
         {
             var agg = kvp.Value;
             string? newName = null;
+            string? oldName = null;
             lock (agg.SyncRoot)
             {
-                if (!string.IsNullOrEmpty(agg.BotName)) continue;
                 if (string.IsNullOrEmpty(agg.UserAgent)) continue;
 
-                // Single source: the composer. It receives whatever distinguishing
-                // signals we have (country at minimum from the aggregate) and is the
-                // only place that decides the final name. No collision detection here
-                // -- collision-distinction is part of the composer's job, applied via
-                // BuildDistinctiveModifier against signals it can see. The cache's
-                // role is to read whatever the composer wrote and store it.
+                // Compose under the current contract using whatever distinguishing
+                // signals the cache holds (country at minimum). The composer is THE
+                // source -- if its output differs from what's currently stored, the
+                // stored value is stale (verbose pre-contract form, missing distinguisher,
+                // double-discriminator bug, etc.) and we overwrite. No "preserve first
+                // write" hysteresis here -- that lets stale forms persist forever.
+                // Hysteresis lives in the matcher's hot-path Compose call where it
+                // belongs (don't replace a real name with a Priority-4 fallback);
+                // this is a deliberate "rewrite to the current composer's truth"
+                // pass, fires on warmup and periodically thereafter.
                 var signals = new Dictionary<string, object>(2);
                 if (!string.IsNullOrEmpty(agg.CountryCode))
                     signals[Mostlylucid.BotDetection.Models.SignalKeys.GeoCountryCode] = agg.CountryCode;
                 newName = Mostlylucid.BotDetection.Services.FingerprintNameComposer.Compose(
                     signals, userAgent: agg.UserAgent);
                 if (string.IsNullOrEmpty(newName)) continue;
+                if (string.Equals(agg.BotName, newName, StringComparison.Ordinal)) continue;
+                oldName = agg.BotName;
                 agg.BotName = newName;
             }
             filled++;
-            _logger?.LogDebug("Reconciled BotName for {Sig}: {Name}",
-                kvp.Key[..Math.Min(8, kvp.Key.Length)], newName);
+            _logger?.LogDebug("Reconciled BotName for {Sig}: {Old} -> {New}",
+                kvp.Key[..Math.Min(8, kvp.Key.Length)],
+                string.IsNullOrEmpty(oldName) ? "(none)" : oldName,
+                newName);
         }
         if (filled > 0) _sortDirty = true;
         return filled;
