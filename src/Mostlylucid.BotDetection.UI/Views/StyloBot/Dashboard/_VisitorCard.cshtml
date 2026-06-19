@@ -11,11 +11,9 @@
         "Medium" or "Elevated" => "text-warning",
         _ => "text-success"
     };
-    // Single source: SignatureDisplayName.Resolve is the canonical name path
-    // for every view. It runs custom > catalog > Arcjet UA match > uap-core
-    // parse > country composite > honest terminal -- no hash, no weasel
-    // "Unclassified". CachedVisitor exposes everything Resolve needs.
-    var displayName = SignatureDisplayName.Display(Model.BotName);
+    // Single source: matcher (FingerprintNameComposer) is the sole writer of
+    // Fingerprint.DisplayName. View just renders what the store returned.
+    var displayName = Model.BotName;
     var probPct = (Model.BotProbability * 100).ToString("F0");
     var confPct = (Model.Confidence * 100).ToString("F0");
     var actionClass = ActionDisplayHelper.GetBadgeCssClass(Model.Action);

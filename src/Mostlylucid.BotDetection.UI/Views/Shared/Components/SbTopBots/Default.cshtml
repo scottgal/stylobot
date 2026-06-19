@@ -198,10 +198,11 @@
                                 _ => "text-success"
                             };
                             var isCustomNamed = bot.CustomBotName != null;
-                            // SINGLE canonical name path -- SignatureDisplayName.Resolve handles
-                            // custom > catalog > Arcjet UA > uap-core > country composite > honest
-                            // terminal. No view-side fallback to the hash, no inline branching.
-                            var displayName = SignatureDisplayName.Display(bot.BotName, bot.CustomBotName);
+                            // Single canonical name path -- the matcher (FingerprintNameComposer)
+                            // is the sole writer of Fingerprint.DisplayName. View renders what
+                            // the store returned; empty cell IS the visible signal of an
+                            // upstream pipeline bug, no decoration.
+                            var displayName = bot.CustomBotName ?? bot.BotName;
                             var displayIntent = bot.BotType ?? BotDisplayHelpers.DeterministicIntent(bot.BotProbability);
                             var displayThreat = BotDisplayHelpers.ResolvedThreat(bot.ThreatBand, bot.BotProbability);
                             var threatBand = string.IsNullOrEmpty(displayThreat) ? "None" : displayThreat;

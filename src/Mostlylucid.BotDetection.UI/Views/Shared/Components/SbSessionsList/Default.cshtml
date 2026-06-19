@@ -61,8 +61,8 @@
                                     <img src="/_content/Mostlylucid.BotDetection.UI/flags/@(s.CountryCode.ToLowerInvariant()).svg" alt="@s.CountryCode" class="w-4 h-3 rounded-sm" loading="lazy" />
                                 }
                                 <span class="text-xs font-semibold text-base-content truncate max-w-48"
-                                      title="@SignatureDisplayName.TitleAttr(s.Signature)">
-                                    @SignatureDisplayName.Display(s.BotName)
+                                      title="Signature: @s.Signature">
+                                    @s.BotName
                                 </span>
                                 <span class="badge badge-xs @(s.IsBot ? "badge-error" : "badge-success")">
                                     @(s.IsBot ? "Bot" : "Human")

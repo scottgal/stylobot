@@ -14,14 +14,10 @@
     // Single source of truth: the name written by FingerprintNameComposer.Compose
     // on the gateway, persisted to Fingerprint.DisplayName, broadcast as
     // DashboardDetectionEvent.BotName, propagated into Model.BotName by the cache.
-    // SignatureDisplayName.Resolve is the single canonical name path: custom >
-    // catalog > Arcjet 600+ UA match > uap-core parse > country composite >
-    // honest terminal ("No User-Agent" / "Unparseable UA"). The raw signature
-    // hash is NEVER rendered as if it were a name; the full hash is exposed
-    // via TitleAttr below for incident-note grepping.
-    var signatureDisplayName = Model.Found
-        ? SignatureDisplayName.Display(Model.BotName)
-        : null;
+    // Single source: matcher (FingerprintNameComposer) writes Fingerprint.DisplayName;
+    // every reader projects it as Model.BotName. View renders it directly --
+    // empty cell IS the visible signal of an upstream pipeline bug.
+    var signatureDisplayName = Model.Found ? Model.BotName : null;
     ViewData["Title"] = signatureDisplayName ?? "Not Found";
     var bp = Model.BasePath;
     var navBp = Model.ResolvedNavBasePath;
@@ -135,7 +131,7 @@ else
         {
             <img src="@FlagUrl(Model.CountryCode!)" alt="@Model.CountryCode" class="w-6 h-4 object-cover rounded-sm" />
         }
-        <h1 class="text-lg font-bold text-base-content" title="@SignatureDisplayName.TitleAttr(Model.SignatureId)">@signatureDisplayName</h1>
+        <h1 class="text-lg font-bold text-base-content" title="Signature: @Model.SignatureId">@signatureDisplayName</h1>
         @if (!string.IsNullOrEmpty(uaPretty))
         {
             <span class="text-base-content/40">·</span>

@@ -105,7 +105,7 @@
                     {
                         // SINGLE canonical name path. Resolve runs custom > catalog >
                         // Arcjet UA > uap-core > country composite > honest terminal.
-                        var displayName = SignatureDisplayName.Display(v.BotName);
+                        var displayName = v.BotName;
                         var probPct = (v.BotProbability * 100).ToString("F0");
                         var probClass = v.RiskBand switch { "VeryHigh" or "High" => "text-error", "Medium" or "Elevated" => "text-warning", _ => "text-success" };
                         var riskBadge = v.RiskBand switch { "VeryHigh" => "badge-error", "High" => "badge-error", "Medium" => "badge-warning", "Elevated" => "badge-warning", "Low" => "badge-success", _ => "badge-ghost" };
@@ -123,7 +123,7 @@
                                 }
                             </td>
                             <td class="py-1 font-medium text-xs truncate max-w-[200px]"
-                                title="@SignatureDisplayName.TitleAttr(v.PrimarySignature)">
+                                title="Signature: @v.PrimarySignature">
                                 <span class="hover:underline">@displayName</span>
                             </td>
                             <td class="py-1 text-xs text-base-content/70">@uaFamily</td>
