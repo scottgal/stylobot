@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
@@ -8,17 +9,17 @@ using Mostlylucid.BotDetection.UI.Hubs;
 namespace Mostlylucid.BotDetection.UI.Services;
 
 /// <summary>
-///     Broadcasts background LLM classification results via SignalR and routes the
-///     new name through the one cache (<see cref="SignatureAggregateCache"/>) that
-///     owns per-signature state. The cache writes through to the durable stores
-///     (event store + fingerprint store) so the callback never dual-writes -- the
-///     previous "callback writes DB + FP store + two caches" shape was the source
-///     of "two names at the same instant" regressions.
+///     Broadcasts background LLM classification results via SignalR. Name writes go
+///     directly to <see cref="IFingerprintStore"/> (the ONE LFU dict that owns
+///     Fingerprint.DisplayName) with source "llm" so the timeline view records the
+///     rename. The signature-scoped DESCRIPTION still lands on the aggregate cache
+///     since description is per-signature transient narrative, not durable identity.
 /// </summary>
 public class LlmResultSignalRCallback : ILlmResultCallback
 {
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> _hubContext;
     private readonly SignatureAggregateCache _signatureCache;
+    private readonly IFingerprintStore _fingerprintStore;
     private readonly StyloBotDashboardOptions _dashboardOptions;
     private readonly ILogger<LlmResultSignalRCallback> _logger;
 
@@ -26,11 +27,13 @@ public class LlmResultSignalRCallback : ILlmResultCallback
         ILogger<LlmResultSignalRCallback> logger,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         SignatureAggregateCache signatureCache,
+        IFingerprintStore fingerprintStore,
         IOptions<StyloBotDashboardOptions>? dashboardOptions = null)
     {
         _logger = logger;
         _hubContext = hubContext;
         _signatureCache = signatureCache;
+        _fingerprintStore = fingerprintStore;
         _dashboardOptions = dashboardOptions?.Value ?? new StyloBotDashboardOptions();
     }
 
@@ -43,7 +46,9 @@ public class LlmResultSignalRCallback : ILlmResultCallback
 
     public async Task OnSignatureDescriptionAsync(string signature, string name, string description, CancellationToken ct = default)
     {
-        await _signatureCache.ApplyBotNameAsync(signature, name, description, ct).ConfigureAwait(false);
+        await _fingerprintStore.UpdateDisplayNameForSignatureAsync(
+            signature, name, DateTime.UtcNow, ct, source: "llm").ConfigureAwait(false);
+        _signatureCache.ApplyDescription(signature, description);
 
         SignalRBroadcastConstrainer.Queue(_hubContext, "signature", _dashboardOptions.BroadcastMinIntervalMs);
         SignalRBroadcastConstrainer.Queue(_hubContext, signature,   _dashboardOptions.BroadcastMinIntervalMs);

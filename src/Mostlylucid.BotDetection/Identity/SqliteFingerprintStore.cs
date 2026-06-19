@@ -492,23 +492,68 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     exist.
     /// </summary>
     public async Task UpdateDisplayNameAsync(
-        string fingerprintId, string displayName, DateTime updatedAt, CancellationToken ct = default)
+        string fingerprintId, string displayName, DateTime updatedAt,
+        CancellationToken ct = default,
+        string source = "matcher")
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;
         await EnsureInitialisedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE fingerprints
-               SET display_name = @name,
-                   display_name_updated_at = @ts
-             WHERE fingerprint_id = @id
-            """;
-        cmd.Parameters.AddWithValue("@name", displayName ?? "");
-        cmd.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
-        cmd.Parameters.AddWithValue("@id", fingerprintId);
-        await cmd.ExecuteNonQueryAsync(ct);
+
+        // Single write gate. Read the current display name first so we can
+        // decide whether this rename is a real transition that deserves a
+        // history row, or a no-op that should not pollute the timeline view.
+        // Skip the history row when:
+        //   - new name is empty (the FingerprintAbsorptionService passes "" as
+        //     a placeholder during absorption; that's not a name change)
+        //   - new name equals old name (idempotent rewrites from the matcher's
+        //     hysteresis path -- don't want N identical history rows per match)
+        string? oldName = null;
+        {
+            await using var read = conn.CreateCommand();
+            read.CommandText = "SELECT display_name FROM fingerprints WHERE fingerprint_id = @id";
+            read.Parameters.AddWithValue("@id", fingerprintId);
+            var raw = await read.ExecuteScalarAsync(ct);
+            oldName = raw as string;
+        }
+
+        var newName = displayName ?? "";
+
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                UPDATE fingerprints
+                   SET display_name = @name,
+                       display_name_updated_at = @ts
+                 WHERE fingerprint_id = @id
+                """;
+            cmd.Parameters.AddWithValue("@name", newName);
+            cmd.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("@id", fingerprintId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        var isRealTransition =
+            !string.IsNullOrEmpty(newName) &&
+            !string.Equals(oldName ?? string.Empty, newName, StringComparison.Ordinal);
+
+        if (isRealTransition)
+        {
+            await using var hist = conn.CreateCommand();
+            hist.CommandText = """
+                INSERT INTO fingerprint_name_history
+                       (fingerprint_id, old_name, new_name, source, changed_at)
+                VALUES (@id, @old, @new, @src, @ts)
+                """;
+            hist.Parameters.AddWithValue("@id", fingerprintId);
+            hist.Parameters.AddWithValue("@old", string.IsNullOrEmpty(oldName) ? (object)DBNull.Value : oldName);
+            hist.Parameters.AddWithValue("@new", newName);
+            hist.Parameters.AddWithValue("@src", string.IsNullOrEmpty(source) ? "matcher" : source);
+            hist.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
+            await hist.ExecuteNonQueryAsync(ct);
+        }
+
         InvalidateFingerprintCache(fingerprintId);
     }
 
@@ -591,12 +636,14 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     Idempotent; no-op when the signature isn't bound to any fingerprint.
     /// </summary>
     public async Task UpdateDisplayNameForSignatureAsync(
-        string primarySignature, string displayName, DateTime updatedAt, CancellationToken ct = default)
+        string primarySignature, string displayName, DateTime updatedAt,
+        CancellationToken ct = default,
+        string source = "matcher")
     {
         if (string.IsNullOrEmpty(primarySignature)) return;
         var fingerprintId = await LookupFingerprintIdAsync(primarySignature, ct);
         if (fingerprintId is null) return;
-        await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct);
+        await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct, source);
     }
 
     /// <summary>Append an unabsorbed observation row.</summary>
@@ -1518,6 +1565,113 @@ public class SqliteFingerprintStore : IFingerprintStore
         while (await reader.ReadAsync(ct))
             result[reader.GetString(0)] = BlobToFloats((byte[])reader.GetValue(1));
         return result;
+    }
+
+    /// <summary>
+    ///     Bulk transparent-LFU read for dashboard view rendering. For each signature:
+    ///     check the two existing LFU dicts (_fingerprintIdByPrimarySig +
+    ///     _fingerprintById); take the hits, batch the misses into one SQL roundtrip,
+    ///     populate both dicts with what we loaded, and return signature -> current
+    ///     display name. On a hot cache this never touches SQL.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, string?>> GetDisplayNamesBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        if (primarySignatures.Count == 0) return result;
+
+        List<string>? missingSigs = null;
+
+        foreach (var sig in primarySignatures)
+        {
+            if (string.IsNullOrEmpty(sig)) continue;
+            if (result.ContainsKey(sig)) continue;
+
+            if (_fingerprintIdByPrimarySig.TryGetValue(sig, out var fpId)
+                && _fingerprintById.TryGetValue(fpId, out var fp))
+            {
+                result[sig] = string.IsNullOrEmpty(fp.DisplayName) ? null : fp.DisplayName;
+                continue;
+            }
+
+            (missingSigs ??= new List<string>(primarySignatures.Count)).Add(sig);
+        }
+
+        if (missingSigs is null || missingSigs.Count == 0) return result;
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("""
+            SELECT k.primary_signature, f.fingerprint_id, f.display_name
+              FROM fingerprint_keys k
+              JOIN fingerprints f ON f.fingerprint_id = k.fingerprint_id
+             WHERE k.primary_signature IN (
+            """);
+        for (var i = 0; i < missingSigs.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append('@').Append('p').Append(i);
+        }
+        sb.Append(')');
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sb.ToString();
+        for (var i = 0; i < missingSigs.Count; i++)
+            cmd.Parameters.AddWithValue($"@p{i}", missingSigs[i]);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var sig = reader.GetString(0);
+            var fpId = reader.GetString(1);
+            var name = reader.IsDBNull(2) ? null : reader.GetString(2);
+            _fingerprintIdByPrimarySig[sig] = fpId;
+            result[sig] = string.IsNullOrEmpty(name) ? null : name;
+        }
+
+        foreach (var sig in missingSigs)
+            if (!result.ContainsKey(sig))
+                result[sig] = null;
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Direct DB read of the fingerprint name change history -- snapshot data,
+    ///     not LFU-cached. Returned newest-first; bounded by <paramref name="limit"/>
+    ///     to keep the timeline view's payload manageable on chatty fingerprints.
+    /// </summary>
+    public async Task<IReadOnlyList<DisplayNameChange>> GetDisplayNameHistoryAsync(
+        string fingerprintId, int limit = 50, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return Array.Empty<DisplayNameChange>();
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT old_name, new_name, source, changed_at
+              FROM fingerprint_name_history
+             WHERE fingerprint_id = @id
+             ORDER BY changed_at DESC, id DESC
+             LIMIT @lim
+            """;
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        cmd.Parameters.AddWithValue("@lim", limit);
+        var list = new List<DisplayNameChange>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var old = reader.IsDBNull(0) ? null : reader.GetString(0);
+            var @new = reader.GetString(1);
+            var src = reader.GetString(2);
+            var ts = DateTime.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind);
+            list.Add(new DisplayNameChange(old, @new, src, ts));
+        }
+        return list;
     }
 
     /// <summary>

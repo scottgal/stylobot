@@ -461,26 +461,6 @@ public partial class DetectionBroadcastMiddleware
             ? recordOptions.DeriveUaDeviceClass(rawUa)
             : null;
 
-        // Final backstop: when the upstream pipeline didn't produce a PrimaryBotName (a
-        // race between matcher/UserAgentContributor priorities can leave it null even
-        // with a populated UA on the request), call the SAME composer here with the raw
-        // UA from HttpContext. Same FingerprintNameComposer that ResolveDisplayName
-        // ultimately wraps -- not a parasitic second resolver, just an additional call
-        // site that guarantees the composer always gets non-empty input on the request
-        // path. Without this the cache stores BotName=null for those rows and the
-        // dashboard falls back to the bare signature hash -- zero signal for the
-        // operator. Per [[feedback_single_name_path]].
-        var resolvedBotName = evidence.PrimaryBotName;
-        if (string.IsNullOrEmpty(resolvedBotName))
-        {
-            var headerUa = context.Request.Headers.UserAgent.ToString();
-            if (!string.IsNullOrEmpty(headerUa))
-            {
-                resolvedBotName = Mostlylucid.BotDetection.Services.FingerprintNameComposer.Compose(
-                    evidence.Signals, userAgent: headerUa);
-            }
-        }
-
         var detection = new DashboardDetectionEvent
         {
             RequestId = context.TraceIdentifier,
@@ -490,7 +470,7 @@ public partial class DetectionBroadcastMiddleware
             Confidence = evidence.Confidence,
             RiskBand = evidence.RiskBand.ToString(),
             BotType = evidence.PrimaryBotType?.ToString(),
-            BotName = resolvedBotName,
+            BotName = evidence.PrimaryBotName,
             Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
             PolicyName = evidence.PolicyName ?? "Default",
             Method = context.Request.Method,

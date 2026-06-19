@@ -105,8 +105,11 @@ public class UserAgentParserNamingTests
             previousName: "Chrome on macOS (header drift)");
 
         Assert.NotNull(name);
-        Assert.StartsWith("Edge on Windows", name);
-        Assert.DoesNotContain("Chrome on macOS", name);
+        // Short-form output post-2026-06-18: "{osShort} {familyShort}" plus
+        // optional version + archetype + distinguisher slots.
+        Assert.Contains("Edge", name);
+        Assert.Contains("Win", name);
+        Assert.DoesNotContain("Chrome", name);
     }
 
     [Fact]

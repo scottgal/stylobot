@@ -233,7 +233,14 @@ public sealed class ArchetypeMatchScoringTests
         foreach (var (id, n, r) in scored)
             _output.WriteLine($"{id,-22} norm={n:F4}  raw={r:F4}");
 
-        var match = _registry.FindNearestRaw(rawVector);
+        // Production matcher passes observedUaFamily via ResolveObservedUaFamily
+        // (priority 6, before UserAgentContributor at 10; falls back to parsing
+        // state.UserAgent when no ua.family signal is set yet). The test mirrors
+        // that production path so the UA-family gate filters out single-dim
+        // synthesized archetypes (bonfire, pangubot) whose specificity bonus
+        // would otherwise beat rich hand-written archetypes like mobile-safari.
+        var uaFamily = rawValues.GetValueOrDefault("hdr.ua_family") as string;
+        var match = _registry.FindNearestRaw(rawVector, uaFamily);
         Assert.NotNull(match);
         var winner = match!.Archetype.ArchetypeId;
         Assert.True(
@@ -286,7 +293,11 @@ public sealed class ArchetypeMatchScoringTests
         foreach (var (id, n, r) in scored)
             _output.WriteLine($"{id,-22} norm={n:F4}  raw={r:F4}");
 
-        var match = registry.FindNearestRaw(rawVector);
+        // Production matcher passes observedUaFamily via ResolveObservedUaFamily
+        // (parses the UA header when no ua.family signal is set yet). The test
+        // mirrors that so the gate filters out the single-dim synthesized
+        // archetypes (bonfire et al.).
+        var match = registry.FindNearestRaw(rawVector, raw["hdr.ua_family"] as string);
         Assert.NotNull(match);
         var winner = match!.Archetype.ArchetypeId;
         Assert.True(

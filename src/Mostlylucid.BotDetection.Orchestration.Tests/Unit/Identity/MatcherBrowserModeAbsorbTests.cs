@@ -356,7 +356,7 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
     }
 
     private async Task<ConcurrentDictionary<string, object>> RunMatcherAsync(
-        float[] vector, string primarySig, string browserMode)
+        float[] vector, string primarySig, string browserMode, string? uaFamily = "Chrome")
     {
         var signals = new ConcurrentDictionary<string, object>
         {
@@ -364,6 +364,15 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
             [SignalKeys.IdentityVector] = vector,
             [SignalKeys.IdentityBrowserMode] = browserMode,
         };
+        // Pre-set ua.family so the matcher's UA-family gate (FindNearestRaw +
+        // FindNearestClient + observation persistence) works the way production
+        // exercises it once UserAgentContributor has populated the signal. The
+        // tests below seed Chrome-shaped centroids; without the gate, sparse
+        // synthesized archetypes (yandex-search, bonfire, ...) win on the raw
+        // similarity scoring because their single-dim specificity bonus is
+        // undiluted by the dimensions a rich archetype has to score on.
+        if (!string.IsNullOrEmpty(uaFamily))
+            signals[SignalKeys.UserAgentFamily] = uaFamily;
         var state = new BlackboardState
         {
             HttpContext = new DefaultHttpContext(),

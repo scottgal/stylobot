@@ -103,15 +103,30 @@ public sealed class NullFingerprintStore : IFingerprintStore
 
     // ── Display name ─────────────────────────────────────────────────────────
     public Task UpdateDisplayNameAsync(
-        string fingerprintId, string displayName, DateTime updatedAt, CancellationToken ct = default)
+        string fingerprintId, string displayName, DateTime updatedAt,
+        CancellationToken ct = default,
+        string source = "matcher")
         => Task.CompletedTask;
 
     public Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default)
         => Task.FromResult(0);
 
     public Task UpdateDisplayNameForSignatureAsync(
-        string primarySignature, string displayName, DateTime updatedAt, CancellationToken ct = default)
+        string primarySignature, string displayName, DateTime updatedAt,
+        CancellationToken ct = default,
+        string source = "matcher")
         => Task.CompletedTask;
+
+    private static readonly IReadOnlyDictionary<string, string?> _emptyNames =
+        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+    public Task<IReadOnlyDictionary<string, string?>> GetDisplayNamesBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default)
+        => Task.FromResult(_emptyNames);
+
+    public Task<IReadOnlyList<DisplayNameChange>> GetDisplayNameHistoryAsync(
+        string fingerprintId, int limit = 50, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<DisplayNameChange>>(Array.Empty<DisplayNameChange>());
 
     // ── Batch read / drift / absorption picker ───────────────────────────────
     public Task<IReadOnlyDictionary<string, float[]>> GetCentroidsBySignaturesAsync(

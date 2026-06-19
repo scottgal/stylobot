@@ -89,7 +89,9 @@ public class FingerprintNameComposerTests
         });
 
         Assert.DoesNotContain("Mastodon", name ?? string.Empty);
-        Assert.Equal("Chrome on Mac OS X", name);
+        // Priority 3 short form: "{osShort} {familyShort}" (Mac Chrome).
+        // Per user contract 2026-06-18 ("Win Chrome UK is FINE. Chrome on Windows is NOT").
+        Assert.Equal("Mac Chrome", name);
     }
 
     [Fact]
@@ -107,7 +109,7 @@ public class FingerprintNameComposerTests
         });
 
         Assert.DoesNotContain("python", name ?? string.Empty);
-        Assert.Equal("Firefox on Linux", name);
+        Assert.Equal("Lin Firefox", name);
     }
 
     [Fact]
@@ -130,6 +132,11 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_Priority3_FamilyPlusOs_WhenBothAvailable()
     {
+        // Priority 3 short form: "{osShort} {familyShort} {distinguisher}".
+        // Per user contract 2026-06-18 ("Win Chrome UK is FINE"). The country
+        // distinguisher slots into the same place as the previous "(country:sig)"
+        // parenthetical -- it's still adding distinguishing signal, just in a
+        // space-separated form the dashboard renders without status-as-name look.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Firefox",
@@ -137,7 +144,9 @@ public class FingerprintNameComposerTests
             ["geo.country_code"] = "GB"
         });
 
-        Assert.Contains("Firefox on Linux", name);
+        Assert.Contains("Firefox", name);
+        Assert.Contains("Lin", name);
+        Assert.Contains("GB", name);
     }
 
     [Fact]
@@ -180,11 +189,12 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_DoesNotAppendCountryOrSigPrefix_ToName()
+    public void Compose_DoesNotAppendSigPrefixOrColonForm_ToName()
     {
-        // The dashboard renders country and signature in their own columns; baking them
-        // into the name produced labels like "Chrome (US:abcd)" that read as "a status,
-        // not a name" (operator feedback). The name should now be just "Chrome on Windows".
+        // Operator feedback: baking the signature hash or "(US:abcd)"-style status
+        // labels into the name reads as "a status, not a name". The short-form
+        // contract DOES include a single-token country distinguisher ("US"), but
+        // never a sig-hash prefix and never the parenthetical "(country:hash)" form.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
@@ -193,7 +203,8 @@ public class FingerprintNameComposerTests
             ["signature.primary"] = "abcd1234efgh5678"
         });
 
-        Assert.Equal("Chrome on Windows", name);
+        Assert.Contains("Chrome", name);
+        Assert.Contains("Win", name);
         Assert.DoesNotContain("US:", name);
         Assert.DoesNotContain("abcd", name);
     }
@@ -298,7 +309,8 @@ public class FingerprintNameComposerTests
             new Dictionary<string, object> { ["ua.family"] = "Chrome", ["user_agent.os"] = "Windows" },
             previousName: "analysing");
 
-        Assert.Contains("Chrome on Windows", name);
+        Assert.Contains("Chrome", name);
+        Assert.Contains("Win", name);
     }
 
     [Fact]
@@ -398,14 +410,14 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_PrefersFamilyOs_OverUaPrefixFallback()
     {
-        // Priority 3 must still beat Priority 4.
+        // Priority 3 must still beat Priority 4. Short-form output.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
             ["user_agent.os"] = "Windows",
             ["ua.raw"] = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36"
         });
-        Assert.Equal("Chrome on Windows", name);
+        Assert.Equal("Win Chrome", name);
     }
 
     [Fact]
@@ -509,7 +521,8 @@ public class FingerprintNameComposerTests
         });
 
         Assert.NotNull(name);
-        Assert.Contains("Chrome on macOS", name);
+        Assert.Contains("Chrome", name);
+        Assert.Contains("Mac", name);
     }
 
     [Fact]
@@ -570,7 +583,7 @@ public class FingerprintNameComposerTests
         });
 
         Assert.NotNull(name);
-        Assert.Equal("Firefox on Linux", name);
+        Assert.Equal("Lin Firefox", name);
     }
 
     [Fact]

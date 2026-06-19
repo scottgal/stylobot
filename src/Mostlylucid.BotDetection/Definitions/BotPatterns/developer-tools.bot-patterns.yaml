@@ -1,6 +1,18 @@
 category: developer_tools
 description: "HTTP client libraries, CLI tools, and developer testing tools"
 patterns:
+  # === StyloBot internal infrastructure clients ===
+  # Marketing-site pulls, AspNetPack remote sink/query/hub, OtelMesh remote,
+  # Prometheus pack scraper. Every internal HttpClient stamps this UA
+  # (Identity/StyloBotInternalUserAgent.cs). Without an explicit catalogue
+  # entry the composer fell through to Priority 4 (UA prefix) and the matcher
+  # refused to persist that as a real name, so the dashboard rendered a
+  # signature-hash prefix instead.
+  - pattern: StyloBot.Internal
+    bot_name: StyloBot Internal
+    bot_type: Tool
+    vendor: StyloBot
+
   # === CLI tools ===
   - pattern: curl
     bot_name: curl

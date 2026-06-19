@@ -61,6 +61,23 @@ CREATE TABLE IF NOT EXISTS fingerprint_root_history (
 CREATE INDEX IF NOT EXISTS ix_frh_fp_setat
     ON fingerprint_root_history(fingerprint_id, set_at DESC);
 
+-- Per-fingerprint display-name change history. Append-only snapshot table; one
+-- row per name transition. Written under the single write gate
+-- (SqliteFingerprintStore.UpdateDisplayNameAsync) so every rename — matcher
+-- recompose, LLM rename, future operator rename — leaves a record. Read by the
+-- signature timeline view on demand; NOT denormalised onto the Fingerprint
+-- record (snapshots stay cold, the LFU dict owns only the current name).
+CREATE TABLE IF NOT EXISTS fingerprint_name_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint_id  TEXT NOT NULL REFERENCES fingerprints(fingerprint_id),
+    old_name        TEXT,
+    new_name        TEXT NOT NULL,
+    source          TEXT NOT NULL,  -- 'matcher' | 'llm' | 'operator'
+    changed_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_fnh_fp_changedat
+    ON fingerprint_name_history(fingerprint_id, changed_at DESC);
+
 CREATE TABLE IF NOT EXISTS fingerprint_keys (
     primary_signature   TEXT PRIMARY KEY,
     fingerprint_id      TEXT NOT NULL REFERENCES fingerprints(fingerprint_id),

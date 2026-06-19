@@ -206,17 +206,31 @@ internal static class FingerprintNameComposer
 
         if (!string.IsNullOrEmpty(family) && family != "Other")
         {
-            // Short-form, distinguisher-baked-in. User contract (2026-06-18):
-            //   "Win Chrome UK is FINE. Chrome on Windows (header drift 45) is NOT."
-            // Format: "{osShort} {familyShort} {distinguisher}" -- compact, scannable,
-            // always carries the most-relevant distinguishing signal (ASN > country >
-            // /16 IP block, picked by BuildDistinctiveModifier). Two distinct fingerprints
-            // that would otherwise share a name show different distinguishers because
-            // those distinguishers are what made them distinct fingerprints in the
-            // first place. NO variance prose -- "(header drift)" is a separate concern
-            // for the drift surface, not the name.
+            // Short-form, distinguisher-baked-in. User contract (2026-06-19):
+            //   "Mac Chrome 149 w/ uBlock GB" -- include the UA MAJOR VERSION plus a
+            //   detected ARCHETYPE VARIATION (uBlock Origin, Brave, etc.) when one is
+            //   present. Plain "Mac Chrome" is too coarse to distinguish; we have the
+            //   data, use it.
+            // Format: "{osShort} {familyShort} {majorVersion?} w/ {archetypeShort?} {distinguisher?}"
+            // - majorVersion: derived from ua.family_version or live UA parse, MAJOR only
+            //   (149 not 149.0.0.0). Stable across patch releases so the name doesn't
+            //   thrash on minor bumps.
+            // - archetypeShort: matched IdentityArchetype.Name when its kind is one of
+            //   the meaningful "human-variation" categories (human-adblocker,
+            //   human-privacy) and the short form differs from the family. Generic
+            //   "chrome-desktop" / "safari-desktop" / etc. are dropped -- they restate
+            //   the family without adding signal.
+            // - distinguisher: ASN > country > /16 IP block, picked by
+            //   BuildDistinctiveModifier. Only the FIRST non-null attempt is taken.
             var familyShort = ShortenFamily(family);
             var osShort = ShortenOs(os);
+
+            var majorVersion = ExtractMajorVersion(
+                GetString(signals, SignalKeys.UserAgentFamilyVersion),
+                rawUaForParse);
+
+            var archetypeShort = ExtractArchetypeVariation(signals, familyShort);
+
             // BuildDistinctiveModifier returns ONE signal value per attempt (attempt 0
             // tries ASN, 1 tries country, 2 tries /16 IP). For the default Priority 3
             // path we want the first available distinguisher -- ordered ASN -> country
@@ -228,9 +242,16 @@ internal static class FingerprintNameComposer
             string? distinguisher = null;
             for (var attempt = 0; attempt < 3 && string.IsNullOrEmpty(distinguisher); attempt++)
                 distinguisher = BuildDistinctiveModifier(signals, attempt);
-            var parts = new List<string>(3);
+
+            var parts = new List<string>(5);
             if (!string.IsNullOrEmpty(osShort)) parts.Add(osShort);
             parts.Add(familyShort);
+            if (!string.IsNullOrEmpty(majorVersion)) parts.Add(majorVersion);
+            if (!string.IsNullOrEmpty(archetypeShort))
+            {
+                parts.Add("w/");
+                parts.Add(archetypeShort);
+            }
             if (!string.IsNullOrEmpty(distinguisher)) parts.Add(distinguisher);
             return string.Join(' ', parts);
         }
@@ -433,6 +454,80 @@ internal static class FingerprintNameComposer
         "Debian"          => "Lin",
         _                 => os.Length <= 4 ? os : os[..4]
     };
+
+    /// <summary>
+    ///     Extract the MAJOR version digit(s) from a UA version string. Reads the
+    ///     <c>ua.family_version</c> signal first; falls back to parsing the raw UA
+    ///     string when the signal is absent (matcher hot path runs before the UA
+    ///     contributor on some pipelines). "149.0.0.0" -> "149", "6.0" -> "6",
+    ///     "17.5.1" -> "17". Empty when no usable version is available.
+    /// </summary>
+    private static string ExtractMajorVersion(string? signalVersion, string? rawUa)
+    {
+        var v = signalVersion;
+        if (string.IsNullOrEmpty(v) && !string.IsNullOrEmpty(rawUa))
+            v = UserAgentParser.Parse(rawUa).Version;
+        if (string.IsNullOrEmpty(v)) return string.Empty;
+        var dot = v.IndexOf('.');
+        var major = dot > 0 ? v[..dot] : v;
+        // Guard against ill-formed version strings (e.g. "unknown") -- only emit
+        // the slot when the leading token parses as a number.
+        return int.TryParse(major, out _) ? major : string.Empty;
+    }
+
+    /// <summary>
+    ///     Pick a name-friendly variation token from the matched archetype when it
+    ///     adds a distinguishing fact over the bare UA family. Returns empty for the
+    ///     generic per-family archetypes (chrome-desktop, firefox-desktop, etc.) and
+    ///     for archetypes whose short form just restates the family. Returns short
+    ///     forms like "uBlock" / "Brave" / "AdGuard" for human-variation archetypes
+    ///     so the composed name reads "Mac Chrome 149 w/ uBlock GB" instead of the
+    ///     too-coarse "Mac Chrome GB".
+    /// </summary>
+    private static string ExtractArchetypeVariation(
+        IReadOnlyDictionary<string, object> signals, string familyShort)
+    {
+        var archetypeName = GetString(signals, SignalKeys.IdentityArchetypeName);
+        if (string.IsNullOrEmpty(archetypeName)) return string.Empty;
+        var archetypeKind = GetString(signals, SignalKeys.IdentityArchetypeKind);
+
+        // Only include archetype-derived tokens for archetypes that mark a meaningful
+        // human variation (adblocker, privacy hardening). The generic per-family
+        // archetypes (human-browser, plain bot) just restate signal already in the
+        // family / classification, so omit. Other kinds (tool, server-side bots)
+        // were never carried in Priority 3 -- their identity surfaces via
+        // Priority 1 (UA CLAIM) or via the matched archetype's Priority 2 path
+        // (which is bot-archetype-aware).
+        var include = archetypeKind switch
+        {
+            "human-adblocker" or "human-privacy" => true,
+            _ => false,
+        };
+        if (!include) return string.Empty;
+
+        // Compress the canonical archetype name to a single-token variation tag.
+        // Falls back to the first whitespace-delimited word when the canonical
+        // name is unfamiliar, so a newly-added archetype produces a sensible
+        // default ("Foo Bar" -> "Foo") without needing a switch update.
+        var shortForm = archetypeName switch
+        {
+            "uBlock Origin"     => "uBlock",
+            "AdGuard"           => "AdGuard",
+            "Brave Desktop"     => "Brave",
+            "Brave Mobile"      => "Brave",
+            "Firefox Privacy"   => "Strict",
+            "Chrome Privacy"    => "Strict",
+            "Generic Adblocker" => "Adblock",
+            _ => archetypeName.Split(' ', 2)[0],
+        };
+
+        // If the short form merely echoes the UA family, skip -- "Mac Chrome Chrome"
+        // is noise. Allow the archetype's variation only when it adds new signal.
+        if (string.Equals(shortForm, familyShort, StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+
+        return shortForm;
+    }
 
     internal static string? GetString(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;

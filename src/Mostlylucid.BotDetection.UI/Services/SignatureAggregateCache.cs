@@ -107,141 +107,21 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
-    ///     Apply an LLM-generated bot name and description to the in-memory aggregate.
-    ///     Does NOT touch the durable stores -- use <see cref="ApplyBotNameAsync"/> for
-    ///     that. This sync overload exists for tests and for in-process callers that
-    ///     have already persisted (the warm-up path replays cache state from
-    ///     <see cref="IDashboardEventStore"/>, so a write-through there would be a
-    ///     no-op + extra round-trip).
+    ///     Apply an LLM-generated description (per-signature transient narrative) to
+    ///     the in-memory aggregate. The bot NAME is owned by the fingerprint LFU dict
+    ///     (Fingerprint.DisplayName) -- written by the matcher's EmitDisplayNameSignal
+    ///     and by the LLM rename callback's direct <c>IFingerprintStore</c> call. The
+    ///     description is per-signature transient, so it stays on the aggregate.
     /// </summary>
-    public void ApplyBotName(string signature, string name, string? description = null)
+    public void ApplyDescription(string signature, string? description)
     {
+        if (description is null) return;
         if (!_entries.TryGetValue(signature, out var agg)) return;
-
         lock (agg.SyncRoot)
         {
-            agg.BotName = name;
-            if (description != null)
-                agg.Description = description;
+            agg.Description = description;
         }
-
         _sortDirty = true;
-    }
-
-    /// <summary>
-    ///     The single entry point for "this signature just got a new name". Writes
-    ///     the name + description through to the cold tier (dashboard_signatures and,
-    ///     if a fingerprint store is registered, the matcher's display name) BEFORE
-    ///     updating the in-memory aggregate, so a crash between stores and dict
-    ///     leaves durability ahead of memory rather than the other way around.
-    ///     Called by <see cref="LlmResultSignalRCallback"/> when background LLM naming
-    ///     completes; nothing else should write a bot name -- if it does, the dashboard
-    ///     can show two different names for the same signature at the same instant,
-    ///     which is the regression this method was built to make impossible.
-    /// </summary>
-    public async Task ApplyBotNameAsync(
-        string signature,
-        string name,
-        string? description = null,
-        CancellationToken ct = default)
-    {
-        if (_eventStore is not null)
-        {
-            try
-            {
-                await _eventStore.UpdateSignatureBotNameAsync(signature, name, description, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "ApplyBotNameAsync: event-store write failed for {Signature}",
-                    signature[..Math.Min(8, signature.Length)]);
-            }
-        }
-
-        if (_fingerprintStore is not null)
-        {
-            try
-            {
-                await _fingerprintStore.UpdateDisplayNameForSignatureAsync(signature, name, DateTime.UtcNow, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "ApplyBotNameAsync: fingerprint-store write failed for {Signature}",
-                    signature[..Math.Min(8, signature.Length)]);
-            }
-        }
-
-        ApplyBotName(signature, name, description);
-    }
-
-    /// <summary>
-    ///     Walks cache entries with empty <c>BotName</c> but populated <c>UserAgent</c>
-    ///     and back-fills the name by calling the canonical
-    ///     <c>FingerprintNameComposer.Compose</c> with the stored UA. Heals legacy
-    ///     rows where the broadcast event arrived with PrimaryBotName=null (matcher
-    ///     race against UserAgentContributor at allocation time) -- those rows were
-    ///     warmed back from the persistent event store with bot_name=NULL and the
-    ///     view layer falls back to a bare signature hash, which is zero signal for
-    ///     the operator. Running this pass on startup (via the warmup service) and
-    ///     on a periodic tick fills them in with composer-derived names ("Chrome on
-    ///     macOS", "Chrome Mobile on Android", "curl", etc.) WITHOUT needing fresh
-    ///     traffic per fingerprint. Per [[feedback_single_name_path]]: same composer,
-    ///     additional call site, no parasitic resolver.
-    ///     <para>
-    ///     Returns the number of aggregates that received a name. Bounded internally
-    ///     by the cache size (MaxEntries=500); cheap because the composer is pure.
-    ///     </para>
-    /// </summary>
-    public int ReconcileDisplayNames()
-    {
-        var filled = 0;
-        foreach (var kvp in _entries)
-        {
-            var agg = kvp.Value;
-            string? newName = null;
-            string? oldName = null;
-            lock (agg.SyncRoot)
-            {
-                // Reconcile needs SOMETHING for the composer to chew on: either
-                // a raw UA string OR a parsed UaFamily already on the aggregate.
-                // SeedFromTopBots populates UaFamily on every warmed row but the
-                // SQL projection doesn't include raw UA -- the family-only path
-                // is the load-bearing case here.
-                if (string.IsNullOrEmpty(agg.UserAgent) && string.IsNullOrEmpty(agg.UaFamily)) continue;
-
-                // Compose under the current contract using whatever distinguishing
-                // signals the cache holds. Feed UaFamily into signals so the
-                // composer's Priority 3 short-name path can fire even when raw UA
-                // isn't on the aggregate. Country feeds BuildDistinctiveModifier's
-                // attempt-1 fallback. Composer is THE source -- if its output
-                // differs from what's currently stored, the stored value is stale
-                // (verbose pre-contract form, missing distinguisher, double-
-                // discriminator bug, etc.) and we overwrite. No "preserve first
-                // write" hysteresis here -- that lets stale forms persist forever.
-                // Hysteresis lives in the matcher's hot-path Compose call where it
-                // belongs (don't replace a real name with a Priority-4 fallback);
-                // this is a deliberate "rewrite to the current composer's truth"
-                // pass, fires on warmup and periodically thereafter.
-                var signals = new Dictionary<string, object>(3);
-                if (!string.IsNullOrEmpty(agg.CountryCode))
-                    signals[Mostlylucid.BotDetection.Models.SignalKeys.GeoCountryCode] = agg.CountryCode;
-                if (!string.IsNullOrEmpty(agg.UaFamily))
-                    signals[Mostlylucid.BotDetection.Models.SignalKeys.UserAgentFamily] = agg.UaFamily;
-                newName = Mostlylucid.BotDetection.Services.FingerprintNameComposer.Compose(
-                    signals, userAgent: agg.UserAgent);
-                if (string.IsNullOrEmpty(newName)) continue;
-                if (string.Equals(agg.BotName, newName, StringComparison.Ordinal)) continue;
-                oldName = agg.BotName;
-                agg.BotName = newName;
-            }
-            filled++;
-            _logger?.LogDebug("Reconciled BotName for {Sig}: {Old} -> {New}",
-                kvp.Key[..Math.Min(8, kvp.Key.Length)],
-                string.IsNullOrEmpty(oldName) ? "(none)" : oldName,
-                newName);
-        }
-        if (filled > 0) _sortDirty = true;
-        return filled;
     }
 
     /// <summary>

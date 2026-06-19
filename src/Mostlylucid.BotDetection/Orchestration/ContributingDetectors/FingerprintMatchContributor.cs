@@ -716,6 +716,22 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         var family = state.GetSignal<string>(SignalKeys.UserAgentFamily);
         if (string.IsNullOrEmpty(family) || string.Equals(family, "Other", StringComparison.OrdinalIgnoreCase))
             family = state.GetSignal<string>(SignalKeys.UserAgentBotName);
+
+        // Race: the matcher runs at priority 6, UserAgentContributor at priority 10.
+        // On the first request for a fingerprint, neither ua.family nor ua.bot_name
+        // is set yet -- the matcher's UA-family gate would then be skipped and the
+        // FindNearestRaw umbrella effect lets sparse synthesized archetypes (bonfire,
+        // adguard, single-dimension promoted bot patterns) beat rich hand-written
+        // ones whose specificity bonus is diluted across many populated slots.
+        // Parse state.UserAgent directly as a last-resort source so the gate fires
+        // on request 1, not request 2.
+        if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(state.UserAgent))
+        {
+            var parsed = Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(state.UserAgent).Family;
+            if (!string.IsNullOrEmpty(parsed) && !string.Equals(parsed, "Other", StringComparison.OrdinalIgnoreCase))
+                family = parsed;
+        }
+
         return string.IsNullOrEmpty(family) ? null : family;
     }
 
@@ -859,7 +875,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         {
             // Fire-and-forget. Consistent with other matcher writes that avoid blocking the
             // request path. freshName is non-null inside this branch (checked above).
-            _ = _store.UpdateDisplayNameAsync(matched.FingerprintId, freshName!, DateTime.UtcNow, CancellationToken.None);
+            _ = _store.UpdateDisplayNameAsync(matched.FingerprintId, freshName!, DateTime.UtcNow,
+                CancellationToken.None, source: "matcher");
         }
     }
 

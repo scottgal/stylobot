@@ -134,12 +134,42 @@ public interface IFingerprintStore : IFingerprintReader
 
     // ── Display name ─────────────────────────────────────────────────────────
     Task UpdateDisplayNameAsync(
-        string fingerprintId, string displayName, DateTime updatedAt, CancellationToken ct = default);
+        string fingerprintId, string displayName, DateTime updatedAt,
+        CancellationToken ct = default,
+        string source = "matcher");
 
     Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default);
 
     Task UpdateDisplayNameForSignatureAsync(
-        string primarySignature, string displayName, DateTime updatedAt, CancellationToken ct = default);
+        string primarySignature, string displayName, DateTime updatedAt,
+        CancellationToken ct = default,
+        string source = "matcher");
+
+    /// <summary>
+    ///     Bulk transparent-LFU read for view rendering: signature -> current display
+    ///     name. Composes the two existing LFU dicts (_fingerprintIdByPrimarySig +
+    ///     _fingerprintById) so the dashboard's per-row name lookup costs nothing on
+    ///     a hot cache. Misses fall through to one bulk SQL roundtrip that populates
+    ///     both dicts. Returned dictionary has an entry per input signature; value is
+    ///     null when no fingerprint has been allocated yet for the signature.
+    ///     <para>
+    ///     This is THE read path for dashboard views per the LFU contract -- there is
+    ///     no SignatureAggregate.BotName field; views ALWAYS go through this method
+    ///     so the name has exactly one source of truth (Fingerprint.DisplayName).
+    ///     </para>
+    /// </summary>
+    Task<IReadOnlyDictionary<string, string?>> GetDisplayNamesBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Snapshot read for the signature timeline view: returns the per-fingerprint
+    ///     name-change history (old_name, new_name, source, changed_at) in reverse
+    ///     chronological order. NOT cached -- snapshots are cold (timeline view is a
+    ///     specific operator drill-in, not a per-request render), so this goes direct
+    ///     to DB. Empty list when the fingerprint has no recorded name changes.
+    /// </summary>
+    Task<IReadOnlyList<DisplayNameChange>> GetDisplayNameHistoryAsync(
+        string fingerprintId, int limit = 50, CancellationToken ct = default);
 
     // ── Batch read / drift / absorption picker ───────────────────────────────
     Task<IReadOnlyDictionary<string, float[]>> GetCentroidsBySignaturesAsync(
