@@ -173,7 +173,19 @@ public static class DetectionLedgerExtensions
         // on bot_type match the correct catalog entry. The original UA-derived
         // name still flows through PrimaryBotName for operator triage.
         var isActuallyBot = botProbability >= 0.5;
-        var ledgerPrimaryBotType = ParseBotType(ledger.BotType);
+        // YAML-catalog authority: when ledger.BotName matches a BotPatternLoader
+        // entry, the catalog's BotType wins over ledger.BotType. The reason:
+        // ledger.BotType is last-writer-wins and HeuristicEarly routinely
+        // overwrites the UserAgentContributor's authoritative type with a
+        // generic "Scraper" guess, so a row with BotName="GPTBot" surfaces
+        // as BotType=Scraper instead of AiBot on the dashboard. The catalog
+        // index by construction only contains entries with non-empty BotType,
+        // so a non-null FindBotTypeByName return IS authoritative. Mirrors
+        // the YAML recovery DetermineRiskVerdict already does for the risk
+        // band; lifting it to the same level here keeps the dashboard surface
+        // (PrimaryBotType) and the policy surface (resolvedBotType) in agreement.
+        var ledgerPrimaryBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(ledger.BotName))
+                                   ?? ParseBotType(ledger.BotType);
         // Local-network override: traffic from loopback / RFC1918 / docker
         // bridge is operator-owned by definition (admin curl, dashboard self-
         // poll, BDF test runner, service-to-service). Classify as Internal so
@@ -341,8 +353,13 @@ public static class DetectionLedgerExtensions
         // the friendly UA's BotName so the dashboard shows "Mastodon" rather than the
         // reputation-pattern id ("ip:::ffff::/48") that FastPathReputation supplied.
         // Confirmed-bad and high threat still escalate.
-        var primaryBotType = ParseBotType(exitContrib.BotType);
         var primaryBotName = ResolveDisplayName(earlySignals, exitContrib.BotName);
+        // Catalog authority (same rule as the post-orchestration path): when the
+        // resolved BotName matches a BotPatternLoader entry, prefer the catalog's
+        // BotType over the contributor's emission. Stops the early-exit shortcut
+        // from disagreeing with the dashboard's slower path on the same UA.
+        var primaryBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(primaryBotName))
+                             ?? ParseBotType(exitContrib.BotType);
         if (verdict is EarlyExitVerdict.VerifiedBadBot)
         {
             var friendlyContrib = FindFriendlyBotContribution(ledger);
@@ -568,13 +585,14 @@ public static class DetectionLedgerExtensions
         bool? friendlyDomainVerified = null,
         bool browserAttestationVerified = false)
     {
-        // YAML fallback: ledger.BotType is last-writer-wins (HeuristicEarly often
-        // overwrites the authoritative UA pattern's GoodBot with a generic
-        // Scraper guess). Recover by looking up the bot_name in the YAML pattern
-        // index -- if the YAML claims a friendly type, treat as friendly even
-        // when ledger.BotType disagrees.
+        // YAML catalog wins. ledger.BotType is last-writer-wins (HeuristicEarly
+        // often overwrites the authoritative UA pattern's bot_type with a generic
+        // Scraper guess). When the bot_name matches a YAML pattern, the catalog's
+        // type is authoritative for that named identity -- the same rule applied
+        // at the PrimaryBotType assignment so the risk-band and dashboard
+        // surfaces stay in agreement.
         var yamlType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(botName));
-        var resolvedBotType = botType ?? yamlType;
+        var resolvedBotType = yamlType ?? botType;
         var isFriendlyBotType = BotTypeClassification.IsFriendly(botType)
                                 || BotTypeClassification.IsFriendly(yamlType);
 
