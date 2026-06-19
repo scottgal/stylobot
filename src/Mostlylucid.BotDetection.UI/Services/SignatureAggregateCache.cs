@@ -694,7 +694,13 @@ public sealed class SignatureAggregateCache
     private IEnumerable<CachedVisitor> CollapseGroupable(IEnumerable<CachedVisitor> source)
     {
         var list = source.ToList();
-        foreach (var grp in list.GroupBy(v => ResolveGroupCanonical(v), StringComparer.Ordinal))
+        // Case-insensitive grouping IS the centroid rule for bot rows. Even after
+        // the canonicalisation step that runs at the store-write and broadcast
+        // boundaries, stale DB rows from before the canonicaliser landed may
+        // still surface "googlebot" / "Googlebot" alongside the canonical
+        // entry. Folding them at the group key keeps the live view honest
+        // without forcing a DB rewrite.
+        foreach (var grp in list.GroupBy(v => ResolveGroupCanonical(v), StringComparer.OrdinalIgnoreCase))
         {
             var members = grp.ToList();
             if (members.Count == 1) { yield return members[0]; continue; }

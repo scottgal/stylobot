@@ -62,16 +62,7 @@
                                 }
                                 <span class="text-xs font-semibold text-base-content truncate max-w-48"
                                       title="@SignatureDisplayName.TitleAttr(s.Signature)">
-                                    @SignatureDisplayName.Resolve(
-                                        s.Signature,
-                                        s.BotName,
-                                        botType: null,
-                                        customLabel: null,
-                                        s.CountryCode,
-                                        s.IsBot,
-                                        uaFamily: null,
-                                        seen: null,
-                                        userAgent: s.UserAgent)
+                                    @SignatureDisplayName.Display(s.BotName)
                                 </span>
                                 <span class="badge badge-xs @(s.IsBot ? "badge-error" : "badge-success")">
                                     @(s.IsBot ? "Bot" : "Human")

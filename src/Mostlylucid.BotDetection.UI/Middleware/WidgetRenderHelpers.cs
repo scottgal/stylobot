@@ -125,8 +125,13 @@ public static class WidgetRenderHelpers
         // results in caller-supplied order; the previous version always re-sorted
         // by LastSeen DESC which silently overrode any sort the caller passed in
         // (sort=name, sort=threat, sort=hits etc. all rendered as lastseen).
-        var firstIndexOf = new Dictionary<string, int>(StringComparer.Ordinal);
-        var groupMembers = new Dictionary<string, List<DashboardTopBotEntry>>(StringComparer.Ordinal);
+        // Case-insensitive keys -- same centroid rule used by the
+        // SignatureAggregateCache collapse on the Visitors path. Stale
+        // pre-canonicaliser rows in the event store still surface mixed
+        // casings; the view collapses them at the group key without a
+        // forced DB rewrite.
+        var firstIndexOf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var groupMembers = new Dictionary<string, List<DashboardTopBotEntry>>(StringComparer.OrdinalIgnoreCase);
         var passThrough = new List<(int idx, DashboardTopBotEntry entry)>();
 
         for (var i = 0; i < source.Count; i++)

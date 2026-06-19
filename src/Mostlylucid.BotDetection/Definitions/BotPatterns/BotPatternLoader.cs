@@ -119,6 +119,43 @@ public sealed class BotPatternLoader
         return dict;
     }
 
+    private Dictionary<string, string>? _botNameCanonicalIndex;
+
+    /// <summary>
+    ///     Case-insensitive lookup that returns the catalog's canonical casing for
+    ///     a known bot name, or null when the name is unknown to the catalog. The
+    ///     single chokepoint used by the gateway broadcast + persistent store to
+    ///     normalise contributor-emitted names ("googlebot", "GOOGLEBOT", or the
+    ///     mixed "Googlebot/2.1" UA-regex capture) into the YAML-canonical
+    ///     "Googlebot" before anything downstream sees the row. Bot names that
+    ///     don't appear in any pattern catalog (custom matcher names, fediverse
+    ///     instance suffixes, ad-hoc operator labels) read through unchanged --
+    ///     the caller stores the input as-is. Discriminator suffixes ("Mastodon
+    ///     mastodon.social") canonicalise the head and preserve the tail.
+    /// </summary>
+    public string? FindCanonicalCasing(string? botName)
+    {
+        if (string.IsNullOrWhiteSpace(botName)) return null;
+        var trimmed = botName.Trim();
+        var idx = _botNameCanonicalIndex ??= BuildBotNameCanonicalIndex();
+        if (idx.TryGetValue(trimmed, out var canonical)) return canonical;
+
+        var space = trimmed.IndexOf(' ');
+        if (space > 0 && idx.TryGetValue(trimmed[..space], out var headCanonical))
+            return headCanonical + trimmed[space..];
+
+        return null;
+    }
+
+    private Dictionary<string, string> BuildBotNameCanonicalIndex()
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in AllPatterns)
+            if (!string.IsNullOrWhiteSpace(entry.BotName))
+                dict.TryAdd(entry.BotName, entry.BotName);
+        return dict;
+    }
+
     /// <summary>
     ///     Builds the legacy GoodBots dictionary from all loaded patterns.
     ///     Format: { pattern -> display_name }

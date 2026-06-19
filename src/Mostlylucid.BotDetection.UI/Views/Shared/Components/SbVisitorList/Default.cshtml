@@ -105,16 +105,7 @@
                     {
                         // SINGLE canonical name path. Resolve runs custom > catalog >
                         // Arcjet UA > uap-core > country composite > honest terminal.
-                        var displayName = SignatureDisplayName.Resolve(
-                            v.PrimarySignature,
-                            v.BotName,
-                            v.BotType,
-                            customLabel: null,
-                            v.CountryCode,
-                            isBot: v.BotProbability >= 0.5,
-                            uaFamily: v.UaFamily,
-                            seen: null,
-                            userAgent: v.UserAgent);
+                        var displayName = SignatureDisplayName.Display(v.BotName);
                         var probPct = (v.BotProbability * 100).ToString("F0");
                         var probClass = v.RiskBand switch { "VeryHigh" or "High" => "text-error", "Medium" or "Elevated" => "text-warning", _ => "text-success" };
                         var riskBadge = v.RiskBand switch { "VeryHigh" => "badge-error", "High" => "badge-error", "Medium" => "badge-warning", "Elevated" => "badge-warning", "Low" => "badge-success", _ => "badge-ghost" };

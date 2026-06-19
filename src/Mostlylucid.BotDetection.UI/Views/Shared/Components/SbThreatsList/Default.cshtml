@@ -76,7 +76,7 @@
                                         <span class="badge @severityClass badge-xs">@(threat.CveSeverity ?? "probe")</span>
                                     </td>
                                     <td class="text-xs font-mono max-w-[200px] truncate" title="@threat.Path">@threat.Path</td>
-                                    <td class="text-xs" title="@SignatureDisplayName.TitleAttr(threat.Signature)">@SignatureDisplayName.Resolve(threat.Signature, threat.BotName, threat.BotType, customLabel: null, threat.CountryCode, isBot: threat.BotProbability >= 0.5, uaFamily: null, seen: null, userAgent: threat.UserAgent)</td>
+                                    <td class="text-xs" title="@SignatureDisplayName.TitleAttr(threat.Signature)">@SignatureDisplayName.Display(threat.BotName)</td>
                                     <td>
                                         @{
                                             var threatClass = threat.ThreatScore switch

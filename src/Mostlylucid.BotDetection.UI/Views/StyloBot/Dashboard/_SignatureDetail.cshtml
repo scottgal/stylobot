@@ -20,16 +20,7 @@
     // hash is NEVER rendered as if it were a name; the full hash is exposed
     // via TitleAttr below for incident-note grepping.
     var signatureDisplayName = Model.Found
-        ? SignatureDisplayName.Resolve(
-            Model.SignatureId,
-            Model.BotName,
-            Model.BotType,
-            customLabel: null,
-            Model.CountryCode,
-            Model.IsBot,
-            uaFamily: Model.UaFamily,
-            seen: null,
-            userAgent: Model.UserAgent)
+        ? SignatureDisplayName.Display(Model.BotName)
         : null;
     ViewData["Title"] = signatureDisplayName ?? "Not Found";
     var bp = Model.BasePath;

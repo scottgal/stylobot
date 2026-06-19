@@ -15,16 +15,7 @@
     // for every view. It runs custom > catalog > Arcjet UA match > uap-core
     // parse > country composite > honest terminal -- no hash, no weasel
     // "Unclassified". CachedVisitor exposes everything Resolve needs.
-    var displayName = SignatureDisplayName.Resolve(
-        Model.PrimarySignature,
-        Model.BotName,
-        Model.BotType,
-        customLabel: null,
-        Model.CountryCode,
-        Model.IsBot,
-        uaFamily: Model.UaFamily,
-        seen: null,
-        userAgent: Model.UserAgent);
+    var displayName = SignatureDisplayName.Display(Model.BotName);
     var probPct = (Model.BotProbability * 100).ToString("F0");
     var confPct = (Model.Confidence * 100).ToString("F0");
     var actionClass = ActionDisplayHelper.GetBadgeCssClass(Model.Action);

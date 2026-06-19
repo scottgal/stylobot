@@ -484,7 +484,13 @@ public partial class DetectionBroadcastMiddleware
             Confidence = evidence.Confidence,
             RiskBand = evidence.RiskBand.ToString(),
             BotType = evidence.PrimaryBotType?.ToString(),
-            BotName = evidence.PrimaryBotName,
+            // SINGLE canonicalisation point at the dashboard event boundary --
+            // mirrors the same normalisation IFingerprintStore does on the
+            // persistent write. Catalog-known names get the catalog's casing
+            // ("googlebot" / "GOOGLEBOT" / regex-capture "Googlebot/2.1" all
+            // become "Googlebot"). Unknown names (custom labels, fediverse
+            // suffixes) pass through unchanged.
+            BotName = Mostlylucid.BotDetection.Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(evidence.PrimaryBotName) ?? evidence.PrimaryBotName,
             Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
             PolicyName = evidence.PolicyName ?? "Default",
             Method = context.Request.Method,
@@ -590,7 +596,10 @@ public partial class DetectionBroadcastMiddleware
             Confidence = detectionConfidence,
             RiskBand = riskBand,
             BotType = botType,
-            BotName = result.BotName,
+            // SINGLE canonicalisation point -- same call as the AggregatedEvidence
+            // build path above so an upstream-trusted detection produces the same
+            // canonical-cased BotName as the locally-orchestrated one.
+            BotName = Mostlylucid.BotDetection.Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(result.BotName) ?? result.BotName,
             Action = context.Request.Headers["X-Bot-Detection-Action"].FirstOrDefault() ?? "Allow",
             PolicyName = "upstream",
             Method = context.Request.Method,

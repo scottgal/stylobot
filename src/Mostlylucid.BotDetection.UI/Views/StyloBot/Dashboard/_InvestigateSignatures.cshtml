@@ -45,16 +45,7 @@
      style="grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));">
     @foreach (var sig in Model.Result.Signatures)
     {
-        var displayName = SignatureDisplayName.Resolve(
-            sig.PrimarySignature,
-            sig.BotName,
-            sig.BotType,
-            customLabel: null,
-            countryCode: null,
-            isBot: sig.IsKnownBot,
-            uaFamily: sig.UaFamily,
-            seen: null,
-            userAgent: null);
+        var displayName = SignatureDisplayName.Display(sig.BotName);
         var typeIcon = BotDisplayHelpers.IconForBotType(sig.BotType);
         var categoryClass = BotDisplayHelpers.CategoryBadgeClass(sig.BotType);
         var riskColor = BotDisplayHelpers.ColorForRiskBand(sig.RiskBand);

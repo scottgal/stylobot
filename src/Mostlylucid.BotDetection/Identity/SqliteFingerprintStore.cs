@@ -518,7 +518,18 @@ public class SqliteFingerprintStore : IFingerprintStore
             oldName = raw as string;
         }
 
-        var newName = displayName ?? "";
+        // Canonical-casing normalisation at the SINGLE write boundary into the
+        // persistent fingerprint store. Whatever spelling a contributor or LLM
+        // namer emits ("googlebot", "GOOGLEBOT", "Googlebot/2.1") gets folded
+        // to the BotPatternLoader catalog's canonical casing before it lands
+        // on the row. Stops casing-split parasites where the same identity
+        // appeared as N rows because different writers raced to land different
+        // strings in the same field. Unknown names (custom matcher labels,
+        // fediverse instance suffixes not in the catalog) pass through as-is.
+        var canonical = !string.IsNullOrEmpty(displayName)
+            ? Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(displayName) ?? displayName
+            : "";
+        var newName = canonical;
 
         await using (var cmd = conn.CreateCommand())
         {
