@@ -64,7 +64,7 @@
 
                 <!-- Timing -->
                 <div class="detection-bar-timing">
-                    <span x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
+                    <span x-text="(function(m){ if(!isFinite(m)||m<=0) return '-'; if(m<0.001) return '<1µs'; if(m<1) return Math.round(m*1000)+'µs'; if(m<10) return m.toFixed(2)+'ms'; if(m<1000) return m.toFixed(0)+'ms'; return (m/1000).toFixed(1)+'s'; })(processingTimeMs)"></span>
                 </div>
 
                 <!-- Hit Count - Updates in real-time -->
@@ -109,7 +109,7 @@
                         </div>
                         <div class="contributor-item">
                             <span class="contributor-name">Avg Response</span>
-                            <span class="contributor-value" x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
+                            <span class="contributor-value" x-text="(function(m){ if(!isFinite(m)||m<=0) return '-'; if(m<0.001) return '<1µs'; if(m<1) return Math.round(m*1000)+'µs'; if(m<10) return m.toFixed(2)+'ms'; if(m<1000) return m.toFixed(0)+'ms'; return (m/1000).toFixed(1)+'s'; })(processingTimeMs)"></span>
                         </div>
                     </div>
                 </div>

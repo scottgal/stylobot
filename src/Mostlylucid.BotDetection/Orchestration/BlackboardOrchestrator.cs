@@ -1023,7 +1023,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 contributions = await detector.ContributeAsync(state, cancellationToken);
             }
 
-            var elapsedMs = (long)Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
+            var elapsedMs = Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
 
             foreach (var contribution in contributions)
             {
@@ -1047,12 +1047,12 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            var elapsedMs = (long)Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
+            var elapsedMs = Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
             HandleDetectorFailure(detector, aggregator, failedDetectors, "Timeout", elapsedMs);
         }
         catch (Exception ex)
         {
-            var elapsedMs = (long)Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
+            var elapsedMs = Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
             HandleDetectorFailure(detector, aggregator, failedDetectors, ex.Message, elapsedMs);
 
             _logger.LogWarning(ex,

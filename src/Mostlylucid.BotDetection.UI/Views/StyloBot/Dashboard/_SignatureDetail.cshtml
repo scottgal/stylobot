@@ -525,9 +525,9 @@ else
                                     <td class="py-1 text-xs font-mono text-base-content/80 max-w-[28ch] truncate" title="@e.Path">@shortPath</td>
                                     <td class="py-1 text-[10px] font-mono text-base-content/60 uppercase">@e.Method</td>
                                     <td class="py-1 text-right text-xs tabular-nums text-base-content/90">@e.HitCount.ToString("N0")</td>
-                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/70">@e.AvgProcessingTimeMs.ToString("F1")</td>
-                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/70">@e.P95ProcessingTimeMs.ToString("F1")</td>
-                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/50">@e.MaxProcessingTimeMs.ToString("F1")</td>
+                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/70">@AnalyticsFormatting.FormatMs(e.AvgProcessingTimeMs)</td>
+                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/70">@AnalyticsFormatting.FormatMs(e.P95ProcessingTimeMs)</td>
+                                    <td class="py-1 text-right text-xs tabular-nums text-base-content/50">@AnalyticsFormatting.FormatMs(e.MaxProcessingTimeMs)</td>
                                     <td class="py-1 text-right text-xs tabular-nums @(botPct >= 70 ? "text-error" : botPct >= 30 ? "text-warning" : "text-success")">@botPct%</td>
                                     <td class="py-1 text-xs @RiskColor(e.DominantRiskBand)">@(e.DominantRiskBand ?? "-")</td>
                                     <td class="py-1 text-xs @ActionColor(e.DominantAction)">@(e.DominantAction ?? "-")</td>
@@ -887,7 +887,7 @@ else
         <span>Signature:</span>
         <code class="bg-base-300/50 px-1.5 py-0.5 rounded select-all">@Model.SignatureId</code>
         <span class="text-base-content/20">|</span>
-        <span>Processing: @($"{Model.ProcessingTimeMs:F1}")ms</span>
+        <span>Processing: @AnalyticsFormatting.FormatMs(Model.ProcessingTimeMs)</span>
         @if (!string.IsNullOrEmpty(Model.CountryCode) && Model.CountryCode != "XX")
         {
             <span class="text-base-content/20">|</span>
@@ -958,20 +958,34 @@ else
             // Processing Time chart -- line + dots, no per-point labels (those badges
             // covered the actual trend and the operator only needs the trend shape
             // at a glance + a tooltip for the exact value on hover).
+            //
+            // Latency formatter mirrors AnalyticsFormatting.FormatMs server-side.
+            // StyloBot detection runs in microseconds-to-low-ms; the previous
+            // "v.toFixed(0) + 'ms'" rendered every sub-ms value as "0ms" -- the
+            // user couldn't tell a 320µs detector apart from a no-op one.
+            function fmtLatency(ms) {
+                if (!isFinite(ms) || ms <= 0) return '-';
+                if (ms < 0.001) return '<1µs';
+                if (ms < 1)     return Math.round(ms * 1000) + 'µs';
+                if (ms < 10)    return ms.toFixed(2) + 'ms';
+                if (ms < 1000)  return ms.toFixed(0) + 'ms';
+                return (ms / 1000).toFixed(1) + 's';
+            }
+
             var ptData = JSON.parse(document.getElementById('proc-time-data').textContent);
             if (ptData && ptData.length > 1) {
                 new ApexCharts(document.getElementById('proc-time-chart'), {
                     chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
-                    series: [{ name: 'Processing Time (ms)', data: ptData }],
+                    series: [{ name: 'Processing Time', data: ptData }],
                     colors: ['#daa564'],
                     stroke: { width: 2, curve: 'smooth' },
                     markers: { size: 3, strokeWidth: 0, hover: { size: 5 } },
                     dataLabels: { enabled: false },
                     xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
-                    yaxis: { logarithmic: true, labels: { style: { colors: fg, fontSize: '10px' }, formatter: function(v) { return v < 1 ? v.toFixed(2) + 'ms' : v.toFixed(0) + 'ms'; } } },
+                    yaxis: { logarithmic: true, labels: { style: { colors: fg, fontSize: '10px' }, formatter: fmtLatency } },
                     grid: { borderColor: gridColor, strokeDashArray: 3 },
                     legend: { show: false },
-                    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: function(v) { return v.toFixed(2) + 'ms'; } } }
+                    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: fmtLatency } }
                 }).render();
             }
         })();

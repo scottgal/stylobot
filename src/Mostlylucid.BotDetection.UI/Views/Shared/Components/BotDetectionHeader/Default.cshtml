@@ -30,7 +30,11 @@
                   x-text="Math.round(botProbability * 100) + '%'"></span>
             <span class="stylobot-header-risk" :class="'risk-' + (riskBand || 'unknown').toLowerCase()"
                   x-text="riskBand || 'Unknown'"></span>
-            <span class="stylobot-header-time" x-text="(processingTimeMs || 0).toFixed(0) + 'ms'"></span>
+            @* Latency formatter mirrors AnalyticsFormatting.FormatMs / BotDisplayHelpers.FormatProcessingTime
+               server-side. Detection runs in microseconds-to-low-ms; rendering everything < 1ms as "0ms"
+               hid the actual signal. *@
+            <span class="stylobot-header-time"
+                  x-text="(function(m){ if(!isFinite(m)||m<=0) return '-'; if(m<0.001) return '<1µs'; if(m<1) return Math.round(m*1000)+'µs'; if(m<10) return m.toFixed(2)+'ms'; if(m<1000) return m.toFixed(0)+'ms'; return (m/1000).toFixed(1)+'s'; })(processingTimeMs || 0)"></span>
             <span class="stylobot-header-hits" x-show="hitCount > 1" :class="{ 'pulse-update': justUpdated }"
                   x-text="'x' + hitCount"></span>
             <span class="stylobot-header-expand" x-text="expanded ? '[-]' : '[+]'"></span>
