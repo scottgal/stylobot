@@ -230,12 +230,19 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             await conn.OpenAsync();
 
             await using var cmd = conn.CreateCommand();
+            // top_reasons_json carries the per-detection reasons / synthesized
+            // positive-signal summary that powers the "Detection Signals" panel
+            // on the signature detail page. The column was migrated in but the
+            // INSERT didn't list it, so every row wrote NULL and every detail
+            // page rendered "No detection signals recorded". Storing the JSON
+            // here and the read path's `s.top_reasons_json` projection now
+            // returns the actual reasons the operator needs to read.
             cmd.CommandText = """
                 INSERT INTO signatures (signature, bot_name, bot_type, is_bot, bot_probability, confidence,
                     risk_band, action, country_code, hit_count, first_seen, last_seen, processing_time_ms,
-                    threat_score, threat_band, narrative, risk_justification)
+                    threat_score, threat_band, narrative, risk_justification, top_reasons_json)
                 VALUES (@sig, @name, @type, @isBot, @prob, @conf, @risk, @action, @country, 1, @now, @now, @ms,
-                    @threat, @band, @narrative, @justification)
+                    @threat, @band, @narrative, @justification, @reasons)
                 ON CONFLICT(signature) DO UPDATE SET
                     bot_name = COALESCE(@name, bot_name),
                     bot_type = COALESCE(@type, bot_type),
@@ -255,7 +262,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     -- the first one ever recorded. The earlier COALESCE froze the
                     -- justification on first write so the signature detail page
                     -- showed a stale reason string that no longer matched the band.
-                    risk_justification = @justification
+                    risk_justification = @justification,
+                    -- top_reasons_json: always overwrite with the latest -- this is the
+                    -- live decision surface the operator reads, not a first-write
+                    -- audit log. The first-write trail lives in the detections table.
+                    top_reasons_json = COALESCE(@reasons, top_reasons_json)
                 RETURNING hit_count
                 """;
             cmd.Parameters.AddWithValue("@sig", signature.PrimarySignature ?? "unknown");
@@ -272,6 +283,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@band", (object?)signature.ThreatBand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@narrative", (object?)signature.Narrative ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@justification", (object?)signature.RiskJustification ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@reasons",
+                signature.TopReasons is { Count: > 0 } reasons
+                    ? (object)System.Text.Json.JsonSerializer.Serialize(reasons)
+                    : DBNull.Value);
             cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
 
             var hitCount = await cmd.ExecuteScalarAsync();
@@ -316,35 +331,41 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
-        var sql = "SELECT * FROM detections";
+        // LEFT JOIN signatures so the signature-level top_reasons_json
+        // (live "Detection Signals" decision surface) rides along on every
+        // detection row. Detections themselves don't store reasons (they're
+        // per-request audit rows); the signatures row carries the latest
+        // synthesised+contribution reasons that the signature detail page
+        // and any per-request inspector renders.
+        var sql = "SELECT d.*, s.top_reasons_json AS top_reasons_json FROM detections d LEFT JOIN signatures s ON d.signature = s.signature";
         var conditions = new List<string>();
         await using var cmd = conn.CreateCommand();
 
         if (filter?.StartTime.HasValue == true)
         {
-            conditions.Add("timestamp >= @start");
+            conditions.Add("d.timestamp >= @start");
             cmd.Parameters.AddWithValue("@start", filter.StartTime.Value.ToString("O"));
         }
         if (filter?.EndTime.HasValue == true)
         {
-            conditions.Add("timestamp <= @end");
+            conditions.Add("d.timestamp <= @end");
             cmd.Parameters.AddWithValue("@end", filter.EndTime.Value.ToString("O"));
         }
         if (filter?.IsBot.HasValue == true)
         {
-            conditions.Add("is_bot = @isBot");
+            conditions.Add("d.is_bot = @isBot");
             cmd.Parameters.AddWithValue("@isBot", filter.IsBot.Value ? 1 : 0);
         }
         if (!string.IsNullOrEmpty(filter?.SignatureId))
         {
-            conditions.Add("signature = @sig");
+            conditions.Add("d.signature = @sig");
             cmd.Parameters.AddWithValue("@sig", filter.SignatureId);
         }
 
         if (conditions.Count > 0)
             sql += " WHERE " + string.Join(" AND ", conditions);
 
-        sql += " ORDER BY timestamp DESC LIMIT @limit";
+        sql += " ORDER BY d.timestamp DESC LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", filter?.Limit ?? 100);
         cmd.CommandText = sql;
 
@@ -403,10 +424,27 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 // migration yet (e.g. during the rollout window before
                 // EnsureInitializedAsync has run the ALTER TABLE) read as false
                 // rather than throwing on missing column.
-                IsVerifiedBot   = SafeGetInt32(reader, "is_verified_bot") == 1
+                IsVerifiedBot   = SafeGetInt32(reader, "is_verified_bot") == 1,
+                // top_reasons_json rides along from the JOIN'd signatures row.
+                // Deserialises to the same List<string> shape DashboardDetectionEvent
+                // exposes; null when the row hasn't been synthesised yet (or the
+                // join missed -- legacy pre-migration rows).
+                TopReasons      = ParseTopReasonsJson(SafeGetString(reader, "top_reasons_json")),
             });
         }
         return results;
+    }
+
+    /// <summary>
+    ///     Deserialises top_reasons_json column to a list, swallowing malformed
+    ///     payloads. Single chokepoint so the read path's null-handling is
+    ///     consistent across GetDetectionsAsync / GetTopBotsAsync.
+    /// </summary>
+    private static List<string>? ParseTopReasonsJson(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json); }
+        catch { return null; }
     }
 
     public async Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0, bool? isBot = null)

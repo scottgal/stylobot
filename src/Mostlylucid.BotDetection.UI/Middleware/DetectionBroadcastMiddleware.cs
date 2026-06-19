@@ -488,8 +488,7 @@ public partial class DetectionBroadcastMiddleware
             // mirrors the same normalisation IFingerprintStore does on the
             // persistent write. Catalog-known names get the catalog's casing
             // ("googlebot" / "GOOGLEBOT" / regex-capture "Googlebot/2.1" all
-            // become "Googlebot"). Unknown names (custom labels, fediverse
-            // suffixes) pass through unchanged.
+            // become "Googlebot"). Unknown names pass through unchanged.
             BotName = Mostlylucid.BotDetection.Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(evidence.PrimaryBotName) ?? evidence.PrimaryBotName,
             Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
             PolicyName = evidence.PolicyName ?? "Default",
@@ -599,6 +598,7 @@ public partial class DetectionBroadcastMiddleware
             // SINGLE canonicalisation point -- same call as the AggregatedEvidence
             // build path above so an upstream-trusted detection produces the same
             // canonical-cased BotName as the locally-orchestrated one.
+            // SINGLE canonicalisation point -- same call as the AggregatedEvidence build path above.
             BotName = Mostlylucid.BotDetection.Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(result.BotName) ?? result.BotName,
             Action = context.Request.Headers["X-Bot-Detection-Action"].FirstOrDefault() ?? "Allow",
             PolicyName = "upstream",
@@ -953,7 +953,24 @@ public partial class DetectionBroadcastMiddleware
     /// </summary>
     internal static List<string> SynthesizePositiveSignalSummary(IReadOnlyDictionary<string, object> signals)
     {
-        var reasons = new List<string>(5);
+        var reasons = new List<string>(6);
+
+        // Catalog match -- when UserAgentContributor identified the UA against
+        // BotPatternLoader / Arcjet well-known-bots, the operator's "WHY is this
+        // a bot" rationale starts here. This is THE primary decision surface for
+        // catalog identifications: "Matches catalog: GoogleOther (SearchEngine)".
+        // Surfacing it from the synthesizer guarantees it shows up even when the
+        // contributor's per-detection Reason string is empty / lost in persistence.
+        if (signals.TryGetValue(SignalKeys.UserAgentBotName, out var catName)
+            && catName is string catNameStr && !string.IsNullOrEmpty(catNameStr))
+        {
+            var line = $"Matches catalog: {catNameStr}";
+            if (signals.TryGetValue(SignalKeys.UserAgentBotType, out var catType)
+                && catType is string catTypeStr && !string.IsNullOrEmpty(catTypeStr)
+                && !string.Equals(catTypeStr, "Unknown", StringComparison.OrdinalIgnoreCase))
+                line += $" ({catTypeStr})";
+            reasons.Add(line);
+        }
 
         // Matched archetype is the highest-signal observation: it captures the
         // best-fit human/bot family centroid. Surface name + kind when present so
