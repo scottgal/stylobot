@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
 
@@ -150,6 +151,24 @@ public static class SignatureRiskVerdictComposer
                 };
                 friendlyWhy = $"Verified-friendly ({source}): identity corroborated by non-UA signal";
                 reasons.Add($"friendly_pin: verified source={source}");
+            }
+            // Network-trusted clamp: BotType.Internal is set ONLY when
+            // NetworkHelper.IsLocalIp returned true at orchestration time, so the
+            // verification already happened by network position -- no UA-declared
+            // identity needed. Without this branch, Internal hits the neutral
+            // bucketing path which probability-buckets it to VeryHigh (100% bot
+            // probability) and the dashboard shows "Internal · Policy: Allow ·
+            // Probability 100% · Risk Profile VeryHigh", which is the contradictory
+            // pairing the operator-facing axes are supposed to prevent.
+            // Spec basis: section 3 trusted-and-aligned clamp -- when the future
+            // archetype-alignment evaluator ships, this rule becomes "Internal AND
+            // archetype-aligned" instead. Until then, Internal alone is enough
+            // because it carries network-position verification.
+            else if (inputs.BotType == nameof(BotType.Internal))
+            {
+                friendlyPin = true;
+                friendlyWhy = "Trusted internal client (network position verified)";
+                reasons.Add("friendly_pin: bot_type=Internal (network-trusted)");
             }
             else if (anyExplicitlyFailed)
             {
