@@ -136,6 +136,26 @@ public class WidgetRenderHelpersCollapseTests
     }
 
     [Fact]
+    public void ProjectAsVisitors_collapses_mixed_casing_rows_too()
+    {
+        // The /dashboard/visitors render path used to bypass collapse and showed
+        // every fingerprint as its own row. ProjectAsVisitors must run the same
+        // centroid collapse the Top Bots widget uses so the user-facing row
+        // count agrees across surfaces.
+        var rows = new[]
+        {
+            Row("sig-a", "Googlebot", userAgent: "Googlebot/2.1", hitCount: 4),
+            Row("sig-b", "googlebot", userAgent: "Googlebot/2.1", hitCount: 3),
+        };
+
+        var (items, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
+            rows, filter: "all", sortField: "lastSeen", sortDir: "desc", page: 1, pageSize: 50);
+
+        Assert.Single(items);
+        Assert.Equal(7, items[0].Hits);
+    }
+
+    [Fact]
     public void Collapsed_row_takes_max_probability_not_latest()
     {
         // A confirmed-name fingerprint that ever scored 1.0 must stay at 1.0

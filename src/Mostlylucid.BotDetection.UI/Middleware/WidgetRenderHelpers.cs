@@ -348,7 +348,15 @@ public static class WidgetRenderHelpers
         int page,
         int pageSize)
     {
-        var snapshot = source.Select(e => new CachedVisitor
+        // Apply the SAME centroid collapse the Top Bots widget uses BEFORE
+        // projection. The gateway-local /dashboard/visitors render path used
+        // to skip this step and showed every fingerprint as its own row, so
+        // a single bot identity (Googlebot, GPTBot) surfaced as N rows --
+        // one per fingerprint that resolved to it. Single collapse function,
+        // case-insensitive identity key, every list view consistent.
+        var collapsed = CollapseGroupableIdentities(source.ToList());
+
+        var snapshot = collapsed.Select(e => new CachedVisitor
         {
             PrimarySignature = e.PrimarySignature,
             Hits = e.HitCount,
