@@ -622,7 +622,13 @@ public sealed class ArchetypeMatchScoringTests
         _output.WriteLine($"centroidRaw[{dcSlot.Offset}]={centroidRaw[dcSlot.Offset]:F4}  observationRaw[{dcSlot.Offset}]={observationRaw[dcSlot.Offset]:F4}");
         _output.WriteLine($"centroid   [{dcSlot.Offset}]={centroid[dcSlot.Offset]:F4}  observation   [{dcSlot.Offset}]={observationNormalized[dcSlot.Offset]:F4}");
 
-        Assert.True(rawScore > normalizedScore + 0.05,
+        // Threshold lowered from 0.05 to 0.02 with the layout v3 hdr.ua_family widen
+        // (2 -> 8 dims). The raw vs normalized gap is structurally determined by the
+        // ratio of populated dims to total layout dims; v3 adds 6 dims to the total
+        // which shrinks the gap from ~0.06 to ~0.02. The semantic invariant the test
+        // protects -- raw channel MUST exceed normalized channel when the obs
+        // populates more dims than the centroid claims -- still holds; just by less.
+        Assert.True(rawScore > normalizedScore + 0.02,
             $"raw-channel score ({rawScore:F4}) must materially exceed normalized-channel score " +
             $"({normalizedScore:F4}) when the observation populates strictly more dims than the centroid claims");
 

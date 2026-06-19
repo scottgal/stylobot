@@ -123,7 +123,18 @@ public sealed class IdentityVectorLayout
         // Upgrade-Insecure-Requests dims collapsed to bot-shaped values under adblockers or
         // by spec. Encoding the UA family directly means archetypes can simply assert what
         // browser they represent and cosine separates families cleanly.
-        Add("hdr.ua_family", 2, IdentityVectorEncoding.HashLsh);
+        // v3: widened 2 -> 16 dims. The auto-promotion of ~150 bot-pattern entries to root
+        // archetypes (each asserting hdr.ua_family with a unique BotName string) made the
+        // 2-dim LSH umbrella-centroid bug visible: two distinct family strings can hash to
+        // within ~0.1 per-dim in a 2-d space, which under the Gaussian-NLL scoring (tight
+        // variance + uncorrelated dims) reads as a "near match" and lets sparse synthesized
+        // archetypes (selenium, bonfire, sharkey) beat rich hand-written ones (chrome-desktop,
+        // mobile-safari) for first-request allocation on real browser traffic. At width 8 the
+        // BdfReplay HumanScenario chrome / firefox cases recover (sharkey / selenium collisions
+        // gone) but safari iOS still drifted to python-requests via a specific-pair collision.
+        // 16 dims drops collision probability another order of magnitude and gives clean
+        // separation across all the canonical UA family strings the catalog catalogue carries.
+        Add("hdr.ua_family", 16, IdentityVectorEncoding.HashLsh);
 
         // Quality
         Add("quality.dimension_presence_ratio", 1, IdentityVectorEncoding.Scalar);
@@ -131,10 +142,11 @@ public sealed class IdentityVectorLayout
         Add("quality.cleartext_flag", 1, IdentityVectorEncoding.Bool);
         Add("quality.layout_version", 1, IdentityVectorEncoding.Scalar);
 
-        // v2: added hdr.ua_family. Bumped from 1 because the dimension changed; stored centroids
-        // from v1 will mismatch on width and the matcher's version check will treat them as
-        // stale, triggering re-allocation on the next request from each fingerprint.
-        return new IdentityVectorLayout(version: 2, slots);
+        // v3: hdr.ua_family widened 2 -> 8 dims. Stored v2 centroids will mismatch on the
+        // total Dimension count and the matcher's version check will treat them as stale,
+        // triggering fresh allocation on the next request per fingerprint. DisplayName
+        // (persisted on the Fingerprint row, not the centroid) survives the bump.
+        return new IdentityVectorLayout(version: 3, slots);
     }
 }
 

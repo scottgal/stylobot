@@ -1380,6 +1380,11 @@ public class SqliteFingerprintStore : IFingerprintStore
             "fingerprint_observations",
             "fingerprint_keys",
             "fingerprint_root_history",
+            // Must truncate before fingerprints -- name_history has a REFERENCES
+            // fingerprints(fingerprint_id) FK and SQLite's BdfReplay reset path
+            // returns SQLite Error 19 'FOREIGN KEY constraint failed' if the
+            // parent rows go first.
+            "fingerprint_name_history",
             "fingerprints",
             "identity_dimension_weights",
             "identity_archetypes"
