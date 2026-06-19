@@ -142,6 +142,19 @@ public static class DetectionLedgerExtensions
         var ledgerBotName = ledger.BotName
                             ?? (preSignals.TryGetValue(SignalKeys.UserAgentBotName, out var uabn) ? uabn as string : null);
 
+        // Local-network promotion runs BEFORE the verdict composer so the
+        // composer's trusted-and-aligned clamp (Internal => RiskBand.Low) can
+        // actually fire. Previously this override fired at line ~220, AFTER
+        // DetermineRiskVerdict had already returned -- so the composer never
+        // saw BotType=Internal and produced VeryHigh for every internal-client
+        // request (which the dashboard rendered as "Internal · Allow · 100% ·
+        // Risk Profile VeryHigh"). Reading IpIsLocal here keeps the override's
+        // primary-position-trust semantics intact while routing it through
+        // the single Compose() site.
+        var localIpForVerdict = preSignals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalForVerdict)
+                                && ipLocalForVerdict is true;
+        var verdictBotType = localIpForVerdict ? BotType.Internal : ledgerBotType;
+
         // Compose the risk verdict via the single-source-of-truth composer. The
         // legacy DetermineRiskBand method is now a thin wrapper that builds the
         // SignatureRiskInputs and delegates -- behaviour preserved (the composer
@@ -158,7 +171,7 @@ public static class DetectionLedgerExtensions
         // Block. Compose marks HostilePinFired correctly; we now use it.
         var (verdict, friendlyPinTrace) = DetermineRiskVerdict(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
-            ledgerBotType, ledgerBotName, friendlyIpVerified, friendlyDomainVerified,
+            verdictBotType, ledgerBotName, friendlyIpVerified, friendlyDomainVerified,
             browserAttestationVerified);
         var riskBand = verdict.RiskBand;
         var riskJustification = verdict.Justification;

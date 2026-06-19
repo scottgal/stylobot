@@ -76,6 +76,42 @@ public class InternalRiskBandClampTests
         Assert.NotEqual(RiskBand.Low, verdict.RiskBand);
     }
 
+    /// <summary>
+    ///     Integration-shaped test for the bug found post-deploy 2026-06-19:
+    ///     <see cref="DetectionLedgerExtensions.ToAggregatedEvidence"/> built the
+    ///     verdict BEFORE the local-IP override promoted BotType to Internal, so
+    ///     the composer never saw BotType="Internal" and could not fire the
+    ///     clamp. This test exercises the full ledger ▸ evidence build with the
+    ///     IpIsLocal signal set, and asserts the resulting evidence carries
+    ///     RiskBand.Low (the composer ran with BotType=Internal and the friendly-pin
+    ///     fired). If a future refactor inverts the order again, this test fails
+    ///     before the dashboard does.
+    /// </summary>
+    [Fact]
+    public void ToAggregatedEvidence_with_IpIsLocal_clamps_RiskBand_to_Low()
+    {
+        var ledger = new Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionLedger("test-internal-routing");
+        ledger.AddContribution(new Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = 1.0,
+            Weight = 1.0,
+            Reason = "StyloBot.Internal UA matched",
+        });
+        var signals = new System.Collections.Generic.Dictionary<string, object>
+        {
+            [Mostlylucid.BotDetection.Models.SignalKeys.IpIsLocal] = true,
+            [Mostlylucid.BotDetection.Models.SignalKeys.UserAgent] = "StyloBot.Internal/6.0.0",
+            [Mostlylucid.BotDetection.Models.SignalKeys.UserAgentFamily] = "StyloBot.Internal",
+        };
+
+        var evidence = ledger.ToAggregatedEvidence(aiRan: false, premergedSignals: signals);
+
+        Assert.Equal(BotType.Internal, evidence.PrimaryBotType);
+        Assert.Equal(RiskBand.Low, evidence.RiskBand);
+    }
+
     [Fact]
     public void Internal_with_ConfirmedBad_still_fires_hostile_pin_over_clamp()
     {
