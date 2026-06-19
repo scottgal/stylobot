@@ -452,6 +452,11 @@ public class BotDetectionMiddleware(
                         if (!string.IsNullOrEmpty(uaBotName))
                             cachedSignals[SignalKeys.UserAgentBotName] = uaBotName;
                     }
+                    // Seed the raw UA so the composer can self-rescue when the cached
+                    // signal snapshot is missing ua.family / ua.os entries (a typical
+                    // shape for old verdicts -- see HumanBotNameResolutionTests).
+                    if (!string.IsNullOrEmpty(liveUa))
+                        cachedSignals[SignalKeys.UserAgent] = liveUa;
                     // Local-network override on the Skip path too: mirrors the Miss-path
                     // BotType.Internal classification in DetectionLedgerExtensions. Without
                     // this, the first request (Miss) classifies a LAN client as Internal,
@@ -524,6 +529,26 @@ public class BotDetectionMiddleware(
                             cachedLedger.AddContribution(contribution);
                     }
 
+                    // Mirror the MISS-path resolution order from
+                    // DetectionLedgerExtensions.ResolveDisplayName so humans served from
+                    // the verdict cache get the same composed names ("Mac Chrome 149")
+                    // as cache misses. Reading uaBotName directly here was the bug that
+                    // produced blank H1s on every Skip-served human signature page --
+                    // MatchUserAgent returns null for real browsers, so PrimaryBotName
+                    // was null, which downstream persistence and the read layers had
+                    // no way to recover.
+                    //   1. identity.display_name signal (matcher-supplied, when present)
+                    //   2. live-UA catalog match (the only bot-name path)
+                    //   3. FingerprintNameComposer.Compose -- self-rescues from the raw
+                    //      UA for human Chrome/Safari/Firefox visitors
+                    var cachedIdentityName = cachedSignals.TryGetValue(SignalKeys.IdentityDisplayName, out var idDisplay)
+                        ? idDisplay as string : null;
+                    var cachedPrimaryBotName = !string.IsNullOrEmpty(cachedIdentityName)
+                        ? cachedIdentityName
+                        : (!string.IsNullOrEmpty(uaBotName)
+                            ? uaBotName
+                            : Services.FingerprintNameComposer.Compose(cachedSignals, userAgent: liveUa));
+
                     var cachedEvidence = new AggregatedEvidence
                     {
                         Ledger = cachedLedger,
@@ -536,7 +561,7 @@ public class BotDetectionMiddleware(
                         ThreatScore = cachedThreatScore,
                         TotalProcessingTimeMs = 0.0,
                         PrimaryBotType = cachedPrimaryBotType,
-                        PrimaryBotName = uaBotName,
+                        PrimaryBotName = cachedPrimaryBotName,
                         Signals = cachedSignals,
                     };
                     context.Items[AggregatedEvidenceKey] = cachedEvidence;
@@ -2606,13 +2631,18 @@ public class BotDetectionMiddleware(
         if (!string.IsNullOrEmpty(category))
             context.Items[BotCategoryKey] = category;
 
-        // Create legacy result for compatibility with views/TagHelpers/extension methods
+        // Create legacy result for compatibility with views/TagHelpers/extension methods.
+        // BotName carries the canonical identity name regardless of bot vs human --
+        // DetectionBroadcastMiddleware.BuildDetectionFromUpstream reads result.BotName to
+        // produce the dashboard's persisted BotName, and gating it on isBot here was the
+        // single point that nulled every human signature row in upstream-trusted mode.
+        // BotType stays gated (a human has no bot type) but the display name is universal.
         var legacyResult = new BotDetectionResult
         {
             IsBot = isBot,
             ConfidenceScore = botProbability,
             BotType = isBot ? botType : null,
-            BotName = isBot ? botName : null,
+            BotName = botName,
             Reasons = detectionReasons
         };
         context.Items[BotDetectionResultKey] = legacyResult;

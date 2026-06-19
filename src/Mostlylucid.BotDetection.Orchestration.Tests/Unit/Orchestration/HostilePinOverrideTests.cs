@@ -71,9 +71,10 @@ public sealed class HostilePinOverrideTests
     public void FriendlyUa_WithoutHostilePin_KeepsItsBotType()
     {
         // Sanity: the override must only fire when HostilePin = true.
-        // A clean friendly bot with no reputation latch stays GoodBot
-        // (or whatever its UA-derived type was) and ThreatBand is whatever
-        // the signals produce -- the override does not run.
+        // A clean friendly bot with no reputation latch stays at its
+        // catalogue-derived friendly type (SearchEngine for Googlebot --
+        // the catalogue is now authoritative over the contribution's hint).
+        // ThreatBand is whatever the signals produce; the override does not run.
         var ledger = new DetectionLedger("test-sig");
         ledger.AddContribution(new DetectionContribution
         {
@@ -87,7 +88,11 @@ public sealed class HostilePinOverrideTests
 
         var evidence = ledger.ToAggregatedEvidence();
 
-        Assert.Equal(BotType.GoodBot, evidence.PrimaryBotType);
+        // Catalogue authority promotes "Googlebot" to SearchEngine. Either
+        // friendly classification proves the override did NOT demote to
+        // a hostile band; both stay out of Critical.
+        Assert.True(evidence.PrimaryBotType is BotType.GoodBot or BotType.SearchEngine,
+            $"expected friendly type (GoodBot or SearchEngine), got {evidence.PrimaryBotType}");
         Assert.NotEqual(ThreatBand.Critical, evidence.ThreatBand);
     }
 

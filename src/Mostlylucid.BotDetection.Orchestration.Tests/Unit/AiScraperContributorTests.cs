@@ -122,8 +122,10 @@ public class AiScraperContributorTests
         Assert.True(contributions.Count >= 1);
         var botContrib = contributions.First(c => c.ConfidenceDelta > 0);
         Assert.Contains(expectedName, botContrib.Reason);
-        Assert.Equal(expectedName, botContrib.BotName);
-
+        // Per Step 4b: contributor BotName writes were deleted -- the name flows
+        // via state.Signals[AiScraperName] (asserted below) and is composed into
+        // the display name by FingerprintNameComposer. Asserting on the deleted
+        // BotName field would re-create the parasitic name path Step 4b removed.
         Assert.True(state.Signals.ContainsKey(SignalKeys.AiScraperDetected));
         Assert.True((bool)state.Signals[SignalKeys.AiScraperDetected]);
         Assert.Equal(expectedName, state.Signals[SignalKeys.AiScraperName]);
@@ -240,11 +242,15 @@ public class AiScraperContributorTests
             c.Reason?.Contains("Web Bot Auth", StringComparison.OrdinalIgnoreCase) == true);
         Assert.NotNull(webBotContrib);
         Assert.True(webBotContrib!.ConfidenceDelta >= 0.9);
-        Assert.Equal("ChatGPT", webBotContrib.BotName);
 
+        // Per Step 4b: contributor BotName writes deleted. The Signature-Agent
+        // URL is the verifiable identity surface; it lives in the reason text
+        // (this assertion) and in the aiscraper.signature_agent signal (below).
+        Assert.Contains("chatgpt.com", webBotContrib.Reason!, StringComparison.OrdinalIgnoreCase);
         Assert.True(state.Signals.ContainsKey("aiscraper.web_bot_auth"));
         Assert.True(state.Signals.ContainsKey("aiscraper.web_bot_auth_verified"));
         Assert.True((bool)state.Signals["aiscraper.web_bot_auth_verified"]);
+        Assert.Contains("chatgpt.com", state.Signals["aiscraper.signature_agent"].ToString()!);
     }
 
     [Fact]
@@ -260,8 +266,14 @@ public class AiScraperContributorTests
 
         var contributions = await contributor.ContributeAsync(state);
 
-        var webBotContrib = contributions.FirstOrDefault(c => c.BotName == "Claude");
+        // Per Step 4b: contributor BotName field is no longer the identification
+        // surface. The Anthropic Signature-Agent URL surfaces in the reason and
+        // in the aiscraper.signature_agent signal -- assert on those.
+        var webBotContrib = contributions.FirstOrDefault(c =>
+            c.Reason?.Contains("anthropic.com", StringComparison.OrdinalIgnoreCase) == true);
         Assert.NotNull(webBotContrib);
+        Assert.True(state.Signals.ContainsKey("aiscraper.web_bot_auth"));
+        Assert.Contains("anthropic.com", state.Signals["aiscraper.signature_agent"].ToString()!);
     }
 
     // ==========================================
@@ -325,7 +337,9 @@ public class AiScraperContributorTests
         var jinaContrib = contributions.FirstOrDefault(c =>
             c.Reason?.Contains("Jina", StringComparison.OrdinalIgnoreCase) == true);
         Assert.NotNull(jinaContrib);
-        Assert.Equal("Jina Reader", jinaContrib!.BotName);
+        // Per Step 4b: name surface is the reason text + aiscraper signal, not
+        // the deleted BotName field.
+        Assert.Contains("Jina Reader", jinaContrib!.Reason!);
     }
 
     // ==========================================
