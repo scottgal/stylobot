@@ -626,7 +626,18 @@ public static class DetectionLedgerExtensions
         // at the PrimaryBotType assignment so the risk-band and dashboard
         // surfaces stay in agreement.
         var yamlType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(botName));
-        var resolvedBotType = yamlType ?? botType;
+        // Network-position-Internal must beat the YAML catalog. Without this,
+        // the bot-patterns YAML maps "StyloBot Internal" -> Tool, so even when
+        // the upstream caller passes BotType.Internal (derived from IpIsLocal,
+        // an authoritative network-trust signal), yamlType=Tool would win the
+        // null-coalesce and the composer's trusted-and-aligned clamp would
+        // never see BotType=Internal. The UA pattern alone can be spoofed; the
+        // network position cannot. Pass-through-Internal is therefore the only
+        // case where the catalog's classification is overridden -- everything
+        // else preserves "YAML wins" precedence.
+        var resolvedBotType = botType == BotType.Internal
+            ? BotType.Internal
+            : (yamlType ?? botType);
         var isFriendlyBotType = BotTypeClassification.IsFriendly(botType)
                                 || BotTypeClassification.IsFriendly(yamlType);
 

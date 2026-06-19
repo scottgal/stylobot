@@ -87,6 +87,43 @@ public class InternalRiskBandClampTests
     ///     fired). If a future refactor inverts the order again, this test fails
     ///     before the dashboard does.
     /// </summary>
+    /// <summary>
+    ///     Second post-deploy bug, 2026-06-19 ~22:38 UTC: after the IpIsLocal
+    ///     routing fix moved the local-IP override BEFORE the verdict, prod
+    ///     fresh-built detections STILL showed RiskBand=VeryHigh because the
+    ///     YAML bot-pattern catalogue maps "StyloBot Internal" -> Tool, and
+    ///     DetermineRiskVerdict's `yamlType ?? botType` null-coalesce let
+    ///     Tool win over the upstream-supplied Internal. The UA pattern is
+    ///     spoofable; the network position is not. This test pins the
+    ///     precedence so the catalogue can never override a network-position
+    ///     Internal classification.
+    /// </summary>
+    [Fact]
+    public void ToAggregatedEvidence_with_IpIsLocal_AND_StyloBotInternal_UA_still_clamps()
+    {
+        var ledger = new Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionLedger("test-internal-yaml-precedence");
+        ledger.AddContribution(new Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = 1.0,
+            Weight = 1.0,
+            Reason = "StyloBot.Internal UA matched developer-tools catalogue",
+        });
+        var signals = new System.Collections.Generic.Dictionary<string, object>
+        {
+            [Mostlylucid.BotDetection.Models.SignalKeys.IpIsLocal] = true,
+            [Mostlylucid.BotDetection.Models.SignalKeys.UserAgent] = "StyloBot.Internal/6.0.0",
+            [Mostlylucid.BotDetection.Models.SignalKeys.UserAgentBotName] = "StyloBot Internal",
+            [Mostlylucid.BotDetection.Models.SignalKeys.UserAgentBotType] = "Tool",
+        };
+
+        var evidence = ledger.ToAggregatedEvidence(aiRan: false, premergedSignals: signals);
+
+        Assert.Equal(BotType.Internal, evidence.PrimaryBotType);
+        Assert.Equal(RiskBand.Low, evidence.RiskBand);
+    }
+
     [Fact]
     public void ToAggregatedEvidence_with_IpIsLocal_clamps_RiskBand_to_Low()
     {
