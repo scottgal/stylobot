@@ -33,6 +33,34 @@ patterns:
     bot_type: AiBot
     vendor: Google
     ai_category: Training
+  # GoogleOther is Google's "generic" crawler for product teams doing
+  # one-off R&D fetches. Per Google's own docs at
+  # developers.google.com/search/docs/crawling-indexing/google-common-crawlers,
+  # it is explicitly NOT Googlebot and "crawling preferences addressed to
+  # GoogleOther don't affect any specific product" -- blocking it does not
+  # hurt search ranking. The Arcjet well-known-bots catalog tags it under
+  # the "google" category which our WellKnownBotIndex.MapBotType lumps with
+  # SearchEngine; that is too coarse for an operator's "allow search, block
+  # AI scrapers" policy. Override here so the catalog match wins and
+  # GoogleOther variants surface as AiBot. List specific-suffix variants
+  # FIRST because BotPatternLoader.MatchUserAgent does substring matches
+  # in declared order and the bare "GoogleOther" pattern would otherwise
+  # claim every variant before they're tried.
+  - pattern: GoogleOther-Image
+    bot_name: GoogleOther-Image
+    bot_type: AiBot
+    vendor: Google
+    ai_category: Training
+  - pattern: GoogleOther-Video
+    bot_name: GoogleOther-Video
+    bot_type: AiBot
+    vendor: Google
+    ai_category: Training
+  - pattern: GoogleOther
+    bot_name: GoogleOther
+    bot_type: AiBot
+    vendor: Google
+    ai_category: Training
   - pattern: Bytespider
     bot_name: Bytespider
     bot_type: AiBot
