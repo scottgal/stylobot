@@ -1,0 +1,20 @@
+name: ResourceWaterfall_HealthyRatio
+description: Document + asset requests in healthy ratio — ResourceWaterfall human pass
+detector: ResourceWaterfall
+request:
+  method: GET
+  path: /css/main.css
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    accept: "text/css"
+    sec-fetch-dest: "style"
+    sec-fetch-site: "same-origin"
+signals:
+  transport.protocol_class: static
+  signature.primary: "bench-sig-waterfall-human"
+  sequence.cache_warm: true
+thresholds:
+  max_mean_ns: 20000
+  max_allocated_bytes: 4096
+tags: [fast-path, resource-waterfall, human]

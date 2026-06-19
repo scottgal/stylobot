@@ -1,0 +1,14 @@
+name: SecurityTool_Bot
+description: Security scanning tool UA (nikto) — fast pattern match against embedded scanner catalog
+detector: SecurityTool
+request:
+  method: GET
+  path: /
+  ip: 198.51.100.5
+  headers:
+    user-agent: "nikto/2.1.6"
+    accept: "*/*"
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 2048
+tags: [fast-path, security-tool, bot]

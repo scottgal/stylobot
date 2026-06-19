@@ -1,0 +1,17 @@
+name: ThreatIntel_StaticAsset
+description: Static asset request — ThreatIntel fast exit (static = zero threat contribution)
+detector: ThreatIntel
+request:
+  method: GET
+  path: /css/main.css
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    accept: "text/css"
+    sec-fetch-dest: "style"
+signals:
+  transport.protocol_class: static
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 512
+tags: [fast-path, threat-intel, human]

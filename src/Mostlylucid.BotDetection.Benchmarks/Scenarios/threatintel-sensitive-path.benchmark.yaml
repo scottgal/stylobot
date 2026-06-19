@@ -1,0 +1,17 @@
+name: ThreatIntel_SensitivePath
+description: Request to sensitive path (/wp-login.php) — ThreatIntel sensitive-surface classification
+detector: ThreatIntel
+request:
+  method: POST
+  path: /wp-login.php
+  ip: 198.51.100.99
+  headers:
+    user-agent: "curl/8.4.0"
+    accept: "*/*"
+    content-type: "application/x-www-form-urlencoded"
+signals:
+  transport.protocol_class: document
+thresholds:
+  max_mean_ns: 15000
+  max_allocated_bytes: 4096
+tags: [fast-path, threat-intel, bot]

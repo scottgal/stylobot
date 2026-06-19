@@ -1,0 +1,19 @@
+name: BrowserMode_ApiXhr
+description: XHR/fetch API call — BrowserModeClassifier api_call mode classification
+detector: BrowserModeClassifier
+request:
+  method: GET
+  path: /api/data
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    accept: "application/json"
+    sec-fetch-mode: "cors"
+    sec-fetch-dest: "empty"
+    sec-fetch-site: "same-origin"
+signals:
+  signature.primary: "bench-sig-xhr"
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 2048
+tags: [fast-path, browser-mode, human]

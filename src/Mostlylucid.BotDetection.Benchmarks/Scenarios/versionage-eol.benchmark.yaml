@@ -1,0 +1,16 @@
+name: VersionAge_EolOs
+description: Windows XP UA (EOL 2014) — version-age penalty for ancient OS
+detector: VersionAge
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.10
+  headers:
+    user-agent: "Mozilla/5.0 (Windows NT 5.1; rv:45.0) Gecko/20100101 Firefox/45.0"
+    accept: "text/html"
+signals:
+  ua.is_bot: false
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 4096
+tags: [fast-path, version-age, bot]

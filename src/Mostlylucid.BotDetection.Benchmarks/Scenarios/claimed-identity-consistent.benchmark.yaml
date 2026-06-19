@@ -1,0 +1,27 @@
+name: ClaimedIdentity_ChromeConsistent
+description: Chrome UA with full expected headers — ClaimedIdentity consistency pass
+detector: ClaimedIdentity
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    accept-language: "en-GB,en;q=0.9"
+    accept-encoding: "gzip, deflate, br"
+    sec-fetch-mode: "navigate"
+    sec-fetch-site: "none"
+    sec-fetch-dest: "document"
+    sec-ch-ua: '"Chromium";v="137", "Google Chrome";v="137"'
+    sec-ch-ua-mobile: "?0"
+    sec-ch-ua-platform: '"macOS"'
+signals:
+  ua.family: "Chrome"
+  ua.is_bot: false
+  ip.is_datacenter: false
+  header.sec_fetch_mode: "navigate"
+thresholds:
+  max_mean_ns: 30000
+  max_allocated_bytes: 8192
+tags: [fast-path, claimed-identity, human]

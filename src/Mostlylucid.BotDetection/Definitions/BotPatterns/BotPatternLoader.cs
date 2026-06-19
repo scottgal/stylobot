@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using VYaml.Serialization;
@@ -20,6 +21,7 @@ public sealed class BotPatternLoader
     private readonly ILogger<BotPatternLoader>? _logger;
     private Dictionary<string, string>? _botNameToTypeIndex;
     private (string Pattern, string BotType, string BotName)[]? _uaMatchTable;
+    private SearchValues<string>? _matchFilter;
 
     public BotPatternLoader(ILogger<BotPatternLoader>? logger = null)
     {
@@ -85,11 +87,18 @@ public sealed class BotPatternLoader
     {
         if (string.IsNullOrEmpty(userAgent)) return (null, null);
         var table = _uaMatchTable ??= BuildUaMatchTable();
-        foreach (var (pattern, type, name) in table)
-            if (userAgent.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-                return (type, name);
 
-        // Fallback: arcjet well-known-bots catalog (downloaded periodically).
+        // L1: single Aho-Corasick SIMD scan over the UA. All 145 YAML patterns are
+        // pure literals, so this one pass covers every possible match. If no keyword
+        // appears, skip the per-pattern loop entirely.
+        if (_matchFilter == null || userAgent.AsSpan().ContainsAny(_matchFilter))
+        {
+            foreach (var (pattern, type, name) in table)
+                if (userAgent.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                    return (type, name);
+        }
+
+        // Fallback: arcjet well-known-bots catalog (has its own L1 pre-filter).
         if (wellKnownBots?.Count > 0)
         {
             var match = wellKnownBots.TryMatch(userAgent);
@@ -102,12 +111,21 @@ public sealed class BotPatternLoader
 
     private (string Pattern, string BotType, string BotName)[] BuildUaMatchTable()
     {
-        return AllPatterns
+        var table = AllPatterns
             .Where(p => !string.IsNullOrEmpty(p.Pattern)
                         && !string.IsNullOrEmpty(p.BotType)
                         && !string.IsNullOrEmpty(p.BotName))
             .Select(p => (p.Pattern!, p.BotType!, p.BotName!))
             .ToArray();
+
+        // Build SearchValues pre-filter from all pattern strings. All YAML patterns
+        // are pure literals, so every possible match has at least one keyword in here.
+        _matchFilter = table.Length > 0
+            ? SearchValues.Create(table.Select(t => t.Item1).ToArray(),
+                StringComparison.OrdinalIgnoreCase)
+            : null;
+
+        return table;
     }
 
     private Dictionary<string, string> BuildBotNameIndex()

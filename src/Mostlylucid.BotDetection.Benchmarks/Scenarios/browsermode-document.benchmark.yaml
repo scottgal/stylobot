@@ -1,0 +1,19 @@
+name: BrowserMode_DocumentNavigation
+description: Full-page navigation request — BrowserModeClassifier document mode classification
+detector: BrowserModeClassifier
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    accept: "text/html,application/xhtml+xml"
+    sec-fetch-mode: "navigate"
+    sec-fetch-dest: "document"
+    sec-fetch-site: "none"
+signals:
+  signature.primary: "bench-sig-doc"
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 2048
+tags: [fast-path, browser-mode, human]

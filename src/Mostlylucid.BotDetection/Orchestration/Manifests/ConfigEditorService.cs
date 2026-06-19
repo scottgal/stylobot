@@ -57,11 +57,14 @@ public interface IConfigEditorService
 // no API endpoint that would invoke one. Override editing lives in the commercial
 // repo's ConfigEditorController, where it can be gated by licence + auth + RBAC. If
 // you find yourself wanting to add a write method here, you are in the wrong repo.
-public class ConfigEditorService : IConfigEditorService
+public partial class ConfigEditorService : IConfigEditorService
 {
     private const string DetectorYamlSuffix = ".detector.yaml";
     private const string DetectorsSubDir = "detectors";
-    private static readonly Regex SlugPattern = new("^[a-z0-9_-]+$", RegexOptions.Compiled);
+
+    [GeneratedRegex(@"^[a-z0-9_-]+$")]
+    private static partial Regex GetSlugPattern();
+    private static readonly Regex SlugPattern = GetSlugPattern();
 
     private readonly FileSystemConfigurationOverrideSource _overrideSource;
     private readonly DetectorManifestLoader _loader;

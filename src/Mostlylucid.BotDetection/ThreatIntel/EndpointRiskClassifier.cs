@@ -15,42 +15,37 @@ namespace Mostlylucid.BotDetection.ThreatIntel;
 ///     CDN-fronted gallery doesn't accidentally land in "Normal" and pick up
 ///     spurious threat-intel contributions for benign cloud-IP visitors.</para>
 /// </summary>
-public static class EndpointRiskClassifier
+public static partial class EndpointRiskClassifier
 {
-    // High-confidence "this is a sensitive surface" markers. Match is on the path's
-    // first segment (case-insensitive), or a known dotfile / config probe pattern.
-    // Conservative on purpose: false positives here turn into stronger policy
-    // actions, so we only include patterns where "credentials / config / payment /
-    // VCS leak" is unambiguous.
-    private static readonly Regex SensitivePattern = new(
-        @"^/(?:" +
-            @"admin(?:istrator)?(?:/|$)" +     // /admin, /administrator
-            @"|login(?:/|$|\.[a-z]+$)" +       // /login, /login.php
-            @"|wp-login\.php$" +
-            @"|wp-admin(?:/|$)" +
-            @"|signin(?:/|$)" +
-            @"|sign-in(?:/|$)" +
-            @"|signup(?:/|$)" +
-            @"|register(?:/|$)" +
-            @"|checkout(?:/|$)" +
-            @"|cart/checkout(?:/|$)" +
-            @"|payment(?:s)?(?:/|$)" +
-            @"|billing(?:/|$)" +
-            @"|api/(?:auth|token|tokens|login|admin|keys?)(?:/|$)" +
-            @"|oauth(?:/|$)" +
-            @"|sso(?:/|$)" +
-            @"|\.env(?:\.|$)" +                // /.env, /.env.local
-            @"|\.git(?:/|$)" +                 // /.git, /.git/config
-            @"|config(?:\.php|\.json|\.yml|\.yaml)?$" +
-            @"|phpmyadmin(?:/|$)" +
-            @"|server-status$" +
-            @"|server-info$" +
-            @"|\.ssh(?:/|$)" +
-            @"|\.aws(?:/|$)" +
-            @"|credentials(?:/|$|\.|json$)" +
-            @"|secrets?(?:/|$|\.|json$)" +
-        @")",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    [GeneratedRegex(
+        @"^/(?:admin(?:istrator)?(?:/|$)" +
+        @"|login(?:/|$|\.[a-z]+$)" +
+        @"|wp-login\.php$" +
+        @"|wp-admin(?:/|$)" +
+        @"|signin(?:/|$)" +
+        @"|sign-in(?:/|$)" +
+        @"|signup(?:/|$)" +
+        @"|register(?:/|$)" +
+        @"|checkout(?:/|$)" +
+        @"|cart/checkout(?:/|$)" +
+        @"|payment(?:s)?(?:/|$)" +
+        @"|billing(?:/|$)" +
+        @"|api/(?:auth|token|tokens|login|admin|keys?)(?:/|$)" +
+        @"|oauth(?:/|$)" +
+        @"|sso(?:/|$)" +
+        @"|\.env(?:\.|$)" +
+        @"|\.git(?:/|$)" +
+        @"|config(?:\.php|\.json|\.yml|\.yaml)?$" +
+        @"|phpmyadmin(?:/|$)" +
+        @"|server-status$" +
+        @"|server-info$" +
+        @"|\.ssh(?:/|$)" +
+        @"|\.aws(?:/|$)" +
+        @"|credentials(?:/|$|\.|json$)" +
+        @"|secrets?(?:/|$|\.|json$))",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex GetSensitivePattern();
+    private static readonly Regex SensitivePattern = GetSensitivePattern();
 
     // Static-asset extension list. Hot-path matches on the path's trailing extension.
     private static readonly HashSet<string> StaticExtensions = new(StringComparer.OrdinalIgnoreCase)

@@ -1,0 +1,18 @@
+name: ClaimedIdentity_ChromeMismatch
+description: Chrome UA missing Sec-Fetch + Accept-Language — ClaimedIdentity consistency penalty
+detector: ClaimedIdentity
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.50
+  headers:
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    accept: "text/html,application/xhtml+xml"
+signals:
+  ua.family: "Chrome"
+  ua.is_bot: false
+  ip.is_datacenter: true
+thresholds:
+  max_mean_ns: 30000
+  max_allocated_bytes: 8192
+tags: [fast-path, claimed-identity, bot]

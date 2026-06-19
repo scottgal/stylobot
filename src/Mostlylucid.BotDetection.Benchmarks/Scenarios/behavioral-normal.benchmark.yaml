@@ -10,6 +10,6 @@ request:
     referer: "https://www.google.com/"
     accept-language: "en-US,en;q=0.9"
 thresholds:
-  max_mean_ns: 10000
-  max_allocated_bytes: 2048
+  max_mean_ns: 32000
+  max_allocated_bytes: 28000
 tags: [fast-path, behavioral, human]

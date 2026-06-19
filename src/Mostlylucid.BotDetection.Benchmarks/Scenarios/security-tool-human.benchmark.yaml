@@ -1,0 +1,15 @@
+name: SecurityTool_Human
+description: Normal browser UA — SecurityTool negative path (no match in scanner catalog)
+detector: SecurityTool
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    accept: "text/html,application/xhtml+xml"
+    accept-language: "en-GB,en;q=0.9"
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 512
+tags: [fast-path, security-tool, human]

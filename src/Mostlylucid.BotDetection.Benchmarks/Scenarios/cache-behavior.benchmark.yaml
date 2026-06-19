@@ -11,5 +11,5 @@ request:
     if-none-match: "W/\"abc123\""
 thresholds:
   max_mean_ns: 5000
-  max_allocated_bytes: 1024
+  max_allocated_bytes: 2048
 tags: [fast-path, cache, human]

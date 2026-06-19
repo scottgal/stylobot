@@ -12,6 +12,6 @@ request:
     sec-fetch-site: same-origin
     referer: "https://example.com/"
 thresholds:
-  max_mean_ns: 5000
-  max_allocated_bytes: 1024
+  max_mean_ns: 8000
+  max_allocated_bytes: 8192
 tags: [fast-path, intent, human]

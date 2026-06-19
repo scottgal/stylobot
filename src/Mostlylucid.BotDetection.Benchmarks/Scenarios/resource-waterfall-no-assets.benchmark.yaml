@@ -1,0 +1,18 @@
+name: ResourceWaterfall_NoAssets
+description: Document-only requests with no asset loading — ResourceWaterfall bot signal (no assets after N docs)
+detector: ResourceWaterfall
+request:
+  method: GET
+  path: /
+  ip: 198.51.100.77
+  headers:
+    user-agent: "python-requests/2.31.0"
+    accept: "text/html"
+signals:
+  transport.protocol_class: document
+  signature.primary: "bench-sig-waterfall-bot"
+  sequence.cache_warm: true
+thresholds:
+  max_mean_ns: 20000
+  max_allocated_bytes: 4096
+tags: [fast-path, resource-waterfall, bot]
