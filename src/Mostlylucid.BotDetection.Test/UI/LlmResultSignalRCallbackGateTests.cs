@@ -15,16 +15,14 @@ using Xunit;
 namespace Mostlylucid.BotDetection.Test.UI;
 
 /// <summary>
-///     Pins the LAST-FALLBACK gate on the LFU LLM namer. The matcher's
-///     FingerprintNameComposer is the authoritative writer for Fingerprint.DisplayName
-///     -- catalog-canonical for known bots, composed "Chrome 149 / macOS"-style for
-///     humans. The LLM may only WRITE A NAME when the composer didn't ("the LLM is
-///     the last fallback, not a parallel writer"). Without this gate, a hot human
-///     fingerprint on stylobot.net got its composer-set "Chrome 149 / macOS" name
-///     clobbered with "stylobot" because the LLM inferred it from contextual signals
-///     -- that's the staging bug that motivated the gate.
-///     Description application is independent of the name decision -- the narrative
-///     caption is purely additive and always applies.
+///     Pins the post-surgery contract: <see cref="LlmResultSignalRCallback"/>
+///     is DESCRIPTION-ONLY. The LLM never writes a name. The matcher
+///     (FingerprintNameComposer) is the sole writer of Fingerprint.DisplayName;
+///     the LLM's name suggestion is intentionally ignored. Description is
+///     purely additive narrative, no contention with the canonical name path.
+///     A regression that re-introduces a name-write would resurrect the
+///     parasite that let the LLM's contextual inference clobber the composer's
+///     authoritative name (the staging "stylobot" bug).
 /// </summary>
 public class LlmResultSignalRCallbackGateTests : IDisposable
 {
@@ -42,42 +40,48 @@ public class LlmResultSignalRCallbackGateTests : IDisposable
     }
 
     [Fact]
+    public async Task LLM_never_writes_a_name_even_when_existing_DisplayName_is_blank()
+    {
+        // The LLM is no longer a writer of names at all. Even on a fingerprint
+        // whose DisplayName is empty (composer's "No User-Agent" terminal case
+        // wasn't reached because the matcher hadn't run yet), the LLM callback
+        // must leave the store row untouched. Composer's later write is the
+        // ONLY name source.
+        var store = await NewStoreAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        await store.InsertFingerprintAsync(NewFingerprint("fp-blank", dim), primarySignature: "sig-blank");
+
+        var callback = NewCallback();
+        await callback.OnSignatureDescriptionAsync(
+            "sig-blank", name: "CustomBot-9000", description: "what the LLM inferred");
+
+        var fp = await store.GetFingerprintAsync("fp-blank");
+        Assert.NotNull(fp);
+        Assert.True(string.IsNullOrEmpty(fp!.DisplayName),
+            $"Expected blank DisplayName (LLM is no longer a writer); got '{fp.DisplayName}'");
+    }
+
+    [Fact]
     public async Task LLM_does_not_overwrite_composer_set_DisplayName()
     {
+        // Belt-and-braces: also pin the original parasite path. With a
+        // composer-set name already on the row, the LLM callback must leave
+        // it alone (description is the only side effect).
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
         await store.InsertFingerprintAsync(NewFingerprint("fp-human", dim), primarySignature: "sig-human");
         await store.UpdateDisplayNameAsync(
             "fp-human", "Chrome 149 / macOS", DateTime.UtcNow, source: "matcher");
 
-        var callback = NewCallback(store);
+        var callback = NewCallback();
         await callback.OnSignatureDescriptionAsync(
             "sig-human",
-            name: "stylobot",               // <-- LLM's contextual guess (must NOT land)
+            name: "stylobot",
             description: "Browsing /dashboard on stylobot.net");
 
         var fp = await store.GetFingerprintAsync("fp-human");
         Assert.NotNull(fp);
         Assert.Equal("Chrome 149 / macOS", fp!.DisplayName);
-    }
-
-    [Fact]
-    public async Task LLM_writes_name_when_DisplayName_is_blank()
-    {
-        // Composer didn't run / couldn't name the row -> the LLM IS the source.
-        // Pinning the gate's positive branch so a regression that always-skips
-        // would fail loud here.
-        var store = await NewStoreAsync();
-        var dim = IdentityVectorLayout.DefaultV1().Dimension;
-        await store.InsertFingerprintAsync(NewFingerprint("fp-blank", dim), primarySignature: "sig-blank");
-
-        var callback = NewCallback(store);
-        await callback.OnSignatureDescriptionAsync(
-            "sig-blank", name: "CustomBot-9000", description: "fills the gap");
-
-        var fp = await store.GetFingerprintAsync("fp-blank");
-        Assert.NotNull(fp);
-        Assert.Equal("CustomBot-9000", fp!.DisplayName);
     }
 
     private async Task<SqliteFingerprintStore> NewStoreAsync()
@@ -94,12 +98,8 @@ public class LlmResultSignalRCallbackGateTests : IDisposable
         return store;
     }
 
-    private static LlmResultSignalRCallback NewCallback(IFingerprintStore store)
+    private static LlmResultSignalRCallback NewCallback()
     {
-        // The hub is fired-and-forgotten by the callback (invalidation beacon only,
-        // no payload). A no-op Moq satisfies the interface; the callback never reads
-        // anything back from it. The SignatureAggregateCache.ApplyDescription side
-        // effect needs a real cache instance though -- pass minimal options.
         var hub = new Mock<IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>>();
         var clients = new Mock<IHubClients<IStyloBotDashboardHub>>();
         var allClient = new Mock<IStyloBotDashboardHub>();
@@ -110,8 +110,7 @@ public class LlmResultSignalRCallbackGateTests : IDisposable
         return new LlmResultSignalRCallback(
             NullLogger<LlmResultSignalRCallback>.Instance,
             hub.Object,
-            new SignatureAggregateCache(new StyloBotDashboardOptions()),
-            store);
+            new SignatureAggregateCache(new StyloBotDashboardOptions()));
     }
 
     private static Fingerprint NewFingerprint(string id, int dim)
