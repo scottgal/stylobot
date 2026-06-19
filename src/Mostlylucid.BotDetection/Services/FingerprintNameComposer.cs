@@ -275,10 +275,25 @@ internal static class FingerprintNameComposer
                 : fallbackUa;
         }
 
-        // No UA at all -- nothing to render. Return null; the caller leaves bot_name
-        // blank and the dashboard's render layer falls back to a generic placeholder.
-        return null;
+        // No UA at all -- a real request with literally no User-Agent header.
+        // The matcher is the SOLE writer of Fingerprint.DisplayName, so this
+        // method must NEVER return null: a null leaks through every downstream
+        // reader (broadcast event, cache, dashboard views) and surfaces as an
+        // em-dash placeholder, which the user has called out as unacceptable.
+        // "No User-Agent" is the truthful terminal -- operator can read at a
+        // glance that the request was missing the header (not that the name
+        // pipeline failed). Counts as a fallback for the hysteresis layer
+        // above so a previously-stored real Priority 1-3 name still wins.
+        return NoUserAgentFallback;
     }
+
+    /// <summary>
+    ///     Terminal name written when a request truly had no UA. Public so
+    ///     readers can decide whether to render it as a dimmed placeholder
+    ///     versus a real name. Recognised by <see cref="IsFallback"/> so
+    ///     subsequent real names overwrite it on persistence.
+    /// </summary>
+    public const string NoUserAgentFallback = "No User-Agent";
 
     /// <summary>
     ///     Cap on the visible UA prefix produced by Priority 4. Long enterprise UAs
@@ -306,6 +321,7 @@ internal static class FingerprintNameComposer
     public static bool IsFallback(string? composedName)
     {
         if (string.IsNullOrEmpty(composedName)) return true;
+        if (composedName == NoUserAgentFallback) return true;
         var paren = composedName.IndexOf(" (", StringComparison.Ordinal);
         var baseName = paren > 0 ? composedName[..paren] : composedName;
         if (baseName == "analysing"

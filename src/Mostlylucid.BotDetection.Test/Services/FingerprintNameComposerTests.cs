@@ -163,17 +163,21 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_ReturnsNull_WhenNoUsableSignal()
+    public void Compose_ReturnsNoUserAgentTerminal_WhenNoUsableSignal()
     {
         // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks enough
-        // information to label this visitor. Compose returns null so callers leave the
-        // bot_name blank and the dashboard's render layer synthesises a descriptive label
-        // from threat / behaviour on the row. Previously this returned "analysing" /
-        // "unknown abc123de" which leaked into Top Bots as a literal row name.
-        Assert.Null(FingerprintNameComposer.Compose(new Dictionary<string, object>()));
-        Assert.Null(FingerprintNameComposer.Compose(
-            new Dictionary<string, object>(),
-            fingerprintId: "abc123def456ghi"));
+        // information to label this visitor. Compose now returns the explicit
+        // "No User-Agent" terminal rather than null. Rationale: the matcher is the SOLE
+        // writer of Fingerprint.DisplayName, and a null leaks through every downstream
+        // reader as an em-dash placeholder on the dashboard. The truthful terminal is
+        // honest about what happened (no UA header) without dropping a placeholder
+        // anywhere. IsFallback recognises it so a real Priority 1-3 name later wins.
+        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback,
+            FingerprintNameComposer.Compose(new Dictionary<string, object>()));
+        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback,
+            FingerprintNameComposer.Compose(
+                new Dictionary<string, object>(),
+                fingerprintId: "abc123def456ghi"));
     }
 
     [Fact]
@@ -314,18 +318,18 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_ReturnsNull_WhenFreshIsNullAndPreviousIsFallback()
+    public void Compose_ReturnsNoUserAgentTerminal_WhenFreshDegeneratesAndPreviousIsFallback()
     {
-        // Updated contract 2026-06-15: with Priority 4 (raw-UA prefix) now providing a
-        // visible last-resort label, hysteresis no longer echoes legacy fallbacks like
-        // "analysing" back -- those carry no information and the persist layer should
-        // be free to overwrite them with the new UA-prefix shape (or leave blank when
-        // even the UA is absent). The previousName-overrides-fresh rule now requires
-        // previousName to be a REAL Priority 1-3 name, not another fallback.
+        // Hysteresis only kicks in when previousName is a REAL Priority 1-3 name, not
+        // another fallback. With "analysing" (a fallback) as previousName and no signals
+        // to feed a fresh real name, Compose returns the truthful terminal
+        // "No User-Agent" rather than echoing the stale fallback back. The matcher's
+        // persist layer is then free to overwrite "analysing" on disk with the new
+        // terminal (or a real name on a later request).
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
             previousName: "analysing");
-        Assert.Null(name);
+        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback, name);
     }
 
     [Fact]

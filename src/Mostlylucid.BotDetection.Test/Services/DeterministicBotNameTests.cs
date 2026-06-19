@@ -201,16 +201,19 @@ public class DeterministicBotNameTests
     // ─── Priority 4: cold state ────────────────────────────────────────
 
     [Fact]
-    public async Task EmptySignals_ReturnsNull()
+    public async Task EmptySignals_ReturnsNoUserAgentTerminal()
     {
-        // Post-naming-refactor contract: the composer returns null when it has
-        // nothing to compose from. The matcher (DetectionLedgerExtensions.ResolveDisplayName)
-        // owns fallback display, not the synthesizer.
+        // Updated contract (single-source surgery): the composer is the SOLE
+        // writer of Fingerprint.DisplayName. Returning null leaks an em-dash
+        // placeholder through every downstream reader, which the user
+        // called out as unacceptable. With nothing to compose from, the
+        // truthful terminal is "No User-Agent" -- IsFallback recognises it
+        // so a real Priority 1-3 name still wins on a later request.
         var signals = new Dictionary<string, object?>();
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Null(name);
+        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback, name);
     }
 
     // ─── Detailed (name + description) ─────────────────────────────────
