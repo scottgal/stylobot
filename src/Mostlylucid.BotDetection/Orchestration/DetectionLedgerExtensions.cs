@@ -173,18 +173,32 @@ public static class DetectionLedgerExtensions
         // on bot_type match the correct catalog entry. The original UA-derived
         // name still flows through PrimaryBotName for operator triage.
         var isActuallyBot = botProbability >= 0.5;
-        // YAML-catalog authority: when ledger.BotName matches a BotPatternLoader
-        // entry, the catalog's BotType wins over ledger.BotType. The reason:
-        // ledger.BotType is last-writer-wins and HeuristicEarly routinely
-        // overwrites the UserAgentContributor's authoritative type with a
-        // generic "Scraper" guess, so a row with BotName="GPTBot" surfaces
-        // as BotType=Scraper instead of AiBot on the dashboard. The catalog
-        // index by construction only contains entries with non-empty BotType,
-        // so a non-null FindBotTypeByName return IS authoritative. Mirrors
-        // the YAML recovery DetermineRiskVerdict already does for the risk
-        // band; lifting it to the same level here keeps the dashboard surface
-        // (PrimaryBotType) and the policy surface (resolvedBotType) in agreement.
-        var ledgerPrimaryBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(ledger.BotName))
+        // YAML-catalog authority: when the resolved bot name matches a
+        // BotPatternLoader entry, the catalog's BotType wins over
+        // ledger.BotType. ledger.BotType is last-writer-wins and
+        // HeuristicEarly routinely overwrites the UserAgentContributor's
+        // authoritative type with a generic "Scraper" guess (GPTBot ends up
+        // as Scraper, GoogleOther ends up as Scraper, etc.) so the dashboard
+        // surface and the policy surface have to recover the right type.
+        //
+        // Name source priority (the SINGLE-SOURCE rule for Step 4 of the
+        // surgery):
+        //   1. signals[IdentityDisplayName] -- matcher's authoritative
+        //      composed name (set by FingerprintMatchContributor).
+        //   2. signals[UserAgentBotName] -- canonical UA-catalog match
+        //      written by UserAgentContributor; safe across the deletion of
+        //      per-contributor `result.BotName` writes which fed
+        //      ledger.BotName today. The signal IS the source going forward.
+        //   3. ledger.BotName -- the legacy contribution-aggregated source,
+        //      retained as a safety fallback until the per-contributor
+        //      writes are removed in the follow-up commit.
+        // Catalog index by construction only contains entries with non-empty
+        // BotType so a non-null FindBotTypeByName return IS authoritative.
+        var nameForCatalog =
+            (preSignals.TryGetValue(SignalKeys.IdentityDisplayName, out var idn) ? idn as string : null)
+            ?? (preSignals.TryGetValue(SignalKeys.UserAgentBotName, out var uabn1) ? uabn1 as string : null)
+            ?? ledger.BotName;
+        var ledgerPrimaryBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(nameForCatalog))
                                    ?? ParseBotType(ledger.BotType);
         // Local-network override: traffic from loopback / RFC1918 / docker
         // bridge is operator-owned by definition (admin curl, dashboard self-
