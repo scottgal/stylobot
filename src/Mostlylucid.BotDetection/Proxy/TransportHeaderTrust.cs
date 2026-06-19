@@ -24,12 +24,30 @@ public sealed class TransportHeaderTrust : ITransportHeaderTrust
         return result;
     }
 
+    /// <summary>
+    ///     Context item key the BDF replay endpoint sets on its synthetic HttpContexts
+    ///     to opt them into header trust. RFC 5737 TEST-NET ranges (192.0.2.0/24,
+    ///     198.51.100.0/24, 203.0.113.0/24) are used per-scenario for reputation
+    ///     isolation but read as untrusted public peers under the Auto fallthrough,
+    ///     which would skip every header-forwarded TLS / JA3 / JA4 signal on every
+    ///     BDF replay. This key is intended ONLY for the synthetic test path -- the
+    ///     BdfReplay endpoint is itself gated by api-key + rate limit, so a hostile
+    ///     real request cannot reach this codepath. Production peer trust still flows
+    ///     through TrustedProxyIps / Auto-private-peer logic below.
+    /// </summary>
+    public const string SyntheticTrustOverrideKey = "StyloBot.BdfReplay.TrustHeaders";
+
     /// <summary>Pure decision logic (no signal writes), exposed for testing.</summary>
     public TransportTrustResult Decide(HttpContext ctx)
     {
         var opts = _options.Value.TransportTrust;
         if (opts.Mode == TransportTrustMode.Off)
             return new TransportTrustResult(true, "GateOff");
+
+        // BDF replay synthetic override -- see field doc above.
+        if (ctx.Items.TryGetValue(SyntheticTrustOverrideKey, out var marker)
+            && marker is bool b && b)
+            return new TransportTrustResult(true, "BdfReplaySynthetic");
 
         var peer = ctx.Connection?.RemoteIpAddress;
 

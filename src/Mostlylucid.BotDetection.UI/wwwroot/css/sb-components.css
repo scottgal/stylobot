@@ -282,8 +282,11 @@
    These raise the floor without touching light mode.
    ============================================= */
 
-[data-theme="dark"] .text-base-content\/20 { color: oklch(var(--bc) / 45%); }
-[data-theme="dark"] .text-base-content\/30 { color: oklch(var(--bc) / 52%); }
+/* daisyUI 5 renamed --bc to --color-base-content; the old oklch(var(--bc) / x%)
+   rendered as oklch(empty / x%) = invalid -> the floor-bump silently failed and
+   small-text contrast in dark dropped to the unbumped Tailwind opacity. */
+[data-theme="dark"] .text-base-content\/20 { color: color-mix(in oklab, var(--color-base-content) 45%, transparent); }
+[data-theme="dark"] .text-base-content\/30 { color: color-mix(in oklab, var(--color-base-content) 52%, transparent); }
 
 /* =============================================
    Table scroll container that does not clip
@@ -321,8 +324,15 @@
 }
 
 .sb-tooltip-portal-tip {
-    background: oklch(var(--n) / 0.95);
-    color: oklch(var(--nc));
+    /* daisyUI v5 renamed the theme palette CSS variables from --n / --nc to
+       --color-neutral / --color-neutral-content (and base / primary / etc.
+       likewise). The old `oklch(var(--n) / 0.95)` resolved to oklch(empty / 0.95)
+       under v5 -> no background, no foreground -> invisible tooltips. v5's
+       --color-neutral is already a full color (e.g. oklch(...)), so wrap with
+       color-mix for the transparency. Mirror change anywhere else in this file
+       that still references --n / --nc / --bc -- those are all v4 leftovers. */
+    background: color-mix(in oklab, var(--color-neutral) 95%, transparent);
+    color: var(--color-neutral-content);
     font-size: 11px;
     line-height: 1.3;
     padding: 4px 8px;
@@ -331,8 +341,8 @@
     white-space: pre-line;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
-[data-theme="dark"] .text-base-content\/40 { color: oklch(var(--bc) / 60%); }
-[data-theme="dark"] .text-base-content\/50 { color: oklch(var(--bc) / 68%); }
+[data-theme="dark"] .text-base-content\/40 { color: color-mix(in oklab, var(--color-base-content) 60%, transparent); }
+[data-theme="dark"] .text-base-content\/50 { color: color-mix(in oklab, var(--color-base-content) 68%, transparent); }
 
 /* =============================================
    SbHealthDot -- single-glance status indicator.

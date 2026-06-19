@@ -444,6 +444,20 @@ public partial class DetectionBroadcastMiddleware
         // microsecond budget the foundation wave just earned back.
         var (topReasons, detectorContributions) = AggregateContributionsAndTopReasons(evidence.Contributions);
 
+        // Positive-signal fallback. Contribution.Reason is conventionally only populated
+        // by detectors that pushed evidence TOWARD bot ("missing browser headers", "JA3
+        // mismatch", etc.). Human visitors have no reason strings, so the dashboard's
+        // "Detection Signals" panel previously rendered "No detection signals recorded"
+        // for every human signature. That's wrong -- the pipeline IS observing signals
+        // on every request; they just don't all carry Reason fields. When topReasons is
+        // empty we synthesise a short positive narrative from the canonical signal dict
+        // (matched archetype, UA family, headless/datacenter clean flags) so every
+        // signature detail page renders SOMETHING the operator can read at a glance.
+        // 2026-06-19 user feedback: "It is IMPOSSIBLE for a fingerprint to exist with
+        // no detection signals!"
+        if (topReasons.Count == 0)
+            topReasons = SynthesizePositiveSignalSummary(evidence.Signals);
+
         var importantSignals = BuildImportantSignals(context, evidence.Signals, ref countryCode);
 
         // Analytics capture: Domain is the multi-domain partition key; always populated.
@@ -915,6 +929,78 @@ public partial class DetectionBroadcastMiddleware
 
         if (countryCode == null)
             countryCode = ResolveCountryFromHeaders(context);
+    }
+
+    /// <summary>
+    ///     Build a 1-3 entry "positive narrative" list from canonical observation signals
+    ///     when the detector-contribution pipeline left no Reason strings. The detection
+    ///     signals panel on the signature detail page reads this list -- without
+    ///     synthesis, every human visitor would render "No detection signals recorded"
+    ///     because reasons are conventionally only set by bot-confirming contributors.
+    ///     Pulls from signals the pipeline ALWAYS populates: matched archetype,
+    ///     UA family + version + OS, headless / datacenter clean flags, verified-bot
+    ///     state. Output is short scannable text intended for the same UL the
+    ///     contribution-reason path produces, not prose.
+    /// </summary>
+    internal static List<string> SynthesizePositiveSignalSummary(IReadOnlyDictionary<string, object> signals)
+    {
+        var reasons = new List<string>(5);
+
+        // Matched archetype is the highest-signal observation: it captures the
+        // best-fit human/bot family centroid. Surface name + kind when present so
+        // the operator sees both "what shape" and "what kind" without clicking
+        // through to the archetype tab.
+        if (signals.TryGetValue(SignalKeys.IdentityArchetypeName, out var archName) &&
+            archName is string archNameStr && !string.IsNullOrEmpty(archNameStr))
+        {
+            if (signals.TryGetValue(SignalKeys.IdentityArchetypeKind, out var archKind) &&
+                archKind is string archKindStr && !string.IsNullOrEmpty(archKindStr))
+                reasons.Add($"Matched archetype: {archNameStr} ({archKindStr})");
+            else
+                reasons.Add($"Matched archetype: {archNameStr}");
+        }
+
+        // UA family + version + OS gives the operator the browser identity. The
+        // dashboard's UA chip shows this too but having it in the signals list
+        // means the operator can read the entire decision rationale without
+        // glancing elsewhere.
+        var family = signals.TryGetValue(SignalKeys.UserAgentFamily, out var f) ? f as string : null;
+        var version = signals.TryGetValue(SignalKeys.UserAgentFamilyVersion, out var v) ? v as string : null;
+        var os = signals.TryGetValue(SignalKeys.UserAgentOs, out var o) ? o as string : null;
+        if (!string.IsNullOrEmpty(family) && family != "Other")
+        {
+            var uaLine = family;
+            if (!string.IsNullOrEmpty(version)) uaLine += " " + version;
+            if (!string.IsNullOrEmpty(os)) uaLine += " / " + os;
+            reasons.Add($"UA: {uaLine}");
+        }
+
+        // Headless / datacenter / VPN / tor clean signals are the system's
+        // canonical "this looks like a real human" lines. Only surface them when
+        // POSITIVE (not flagged), so the panel stays a positive narrative and
+        // negative signals continue to come from contributor Reason strings.
+        if (signals.TryGetValue("headless.indicator", out var hl) && hl is string hlStr &&
+            string.Equals(hlStr, "Clean", StringComparison.OrdinalIgnoreCase))
+            reasons.Add("Headless indicator: Clean");
+
+        if (signals.TryGetValue("network.is_datacenter", out var dc) && dc is bool dcb && !dcb)
+            reasons.Add("Datacenter IP: Clean");
+
+        // Verified-bot positive: the visitor claimed a bot identity and the
+        // verifier (rDNS / IP range / nodeinfo) confirmed it. Worth surfacing
+        // here when the rest of the signals are quiet.
+        if (signals.TryGetValue(SignalKeys.VerifiedBotConfirmed, out var vb) && vb is bool vbb && vbb)
+        {
+            var method = signals.TryGetValue(SignalKeys.VerifiedBotMethod, out var m) ? m as string : null;
+            reasons.Add(string.IsNullOrEmpty(method)
+                ? "Verified bot: confirmed"
+                : $"Verified bot: confirmed via {method}");
+        }
+
+        // Cap at 5 to match the contribution-Reason path's slice; the panel
+        // renders a UL of up to 5 items.
+        if (reasons.Count > 5) reasons.RemoveRange(5, reasons.Count - 5);
+        return reasons;
     }
 
     private static (string? Browser, string? Version) ParseBrowserFromUa(string ua)

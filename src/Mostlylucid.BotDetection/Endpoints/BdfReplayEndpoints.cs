@@ -232,6 +232,19 @@ public static class BdfReplayEndpoints
             var syntheticIp = IPAddress.Parse($"192.0.{octet2}.{octet3}");
             syntheticContext.Connection.RemoteIpAddress = syntheticIp;
 
+            // Mark the synthetic context as trusted for the TransportHeaderTrust
+            // gate so contributor read paths (TlsFingerprintContributor's
+            // X-JA3-Hash / X-JA4 / X-TLS-Cipher header reads, plus the
+            // Http2/3/TcpIp peers) actually fire. Without this the synthetic
+            // RFC 5737 TEST-NET IP reads as an untrusted public peer under the
+            // gate's Auto fallthrough and every forwarded TLS / JA3 / JA4
+            // header is skipped on every BDF replay -- the
+            // TlsForwardingScenario_EdgeInjectedHeadersProduceTlsSignals test
+            // asserted exactly this surface. The key is a constant defined on
+            // TransportHeaderTrust; only the BDF replay codepath uses it, and
+            // the replay endpoint itself is api-key + rate-limit gated upstream.
+            syntheticContext.Items[Mostlylucid.BotDetection.Proxy.TransportHeaderTrust.SyntheticTrustOverrideKey] = true;
+
             // Apply headers from BDF (allowlist to prevent injection of internal control headers)
             if (req.Headers != null)
             {

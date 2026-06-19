@@ -6,7 +6,18 @@ using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Middleware;
 
-internal static class WidgetRenderHelpers
+/// <summary>
+///     Helpers shared between the FOSS dashboard middleware, view components, and
+///     external dashboard consumers (the marketing website, third-party
+///     embedders). Anything here is pure projection / shaping logic against the
+///     canonical <see cref="DashboardTopBotEntry"/> and <see cref="CachedVisitor"/>
+///     shapes; no IO, no state. Public so remote-mode hosts (the website
+///     controllers) can use the same projection logic the view components do --
+///     stops controllers re-inventing visitor shaping and ending up with the
+///     "home page disconnected from dashboard" drift the user has caught
+///     multiple times.
+/// </summary>
+public static class WidgetRenderHelpers
 {
     // ^\s* tolerates leading whitespace/newlines that Razor emits before the first tag
     private static readonly Regex FirstTagRegex = new(
