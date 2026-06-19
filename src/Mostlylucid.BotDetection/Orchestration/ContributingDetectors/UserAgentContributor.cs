@@ -115,12 +115,14 @@ public partial class UserAgentContributor : ConfiguredContributorBase
             ]);
             if (!string.IsNullOrEmpty(botInstance))
                 state.WriteSignal(SignalKeys.UserAgentBotInstance, botInstance);
+            // Per Step 4b of the single-source surgery: contributor result.BotName
+            // writes are deleted. The name flows through signals[UserAgentBotName]
+            // (written above) which is the sole source readers consume.
             return Task.FromResult(Single(BotContribution(
                     "UserAgent",
                     $"Known bot UA pattern: {whitelistDisplay}",
                     confidenceOverride: PatternMatchConfidence,
-                    botType: BotType.SearchEngine.ToString(),
-                    botName: whitelistDisplay)
+                    botType: BotType.SearchEngine.ToString())
                 with
                 {
                     Weight = WeightBotSignal
@@ -153,12 +155,13 @@ public partial class UserAgentContributor : ConfiguredContributorBase
             ]);
             if (!string.IsNullOrEmpty(botInstance))
                 state.WriteSignal(SignalKeys.UserAgentBotInstance, botInstance);
+            // Per Step 4b: contributor BotName is no longer written. The name
+            // flows via signals[UserAgentBotName] written above.
             contributions.Add(BotContribution(
                     "UserAgent",
                     reason,
                     confidenceOverride: confidence,
-                    botType: botType?.ToString(),
-                    botName: displayBotName)
+                    botType: botType?.ToString())
                 with
                 {
                     Weight = WeightBotSignal

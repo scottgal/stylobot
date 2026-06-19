@@ -183,12 +183,13 @@ public partial class VerifiedBotContributor : ConfiguredContributorBase
 
             state.WriteSignal(SignalKeys.VerifiedBotRdnsMismatch, true);
 
+            // Per Step 4b: contributor BotName writes are deleted. Name flows
+            // via signals[UserAgentBotName] which UserAgentContributor wrote.
             return BotContribution(
                     "VerifiedBot",
                     $"rDNS mismatch: UA claims {uaDomain} but rDNS is {rdnsHostname}",
                     confidenceOverride: RdnsMismatchConfidence,
-                    botType: BotType.Unknown.ToString(),
-                    botName: honestBotName)
+                    botType: BotType.Unknown.ToString())
                 with
                 {
                     Weight = WeightBase * 0.4
@@ -201,12 +202,13 @@ public partial class VerifiedBotContributor : ConfiguredContributorBase
             honestBotName ?? "Unknown", uaDomain, rdnsHostname);
 
         // Write signals
+        // Per Step 4b: contributor BotName writes are deleted. Name flows via
+        // signals[UserAgentBotName] which UserAgentContributor wrote.
         return BotContribution(
                 "VerifiedBot",
                 $"Honest bot: UA claims {honestBotName ?? uaDomain} and rDNS confirms ({rdnsHostname})",
                 confidenceOverride: HonestBotConfidence,
-                botType: BotType.GoodBot.ToString(),
-                botName: honestBotName ?? uaDomain)
+                botType: BotType.GoodBot.ToString())
             with
             {
                 // Honest bots get moderate weight - they're still bots, just trustworthy ones

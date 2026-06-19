@@ -101,13 +101,14 @@ public class AiScraperContributor : ConfiguredContributorBase
                             ? BotType.AiBot.ToString()
                             : bot.BotType;
 
+                        // Per Step 4b: contributor BotName writes are deleted. Name
+                        // flows via signals[AiScraperName] + signals[UserAgentBotName].
                         contributions.Add(BotContribution(
                             "AI Scraper",
                             $"Known AI {category.ToLowerInvariant()} bot: {bot.BotName} ({bot.Vendor})",
                             confidenceOverride: KnownAiBotConfidence,
                             weightMultiplier: 2.0,
-                            botType: botType,
-                            botName: bot.BotName));
+                            botType: botType));
 
                         break;
                     }
@@ -128,13 +129,14 @@ public class AiScraperContributor : ConfiguredContributorBase
                             new(SignalKeys.AiScraperCategory, "Unknown")
                         ]);
                         foundBot = true;
+                        // Per Step 4b: contributor BotName writes are deleted. Name
+                        // flows via signals[AiScraperName] written above.
                         contributions.Add(BotContribution(
                             "AI Scraper",
                             $"Known AI bot (well-known catalog): {wkbMatch.DisplayName}",
                             confidenceOverride: KnownAiBotConfidence,
                             weightMultiplier: 2.0,
-                            botType: BotType.AiBot.ToString(),
-                            botName: wkbMatch.DisplayName));
+                            botType: BotType.AiBot.ToString()));
                     }
                 }
             }
@@ -198,13 +200,15 @@ public class AiScraperContributor : ConfiguredContributorBase
 
                 if (isWebBotAuth)
                 {
+                    // Per Step 4b: contributor BotName writes are deleted. The
+                    // signature-agent identity will surface via signals if the
+                    // dashboard needs to display it.
                     contributions.Add(BotContribution(
                         "AI Scraper",
                         $"Cryptographically signed AI bot (Web Bot Auth RFC 9421) from {signatureAgent}",
                         confidenceOverride: WebBotAuthConfidence,
                         weightMultiplier: 2.0,
-                        botType: BotType.AiBot.ToString(),
-                        botName: ExtractBotNameFromSignatureAgent(signatureAgent)));
+                        botType: BotType.AiBot.ToString()));
                 }
             }
 

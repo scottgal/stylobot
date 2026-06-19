@@ -212,13 +212,11 @@ public class FastPathReputationContributor : ConfiguredContributorBase, IFoundat
             // as the botName -- it's an internal reputation key, not a visible
             // label. SignatureDisplayName then renders the literal CIDR string
             // as the row name, which is both meaningless to operators and
-            // unbounded in length (IPv6 ranges blow past column width). Leave
-            // botName null and let the dashboard's regular resolver fall back
-            // to the country / UA / shortHash form.
+            // Per Step 4b: contributor BotName writes are deleted. Names come
+            // from signals[IdentityDisplayName] / signals[UserAgentBotName].
             var contribution = DetectionContribution.VerifiedBot(
                     Name,
-                    $"Previously identified as bot ({matchType} seen {matchedPattern.Support:F0} times)",
-                    botName: null)
+                    $"Previously identified as bot ({matchType} seen {matchedPattern.Support:F0} times)")
                 with
                 {
                     ConfidenceDelta = matchedPattern.BotScore,

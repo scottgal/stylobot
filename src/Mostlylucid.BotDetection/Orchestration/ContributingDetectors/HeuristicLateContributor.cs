@@ -174,11 +174,20 @@ public class HeuristicLateContributor : ConfiguredContributorBase
             Confidence = 0.5, // Intermediate confidence - will be recalculated
             RiskBand = RiskBand.Medium, // Intermediate - will be recalculated
             PrimaryBotType = InferPrimaryBotType(state),
+            // Intermediate evidence's PrimaryBotName: prefer the highest-weight
+            // contribution's BotName when present, then fall through to the
+            // UA contributor's canonical UserAgentBotName signal, then the
+            // matcher's IdentityDisplayName. After Step 4b deletes per-
+            // contributor result.BotName writes, the first source is null on
+            // a clean run and the signal chain takes over -- same chain the
+            // post-orchestration ToAggregatedEvidence uses.
             PrimaryBotName = state.Contributions
                 .Where(c => !string.IsNullOrEmpty(c.BotName))
                 .OrderByDescending(c => c.Weight)
                 .Select(c => c.BotName)
-                .FirstOrDefault(),
+                .FirstOrDefault()
+                ?? (signals.TryGetValue(SignalKeys.UserAgentBotName, out var ubn) ? ubn as string : null)
+                ?? (signals.TryGetValue(SignalKeys.IdentityDisplayName, out var idn) ? idn as string : null),
             Signals = signals,
             TotalProcessingTimeMs = state.Elapsed.TotalMilliseconds,
             CategoryBreakdown = tempLedger.CategoryBreakdown,

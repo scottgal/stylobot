@@ -384,11 +384,18 @@ public static class DetectionLedgerExtensions
                 earlyRiskBand = RiskBand.Low;
                 earlyRiskJustification = $"identified as {friendlyType} (friendly automation; reputation-cache override)";
                 primaryBotType = friendlyType;
-                // The friendly-contributor BotName only overrides when the matcher's
-                // display name signal wasn't present, so a matched archetype name wins.
-                if (!string.IsNullOrEmpty(friendlyContrib.BotName)
-                    && !earlySignals.ContainsKey(SignalKeys.IdentityDisplayName))
-                    primaryBotName = friendlyContrib.BotName;
+                // Friendly-contributor name override only kicks in when the matcher
+                // hasn't already written IdentityDisplayName. With per-contributor
+                // result.BotName writes deleted (Step 4b), the contribution may
+                // not carry a BotName; fall through to the UA contributor's
+                // canonical UserAgentBotName signal which is written regardless.
+                if (!earlySignals.ContainsKey(SignalKeys.IdentityDisplayName))
+                {
+                    var friendlyName = friendlyContrib.BotName
+                        ?? (earlySignals.TryGetValue(SignalKeys.UserAgentBotName, out var fubn) ? fubn as string : null);
+                    if (!string.IsNullOrEmpty(friendlyName))
+                        primaryBotName = friendlyName;
+                }
             }
         }
 
