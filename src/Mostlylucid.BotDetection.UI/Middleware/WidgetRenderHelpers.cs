@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -102,12 +103,20 @@ public static class WidgetRenderHelpers
     }
 
     /// <summary>
-    ///     Collapse rows that share a verified-bot identity name (matcher converged them
-    ///     onto one fingerprint, e.g. 26 source IPs all classed as Amazonbot) into a single
-    ///     aggregate row. Tool UAs (BotType="Tool"/"Unknown") and synth-named humans stay
-    ///     distinct -- they're different actors that just happen to share a UA family.
-    ///     Shared by every top-bots build site so the visible row count, pagination, and
-    ///     filter results all agree.
+    ///     Collapse rows that share a verified-bot identity into a single aggregate row.
+    ///     Identity-equality is gated on THREE axes so a spoofer never collapses with
+    ///     the real client whose UA it copied:
+    ///       1. <c>BotName</c> (or operator's CustomBotName) must match.
+    ///       2. <c>IsVerifiedBot</c> must match -- a verified Googlebot (FCrDNS OK) and
+    ///          an unverified Googlebot (rDNS missing) are distinct actors. The
+    ///          "Spoofed-*" prefix that VerifiedBotContributor adds also lands the
+    ///          spoofer in its own group naturally because the name itself differs.
+    ///       3. Major UA-version family must match -- "Googlebot/2.1" requests do not
+    ///          collapse with "Googlebot/2.0" requests; they're different crawlers
+    ///          from Google's side and have separate ranges / behaviours.
+    ///     Tool UAs and synth-named humans stay distinct -- they're different actors
+    ///     that share a UA family. Shared by every top-bots build site so the visible
+    ///     row count, pagination, and filter results all agree.
     /// </summary>
     public static List<DashboardTopBotEntry> CollapseGroupableIdentities(IReadOnlyList<DashboardTopBotEntry> source)
     {
@@ -125,7 +134,7 @@ public static class WidgetRenderHelpers
             var b = source[i];
             if (IsGroupableIdentity(b))
             {
-                var key = b.CustomBotName ?? b.BotName ?? string.Empty;
+                var key = BuildIdentityKey(b);
                 if (!firstIndexOf.ContainsKey(key))
                 {
                     firstIndexOf[key] = i;
@@ -154,6 +163,10 @@ public static class WidgetRenderHelpers
                 HitCount = members.Sum(b => b.HitCount),
                 FirstSeen = members.Min(b => b.FirstSeen == default ? DateTime.MaxValue : b.FirstSeen),
                 LastSeen = members.Max(b => b.LastSeen),
+                // Max-of-members. The matcher writes the per-request verdict, so a
+                // confirmed Googlebot row that ever scored 1.0 stays at 1.0 even if
+                // a cold-start request earlier sat at 0.2. Mean-across-members hides
+                // the bot probability of clear-cut named identities.
                 BotProbability = members.Max(b => b.BotProbability)
             }));
         }
@@ -162,6 +175,40 @@ public static class WidgetRenderHelpers
             .OrderBy(x => x.idx)
             .Select(x => x.entry)
             .ToList();
+    }
+
+    /// <summary>
+    ///     Identity key for collapse. Combines name + verification state + major UA
+    ///     version family so a verified Googlebot, an unverified Googlebot, and a
+    ///     Googlebot/2.0 vs Googlebot/2.1 never end up in the same row -- spoof-
+    ///     protection per the user's "compare version numbers + rDNS in background"
+    ///     rule. The operator-set CustomBotName is the highest-priority identity
+    ///     signal and wins regardless of UA shape.
+    /// </summary>
+    private static string BuildIdentityKey(DashboardTopBotEntry b)
+    {
+        if (b.CustomBotName is { Length: > 0 } custom) return $"custom|{custom}";
+        var name = b.BotName ?? string.Empty;
+        var verified = b.IsVerifiedBot ? "v" : "u";
+        var version = ExtractMajorBotVersion(name, b.UserAgent) ?? "-";
+        return $"{name}|{verified}|{version}";
+    }
+
+    // Bot patterns embed their version in the UA as "{Name}/{X.Y}" (Googlebot/2.1,
+    // bingbot/2.0, GPTBot/1.0). Pulling MAJOR only ("2", "1") is wide enough to
+    // collapse routine version churn but narrow enough that a malformed spoofer
+    // with "Googlebot/0.1" doesn't slide into the real row.
+    private static readonly Regex BotVersionRegex = new(@"/(\d+)\b", RegexOptions.Compiled);
+
+    private static string? ExtractMajorBotVersion(string? botName, string? userAgent)
+    {
+        if (string.IsNullOrWhiteSpace(botName) || string.IsNullOrWhiteSpace(userAgent))
+            return null;
+        var nameStart = userAgent.IndexOf(botName, StringComparison.OrdinalIgnoreCase);
+        if (nameStart < 0) return null;
+        var slice = userAgent.AsSpan(nameStart + botName.Length);
+        var match = BotVersionRegex.Match(slice.ToString());
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     /// <summary>
@@ -180,14 +227,36 @@ public static class WidgetRenderHelpers
     ///     Primitive-typed predicate overload so non-DashboardTopBotEntry surfaces
     ///     (CachedVisitor in SignatureAggregateCache.GetFiltered, anything else) can
     ///     share the same "is safe to collapse" rule without re-implementing it.
+    ///     A recognised <c>BotName</c> in the BotPatternLoader catalog is enough to
+    ///     collapse -- BotType propagation through the persistence layer is best-
+    ///     effort, but the pattern-name catalog is the canonical "this is a real
+    ///     bot identity" signal and is the same check <c>SignatureDisplayName.Resolve</c>
+    ///     trusts for label disposition. Operator-set <c>CustomBotName</c> always
+    ///     groups; raw / null names never do.
     /// </summary>
     public static bool IsGroupableIdentity(string? customBotName, string? botName, string? botType)
     {
-        if (customBotName != null) return true;
-        if (botName == null) return false;
-        return botType is not null
-            && !string.Equals(botType, "Tool", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(botType, "Unknown", StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(customBotName)) return true;
+        if (string.IsNullOrWhiteSpace(botName)) return false;
+
+        // Tool / Unknown bot-types are explicit "no identity" sentinels -- a hand
+        // crafted tool UA isn't an actor we want to merge across rows even when
+        // the matcher labelled it. Keep them out regardless of catalog status.
+        if (string.Equals(botType, "Tool",    StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(botType, "Unknown", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Non-empty BotType wins -- the matcher set a real category, the row is
+        // a real identity row, collapse it.
+        if (!string.IsNullOrWhiteSpace(botType)) return true;
+
+        // BotType empty but BotName matches a known catalog pattern (Googlebot,
+        // bingbot, GPTBot, ...) -- this is the persistence-gap path the user hit
+        // on staging: identity is real, BotType column just wasn't propagated.
+        // The Spoofed- prefix VerifiedBotContributor adds for unverified bots
+        // counts as a real identity too (it's a hostile-named row).
+        if (botName.StartsWith("Spoofed-", StringComparison.OrdinalIgnoreCase)) return true;
+        return !string.IsNullOrEmpty(BotPatternLoader.Default.FindBotTypeByName(botName));
     }
 
     /// <summary>

@@ -443,13 +443,33 @@ public sealed class SignatureAggregateCache
                 minProc = d.ProcessingTimeMs;
         }
 
+        var stickyBotName = detections.Select(d => d.BotName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? latest.BotName;
+        var stickyBotType = detections.Select(d => d.BotType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? latest.BotType;
+
+        // When ANY detection in the window classified this fingerprint as a named
+        // bot identity (Googlebot/2.1, GPTBot, Spoofed-Bingbot, ...), the row's
+        // BotProbability is the MAX score seen for that identity -- never the
+        // latest. Per the user's spec: once a Googlebot UA + matching version
+        // (+ rDNS in the background) has been recognised on this fingerprint at
+        // 1.00, a subsequent low-score request must not drag the operator-facing
+        // probability down to 0.20 and make a confirmed bot row read as "human-
+        // ish". For un-named rows (ordinary visitors, "Tool"/"Unknown" bot-types
+        // with no real identity) we keep the latest-wins semantics so an
+        // outlier-high score from one anomalous request doesn't stick forever
+        // on a real human fingerprint.
+        var hasNamedIdentity = !string.IsNullOrEmpty(stickyBotName)
+            && !stickyBotName.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+        var stickyBotProbability = hasNamedIdentity
+            ? detections.Max(d => d.BotProbability)
+            : latest.BotProbability;
+
         var agg = new SignatureAggregate
         {
             HitCount = detections.Count,
-            BotName = detections.Select(d => d.BotName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? latest.BotName,
-            BotType = detections.Select(d => d.BotType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? latest.BotType,
+            BotName = stickyBotName,
+            BotType = stickyBotType,
             RiskBand = riskBand,
-            BotProbability = latest.BotProbability,
+            BotProbability = stickyBotProbability,
             Confidence = latest.Confidence,
             Action = latest.Action,
             CountryCode = latest.CountryCode,
@@ -938,7 +958,18 @@ public sealed class SignatureAggregateCache
                 existing.BotType = detection.BotType;
             }
             existing.RiskBand = detection.RiskBand;
-            existing.BotProbability = detection.BotProbability;
+            // BotProbability is sticky-max for fingerprints with a named identity
+            // (Googlebot, GPTBot, Spoofed-Bingbot, ...). Once we've observed the
+            // pattern scoring at 1.00, a subsequent low-score request can't drag
+            // the operator-facing probability back down -- the identity itself is
+            // still a bot, and the row needs to read that way. Un-named rows
+            // keep latest-wins so a spike doesn't permanently mis-label a real
+            // human. Mirrors the same rule in the BuildAggregate cold-load path.
+            var hasNamedIdentity = !string.IsNullOrEmpty(existing.BotName)
+                && !existing.BotName.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+            existing.BotProbability = hasNamedIdentity
+                ? Math.Max(existing.BotProbability, detection.BotProbability)
+                : detection.BotProbability;
             existing.Confidence = detection.Confidence;
             existing.Action = detection.Action ?? existing.Action;
             existing.CountryCode = detection.CountryCode ?? existing.CountryCode;

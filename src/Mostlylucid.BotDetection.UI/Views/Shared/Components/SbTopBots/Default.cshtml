@@ -198,16 +198,19 @@
                                 _ => "text-success"
                             };
                             var isCustomNamed = bot.CustomBotName != null;
-                            // ONE name per fingerprint. The composer writes Fingerprint.DisplayName
-                            // on the gateway; the broadcast event carries it as BotName; the
-                            // dashboard cache projects it into bot.BotName. No view-side resolver,
-                            // no per-render seenNames disambiguation. CustomBotName is the
-                            // operator's rename and wins when set.
-                            var displayName = !string.IsNullOrEmpty(bot.CustomBotName)
-                                ? bot.CustomBotName
-                                : (string.IsNullOrEmpty(bot.BotName)
-                                    ? bot.PrimarySignature[..Math.Min(8, bot.PrimarySignature.Length)]
-                                    : bot.BotName);
+                            // SINGLE canonical name path -- SignatureDisplayName.Resolve handles
+                            // custom > catalog > Arcjet UA > uap-core > country composite > honest
+                            // terminal. No view-side fallback to the hash, no inline branching.
+                            var displayName = SignatureDisplayName.Resolve(
+                                bot.PrimarySignature,
+                                bot.BotName,
+                                bot.BotType,
+                                customLabel: bot.CustomBotName,
+                                bot.CountryCode,
+                                isBot: bot.BotProbability >= 0.5,
+                                uaFamily: bot.UaFamily,
+                                seen: null,
+                                userAgent: bot.UserAgent);
                             var displayIntent = bot.BotType ?? BotDisplayHelpers.DeterministicIntent(bot.BotProbability);
                             var displayThreat = BotDisplayHelpers.ResolvedThreat(bot.ThreatBand, bot.BotProbability);
                             var threatBand = string.IsNullOrEmpty(displayThreat) ? "None" : displayThreat;

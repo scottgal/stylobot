@@ -216,11 +216,16 @@
                                 "Medium" or "Elevated" => "text-warning",
                                 _ => "text-success"
                             };
-                            var visitorName = !string.IsNullOrEmpty(bot.CustomBotName)
-                                ? bot.CustomBotName
-                                : (string.IsNullOrEmpty(bot.BotName)
-                                    ? bot.PrimarySignature[..Math.Min(8, bot.PrimarySignature.Length)]
-                                    : bot.BotName);
+                            var visitorName = SignatureDisplayName.Resolve(
+                                bot.PrimarySignature,
+                                bot.BotName,
+                                bot.BotType,
+                                customLabel: bot.CustomBotName,
+                                bot.CountryCode,
+                                isBot: bot.BotProbability >= 0.5,
+                                uaFamily: bot.UaFamily,
+                                seen: null,
+                                userAgent: bot.UserAgent);
                             <tr class="hover:bg-base-300/40">
                                 <td class="py-1 w-5">
                                     @if (HasFlag(bot.CountryCode))

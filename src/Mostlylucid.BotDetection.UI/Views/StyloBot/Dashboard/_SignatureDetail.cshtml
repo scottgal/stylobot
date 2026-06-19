@@ -14,11 +14,22 @@
     // Single source of truth: the name written by FingerprintNameComposer.Compose
     // on the gateway, persisted to Fingerprint.DisplayName, broadcast as
     // DashboardDetectionEvent.BotName, propagated into Model.BotName by the cache.
-    // No view-side resolver -- there is exactly ONE name path per fingerprint.
+    // SignatureDisplayName.Resolve is the single canonical name path: custom >
+    // catalog > Arcjet 600+ UA match > uap-core parse > country composite >
+    // honest terminal ("No User-Agent" / "Unparseable UA"). The raw signature
+    // hash is NEVER rendered as if it were a name; the full hash is exposed
+    // via TitleAttr below for incident-note grepping.
     var signatureDisplayName = Model.Found
-        ? (string.IsNullOrEmpty(Model.BotName)
-            ? Model.SignatureId[..Math.Min(8, Model.SignatureId.Length)]
-            : Model.BotName)
+        ? SignatureDisplayName.Resolve(
+            Model.SignatureId,
+            Model.BotName,
+            Model.BotType,
+            customLabel: null,
+            Model.CountryCode,
+            Model.IsBot,
+            uaFamily: Model.UaFamily,
+            seen: null,
+            userAgent: Model.UserAgent)
         : null;
     ViewData["Title"] = signatureDisplayName ?? "Not Found";
     var bp = Model.BasePath;
