@@ -505,8 +505,18 @@ public class BotDetectionMiddleware(
                     var hasMeaningfulBotType = cachedPrimaryBotType is not null
                                                and not BotType.Unknown;
                     var cachedBotProbability = hasMeaningfulBotType ? 1.0 : v.BotProbability;
-                    var cachedRiskBand = hasMeaningfulBotType && v.BotProbability < 0.5
-                        ? v.RiskBand // preserve the cached band -- the verdict is "known bot, accepted"
+                    // Mirror the trusted-and-aligned clamp from the MISS path
+                    // (DetectionLedgerExtensions ▸ SignatureRiskVerdictComposer):
+                    // when the cached classification is Internal -- skipIsLocalIp
+                    // confirmed network position above -- the RiskBand must be Low
+                    // regardless of what the cached verdict snapshot recorded. Without
+                    // this, the FIRST request hits MISS and the composer's clamp
+                    // produces Low; every SUBSEQUENT request hits Skip and reads
+                    // v.RiskBand which was captured before the clamp shipped
+                    // (or from a pre-routing-fix observation), so 90+% of internal
+                    // dashboard traffic stays VeryHigh on the dashboard.
+                    var cachedRiskBand = cachedPrimaryBotType == BotType.Internal
+                        ? RiskBand.Low
                         : v.RiskBand;
 
                     // Build a ledger that carries the cached contributions through to
