@@ -288,7 +288,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
         var prevRps = Volatile.Read(ref _smoothedRps);
         Interlocked.Exchange(ref _smoothedRps, Ewma.Update(prevRps, count, Alpha));
 
-        // ---- Detection latency: fast EMA + slow baseline ----
+        // ---- Detection latency: fast EMA + min-tracking baseline ----
         var latAccum = Interlocked.Exchange(ref _latencyAccumUs, 0);
         var latCount = Interlocked.Exchange(ref _latencySampleCount, 0);
         if (latCount > 0)
@@ -298,22 +298,24 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             var newLat = Ewma.Update(prevLat, meanUs, Alpha);
             Interlocked.Exchange(ref _latencyEmaUs, newLat);
 
-            // Baseline initialisation: on the first sample, seed the baseline
-            // to the observed mean directly so the ratio starts at 1.0 instead
-            // of effectively infinite. After that, apply slow EMA with an
-            // upward cap of 5%/tick so a sustained pressure spike can't wash
-            // the baseline up and mask the pressure it's tracking.
+            // Baseline tracks the MIN of recent samples instead of an EMA
+            // mean. The min captures the system's healthy steady state;
+            // pressure events can't lower it, so the ratio (fastEma / min)
+            // stays high during sustained pressure and we keep firing the
+            // band. The previous EMA-mean approach got contaminated during
+            // initial-traffic warmup and drifted up, masking subsequent
+            // pressure. The min only decays UPWARD at 1%/tick — slowly
+            // enough that real diurnal latency drift is eventually tracked
+            // but a 10-min pressure event won't dominate.
+            // Baseline tracks the minimum sample ever observed. Pressure
+            // events can't move it; only a genuinely-healthier observation
+            // can. Means a sustained pressure event keeps reading
+            // pressureMean / minObserved which stays above the ratio
+            // thresholds and keeps the shed firing. Real long-term drift
+            // (different workload, new hardware) isn't tracked — by design;
+            // operators can reset the sensor or restart the process.
             var prevBase = Volatile.Read(ref _latencyBaselineUs);
-            double newBase;
-            if (prevBase == 0)
-            {
-                newBase = meanUs;
-            }
-            else
-            {
-                var sample = Math.Min(newLat, prevBase * 1.05);
-                newBase = Ewma.Update(prevBase, sample, BaselineAlpha);
-            }
+            var newBase = prevBase == 0 ? meanUs : Math.Min(meanUs, prevBase);
             Interlocked.Exchange(ref _latencyBaselineUs, newBase);
             Interlocked.Increment(ref _latencyBaselineSamples);
         }
@@ -329,16 +331,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             Interlocked.Exchange(ref _rttEmaUs, newRtt);
 
             var prevBase = Volatile.Read(ref _rttBaselineUs);
-            double newBase;
-            if (prevBase == 0)
-            {
-                newBase = meanUs;
-            }
-            else
-            {
-                var sample = Math.Min(newRtt, prevBase * 1.05);
-                newBase = Ewma.Update(prevBase, sample, BaselineAlpha);
-            }
+            var newBase = prevBase == 0 ? meanUs : Math.Min(meanUs, prevBase);
             Interlocked.Exchange(ref _rttBaselineUs, newBase);
             Interlocked.Increment(ref _rttBaselineSamples);
         }
