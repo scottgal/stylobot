@@ -68,40 +68,27 @@ public static class DaemonCommands
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                // Launch the daemon through cmd.exe with stdout/stderr redirected
-                // to a log file. The naive `RedirectStandardOutput = false` path
-                // inherits the parent shell's console / SSH-pipe handles, which
-                // become invalid when the parent (this command) exits, crashing
-                // the daemon on its first log write.
-                //
-                // cmd.exe stays alive as a thin (~4MB) babysitter for the gateway
-                // process. That keeps the redirected log-file handle open for the
-                // gateway's lifetime. cmd is NOT tied to the parent shell's
-                // lifetime on Windows (no PR_SET_PDEATHSIG equivalent by default),
-                // so it survives the original `stylobot start` invocation exiting.
-                //
-                // Could not use `start "" /B exe args >> log 2>&1`: that redirect
-                // applies to cmd's stdout, not to start's spawned process, so the
-                // gateway still inherits the broken handles.
+                // Wrap in cmd.exe so the new process group is detached from this
+                // console / SSH session. `start "" /B` is the canonical Windows
+                // way to spawn a background process whose handles are NOT
+                // inherited from the launching shell.
                 var childCmd = $"\"{exePath}\" {string.Join(' ', childArgs.Select(EscapeArg))} >> \"{bootLog}\" 2>&1";
                 var psi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = $"/c {childCmd}",
+                    Arguments = $"/c start \"stylobot-daemon\" /B {childCmd}",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
                 process = Process.Start(psi);
 
-                // The Process we got back is cmd.exe; resolve the actual gateway
-                // PID by looking for the most recently-started stylobot.exe so
-                // PID-file consumers (status, stop) target the right process.
+                // The cmd.exe wrapper exits immediately after spawning the
+                // detached child; we need the CHILD's PID, not cmd's. Find the
+                // most recent stylobot.exe whose parent is this cmd instance.
                 if (process != null)
                 {
-                    var gateway = FindRecentStylobotProcessWithRetry(exePath,
-                        since: DateTime.Now.AddSeconds(-3),
-                        maxWaitMs: 5000);
-                    if (gateway != null) process = gateway;
+                    process.WaitForExit(2000); // cmd.exe exits in ~50ms
+                    process = FindRecentStylobotProcess(exePath, since: DateTime.Now.AddSeconds(-5));
                 }
             }
             else
@@ -397,10 +384,10 @@ public static class DaemonCommands
     }
 
     /// <summary>
-    ///     After spawning the daemon through cmd.exe on Windows, look up the
-    ///     actual stylobot.exe child by matching process name + recent start
-    ///     time. Returns the youngest stylobot process whose StartTime is at
-    ///     or after <paramref name="since"/>.
+    ///     After spawning the daemon through cmd.exe on Windows, cmd exits
+    ///     immediately. Look up the actual stylobot.exe child by matching
+    ///     process name + recent start time. Returns the youngest stylobot
+    ///     process whose StartTime is at or after <paramref name="since"/>.
     /// </summary>
     private static Process? FindRecentStylobotProcess(string exePath, DateTime since)
     {
@@ -422,39 +409,6 @@ public static class DaemonCommands
             }
         }
         return best;
-    }
-
-    /// <summary>
-    ///     Polls FindRecentStylobotProcess until a fresh process appears or
-    ///     <paramref name="maxWaitMs"/> elapses. Handles the spawn-race: cmd.exe
-    ///     may take 50-500ms to fork the gateway, and the parent stylobot
-    ///     (which IS in the process list) must be excluded.
-    /// </summary>
-    private static Process? FindRecentStylobotProcessWithRetry(string exePath, DateTime since, int maxWaitMs)
-    {
-        var deadline = DateTime.Now.AddMilliseconds(maxWaitMs);
-        var ourPid = Process.GetCurrentProcess().Id;
-        var exeName = Path.GetFileNameWithoutExtension(exePath);
-        if (string.IsNullOrEmpty(exeName)) exeName = "stylobot";
-
-        while (DateTime.Now < deadline)
-        {
-            Process? best = null;
-            foreach (var p in Process.GetProcessesByName(exeName))
-            {
-                try
-                {
-                    if (p.Id == ourPid) continue;     // exclude self
-                    if (p.HasExited) continue;
-                    if (p.StartTime < since) continue;
-                    if (best == null || p.StartTime > best.StartTime) best = p;
-                }
-                catch { /* exited or access denied */ }
-            }
-            if (best != null) return best;
-            System.Threading.Thread.Sleep(100);
-        }
-        return null;
     }
 
     private static string EscapeArg(string arg)
