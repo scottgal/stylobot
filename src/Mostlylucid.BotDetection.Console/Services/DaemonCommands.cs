@@ -68,41 +68,34 @@ public static class DaemonCommands
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                // Two problems to solve on Windows when called from a console
-                // (cmd.exe, SSH session, terminal) that will exit immediately:
+                // Launch the daemon through cmd.exe with stdout/stderr redirected
+                // to a log file. The naive `RedirectStandardOutput = false` path
+                // inherits the parent shell's console / SSH-pipe handles, which
+                // become invalid when the parent (this command) exits, crashing
+                // the daemon on its first log write.
                 //
-                // 1) Handle inheritance. The naive `RedirectStandardOutput = false`
-                //    path inherits the parent's stdout/stderr. When the launcher
-                //    shell exits, those handles become invalid and the gateway
-                //    crashes on its first log write.
+                // cmd.exe stays alive as a thin (~4MB) babysitter for the gateway
+                // process. That keeps the redirected log-file handle open for the
+                // gateway's lifetime. cmd is NOT tied to the parent shell's
+                // lifetime on Windows (no PR_SET_PDEATHSIG equivalent by default),
+                // so it survives the original `stylobot start` invocation exiting.
                 //
-                // 2) Console group sharing. All descendants of a console-attached
-                //    process share the same console. When the launcher shell exits
-                //    (SSH disconnect, terminal close), Windows sends
-                //    CTRL_CLOSE_EVENT to every process attached to that console,
-                //    triggering the gateway's graceful shutdown handler. The
-                //    gateway dies even though its file handles are fine.
-                //
-                // Fix: use `start "" /B cmd /c "exe args >> log 2>&1"`. The outer
-                // `start /B` creates a new process group (detaches from the
-                // console), the inner cmd handles the file redirection that fixes
-                // problem (1). Wrapped inside a top-level cmd because start is a
-                // cmd builtin, not an executable.
-                var inner = $"\"{exePath}\" {string.Join(' ', childArgs.Select(EscapeArg))} >> \"{bootLog}\" 2>&1";
-                var outer = $"/c start \"\" /B cmd /c {inner}";
+                // Could not use `start "" /B exe args >> log 2>&1`: that redirect
+                // applies to cmd's stdout, not to start's spawned process, so the
+                // gateway still inherits the broken handles.
+                var childCmd = $"\"{exePath}\" {string.Join(' ', childArgs.Select(EscapeArg))} >> \"{bootLog}\" 2>&1";
                 var psi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = outer,
+                    Arguments = $"/c {childCmd}",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
                 process = Process.Start(psi);
 
-                // The Process we got back is the outer cmd.exe; resolve the actual
-                // gateway PID by looking for the most recently-started
-                // stylobot.exe so PID-file consumers (status, stop) target the
-                // right process.
+                // The Process we got back is cmd.exe; resolve the actual gateway
+                // PID by looking for the most recently-started stylobot.exe so
+                // PID-file consumers (status, stop) target the right process.
                 if (process != null)
                 {
                     var gateway = FindRecentStylobotProcessWithRetry(exePath,
