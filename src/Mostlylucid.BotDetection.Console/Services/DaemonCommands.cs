@@ -48,62 +48,29 @@ public static class DaemonCommands
         // Find our own binary path
         var exePath = Environment.ProcessPath ?? originalArgs[0];
 
-        // The daemon must survive when the launching shell (SSH session, console,
-        // etc.) exits. Inheriting the parent's stdout/stderr is fatal in that case
-        // because the OS closes those handles when the launcher process detaches —
-        // the daemon then crashes on its first log write to a dead FD.
-        //
-        // Detach properly per platform:
-        //   Windows: launch through `cmd.exe /c start "" /B` which forks a new
-        //            process group, then redirect output to daemon-startup.log.
-        //   Unix:    use the existing nohup-style pipe (read+discard prevents the
-        //            pipe-full blocking, and the parent dies cleanly because we
-        //            do not BeginRead it).
-        Process? process;
-        var logDir = DefaultLogDir;
-        Directory.CreateDirectory(logDir);
-        var bootLog = Path.Combine(logDir, "daemon-startup.log");
+        var psi = new ProcessStartInfo
+        {
+            FileName = exePath,
+            Arguments = string.Join(' ', childArgs.Select(EscapeArg)),
+            UseShellExecute = false,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
+            CreateNoWindow = true
+        };
 
+        // On Unix, redirect stdout/stderr to log files for background process
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            var logDir = DefaultLogDir;
+            Directory.CreateDirectory(logDir);
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+        }
+
+        Process? process;
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                // Wrap in cmd.exe so the new process group is detached from this
-                // console / SSH session. `start "" /B` is the canonical Windows
-                // way to spawn a background process whose handles are NOT
-                // inherited from the launching shell.
-                var childCmd = $"\"{exePath}\" {string.Join(' ', childArgs.Select(EscapeArg))} >> \"{bootLog}\" 2>&1";
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c start \"stylobot-daemon\" /B {childCmd}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                process = Process.Start(psi);
-
-                // The cmd.exe wrapper exits immediately after spawning the
-                // detached child; we need the CHILD's PID, not cmd's. Find the
-                // most recent stylobot.exe whose parent is this cmd instance.
-                if (process != null)
-                {
-                    process.WaitForExit(2000); // cmd.exe exits in ~50ms
-                    process = FindRecentStylobotProcess(exePath, since: DateTime.Now.AddSeconds(-5));
-                }
-            }
-            else
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exePath,
-                    Arguments = string.Join(' ', childArgs.Select(EscapeArg)),
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                process = Process.Start(psi);
-            }
+            process = Process.Start(psi);
         }
         catch (Exception ex)
         {
@@ -381,34 +348,6 @@ public static class DaemonCommands
     {
         try { return process.ProcessName.ToLowerInvariant(); }
         catch { return string.Empty; }
-    }
-
-    /// <summary>
-    ///     After spawning the daemon through cmd.exe on Windows, cmd exits
-    ///     immediately. Look up the actual stylobot.exe child by matching
-    ///     process name + recent start time. Returns the youngest stylobot
-    ///     process whose StartTime is at or after <paramref name="since"/>.
-    /// </summary>
-    private static Process? FindRecentStylobotProcess(string exePath, DateTime since)
-    {
-        var exeName = Path.GetFileNameWithoutExtension(exePath);
-        if (string.IsNullOrEmpty(exeName)) exeName = "stylobot";
-
-        Process? best = null;
-        foreach (var p in Process.GetProcessesByName(exeName))
-        {
-            try
-            {
-                if (p.HasExited) continue;
-                if (p.StartTime < since) continue;
-                if (best == null || p.StartTime > best.StartTime) best = p;
-            }
-            catch
-            {
-                // Process exited or access denied; ignore
-            }
-        }
-        return best;
     }
 
     private static string EscapeArg(string arg)
