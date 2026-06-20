@@ -9,6 +9,9 @@
 # Usage: restart-gateway.sh [PROFILE] [MODE]
 #   PROFILE: balanced (default) | api | site | highrisk | economy
 #   MODE:    demo (default) | production
+#
+# Env opts:
+#   WORKSTATION_GC=1  set DOTNET_GCServer=0 (smaller heap, better for Pi-class)
 set -euo pipefail
 
 PROFILE=${1:-balanced}
@@ -18,6 +21,7 @@ SSH_USER=${SSH_USER:-claude}
 SSH_PASS=${SSH_PASS:-Cl4ude2026!}
 PORT=${PORT:-5080}
 UPSTREAM_PORT=${UPSTREAM_PORT:-9999}
+WORKSTATION_GC=${WORKSTATION_GC:-0}
 
 PID_DIR="${HOME}/.config/stylobot-perf"
 mkdir -p "$PID_DIR"
@@ -61,9 +65,15 @@ echo $! > "$UPSTREAM_PIDFILE"
 echo "  Mac SSH PID $(cat "$UPSTREAM_PIDFILE")"
 sleep 3
 
+GC_ENV=""
+if [ "$WORKSTATION_GC" = "1" ]; then
+    GC_ENV="set DOTNET_GCServer=0 && set DOTNET_GCConcurrent=1 && set DOTNET_GCRetainVM=0 && "
+    echo "  GC: Workstation (DOTNET_GCServer=0)"
+fi
+
 echo "=== Start gateway on :$PORT (SSH-babysat, profile=$PROFILE mode=$MODE) ==="
 $SSH $SSH_USER@$HOST \
-    "cmd /c \"cd C:\\build\\stylobot-aot-run && set STYLOBOT_PROFILE=$PROFILE && set SignatureLogging__SignatureHashKey=ItoH7zOanEtZDPSAg7/y0VOhjwsQNJ07Lw22SDWDoPs= && stylobot.exe $PORT http://localhost:$UPSTREAM_PORT --mode $MODE --verbose > C:\\build\\stylobot-aot-run\\stylobot.fg.log 2>&1\"" 2>&1 &
+    "cmd /c \"cd C:\\build\\stylobot-aot-run && set STYLOBOT_PROFILE=$PROFILE && set SignatureLogging__SignatureHashKey=ItoH7zOanEtZDPSAg7/y0VOhjwsQNJ07Lw22SDWDoPs= && ${GC_ENV}stylobot.exe $PORT http://localhost:$UPSTREAM_PORT --mode $MODE --verbose > C:\\build\\stylobot-aot-run\\stylobot.fg.log 2>&1\"" 2>&1 &
 echo $! > "$GW_PIDFILE"
 echo "  Mac SSH PID $(cat "$GW_PIDFILE")"
 
