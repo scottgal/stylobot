@@ -111,11 +111,19 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
             // Record one observation; this fires ObservationAppended.
             await store.RecordObservationAsync(fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
 
-            // Wait debounce + 300ms buffer.
-            await Task.Delay(500, CancellationToken.None);
+            // Poll until absorbed rather than sleeping a fixed duration.
+            // The debounce fires after ~200ms then the Task.Run worker must be
+            // scheduled; under heavy parallel test load that can take well over
+            // the old 300ms buffer. 10 s is the hard ceiling.
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            int pending;
+            do
+            {
+                await Task.Delay(50, CancellationToken.None);
+                pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
+            }
+            while (pending > 0 && DateTime.UtcNow < deadline);
 
-            // If absorption ran, the observation should now be absorbed (count = 0).
-            var pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
             Assert.Equal(0, pending);
         }
         finally

@@ -141,13 +141,21 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
 
         public async Task WaitForDetectionsAsync(int expectedCount, int timeoutMs = 2000)
         {
+            // Count check comes BEFORE the deadline check on every iteration,
+            // including the final one. The previous code checked the deadline first
+            // which meant a detection arriving right at the boundary was missed:
+            // we'd exit the while condition as false and never see Detections.Count==1.
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-            while (DateTime.UtcNow < deadline)
+            while (true)
             {
                 int seen;
                 lock (Detections) seen = Detections.Count;
                 if (seen >= expectedCount) return;
-                await Task.WhenAny(_firstDetection.Task, Task.Delay(20));
+                if (DateTime.UtcNow >= deadline) return;
+                // Wait for the TCS signal (fired by AddDetectionAsync) or a 50ms
+                // poll tick — whichever arrives first. 50ms > 20ms to reduce
+                // thread-pool pressure under the full parallel test suite.
+                await Task.WhenAny(_firstDetection.Task, Task.Delay(50));
             }
         }
 
