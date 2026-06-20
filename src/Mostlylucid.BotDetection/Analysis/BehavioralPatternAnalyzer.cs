@@ -47,6 +47,13 @@ public partial class BehavioralPatternAnalyzer
     private readonly IMemoryCache _cache;
     private readonly string _salt;
 
+    // Small bounded cache for HashIdentity results so a single ContributeAsync
+    // call doesn't recompute the hex hash 3x (RecordRequest + two GetRecent*
+    // entry points). The identity is the client IP which has very high reuse;
+    // 4096 distinct IPs cover the typical per-minute working set.
+    private readonly Mostlylucid.BotDetection.Services.BoundedCache<string, string> _hashCache =
+        new(maxSize: 4096, defaultTtl: TimeSpan.FromMinutes(15));
+
     public BehavioralPatternAnalyzer(
         IMemoryCache cache,
         TimeSpan? analysisWindow = null,
@@ -71,13 +78,19 @@ public partial class BehavioralPatternAnalyzer
     /// <returns>A deterministic hex string signature that can be used for lookups</returns>
     private string HashIdentity(string identityKey)
     {
+        // Cache hit: return without allocating the salted string + UTF8 bytes
+        // + hex string for repeat lookups within the bounded TTL window.
+        if (_hashCache.TryGet(identityKey, out var cached) && cached != null) return cached;
+
         // Combine identity with salt for deterministic hashing
         var salted = $"{identityKey}:{_salt}";
         var bytes = Encoding.UTF8.GetBytes(salted);
         var hash = XxHash64.Hash(bytes);
 
         // Return just the hex string - this IS the signature we use for lookups
-        return Convert.ToHexString(hash);
+        var hex = Convert.ToHexString(hash);
+        _hashCache.Set(identityKey, hex);
+        return hex;
     }
 
     /// <summary>

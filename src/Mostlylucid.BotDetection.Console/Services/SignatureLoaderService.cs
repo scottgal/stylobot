@@ -28,10 +28,23 @@ public static class SignatureLoaderService
             foreach (var file in signatureFiles)
                 try
                 {
-                    var lines = await File.ReadAllLinesAsync(file);
+                    // Stream-count lines instead of loading the whole file into memory
+                    // via File.ReadAllLinesAsync. A 533MB jsonl was spiking startup
+                    // RSS by half a gigabyte just to produce a line count we then
+                    // discarded. StreamReader reads one line at a time with a 4KB
+                    // buffer; the line strings are GC'd in the same iteration.
+                    var count = 0;
+                    await using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read,
+                        bufferSize: 4096, useAsync: true);
+                    using var reader = new StreamReader(fs);
+                    string? line;
+                    while ((line = await reader.ReadLineAsync()) != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line)) count++;
+                    }
                     var fileName = Path.GetFileName(file);
-                    signaturesByDate[fileName] = lines.Where(l => !string.IsNullOrWhiteSpace(l)).Count();
-                    totalSignatures += signaturesByDate[fileName];
+                    signaturesByDate[fileName] = count;
+                    totalSignatures += count;
                 }
                 catch (Exception fileEx)
                 {
