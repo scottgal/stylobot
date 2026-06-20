@@ -252,7 +252,17 @@ public sealed record DetectionPolicy
         EscalateToAi = false, // Off by default - enable via JSON with AI detectors
         // Early bailout thresholds for performance
         EarlyExitThreshold = 0.3,
-        ImmediateBlockThreshold = 0.95
+        ImmediateBlockThreshold = 0.95,
+        // Adaptive self-protection: at sustained High pipeline pressure (detection
+        // latency drift, upstream RTT drift, ThreadPool starvation, Gen2 churn —
+        // see PipelineLoadSensor) drop detection on a small fraction of requests
+        // so the gateway stays responsive instead of queueing itself to death.
+        // Both fractions are conservative; operators can override per policy.
+        LoadShed = new LoadShedOptions
+        {
+            DropFractionAtHigh = 0.2,
+            DropFractionAtCritical = 0.5
+        }
     };
 
     /// <summary>

@@ -139,18 +139,30 @@ public class BotDetectionMiddleware(
         // Phase 4: hook OnCompleted once so DegradationAtom records every
         // upstream response (status + latency). Adaptive-scaling tier
         // multipliers read straight from this stream.
+        //
+        // SF2 of adaptive-self-protection: the same hook also feeds the
+        // PipelineLoadSensor with detection latency + upstream RTT samples
+        // so its adaptive band can fire on observed pressure (not on a
+        // hardcoded RPS). Detection time comes from the AggregatedEvidence
+        // the orchestrator populates; upstream RTT is the remaining
+        // wall-clock between detection completion and response completion.
         var degradationAtom = context.RequestServices.GetService<RateLimit.DegradationAtom>();
-        if (degradationAtom is not null)
+        var startTicks = Environment.TickCount64;
+        var requestPath = context.Request.Path.HasValue ? context.Request.Path.Value! : "/";
+        context.Response.OnCompleted(() =>
         {
-            var startTicks = Environment.TickCount64;
-            var requestPath = context.Request.Path.HasValue ? context.Request.Path.Value! : "/";
-            context.Response.OnCompleted(() =>
+            var latencyMs = Environment.TickCount64 - startTicks;
+            degradationAtom?.RecordResponse(context.Response.StatusCode, latencyMs, requestPath);
+
+            if (_loadSensor is not null)
             {
-                var latencyMs = Environment.TickCount64 - startTicks;
-                degradationAtom.RecordResponse(context.Response.StatusCode, latencyMs, requestPath);
-                return Task.CompletedTask;
-            });
-        }
+                var detectionMs = (context.Items[AggregatedEvidenceKey] as AggregatedEvidence)?.TotalProcessingTimeMs ?? 0.0;
+                if (detectionMs > 0) _loadSensor.RecordDetectionLatency(detectionMs);
+                var upstreamMs = latencyMs - detectionMs;
+                if (upstreamMs > 0) _loadSensor.RecordUpstreamRtt(upstreamMs);
+            }
+            return Task.CompletedTask;
+        });
 
         // Check if bot detection is globally enabled
         if (!_options.Enabled)
