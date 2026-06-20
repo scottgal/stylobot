@@ -1,6 +1,16 @@
 @using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.Policies.Signals
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Helpers
+@* ISignalCatalog: signal-key -> human label/description lookup. Without
+   the inject, the Signal Intelligence panel rendered raw keys
+   (fastpath.ip.score) as both visible text AND tooltip body, which was
+   the user-visible "tooltips are still tokens" regression. The catalog
+   is registered unconditionally by AddBotDetectionUI; resolve via
+   GetService so the view fails open (no inject -> tooltips fall back to
+   the raw key, same as today) instead of throwing on a host that
+   somehow lost the registration. *@
+@inject IServiceProvider _services
 @model SignatureDetailModel
 @{
     // No Layout = null here. The host's _ViewStart picks the layout (the website's
@@ -777,6 +787,10 @@ else
             if (abs >= 1)    return d.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
             return d.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         }
+        // Resolve once per render -- the catalog snapshot is immutable for
+        // the life of the process, so no per-row lookup cost on the
+        // ISignalCatalog side beyond a dictionary read.
+        var signalCatalog = _services.GetService(typeof(ISignalCatalog)) as ISignalCatalog;
         <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Signal Intelligence</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -787,8 +801,19 @@ else
                         <div class="space-y-0.5">
                             @foreach (var signal in cat.Value)
                             {
+                                @* Resolve the human label/description from the catalog so the
+                                   tooltip body says "IP reputation score from the fast-path
+                                   lookup" instead of repeating the raw key "fastpath.ip.score"
+                                   that's already visible in the same row. Fail-open: when the
+                                   catalog has no entry for this key (commercial pack added it
+                                   without a SignalKeys constant + XML doc), the tooltip falls
+                                   back to the key string -- same as the pre-fix behaviour. *@
+                                var desc = signalCatalog?.TryGet(signal.Key);
+                                var tip = !string.IsNullOrEmpty(desc?.Long)
+                                    ? desc!.Long
+                                    : (!string.IsNullOrEmpty(desc?.Short) ? desc!.Short : signal.Key);
                                 <div class="flex items-start gap-2 text-[10px]">
-                                    <span class="text-base-content/40 font-mono min-w-[80px] truncate" title="@signal.Key">@signal.Key</span>
+                                    <span class="text-base-content/40 font-mono min-w-[80px] truncate" title="@tip">@signal.Key</span>
                                     <span class="text-base-content/70 break-all" title="@signal.Value">@FormatSignalValue(signal.Value)</span>
                                 </div>
                             }

@@ -647,8 +647,22 @@ public partial class DetectionBroadcastMiddleware
             ImportantSignals = importantSignals,
             ThreatScore = importantSignals.TryGetValue("intent.threat_score", out var tsObj)
                 && tsObj is double tsVal ? tsVal : null,
-            ThreatBand = importantSignals.TryGetValue("intent.threat_band", out var tbObj)
-                ? tbObj?.ToString() : null,
+            // Prefer the composed X-Bot-Detection-ThreatBand header (friendly-
+            // and hostile-pin gated by SignatureRiskVerdictComposer at the
+            // gateway) over the raw intent.threat_band importantSignal -- the
+            // raw signal is per-request threat scoring with no pin gate, so
+            // an Internal client at 100% probability surfaces ThreatBand=
+            // Critical on the dashboard even though the composed risk verdict
+            // already clamped it to None. Mirrors the RiskBand header path
+            // above. Falls back to the raw signal only for upstream edges
+            // that don't propagate the header.
+            ThreatBand = context.Request.Headers.TryGetValue(
+                    StyloBotEdgeHeaderNames.ThreatBand,
+                    out var upstreamThreatBand)
+                && !string.IsNullOrEmpty(upstreamThreatBand.ToString())
+                ? upstreamThreatBand.ToString()
+                : (importantSignals.TryGetValue("intent.threat_band", out var tbObj)
+                    ? tbObj?.ToString() : null),
             IsVerifiedBot = ReadVerifiedBotConfirmed(importantSignals),
             // Domain is unconditional for the upstream path too (multi-domain partition key)
             Domain = context.Request.Host.Host?.ToLowerInvariant(),

@@ -25,6 +25,12 @@ public static class StyloBotEdgeHeaderNames
     public const string Probability = "X-Bot-Detection-Probability";
     public const string Confidence = "X-Bot-Detection-Confidence";
     public const string RiskBand = "X-Bot-Detection-RiskBand";
+    // ThreatBand is the OTHER composer-derived axis. Without this header the
+    // downstream broadcast middleware falls back to the raw `intent.threat_band`
+    // importantSignal -- which never goes through SignatureRiskVerdictComposer
+    // and produces the "Internal · Allow · 100% · Threat=Critical" contradiction
+    // the unified verdict was designed to kill (parallel-axis bug).
+    public const string ThreatBand = "X-Bot-Detection-ThreatBand";
     public const string BotName = "X-Bot-Detection-BotName";
     public const string BotType = "X-Bot-Detection-BotType";
     public const string Action = "X-Bot-Detection-Action";
@@ -36,7 +42,7 @@ public static class StyloBotEdgeHeaderNames
     public static readonly string[] All =
     [
         IdentityFingerprint, PrimarySignature, IpSignature, UaSignature, EntityId,
-        Probability, Confidence, RiskBand, BotName, BotType, Action, Policy, ProcessingMs,
+        Probability, Confidence, RiskBand, ThreatBand, BotName, BotType, Action, Policy, ProcessingMs,
         RequestId, Result
     ];
 }
@@ -264,6 +270,11 @@ public sealed class StyloBotForwardedHeadersMiddleware
             context.Request.Headers[StyloBotEdgeHeaderNames.Confidence] =
                 aggregated.Confidence.ToString("F3", inv);
             context.Request.Headers[StyloBotEdgeHeaderNames.RiskBand] = aggregated.RiskBand.ToString();
+            // Composed ThreatBand (friendly/hostile-pin gated) -- without this
+            // the downstream falls back to the raw intent.threat_band signal
+            // and the parallel-axis bug returns (e.g. Internal · Allow ·
+            // Threat=Critical). Header wins over signal; emit unconditionally.
+            context.Request.Headers[StyloBotEdgeHeaderNames.ThreatBand] = aggregated.ThreatBand.ToString();
             context.Request.Headers[StyloBotEdgeHeaderNames.Result] =
                 (aggregated.BotProbability > 0.5).ToString().ToLowerInvariant();
             // ProcessingMs: the wall-clock time the gateway spent producing this
