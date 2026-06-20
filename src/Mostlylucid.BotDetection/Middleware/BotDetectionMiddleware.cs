@@ -665,18 +665,37 @@ public class BotDetectionMiddleware(
             }
         }
 
-        // Load-shed gate: at High/Critical load, skip detection per policy.LoadShed.
+        // Load-shed gate: at High/Critical load, shed work per policy.LoadShed.
         // Uses connection-id-hash as the seed so retries from the same client land
         // identically. Sheds emit X-StyloBot-Shed=1 for observability.
-        if (_loadShedDecision is not null)
+        //
+        // Two shed modes:
+        //   - High band: skip detection, forward to upstream (preserves
+        //     throughput, only reduces CPU/allocation pressure from detection).
+        //   - Critical band: refuse the request with HTTP 503 + Retry-After.
+        //     Skipping detection alone doesn't save the gateway under critical
+        //     pressure because each proxied request still consumes connection
+        //     state + response buffers; the in-flight set is what blows up RSS.
+        //     503 with Retry-After is the canonical "back off and retry" signal.
+        if (_loadShedDecision is not null && _loadSensor is not null)
         {
             var loadShedSeed = context.Connection?.Id?.GetHashCode()
                 ?? context.Request.Path.Value?.GetHashCode()
                 ?? 0;
             if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
             {
+                if (_loadSensor.CurrentBand == Services.LoadBand.Critical)
+                {
+                    // Refuse: don't forward, don't allocate detection state.
+                    context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                    context.Response.Headers["X-StyloBot-Shed"] = "1";
+                    context.Response.Headers["Retry-After"] = "5";
+                    _logger.LogWarning("Load-shed refuse (Critical band): {Path}", context.Request.Path);
+                    return;
+                }
+
                 context.Response.Headers["X-StyloBot-Shed"] = "1";
-                _logger.LogInformation("Load-shed: skipping detection for {Path}", context.Request.Path);
+                _logger.LogInformation("Load-shed skip-detection (High band): {Path}", context.Request.Path);
                 await _next(context);
                 return;
             }
