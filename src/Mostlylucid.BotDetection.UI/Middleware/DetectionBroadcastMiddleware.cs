@@ -475,11 +475,21 @@ public partial class DetectionBroadcastMiddleware
             ? recordOptions.DeriveUaDeviceClass(rawUa)
             : null;
 
+        // Defense-in-depth for the catalogue-identity-beats-probability rule
+        // (ToAggregatedEvidence is the root site). When PrimaryBotType carries
+        // an authoritative classification (catalogue match, network-position
+        // Internal, hostile-pin MaliciousBot), the request IS a bot regardless
+        // of where the probability sigmoid lands. Reading probability alone
+        // produced "Bytespider · Human · 30%" on the staging dashboard --
+        // the BotName column directly contradicting the IsBot column.
+        var hasAuthoritativeBotType = evidence.PrimaryBotType.HasValue
+                                      && evidence.PrimaryBotType.Value != BotType.Unknown;
+
         var detection = new DashboardDetectionEvent
         {
             RequestId = context.TraceIdentifier,
             Timestamp = DateTime.UtcNow,
-            IsBot = evidence.BotProbability > 0.5,
+            IsBot = evidence.BotProbability > 0.5 || hasAuthoritativeBotType,
             BotProbability = evidence.BotProbability,
             Confidence = evidence.Confidence,
             RiskBand = evidence.RiskBand.ToString(),

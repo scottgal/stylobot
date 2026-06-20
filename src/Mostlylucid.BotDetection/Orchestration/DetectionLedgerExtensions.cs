@@ -185,7 +185,8 @@ public static class DetectionLedgerExtensions
         // the dashboard heading agrees with the verdict and policy rules keyed
         // on bot_type match the correct catalog entry. The original UA-derived
         // name still flows through PrimaryBotName for operator triage.
-        var isActuallyBot = botProbability >= 0.5;
+        // isActuallyBot is computed AFTER the catalog lookup below so it can
+        // respect catalog identity -- see catalogBotType-based override.
         // YAML-catalog authority: when the resolved bot name matches a
         // BotPatternLoader entry, the catalog's BotType wins over
         // ledger.BotType. ledger.BotType is last-writer-wins and
@@ -211,8 +212,19 @@ public static class DetectionLedgerExtensions
             (preSignals.TryGetValue(SignalKeys.IdentityDisplayName, out var idn) ? idn as string : null)
             ?? (preSignals.TryGetValue(SignalKeys.UserAgentBotName, out var uabn1) ? uabn1 as string : null)
             ?? ledger.BotName;
-        var ledgerPrimaryBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(nameForCatalog))
-                                   ?? ParseBotType(ledger.BotType);
+        var catalogBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(nameForCatalog));
+        var ledgerPrimaryBotType = catalogBotType ?? ParseBotType(ledger.BotType);
+
+        // Catalogue identity IS the bot signal -- a YAML/Arcjet match like
+        // Bytespider, Googlebot, GPTBot, etc. declares the request a bot
+        // regardless of the probability sigmoid. Without this, low-volume
+        // traffic from a confirmed AI crawler hovers below the 0.5 probability
+        // gate and the dashboard shows it as Human while the BotName column
+        // says "Bytespider" -- the operator-reported "BOTS ARE NEVER HUMAN"
+        // contradiction. The catalog is the authoritative identity surface;
+        // probability is a confidence axis on TOP of identity, not a gate
+        // beneath it.
+        var isActuallyBot = botProbability >= 0.5 || catalogBotType is not null;
         // Local-network override: traffic from loopback / RFC1918 / docker
         // bridge is operator-owned by definition (admin curl, dashboard self-
         // poll, BDF test runner, service-to-service). Classify as Internal so
