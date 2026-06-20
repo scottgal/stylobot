@@ -83,17 +83,23 @@ public static class DaemonCommands
                 //    triggering the gateway's graceful shutdown handler. The
                 //    gateway dies even though its file handles are fine.
                 //
-                // Fix: use `start "" /B cmd /c "exe args >> log 2>&1"`. The outer
-                // `start /B` creates a new process group (detaches from the
-                // console), the inner cmd handles the file redirection that fixes
-                // problem (1). Wrapped inside a top-level cmd because start is a
-                // cmd builtin, not an executable.
-                var inner = $"\"{exePath}\" {string.Join(' ', childArgs.Select(EscapeArg))} >> \"{bootLog}\" 2>&1";
-                var outer = $"/c start \"\" /B cmd /c {inner}";
+                // Fix: write a one-shot launcher .bat that performs the redirect,
+                // and `start /B` that batch file. The batch indirection avoids
+                // cmd's tricky `/c "..."` quoting rules (cmd /c will eat the
+                // first quote pair, so passing the full command inline is a
+                // minefield when EXEPATH or LOG also contain quotes). The .bat
+                // file does the redirect locally; `start /B` detaches from the
+                // launcher's console group.
+                var launcherBat = Path.Combine(logDir, "daemon-launch.bat");
+                File.WriteAllText(
+                    launcherBat,
+                    "@echo off" + Environment.NewLine +
+                    $"\"{exePath}\" {string.Join(' ', childArgs.Select(EscapeArg))} >> \"{bootLog}\" 2>&1" + Environment.NewLine);
+
                 var psi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = outer,
+                    Arguments = $"/c start \"\" /B \"{launcherBat}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
