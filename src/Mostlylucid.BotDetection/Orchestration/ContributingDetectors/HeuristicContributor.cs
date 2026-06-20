@@ -43,7 +43,9 @@ public class HeuristicContributor : ConfiguredContributorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        var contributions = new List<DetectionContribution>();
+        // Heuristic produces exactly one contribution (the heuristic-early
+        // verdict); pre-size to 1 to avoid the default 0->4 growth alloc.
+        var contributions = new List<DetectionContribution>(1);
 
         try
         {

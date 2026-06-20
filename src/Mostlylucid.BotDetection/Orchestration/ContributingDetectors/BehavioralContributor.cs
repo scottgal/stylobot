@@ -80,7 +80,9 @@ public class BehavioralContributor : ConfiguredContributorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        var contributions = new List<DetectionContribution>();
+        // Capacity hint: 8 covers the worst case (basic + advanced patterns +
+        // burst + entropy + etc.); avoids the 0->4->8 growth reallocations.
+        var contributions = new List<DetectionContribution>(8);
 
         // === Part 1: Basic behavioral detection (BehavioralDetector) ===
         try
