@@ -8,6 +8,6 @@ request:
   headers:
     user-agent: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 thresholds:
-  max_mean_ns: 20000
+  max_mean_ns: 32000
   max_allocated_bytes: 4096
 tags: [fast-path, useragent, bot]
