@@ -526,14 +526,35 @@ public partial class DetectionBroadcastMiddleware
     {
         var sigValue = ResolvePrimarySignature(context);
         var botProbability = result.ConfidenceScore; // Legacy field: actually holds bot probability
-        var riskBand = botProbability switch
+
+        // Prefer the upstream gateway's X-Bot-Detection-RiskBand header over the
+        // probability-bucket fallback below. The gateway already ran the composer
+        // (which applies the trusted-and-aligned clamp for Internal etc.), so
+        // re-bucketing from probability would always disagree with the gateway --
+        // and for high-probability trusted bots (Internal at 100%) the
+        // disagreement is exactly the "Internal · Allow · 100% · Risk Profile
+        // VeryHigh" contradiction this fix sequence is closing. Header wins;
+        // bucketing is only the fallback for upstream-headers callers that
+        // don't propagate the band (legacy edges).
+        string riskBand;
+        if (context.Request.Headers.TryGetValue(
+                StyloBotEdgeHeaderNames.RiskBand,
+                out var upstreamRiskBand)
+            && !string.IsNullOrEmpty(upstreamRiskBand.ToString()))
         {
-            >= 0.85 => "VeryHigh",
-            >= 0.7 => "High",
-            >= 0.4 => "Medium",
-            >= 0.2 => "Low",
-            _ => "VeryLow"
-        };
+            riskBand = upstreamRiskBand.ToString();
+        }
+        else
+        {
+            riskBand = botProbability switch
+            {
+                >= 0.85 => "VeryHigh",
+                >= 0.7 => "High",
+                >= 0.4 => "Medium",
+                >= 0.2 => "Low",
+                _ => "VeryLow"
+            };
+        }
 
         var detectionConfidence = botProbability;
         Dictionary<string, DashboardDetectorContribution>? detectorContributions = null;
