@@ -9,12 +9,7 @@ namespace Mostlylucid.BotDetection.AspNetPack.Extensions;
 ///     <see cref="ILoggingBuilder"/> extensions for the ASP.NET Pack log sink.
 ///     Customers call <c>.AddStyloBotGateway(config)</c> inside
 ///     <c>builder.Logging.AddProvider(...)</c> or a <c>AddLogging(b => ...)</c> lambda.
-///     <para>
-///         The commercial sub-feature gate that was here has been removed in this FOSS move.
-///         Task 1.2 will delete the <c>AspNetPackLogSink</c> flag and the
-///         <c>IStyloBotLicenseGate</c> parameter from this method.
-///         // TODO removed in Task 1.2
-///     </para>
+///     Log sink is free with the pack umbrella; no sub-feature gate.
 /// </summary>
 public static class StyloBotLoggingExtensions
 {
