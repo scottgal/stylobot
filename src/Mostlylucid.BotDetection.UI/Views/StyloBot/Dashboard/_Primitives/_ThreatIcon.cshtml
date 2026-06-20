@@ -11,7 +11,15 @@
     // survives colour-vision deficits. Inline `color: var(--color-...)` --
     // Tailwind text-error / text-warning / text-success class modifiers were
     // missing from the JIT-compiled bundle.
+    // An EXPLICIT None band is a composer verdict (friendly-pin fired:
+    // verified-internal, IP-verified-friendly, Safe cluster, declared-friendly
+    // bot). Trust it and suppress the probability-derived escalation below --
+    // the alternative is showing a red shield on every Internal client because
+    // BotProbability=1.0 for network-trusted traffic, which is exactly the
+    // parallel-axis bug the unified verdict was designed to kill.
+    var bandWasExplicit = Model.Band is not null;
     var band = Model.Band ?? "None";
+    var bandIsClampedNone = bandWasExplicit && band == "None";
     // Effective severity: max of the explicit ThreatBand (honeypot/CVE/known-bad
     // signals) AND a coarse bucket from BotProbability. Operators read "threat"
     // as the actor's overall risk-to-the-site, not just "did this UA hit a
@@ -19,8 +27,10 @@
     // sat muted-grey because most live bots are scrapers that have not (yet)
     // probed anything hostile. We still let an actual ThreatBand override
     // upward; bot-prob just provides a floor so a 100% bot row never looks
-    // ignorable. The shield SHAPE still tracks the highest severity component
-    // so colour-blind operators see the gradient via icon shape too.
+    // ignorable -- EXCEPT when the composer explicitly clamped the band to
+    // None (see bandIsClampedNone above). The shield SHAPE still tracks the
+    // highest severity component so colour-blind operators see the gradient
+    // via icon shape too.
     int Rank(string b) => b switch
     {
         "Critical" => 5,
@@ -31,7 +41,7 @@
         "Low"      => 1,
         _          => 0
     };
-    var probRank = Model.BotProbability switch
+    var probRank = bandIsClampedNone ? 0 : Model.BotProbability switch
     {
         >= 0.85 => 4,   // High-confidence bot -- red shield
         >= 0.55 => 3,   // Moderate -- amber
