@@ -144,8 +144,8 @@ public class IntentContributor : ConfiguredContributorBase
                         RequestId = state.RequestId,
                         PrimarySignature = state.GetSignal<string>(SignalKeys.PrimarySignature) ?? state.RequestId,
                         IntentVector = vector,
-                        IntentFeatures = new Dictionary<string, float>(features, StringComparer.OrdinalIgnoreCase),
-                        Signals = new Dictionary<string, object>(state.Signals, StringComparer.OrdinalIgnoreCase),
+                        IntentFeatures = features,
+                        Signals = state.Signals,
                         SessionSummary = IntentPromptBuilder.BuildSessionSummary(state.Signals, state.Path),
                         HeuristicThreatScore = threatScore
                     });
@@ -184,7 +184,7 @@ public class IntentContributor : ConfiguredContributorBase
 
     private Dictionary<string, float> BuildIntentFeatures(BlackboardState state)
     {
-        var features = new Dictionary<string, float>(40);
+        var features = new Dictionary<string, float>(53); // 45 writes: next prime ≥ 45 avoids resize
 
         // Attack features from HaxxorContributor
         var attackCategories = state.GetSignal<string>(SignalKeys.AttackCategories) ?? "";

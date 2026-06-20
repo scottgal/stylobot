@@ -1,10 +1,39 @@
 using System.IO.Hashing;
 using System.Text;
 using System.Text.RegularExpressions;
-using MathNet.Numerics.Statistics;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Mostlylucid.BotDetection.Analysis;
+
+/// <summary>
+///     Fixed-capacity circular buffer for path strings.
+///     Zero-allocation once the backing array is created — Add() overwrites in place.
+/// </summary>
+internal sealed class PathRing
+{
+    private readonly string[] _buf;
+    private int _head, _count;
+    public PathRing(int cap) => _buf = new string[cap];
+    public int Count => _count;
+    public string this[int i] => _buf[((_head - _count + _buf.Length) + i) % _buf.Length];
+    public string Last => this[_count - 1];
+    public void Add(string s) { _buf[_head++ % _buf.Length] = s; _count = Math.Min(_count + 1, _buf.Length); }
+}
+
+/// <summary>
+///     Fixed-capacity circular buffer for DateTime timings.
+///     Zero-allocation once the backing array is created — Add() overwrites in place.
+/// </summary>
+internal sealed class TimingRing
+{
+    private readonly DateTime[] _buf;
+    private int _head, _count;
+    public TimingRing(int cap) => _buf = new DateTime[cap];
+    public int Count => _count;
+    public DateTime this[int i] => _buf[((_head - _count + _buf.Length) + i) % _buf.Length];
+    public DateTime Last => this[_count - 1];
+    public void Add(DateTime t) { _buf[_head++ % _buf.Length] = t; _count = Math.Min(_count + 1, _buf.Length); }
+}
 
 /// <summary>
 ///     Advanced statistical analysis for behavioral pattern detection.
@@ -59,28 +88,28 @@ public partial class BehavioralPatternAnalyzer
     public double CalculatePathEntropy(string identityKey)
     {
         var paths = GetRecentPaths(identityKey);
-        if (paths.Count < 5) return 0; // Not enough data
+        if (paths.Count < 5) return 0;
 
-        // Count frequency of each path without allocating a fresh
-        // IGrouping + Dictionary per call (the LINQ GroupBy + ToDictionary
-        // form allocates ~3 objects per group plus the group keys). For the
-        // bounded paths list (cap 50) this dictionary is small but called
-        // on every advanced-behavioural detection.
-        var counts = new Dictionary<string, int>(capacity: paths.Count, StringComparer.Ordinal);
-        for (var i = 0; i < paths.Count; i++)
-        {
-            var p = paths[i];
-            counts[p] = counts.TryGetValue(p, out var existing) ? existing + 1 : 1;
-        }
+        // Sort indices by path value so equal paths are adjacent — then count
+        // runs without any Dictionary allocation. Paths cap = 50, so
+        // stackalloc int[50] = 200B on the stack.
+        Span<int> idx = stackalloc int[paths.Count];
+        for (var i = 0; i < paths.Count; i++) idx[i] = i;
+        idx.Sort(Comparer<int>.Create((a, b) =>
+            StringComparer.Ordinal.Compare(paths[a], paths[b])));
 
-        // Shannon entropy: H = -Σ(p * log2(p))
         var total = (double)paths.Count;
         var entropy = 0.0;
-        foreach (var count in counts.Values)
+        var run = 1;
+        for (var i = 1; i < idx.Length; i++)
         {
-            var freq = count / total;
-            if (freq > 0) entropy -= freq * Math.Log2(freq);
+            if (paths[idx[i]] == paths[idx[i - 1]]) { run++; continue; }
+            var freq = run / total;
+            entropy -= freq * Math.Log2(freq);
+            run = 1;
         }
+        var lastFreq = run / total;
+        entropy -= lastFreq * Math.Log2(lastFreq);
         return entropy;
     }
 
@@ -93,19 +122,17 @@ public partial class BehavioralPatternAnalyzer
         var timings = GetRecentTimings(identityKey);
         if (timings.Count < 5) return 0;
 
-        // Bin intervals into 100ms buckets and count inline. The previous
-        // implementation built an intermediate List<int> + GroupBy + ToDictionary;
-        // the bounded timings list (cap 100) makes the bucket count small but
-        // the bucket key density is high (every 100ms is its own key), so the
-        // dictionary fits the allocations into a single bounded chunk instead
-        // of a List + 3 LINQ chained allocs.
-        var counts = new Dictionary<int, int>(capacity: timings.Count);
+        // Bin intervals into 100ms buckets using a stack-allocated int array.
+        // 200 buckets covers 0-20s; intervals beyond that fall into the last bucket.
+        // Zero allocations vs the previous Dictionary<int,int>.
+        const int BucketCount = 200;
+        Span<int> counts = stackalloc int[BucketCount];
         var intervalsCount = 0;
         for (var i = 1; i < timings.Count; i++)
         {
             var intervalMs = (timings[i] - timings[i - 1]).TotalMilliseconds;
-            var bucket = (int)(intervalMs / 100) * 100;
-            counts[bucket] = counts.TryGetValue(bucket, out var existing) ? existing + 1 : 1;
+            var bucket = Math.Clamp((int)(intervalMs / 100), 0, BucketCount - 1);
+            counts[bucket]++;
             intervalsCount++;
         }
 
@@ -113,10 +140,11 @@ public partial class BehavioralPatternAnalyzer
 
         var total = (double)intervalsCount;
         var entropy = 0.0;
-        foreach (var count in counts.Values)
+        foreach (var count in counts)
         {
+            if (count == 0) continue;
             var freq = count / total;
-            if (freq > 0) entropy -= freq * Math.Log2(freq);
+            entropy -= freq * Math.Log2(freq);
         }
         return entropy;
     }
@@ -132,23 +160,25 @@ public partial class BehavioralPatternAnalyzer
         var timings = GetRecentTimings(identityKey);
         if (timings.Count < 10) return (false, 0, "Insufficient data");
 
-        // Calculate intervals
-        var intervals = new List<double>();
-        for (var i = 1; i < timings.Count; i++) intervals.Add((timings[i] - timings[i - 1]).TotalSeconds);
+        // stackalloc avoids the List<double> heap allocation; timings is capped at 100.
+        Span<double> intervals = stackalloc double[timings.Count - 1];
+        for (var i = 1; i < timings.Count; i++)
+            intervals[i - 1] = (timings[i] - timings[i - 1]).TotalSeconds;
 
-        // Current interval
         var currentInterval = (currentRequestTime - timings[^1]).TotalSeconds;
 
-        // Calculate statistics using MathNet.Numerics
-        var mean = intervals.Mean();
-        var stdDev = intervals.StandardDeviation();
+        // Inline mean + stddev: zero allocation, no MathNet IEnumerable overhead.
+        var sum = 0.0;
+        for (var i = 0; i < intervals.Length; i++) sum += intervals[i];
+        var mean = sum / intervals.Length;
+        var variance = 0.0;
+        for (var i = 0; i < intervals.Length; i++) variance += (intervals[i] - mean) * (intervals[i] - mean);
+        var stdDev = Math.Sqrt(variance / intervals.Length);
 
-        if (stdDev < 0.01) return (false, 0, "Constant timing"); // Avoid division by zero
+        if (stdDev < 0.01) return (false, 0, "Constant timing");
 
-        // Z-score: how many standard deviations from mean
         var zScore = Math.Abs((currentInterval - mean) / stdDev);
 
-        // Anomaly if z-score > 3 (99.7% confidence interval)
         if (zScore > 3.0)
             return (true, zScore, $"Timing anomaly: {currentInterval:F1}s vs {mean:F1}±{stdDev:F1}s (z={zScore:F1})");
 
@@ -166,34 +196,42 @@ public partial class BehavioralPatternAnalyzer
         var paths = GetRecentPaths(identityKey);
         if (paths.Count < 3) return (0, "Insufficient history");
 
-        // We only need transitions out of `lastPath`. The previous code
-        // built the full first-order transition matrix
-        // (Dictionary<string, List<string>>) just to query a single key.
-        // For paths cap=50, that's 50 SimplifyPath calls + ~25 List
-        // allocations + a Dictionary -- all thrown away after one lookup.
-        // Single-pass counter that skips both the transition matrix and the
-        // LINQ Count(predicate) delegate at the end.
-        var lastPath = SimplifyPath(paths[^1]);
-        var currentSimplified = SimplifyPath(currentPath);
-        var transitionCount = 0;
-        var matchingCount = 0;
-        for (var i = 0; i < paths.Count - 1; i++)
+        // Precompute simplified paths once per entry; the loop previously called
+        // SimplifyPath(paths[i]) and SimplifyPath(paths[i+1]) inside each iteration,
+        // allocating up to 3 strings per element (ToLowerInvariant + 2 regex replacements)
+        // × O(n) iterations. Rent a temp array so the simplified strings share lifetime
+        // with this stack frame only.
+        var simplified = System.Buffers.ArrayPool<string>.Shared.Rent(paths.Count);
+        try
         {
-            if (SimplifyPath(paths[i]) != lastPath) continue;
-            transitionCount++;
-            if (SimplifyPath(paths[i + 1]) == currentSimplified) matchingCount++;
-        }
+            for (var i = 0; i < paths.Count; i++) simplified[i] = SimplifyPath(paths[i]);
 
-        if (transitionCount > 0)
+            var lastPath = simplified[paths.Count - 1];
+            var currentSimplified = SimplifyPath(currentPath);
+            var transitionCount = 0;
+            var matchingCount = 0;
+            for (var i = 0; i < paths.Count - 1; i++)
+            {
+                if (simplified[i] != lastPath) continue;
+                transitionCount++;
+                if (simplified[i + 1] == currentSimplified) matchingCount++;
+            }
+
+            if (transitionCount > 0)
+            {
+                var probability = (double)matchingCount / transitionCount;
+                if (probability < 0.1 && transitionCount >= 3)
+                    return (0.3, $"Unusual navigation: {lastPath}→{currentSimplified} (p={probability:P0})");
+                if (probability > 0.9 && transitionCount >= 5)
+                    return (0.4, $"Highly repetitive: {lastPath}→{currentSimplified} (p={probability:P0})");
+            }
+
+            return (0, "Normal navigation");
+        }
+        finally
         {
-            var probability = (double)matchingCount / transitionCount;
-            if (probability < 0.1 && transitionCount >= 3)
-                return (0.3, $"Unusual navigation: {lastPath}→{currentSimplified} (p={probability:P0})");
-            if (probability > 0.9 && transitionCount >= 5)
-                return (0.4, $"Highly repetitive: {lastPath}→{currentSimplified} (p={probability:P0})");
+            System.Buffers.ArrayPool<string>.Shared.Return(simplified);
         }
-
-        return (0, "Normal navigation");
     }
 
     /// <summary>
@@ -205,19 +243,23 @@ public partial class BehavioralPatternAnalyzer
         var timings = GetRecentTimings(identityKey);
         if (timings.Count < 10) return (false, 0, "Insufficient data");
 
-        var intervals = new List<double>();
-        for (var i = 1; i < timings.Count; i++) intervals.Add((timings[i] - timings[i - 1]).TotalSeconds);
+        // stackalloc: zero heap allocation; timings capped at 100 entries.
+        Span<double> intervals = stackalloc double[timings.Count - 1];
+        for (var i = 1; i < timings.Count; i++)
+            intervals[i - 1] = (timings[i] - timings[i - 1]).TotalSeconds;
 
-        var mean = intervals.Mean();
-        var stdDev = intervals.StandardDeviation();
+        // Inline mean + stddev: zero allocation, no MathNet IEnumerable overhead.
+        var sum = 0.0;
+        for (var i = 0; i < intervals.Length; i++) sum += intervals[i];
+        var mean = sum / intervals.Length;
+        var variance = 0.0;
+        for (var i = 0; i < intervals.Length; i++) variance += (intervals[i] - mean) * (intervals[i] - mean);
+        var stdDev = Math.Sqrt(variance / intervals.Length);
 
         if (mean < 0.1) return (false, 0, "Too fast to analyze");
 
-        // Coefficient of variation: CV = stdDev / mean
         var cv = stdDev / mean;
 
-        // Very low CV (< 0.15) = too regular, likely bot
-        // Human browsing typically has CV > 0.5
         if (cv < 0.15 && mean < 10)
             return (true, cv, $"Too regular timing: CV={cv:F2} (mean={mean:F1}s, σ={stdDev:F1}s)");
 
@@ -237,15 +279,23 @@ public partial class BehavioralPatternAnalyzer
         var now = DateTime.UtcNow;
         var burstStart = now - burstWindow;
 
-        // Count requests in burst window
-        var burstCount = timings.Count(t => t >= burstStart);
+        // Single pass: count burst + historical without materialising a List<DateTime>.
+        var burstCount = 0;
+        var historicalCount = 0;
+        DateTime histFirst = default, histLast = default;
+        for (var i = 0; i < timings.Count; i++)
+        {
+            var t = timings[i];
+            if (t >= burstStart) { burstCount++; continue; }
+            if (historicalCount == 0) histFirst = t;
+            histLast = t;
+            historicalCount++;
+        }
 
-        // Calculate normal rate from historical data (excluding burst window)
-        var historicalTimings = timings.Where(t => t < burstStart).ToList();
-        if (historicalTimings.Count < 5) return (false, burstCount, TimeSpan.Zero);
+        if (historicalCount < 5) return (false, burstCount, TimeSpan.Zero);
 
-        var historicalDuration = (historicalTimings[^1] - historicalTimings[0]).TotalSeconds;
-        var historicalRate = historicalTimings.Count / Math.Max(1, historicalDuration);
+        var historicalDuration = (histLast - histFirst).TotalSeconds;
+        var historicalRate = historicalCount / Math.Max(1, historicalDuration);
         var burstRate = burstCount / burstWindow.TotalSeconds;
 
         // Burst if rate is > 5x historical rate
@@ -265,21 +315,19 @@ public partial class BehavioralPatternAnalyzer
     // for Behavioral_Normal the GetRecent* allocations were one of the bigger
     // line items.
 
-    private static readonly List<string> EmptyPaths = new(0);
-    private static readonly List<DateTime> EmptyTimings = new(0);
+    private static readonly PathRing EmptyPaths = new(0);
+    private static readonly TimingRing EmptyTimings = new(0);
 
-    private List<string> GetRecentPaths(string identityKey)
+    private PathRing GetRecentPaths(string identityKey)
     {
         var hashedKey = HashIdentity(identityKey);
-        var key = "pattern_paths_" + hashedKey;
-        return _cache.Get<List<string>>(key) ?? EmptyPaths;
+        return _cache.Get<PathRing>("pattern_paths_" + hashedKey) ?? EmptyPaths;
     }
 
-    private List<DateTime> GetRecentTimings(string identityKey)
+    private TimingRing GetRecentTimings(string identityKey)
     {
         var hashedKey = HashIdentity(identityKey);
-        var key = "pattern_timings_" + hashedKey;
-        return _cache.Get<List<DateTime>>(key) ?? EmptyTimings;
+        return _cache.Get<TimingRing>("pattern_timings_" + hashedKey) ?? EmptyTimings;
     }
 
     /// <summary>
@@ -311,34 +359,21 @@ public partial class BehavioralPatternAnalyzer
         var pathKey = "pattern_paths_" + hashedKey;
         var timingKey = "pattern_timings_" + hashedKey;
 
-        // Copy-on-write: clone the stored list so concurrent readers of the old
-        // reference are safe. The previous code did this twice -- once inside
-        // GetRecentPaths to produce a defensive snapshot, then again inside
-        // RecordRequest's `new List<string>(snapshot) { path }`. Reading the
-        // cache directly and copying once produces the same safety.
-        var storedPaths = _cache.Get<List<string>>(pathKey);
-        var paths = storedPaths is null
-            ? new List<string>(capacity: 4) { path }
-            : new List<string>(storedPaths.Count + 1) { };
-        if (storedPaths is not null)
+        // Ring buffer: GetOrCreate allocates PathRing/TimingRing once per identity
+        // per analysis window. Add() overwrites in-place — zero allocation on the hot path.
+        var paths = _cache.GetOrCreate(pathKey, e =>
         {
-            paths.AddRange(storedPaths);
-            paths.Add(path);
-        }
-        if (paths.Count > 50) paths.RemoveAt(0);
-        _cache.Set(pathKey, paths, _analysisWindow);
+            e.AbsoluteExpirationRelativeToNow = _analysisWindow;
+            return new PathRing(50);
+        })!;
+        paths.Add(path);
 
-        var storedTimings = _cache.Get<List<DateTime>>(timingKey);
-        var timings = storedTimings is null
-            ? new List<DateTime>(capacity: 4) { timestamp }
-            : new List<DateTime>(storedTimings.Count + 1) { };
-        if (storedTimings is not null)
+        var timings = _cache.GetOrCreate(timingKey, e =>
         {
-            timings.AddRange(storedTimings);
-            timings.Add(timestamp);
-        }
-        if (timings.Count > 100) timings.RemoveAt(0);
-        _cache.Set(timingKey, timings, _analysisWindow);
+            e.AbsoluteExpirationRelativeToNow = _analysisWindow;
+            return new TimingRing(100);
+        })!;
+        timings.Add(timestamp);
     }
 
     #endregion

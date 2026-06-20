@@ -526,33 +526,32 @@ public static class HeuristicFeatureExtractor
     /// </summary>
     private static void ExtractStatistics(AggregatedEvidence evidence, IReadOnlyList<DetectionContribution> contributions, Dictionary<string, float> features)
     {
-        // Per-detector max-absolute score (one pass, no LINQ materialization).
-        var detMaxAbs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (var c in contributions)
-        {
-            var abs = Math.Abs(c.ConfidenceDelta);
-            if (!detMaxAbs.TryGetValue(c.DetectorName, out var cur) || abs > cur)
-                detMaxAbs[c.DetectorName] = abs;
-        }
-
-        var detCount = detMaxAbs.Count;
+        // ExtractDetectorResults (called before this) already wrote det_abs:{key} into
+        // features. Read those entries directly instead of rebuilding a
+        // Dictionary<string, double> from contributions — zero extra allocation.
+        var detCount = 0;
         var detFlagged = 0;
         var detMax = 0.0;
         var detSum = 0.0;
-        foreach (var score in detMaxAbs.Values)
+        const string DetAbsPrefix = "det_abs:";
+        foreach (var (k, v) in features)
         {
-            if (score > 0.3) detFlagged++;
-            if (score > detMax) detMax = score;
-            detSum += score;
+            if (!k.StartsWith(DetAbsPrefix, StringComparison.Ordinal)) continue;
+            detCount++;
+            if (v > 0.3f) detFlagged++;
+            if (v > detMax) detMax = v;
+            detSum += v;
         }
         var detAvg = detCount > 0 ? detSum / detCount : 0.0;
 
-        // Inline variance (two-pass over the small dictionary values).
         var detVar = 0.0;
         if (detCount > 1)
         {
-            foreach (var score in detMaxAbs.Values)
-                detVar += (score - detAvg) * (score - detAvg);
+            foreach (var (k, v) in features)
+            {
+                if (!k.StartsWith(DetAbsPrefix, StringComparison.Ordinal)) continue;
+                detVar += (v - detAvg) * (v - detAvg);
+            }
             detVar /= detCount;
         }
 
@@ -605,13 +604,18 @@ public static class HeuristicFeatureExtractor
     private static string NormalizeKey(string key)
     {
         if (string.IsNullOrEmpty(key)) return "unknown";
-
-        return key
-            .ToLowerInvariant()
-            .Replace(" ", "_")
-            .Replace("-", "_")
-            .Replace(".", "_")
-            .Replace(":", "_");
+        // Single allocation via string.Create instead of 5 chained Replace() calls
+        // (each Replace allocates a new string; this produces exactly one).
+        return string.Create(key.Length, key, static (span, k) =>
+        {
+            for (var i = 0; i < k.Length; i++)
+            {
+                var c = k[i];
+                span[i] = c is ' ' or '-' or '.' or ':'
+                    ? '_'
+                    : char.ToLowerInvariant(c);
+            }
+        });
     }
 
     private static void AddBooleanSignalFeature(
