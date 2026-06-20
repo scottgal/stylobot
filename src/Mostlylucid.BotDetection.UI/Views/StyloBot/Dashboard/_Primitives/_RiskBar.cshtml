@@ -25,7 +25,14 @@
     };
     const string emptyColor = "rgba(148, 163, 184, 0.18)";
     var pctText = (p * 100).ToString("F0") + "%";
-    var title = $"{pctText} bot probability, {band} threat band";
+    // Confidence-as-opacity carries the "how sure is detection" axis on the
+    // same cell, so the dedicated CONF column can come out. Floor at 0.35 so
+    // a low-confidence row still renders something visible -- complete
+    // transparency reads as "no data" instead of "uncertain".
+    var conf = System.Math.Clamp(Model.Confidence, 0, 1);
+    var opacity = 0.35 + 0.65 * conf;
+    var confPct = (conf * 100).ToString("F0") + "%";
+    var title = $"{pctText} bot probability, {band} threat band, {confPct} confidence";
 }
 <span class="tooltip tooltip-left" data-tip="@title">
     @* Match the ConfidenceMeter footprint (8x8 dots, 2px gap = ~48px total)
@@ -35,7 +42,7 @@
        container. Same five-segment fill semantics; pure-visual primitive,
        no model change. Distinct fill colour gradient still tells the operator
        BOT% is the "how confident bot" axis vs CONF's "how sure overall". *@
-    <span class="inline-flex items-center" style="gap:2px;" aria-label="@title">
+    <span class="inline-flex items-center" style="gap:2px; opacity:@opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);" aria-label="@title">
     @for (int i = 0; i < 5; i++)
     {
         var bg = i < filled ? filledColor : emptyColor;

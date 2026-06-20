@@ -35,8 +35,15 @@ public sealed record ThreatIconModel(string? Band, double BotProbability);
 /// <summary>Icon + tooltip for an intent/bot-type cell. Replaces text columns.</summary>
 public sealed record IntentIconModel(string? Intent);
 
-/// <summary>5-segment severity bar for bot-probability cells. Replaces "78%" text.</summary>
-public sealed record RiskBarModel(double Probability, string? Band);
+/// <summary>
+///     5-segment severity bar for bot-probability cells. Replaces "78%" text.
+///     <see cref="Confidence"/> (0..1) scales the bar's opacity so a low-
+///     confidence row visibly fades -- this lets the BOT% cell carry the
+///     "how sure?" axis too, collapsing the standalone CONF column without
+///     losing information. Confidence defaults to 1.0 for callers that have
+///     no confidence value to pass; legacy widgets render unchanged.
+/// </summary>
+public sealed record RiskBarModel(double Probability, string? Band, double Confidence = 1.0);
 
 /// <summary>
 ///     Shield-shape risk indicator. Distinct icon shape from the BOT% segment

@@ -141,13 +141,14 @@
                     *@
                     @* table-fixed column budget (sum = 100%). NAME takes the slack
                        so it always truncates instead of pushing the row past the
-                       container. Numeric columns (BOT%, CONF, THREAT, HITS, 1h,
-                       SEEN) are clamped to their natural minimum. *@
+                       container. Numeric columns (BOT%, THREAT, HITS, 1h, SEEN)
+                       are clamped to their natural minimum. CONF was collapsed
+                       into BOT% as opacity variation on the RiskBar primitive
+                       to reclaim the column real estate. *@
                     <colgroup>
                         <col style="width:24px" />
                         <col />
                         <col style="width:60px" />
-                        <col style="width:48px" />
                         <col style="width:42px" />
                         <col style="width:56px" />
                         <col style="width:60px" />
@@ -161,10 +162,10 @@
                                 Name@(Html.Raw(SortIcon("name")))
                             </th>
                             <th class="py-1 px-1.5 text-center @ThClass("probability")"
-                                hx-get="@SortUrl("probability")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
+                                hx-get="@SortUrl("probability")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true"
+                                title="Bot probability (5-dot segment) faded by detection confidence -- low-confidence rows visibly dim. Replaces the separate CONF column.">
                                 Bot %@(Html.Raw(SortIcon("probability")))
                             </th>
-                            <th class="py-1 px-1.5 text-center text-[10px] text-base-content/40" title="Detection confidence. Gates the recommendation. Low confidence + high bot % = monitor, not block.">Conf</th>
                             <th class="py-1 px-1.5 text-center @ThClass("threat")"
                                 hx-get="@SortUrl("threat")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Threat@(Html.Raw(SortIcon("threat")))
@@ -226,18 +227,17 @@
                             var verificationBadge = new VerificationBadgeModel(verification);
 
                             var intentIcon = new IntentIconModel(displayIntent);
-                            var riskBar    = new RiskBarModel(bot.BotProbability, threatBand);
+                            var riskBar    = new RiskBarModel(bot.BotProbability, threatBand, bot.Confidence);
                             // ThreatBand is the orthogonal axis -- "is this hostile" -- driven
                             // by honeypot / CVE / known-bad-shape signals, NOT by bot probability.
                             // We pass it through unmodified; the ThreatIcon paints a shield that's
                             // green for None / Low and red for Critical / High, independent of
                             // how confident detection is that the actor is automated.
                             var threatIconModel = new ThreatIconModel(threatBand, bot.BotProbability);
-                            // Confidence is magnitude-only -- "how sure is detection" -- without
-                            // any IsBot polarity flip. A low-confidence row is grey regardless of
-                            // direction so the operator never reads "safe" from an uncertain
-                            // human verdict; the recommendation logic downstream gates on this.
-                            var confMeter  = new ConfidenceMeterModel(bot.Confidence, bot.BotProbability >= 0.5, bot.BotProbability);
+                            // Confidence is now carried by the BOT% cell as opacity (see
+                            // RiskBarModel.Confidence), so the standalone ConfidenceMeter
+                            // primitive is no longer rendered on this widget. The downstream
+                            // recommendation logic still consumes bot.Confidence directly.
                             var flag       = new CountryFlagModel(bot.CountryCode, bot.CountryCode);
                             var timeAgo    = new TimeAgoModel(bot.LastSeen, bot.TimeAgo);
                             @* Idiomorph keys rows by `id` -- without a stable key it falls
@@ -276,10 +276,11 @@
                                     </span>
                                 </td>
                                 <td class="py-1 px-1.5 text-center">
+                                    @* RiskBar carries both the bot-probability fill and the
+                                       confidence-as-opacity, so the dedicated CONF column was
+                                       dropped above. _RiskBar.cshtml floors opacity at 0.35 so
+                                       a low-confidence row reads "uncertain" not "missing". *@
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", riskBar)
-                                </td>
-                                <td class="py-1 px-1.5 text-center">
-                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ConfidenceMeter.cshtml", confMeter)
                                 </td>
                                 <td class="py-1 px-1.5 text-center">
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIconModel)
