@@ -154,7 +154,15 @@ public class BotDetectionMiddleware(
             var latencyMs = Environment.TickCount64 - startTicks;
             degradationAtom?.RecordResponse(context.Response.StatusCode, latencyMs, requestPath);
 
-            if (_loadSensor is not null)
+            // Feed PipelineLoadSensor — but ONLY for requests that actually
+            // ran through detection + upstream. Shed-503 requests complete
+            // in ~1 ms (no detection, no upstream), so recording them would
+            // pollute the upstream-RTT fast EMA with artificially-low
+            // values, drive the band/baseline ratio toward 1.0, and stop
+            // the shed firing — a positive feedback loop that defeats the
+            // entire adaptive protection. The shed path sets
+            // BotDetectionShedKey on Items so this hook can tell them apart.
+            if (_loadSensor is not null && !context.Items.ContainsKey(BotDetectionShedKey))
             {
                 var detectionMs = (context.Items[AggregatedEvidenceKey] as AggregatedEvidence)?.TotalProcessingTimeMs ?? 0.0;
                 if (detectionMs > 0) _loadSensor.RecordDetectionLatency(detectionMs);
@@ -684,6 +692,10 @@ public class BotDetectionMiddleware(
                 ?? 0;
             if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
             {
+                // Mark the request as shed so the OnCompleted hook skips it
+                // for sensor sampling (artificial-low-latency feedback loop).
+                context.Items[BotDetectionShedKey] = true;
+
                 if (_loadSensor.CurrentBand == Services.LoadBand.Critical)
                 {
                     // Refuse: don't forward, don't allocate detection state.
@@ -1394,6 +1406,16 @@ public class BotDetectionMiddleware(
 
     /// <summary>Full AggregatedEvidence from blackboard orchestrator</summary>
     public const string AggregatedEvidenceKey = "BotDetection.AggregatedEvidence";
+
+    /// <summary>
+    ///     Marks a request that the adaptive load-shed gate refused to detect
+    ///     or forward (skip-detection at High band, or 503 at Critical band).
+    ///     The OnCompleted hook checks this so it doesn't feed PipelineLoadSensor
+    ///     with the artificially-fast latency of a shed response — recording
+    ///     those would drag the upstream-RTT EMA down and break the adaptive
+    ///     feedback loop.
+    /// </summary>
+    public const string BotDetectionShedKey = "BotDetection.Shed";
 
     /// <summary>
     ///     HttpContext.Items key the middleware sets on test-mode dispatches so
