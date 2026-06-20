@@ -21,6 +21,7 @@ public sealed class LogSinkDrainer : IDisposable
     private readonly StyloBotGatewayLogExporter _exporter;
     private readonly IOptions<LogSinkOptions> _opts;
     private readonly ILogger<LogSinkDrainer> _log;
+    private readonly ILogSinkInstrumentation _instrumentation;
     private readonly IDisposable? _subscription;
     private int _disposed;
 
@@ -29,15 +30,15 @@ public sealed class LogSinkDrainer : IDisposable
         StyloBotGatewayLogExporter exporter,
         IOptions<LogSinkOptions> opts,
         ILogger<LogSinkDrainer> log,
-        IScheduleCoordinator? scheduleCoordinator = null)
+        IScheduleCoordinator? scheduleCoordinator = null,
+        ILogSinkInstrumentation? instrumentation = null)
     {
         _provider = provider;
         _exporter = exporter;
         _opts = opts;
         _log = log;
+        _instrumentation = instrumentation ?? NoOpLogSinkInstrumentation.Instance;
 
-        // Optional so existing direct-construction tests that exercise
-        // DrainOnceAsync in isolation keep working.
         if (scheduleCoordinator is not null)
         {
             _subscription = scheduleCoordinator.Subscribe(
@@ -78,9 +79,33 @@ public sealed class LogSinkDrainer : IDisposable
         while (batch.Count < batchSize && reader.TryRead(out var rec))
             batch.Add(rec);
 
+        // Update queue depth gauge regardless of batch fullness so the
+        // observability surface tracks backpressure even when the drainer
+        // is keeping up. CanCount may be false on some channel impls; the
+        // try/catch protects the export path from a faulty instrumentation
+        // dependency taking down the tick.
+        try
+        {
+            _instrumentation.SetQueueDepth(reader.CanCount ? reader.Count : 0);
+        }
+        catch { /* instrumentation must not break the drain */ }
+
         if (batch.Count == 0) return;
 
-        await _exporter.ExportAsync(batch, ct);
+        var result = await _exporter.ExportAsync(batch, ct);
+        switch (result.Outcome)
+        {
+            case ExportOutcome.Success:
+                _instrumentation.RecordShipped("ok", batch.Count);
+                break;
+            case ExportOutcome.GatewayUnreachable:
+                _instrumentation.RecordGatewayUnreachable();
+                _instrumentation.RecordShipped("unreachable", batch.Count);
+                break;
+            case ExportOutcome.NonSuccess:
+                _instrumentation.RecordShipped("fail", batch.Count);
+                break;
+        }
     }
 
     public void Dispose()

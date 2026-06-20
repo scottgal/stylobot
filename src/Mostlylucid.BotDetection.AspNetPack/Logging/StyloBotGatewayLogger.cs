@@ -9,12 +9,21 @@ public sealed class StyloBotGatewayLogger : ILogger
     private readonly string _category;
     private readonly ChannelWriter<LogRecord> _writer;
     private readonly LogLevel _minLevel;
+    private readonly ILogSinkInstrumentation _instrumentation;
 
     public StyloBotGatewayLogger(string category, ChannelWriter<LogRecord> writer, LogLevel minLevel)
+        : this(category, writer, minLevel, NoOpLogSinkInstrumentation.Instance)
+    {
+    }
+
+    public StyloBotGatewayLogger(
+        string category, ChannelWriter<LogRecord> writer, LogLevel minLevel,
+        ILogSinkInstrumentation instrumentation)
     {
         _category = category;
         _writer = writer;
         _minLevel = minLevel;
+        _instrumentation = instrumentation;
     }
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
@@ -39,6 +48,7 @@ public sealed class StyloBotGatewayLogger : ILogger
             FingerprintId: fp,
             Attributes: new Dictionary<string, string>());
 
-        _writer.TryWrite(record);
+        if (_writer.TryWrite(record))
+            _instrumentation.RecordEmitted(logLevel);
     }
 }

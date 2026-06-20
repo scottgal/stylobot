@@ -9,13 +9,21 @@ namespace Mostlylucid.BotDetection.AspNetPack.Logging;
 public sealed class StyloBotGatewayLoggerProvider : ILoggerProvider
 {
     private readonly IOptions<LogSinkOptions> _opts;
+    private readonly ILogSinkInstrumentation _instrumentation;
     private readonly ConcurrentDictionary<string, StyloBotGatewayLogger> _loggers = new();
 
     public Channel<LogRecord> Channel { get; }
 
     public StyloBotGatewayLoggerProvider(IOptions<LogSinkOptions> opts)
+        : this(opts, NoOpLogSinkInstrumentation.Instance)
+    {
+    }
+
+    public StyloBotGatewayLoggerProvider(
+        IOptions<LogSinkOptions> opts, ILogSinkInstrumentation instrumentation)
     {
         _opts = opts;
+        _instrumentation = instrumentation;
         Channel = System.Threading.Channels.Channel.CreateBounded<LogRecord>(
             new BoundedChannelOptions(opts.Value.QueueCapacity)
             {
@@ -28,7 +36,7 @@ public sealed class StyloBotGatewayLoggerProvider : ILoggerProvider
     {
         if (!CategoryAllowed(categoryName)) return NullLogger.Instance;
         return _loggers.GetOrAdd(categoryName,
-            cat => new StyloBotGatewayLogger(cat, Channel.Writer, _opts.Value.MinLevel));
+            cat => new StyloBotGatewayLogger(cat, Channel.Writer, _opts.Value.MinLevel, _instrumentation));
     }
 
     private bool CategoryAllowed(string category)
