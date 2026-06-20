@@ -22,6 +22,25 @@
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
+    <!-- OTLP protobuf encoding for the log sink exporter.
+         We vendor only the four proto files needed for log export (common, resource,
+         logs, collector/logs) and let Grpc.Tools generate the Google.Protobuf types
+         under the canonical OpenTelemetry.Proto.* namespaces. No gRPC services are
+         generated here — GrpcServices="None" keeps the output DLL-only. -->
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf" Version="3.31.1" />
+        <PackageReference Include="Grpc.Tools" Version="2.81.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+    <ItemGroup>
+        <Protobuf Include="Protos\opentelemetry\proto\common\v1\common.proto"       GrpcServices="None" ProtoRoot="Protos" />
+        <Protobuf Include="Protos\opentelemetry\proto\resource\v1\resource.proto"   GrpcServices="None" ProtoRoot="Protos" />
+        <Protobuf Include="Protos\opentelemetry\proto\logs\v1\logs.proto"           GrpcServices="None" ProtoRoot="Protos" />
+        <Protobuf Include="Protos\opentelemetry\proto\collector\logs\v1\logs_service.proto" GrpcServices="None" ProtoRoot="Protos" />
+    </ItemGroup>
+
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
