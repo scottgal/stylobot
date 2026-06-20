@@ -694,20 +694,21 @@ public class BotDetectionMiddleware(
             {
                 // Mark the request as shed so the OnCompleted hook skips it
                 // for sensor sampling (artificial-low-latency feedback loop).
+                // Observable surface: HttpContext.Items[BotDetectionShedKey]
+                // + X-StyloBot-Shed response header + (for refuse) 503 status.
+                // Operational state, NOT a log line — under load we'd write
+                // thousands per second.
                 context.Items[BotDetectionShedKey] = true;
+                context.Response.Headers["X-StyloBot-Shed"] = "1";
 
                 if (_loadSensor.CurrentBand == Services.LoadBand.Critical)
                 {
                     // Refuse: don't forward, don't allocate detection state.
                     context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                    context.Response.Headers["X-StyloBot-Shed"] = "1";
                     context.Response.Headers["Retry-After"] = "5";
-                    _logger.LogWarning("Load-shed refuse (Critical band): {Path}", context.Request.Path);
                     return;
                 }
 
-                context.Response.Headers["X-StyloBot-Shed"] = "1";
-                _logger.LogInformation("Load-shed skip-detection (High band): {Path}", context.Request.Path);
                 await _next(context);
                 return;
             }

@@ -1189,10 +1189,16 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<Data.SessionPersistenceLifecycleHostedService>();
         // Per-request persistence (every request → SQLite, LFU sampled under load)
         services.AddSingleton<Data.RequestPersistenceService>();
-        // Pipeline load sensor — tracks req/s via EMA; used by background services to self-throttle
+        // Pipeline load sensor — adaptive multi-signal pressure detection; used
+        // by background services to self-throttle and by LoadShedDecision to
+        // skip detection / refuse-503 under sustained pressure.
         services.TryAddSingleton<Services.PipelineLoadSensor>();
         services.AddSingleton<Services.ILoadBandSource>(sp => sp.GetRequiredService<Services.PipelineLoadSensor>());
         services.AddSingleton<Services.LoadShedDecision>();
+        // Pumps the sensor's live state into the per-request signal vocabulary
+        // (pressure.band, pressure.detection_latency_ratio, ...) so policy rule
+        // predicates can react to system pressure without a metrics round-trip.
+        services.AddSingleton<Policies.Signals.ISignalContributor, Services.PressureSignalContributor>();
         // Session atomization from raw requests.
         // Wave 2: subscribes to IScheduleCoordinator.Tick1m at construction
         // (gated on RetentionOptions.AtomizerRunInterval); drop

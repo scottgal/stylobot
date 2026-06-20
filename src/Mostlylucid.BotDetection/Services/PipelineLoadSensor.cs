@@ -150,6 +150,42 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     public double SmoothedRps => Volatile.Read(ref _smoothedRps);
 
     /// <summary>
+    ///     Current detection-latency EMA divided by min-baseline. Returns 0
+    ///     when no baseline established yet. Ratio above HighRatio/CriticalRatio
+    ///     contributes to the band escalation.
+    /// </summary>
+    public double DetectionLatencyRatio
+    {
+        get
+        {
+            var baseline = Volatile.Read(ref _latencyBaselineUs);
+            return baseline <= 0 ? 0 : Volatile.Read(ref _latencyEmaUs) / baseline;
+        }
+    }
+
+    /// <summary>
+    ///     Current upstream-RTT EMA divided by min-baseline. Returns 0 when
+    ///     no baseline established yet.
+    /// </summary>
+    public double UpstreamRttRatio
+    {
+        get
+        {
+            var baseline = Volatile.Read(ref _rttBaselineUs);
+            return baseline <= 0 ? 0 : Volatile.Read(ref _rttEmaUs) / baseline;
+        }
+    }
+
+    /// <summary>
+    ///     Consecutive 1-second ticks at which ThreadPool.PendingWorkItemCount
+    ///     was non-zero. Higher = worker starvation.
+    /// </summary>
+    public int ThreadPoolStarvedTicks => Volatile.Read(ref _consecutiveStarvedTicks);
+
+    /// <summary>EMA of Gen2 GC collections per second.</summary>
+    public double Gen2PerSecond => Volatile.Read(ref _gen2PerSecondEma);
+
+    /// <summary>
     ///     Adaptive band. The first input to fire Critical short-circuits;
     ///     otherwise the highest band across all inputs wins. During baseline
     ///     warmup, falls back to the legacy RPS bands.
