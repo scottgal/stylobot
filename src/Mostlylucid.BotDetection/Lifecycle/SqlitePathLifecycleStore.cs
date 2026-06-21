@@ -44,6 +44,7 @@ public sealed class SqlitePathLifecycleStore
       IPathLifecycleStore
 {
     private readonly string _connectionString;
+    private readonly ILogger<SqlitePathLifecycleStore> _logger;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialized;
@@ -61,6 +62,7 @@ public sealed class SqlitePathLifecycleStore
             keyComparer: StringComparer.Ordinal)
     {
         _connectionString = connectionString;
+        _logger = logger;
     }
 
     // === IPathLifecycleStore facade ========================================
@@ -77,10 +79,13 @@ public sealed class SqlitePathLifecycleStore
         return Task.CompletedTask;
     }
 
-    public async Task<PathLifecycle?> GetAsync(string path, CancellationToken ct = default)
+    Task<PathLifecycle?> IPathLifecycleStore.GetAsync(string path, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(path)) return null;
-        return await GetAsync((string)path, ct);   // disambiguate from base.GetAsync(TKey)
+        if (string.IsNullOrEmpty(path)) return Task.FromResult<PathLifecycle?>(null);
+        // Adapter: IPathLifecycleStore exposes Task; base.GetAsync returns
+        // ValueTask. Explicit interface impl so the base method stays
+        // reachable from internal callers via the typed instance.
+        return base.GetAsync(path, ct).AsTask();
     }
 
     /// <summary>
@@ -129,11 +134,45 @@ public sealed class SqlitePathLifecycleStore
     }
 
     /// <summary>
-    ///     LFU coldness: oldest last-seen = coldest = evicted first. Recently
-    ///     active paths stay in the hot tier; long-idle paths get evicted under
-    ///     memory pressure and reload from SQLite on next access.
+    ///     Behaviourally shaped coldness. Higher score = warmer = kept in
+    ///     the hot tier longer. The base class evicts lowest-score first.
+    ///     <para>
+    ///     This score also drives sampling under overload: when the write
+    ///     queue is saturated and entries get evicted from the hot tier,
+    ///     <see cref="PersistBatchAsync"/> skips any op whose path is no
+    ///     longer in the hot tier (TryGetHot returns null). So the LFU
+    ///     ranking here decides both what stays in memory AND what gets
+    ///     persisted under pressure -- the system sheds the least useful
+    ///     paths first, not the oldest.
+    ///     </para>
+    ///     <para>
+    ///     Tiers (high to low priority for retention):
+    ///     <list type="number">
+    ///       <item>FormerlyReal (2xx history + 4xx after): THE signal for
+    ///         EndpointHistoryContributor. Pinned -- never sampled out.</item>
+    ///       <item>Mixed (2xx history + ongoing 4xx scanner activity).</item>
+    ///       <item>HadRealTraffic (2xx history only -- useful for future flip).</item>
+    ///       <item>404-spam (no 2xx history): cheap to lose, evict first.</item>
+    ///     </list>
+    ///     Last-seen ticks are the within-tier tiebreaker so active scanners
+    ///     stay resident over long-idle history within the same tier.
+    ///     </para>
     /// </summary>
-    protected override long ColdnessScore(PathLifecycle entry) => entry.LastSeenUtc.Ticks;
+    protected override long ColdnessScore(PathLifecycle entry)
+    {
+        // Bit-shifted tiers so the within-tier last-seen tiebreaker can never
+        // promote a lower-tier entry above a higher one.
+        const long PinFormerlyReal = 1L << 60;
+        const long TierMixed       = 1L << 55;
+        const long TierHadReal     = 1L << 50;
+
+        long score = entry.LastSeenUtc.Ticks;
+        if (entry.IsFormerlyReal)                                          score += PinFormerlyReal;
+        else if (entry.HasEverServed2xx && entry.Total4xx > 0)             score += TierMixed;
+        else if (entry.HasEverServed2xx)                                   score += TierHadReal;
+        // else: 4xx-only path, no bonus -- coldest tier, sampled out first.
+        return score;
+    }
 
     protected override async ValueTask<PathLifecycle?> LoadFromDurableTierAsync(string path, CancellationToken ct)
     {
@@ -165,7 +204,7 @@ public sealed class SqlitePathLifecycleStore
         }
         catch (Exception ex)
         {
-            ((ILogger)typeof(SqlitePathLifecycleStore)).LogDebug(ex, "PathLifecycle cold load failed for {Path}", path);
+            _logger.LogDebug(ex, "PathLifecycle cold load failed for {Path}", path);
             return null;
         }
     }

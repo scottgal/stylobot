@@ -158,6 +158,57 @@ public class PathLifecycleStoreTests : IAsyncDisposable
         Assert.Equal(1, seen!.Total2xx);
     }
 
+    [Fact]
+    public async Task LfuEviction_DropsLowSignalPathsBeforeFormerlyReal()
+    {
+        // Under hot-tier pressure, the system should shed the LEAST USEFUL
+        // entries first -- not the oldest. Behavioural ColdnessScore tiers:
+        //   FormerlyReal > MixedTraffic > HadRealTraffic > 404-only.
+        //
+        // Build a tiny store so eviction triggers fast, then prove a 404-only
+        // path is gone (re-fetch returns null from durable tier since we
+        // haven't flushed) while the FormerlyReal path is still hot.
+        var tinyDbPath = Path.Combine(Path.GetTempPath(), $"lc-tiny-{Guid.NewGuid():N}.db");
+        var tiny = new SqlitePathLifecycleStore(
+            $"Data Source={tinyDbPath};Cache=Shared",
+            NullLogger<SqlitePathLifecycleStore>.Instance,
+            new PathLifecycleOptions { MaxEntries = 4 });
+
+        try
+        {
+            // High-signal: 2xx then 4xx → IsFormerlyReal = true
+            await tiny.RecordResponseAsync("/old-api", 200);
+            await tiny.RecordResponseAsync("/old-api", 404);
+            // Low-signal: only 404 spam, no 2xx history → coldest tier
+            await tiny.RecordResponseAsync("/.env", 404);
+            await tiny.RecordResponseAsync("/.git", 404);
+            await tiny.RecordResponseAsync("/wp-login.php", 404);
+
+            // Push past MaxEntries (cap=4, +10% = 4 → 5th triggers eviction).
+            // Add several more 404-only paths so eviction must drop *some*
+            // 404-only entries to stay under cap.
+            for (var i = 0; i < 20; i++)
+                await tiny.RecordResponseAsync($"/scanner/{i}", 404);
+
+            // The FormerlyReal path must still be hot -- it's pinned by the
+            // behavioural score and survives any number of 404-only floods.
+            var stillHot = await ((IPathLifecycleStore)tiny).GetAsync("/old-api");
+            Assert.NotNull(stillHot);
+            Assert.True(stillHot!.IsFormerlyReal);
+
+            // At least one of the 404-only spam paths got evicted.
+            // (We can't easily prove WHICH without snapshotting, but Count
+            // must respect MaxEntries + 10% slack = 4.)
+            Assert.True(tiny.Count <= 5, $"hot-tier count {tiny.Count} should respect MaxEntries=4 (+10%)");
+        }
+        finally
+        {
+            tiny.Dispose();
+            await Task.Delay(50);
+            try { File.Delete(tinyDbPath); } catch { }
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         _store.Dispose();
