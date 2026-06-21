@@ -46,8 +46,13 @@ public sealed class IdentityArchetypeRegistryBotPatternSeedingTests
     }
 
     [Theory]
-    // Mastodon: explicit YAML (mastodon.yaml), archetype_kind=verified-bot
-    [InlineData("Mastodon Family", "verified-bot")]
+    // Mastodon: explicit YAML was deleted after a staging-data audit showed it
+    // had no AssertedUaFamily + only 4 anti-discriminating dimensions, so it
+    // ate every minimal-header request (curl, Chrome XHR, Bingbot, Edge). The
+    // synthesized "Mastodon" root from the BotPatterns catalog stays --
+    // FediverseDomainContributor + the composer's friendly-pin
+    // (DeclaredBot && IsFriendlyBotType) handles real Mastodon clients.
+    [InlineData("Mastodon", "social-bot")]     // synthesized from fediverse SocialMediaBot pattern
     // Pure-pattern paths (no explicit YAML, synthesizer wins):
     [InlineData("GPTBot", "ai-bot")]
     [InlineData("ClaudeBot", "ai-bot")]
@@ -229,4 +234,34 @@ public sealed class IdentityArchetypeRegistryBotPatternSeedingTests
     private static IdentityArchetypeRegistry NewRegistry() =>
         new(NullLogger<IdentityArchetypeRegistry>.Instance,
             new IdentityVectorEncoder(IdentityVectorLayout.DefaultV1()));
+
+    /// <summary>
+    ///     Sparsity penalty regression guard. A staging-data audit found
+    ///     mastodon.yaml (4 generic dims, no AssertedUaFamily) eating every
+    ///     minimal-header request -- curl, Chrome XHR, Bingbot, Edge -- because
+    ///     the masked-cosine score is `weightedLogLikelihood / totalMask`, which
+    ///     AVERAGES over populated dims and rewards sparse archetypes whose few
+    ///     dims happen to match. MaskedSimilarityCore now penalises archetypes
+    ///     that populate fewer than MinPopulatedSlotsForMatch slots so a future
+    ///     thin YAML can't re-trigger the same over-match regression.
+    /// </summary>
+    [Fact]
+    public void Chrome_centroid_against_a_chrome_observation_returns_chrome_desktop()
+    {
+        // Regression guard for the staging-data audit that found mastodon.yaml
+        // (4 generic dims, no AssertedUaFamily) eating every minimal-header
+        // request because the per-dim averaging in MaskedSimilarityCore
+        // structurally rewarded sparse archetypes. With mastodon.yaml deleted
+        // and the sparsity penalty added, Chrome's own centroid against a
+        // Chrome observation MUST land on chrome-desktop, not a synthesised
+        // sparse competitor.
+        var registry = NewRegistry();
+        var chromeDesktop = registry.All.FirstOrDefault(a => a.Name == "Chrome Desktop");
+        chromeDesktop.Should().NotBeNull("chrome-desktop.yaml is the canonical browser archetype");
+
+        var nearest = registry.FindNearest(chromeDesktop!.Centroid, observedUaFamily: "Chrome");
+        nearest.Should().NotBeNull();
+        nearest!.Archetype.Name.Should().Be("Chrome Desktop",
+            "Chrome's own centroid must score highest against chrome-desktop, not any sparser sibling");
+    }
 }

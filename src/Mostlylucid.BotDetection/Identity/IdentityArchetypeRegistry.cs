@@ -340,6 +340,19 @@ public sealed class IdentityArchetypeRegistry
             archetype.VarianceVector ?? DefaultVarianceFor(archetype));
     }
 
+    /// <summary>
+    ///     Minimum number of distinct slots an archetype must assert AND the
+    ///     observation must populate before it can be considered a serious match.
+    ///     Below this, the per-dim averaging structurally favours sparse
+    ///     archetypes -- a 3-of-4 trivial-match (e.g. accept=*/*, gzip,
+    ///     no-sec-fetch, no-upgrade-insecure) outscores a 4-of-6 substantive
+    ///     match because the denominator (totalMask) is smaller. Closes the
+    ///     "Mastodon archetype eats every minimal-header request" regression
+    ///     diagnosed on staging: curl + Chrome XHR + Bingbot + Edge all landed
+    ///     on mastodon.yaml because it asserted only 4 generic dimensions.
+    /// </summary>
+    private const int MinPopulatedSlotsForMatch = 4;
+
     private double MaskedSimilarityCore(float[] vector, float[] centroid, float[] mask, float[] variance)
     {
         const float presenceEpsilon = 1e-6f;
@@ -347,6 +360,7 @@ public sealed class IdentityArchetypeRegistry
 
         double weightedLogLikelihood = 0;
         double totalMask = 0;
+        var populatedSlots = 0;
 
         foreach (var slot in _encoder.Layout.Slots)
         {
@@ -361,6 +375,7 @@ public sealed class IdentityArchetypeRegistry
                 if (Math.Abs(vector[i]) > presenceEpsilon) { obsPopulated = true; break; }
             }
             if (!obsPopulated) continue;
+            populatedSlots++;
 
             for (var i = slot.Offset; i < end; i++)
             {
@@ -380,7 +395,19 @@ public sealed class IdentityArchetypeRegistry
 
         var avgLogLikelihood = weightedLogLikelihood / totalMask;
         // Sigmoid bounds the score to (0, 1) regardless of variance and deviation magnitudes.
-        return 1.0 / (1.0 + Math.Exp(-avgLogLikelihood));
+        var rawScore = 1.0 / (1.0 + Math.Exp(-avgLogLikelihood));
+
+        // Sparsity penalty: when fewer than MinPopulatedSlotsForMatch slots
+        // overlapped between the archetype's asserted dims and the observation's
+        // populated dims, scale the score down so a sparse archetype can't beat
+        // a denser one that matched on more substantive evidence. Linear scale
+        // (populated / minRequired) inside the threshold; full score above.
+        if (populatedSlots < MinPopulatedSlotsForMatch)
+        {
+            var sparsityPenalty = (double)populatedSlots / MinPopulatedSlotsForMatch;
+            rawScore *= sparsityPenalty;
+        }
+        return rawScore;
     }
 
     /// <summary>
