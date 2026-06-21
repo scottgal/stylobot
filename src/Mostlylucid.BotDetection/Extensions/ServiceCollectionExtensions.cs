@@ -1031,6 +1031,11 @@ public static class ServiceCollectionExtensions
         // Path lifecycle store -- records per-path response history so the honeypot
         // threat scorer can lift the score when a 4xx hits a path that used to serve
         // real content (scanner has institutional memory of a removed endpoint).
+        // PathLifecycle uses the canonical WriteBehindLfuStore pattern: hot
+        // ConcurrentDictionary + bounded channel + single background drainer.
+        // No bespoke flush service needed -- the base class owns persistence
+        // cadence. Tunable via BotDetection:PathLifecycle:* (LFU cap, channel
+        // size, batch size, drain interval).
         services.TryAddSingleton<Lifecycle.IPathLifecycleStore>(sp =>
         {
             var env = sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>();
@@ -1038,15 +1043,11 @@ public static class ServiceCollectionExtensions
                 ? Path.Combine(env.ContentRootPath, "path-lifecycle.db")
                 : "path-lifecycle.db";
             var logger = sp.GetRequiredService<ILogger<Lifecycle.SqlitePathLifecycleStore>>();
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Models.BotDetectionOptions>>()
+                .Value.PathLifecycle;
             return new Lifecycle.SqlitePathLifecycleStore(
-                $"Data Source={dbPath};Cache=Shared", logger);
+                $"Data Source={dbPath};Cache=Shared", logger, opts);
         });
-        // Periodic batch-flush of dirty path-lifecycle entries. The store's
-        // RecordResponseAsync is in-memory only (zero I/O); this service drains
-        // the dirty set every 30s through the persistent connection. Replaces
-        // the per-request `new SqliteConnection` + UPSERT pattern that ETW
-        // profiling identified as the dominant userland CPU cost under load.
-        services.AddHostedService<Lifecycle.PathLifecycleFlushService>();
         services.AddSingleton<IContributingDetector, Honeypot.EndpointHistoryContributor>();
         // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
         services.AddSingleton<IContributingDetector, AiScraperContributor>();

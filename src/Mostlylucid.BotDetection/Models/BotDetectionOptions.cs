@@ -476,6 +476,12 @@ public class BotDetectionOptions
     public OrchestratorOptions Orchestrator { get; set; } = new();
 
     /// <summary>
+    ///     Tuning for the in-memory + write-behind PathLifecycle store.
+    ///     LFU cap, channel size, batch size, drainer cadence.
+    /// </summary>
+    public Lifecycle.PathLifecycleOptions PathLifecycle { get; set; } = new();
+
+    /// <summary>
     ///     Configuration for the cross-request signature coordinator.
     ///     Tracks signatures across multiple requests to detect aberrant behavior patterns.
     /// </summary>
