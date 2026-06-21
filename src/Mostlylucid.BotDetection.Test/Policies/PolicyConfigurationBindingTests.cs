@@ -71,7 +71,10 @@ public class PolicyConfigurationBindingTests
         var p = configs["default"].ToPolicy("default");
 
         Assert.Equal(FailureMode.FailOpen, p.OnFailure);
-        Assert.Equal(0.0, p.LoadShed.DropFractionAtCritical);
+        // Self-protection defaults: 0.2 at High, 0.5 at Critical. A policy that
+        // doesn't override gets safe behaviour, not zero shedding.
+        Assert.Equal(0.2, p.LoadShed.DropFractionAtHigh);
+        Assert.Equal(0.5, p.LoadShed.DropFractionAtCritical);
     }
 
     [Fact]

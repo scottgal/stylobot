@@ -360,11 +360,11 @@ public class DetectionPolicyConfig : BaseComponentConfig
 /// </summary>
 public sealed class LoadShedDef
 {
-    /// <summary>Fraction of requests to shed when load band is High. Range 0.0 to 1.0.</summary>
-    public double DropFractionAtHigh { get; set; }
+    /// <summary>Fraction of requests to shed when load band is High. Range 0.0 to 1.0. Default 0.2.</summary>
+    public double DropFractionAtHigh { get; set; } = 0.2;
 
-    /// <summary>Fraction of requests to shed when load band is Critical. Range 0.0 to 1.0.</summary>
-    public double DropFractionAtCritical { get; set; }
+    /// <summary>Fraction of requests to shed when load band is Critical. Range 0.0 to 1.0. Default 0.5.</summary>
+    public double DropFractionAtCritical { get; set; } = 0.5;
 }
 
 /// <summary>

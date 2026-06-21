@@ -482,6 +482,13 @@ public class BotDetectionOptions
     public Lifecycle.PathLifecycleOptions PathLifecycle { get; set; } = new();
 
     /// <summary>
+    ///     Trip thresholds for the adaptive PipelineLoadSensor. RPS axes,
+    ///     latency/RTT ratios, ThreadPool starvation counters, Gen2 GC rate.
+    ///     All scale-invariant so the same defaults work on a Pi and a server.
+    /// </summary>
+    public Services.PipelineLoadSensorOptions PipelineLoadSensor { get; set; } = new();
+
+    /// <summary>
     ///     Configuration for the cross-request signature coordinator.
     ///     Tracks signatures across multiple requests to detect aberrant behavior patterns.
     /// </summary>

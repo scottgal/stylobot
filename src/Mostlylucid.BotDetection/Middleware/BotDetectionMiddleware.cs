@@ -690,7 +690,11 @@ public class BotDetectionMiddleware(
             var loadShedSeed = context.Connection?.Id?.GetHashCode()
                 ?? context.Request.Path.Value?.GetHashCode()
                 ?? 0;
-            if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
+            // Cheap verdict-cache peek so the shed protects known humans and
+            // preferentially drops known bots. At Critical the LoadShedDecision
+            // ignores the hint (lookup itself too expensive at peak pressure).
+            var shedHint = ResolveShedHint(context);
+            if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed, shedHint))
             {
                 // Mark the request as shed so the OnCompleted hook skips it
                 // for sensor sampling (artificial-low-latency feedback loop).
@@ -1478,6 +1482,30 @@ public class BotDetectionMiddleware(
     #endregion
 
     #region Policy Resolution
+
+    /// <summary>
+    ///     Cheap verdict hint for the adaptive load-shed gate. The verdict gate
+    ///     (Bias path) has already stashed the cached prior probability on
+    ///     <c>context.Items[SignalKeys.FingerprintPriorProbability]</c>, so this
+    ///     is a dictionary lookup -- no lock, no allocation. Returns
+    ///     <see cref="Services.ShedHint.LikelyHuman"/> when the prior says human,
+    ///     <see cref="Services.ShedHint.LikelyBot"/> when it says bot,
+    ///     <see cref="Services.ShedHint.Unknown"/> on cold cache or borderline.
+    ///     At Critical band this isn't called -- the LoadShedDecision ignores
+    ///     the hint because the lookup itself is too expensive at peak pressure.
+    /// </summary>
+    private static Services.ShedHint ResolveShedHint(HttpContext context)
+    {
+        if (!context.Items.TryGetValue(SignalKeys.FingerprintPriorProbability, out var probObj)
+            || probObj is not double prob)
+            return Services.ShedHint.Unknown;
+        // Conservative thresholds: only protect / preferentially-shed when the
+        // verdict is fairly definite. Borderline (0.3-0.7) requests stay in
+        // the random pool.
+        if (prob <= 0.3) return Services.ShedHint.LikelyHuman;
+        if (prob >= 0.7) return Services.ShedHint.LikelyBot;
+        return Services.ShedHint.Unknown;
+    }
 
     private DetectionPolicy ResolvePolicy(
         HttpContext context,

@@ -1199,7 +1199,21 @@ public static class ServiceCollectionExtensions
         // Pipeline load sensor — adaptive multi-signal pressure detection; used
         // by background services to self-throttle and by LoadShedDecision to
         // skip detection / refuse-503 under sustained pressure.
-        services.TryAddSingleton<Services.PipelineLoadSensor>();
+        services.TryAddSingleton<Services.PipelineLoadSensor>(sp =>
+        {
+            var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Models.BotDetectionOptions>>()
+                .Value.PipelineLoadSensor;
+            return new Services.PipelineLoadSensor(
+                normalRps: o.NormalRps,
+                highRps: o.HighRps,
+                criticalRps: o.CriticalRps,
+                highRatio: o.HighRatio,
+                criticalRatio: o.CriticalRatio,
+                highStarvedTicks: o.HighStarvedTicks,
+                criticalStarvedTicks: o.CriticalStarvedTicks,
+                highGen2PerSec: o.HighGen2PerSec,
+                criticalGen2PerSec: o.CriticalGen2PerSec);
+        });
         services.AddSingleton<Services.ILoadBandSource>(sp => sp.GetRequiredService<Services.PipelineLoadSensor>());
         services.AddSingleton<Services.LoadShedDecision>();
         // Pumps the sensor's live state into the per-request signal vocabulary
