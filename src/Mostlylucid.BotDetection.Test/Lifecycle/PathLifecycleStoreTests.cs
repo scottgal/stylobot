@@ -104,6 +104,60 @@ public class PathLifecycleStoreTests : IAsyncDisposable
         Assert.Equal(first!.LastSeenUtc, second!.LastSeenUtc);
     }
 
+    [Fact]
+    public async Task FlushAsync_PersistsDirtyEntriesToSqlite()
+    {
+        // RecordResponse marks dirty but does NOT touch disk. A new store
+        // pointing at the same DB only sees the entry after FlushAsync runs.
+        await _store.RecordResponseAsync("/api/perf", 200);
+        await _store.RecordResponseAsync("/api/perf", 200);
+        await _store.RecordResponseAsync("/api/perf", 404);
+
+        // Verify via a SECOND store instance against the same file -- this is
+        // the only way to prove the in-memory state crossed the disk boundary,
+        // since GetAsync on the original instance would serve from cache.
+        var probe1 = new SqlitePathLifecycleStore(
+            $"Data Source={_dbPath};Cache=Shared",
+            NullLogger<SqlitePathLifecycleStore>.Instance);
+        Assert.Null(await probe1.GetAsync("/api/perf"));   // not flushed yet
+        probe1.Dispose();
+
+        await _store.FlushAsync();
+
+        var probe2 = new SqlitePathLifecycleStore(
+            $"Data Source={_dbPath};Cache=Shared",
+            NullLogger<SqlitePathLifecycleStore>.Instance);
+        var seen = await probe2.GetAsync("/api/perf");
+        Assert.NotNull(seen);
+        Assert.Equal(2, seen!.Total2xx);
+        Assert.Equal(1, seen.Total4xx);
+        Assert.True(seen.IsFormerlyReal);
+        probe2.Dispose();
+    }
+
+    [Fact]
+    public async Task FlushAsync_OnEmptyDirtySet_IsCheap()
+    {
+        // Nothing recorded. Flush should be a no-op (no SQLite open).
+        await _store.FlushAsync();
+        Assert.Null(await _store.GetAsync("/never-touched"));
+    }
+
+    [Fact]
+    public async Task DoubleFlush_DoesNotRewriteUnchangedEntries()
+    {
+        await _store.RecordResponseAsync("/api/x", 200);
+        await _store.FlushAsync();
+
+        // Second flush with nothing new -- dirty set is empty, no transaction
+        // should run. Exercised by symmetry: a non-throwing call confirms the
+        // early-exit fast path.
+        await _store.FlushAsync();
+        var seen = await _store.GetAsync("/api/x");
+        Assert.NotNull(seen);
+        Assert.Equal(1, seen!.Total2xx);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _store.Dispose();

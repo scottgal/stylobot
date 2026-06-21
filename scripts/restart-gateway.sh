@@ -73,7 +73,7 @@ fi
 
 echo "=== Start gateway on :$PORT (SSH-babysat, profile=$PROFILE mode=$MODE) ==="
 $SSH $SSH_USER@$HOST \
-    "cmd /c \"cd C:\\build\\stylobot-aot-run && set STYLOBOT_PROFILE=$PROFILE && set SignatureLogging__SignatureHashKey=ItoH7zOanEtZDPSAg7/y0VOhjwsQNJ07Lw22SDWDoPs= && ${GC_ENV}stylobot.exe $PORT http://localhost:$UPSTREAM_PORT --mode $MODE --verbose > C:\\build\\stylobot-aot-run\\stylobot.fg.log 2>&1\"" 2>&1 &
+    "cmd /c \"cd C:\\build\\stylobot-aot-run && set STYLOBOT_PROFILE=$PROFILE && set SignatureLogging__SignatureHashKey=ItoH7zOanEtZDPSAg7/y0VOhjwsQNJ07Lw22SDWDoPs= && ${GC_ENV}stylobot.exe $PORT http://127.0.0.1:$UPSTREAM_PORT --mode $MODE --verbose > C:\\build\\stylobot-aot-run\\stylobot.fg.log 2>&1\"" 2>&1 &
 echo $! > "$GW_PIDFILE"
 echo "  Mac SSH PID $(cat "$GW_PIDFILE")"
 

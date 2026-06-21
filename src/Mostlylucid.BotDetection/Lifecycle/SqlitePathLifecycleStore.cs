@@ -1,21 +1,23 @@
 using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Mostlylucid.BotDetection.Lifecycle;
 
 /// <summary>
 ///     SQLite-backed <see cref="IPathLifecycleStore"/>. One row per path,
-///     UPSERT-on-write. Bounded by an LRU cache of the hottest paths; cold
+///     UPSERT on flush. Bounded by an LRU cache of the hottest paths; cold
 ///     paths still persist on disk and are reloaded on lookup.
 /// </summary>
 /// <remarks>
 ///     <para>
-///         Reads go through an in-memory <see cref="ConcurrentDictionary"/>
-///         on the hot path; writes batch through a bounded channel drained
-///         by a single writer task so the response-side middleware never
-///         blocks on SQLite locks at request rate.
+///         The hot path is <strong>entirely in-memory</strong>: a
+///         <see cref="ConcurrentDictionary"/> holds the live counters, a
+///         <see cref="ConcurrentDictionary"/> tracks which paths have been
+///         touched since last flush. <see cref="RecordResponseAsync"/> does no
+///         I/O. <see cref="PathLifecycleFlushService"/> drains the dirty set
+///         on a 30-second timer and writes everything through the persistent
+///         connection in a single transaction.
 ///     </para>
 ///     <para>
 ///         Static asset paths (CSS/JS/images/fonts) are filtered at the
@@ -29,7 +31,9 @@ public sealed class SqlitePathLifecycleStore : IPathLifecycleStore, IDisposable
     private readonly string _connectionString;
     private readonly ILogger<SqlitePathLifecycleStore> _logger;
     private readonly ConcurrentDictionary<string, PathLifecycle> _cache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _dirty = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _initLock = new(1, 1);
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _initialized;
     private SqliteConnection? _persistentConnection;
 
@@ -62,17 +66,21 @@ public sealed class SqlitePathLifecycleStore : IPathLifecycleStore, IDisposable
         }
     }
 
-    public async Task RecordResponseAsync(string path, int statusCode, CancellationToken ct = default)
+    /// <summary>
+    ///     Hot-path write: in-memory only. The path is marked dirty for the
+    ///     next flush cycle. No SQLite open, no NTFS handle, no kernel
+    ///     transition. <paramref name="ct"/> is intentionally ignored -- the
+    ///     work is bounded local memory ops.
+    /// </summary>
+    public Task RecordResponseAsync(string path, int statusCode, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(path)) return;
-        await EnsureInitializedAsync(ct);
+        if (string.IsNullOrEmpty(path)) return Task.CompletedTask;
 
         var now = DateTime.UtcNow;
         var is2xx = statusCode is >= 200 and < 300;
         var is4xx = statusCode is >= 400 and < 500;
 
-        // Cache update first so the next read sees the change.
-        var updated = _cache.AddOrUpdate(
+        _cache.AddOrUpdate(
             path,
             _ => new PathLifecycle
             {
@@ -99,14 +107,36 @@ public sealed class SqlitePathLifecycleStore : IPathLifecycleStore, IDisposable
                         : prev.First4xxAfter2xxUtc
             });
 
+        _dirty[path] = 1;
         if (_cache.Count > CacheMaxEntries) EvictColdest();
 
-        // Persist. Best-effort -- a single write failure does not bubble.
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    ///     Drain the dirty set and UPSERT each touched path through the
+    ///     persistent connection in a single transaction. Called by
+    ///     <see cref="PathLifecycleFlushService"/> on a timer and on shutdown.
+    ///     A flush failure is logged and the paths stay dirty for the next
+    ///     pass -- writes are idempotent UPSERTs so retry is safe.
+    /// </summary>
+    public async Task FlushAsync(CancellationToken ct = default)
+    {
+        if (_dirty.IsEmpty) return;
+        await EnsureInitializedAsync(ct);
+        if (_persistentConnection is null) return;
+
+        // Snapshot the dirty keys; new dirties added during flush stay for the
+        // next pass. Clearing-as-we-go would lose updates that arrive mid-flush.
+        var keys = _dirty.Keys.ToArray();
+        if (keys.Length == 0) return;
+
+        await _writeLock.WaitAsync(ct);
         try
         {
-            await using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync(ct);
-            await using var cmd = conn.CreateCommand();
+            await using var tx = await _persistentConnection.BeginTransactionAsync(ct);
+            await using var cmd = _persistentConnection.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
                 INSERT INTO path_lifecycle
                     (path, first_seen_utc, total_2xx, total_4xx, total_other,
@@ -121,19 +151,47 @@ public sealed class SqlitePathLifecycleStore : IPathLifecycleStore, IDisposable
                     first_4xx_after_2xx_utc = COALESCE(path_lifecycle.first_4xx_after_2xx_utc, excluded.first_4xx_after_2xx_utc),
                     last_seen_utc = excluded.last_seen_utc
                 """;
-            cmd.Parameters.AddWithValue("@path", updated.Path);
-            cmd.Parameters.AddWithValue("@first_seen", updated.FirstSeenUtc.ToString("O"));
-            cmd.Parameters.AddWithValue("@t2", updated.Total2xx);
-            cmd.Parameters.AddWithValue("@t4", updated.Total4xx);
-            cmd.Parameters.AddWithValue("@to", updated.TotalOther);
-            cmd.Parameters.AddWithValue("@last2", (object?)updated.Last2xxUtc?.ToString("O") ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@first4", (object?)updated.First4xxAfter2xxUtc?.ToString("O") ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_seen", updated.LastSeenUtc.ToString("O"));
-            await cmd.ExecuteNonQueryAsync(ct);
+            var pPath = cmd.Parameters.Add("@path", SqliteType.Text);
+            var pFirst = cmd.Parameters.Add("@first_seen", SqliteType.Text);
+            var pT2 = cmd.Parameters.Add("@t2", SqliteType.Integer);
+            var pT4 = cmd.Parameters.Add("@t4", SqliteType.Integer);
+            var pTo = cmd.Parameters.Add("@to", SqliteType.Integer);
+            var pLast2 = cmd.Parameters.Add("@last2", SqliteType.Text);
+            var pFirst4 = cmd.Parameters.Add("@first4", SqliteType.Text);
+            var pLastSeen = cmd.Parameters.Add("@last_seen", SqliteType.Text);
+
+            var written = 0;
+            foreach (var key in keys)
+            {
+                if (!_cache.TryGetValue(key, out var entry)) continue;
+                pPath.Value = entry.Path;
+                pFirst.Value = entry.FirstSeenUtc.ToString("O");
+                pT2.Value = entry.Total2xx;
+                pT4.Value = entry.Total4xx;
+                pTo.Value = entry.TotalOther;
+                pLast2.Value = (object?)entry.Last2xxUtc?.ToString("O") ?? DBNull.Value;
+                pFirst4.Value = (object?)entry.First4xxAfter2xxUtc?.ToString("O") ?? DBNull.Value;
+                pLastSeen.Value = entry.LastSeenUtc.ToString("O");
+                await cmd.ExecuteNonQueryAsync(ct);
+                written++;
+            }
+
+            await tx.CommitAsync(ct);
+
+            // Only clear keys we actually wrote -- if the flush was cancelled
+            // mid-batch we want the survivors to be retried next pass.
+            foreach (var key in keys) _dirty.TryRemove(key, out _);
+
+            if (written > 0)
+                _logger.LogDebug("PathLifecycle flushed {Count} dirty paths", written);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "PathLifecycle write skipped for {Path}", path);
+            _logger.LogDebug(ex, "PathLifecycle flush failed; paths remain dirty for retry");
+        }
+        finally
+        {
+            _writeLock.Release();
         }
     }
 
@@ -203,5 +261,6 @@ public sealed class SqlitePathLifecycleStore : IPathLifecycleStore, IDisposable
     {
         _persistentConnection?.Dispose();
         _initLock.Dispose();
+        _writeLock.Dispose();
     }
 }

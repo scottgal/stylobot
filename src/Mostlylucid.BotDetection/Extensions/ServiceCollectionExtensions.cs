@@ -1041,6 +1041,12 @@ public static class ServiceCollectionExtensions
             return new Lifecycle.SqlitePathLifecycleStore(
                 $"Data Source={dbPath};Cache=Shared", logger);
         });
+        // Periodic batch-flush of dirty path-lifecycle entries. The store's
+        // RecordResponseAsync is in-memory only (zero I/O); this service drains
+        // the dirty set every 30s through the persistent connection. Replaces
+        // the per-request `new SqliteConnection` + UPSERT pattern that ETW
+        // profiling identified as the dominant userland CPU cost under load.
+        services.AddHostedService<Lifecycle.PathLifecycleFlushService>();
         services.AddSingleton<IContributingDetector, Honeypot.EndpointHistoryContributor>();
         // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
         services.AddSingleton<IContributingDetector, AiScraperContributor>();
