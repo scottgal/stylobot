@@ -232,16 +232,17 @@ internal static class FingerprintNameComposer
             }
             else
             {
-                // No UA at all -- a real request with literally no User-Agent header.
-                // The matcher is the SOLE writer of Fingerprint.DisplayName, so this
-                // method must NEVER return null: a null leaks through every downstream
-                // reader (broadcast event, cache, dashboard views) and surfaces as an
-                // em-dash placeholder, which the user has called out as unacceptable.
-                // "No User-Agent" is the truthful terminal -- operator can read at a
-                // glance that the request was missing the header (not that the name
-                // pipeline failed). Counts as a fallback for the hysteresis layer
-                // above so a previously-stored real Priority 1-3 name still wins.
-                finalName = NoUserAgentFallback;
+                // No UA at all -- emit the canonical Unknown <hex> terminal directly
+                // so the composer obeys the three-shape contract by construction
+                // (no curated allow-lists at the contract layer; the composer is the
+                // guard, the structural contract is the safety net). NoUserAgentFallback
+                // is retained as a const so IsFallback still recognises legacy stored
+                // "No User-Agent" rows for hysteresis-aware overwrite, but Compose
+                // never produces that string.
+                var prefix = !string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8
+                    ? fingerprintId[..8]
+                    : "00000000";
+                finalName = $"Unknown {prefix}";
             }
         }
 
