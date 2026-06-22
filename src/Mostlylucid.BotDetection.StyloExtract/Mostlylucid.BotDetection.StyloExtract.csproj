@@ -7,6 +7,11 @@
         <IsPackable>true</IsPackable>
         <IsAotCompatible>true</IsAotCompatible>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <!-- Source-gen the configuration binder so BindConfiguration on
+             StyloExtractActionOptions is AOT-safe (no reflection at runtime).
+             Without this the IL2026 / IL3050 analyzers fail under
+             IsAotCompatible=true + TreatWarningsAsErrors=true. -->
+        <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
 
         <!-- NuGet Package Metadata -->
         <PackageId>Mostlylucid.BotDetection.StyloExtract</PackageId>

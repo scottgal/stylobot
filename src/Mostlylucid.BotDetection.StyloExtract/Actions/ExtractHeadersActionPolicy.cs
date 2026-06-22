@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -79,7 +80,7 @@ public sealed class ExtractHeadersActionPolicy : IActionPolicy
             {
                 _logger.LogWarning(ex,
                     "extract-headers: extraction failed for {Path}; X-StyloExtract-* headers omitted",
-                    context.Request.Path);
+                    LogSanitize(context.Request.Path.Value));
                 // Return null to pass through original HTML unchanged.
                 return null;
             }
@@ -92,7 +93,10 @@ public sealed class ExtractHeadersActionPolicy : IActionPolicy
                 headers.Append("X-StyloExtract-Template-Id", result.Match.TemplateId.Value.ToString());
             headers.Append("X-StyloExtract-Template-Version", result.Match.TemplateVersion.ToString());
             headers.Append("X-StyloExtract-Match-Status", result.Match.Status.ToString());
-            headers.Append("X-StyloExtract-Markdown-Length", result.Markdown.Length.ToString());
+            // UTF-8 byte count, not UTF-16 code units, so the header matches Content-Length semantics
+            // for non-ASCII markdown (CJK / emoji / accented characters).
+            headers.Append("X-StyloExtract-Markdown-Length",
+                Encoding.UTF8.GetByteCount(result.Markdown).ToString());
 
             _cacheWriter.Apply(context, opts.Cache);
 
@@ -114,4 +118,9 @@ public sealed class ExtractHeadersActionPolicy : IActionPolicy
             return null;
         }
     }
+
+    // Strip CR/LF from request paths before logging so a crafted request path cannot
+    // inject log lines (CodeQL cs/log-injection).
+    private static string LogSanitize(string? value)
+        => value is null ? "" : value.Replace('\r', '_').Replace('\n', '_');
 }

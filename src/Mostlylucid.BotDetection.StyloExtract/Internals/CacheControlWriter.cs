@@ -38,10 +38,15 @@ public sealed class CacheControlWriter
             var directives = BuildDirectives(options);
             var toAdd = new List<string>(directives.Count);
 
+            // Parse existing header into directive names (split by comma, trim, take the
+            // part before `=`). Substring matching produced false positives where, for
+            // example, an existing `s-maxage=600` would block a new `max-age=86400`.
+            var existingNames = ParseDirectiveNames(existing);
+
             foreach (var directive in directives)
             {
                 var name = directive.Contains('=') ? directive[..directive.IndexOf('=')] : directive;
-                if (!existing.Contains(name, StringComparison.OrdinalIgnoreCase))
+                if (!existingNames.Contains(name))
                     toAdd.Add(directive);
             }
 
@@ -55,6 +60,18 @@ public sealed class CacheControlWriter
         }
 
         ApplyVaryHeaders(context, options);
+    }
+
+    private static HashSet<string> ParseDirectiveNames(string headerValue)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(headerValue)) return names;
+        foreach (var directive in headerValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var name = directive.Contains('=') ? directive[..directive.IndexOf('=')].Trim() : directive;
+            if (name.Length > 0) names.Add(name);
+        }
+        return names;
     }
 
     private static List<string> BuildDirectives(CacheOverrideOptions options)

@@ -63,10 +63,13 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
     {
         var opts = _optionsMonitor.Get(Name);
 
-        // Query-override: serve markdown even when bot-type didn't match, useful for debugging.
-        bool queryOverrideActive = opts.EnableQueryOverride
-            && context.Request.Query.TryGetValue(opts.QueryParamName, out var qv)
-            && string.Equals(qv, opts.QueryParamValue, StringComparison.OrdinalIgnoreCase);
+        // EnableQueryOverride / QueryParamName / QueryParamValue describe a debug-time
+        // "?format=markdown" override. By the time this policy is dispatched the rule
+        // already matched, so checking the query param here gates nothing. The override
+        // needs a separate always-on middleware that runs the transform on requests the
+        // rule matcher would not have dispatched; that is not wired in this pack yet.
+        // The option fields remain in StyloExtractActionOptions for the eventual feature
+        // so operators do not need a config migration when it ships.
 
         var sourceUri = BuildSourceUri(context.Request);
         var extractionOptions = new ExtractionOptions { Profile = opts.Profile };
@@ -93,7 +96,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
             {
                 _logger.LogWarning(ex,
                     "extract-markdown: extraction failed for {Path}; returning original HTML",
-                    context.Request.Path);
+                    LogSanitize(context.Request.Path.Value));
                 return null; // Signal pass-through.
             }
         });
@@ -112,4 +115,10 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
             return null;
         }
     }
+
+    // Strip CR/LF from request paths before logging so a crafted request path cannot
+    // inject log lines (CodeQL cs/log-injection). Underscore replacement preserves
+    // visual length so the redacted value is still debuggable.
+    private static string LogSanitize(string? value)
+        => value is null ? "" : value.Replace('\r', '_').Replace('\n', '_');
 }

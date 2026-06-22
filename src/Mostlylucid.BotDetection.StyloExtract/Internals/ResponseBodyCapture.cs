@@ -167,8 +167,19 @@ public sealed class BodyInterceptStream : Stream
             return;
         }
 
-        _buffer.Seek(0, SeekOrigin.Begin);
-        var html = await new StreamReader(_buffer, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true).ReadToEndAsync(cancellationToken);
+        // Snapshot the original bytes BEFORE decoding to a string. On pass-through (the
+        // transform returns null or throws) we write these bytes back unchanged - if we
+        // instead re-encoded the decoded string as UTF-8, we would silently rewrite any
+        // BOM / charset / byte-exact characteristics of the downstream response,
+        // contradicting the policy contract that pass-through preserves the original body.
+        var originalBytes = _buffer.ToArray();
+
+        var html = Encoding.UTF8.GetString(
+            originalBytes,
+            originalBytes.Length >= 3 && originalBytes[0] == 0xEF && originalBytes[1] == 0xBB && originalBytes[2] == 0xBF
+                ? 3 : 0,
+            originalBytes.Length >= 3 && originalBytes[0] == 0xEF && originalBytes[1] == 0xBB && originalBytes[2] == 0xBF
+                ? originalBytes.Length - 3 : originalBytes.Length);
 
         string? transformed = null;
         try
@@ -182,8 +193,7 @@ public sealed class BodyInterceptStream : Stream
 
         if (transformed is null)
         {
-            var original = Encoding.UTF8.GetBytes(html);
-            await OriginalBody.WriteAsync(original, cancellationToken);
+            await OriginalBody.WriteAsync(originalBytes, cancellationToken);
         }
         else
         {

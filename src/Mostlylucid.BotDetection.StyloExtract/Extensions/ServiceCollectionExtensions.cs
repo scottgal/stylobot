@@ -34,12 +34,32 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<CacheControlWriter>();
         services.TryAddSingleton<ResponseBodyCapture>();
 
-        // Register named options for each policy with defaults.
-        // Operators override via services.Configure<StyloExtractActionOptions>(policyName, o => ...).
-        services.AddOptions<StyloExtractActionOptions>("extract-markdown");
-        services.AddOptions<StyloExtractActionOptions>("extract-headers");
-        services.AddOptions<StyloExtractActionOptions>("extract-sidecar");
-        services.AddOptions<StyloExtractActionOptions>("extract-passthrough");
+        // Register named options for each policy AND bind them to configuration sections.
+        // Without BindConfiguration the per-policy Profile / Cache / Sidecar fields would
+        // always return defaults regardless of what appsettings says, contradicting the
+        // README and option docs.
+        //
+        // Config layout:
+        //   StyloExtract:
+        //     Actions:
+        //       extract-markdown:
+        //         Profile: RagFull
+        //         Cache: { Mode: Override, MaxAge: 86400, VaryByBotType: true }
+        //       extract-sidecar:
+        //         SidecarRouteTemplate: "/{path}.md"
+        //
+        // BindConfiguration uses the .NET 9+ source-generated configuration binder when
+        // the consumer project enables it (EnableConfigurationBindingGenerator). For
+        // non-AOT consumers it falls back to reflection-based binding. The pack itself
+        // sets IsAotCompatible=true; AOT consumers must opt into the source-gen binder.
+        services.AddOptions<StyloExtractActionOptions>("extract-markdown")
+            .BindConfiguration("StyloExtract:Actions:extract-markdown");
+        services.AddOptions<StyloExtractActionOptions>("extract-headers")
+            .BindConfiguration("StyloExtract:Actions:extract-headers");
+        services.AddOptions<StyloExtractActionOptions>("extract-sidecar")
+            .BindConfiguration("StyloExtract:Actions:extract-sidecar");
+        services.AddOptions<StyloExtractActionOptions>("extract-passthrough")
+            .BindConfiguration("StyloExtract:Actions:extract-passthrough");
 
         return services;
     }

@@ -52,7 +52,8 @@ public sealed class ExtractSidecarActionPolicy : IActionPolicy
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "extract-sidecar: failed to build Link header for {Path}", context.Request.Path);
+            _logger.LogWarning(ex, "extract-sidecar: failed to build Link header for {Path}",
+                LogSanitize(context.Request.Path.Value));
         }
 
         return Task.FromResult(ActionResult.Allowed("extract-sidecar: Link header added"));
@@ -72,4 +73,9 @@ public sealed class ExtractSidecarActionPolicy : IActionPolicy
             .Replace("{path}", path, StringComparison.Ordinal)
             .Replace("{slug}", slug, StringComparison.Ordinal);
     }
+
+    // Strip CR/LF from request paths before logging so a crafted request path cannot
+    // inject log lines (CodeQL cs/log-injection).
+    private static string LogSanitize(string? value)
+        => value is null ? "" : value.Replace('\r', '_').Replace('\n', '_');
 }
