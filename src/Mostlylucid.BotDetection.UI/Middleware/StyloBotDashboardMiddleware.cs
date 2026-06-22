@@ -5822,8 +5822,6 @@ public class StyloBotDashboardMiddleware
                     ModeId             = m.ModeId,
                     CentroidMaturity   = m.CentroidMaturity,
                     ObservationCount   = m.ObservationCount,
-                    InferredArchetype  = null,
-                    InferredConfidence = null,
                     FirstSeen          = m.FirstSeen,
                     LastSeen           = m.LastSeen,
                 })

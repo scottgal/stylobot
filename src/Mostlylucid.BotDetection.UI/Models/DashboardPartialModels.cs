@@ -450,12 +450,6 @@ public sealed record SignatureBrowserModeRow
     /// <summary>Total observation count (including unabsorbed, before the next drain tick).</summary>
     public required int ObservationCount { get; init; }
 
-    /// <summary>Nearest archetype id (chrome-xhr / chrome-desktop / googlebot / ...). Null until the mode crosses MinModeMaturityForArchetypeMatch.</summary>
-    public string? InferredArchetype { get; init; }
-
-    /// <summary>Score of the inferred archetype match (presence-aware similarity).</summary>
-    public double? InferredConfidence { get; init; }
-
     public required DateTime FirstSeen { get; init; }
     public required DateTime LastSeen { get; init; }
 }

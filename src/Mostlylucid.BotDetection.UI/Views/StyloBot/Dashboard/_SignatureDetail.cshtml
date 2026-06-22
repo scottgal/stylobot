@@ -386,7 +386,6 @@ else
                             <th class="text-left py-1 pr-2">Mode</th>
                             <th class="text-right py-1 px-2 tabular-nums" sb-tooltip="modes.observations">Observations</th>
                             <th class="text-right py-1 px-2 tabular-nums" sb-tooltip="modes.maturity">Maturity</th>
-                            <th class="text-left py-1 px-2" sb-tooltip="modes.archetype">Nearest archetype</th>
                             <th class="text-right py-1 pl-2 whitespace-nowrap">Last seen</th>
                         </tr>
                     </thead>
@@ -397,20 +396,6 @@ else
                                 <td class="py-1 pr-2 font-mono text-[11px]" sb-tooltip="modes.id">@m.ModeId</td>
                                 <td class="py-1 px-2 text-right tabular-nums text-base-content/85">@m.ObservationCount</td>
                                 <td class="py-1 px-2 text-right tabular-nums text-base-content/85">@m.CentroidMaturity</td>
-                                <td class="py-1 px-2 text-base-content/70">
-                                    @if (!string.IsNullOrEmpty(m.InferredArchetype))
-                                    {
-                                        @m.InferredArchetype
-                                        @if (m.InferredConfidence is { } conf)
-                                        {
-                                            <span class="text-[10px] text-base-content/40 ml-1">(@conf.ToString("F2", System.Globalization.CultureInfo.InvariantCulture))</span>
-                                        }
-                                    }
-                                    else
-                                    {
-                                        <span class="text-base-content/30">-</span>
-                                    }
-                                </td>
                                 <td class="py-1 pl-2 text-right text-[11px] text-base-content/50 tabular-nums whitespace-nowrap">@m.LastSeen.ToString("HH:mm:ss")</td>
                             </tr>
                         }
