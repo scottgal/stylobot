@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <IsPackable>true</IsPackable>
+        <IsAotCompatible>true</IsAotCompatible>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+        <!-- NuGet Package Metadata -->
+        <PackageId>Mostlylucid.BotDetection.StyloExtract</PackageId>
+        <Description>StyloExtract integration pack for Mostlylucid.BotDetection. Provides four named IActionPolicy implementations (extract-markdown, extract-headers, extract-sidecar, extract-passthrough) that operators reference by name from EndpointPolicy rules or [BotAction] attributes. Requires Mostlylucid.StyloExtract.AspNetCore.</Description>
+        <PackageTags>bot-detection;styloextract;action-policy;markdown;html-extraction;anti-scraping</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Core BotDetection dependency via sibling ProjectReference to eliminate the version-trap -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Mostlylucid.StyloExtract.AspNetCore" Version="1.6.1" />
+    </ItemGroup>
+
+</Project>
