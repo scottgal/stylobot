@@ -1782,7 +1782,13 @@ public class StyloBotDashboardMiddleware
     private async Task ServeSummaryApiAsync(HttpContext context)
     {
         _aggregateCache.MarkHit();
-        var summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
+        // Audience axis: cache snapshot is unfiltered. humans/bots require a
+        // store hit so the SQL is_bot predicate gates the counts; otherwise
+        // a humans-only API consumer sees full traffic.
+        var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        var summary = audienceFilter is "humans" or "bots"
+            ? await _eventStore.GetSummaryAsync(audienceFilter: audienceFilter)
+            : _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, summary, CamelCaseJson);
@@ -1796,6 +1802,7 @@ public class StyloBotDashboardMiddleware
             var startTimeStr = context.Request.Query["start"].FirstOrDefault();
             var endTimeStr = context.Request.Query["end"].FirstOrDefault();
             var bucketSizeStr = context.Request.Query["bucket"].FirstOrDefault() ?? "60";
+            var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
             var startTime = DateTime.TryParse(startTimeStr, out var start)
                 ? start
@@ -1808,7 +1815,9 @@ public class StyloBotDashboardMiddleware
             var bucketSize = TimeSpan.FromSeconds(
                 int.TryParse(bucketSizeStr, out var b) ? b : 60);
 
-            var timeSeries = await _eventStore.GetTimeSeriesAsync(startTime, endTime, bucketSize);
+            // audienceFilter is plumbed through so the SQL predicate gates each bucket.
+            var audienceArg = audienceFilter is "humans" or "bots" ? audienceFilter : null;
+            var timeSeries = await _eventStore.GetTimeSeriesAsync(startTime, endTime, bucketSize, audienceArg);
 
             context.Response.ContentType = "application/json";
             await JsonSerializer.SerializeAsync(context.Response.Body, timeSeries, CamelCaseJson);
@@ -1989,16 +1998,21 @@ public class StyloBotDashboardMiddleware
         var endTimeStr = context.Request.Query["end"].FirstOrDefault();
         DateTime? startTime = DateTime.TryParse(startTimeStr, out var st) ? st : null;
         DateTime? endTime = DateTime.TryParse(endTimeStr, out var et) ? et : null;
+        var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        var humansBots = audienceFilter is "humans" or "bots";
 
         List<DashboardCountryStats> dbCountries;
-        if (startTime.HasValue || endTime.HasValue)
+        if (startTime.HasValue || endTime.HasValue || humansBots)
         {
-            // Time-filtered: always query the store directly
-            dbCountries = await _eventStore.GetCountryStatsAsync(count, startTime, endTime);
+            // Any axis beyond the default flat snapshot requires a store query so
+            // the SQL is_bot / time predicates apply. The cache only covers the
+            // no-filter, no-time case.
+            dbCountries = await _eventStore.GetCountryStatsAsync(count, startTime, endTime,
+                humansBots ? audienceFilter : null);
         }
         else
         {
-            // No time filter: serve from periodic cache
+            // Default request: serve from periodic cache.
             var cached = _aggregateCache.Current.Countries;
             dbCountries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(count);
         }
@@ -2065,11 +2079,17 @@ public class StyloBotDashboardMiddleware
         var endTimeStr = context.Request.Query["end"].FirstOrDefault();
         DateTime? startTime = DateTime.TryParse(startTimeStr, out var st) ? st : null;
         DateTime? endTime = DateTime.TryParse(endTimeStr, out var et) ? et : null;
+        var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        var storeFilters = audienceFilter is "humans" or "bots" or "honeypot";
 
         List<DashboardEndpointStats> endpoints;
-        if (startTime.HasValue || endTime.HasValue)
+        if (startTime.HasValue || endTime.HasValue || storeFilters)
         {
-            endpoints = await _eventStore.GetEndpointStatsAsync(count, startTime, endTime);
+            // honeypot is path-shape but still routes through the store so
+            // IsHoneypot is populated per row by the path classifier and the
+            // store applies the honeypot filter in-process post-query.
+            endpoints = await _eventStore.GetEndpointStatsAsync(count, startTime, endTime,
+                storeFilters ? audienceFilter : null);
         }
         else
         {
@@ -3068,7 +3088,13 @@ public class StyloBotDashboardMiddleware
     /// <summary>Build the SummaryStatsModel including session analytics from the visitor cache.</summary>
     private async Task<SummaryStatsModel> BuildSummaryStatsModelAsync(HttpContext context)
     {
-        var summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
+        // Cache is audience-agnostic; humans/bots filter has to go through the store
+        // so the SQL is_bot predicate applies. Otherwise the summary KPI strip would
+        // show full-traffic totals regardless of the audience toggle.
+        var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        var summary = audienceFilter is "humans" or "bots"
+            ? await _eventStore.GetSummaryAsync(audienceFilter: audienceFilter)
+            : _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
         var basePath = _options.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
@@ -4224,8 +4250,15 @@ public class StyloBotDashboardMiddleware
         var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 20;
+        var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
-        var model = BuildCountriesModel(sortField, sortDir, page, pageSize, await GetCountriesDataAsync());
+        // Cache is audience-agnostic; humans/bots route through the store so the
+        // is_bot predicate applies (mirrors the endpoints partial fix).
+        var data = audienceFilter is "humans" or "bots"
+            ? await _eventStore.GetCountryStatsAsync(100, audienceFilter: audienceFilter)
+            : await GetCountriesDataAsync();
+
+        var model = BuildCountriesModel(sortField, sortDir, page, pageSize, data);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -4265,8 +4298,15 @@ public class StyloBotDashboardMiddleware
         var excludeStatic = context.Request.Query["excludeStatic"].FirstOrDefault() == "true";
         var statusFilter = (context.Request.Query["status"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
         var pathFilter = (context.Request.Query["path"].FirstOrDefault() ?? string.Empty).Trim();
+        var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
-        var endpoints = await GetEndpointsDataAsync(context);
+        // Cache is audience-agnostic: the broadcaster precomputes one snapshot
+        // with no filter. humans / bots gating must come from the store so the
+        // is_bot SQL predicate applies. honeypot is path-shape and works on any
+        // snapshot, so we keep the cached path for it.
+        List<DashboardEndpointStats> endpoints = audienceFilter is "humans" or "bots"
+            ? await _eventStore.GetEndpointStatsAsync(500, audienceFilter: audienceFilter)
+            : await GetEndpointsDataAsync(context);
 
         if (excludeStatic)
             endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();
@@ -4281,8 +4321,13 @@ public class StyloBotDashboardMiddleware
                 .Where(e => string.Equals(e.DominantStatusBucket, statusFilter, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
+        // Honeypot audience filter is applied in-memory against IsHoneypot
+        // (populated per-row by the store via HoneypotPathDefinitions.Classify).
+        if (audienceFilter == "honeypot")
+            endpoints = endpoints.Where(e => e.IsHoneypot).ToList();
+
         var model = BuildEndpointsModel(context, sortField, sortDir, page, pageSize, endpoints)
-            with { StatusFilter = statusFilter, PathFilter = pathFilter };
+            with { StatusFilter = statusFilter, PathFilter = pathFilter, AudienceFilter = audienceFilter };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(

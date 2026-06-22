@@ -177,6 +177,16 @@ public sealed record EndpointsListModel
     /// </summary>
     public string PathFilter { get; init; } = "";
 
+    /// <summary>
+    ///     Audience filter. Forwarded to <c>IDashboardEventStore.GetEndpointStatsAsync</c>'s
+    ///     <c>audienceFilter</c> parameter. Recognised values are <c>all</c>
+    ///     (default, no filter), <c>humans</c> (rows where <c>is_bot=0</c> dominated),
+    ///     <c>bots</c>, and <c>honeypot</c> (rows whose path classifies via
+    ///     <c>HoneypotPathDefinitions.Classify</c> as Always / Probable). The
+    ///     chip strip on the endpoints view drives this via the URL.
+    /// </summary>
+    public string AudienceFilter { get; init; } = "all";
+
     /// <summary>When true the partial renders a narrow column set that fits inside a
     /// half-width container without horizontal scroll: Method, Path, Req, Bot %. The
     /// wider columns (Sigs, Policy) are dropped entirely rather than gated by Tailwind

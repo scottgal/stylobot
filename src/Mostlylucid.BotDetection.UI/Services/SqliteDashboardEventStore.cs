@@ -992,6 +992,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // Build WHERE clause. Time predicates fix the latent bug where startTime/endTime were
         // accepted by the signature but never applied. The audience filter maps "humans"/"bots"
         // to the is_bot column written by AddDetectionAsync (detection.IsBot ? 1 : 0).
+        // "honeypot" is a path-shape filter applied post-query because IsHoneypot is derived
+        // from HoneypotPathDefinitions.Classify, not a column on detections.
+        var honeypotOnly = string.Equals(audienceFilter, "honeypot", StringComparison.OrdinalIgnoreCase);
         var where = new System.Text.StringBuilder("WHERE 1=1");
         if (startTime.HasValue) where.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
@@ -999,6 +1002,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             case "humans": where.Append(" AND is_bot = 0"); break;
             case "bots":   where.Append(" AND is_bot = 1"); break;
+            // "honeypot" filters in-memory after classification; no additional SQL predicate.
             // null / "all" / anything else: no additional predicate
         }
 
@@ -1045,10 +1049,19 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             // p95 approximation: avg + 90% of the gap to max. Matches the Postgres
             // backend convention; real percentile requires PERCENTILE_CONT (Task 10).
             var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
+            var path = reader.GetString(1);
+            // IsHoneypot is derived per-row from the static HoneypotPathDefinitions
+            // classifier rather than stored on dashboard_events. Cheap (substring
+            // + dictionary lookup); keeps schema migrations out of the dashboard.
+            // The view's badge + the new "honeypot" audience filter both read this.
+            var honeypotTier = Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions
+                .Classify(path, out _);
+            var isHoneypot = honeypotTier > Mostlylucid.BotDetection.Honeypot.HoneypotTier.None;
+            if (honeypotOnly && !isHoneypot) continue;
             results.Add(new DashboardEndpointStats
             {
                 Method              = reader.GetString(0),
-                Path                = reader.GetString(1),
+                Path                = path,
                 TotalCount          = total,
                 BotCount            = bots,
                 BotRate             = total > 0 ? (double)bots / total : 0,
@@ -1064,6 +1077,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 Status3xx           = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
                 Status4xx           = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
                 Status5xx           = reader.IsDBNull(14) ? 0 : reader.GetInt32(14),
+                IsHoneypot          = isHoneypot,
             });
         }
         return results;
@@ -1076,7 +1090,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     {
         if (string.IsNullOrEmpty(signature)) return new List<SignatureEndpointStats>();
         if (topN <= 0) topN = 25;
-        await EnsureInitializedAsync();
+        await EnsureInitializedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
@@ -1287,7 +1301,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         int count = 50, DateTime? startTime = null, DateTime? endTime = null,
         CancellationToken ct = default)
     {
-        await EnsureInitializedAsync();
+        await EnsureInitializedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
@@ -1808,7 +1822,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         string family, int hours = 168, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(family)) return [];
-        await EnsureInitializedAsync();
+        await EnsureInitializedAsync(ct);
         var sinceUtc = DateTime.UtcNow.AddHours(-Math.Clamp(hours, 1, 24 * 90));
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);

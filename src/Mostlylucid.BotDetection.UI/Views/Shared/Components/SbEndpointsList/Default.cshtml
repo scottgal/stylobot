@@ -8,22 +8,26 @@
     // URL builders honour every filter axis so navigating one axis preserves
     // the others. Sort + pagination changes drop back to page=1 so the new
     // ordering or filter isn't paged past its first page.
-    string FilterQs(string statusOverride, string pathOverride)
-        => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}";
+    string FilterQs(string statusOverride, string pathOverride, string audienceOverride)
+        => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}&audience={Uri.EscapeDataString(audienceOverride)}";
     string SortUrl(string field)
     {
         var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
-        return $"{bp}/partials/endpoints?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter)}";
+        return $"{bp}/partials/endpoints?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter)}";
     }
-    string PageUrl(int page) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter)}";
-    string PageSizeUrl(int size) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}&{FilterQs(Model.StatusFilter, Model.PathFilter)}";
-    string StatusUrl(string bucket) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(bucket, Model.PathFilter)}";
+    string PageUrl(int page) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter)}";
+    string PageSizeUrl(int size) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter)}";
+    string StatusUrl(string bucket) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(bucket, Model.PathFilter, Model.AudienceFilter)}";
+    string AudienceUrl(string audience) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, audience)}";
     string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
     string ThClass(string field) => Model.SortField == field
         ? "text-base-content/70 font-bold"
         : "text-base-content/40 hover:text-base-content/60";
     string ChipClass(string bucket) => Model.StatusFilter.Equals(bucket, StringComparison.OrdinalIgnoreCase)
         ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-primary/20 text-primary border border-primary/30"
+        : "px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors";
+    string AudienceChipClass(string audience) => Model.AudienceFilter.Equals(audience, StringComparison.OrdinalIgnoreCase)
+        ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-warning/20 text-warning border border-warning/30"
         : "px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors";
 }
 <div id="endpoints-list"
@@ -69,6 +73,26 @@
             <a href="#" hx-get="@StatusUrl("5xx")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@ChipClass("5xx")">5xx</a>
+
+            @* Honeypot audience chip. Highlights rows whose path matches the
+               static HoneypotPathDefinitions classifier (Always / Probable).
+               Operators were missing the badge when IsHoneypot was always
+               false; this filter + the population fix in
+               GetEndpointStatsAsync make honeypot hits visible. *@
+            <span class="text-base-content/30 mx-1">·</span>
+            <a href="#" hx-get="@AudienceUrl("honeypot")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@AudienceChipClass("honeypot")"
+               title="Show only paths classified as honeypot (Always / Probable)">
+                <i class="bx bx-radar text-[11px] mr-0.5"></i>Honeypot
+            </a>
+            @if (!Model.AudienceFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                <a href="#" hx-get="@AudienceUrl("all")"
+                   hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+                   class="px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors"
+                   title="Clear audience filter">Clear</a>
+            }
 
             <span class="text-base-content/30 mx-1">·</span>
             <input type="text" name="path" value="@Model.PathFilter"

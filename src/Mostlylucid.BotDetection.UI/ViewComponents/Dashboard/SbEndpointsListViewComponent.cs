@@ -61,6 +61,7 @@ public class SbEndpointsListViewComponent(
             BasePath = options.Value.BasePath.TrimEnd('/'),
             IsCompact = compact,
             AllowEndpointPinning = options.Value.EnableEndpointPinning,
+            AudienceFilter = string.IsNullOrEmpty(audience) ? "all" : audience,
         });
     }
 

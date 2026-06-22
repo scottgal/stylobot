@@ -153,7 +153,11 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<string> RenderSummaryAsync(HttpContext context)
     {
-        var summary = await _eventStore.GetSummaryAsync();
+        // Honor the audience filter so a humans-only render produces a
+        // humans-only KPI strip. Mirrors StyloBotDashboardMiddleware.BuildSummaryStatsModelAsync.
+        var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        var audienceArg = audienceFilter is "humans" or "bots" ? audienceFilter : null;
+        var summary = await _eventStore.GetSummaryAsync(audienceFilter: audienceArg);
         var model = new SummaryStatsModel { Summary = summary, BasePath = _options.BasePath.TrimEnd('/') };
 
         var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
@@ -193,9 +197,14 @@ public sealed class SbWidgetBatchMiddleware
         var sortField = q["sort"].FirstOrDefault() ?? "total";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = WidgetRenderHelpers.QueryPage(q);
+        var audienceFilter = (q["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
-        var cached = _aggregateCache.Current.Countries;
-        var data = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(100);
+        // humans/bots route through the store so the is_bot SQL predicate applies.
+        var data = audienceFilter is "humans" or "bots"
+            ? await _eventStore.GetCountryStatsAsync(100, audienceFilter: audienceFilter)
+            : (_aggregateCache.Current.Countries is { Count: > 0 } cached
+                ? cached
+                : await _eventStore.GetCountryStatsAsync(100));
         var model = BuildCountriesModel(sortField, sortDir, page, 20, data);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbCountriesList/Default.cshtml", model, context);
@@ -207,9 +216,17 @@ public sealed class SbWidgetBatchMiddleware
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = WidgetRenderHelpers.QueryPage(q);
         var pageSize = WidgetRenderHelpers.QueryPageSize(q, 25);
+        var audienceFilter = (q["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
-        var cached = _aggregateCache.Current.Endpoints;
-        var data = cached.Count > 0 ? cached : await _eventStore.GetEndpointStatsAsync(100);
+        // humans / bots / honeypot all require the store path. honeypot needs
+        // IsHoneypot populated per row by the path classifier; humans / bots need
+        // the SQL is_bot predicate.
+        var storeFilters = audienceFilter is "humans" or "bots" or "honeypot";
+        var data = storeFilters
+            ? await _eventStore.GetEndpointStatsAsync(100, audienceFilter: audienceFilter)
+            : (_aggregateCache.Current.Endpoints is { Count: > 0 } cached
+                ? cached
+                : await _eventStore.GetEndpointStatsAsync(100));
         var model = BuildEndpointsModel(sortField, sortDir, page, pageSize, data);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);

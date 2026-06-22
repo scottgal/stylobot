@@ -60,6 +60,44 @@ public class SqliteEndpointAggregateTests
     }
 
     [Fact]
+    public async Task GetEndpointStatsAsync_marks_honeypot_paths_via_path_classifier()
+    {
+        // Pin the dashboard regression "we don't see ANY honeypot hits": the
+        // IsHoneypot field was declared on DashboardEndpointStats and read by
+        // the badge in SbEndpointsList, but NEVER populated by the store.
+        // Every row read back with IsHoneypot=false so the badge never rendered.
+        // The store now derives the flag per-row from HoneypotPathDefinitions.
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-honeypot-flag");
+
+        await fx.Store.AddDetectionAsync(MakeDetection("/wp-admin/admin.php", isBot: true,  bytes: 100, ms: 5));
+        await fx.Store.AddDetectionAsync(MakeDetection("/index.html",         isBot: false, bytes: 200, ms: 5));
+
+        var rows = await fx.Store.GetEndpointStatsAsync(audienceFilter: null);
+
+        rows.Single(r => r.Path == "/wp-admin/admin.php").IsHoneypot.Should().BeTrue();
+        rows.Single(r => r.Path == "/index.html").IsHoneypot.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetEndpointStatsAsync_audience_honeypot_filters_to_honeypot_paths_only()
+    {
+        // Pin the operator-driven filter: ?audience=honeypot returns only rows
+        // whose path classifies as honeypot. The other rows are dropped post-
+        // query (cheap; the path classifier runs per row anyway).
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-honeypot-filter");
+
+        await fx.Store.AddDetectionAsync(MakeDetection("/.env",          isBot: true,  bytes: 80,  ms: 3));
+        await fx.Store.AddDetectionAsync(MakeDetection("/.aws/credentials", isBot: true,  bytes: 60,  ms: 4));
+        await fx.Store.AddDetectionAsync(MakeDetection("/index.html",    isBot: false, bytes: 300, ms: 6));
+        await fx.Store.AddDetectionAsync(MakeDetection("/api/products",  isBot: false, bytes: 500, ms: 8));
+
+        var rows = await fx.Store.GetEndpointStatsAsync(audienceFilter: "honeypot");
+
+        rows.Select(r => r.Path).Should().BeEquivalentTo(new[] { "/.env", "/.aws/credentials" });
+        rows.Should().OnlyContain(r => r.IsHoneypot);
+    }
+
+    [Fact]
     public async Task GetEndpointStatsAsync_honours_startTime_endTime_window()
     {
         await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-time");
