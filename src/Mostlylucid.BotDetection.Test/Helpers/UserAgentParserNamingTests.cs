@@ -92,10 +92,11 @@ public class UserAgentParserNamingTests
     [Fact]
     public void Compose_FreshFamily_BeatsPreviousMatcherName()
     {
-        // Priority 3 case: the fresh signals carry UA family + OS. That's also more
-        // authoritative than a stale fingerprint name -- the stored name was right WHEN
-        // it was written, but a different family on the current request means we have
-        // newer evidence.
+        // Priority 3 case: the fresh signals carry UA family. That's more authoritative
+        // than a stale fingerprint name -- the stored name was right WHEN it was written,
+        // but a different family on the current request means we have newer evidence.
+        // T5 (2026-06-22): Priority 3 returns the plain UA family; OS lives on the
+        // detail surface, not the name.
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>
             {
@@ -104,12 +105,7 @@ public class UserAgentParserNamingTests
             },
             previousName: "Chrome on macOS (header drift)");
 
-        Assert.NotNull(name);
-        // Short-form output post-2026-06-18: "{osShort} {familyShort}" plus
-        // optional version + archetype + distinguisher slots.
-        Assert.Contains("Edge", name);
-        Assert.Contains("Win", name);
-        Assert.DoesNotContain("Chrome", name);
+        Assert.Equal("Edge", name);
     }
 
     [Fact]

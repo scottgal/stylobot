@@ -4,9 +4,9 @@ namespace Mostlylucid.BotDetection.Test.Services;
 
 /// <summary>
 ///     Synthesizer contract: every visitor (bot or human) gets a derived display name. Four
-///     priorities — known bot name, matched archetype + drift variance, UA family fallback,
-///     "analysing" cold-state. The bot-only "Automated Bot" composition that used to fire for
-///     humans is gone; this file pins the new contract.
+///     priorities — known bot name, matched archetype (human-browser only), plain UA family,
+///     "Unknown &lt;hex&gt;" cold-state. The bot-only "Automated Bot" composition that used to
+///     fire for humans is gone; this file pins the current contract (post-T5 2026-06-22).
 /// </summary>
 public class DeterministicBotNameTests
 {
@@ -74,72 +74,12 @@ public class DeterministicBotNameTests
         Assert.DoesNotContain("Bot", name);
     }
 
-    [Fact]
-    public async Task ArchetypeName_PlusCountryDrift_ComposesFromCountry()
-    {
-        var signals = new Dictionary<string, object?>
-        {
-            ["identity.archetype_name"] = "Chrome on Windows",
-            ["identity.archetype_kind"] = "human-browser",
-            ["identity.drift_top_slot"] = "network.country",
-            ["identity.drift_top_category"] = "network",
-            ["geo.country_code"] = "JP"
-        };
-
-        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
-
-        Assert.Contains("Chrome on Windows", name);
-        Assert.Contains("from JP", name);
-    }
-
-    [Fact]
-    public async Task ArchetypeName_PlusToolDrift_ComposesTooledLabel()
-    {
-        var signals = new Dictionary<string, object?>
-        {
-            ["identity.archetype_name"] = "Chrome on Windows",
-            ["identity.archetype_kind"] = "human-browser",
-            ["identity.drift_top_slot"] = "tool.x_requested_with",
-            ["identity.drift_top_category"] = "tool"
-        };
-
-        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
-
-        Assert.Contains("Chrome on Windows", name);
-        Assert.Contains("tooled", name);
-    }
-
-    [Fact]
-    public async Task ArchetypeName_PlusClientHintDrift_ComposesMissingClientHints()
-    {
-        var signals = new Dictionary<string, object?>
-        {
-            ["identity.archetype_name"] = "Chrome on Windows",
-            ["identity.archetype_kind"] = "human-browser",
-            ["identity.drift_top_slot"] = "hdr.sec_ch_ua_brands_ordered",
-            ["identity.drift_top_category"] = "hdr"
-        };
-
-        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
-
-        Assert.Contains("missing client hints", name);
-    }
-
-    [Fact]
-    public async Task ArchetypeName_PlusUnknownSlot_FallsBackToCategoryLabel()
-    {
-        var signals = new Dictionary<string, object?>
-        {
-            ["identity.archetype_name"] = "Safari on iOS",
-            ["identity.archetype_kind"] = "human-browser",
-            ["identity.drift_top_slot"] = "network.some_future_dim",
-            ["identity.drift_top_category"] = "network"
-        };
-
-        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
-
-        Assert.Contains("network drift", name);
-    }
+    // Drift variance terms ("from JP", "tooled", "missing client hints",
+    // "network drift") were deleted with GetVarianceTerm (T4, 2026-06-22). Tests
+    // pinning those parenthetical synthetics violated the display-name contract
+    // (parenthesised multi-word labels are a banned shape per
+    // FingerprintNameComposerContract) and were removed with this task. Drift
+    // now surfaces in its own dashboard column, not in the display name.
 
     [Fact]
     public async Task ArchetypeName_NoDriftSignal_NoVarianceParenthetical()
@@ -201,19 +141,19 @@ public class DeterministicBotNameTests
     // ─── Priority 4: cold state ────────────────────────────────────────
 
     [Fact]
-    public async Task EmptySignals_ReturnsNoUserAgentTerminal()
+    public async Task EmptySignals_ReturnsUnknownTerminal()
     {
-        // Updated contract (single-source surgery): the composer is the SOLE
-        // writer of Fingerprint.DisplayName. Returning null leaks an em-dash
-        // placeholder through every downstream reader, which the user
-        // called out as unacceptable. With nothing to compose from, the
-        // truthful terminal is "No User-Agent" -- IsFallback recognises it
-        // so a real Priority 1-3 name still wins on a later request.
+        // Updated contract (T5, 2026-06-22): the composer is the SOLE writer of
+        // Fingerprint.DisplayName. Returning null leaks an em-dash placeholder
+        // through every downstream reader, which the user called out as unacceptable.
+        // With nothing to compose from, the truthful terminal is the canonical
+        // "Unknown <hex>" shape -- IsFallback recognises it so a real Priority 1-3
+        // name still wins on a later request.
         var signals = new Dictionary<string, object?>();
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback, name);
+        Assert.Equal("Unknown 00000000", name);
     }
 
     // ─── Detailed (name + description) ─────────────────────────────────

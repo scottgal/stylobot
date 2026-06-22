@@ -73,9 +73,9 @@ public class FingerprintNameComposerTests
         });
 
         Assert.DoesNotContain("Mastodon", name ?? string.Empty);
-        // Priority 3 short form: "{osShort} {familyShort}" (Mac Chrome).
-        // Per user contract 2026-06-18 ("Win Chrome UK is FINE. Chrome on Windows is NOT").
-        Assert.Equal("Mac Chrome", name);
+        // Priority 3 (T5, 2026-06-22): returns the plain UA family. OS prefix lives on
+        // the dashboard detail surface, not the name.
+        Assert.Equal("Chrome", name);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class FingerprintNameComposerTests
         });
 
         Assert.DoesNotContain("python", name ?? string.Empty);
-        Assert.Equal("Lin Firefox", name);
+        Assert.Equal("Firefox", name);
     }
 
     [Fact]
@@ -114,13 +114,12 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_Priority3_FamilyPlusOs_WhenBothAvailable()
+    public void Compose_Priority3_ReturnsPlainFamily()
     {
-        // Priority 3 short form: "{osShort} {familyShort} {distinguisher}".
-        // Per user contract 2026-06-18 ("Win Chrome UK is FINE"). The country
-        // distinguisher slots into the same place as the previous "(country:sig)"
-        // parenthetical -- it's still adding distinguishing signal, just in a
-        // space-separated form the dashboard renders without status-as-name look.
+        // T5 (2026-06-22): Priority 3 returns the UA family unchanged. No OS prefix,
+        // no version, no archetype suffix, no distinguisher -- those live on the
+        // signature detail / drift surfaces. The display-name contract pins the
+        // three allowed shapes (bot name | browser family | Unknown <hex>).
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Firefox",
@@ -128,9 +127,7 @@ public class FingerprintNameComposerTests
             ["geo.country_code"] = "GB"
         });
 
-        Assert.Contains("Firefox", name);
-        Assert.Contains("Lin", name);
-        Assert.Contains("GB", name);
+        Assert.Equal("Firefox", name);
     }
 
     [Fact]
@@ -142,23 +139,22 @@ public class FingerprintNameComposerTests
             ["geo.country_code"] = "US"
         });
 
-        Assert.StartsWith("Safari", name);
-        Assert.DoesNotContain(" on ", name);
+        Assert.Equal("Safari", name);
     }
 
     [Fact]
-    public void Compose_ReturnsNoUserAgentTerminal_WhenNoUsableSignal()
+    public void Compose_ReturnsUnknownTerminal_WhenNoUsableSignal()
     {
-        // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks enough
-        // information to label this visitor. Compose now returns the explicit
-        // "No User-Agent" terminal rather than null. Rationale: the matcher is the SOLE
-        // writer of Fingerprint.DisplayName, and a null leaks through every downstream
-        // reader as an em-dash placeholder on the dashboard. The truthful terminal is
-        // honest about what happened (no UA header) without dropping a placeholder
-        // anywhere. IsFallback recognises it so a real Priority 1-3 name later wins.
-        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback,
+        // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks
+        // enough information to label this visitor. T5 (2026-06-22): the truthful
+        // terminal is now "Unknown <hex>" (or "Unknown 00000000" when no fingerprintId
+        // is supplied). The "No User-Agent" multi-token terminal violated the
+        // three-shape display-name contract; the defensive gate converts it to the
+        // canonical Unknown shape. IsFallback still recognises it so a real Priority
+        // 1-3 name later wins via hysteresis.
+        Assert.Equal("Unknown 00000000",
             FingerprintNameComposer.Compose(new Dictionary<string, object>()));
-        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback,
+        Assert.Equal("Unknown abc123de",
             FingerprintNameComposer.Compose(
                 new Dictionary<string, object>(),
                 fingerprintId: "abc123def456ghi"));
@@ -177,12 +173,13 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_DoesNotAppendSigPrefixOrColonForm_ToName()
+    public void Compose_DoesNotLeakSigPrefixOrColonForm_IntoName()
     {
-        // Operator feedback: baking the signature hash or "(US:abcd)"-style status
-        // labels into the name reads as "a status, not a name". The short-form
-        // contract DOES include a single-token country distinguisher ("US"), but
-        // never a sig-hash prefix and never the parenthetical "(country:hash)" form.
+        // T5 (2026-06-22): Priority 3 now returns the plain UA family. The historic
+        // status-as-name worry ("(US:abcd)") is structurally impossible -- no code
+        // path here ever assembles those tokens. This test pins the absence of
+        // signature-hash and colon-form leakage even when those fields exist in
+        // the signal dict.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
@@ -191,10 +188,7 @@ public class FingerprintNameComposerTests
             ["signature.primary"] = "abcd1234efgh5678"
         });
 
-        Assert.Contains("Chrome", name);
-        Assert.Contains("Win", name);
-        Assert.DoesNotContain("US:", name);
-        Assert.DoesNotContain("abcd", name);
+        Assert.Equal("Chrome", name);
     }
 
     [Fact]
@@ -293,27 +287,28 @@ public class FingerprintNameComposerTests
     public void Compose_Hysteresis_FreshWins_WhenItIsNotFallback()
     {
         // Fresh has real signals - we upgrade past the previous "analysing".
+        // T5 (2026-06-22): Priority 3 returns the plain UA family; the OS slot is
+        // no longer part of the name.
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object> { ["ua.family"] = "Chrome", ["user_agent.os"] = "Windows" },
             previousName: "analysing");
 
-        Assert.Contains("Chrome", name);
-        Assert.Contains("Win", name);
+        Assert.Equal("Chrome", name);
     }
 
     [Fact]
-    public void Compose_ReturnsNoUserAgentTerminal_WhenFreshDegeneratesAndPreviousIsFallback()
+    public void Compose_ReturnsUnknownTerminal_WhenFreshDegeneratesAndPreviousIsFallback()
     {
         // Hysteresis only kicks in when previousName is a REAL Priority 1-3 name, not
         // another fallback. With "analysing" (a fallback) as previousName and no signals
-        // to feed a fresh real name, Compose returns the truthful terminal
-        // "No User-Agent" rather than echoing the stale fallback back. The matcher's
-        // persist layer is then free to overwrite "analysing" on disk with the new
-        // terminal (or a real name on a later request).
+        // to feed a fresh real name, the defensive contract gate (T5) emits the
+        // canonical "Unknown <hex>" terminal rather than echoing the stale fallback.
+        // The matcher's persist layer is then free to overwrite "analysing" on disk
+        // with the new terminal (or a real name on a later request).
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
             previousName: "analysing");
-        Assert.Equal(FingerprintNameComposer.NoUserAgentFallback, name);
+        Assert.Equal("Unknown 00000000", name);
     }
 
     [Fact]
@@ -328,58 +323,15 @@ public class FingerprintNameComposerTests
         Assert.False(FingerprintNameComposer.IsFallback("Mastodon mastodon.social"));
     }
 
-    // --- Priority 4: raw UA prefix as last-resort label ---------------------------------
-
-    [Fact]
-    public void Compose_ReturnsUaPrefix_WhenNoOtherPriorityHits()
-    {
-        // User direction 2026-06-15: when bot_name / archetype / family-on-os all miss,
-        // showing the raw UA prefix is more useful than returning null.
-        //
-        // Note: with the claim-first P1 (2026-06-15), a UA whose head matches a YAML
-        // bot-pattern entry (e.g. "Mastodon/4.3.0") is now caught by P1 directly --
-        // BotPatternLoader.MatchUserAgent scans the raw UA. This test now uses a UA
-        // that the catalog deliberately does NOT contain so we can still verify the
-        // P4 fallback path.
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
-        {
-            ["ua.raw"] = "NoveltyAgent/9.9.9"
-            // no bot_name, no archetype, no family, no os, no YAML hit
-        });
-        Assert.NotNull(name);
-        Assert.StartsWith("NoveltyAgent/", name);
-    }
-
-    [Fact]
-    public void Compose_UaPrefix_ReadsUserAgentParam_WhenSignalMissing()
-    {
-        // The matcher hot path passes the UA via the userAgent parameter rather than
-        // stuffing it into the signal dict. Priority 4 must self-rescue from that
-        // parameter so a brand-new fingerprint isn't anonymous on request 1. Use a UA
-        // uap-core does NOT recognise (no curl/wget/etc. shortcut) so Priority 3
-        // returns "Other" and we fall through to the raw-UA path.
-        var name = FingerprintNameComposer.Compose(
-            new Dictionary<string, object>(),
-            userAgent: "MyCustomScanner/1.0 (+https://example.com)");
-        Assert.NotNull(name);
-        Assert.StartsWith("MyCustomScanner/", name);
-    }
-
-    [Fact]
-    public void Compose_UaPrefix_Truncates_LongUserAgent()
-    {
-        // Cap at 48 chars + ellipsis so the dashboard row layout doesn't get blown up
-        // by a 500-char enterprise UA (Skype/Outlook/etc. concatenate their entire
-        // build chain into the UA string).
-        var longUa = new string('A', 200);
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
-        {
-            ["ua.raw"] = longUa
-        });
-        Assert.NotNull(name);
-        Assert.True(name.Length <= 49, $"expected length ≤ 49, got {name.Length}: {name}");
-        Assert.EndsWith("…", name);
-    }
+    // --- Priority 4: defensive Unknown <hex> terminal ----------------------------------
+    //
+    // T5 (2026-06-22): Priority 4 is no longer a visible UA prefix. The defensive
+    // contract gate at the end of ComposeFresh routes any non-conforming output
+    // (including the raw UA prefix path) to the canonical "Unknown <hex>" shape so
+    // we never emit a multi-token or "/"-bearing display name. Tests that pinned
+    // the raw-UA-prefix output ("NoveltyAgent/9.9.9", "MyCustomScanner/...", 48-char
+    // truncation with ellipsis) were deleted with this task: they pinned a banned
+    // shape, which the contract test fixture catches and rejects upstream.
 
     [Fact]
     public void Compose_PrefersBotName_OverUaPrefixFallback()
@@ -396,16 +348,19 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_PrefersFamilyOs_OverUaPrefixFallback()
+    public void Compose_PrefersFamily_OverUaPrefixFallback()
     {
-        // Priority 3 must still beat Priority 4. Short-form output.
+        // Priority 3 (plain UA family, T5 2026-06-22) must still beat the defensive
+        // Unknown <hex> terminal. The presence of a raw UA string with a banned shape
+        // ("Mozilla/5.0 ...") must not leak into the name -- the family signal is the
+        // load-bearing source for the priority-3 output.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
             ["user_agent.os"] = "Windows",
             ["ua.raw"] = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36"
         });
-        Assert.Equal("Win Chrome", name);
+        Assert.Equal("Chrome", name);
     }
 
     [Fact]
@@ -495,12 +450,12 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_ClaimFirst_RealChromeUa_WithPrivacyHeaders_StillNamedChromeOnMacOs()
+    public void Compose_ClaimFirst_RealChromeUa_WithPrivacyHeaders_StillNamedChrome()
     {
         // Regression: real Chrome with privacy headers must not be mis-claimed. The
         // catalog won't match anything in the UA, so P1 returns null and we fall to
-        // P3 (family + OS). The result is the expected browser label, NOT a wrong
-        // catalog hit.
+        // P3 (plain UA family per T5 2026-06-22). The result is the expected browser
+        // label, NOT a wrong catalog hit. OS lives on the dashboard detail surface.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.raw"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -508,9 +463,7 @@ public class FingerprintNameComposerTests
             ["user_agent.os"] = "macOS",
         });
 
-        Assert.NotNull(name);
-        Assert.Contains("Chrome", name);
-        Assert.Contains("Mac", name);
+        Assert.Equal("Chrome", name);
     }
 
     [Fact]
@@ -562,7 +515,7 @@ public class FingerprintNameComposerTests
     public void Compose_ClaimFirst_UnknownUa_FallsThroughToP3()
     {
         // The catalog has no entry for a totally novel UA. We must NOT invent a P1 claim.
-        // P3 (family + OS) takes over, producing the parser's best browser guess.
+        // P3 takes over, returning the plain UA family (T5 2026-06-22).
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.raw"] = "MyCustomScanner/1.0",
@@ -570,8 +523,7 @@ public class FingerprintNameComposerTests
             ["user_agent.os"] = "Linux",
         });
 
-        Assert.NotNull(name);
-        Assert.Equal("Lin Firefox", name);
+        Assert.Equal("Firefox", name);
     }
 
     [Fact]
