@@ -9,7 +9,7 @@ The detector analyzes the `User-Agent` header against a three-tier pattern sourc
 
 1. **YAML bot-pattern catalog** (`Definitions/BotPatterns/*.bot-patterns.yaml`) - Substring match over every catalogued search engine, AI scraper, fediverse server, developer tool, social media, monitoring, and SEO tool. This is the primary source and the one edited to add new patterns.
 2. **Heuristic checks** - Structural analysis of the UA string (length, presence of URL, automation-framework keywords, missing platform details).
-3. **WellKnownBotIndex fallback** (7.5+) - When neither tier above matches, `BotPatternLoader.MatchUserAgent` falls through to `WellKnownBotIndex.TryMatch`. This scans compiled regex patterns from the periodically-downloaded arcjet well-known-bots catalog (~635 entries at N patterns each). The index is empty until the first successful download by `WellKnownBotRefreshService`. YAML remains the authoritative source; the arcjet catalog is a safety net for bots not yet in YAML.
+3. **WellKnownBotIndex fallback** (7.5+) - When neither tier above matches, `BotPatternLoader.MatchUserAgent` falls through to `WellKnownBotIndex.TryMatch`. This runs a three-tier scan against ~635 arcjet patterns: a SIMD `SearchValues<string>` pre-filter rejects non-bot UAs with zero allocations, then `string.Contains` handles the ~81% of patterns that are pure literals, and only the remaining ~19% (patterns containing regex metacharacters) hit the actual `Regex` engine. Results are cached in a 4 000-entry LFU `BoundedCache`. The index is empty until the first successful download by `WellKnownBotRefreshService`. YAML remains the authoritative source; the arcjet catalog is a safety net for bots not yet in YAML.
 
 ## Detection Flow
 
@@ -99,7 +99,7 @@ User-Agent detection is optimized for speed:
 | String contains (whitelist) | < 0.01ms     |
 | String contains (patterns)  | < 0.1ms      |
 | Source-generated regex      | < 0.5ms      |
-| Compiled regex (downloaded) | < 1ms        |
+| WellKnownBotIndex (arcjet)  | < 1ms        |
 
 Total typical time: **< 2ms**
 

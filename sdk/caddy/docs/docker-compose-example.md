@@ -17,7 +17,7 @@ Internet
     |           v
     |   +--------------------+
     |   | stylobot-sidecar   |  gRPC :5090  (internal network only)
-    |   | :5090              |  All 49 detectors + REST health endpoint
+    |   | :5090              |  All 57 detectors + REST health endpoint
     |   +--------------------+
     |
     v

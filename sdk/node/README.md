@@ -12,7 +12,7 @@ The StyloBot Node SDK lets you integrate bot detection and adaptive content rend
 
 ### Gateway mode
 
-Your application sits behind the StyloBot YARP Gateway. The gateway runs all 49 detectors and injects the verdict into request headers (`X-StyloBot-IsBot`, `X-StyloBot-Probability`, etc.) before forwarding the request. Your Node app reads these headers at zero latency: no network call, no async work.
+Your application sits behind the StyloBot YARP Gateway. The gateway runs all 57 detectors and injects the verdict into request headers (`X-StyloBot-IsBot`, `X-StyloBot-Probability`, etc.) before forwarding the request. Your Node app reads these headers at zero latency: no network call, no async work.
 
 Use gateway mode for production deployments where the gateway is in the request path.
 

@@ -122,7 +122,7 @@ builder.Services.AddBotDetection(); // detection only; you map endpoints yoursel
 ```
 
 `AddStyloBot()` registers:
-- All 49 detectors and the orchestrator
+- All 57 detectors and the orchestrator
 - `IBrowserTokenService`, `IBrowserFingerprintAnalyzer`, `IBrowserFingerprintStore`
 - The two tag helpers below
 - The dashboard hub + Razor pages

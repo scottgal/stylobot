@@ -64,7 +64,7 @@ HoneypotPathTagger          (middleware, pre-detection)
   tags HttpContext.Items["Holodeck.IsHoneypotPath"]
      │
      ▼
-BotDetectionMiddleware      (runs all 49 detectors)
+BotDetectionMiddleware      (runs all 57 detectors)
   HoneypotLinkContributor   (priority 5, strong bot signal)
   BeaconContributor         (priority 2, canary scan)
      │

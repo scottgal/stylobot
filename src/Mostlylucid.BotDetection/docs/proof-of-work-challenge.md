@@ -4,7 +4,7 @@ StyloBot's proof-of-work challenge is a **response action**, not a detection mec
 
 ## How It Works
 
-1. Detection pipeline runs (49-detector pipeline, wave-gated) and scores the visitor
+1. Detection pipeline runs (57-detector pipeline, wave-gated) and scores the visitor
 2. If the score triggers a `challenge-pow` action policy, the visitor gets a PoW challenge
 3. The client's browser solves SHA-256 micro-puzzles using Web Workers in parallel
 4. Solutions are POSTed to `/bot-detection/challenge/verify`

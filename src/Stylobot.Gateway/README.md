@@ -23,7 +23,7 @@ That's it. Every request is now analyzed for bots. Check the logs:
 
 Caddy and nginx are excellent reverse proxies. They can terminate TLS, rate-limit by IP, block paths, and balance load. What they cannot do is tell you whether a request is a bot.
 
-StyloBot Gateway adds bot intelligence on top of YARP's routing. Every request is scored across up to 49 detectors (wave-gated, typically 5-15 run per request), classified by bot type, and the result is injected as headers into the upstream request before YARP forwards it. Your backend receives the full picture with zero latency overhead.
+StyloBot Gateway adds bot intelligence on top of YARP's routing. Every request is scored across up to 57 detectors (wave-gated, typically 5-15 run per request), classified by bot type, and the result is injected as headers into the upstream request before YARP forwards it. Your backend receives the full picture with zero latency overhead.
 
 ### Signal Headers Injected Upstream
 
@@ -102,7 +102,7 @@ docker compose up -d
 ```
 
 **What you get:**
-- Bot detection on every request (up to 49 detectors, wave-gated -typically 5-15 run per request)
+- Bot detection on every request (up to 57 detectors, wave-gated -typically 5-15 run per request)
 - Heuristic AI classification with weight learning (in-memory)
 - `X-Bot-*` response headers
 - Structured logging with risk scores
@@ -201,7 +201,7 @@ docker compose up -d
 
 **Best for:** Production deployments that need full persistence, multi-instance scaling, advanced detection.
 
-PostgreSQL stores learned weights, patterns, and reputation data. Full 49-detector pipeline with persistence and adaptive learning.
+PostgreSQL stores learned weights, patterns, and reputation data. Full 57-detector pipeline with persistence and adaptive learning.
 
 ```yaml
 # docker-compose.yml
@@ -303,7 +303,7 @@ docker compose up -d
 
 **What you get (in addition to Tier 2):**
 - PostgreSQL-backed persistence (weights, patterns, reputation, bot data)
-- Full 49-detector pipeline including TLS/TCP/HTTP2 fingerprinting (wave-gated; typically 5-15 run per request)
+- Full 57-detector pipeline including TLS/TCP/HTTP2 fingerprinting (wave-gated; typically 5-15 run per request)
 - Adaptive learning with drift detection
 - Multi-instance safe (shared database)
 - Path-specific detection policies
@@ -314,7 +314,7 @@ docker compose up -d
 
 | Feature | Minimal | Standard | Full |
 |---------|---------|----------|------|
-| Bot detection | Up to 49 detectors, wave-gated | Up to 49 detectors, wave-gated | Up to 49 detectors, wave-gated |
+| Bot detection | Up to 57 detectors, wave-gated | Up to 57 detectors, wave-gated | Up to 57 detectors, wave-gated |
 | Latency | <1ms | <1ms | <2ms |
 | Config files | None | `yarp.json` | `yarp.json` + `appsettings.json` |
 | Database | None | SQLite (auto) | PostgreSQL |

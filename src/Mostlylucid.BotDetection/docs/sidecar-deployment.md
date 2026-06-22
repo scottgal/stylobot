@@ -27,7 +27,7 @@ Compared to the main `stylobot` binary the sidecar:
 Request → Your App → calls POST /detect (REST) or gRPC Detect()
                               ↓
                      stylobot-sidecar
-                     (all 49 detectors, SQLite state)
+                     (all 57 detectors, SQLite state)
                               ↓
                      Returns verdict
                               ↓

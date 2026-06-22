@@ -8,7 +8,7 @@ If we use your project and you're not listed here, please open an issue - credit
 
 | Project | Purpose | License | Used in |
 |---|---|---|---|
-| [VYaml](https://github.com/hadashiA/VYaml) | AOT-native YAML parser + source generator. Replaced YamlDotNet in 6.5.0; powers the manifest loader for 49 detectors. | MIT | `Mostlylucid.BotDetection` |
+| [VYaml](https://github.com/hadashiA/VYaml) | AOT-native YAML parser + source generator. Replaced YamlDotNet in 6.5.0; powers the manifest loader for 57 detectors. | MIT | `Mostlylucid.BotDetection` |
 | [HNSW](https://github.com/curiosity-ai/hnsw-sharp) | Hierarchical Navigable Small World approximate-nearest-neighbour index. Sub-millisecond cosine search over fingerprint centroids for Leiden community detection + entity resolution. | MIT | `Mostlylucid.BotDetection` |
 | [MathNet.Numerics](https://github.com/mathnet/mathnet-numerics) | Statistics (Fisher discriminant ratios for identity calibration), distribution fitting, FFT (autocorrelation in the behavioural waveform detector). | MIT | `Mostlylucid.BotDetection` |
 | [AngleSharp](https://github.com/AngleSharp/AngleSharp) | HTML parser used by the holodeck to inject HMAC canary tokens into fake responses without breaking the served DOM. | MIT | `Mostlylucid.BotDetection` |

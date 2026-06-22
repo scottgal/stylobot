@@ -20,8 +20,8 @@ Key properties:
 | `ImmediateBlockThreshold` | 0.95 | Above this risk, block immediately |
 | `MinConfidence` | 0.0 | Confidence gate for blocking decisions |
 | `OnFailure` | `FailOpen` | What to do on internal pipeline failure |
-| `LoadShed.DropFractionAtCritical` | 0.0 | Fraction of requests to skip at Critical load |
-| `LoadShed.DropFractionAtHigh` | 0.0 | Fraction of requests to skip at High load |
+| `LoadShed.DropFractionAtHigh` | 0.2 | Fraction of requests to skip at High load |
+| `LoadShed.DropFractionAtCritical` | 0.5 | Fraction of requests to skip at Critical load |
 | `Transitions` | (empty) | Per-condition action-policy escalation |
 
 Built-in policy names (registered at startup): `default`, `demo`, `strict`, `relaxed`, `static`, `allowVerifiedBots`, `learning`, `yarpLearning`, `monitor`, `profile`, `api`, `fastWithOnnx`, `fastWithAi`.
@@ -56,19 +56,19 @@ JSON example:
 
 ## Load Shed
 
-At High or Critical pipeline load (as reported by `PipelineLoadSensor.CurrentBand`), skip detection on the configured fraction of requests. Defaults are zero (opt-in).
+At High or Critical pipeline load (as reported by `PipelineLoadSensor.CurrentBand`), skip detection on the configured fraction of requests. **Always-on by default** (since 7.5+): `0.2` at High, `0.5` at Critical. Set to `0.0` to disable for a specific policy.
 
-- `DropFractionAtHigh`: fraction (0.0 to 1.0) of requests to skip at `LoadBand.High`.
-- `DropFractionAtCritical`: fraction (0.0 to 1.0) of requests to skip at `LoadBand.Critical`.
+- `DropFractionAtHigh`: fraction (0.0 to 1.0) of requests to skip at `LoadBand.High`. Default `0.2`.
+- `DropFractionAtCritical`: fraction (0.0 to 1.0) of requests to skip at `LoadBand.Critical`. Default `0.5`. At Critical, the middleware returns HTTP 503 instead of forwarding upstream — pressure should relieve fast.
 
-Decision is deterministic by request seed (`Connection.Id` hash), so retries land identically. Sheds emit `X-StyloBot-Shed: 1` header so operators can observe the shed rate.
+Decision is deterministic by request seed (`Connection.Id` hash), so retries land identically. Sheds emit `X-StyloBot-Shed: 1` header so operators can observe the shed rate. The sensor itself is a signal source (`adaptive.*` signals on the blackboard) and uses multi-signal pressure detection (RTT, queue depth, error rate) — see `Services/PipelineLoadSensor.cs`. Sensor thresholds live under `BotDetection:PipelineLoadSensor` in appsettings.
 
-JSON example:
+JSON example (override the always-on defaults for a low-priority policy):
 
 ```json
 "Policies": {
-  "high-volume": {
-    "LoadShed": { "DropFractionAtHigh": 0.0, "DropFractionAtCritical": 0.05 }
+  "scrapers": {
+    "LoadShed": { "DropFractionAtHigh": 0.5, "DropFractionAtCritical": 0.9 }
   }
 }
 ```
@@ -153,9 +153,9 @@ Several capabilities customers ask about already exist:
     "EarlyExitThreshold": 0.5,
     "ImmediateBlockThreshold": 0.95,
     "OnFailure": "FailOpen",
-    "LoadShed": { "DropFractionAtCritical": 0.10 }
+    "LoadShed": { "DropFractionAtHigh": 0.0, "DropFractionAtCritical": 0.0 }
   }
 }
 ```
 
-The `admin-panel` policy biases toward strict detection (low block threshold, requires high confidence, fails closed on internal error). The `public-marketing` policy biases toward availability (high block threshold, fails open on error, sheds 10% of requests at Critical load).
+The `admin-panel` policy biases toward strict detection (low block threshold, requires high confidence, fails closed on internal error). The `public-marketing` policy biases toward availability (high block threshold, fails open on error, and opts out of the default adaptive shed — marketing pages keep full detection even under pressure).

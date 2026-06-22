@@ -147,7 +147,7 @@ Benchmarks run on Apple M5 (arm64), .NET 10. Numbers are per-scenario means from
 | UserAgent | Googlebot | 13,272 ns | 2,568 B |
 | UserAgent | Chrome (full pipeline) | 104,821 ns | 1,817 B |
 
-**Notes:** `UserAgent_Googlebot` (13 µs) and `UserAgent_HumanChrome` (105 µs) reflect the full orchestration pipeline (all 57 contributors), not just the UA detector. `Behavioral_Normal` (9.6 µs) allocates more due to feature vector computation. The `WellKnownBotIndex` scan (635 compiled regexes for arcjet catalog) is cached via `BoundedCache<string, WellKnownBotMatch?>` so repeat UAs hit O(1) — the scan only runs on the first occurrence of each unique UA string.
+**Notes:** `UserAgent_Googlebot` (13 µs) and `UserAgent_HumanChrome` (105 µs) reflect the full orchestration pipeline (all 57 contributors), not just the UA detector. `Behavioral_Normal` (9.6 µs) allocates more due to feature vector computation. The `WellKnownBotIndex` scan (~635 arcjet patterns: SIMD `SearchValues` pre-filter + `string.Contains` for the ~81% pure-literal patterns, real `Regex` only for the remaining ~19%) is cached via `BoundedCache<string, WellKnownBotMatch?>` so repeat UAs hit O(1) — the three-tier scan only runs on the first occurrence of each unique UA string.
 
 ### Session Vector Architecture
 
@@ -218,7 +218,7 @@ Config: `BotDetection:TransportTrust:Mode` and `BotDetection:TransportTrust:Trus
 
 ### Well-Known Bot Index (`WellKnownBotIndex`)
 
-`WellKnownBotIndex` is a singleton that holds the arcjet well-known-bots catalog (~635 named bots). It is registered via `TryAddSingleton` so it is always available. `WellKnownBotRefreshService` (hosted service) downloads the catalog on startup and refreshes it per `BotDetection:WellKnownBots:RefreshInterval` (default 24 h). The index is used by `AiScraperContributor`, `UserAgentContributor`, and the middleware UA-fallback path to name and classify bots whose UA patterns are not in the embedded baseline. Set `BotDetection:WellKnownBots:Url` to `""` to disable downloads (air-gapped deployments).
+`WellKnownBotIndex` is a singleton that holds the arcjet well-known-bots catalog (~635 named bots). It is registered via `TryAddSingleton` so it is always available. Internally it does a three-tier match: L1 SIMD `SearchValues<string>` pre-filter (early-exits non-bot UAs with zero allocations), L2 `string.Contains` for the ~81% of arcjet patterns that are pure literals, L3 `Regex` (NonBacktracking when supported) for the remaining ~19% with metacharacters. Scan results are cached in a 4 000-entry LFU `BoundedCache` keyed by raw UA. `WellKnownBotRefreshService` (hosted service) downloads the catalog on startup and refreshes it per `BotDetection:WellKnownBots:RefreshInterval` (default 24 h). The index is used by `AiScraperContributor`, `UserAgentContributor`, and the middleware UA-fallback path to name and classify bots whose UA patterns are not in the embedded baseline. After each successful refresh, every arcjet entry is also promoted to a root identity-archetype basin via `IIdentityArchetypeRegistry.IngestWellKnownBots()`, so newly-named bots immediately seed the metastable fingerprint identity layer. Set `BotDetection:WellKnownBots:Url` to `""` to disable downloads (air-gapped deployments).
 
 ### Configuration Pattern
 

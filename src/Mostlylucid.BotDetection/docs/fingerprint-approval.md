@@ -14,7 +14,7 @@ StyloBot's approach: `key + matching fingerprint + locked dimensions + behaviora
 |-----------|------|------|
 | **Identity** | API key | All |
 | **Trust** | Fingerprint approval + locked dimensions | Enterprise |
-| **Behavior** | 49 detectors + session vectors, including `Threat Intelligence` | All |
+| **Behavior** | 57 detectors + session vectors, including `Threat Intelligence` | All |
 
 ## Flow
 

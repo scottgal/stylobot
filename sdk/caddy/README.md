@@ -16,7 +16,7 @@ The StyloBot sidecar exposes both gRPC and REST detection endpoints. The Caddy m
 
 1. A request arrives at Caddy.
 2. The `stylobot` handler calls `DetectionService.Detect()` on the sidecar via gRPC, passing the method, path, headers, client IP, and protocol.
-3. The sidecar runs its detector pipeline (up to 49 detectors) and returns a `DetectResponse` with risk scores, a recommended action, and classification metadata.
+3. The sidecar runs its detector pipeline (up to 57 detectors) and returns a `DetectResponse` with risk scores, a recommended action, and classification metadata.
 4. The handler injects nine `X-StyloBot-*` headers onto the proxied request before it reaches your application.
 5. If the sidecar returns `action=Block` and `on_block` is non-zero, Caddy returns the configured HTTP status immediately; the request never reaches your app.
 6. If the sidecar is unreachable or times out, the request forwards unchanged (fail-open). Your application stays up even if the sidecar is down.

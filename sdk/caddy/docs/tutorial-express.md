@@ -20,7 +20,7 @@ Caddy handles TLS termination and calls the sidecar synchronously on every reque
 
 ## Step 1: Start the StyloBot sidecar
 
-The sidecar is a .NET 10 process that runs StyloBot's 49 detectors and exposes them over gRPC and REST on the same port.
+The sidecar is a .NET 10 process that runs StyloBot's 57 detectors and exposes them over gRPC and REST on the same port.
 
 ```bash
 cd Mostlylucid.BotDetection.Sidecar

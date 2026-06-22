@@ -1,6 +1,6 @@
 # StyloBot CLI
 
-**Self-hosted bot defense. Free forever.** Single binary, 49 detectors including Threat Intelligence (Spamhaus DROP / Tor / CISA KEV / cloud ranges) and behavioural pattern matching, live detection table, daemon mode, Cloudflare Tunnel support (including brownfield-retrofit `--origin-tunnel`). AOT-compiled across 6 platforms.
+**Self-hosted bot defense. Free forever.** Single binary, 57 detectors including Threat Intelligence (Spamhaus DROP / Tor / CISA KEV / cloud ranges) and behavioural pattern matching, live detection table, daemon mode, Cloudflare Tunnel support (including brownfield-retrofit `--origin-tunnel`). AOT-compiled across 6 platforms.
 
 Out of the box (6.8+): malicious bots blocked, search and AI bots rate-limited, humans untouched, bot rate limits tighten when the upstream slows down. See [`policy-defaults.md`](../Mostlylucid.BotDetection/docs/policy-defaults.md) for the full per-`BotType` mapping or run `stylobot man` for the embedded CLI reference.
 
@@ -34,7 +34,7 @@ stylobot 5080 http://localhost:3000 --llm openai --llm-key sk-...
 stylobot 5080 http://localhost:3000 --llm ollama
 ```
 
-`demo` mode is the default: all 49 detectors run, bots are logged but not blocked. Switch to `--mode production` when you want blocking enabled.
+`demo` mode is the default: all 57 detectors run, bots are logged but not blocked. Switch to `--mode production` when you want blocking enabled.
 
 No LLM runs unless you pass `--llm <provider>`. There are no model downloads, no network calls to external services, and no background initialization on first start. `llamasharp` (in-process CPU inference with HuggingFace auto-download) is only activated when you explicitly request it.
 
@@ -52,7 +52,7 @@ export SignatureLogging__SignatureHashKey="<key from genkey>"
 
 In demo mode the default key is used with a warning shown on startup. In production, set a real key.
 
-The current detector set is 49 detectors total, including the `Threat Intelligence` detector.
+The current detector set is 57 detectors total, including the `Threat Intelligence` detector.
 
 ## Threat Intelligence
 
