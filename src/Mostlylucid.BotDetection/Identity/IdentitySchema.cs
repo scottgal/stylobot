@@ -90,6 +90,16 @@ internal static class IdentitySchema
         await TryAddColumnAsync(conn,
             "ALTER TABLE identity_archetypes ADD COLUMN variance_multiplier REAL NOT NULL DEFAULT 1.0", ct);
 
+        // 2026-06-22 -- catalogue_kind discriminator on identity_archetypes
+        // lets the same table hold both classic identity archetypes
+        // ('identity') and per-mode browser centroids ('browser_mode'),
+        // served by the existing calibration + refinement + drainer
+        // infrastructure. T11b's ModeCentroidCatalogue is the first reader /
+        // writer of the 'browser_mode' rows; legacy rows backfill to
+        // 'identity' via the column default.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE identity_archetypes ADD COLUMN catalogue_kind TEXT NOT NULL DEFAULT 'identity'", ct);
+
         // 2026-06-22 -- drop fingerprint_modes parallel-axis columns. See
         // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
         // The per-mode "inferred archetype" was the parallel-axis bug: every

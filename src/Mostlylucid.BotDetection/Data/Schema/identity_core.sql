@@ -129,8 +129,18 @@ CREATE TABLE IF NOT EXISTS identity_archetypes (
     -- per-dim variance: 1.0 = no narrowing, below 1.0 = catchment tightened
     -- by calibration. Floor at 0.05 enforced by the writer; the column NOT
     -- NULL DEFAULT 1.0 keeps a hand-inserted row matcher-compatible.
-    variance_multiplier     REAL NOT NULL DEFAULT 1.0
+    variance_multiplier     REAL NOT NULL DEFAULT 1.0,
+    -- 2026-06-22 -- discriminator letting this one table hold both classic
+    -- identity archetypes ('identity') and per-mode centroids ('browser_mode')
+    -- without forking the calibration / refinement / drainer infrastructure.
+    -- See docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md
+    -- and ModeCentroidCatalogue (T11b). Default 'identity' is correct for every
+    -- pre-existing row -- they're all classic identity archetypes; mode-centroid
+    -- inserts specify 'browser_mode' explicitly.
+    catalogue_kind          TEXT NOT NULL DEFAULT 'identity'
 );
+CREATE INDEX IF NOT EXISTS ix_identity_archetypes_catalogue_kind
+    ON identity_archetypes (catalogue_kind);
 
 CREATE TABLE IF NOT EXISTS identity_vector_layout (
     id                  INTEGER PRIMARY KEY CHECK (id = 1),
