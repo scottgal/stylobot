@@ -107,32 +107,29 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     [Fact]
     public async Task FlushAsync_PersistsDirtyEntriesToSqlite()
     {
-        // RecordResponse marks dirty but does NOT touch disk. A new store
-        // pointing at the same DB only sees the entry after FlushAsync runs.
+        // RecordResponse enqueues writes that the WriteBehindLfuStore drains in
+        // the background. After FlushAsync returns, the durable tier is up-to-date.
         await _store.RecordResponseAsync("/api/perf", 200);
         await _store.RecordResponseAsync("/api/perf", 200);
         await _store.RecordResponseAsync("/api/perf", 404);
 
+        await _store.FlushAsync();
+
         // Verify via a SECOND store instance against the same file -- this is
         // the only way to prove the in-memory state crossed the disk boundary,
         // since GetAsync on the original instance would serve from cache.
-        var probe1 = new SqlitePathLifecycleStore(
+        // (An earlier revision tried to assert "not flushed yet" on a probe
+        // BEFORE calling FlushAsync; that race lost reliably on CI because
+        // the background drainer can land the batch in single-digit ms.)
+        var probe = new SqlitePathLifecycleStore(
             $"Data Source={_dbPath};Cache=Shared",
             NullLogger<SqlitePathLifecycleStore>.Instance);
-        Assert.Null(await probe1.GetAsync("/api/perf"));   // not flushed yet
-        probe1.Dispose();
-
-        await _store.FlushAsync();
-
-        var probe2 = new SqlitePathLifecycleStore(
-            $"Data Source={_dbPath};Cache=Shared",
-            NullLogger<SqlitePathLifecycleStore>.Instance);
-        var seen = await probe2.GetAsync("/api/perf");
+        var seen = await probe.GetAsync("/api/perf");
         Assert.NotNull(seen);
         Assert.Equal(2, seen!.Total2xx);
         Assert.Equal(1, seen.Total4xx);
         Assert.True(seen.IsFormerlyReal);
-        probe2.Dispose();
+        probe.Dispose();
     }
 
     [Fact]

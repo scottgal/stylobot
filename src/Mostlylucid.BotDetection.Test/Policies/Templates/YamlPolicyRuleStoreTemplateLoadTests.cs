@@ -141,7 +141,15 @@ public class YamlPolicyRuleStoreTemplateLoadTests
             // Operator opens the rule in the dashboard and saves it back to
             // disk with an edited priority and an Allow action. FOSS shape:
             // the override is a bare YAML file with the SAME id.
-            await File.WriteAllTextAsync(Path.Combine(tmp, "edit.yaml"),
+            //
+            // Write-then-rename: on Linux, File.WriteAllTextAsync into the
+            // watched directory fires inotify Created/Changed during the write
+            // itself, so the watcher's Reload races the write and can read a
+            // partial / empty file. Writing to a sibling (sub-directory the
+            // watcher ignores) and then File.Move atomic-renames the fully
+            // written file into the watched directory in one syscall, so the
+            // watcher only ever sees the final state.
+            await AtomicWriteYamlAsync(tmp, "edit.yaml",
                 $$"""
                 id: {{expectedId}}
                 scope:
@@ -157,9 +165,8 @@ public class YamlPolicyRuleStoreTemplateLoadTests
 
             await Task.WhenAny(changed.Task, Task.Delay(5000));
 
-            // On Linux CI the inotify FS watcher can take longer than the
-            // debounce window; fall back to a forced reload so the assertion
-            // stays deterministic on slow runners.
+            // Fall back to a forced reload on slow CI runners where the
+            // inotify event hasn't been delivered yet.
             if (!changed.Task.IsCompleted)
                 await store.InitializeAsync();
 
@@ -205,7 +212,8 @@ public class YamlPolicyRuleStoreTemplateLoadTests
 
             await Task.Delay(350);
 
-            await File.WriteAllTextAsync(Path.Combine(tmp, "override.yaml"),
+            // See the matching write-then-rename comment in the test above.
+            await AtomicWriteYamlAsync(tmp, "override.yaml",
                 $$"""
                 id: {{expectedId}}
                 scope:
@@ -222,7 +230,10 @@ public class YamlPolicyRuleStoreTemplateLoadTests
             await Task.WhenAny(changed.Task, Task.Delay(5000));
 
             // Fall back to forced reload on slow CI runners where inotify
-            // takes longer than the debounce window.
+            // takes longer than the debounce window. Do NOT force a second
+            // reload when the watcher already fired -- divergence detection
+            // is one-shot (a second reload converges priorHashes to the bare
+            // rule's hash and wipes the diverged flag).
             if (!changed.Task.IsCompleted)
                 await store.InitializeAsync();
 
@@ -231,6 +242,36 @@ public class YamlPolicyRuleStoreTemplateLoadTests
         finally
         {
             Directory.Delete(tmp, recursive: true);
+        }
+    }
+
+    /// <summary>
+    ///     Write <paramref name="content"/> to a sibling staging path then
+    ///     <see cref="File.Move(string, string, bool)"/> it into
+    ///     <paramref name="watchedDir"/> under <paramref name="fileName"/>.
+    ///     Rename is atomic on Linux (rename(2)) and macOS, so the
+    ///     <see cref="FileSystemWatcher"/> never sees a partial write -- the
+    ///     file appears in the watched directory in its final, fully-written
+    ///     form. Avoids the inotify mid-write race that flakes these tests on
+    ///     CI when written directly via <see cref="File.WriteAllTextAsync"/>.
+    /// </summary>
+    private static async Task AtomicWriteYamlAsync(string watchedDir, string fileName, string content)
+    {
+        // Sibling staging dir -- NOT inside watchedDir, because the watcher's
+        // filter would still see the write events even with IncludeSubdirectories=false
+        // depending on platform quirks; safer to keep it fully out of the tree.
+        var staging = Path.Combine(Path.GetTempPath(), $"stylobot-stage-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(staging);
+        var stagedPath = Path.Combine(staging, fileName);
+        try
+        {
+            await File.WriteAllTextAsync(stagedPath, content);
+            File.Move(stagedPath, Path.Combine(watchedDir, fileName), overwrite: true);
+        }
+        finally
+        {
+            if (Directory.Exists(staging))
+                Directory.Delete(staging, recursive: true);
         }
     }
 }

@@ -71,7 +71,11 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
 
         // The persist is fire-and-forget; wait up to 8 s so the Task.Run background
         // task completes even when the full test suite saturates the thread-pool.
+        // BOTH writes -- detection and signature -- are awaited inside the same
+        // Task.Run, so the signature lands AFTER the detection TCS fires. Wait
+        // for the signature TCS too or the count assertion races the second await.
         await eventStore.WaitForDetectionsAsync(1, timeoutMs: 8000);
+        await eventStore.WaitForSignaturesAsync(1, timeoutMs: 8000);
 
         // Assert ----------------------------------------------------------
         eventStore.Detections.Should().HaveCount(1,
@@ -122,6 +126,7 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
         public List<DashboardDetectionEvent> Detections { get; } = new();
         public List<DashboardSignatureEvent> Signatures { get; } = new();
         private readonly TaskCompletionSource _firstDetection = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _firstSignature = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task AddDetectionAsync(DashboardDetectionEvent detection)
         {
@@ -135,27 +140,37 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
 
         public Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature)
         {
-            lock (Signatures) Signatures.Add(signature);
+            lock (Signatures)
+            {
+                Signatures.Add(signature);
+                _firstSignature.TrySetResult();
+            }
             return Task.FromResult(signature);
         }
 
-        public async Task WaitForDetectionsAsync(int expectedCount, int timeoutMs = 2000)
+        public Task WaitForDetectionsAsync(int expectedCount, int timeoutMs = 2000)
+            => WaitForAsync(Detections, _firstDetection.Task, expectedCount, timeoutMs);
+
+        public Task WaitForSignaturesAsync(int expectedCount, int timeoutMs = 2000)
+            => WaitForAsync(Signatures, _firstSignature.Task, expectedCount, timeoutMs);
+
+        private static async Task WaitForAsync<T>(List<T> bucket, Task signal, int expectedCount, int timeoutMs)
         {
             // Count check comes BEFORE the deadline check on every iteration,
             // including the final one. The previous code checked the deadline first
             // which meant a detection arriving right at the boundary was missed:
-            // we'd exit the while condition as false and never see Detections.Count==1.
+            // we'd exit the while condition as false and never see Count==1.
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             while (true)
             {
                 int seen;
-                lock (Detections) seen = Detections.Count;
+                lock (bucket) seen = bucket.Count;
                 if (seen >= expectedCount) return;
                 if (DateTime.UtcNow >= deadline) return;
-                // Wait for the TCS signal (fired by AddDetectionAsync) or a 50ms
-                // poll tick — whichever arrives first. 50ms > 20ms to reduce
+                // Wait for the TCS signal (fired by AddXxxAsync) or a 50ms
+                // poll tick -- whichever arrives first. 50ms > 20ms to reduce
                 // thread-pool pressure under the full parallel test suite.
-                await Task.WhenAny(_firstDetection.Task, Task.Delay(50));
+                await Task.WhenAny(signal, Task.Delay(50));
             }
         }
 
