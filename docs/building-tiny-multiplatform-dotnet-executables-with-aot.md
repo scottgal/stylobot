@@ -612,7 +612,7 @@ The GitHub Actions workflow provided here builds all major platforms automatical
 ## Complete Example Repository
 
 For a complete working example with GitHub Actions, see:
-[Mostlylucid Bot Detection Console Gateway](https://github.com/scottgal/mostlylucid.stylobot/tree/main/Mostlylucid.BotDetection.Console)
+[Mostlylucid Bot Detection Console Gateway](https://github.com/scottgal/stylobot/tree/main/src/Mostlylucid.BotDetection.Console)
 
 ---
 

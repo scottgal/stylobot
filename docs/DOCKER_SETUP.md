@@ -107,7 +107,7 @@ sudo usermod -aG docker $USER
 
 ```bash
 # Clone the repository
-git clone https://github.com/scottgal/mostlylucid.stylobot.git /opt/stylobot
+git clone https://github.com/scottgal/stylobot.git /opt/stylobot
 cd /opt/stylobot
 
 # Create environment file
