@@ -53,6 +53,25 @@ public sealed class IdentityArchetypeRegistry
     }
 
     /// <summary>
+    ///     Re-load archetypes from the embedded YAML resources, wiping any
+    ///     in-memory calibration deltas (refined centroids, variance multipliers,
+    ///     pin counters, neighbour annotations). Used by the BDF-replay
+    ///     <c>/reset-identity</c> endpoint so successive scenarios start from a
+    ///     deterministic seed state, even after earlier scenarios drove
+    ///     calibration ticks that mutated the in-memory archetype shape.
+    /// </summary>
+    public void ResetToSeedState()
+    {
+        lock (_writeGate)
+        {
+            _archetypes = LoadFromEmbeddedResources();
+            _logger.LogInformation(
+                "Identity archetype registry reset to seed state ({Count} archetypes)",
+                _archetypes.Count);
+        }
+    }
+
+    /// <summary>
     ///     Promote a freshly-loaded arcjet well-known-bot catalogue into the
     ///     archetype registry. Called by <c>WellKnownBotRefreshService</c>
     ///     after a successful catalog download. Each entry that does NOT
@@ -124,7 +143,7 @@ public sealed class IdentityArchetypeRegistry
 
     /// <summary>
     ///     Lookup by archetype id (case-insensitive). Returns null when the id is null, empty,
-    ///     or not present in the registry. Used by <see cref="FingerprintMatchContributor"/>
+    ///     or not present in the registry. Used by <see cref="Mostlylucid.BotDetection.Orchestration.ContributingDetectors.FingerprintMatchContributor"/>
     ///     to resolve a matched fingerprint's <c>InferredClientType</c> to a display name
     ///     without iterating <see cref="All"/> on every match.
     /// </summary>
@@ -285,7 +304,7 @@ public sealed class IdentityArchetypeRegistry
 
     /// <summary>
     ///     Per-archetype similarity score for <paramref name="vector"/>. Same scale
-    ///     as <see cref="FindNearest"/>; the dashboard's drift surface reads this
+    ///     as <see cref="FindNearest(float[])"/>; the dashboard's drift surface reads this
     ///     for the fingerprint's <c>ArchetypeOrigin</c> alongside the current-nearest.
     /// </summary>
     public double? ScoreAgainst(float[] vector, IdentityArchetype? archetype)
@@ -342,19 +361,6 @@ public sealed class IdentityArchetypeRegistry
             archetype.VarianceMultiplier);
     }
 
-    /// <summary>
-    ///     Minimum number of distinct slots an archetype must assert AND the
-    ///     observation must populate before it can be considered a serious match.
-    ///     Below this, the per-dim averaging structurally favours sparse
-    ///     archetypes -- a 3-of-4 trivial-match (e.g. accept=*/*, gzip,
-    ///     no-sec-fetch, no-upgrade-insecure) outscores a 4-of-6 substantive
-    ///     match because the denominator (totalMask) is smaller. Closes the
-    ///     "Mastodon archetype eats every minimal-header request" regression
-    ///     diagnosed on staging: curl + Chrome XHR + Bingbot + Edge all landed
-    ///     on mastodon.yaml because it asserted only 4 generic dimensions.
-    /// </summary>
-    private const int MinPopulatedSlotsForMatch = 4;
-
     private double MaskedSimilarityCore(
         float[] vector, float[] centroid, float[] mask, float[] variance,
         double varianceMultiplier = 1.0)
@@ -371,7 +377,6 @@ public sealed class IdentityArchetypeRegistry
 
         double weightedLogLikelihood = 0;
         double totalMask = 0;
-        var populatedSlots = 0;
 
         foreach (var slot in _encoder.Layout.Slots)
         {
@@ -386,7 +391,6 @@ public sealed class IdentityArchetypeRegistry
                 if (Math.Abs(vector[i]) > presenceEpsilon) { obsPopulated = true; break; }
             }
             if (!obsPopulated) continue;
-            populatedSlots++;
 
             for (var i = slot.Offset; i < end; i++)
             {
@@ -408,16 +412,6 @@ public sealed class IdentityArchetypeRegistry
         // Sigmoid bounds the score to (0, 1) regardless of variance and deviation magnitudes.
         var rawScore = 1.0 / (1.0 + Math.Exp(-avgLogLikelihood));
 
-        // Sparsity penalty: when fewer than MinPopulatedSlotsForMatch slots
-        // overlapped between the archetype's asserted dims and the observation's
-        // populated dims, scale the score down so a sparse archetype can't beat
-        // a denser one that matched on more substantive evidence. Linear scale
-        // (populated / minRequired) inside the threshold; full score above.
-        if (populatedSlots < MinPopulatedSlotsForMatch)
-        {
-            var sparsityPenalty = (double)populatedSlots / MinPopulatedSlotsForMatch;
-            rawScore *= sparsityPenalty;
-        }
         return rawScore;
     }
 
@@ -502,7 +496,7 @@ public sealed class IdentityArchetypeRegistry
             try
             {
                 var synthesized = SynthesizeFromBotPattern(entry);
-                if (synthesized is null) continue;
+                if (synthesized is null || string.IsNullOrEmpty(synthesized.ArchetypeId)) continue;
                 // Explicit YAML wins on ID collision -- the hand-crafted root
                 // expresses richer dimensional pins (Sec-Fetch shape, Accept
                 // collapse, etc.) than the single UA-family assertion the
@@ -613,6 +607,9 @@ public sealed class IdentityArchetypeRegistry
 
     private IdentityArchetype Compile(IdentityArchetypeYaml dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.ArchetypeId))
+            throw new InvalidOperationException("Identity archetype YAML missing archetype_id");
+
         // Build the raw-values dictionary the encoder consumes. Each named YAML dimension fills
         // its corresponding slot; unnamed dimensions stay absent (encoder leaves them at 0).
         var rawValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
@@ -671,7 +668,7 @@ public sealed class IdentityArchetypeRegistry
     ///     Used by <see cref="Orchestration.ContributingDetectors.FingerprintMatchContributor"/>
     ///     to pick the archetype that drives <c>archetypeOrigin</c>, the
     ///     displayed identity name, and the drift "Origin -> Current"
-    ///     comparison. The full <see cref="FindNearest"/> still considers
+    ///     comparison. The full <see cref="FindNearest(float[])"/> still considers
     ///     modes -- they're needed as seed priors so a Chrome XHR doesn't
     ///     drift to googlebot at allocation -- but the identity-display
     ///     surface MUST consult this client-only view, otherwise the
