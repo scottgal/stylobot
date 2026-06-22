@@ -3937,8 +3937,8 @@ public class StyloBotDashboardMiddleware
             services.Add(new ServiceStatus("In-Memory", true));
 
         // Check if Redis is available
-        var redis = context.RequestServices.GetService(
-            Type.GetType("Stylobot.Commercial.Cache.Redis.IRedisCacheProvider, Stylobot.Commercial.Cache.Redis"));
+        var redisType = Type.GetType("Stylobot.Commercial.Cache.Redis.IRedisCacheProvider, Stylobot.Commercial.Cache.Redis");
+        var redis = redisType is not null ? context.RequestServices.GetService(redisType) : null;
         if (redis is not null)
             services.Add(new ServiceStatus("Redis", true));
 
@@ -3947,8 +3947,8 @@ public class StyloBotDashboardMiddleware
         var packName = packProvider?.ActivePack.Name ?? "Default";
 
         // Check LLM
-        var llm = context.RequestServices.GetService(
-            Type.GetType("Mostlylucid.BotDetection.Services.ILlmClassificationService, Mostlylucid.BotDetection"));
+        var llmType = Type.GetType("Mostlylucid.BotDetection.Services.ILlmClassificationService, Mostlylucid.BotDetection");
+        var llm = llmType is not null ? context.RequestServices.GetService(llmType) : null;
         var llmConnected = llm is not null && llm.GetType().Name != "NullLlmClassificationService";
         var llmProvider = llmConnected ? llm!.GetType().Name.Replace("LlmClassificationService", "").Replace("Classification", "") : null;
 
@@ -5822,8 +5822,8 @@ public class StyloBotDashboardMiddleware
                     ModeId             = m.ModeId,
                     CentroidMaturity   = m.CentroidMaturity,
                     ObservationCount   = m.ObservationCount,
-                    InferredArchetype  = m.InferredArchetype,
-                    InferredConfidence = m.InferredConfidence,
+                    InferredArchetype  = null,
+                    InferredConfidence = null,
                     FirstSeen          = m.FirstSeen,
                     LastSeen           = m.LastSeen,
                 })

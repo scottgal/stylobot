@@ -101,78 +101,6 @@ public sealed class FingerprintModeAbsorptionService : IDisposable
         {
             _logger.LogWarning(ex, "BrowserMode drain tick failed");
         }
-
-        // Reconciliation pass: re-classify a bounded batch of pre-existing
-        // mode rows against the current matcher contract. Independent of the
-        // drain above -- runs even when no new observations arrived this
-        // tick, because the rows that need reconciling are the ones with
-        // NO recent traffic (the drain reabsorbs the active ones). Bounded
-        // by IdentityOptions.BrowserMode.ReconcileMaxRowsPerTick so the pass
-        // amortises across ticks instead of spiking CPU after deploy.
-        try
-        {
-            var reclassified = await ReconcileOnceAsync(_options.BrowserMode.ReconcileMaxRowsPerTick, ct);
-            if (reclassified > 0)
-                _logger.LogInformation("BrowserMode reconcile reclassified {Count} mode rows", reclassified);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "BrowserMode reconcile tick failed");
-        }
-    }
-
-    /// <summary>
-    ///     One reconciliation pass. Fetches up to <paramref name="maxRows"/>
-    ///     mode rows whose <c>inferred_archetype</c> may be stale relative to
-    ///     the current archetype-matcher contract (UA gate + future
-    ///     contracts), looks up the parent fingerprint's most-recent
-    ///     <c>ua_family</c>, re-runs <see cref="IdentityArchetypeRegistry.FindNearest"/>
-    ///     under that gate, and writes the new classification when it
-    ///     differs from what the row currently holds. Returns the number of
-    ///     rows reclassified (zero when everything was already consistent or
-    ///     when the threshold filtered all candidates out).
-    ///
-    ///     The store filters out rows whose parent never recorded a
-    ///     <c>ua_family</c>, so the matcher gate always fires here -- this is
-    ///     not a "rerun the unfiltered matcher" pass.
-    /// </summary>
-    public async Task<int> ReconcileOnceAsync(int maxRows, CancellationToken ct)
-    {
-        if (maxRows <= 0) return 0;
-
-        var candidates = await _modeStore.ListModeReconciliationCandidatesAsync(maxRows, ct);
-        if (candidates.Count == 0) return 0;
-
-        var reclassified = 0;
-        foreach (var c in candidates)
-        {
-            if (ct.IsCancellationRequested) break;
-            var match = _archetypes.FindNearest(c.Centroid, c.ParentUaFamily);
-
-            string? newArchetype = null;
-            double? newConfidence = null;
-            if (match is not null && match.Score >= _options.BrowserMode.MinInferredArchetypeScore)
-            {
-                newArchetype = match.Archetype.ArchetypeId;
-                newConfidence = match.Score;
-            }
-
-            // No-op when the row is already consistent with the gated result.
-            if (string.Equals(newArchetype, c.CurrentInferredArchetype, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            await _modeStore.UpdateModeInferredArchetypeAsync(
-                c.FingerprintId, c.ModeId, newArchetype, newConfidence, ct);
-            reclassified++;
-            _logger.LogDebug(
-                "Reconciled mode row {Fp}/{Mode}: {Old} -> {New} (ua={Ua})",
-                c.FingerprintId, c.ModeId,
-                c.CurrentInferredArchetype ?? "(none)",
-                newArchetype ?? "(none)",
-                c.ParentUaFamily);
-        }
-        return reclassified;
     }
 
     /// <summary>
@@ -268,39 +196,6 @@ public sealed class FingerprintModeAbsorptionService : IDisposable
             weights = existing.Weights;
         }
 
-        // Recompute the per-mode nearest archetype against the freshly merged centroid.
-        // Mirrors what FingerprintAbsorptionService does for the parent fingerprint:
-        // every absorption recomputes the inferred archetype, so the per-mode row's
-        // "Nearest archetype" cell on the signature detail tracks the centroid as it
-        // evolves. Gated by IdentityOptions.BrowserMode.MinInferredArchetypeScore so
-        // sparse / noisy modes don't latch onto an umbrella centroid -- under threshold
-        // the field stays null and the UI renders "-" (explicit "no confident match"
-        // beats a confident-looking false positive).
-        //
-        // Per project_centroid_learning_feedback_loop, the same registry will eventually
-        // hold BDF-derived archetypes alongside the hand-curated YAML; this call is the
-        // single read-site they both feed.
-        // Pick the most recently observed UA family in the batch as the gate input. The
-        // batch covers one (fingerprint, mode) tuple's recent observations so the family
-        // is typically stable across them; "latest in the batch" matches what the operator
-        // sees as the current request's claim. Falls back to null when the column was
-        // null on every row (legacy data); the matcher treats null as "no gate".
-        string? batchUaFamily = null;
-        for (var k = count - 1; k >= 0; k--)
-        {
-            var ua = batch[start + k].UaFamily;
-            if (!string.IsNullOrEmpty(ua)) { batchUaFamily = ua; break; }
-        }
-
-        string? inferredArchetype = null;
-        double? inferredConfidence = null;
-        var nearest = _archetypes.FindNearest(mergedCentroid, batchUaFamily);
-        if (nearest is not null && nearest.Score >= _options.BrowserMode.MinInferredArchetypeScore)
-        {
-            inferredArchetype = nearest.Archetype.ArchetypeId;
-            inferredConfidence = nearest.Score;
-        }
-
         var updated = new FingerprintBrowserMode
         {
             FingerprintId = fingerprintId,
@@ -311,8 +206,6 @@ public sealed class FingerprintModeAbsorptionService : IDisposable
             ObservationCount = newObservationCount,
             FirstSeen = firstSeen,
             LastSeen = lastSeen,
-            InferredArchetype = inferredArchetype,
-            InferredConfidence = inferredConfidence,
         };
 
         var ids = new long[count];

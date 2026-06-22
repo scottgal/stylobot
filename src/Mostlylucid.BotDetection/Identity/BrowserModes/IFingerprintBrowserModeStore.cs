@@ -33,8 +33,7 @@ public interface IFingerprintBrowserModeStore
     /// <summary>
     ///     Upsert the mode row. Insert when the (fingerprint_id, mode_id)
     ///     tuple is new, update centroid/weights/maturity/observation_count/
-    ///     last_seen/inferred_archetype/inferred_confidence otherwise.
-    ///     first_seen is preserved on update.
+    ///     last_seen otherwise. first_seen is preserved on update.
     /// </summary>
     Task UpsertModeAsync(FingerprintBrowserMode mode, CancellationToken ct = default);
 
@@ -69,10 +68,9 @@ public interface IFingerprintBrowserModeStore
 
     /// <summary>
     ///     Commit a batched absorption: write the new mode row state (centroid /
-    ///     maturity / observation_count / last_seen / inferred archetype) and
-    ///     mark the listed observation ids absorbed in one transaction. The
-    ///     LFU cache slot for the fingerprint is invalidated so the next read
-    ///     sees the new state.
+    ///     maturity / observation_count / last_seen) and mark the listed
+    ///     observation ids absorbed in one transaction. The LFU cache slot for
+    ///     the fingerprint is invalidated so the next read sees the new state.
     /// </summary>
     Task AbsorbModeObservationsAsync(
         FingerprintBrowserMode updated,
@@ -88,51 +86,7 @@ public interface IFingerprintBrowserModeStore
     Task<IReadOnlyList<string>> ListFingerprintIdsWithModesAsync(
         int maxRows, CancellationToken ct = default);
 
-    /// <summary>
-    ///     Returns up to <paramref name="maxRows"/> mode rows whose
-    ///     <c>inferred_archetype</c> may need re-evaluation against the current
-    ///     archetype-matcher contract. Each candidate carries the parent
-    ///     fingerprint's most-recent <c>ua_family</c> from
-    ///     <c>fingerprint_observations</c> so the reconcile pass can feed it to
-    ///     <see cref="IdentityArchetypeRegistry.FindNearest"/>'s UA gate
-    ///     without an extra round-trip. Rows whose parent never recorded a
-    ///     <c>ua_family</c> are skipped -- the gate is a no-op in that case
-    ///     and there's no reclassification work to do.
-    ///     <para>
-    ///     Used by <see cref="FingerprintModeAbsorptionService"/> on its
-    ///     tick to heal pre-existing rows that absorbed before the UA gate
-    ///     went live (the gate doesn't retroactively rewrite stored rows on
-    ///     its own -- absorption only fires when fresh observations land).
-    ///     </para>
-    /// </summary>
-    Task<IReadOnlyList<ModeReconciliationCandidate>> ListModeReconciliationCandidatesAsync(
-        int maxRows, CancellationToken ct = default);
-
-    /// <summary>
-    ///     Update only the <c>inferred_archetype</c> + <c>inferred_confidence</c>
-    ///     columns on one mode row, leaving centroid / maturity / observation
-    ///     state untouched. Called by the reconcile pass when re-running the
-    ///     gated matcher produces a different classification than what the row
-    ///     currently holds. The fingerprint-modes LFU cache slot is invalidated
-    ///     so the next read sees the new value.
-    /// </summary>
-    Task UpdateModeInferredArchetypeAsync(
-        string fingerprintId, string modeId,
-        string? inferredArchetype, double? inferredConfidence,
-        CancellationToken ct = default);
 }
-
-/// <summary>
-///     One row returned by
-///     <see cref="IFingerprintBrowserModeStore.ListModeReconciliationCandidatesAsync"/>.
-///     Carries everything the reconcile pass needs in a single fetch.
-/// </summary>
-public sealed record ModeReconciliationCandidate(
-    string FingerprintId,
-    string ModeId,
-    float[] Centroid,
-    string? CurrentInferredArchetype,
-    string ParentUaFamily);
 
 /// <summary>
 ///     One unabsorbed observation row returned by the drainer's batch fetch.

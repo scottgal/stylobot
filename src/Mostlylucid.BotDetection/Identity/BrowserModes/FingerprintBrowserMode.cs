@@ -32,10 +32,4 @@ public sealed record FingerprintBrowserMode
 
     public required DateTime FirstSeen { get; init; }
     public required DateTime LastSeen { get; init; }
-
-    /// <summary>Nearest archetype id for this mode's centroid, recomputed on a tick.</summary>
-    public string? InferredArchetype { get; init; }
-
-    /// <summary>Score of the <see cref="InferredArchetype"/> match (presence-aware similarity).</summary>
-    public double? InferredConfidence { get; init; }
 }
