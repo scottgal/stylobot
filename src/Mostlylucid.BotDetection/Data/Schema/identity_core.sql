@@ -156,8 +156,6 @@ CREATE TABLE IF NOT EXISTS fingerprint_modes (
     observation_count     INTEGER NOT NULL DEFAULT 0,
     first_seen            TEXT NOT NULL,
     last_seen             TEXT NOT NULL,
-    inferred_archetype    TEXT,
-    inferred_confidence   REAL,
     PRIMARY KEY (fingerprint_id, mode_id)
 );
 CREATE INDEX IF NOT EXISTS ix_fm_last_seen ON fingerprint_modes(last_seen DESC);

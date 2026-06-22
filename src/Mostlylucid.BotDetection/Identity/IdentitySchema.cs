@@ -89,6 +89,21 @@ internal static class IdentitySchema
         // the calibrated catchment immediately at boot.
         await TryAddColumnAsync(conn,
             "ALTER TABLE identity_archetypes ADD COLUMN variance_multiplier REAL NOT NULL DEFAULT 1.0", ct);
+
+        // 2026-06-22 -- drop fingerprint_modes parallel-axis columns. See
+        // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
+        // The per-mode "inferred archetype" was the parallel-axis bug: every
+        // browser-mode row got an identity-archetype label that was nearly
+        // always wrong (mastodon-for-everything, then chrome-xhr-for-everything).
+        // Bot-raw mode identity is now read from the parent
+        // fingerprints.inferred_client_type instead. SQLite ALTER TABLE DROP
+        // COLUMN landed in 3.35; the gateway ships >= 3.42. The CREATE in
+        // identity_core.sql already omits these columns for fresh schemas; the
+        // DROPs below carry forward existing databases.
+        await TryDropColumnAsync(conn,
+            "ALTER TABLE fingerprint_modes DROP COLUMN inferred_archetype", ct);
+        await TryDropColumnAsync(conn,
+            "ALTER TABLE fingerprint_modes DROP COLUMN inferred_confidence", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)
@@ -100,6 +115,25 @@ internal static class IdentitySchema
             await cmd.ExecuteNonQueryAsync(ct);
         }
         catch (SqliteException ex) when (ex.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase))
+        {
+            // Already migrated; nothing to do.
+        }
+    }
+
+    /// <summary>
+    ///     Forward-only ALTER TABLE DROP COLUMN helper. SQLite's DROP COLUMN has no
+    ///     <c>IF EXISTS</c>, so the second call after a successful drop raises
+    ///     "no such column"; we swallow that to stay idempotent.
+    /// </summary>
+    private static async Task TryDropColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)
+    {
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (SqliteException ex) when (ex.Message.Contains("no such column", StringComparison.OrdinalIgnoreCase))
         {
             // Already migrated; nothing to do.
         }
@@ -169,11 +203,11 @@ internal static class IdentitySchema
         cmd.CommandText = """
             INSERT OR IGNORE INTO fingerprint_modes (
                 fingerprint_id, mode_id, centroid, centroid_maturity, weights,
-                observation_count, first_seen, last_seen, inferred_archetype, inferred_confidence
+                observation_count, first_seen, last_seen
             )
             SELECT
                 f.fingerprint_id, 'unknown', f.centroid, f.centroid_maturity, f.weights,
-                f.observation_count, f.first_seen, f.last_seen, f.inferred_client_type, f.inferred_type_confidence
+                f.observation_count, f.first_seen, f.last_seen
               FROM fingerprints f
              WHERE NOT EXISTS (
                    SELECT 1 FROM fingerprint_modes m
