@@ -79,6 +79,16 @@ internal static class IdentitySchema
             "ALTER TABLE fingerprint_observations ADD COLUMN ua_family TEXT", ct);
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprint_mode_observations ADD COLUMN ua_family TEXT", ct);
+
+        // Phase 3 umbrella-shrinkage (2026-06-21). VarianceMultiplier on each
+        // archetype is the calibration-tuned per-archetype tightening factor
+        // applied to the matcher's per-dim variance. 1.0 = no narrowing
+        // (identical to pre-Phase-3 behaviour); below 1.0 = catchment has been
+        // narrowed because drift metrics flagged leakage / bloat. Persisted so
+        // the shrinkage survives process restart and the matcher rehydrates
+        // the calibrated catchment immediately at boot.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE identity_archetypes ADD COLUMN variance_multiplier REAL NOT NULL DEFAULT 1.0", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)

@@ -80,14 +80,25 @@ public class SqliteFingerprintStore : IFingerprintStore
         }
     }
 
+    /// <summary>
+    ///     Optional adaptive-trigger signal source. When non-null, every
+    ///     successful <see cref="RecordObservationAsync"/> increments the
+    ///     `obs.unabsorbed` counter so the calibration trigger can react to
+    ///     observation pressure. DI registers the concrete
+    ///     <see cref="Triggers.CalibrationSignalSource"/>; tests pass null.
+    /// </summary>
+    private readonly Triggers.IAdaptiveTriggerSignalSource? _triggerSignals;
+
     public SqliteFingerprintStore(
         ILogger<SqliteFingerprintStore> logger,
         IOptions<BotDetectionOptions> options,
-        IdentityVectorLayout layout)
+        IdentityVectorLayout layout,
+        Triggers.IAdaptiveTriggerSignalSource? triggerSignals = null)
     {
         _logger = logger;
         _layout = layout;
         _engineOptions = options.Value.Identity.Engine;
+        _triggerSignals = triggerSignals;
         var dbPath = options.Value.DatabasePath
             ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
         _dataDir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
@@ -700,6 +711,12 @@ public class SqliteFingerprintStore : IFingerprintStore
         }
 
         InvalidateFingerprintCache(fingerprintId);
+
+        // Adaptive trigger signal: one obs arrived. Cast-to-CalibrationSignalSource
+        // would be tighter, but the interface keeps this seam testable with the
+        // null source and a future per-host signal source.
+        if (_triggerSignals is Triggers.CalibrationSignalSource calSignals)
+            calSignals.OnObservation();
 
         try
         {
@@ -1780,12 +1797,13 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.CommandText = """
             INSERT INTO identity_archetypes
                 (archetype_id, name, description, centroid, dimension_mask, archetype_kind,
-                 descendant_count, last_refined_at)
-                VALUES (@id, @name, @desc, @centroid, @mask, @kind, @count, @ts)
+                 descendant_count, last_refined_at, variance_multiplier)
+                VALUES (@id, @name, @desc, @centroid, @mask, @kind, @count, @ts, @vmult)
                 ON CONFLICT(archetype_id) DO UPDATE SET
-                    centroid         = excluded.centroid,
-                    descendant_count = excluded.descendant_count,
-                    last_refined_at  = excluded.last_refined_at
+                    centroid            = excluded.centroid,
+                    descendant_count    = excluded.descendant_count,
+                    last_refined_at     = excluded.last_refined_at,
+                    variance_multiplier = excluded.variance_multiplier
             """;
         BindArchetypeParams(cmd, archetype);
         await cmd.ExecuteNonQueryAsync(ct);
@@ -1803,8 +1821,8 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.CommandText = """
             INSERT INTO identity_archetypes
                 (archetype_id, name, description, centroid, dimension_mask, archetype_kind,
-                 descendant_count, last_refined_at)
-                VALUES (@id, @name, @desc, @centroid, @mask, @kind, @count, @ts)
+                 descendant_count, last_refined_at, variance_multiplier)
+                VALUES (@id, @name, @desc, @centroid, @mask, @kind, @count, @ts, @vmult)
                 ON CONFLICT(archetype_id) DO NOTHING
             """;
         BindArchetypeParams(cmd, archetype);
@@ -1821,6 +1839,149 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.Parameters.AddWithValue("@kind", archetype.ArchetypeKind);
         cmd.Parameters.AddWithValue("@count", archetype.DescendantCount);
         cmd.Parameters.AddWithValue("@ts", archetype.LastRefinedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("@vmult", archetype.VarianceMultiplier);
+    }
+
+    /// <inheritdoc/>
+    public async Task InsertDriftMetricsAsync(
+        IReadOnlyList<ArchetypeDriftMetric> metrics,
+        CancellationToken ct = default)
+    {
+        if (metrics.Count == 0) return;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO archetype_drift_metrics
+                    (archetype_id, ua_family, matches_asserted_ua, descendant_count,
+                     mean_l2_to_centroid, variance_l2_to_centroid, p90_l2_to_centroid,
+                     calibrated_at)
+                VALUES
+                    (@id, @ua, @matches, @count, @mean, @var, @p90, @ts)
+                ON CONFLICT(archetype_id, ua_family, calibrated_at) DO UPDATE SET
+                    matches_asserted_ua    = excluded.matches_asserted_ua,
+                    descendant_count       = excluded.descendant_count,
+                    mean_l2_to_centroid    = excluded.mean_l2_to_centroid,
+                    variance_l2_to_centroid = excluded.variance_l2_to_centroid,
+                    p90_l2_to_centroid     = excluded.p90_l2_to_centroid
+                """;
+            // Reuse one prepared command for the whole batch -- typical batch is
+            // O(archetypes × distinct-uas) so ~100-500 rows per calibration cycle.
+            var pId    = cmd.Parameters.Add("@id", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pUa    = cmd.Parameters.Add("@ua", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pMatch = cmd.Parameters.Add("@matches", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var pCount = cmd.Parameters.Add("@count", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var pMean  = cmd.Parameters.Add("@mean", Microsoft.Data.Sqlite.SqliteType.Real);
+            var pVar   = cmd.Parameters.Add("@var", Microsoft.Data.Sqlite.SqliteType.Real);
+            var pP90   = cmd.Parameters.Add("@p90", Microsoft.Data.Sqlite.SqliteType.Real);
+            var pTs    = cmd.Parameters.Add("@ts", Microsoft.Data.Sqlite.SqliteType.Text);
+            await cmd.PrepareAsync(ct);
+
+            foreach (var m in metrics)
+            {
+                pId.Value    = m.ArchetypeId;
+                pUa.Value    = m.UaFamily ?? string.Empty;
+                pMatch.Value = m.MatchesAssertedUa ? 1 : 0;
+                pCount.Value = m.DescendantCount;
+                pMean.Value  = m.MeanL2ToCentroid;
+                pVar.Value   = m.VarianceL2ToCentroid;
+                pP90.Value   = m.P90L2ToCentroid;
+                pTs.Value    = m.CalibratedAt.ToString("O");
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+        }
+        await tx.CommitAsync(ct);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<DriftObservationRow>> ListRecentObservationsForDriftAsync(
+        int maxRowsPerArchetype,
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // Window-function shape: rank observations per fingerprint by observed_at
+        // DESC, keep the most recent maxRowsPerArchetype per (archetype, ua) pair.
+        // SQLite has supported ROW_NUMBER() OVER(...) since 3.25.0 (2018) and the
+        // identity_core schema already uses CTEs elsewhere -- safe to assume.
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            WITH ranked AS (
+                SELECT
+                    fp.inferred_client_type AS archetype_id,
+                    COALESCE(o.ua_family, '') AS ua_family,
+                    o.vector AS vector,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY fp.inferred_client_type, COALESCE(o.ua_family, '')
+                        ORDER BY o.observed_at DESC
+                    ) AS rn
+                FROM fingerprint_observations AS o
+                JOIN fingerprints AS fp ON fp.fingerprint_id = o.fingerprint_id
+                WHERE fp.inferred_client_type IS NOT NULL
+                  AND fp.inferred_client_type != ''
+            )
+            SELECT archetype_id, ua_family, vector
+              FROM ranked
+             WHERE rn <= @cap
+            """;
+        cmd.Parameters.AddWithValue("@cap", maxRowsPerArchetype);
+
+        var rows = new List<DriftObservationRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new DriftObservationRow(
+                ArchetypeId: reader.GetString(0),
+                UaFamily: reader.GetString(1),
+                ObservationVector: BlobToFloats((byte[])reader.GetValue(2))));
+        }
+        return rows;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ArchetypeDriftMetric>> ListLatestDriftMetricsAsync(
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // Latest-cycle filter: pull rows whose calibrated_at equals the max value
+        // in the table. One SELECT with a correlated max(); cheap because
+        // ix_adm_calibrated_at covers the max scan.
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT archetype_id, ua_family, matches_asserted_ua, descendant_count,
+                   mean_l2_to_centroid, variance_l2_to_centroid, p90_l2_to_centroid,
+                   calibrated_at
+              FROM archetype_drift_metrics
+             WHERE calibrated_at = (SELECT MAX(calibrated_at) FROM archetype_drift_metrics)
+             ORDER BY archetype_id, ua_family
+            """;
+        var rows = new List<ArchetypeDriftMetric>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new ArchetypeDriftMetric
+            {
+                ArchetypeId         = reader.GetString(0),
+                UaFamily            = reader.GetString(1),
+                MatchesAssertedUa   = reader.GetInt32(2) != 0,
+                DescendantCount     = reader.GetInt32(3),
+                MeanL2ToCentroid    = reader.GetDouble(4),
+                VarianceL2ToCentroid = reader.GetDouble(5),
+                P90L2ToCentroid     = reader.GetDouble(6),
+                CalibratedAt        = DateTime.Parse(reader.GetString(7), null,
+                                       System.Globalization.DateTimeStyles.RoundtripKind),
+            });
+        }
+        return rows;
     }
 
     private Fingerprint ReadFingerprint(SqliteDataReader reader) => new()

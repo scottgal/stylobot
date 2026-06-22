@@ -42,6 +42,14 @@ public sealed class FingerprintAbsorptionService : IDisposable
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
+    /// <summary>
+    ///     Optional adaptive-trigger signal source. When non-null, every
+    ///     successful absorption reports the centroid L2 delta so the
+    ///     calibration trigger reacts to actual population drift, not just
+    ///     observation volume. Null in unit tests that bypass DI.
+    /// </summary>
+    private readonly Triggers.IAdaptiveTriggerSignalSource? _triggerSignals;
+
     // Per-fp debounce: maps fingerprint id to the next-fire deadline.
     private readonly ConcurrentDictionary<string, DateTime> _pendingByFingerprint
         = new(StringComparer.Ordinal);
@@ -63,13 +71,15 @@ public sealed class FingerprintAbsorptionService : IDisposable
         IFingerprintStore store,
         IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options,
-        IScheduleCoordinator? scheduleCoordinator = null)
+        IScheduleCoordinator? scheduleCoordinator = null,
+        Triggers.IAdaptiveTriggerSignalSource? triggerSignals = null)
     {
         _logger = logger;
         _store = store;
         _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
+        _triggerSignals = triggerSignals;
 
         // Wire the event-driven fast-path immediately so observations recorded
         // between construction and the first tick still get folded inside the
@@ -262,8 +272,21 @@ public sealed class FingerprintAbsorptionService : IDisposable
         var dim = obs.Centroid.Length;
         var newCentroid = new float[dim];
         var maturity = obs.CentroidMaturity;
+        double driftSqSum = 0;
         for (var i = 0; i < dim; i++)
+        {
             newCentroid[i] = (obs.Centroid[i] * maturity + obs.Vector[i]) / (maturity + 1);
+            // Accumulate the L2-squared between pre and post centroid for the
+            // adaptive trigger's drift signal. Computed inline to avoid a second
+            // pass over the dim-sized arrays on the hot absorption path.
+            var delta = newCentroid[i] - obs.Centroid[i];
+            driftSqSum += delta * delta;
+        }
+
+        // Report the absorption's centroid movement to the adaptive trigger.
+        // No-op when the signal source isn't wired (unit tests, FOSS minimal mode).
+        if (_triggerSignals is Triggers.CalibrationSignalSource calSignals)
+            calSignals.OnAbsorption(Math.Sqrt(driftSqSum));
 
         // Stability learning: dims where the absorbed observation matched the centroid closely
         // get a positive weight nudge for this fingerprint; dims that diverged get a negative.

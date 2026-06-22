@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.UI.Configuration;
 
 namespace Mostlylucid.BotDetection.UI.Middleware;
@@ -73,10 +76,19 @@ public sealed class StyloBotAdminMiddleware
             return;
         }
 
-        if (!HttpMethods.IsPost(context.Request.Method))
+        // POST is the default verb for reload/restart (state-mutating). GET is allowed
+        // only for the read-only learning/health endpoint -- operators tend to curl
+        // it without flags and 405-ing them on GET is hostile when the endpoint
+        // produces JSON anyway.
+        var subPathPeek = path[(basePath.Length + 1)..].TrimEnd('/').ToLowerInvariant();
+        var isReadOnlyEndpoint = subPathPeek == "learning/health";
+        var methodOk = isReadOnlyEndpoint
+            ? (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsPost(context.Request.Method))
+            : HttpMethods.IsPost(context.Request.Method);
+        if (!methodOk)
         {
             context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
-            context.Response.Headers["Allow"] = "POST";
+            context.Response.Headers["Allow"] = isReadOnlyEndpoint ? "GET, POST" : "POST";
             return;
         }
 
@@ -115,10 +127,142 @@ public sealed class StyloBotAdminMiddleware
             case "restart":
                 await HandleRestartAsync(context);
                 return;
+            case "learning/health":
+                await HandleLearningHealthAsync(context);
+                return;
             default:
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
         }
+    }
+
+    /// <summary>
+    ///     GET-shaped learning observability endpoint. Returns the calibration
+    ///     service's last trigger decision + the per-archetype drift metric
+    ///     snapshot from the most recent calibration pass. The middleware otherwise
+    ///     requires POST, so this case allows GET-or-POST (operators tend to curl
+    ///     it without flags).
+    /// </summary>
+    private async Task HandleLearningHealthAsync(HttpContext context)
+    {
+        var calibration = context.RequestServices
+            .GetService<IdentityWeightCalibrationService>();
+        var archetypeRegistry = context.RequestServices
+            .GetService<IdentityArchetypeRegistry>();
+
+        if (calibration is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(
+                "{\"status\":\"identity_disabled\",\"message\":\"IdentityWeightCalibrationService is not registered. Set BotDetection:Identity:Enabled = true.\"}");
+            return;
+        }
+
+        var snapshot = calibration.LastDecisionSnapshot;
+        var metrics = calibration.LastDriftMetrics;
+        var shrinks = calibration.LastShrinkActions;
+        var archetypes = archetypeRegistry?.All ?? Array.Empty<IdentityArchetype>();
+
+        var body = new
+        {
+            calibration = new
+            {
+                last_decision_at = snapshot.At == DateTimeOffset.MinValue
+                    ? null
+                    : snapshot.At.ToString("O"),
+                should_run = snapshot.ShouldRun,
+                reason = snapshot.Reason,
+                signals = snapshot.Signals,
+            },
+            drift_metrics = new
+            {
+                row_count = metrics.Count,
+                rows = metrics.Select(m => new
+                {
+                    archetype_id = m.ArchetypeId,
+                    ua_family = m.UaFamily,
+                    matches_asserted_ua = m.MatchesAssertedUa,
+                    descendant_count = m.DescendantCount,
+                    mean_l2 = m.MeanL2ToCentroid,
+                    variance_l2 = m.VarianceL2ToCentroid,
+                    p90_l2 = m.P90L2ToCentroid,
+                    calibrated_at = m.CalibratedAt.ToString("O"),
+                }),
+            },
+            umbrella_shrinkage = new
+            {
+                row_count = shrinks.Count,
+                rows = shrinks.Select(kv => new
+                {
+                    archetype_id = kv.Key,
+                    previous_multiplier = kv.Value.PreviousMultiplier,
+                    new_multiplier = kv.Value.NewMultiplier,
+                    bloat = kv.Value.Bloat,
+                    leakage_descendant_count = kv.Value.LeakageDescendantCount,
+                    split_candidate = kv.Value.SplitCandidate,
+                }),
+            },
+            // Phase 4 (spec §2.D) centroid mobility view. One row per archetype
+            // that the registry currently holds, with the diagnostics the
+            // maintainer asked for: "is it pinned, is it moving, is it getting
+            // close to a neighbour". Top-N by pin_cycles surfaces the suspicious
+            // entries first.
+            centroid_mobility = new
+            {
+                row_count = archetypes.Count,
+                top_pinned = archetypes
+                    .Where(a => a.PinCycles > 0)
+                    .OrderByDescending(a => a.PinCycles)
+                    .Take(20)
+                    .Select(a => new
+                    {
+                        archetype_id = a.ArchetypeId,
+                        pin_cycles = a.PinCycles,
+                        centroid_delta_last_cycle = a.CentroidDeltaLastCycle,
+                        descendant_variance_last_cycle = a.DescendantVarianceLastCycle,
+                        variance_multiplier = a.VarianceMultiplier,
+                        nearest_neighbour_id = a.NearestNeighbourId,
+                        nearest_neighbour_distance = a.NearestNeighbourDistance,
+                    }),
+                top_proximate = archetypes
+                    .Where(a => a.NearestNeighbourId is not null && a.NearestNeighbourDistance > 0)
+                    .OrderBy(a => a.NearestNeighbourDistance)
+                    .Take(20)
+                    .Select(a => new
+                    {
+                        archetype_id = a.ArchetypeId,
+                        nearest_neighbour_id = a.NearestNeighbourId,
+                        nearest_neighbour_distance = a.NearestNeighbourDistance,
+                        descendant_count = a.DescendantCount,
+                    }),
+            },
+            // Phase 5 v3 (spec §2.D rule 3): pairs that have stayed under the
+            // convergence threshold for several cycles. This is the dashboard
+            // surface that tells operators "two archetypes are about to merge --
+            // diverge them in YAML or accept the merge". top_proximate is the
+            // snapshot; merge_candidates is the aging warning.
+            convergence = new
+            {
+                row_count = calibration.LastConvergenceCandidates.Count,
+                merge_candidates = calibration.LastConvergenceCandidates.Select(c => new
+                {
+                    archetype_a = c.ArchetypeA,
+                    archetype_b = c.ArchetypeB,
+                    distance = c.Distance,
+                    consecutive_cycles = c.Cycles,
+                }),
+            },
+        };
+
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, body,
+            new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                WriteIndented = false,
+            });
     }
 
     private async Task HandleReloadAsync(HttpContext context)

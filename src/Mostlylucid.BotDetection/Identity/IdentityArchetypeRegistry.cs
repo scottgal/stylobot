@@ -306,7 +306,8 @@ public sealed class IdentityArchetypeRegistry
         if (archetype is null) throw new ArgumentNullException(nameof(archetype));
         var centroidForScoring = archetype.CentroidRaw ?? archetype.Centroid;
         return MaskedSimilarityCore(rawVector, centroidForScoring, archetype.DimensionMask,
-            archetype.VarianceVector ?? DefaultVarianceFor(archetype));
+            archetype.VarianceVector ?? DefaultVarianceFor(archetype),
+            archetype.VarianceMultiplier);
     }
 
     /// <summary>
@@ -337,7 +338,8 @@ public sealed class IdentityArchetypeRegistry
     private double MaskedSimilarity(float[] vector, IdentityArchetype archetype)
     {
         return MaskedSimilarityCore(vector, archetype.Centroid, archetype.DimensionMask,
-            archetype.VarianceVector ?? DefaultVarianceFor(archetype));
+            archetype.VarianceVector ?? DefaultVarianceFor(archetype),
+            archetype.VarianceMultiplier);
     }
 
     /// <summary>
@@ -353,10 +355,19 @@ public sealed class IdentityArchetypeRegistry
     /// </summary>
     private const int MinPopulatedSlotsForMatch = 4;
 
-    private double MaskedSimilarityCore(float[] vector, float[] centroid, float[] mask, float[] variance)
+    private double MaskedSimilarityCore(
+        float[] vector, float[] centroid, float[] mask, float[] variance,
+        double varianceMultiplier = 1.0)
     {
         const float presenceEpsilon = 1e-6f;
         const double varianceFloor = 1e-4; // prevents div-by-zero and log(0)
+
+        // Phase 3 (2026-06-21): the matcher honours each archetype's per-archetype
+        // tightening factor by multiplying the per-dim variance by varianceMultiplier.
+        // Below 1.0 means "I've been calibrated as an over-claiming umbrella; penalise
+        // deviation harder", so the same observation scores lower against me than against
+        // an untouched neighbour. Default 1.0 is a no-op.
+        var vmultClamped = Math.Clamp(varianceMultiplier, 0.05, 1.0);
 
         double weightedLogLikelihood = 0;
         double totalMask = 0;
@@ -380,7 +391,7 @@ public sealed class IdentityArchetypeRegistry
             for (var i = slot.Offset; i < end; i++)
             {
                 double diff = vector[i] - centroid[i];
-                double v = i < variance.Length ? Math.Max(varianceFloor, variance[i]) : varianceFloor;
+                double v = i < variance.Length ? Math.Max(varianceFloor, variance[i] * vmultClamped) : varianceFloor;
                 // Gaussian per-dim log-likelihood (constants dropped, monotone-preserving):
                 //   LL = -0.5 * diff^2 / v   - 0.5 * log(v)
                 // First term penalises deviation. Second term rewards specificity (tight var -> large

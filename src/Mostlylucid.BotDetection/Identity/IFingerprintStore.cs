@@ -209,6 +209,42 @@ public interface IFingerprintStore : IFingerprintReader
     Task InsertArchetypeIfMissingAsync(IdentityArchetype archetype, CancellationToken ct = default)
         => UpsertArchetypeAsync(archetype, ct);
 
+    /// <summary>
+    ///     Persist a batch of per-archetype drift metrics computed by a single
+    ///     calibration pass. Idempotent on <c>(archetype_id, ua_family,
+    ///     calibrated_at)</c> -- a re-run with the same timestamp replaces the
+    ///     existing rows. See <see cref="ArchetypeDriftMetric"/> for the
+    ///     interpretation of each field. Default no-op so older store impls
+    ///     keep compiling without surfacing observability rows.
+    /// </summary>
+    Task InsertDriftMetricsAsync(
+        IReadOnlyList<ArchetypeDriftMetric> metrics,
+        CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>
+    ///     Latest-cycle drift metrics for the observability endpoint. Returns
+    ///     rows from the most-recent <c>calibrated_at</c> only -- callers
+    ///     wanting a history walk should query the durable table directly.
+    ///     Default empty so the endpoint degrades gracefully when no store
+    ///     supports the surface yet.
+    /// </summary>
+    Task<IReadOnlyList<ArchetypeDriftMetric>> ListLatestDriftMetricsAsync(
+        CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ArchetypeDriftMetric>>(Array.Empty<ArchetypeDriftMetric>());
+
+    /// <summary>
+    ///     Pull recent observations with their fingerprint's inferred archetype
+    ///     and the observation's UA family. Feeds the calibration pass's drift
+    ///     metric computation: rows are grouped by <c>(archetype_id, ua_family)</c>
+    ///     in-process. <paramref name="maxRowsPerArchetype"/> caps the scan so
+    ///     large catalogues stay bounded -- pass int.MaxValue for no cap.
+    ///     Default returns an empty list so older stores keep compiling.
+    /// </summary>
+    Task<IReadOnlyList<DriftObservationRow>> ListRecentObservationsForDriftAsync(
+        int maxRowsPerArchetype,
+        CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<DriftObservationRow>>(Array.Empty<DriftObservationRow>());
+
     // ── Vec KNN ──────────────────────────────────────────────────────────────
     Task<IReadOnlyList<(string FingerprintId, double Distance)>> SearchVecCentroidsAsync(
         float[] queryVector, int k, CancellationToken ct = default);

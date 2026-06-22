@@ -117,14 +117,19 @@ CREATE TABLE IF NOT EXISTS identity_dimension_weights (
 );
 
 CREATE TABLE IF NOT EXISTS identity_archetypes (
-    archetype_id        TEXT PRIMARY KEY,
-    name                TEXT NOT NULL,
-    description         TEXT,
-    centroid            BLOB NOT NULL,
-    dimension_mask      BLOB NOT NULL,
-    archetype_kind      TEXT NOT NULL,
-    descendant_count    INTEGER NOT NULL,
-    last_refined_at     TEXT NOT NULL
+    archetype_id            TEXT PRIMARY KEY,
+    name                    TEXT NOT NULL,
+    description             TEXT,
+    centroid                BLOB NOT NULL,
+    dimension_mask          BLOB NOT NULL,
+    archetype_kind          TEXT NOT NULL,
+    descendant_count        INTEGER NOT NULL,
+    last_refined_at         TEXT NOT NULL,
+    -- Phase 3 umbrella shrinkage (2026-06-21). Multiplier on the matcher's
+    -- per-dim variance: 1.0 = no narrowing, below 1.0 = catchment tightened
+    -- by calibration. Floor at 0.05 enforced by the writer; the column NOT
+    -- NULL DEFAULT 1.0 keeps a hand-inserted row matcher-compatible.
+    variance_multiplier     REAL NOT NULL DEFAULT 1.0
 );
 
 CREATE TABLE IF NOT EXISTS identity_vector_layout (
@@ -172,3 +177,28 @@ CREATE TABLE IF NOT EXISTS fingerprint_mode_observations (
 );
 CREATE INDEX IF NOT EXISTS ix_fmo_active
     ON fingerprint_mode_observations(fingerprint_id, mode_id) WHERE absorbed_at IS NULL;
+
+-- Per-archetype, per-observed-UA-family drift metrics. Written by
+-- IdentityWeightCalibrationService.RunOnceAsync after centroid refinement.
+-- A snapshot of "how close are this archetype's descendants to its centroid,
+-- broken down by what UA the descendant claimed". See
+-- docs/superpowers/specs/2026-06-21-adaptive-learning-loop-design.md §2.B.
+--
+-- Composite PK on (archetype_id, ua_family, calibrated_at) so back-to-back
+-- calibrations write distinct rows -- the dashboard can show a drift curve.
+-- matches_asserted_ua is INTEGER 0/1; SQLite has no native BOOLEAN.
+CREATE TABLE IF NOT EXISTS archetype_drift_metrics (
+    archetype_id            TEXT NOT NULL,
+    ua_family               TEXT NOT NULL,
+    matches_asserted_ua     INTEGER NOT NULL,
+    descendant_count        INTEGER NOT NULL,
+    mean_l2_to_centroid     REAL NOT NULL,
+    variance_l2_to_centroid REAL NOT NULL,
+    p90_l2_to_centroid      REAL NOT NULL,
+    calibrated_at           TEXT NOT NULL,
+    PRIMARY KEY (archetype_id, ua_family, calibrated_at)
+);
+CREATE INDEX IF NOT EXISTS ix_adm_calibrated_at
+    ON archetype_drift_metrics(calibrated_at DESC);
+CREATE INDEX IF NOT EXISTS ix_adm_archetype_id
+    ON archetype_drift_metrics(archetype_id);

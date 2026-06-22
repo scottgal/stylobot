@@ -898,6 +898,14 @@ public static class ServiceCollectionExtensions
         // primary_signature. Dormant when Identity.Enabled = false or
         // BotDetection:Identity:Vector:EncoderCacheEnabled = false.
         services.TryAddSingleton<Identity.EncoderResultCache>();
+        // Adaptive trigger signal source for calibration. Singleton so the
+        // store + absorption service + calibration service all share the same
+        // counters. Always registered (cheap) even when Identity is off --
+        // the legacy Tick1m gate ignores it; the adaptive trigger consults
+        // it only when explicitly enabled in BotDetection:Identity:Calibration:Trigger.
+        services.TryAddSingleton<Identity.Triggers.CalibrationSignalSource>();
+        services.TryAddSingleton<Identity.Triggers.IAdaptiveTriggerSignalSource>(
+            sp => sp.GetRequiredService<Identity.Triggers.CalibrationSignalSource>());
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
         // Surface the read-only fingerprint interface so the dashboard / REST endpoints
         // resolve it without depending on the concrete store - swapped for a HTTP-backed

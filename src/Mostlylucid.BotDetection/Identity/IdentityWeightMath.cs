@@ -198,6 +198,135 @@ internal static class IdentityWeightMath
     }
 
     /// <summary>
+    ///     Phase 4 (2026-06-21): refinement with a CALLER-supplied alpha so the
+    ///     calibration service can derive it adaptively from descendant variance
+    ///     (low variance &#x2192; high &#x3B1;, high variance &#x2192; low &#x3B1; per spec §2.D).
+    ///     <para>
+    ///         Also returns the L2 between the original and refined centroid plus
+    ///         the mean per-dim variance of descendants -- both feed the in-memory
+    ///         <see cref="IdentityArchetype.CentroidDeltaLastCycle"/> /
+    ///         <see cref="IdentityArchetype.DescendantVarianceLastCycle"/>
+    ///         diagnostics surfaced on /admin/learning/health.
+    ///     </para>
+    /// </summary>
+    public static (float[] Refined, double DeltaL2, double MeanVariance)?
+        RefineArchetypeCentroidAdaptive(
+            float[] archetypeCentroid,
+            IReadOnlyList<float[]> descendantCentroids,
+            double alpha,
+            float[]? repulsionVector = null)
+    {
+        if (descendantCentroids.Count == 0) return null;
+        var dim = archetypeCentroid.Length;
+        var mean = new float[dim];
+        foreach (var c in descendantCentroids)
+            for (var d = 0; d < dim; d++) mean[d] += c[d];
+        for (var d = 0; d < dim; d++) mean[d] /= descendantCentroids.Count;
+
+        // Per-dim sample variance of descendant centroids. Sum across dims, divide
+        // by dim -> "mean variance" feeds the adaptive-alpha formula on the next
+        // cycle. Sample variance (N-1 denominator) when N > 1, population (N) when
+        // N == 1 to avoid div-by-zero on a single-descendant archetype.
+        double sumVar = 0;
+        if (descendantCentroids.Count > 1)
+        {
+            for (var d = 0; d < dim; d++)
+            {
+                double s = 0;
+                foreach (var c in descendantCentroids)
+                {
+                    var diff = c[d] - mean[d];
+                    s += diff * diff;
+                }
+                sumVar += s / (descendantCentroids.Count - 1);
+            }
+        }
+        var meanVariance = sumVar / Math.Max(1, dim);
+
+        // Phase 5 v2 (spec §2.D rule 2): neighbour-aware repulsion. The caller
+        // supplies a non-null repulsion vector when this archetype is being
+        // eaten by a larger neighbour; we shift the descendants-mean target
+        // away from the neighbour BEFORE the alpha-blend so the refinement
+        // target moves in the right direction. Null means "no repulsion this
+        // cycle" -- v1 behaviour.
+        if (repulsionVector is not null && repulsionVector.Length == dim)
+        {
+            for (var d = 0; d < dim; d++)
+                mean[d] += repulsionVector[d];
+        }
+
+        var refined = new float[dim];
+        double deltaSq = 0;
+        for (var d = 0; d < dim; d++)
+        {
+            refined[d] = (float)((1 - alpha) * archetypeCentroid[d] + alpha * mean[d]);
+            var dd = (double)refined[d] - archetypeCentroid[d];
+            deltaSq += dd * dd;
+        }
+        return (refined, Math.Sqrt(deltaSq), meanVariance);
+    }
+
+    /// <summary>
+    ///     Build the repulsion vector for an archetype being eaten by a
+    ///     neighbour. Returns null when the conditions don't fire (no
+    ///     neighbour, distance too large, this archetype dominates). Caller
+    ///     passes the result to <see cref="RefineArchetypeCentroidAdaptive"/>.
+    /// </summary>
+    public static float[]? BuildRepulsionVector(
+        float[] thisCentroid,
+        float[]? neighbourCentroid,
+        int thisDescendantCount,
+        int neighbourDescendantCount,
+        double currentDistance,
+        double repulsionRadius,
+        double repulsionStrength)
+    {
+        if (neighbourCentroid is null) return null;
+        if (repulsionStrength <= 0) return null;
+        if (currentDistance >= repulsionRadius) return null;
+        // Only the SMALLER archetype repels -- otherwise both would push each
+        // other and oscillate. Equal counts: nobody moves (deterministic break).
+        if (thisDescendantCount >= neighbourDescendantCount) return null;
+        if (thisCentroid.Length != neighbourCentroid.Length) return null;
+
+        // Direction: away from neighbour. Magnitude: repulsionStrength.
+        var dim = thisCentroid.Length;
+        var dir = new float[dim];
+        double normSq = 0;
+        for (var d = 0; d < dim; d++)
+        {
+            dir[d] = thisCentroid[d] - neighbourCentroid[d];
+            normSq += dir[d] * dir[d];
+        }
+        var norm = Math.Sqrt(normSq);
+        if (norm < 1e-9) return null;  // centroids coincide; no direction to repel along
+
+        var scale = repulsionStrength / norm;
+        for (var d = 0; d < dim; d++) dir[d] = (float)(dir[d] * scale);
+        return dir;
+    }
+
+    /// <summary>
+    ///     Spec §2.D adaptive-&#x3B1; rule:
+    ///     <c>&#x3B1;_effective = clamp(&#x3B1;_cap * exp(-variance / scale), &#x3B1;_min, &#x3B1;_cap)</c>.
+    ///     Low variance &#x2192; the descendants agree, the mean is a confident
+    ///     refinement target, use the full cap. High variance &#x2192; descendants
+    ///     spread out, the mean splits the difference between contradicting
+    ///     groups, drop &#x3B1; toward the floor and let umbrella shrinkage purge
+    ///     the misassigned descendants instead.
+    /// </summary>
+    public static double AdaptiveAlphaFromVariance(
+        double alphaCap,
+        double alphaMin,
+        double meanVariance,
+        double varianceScale)
+    {
+        if (varianceScale <= 0) return alphaCap;
+        var decayed = alphaCap * Math.Exp(-meanVariance / varianceScale);
+        return Math.Clamp(decayed, alphaMin, alphaCap);
+    }
+
+    /// <summary>
     ///     Returns the named layout slot with the largest weighted L2 distance between observed
     ///     and centroid, normalised by slot width so wide LSH slots do not auto-win purely on
     ///     dimension count (especially pre-calibration when all weights are uniform). Per-dim

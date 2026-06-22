@@ -400,11 +400,246 @@ public sealed class IdentityDriftOptions
 
 public sealed class IdentityCalibrationOptions
 {
-    /// <summary>IdentityWeightCalibrationService run cadence.</summary>
+    /// <summary>
+    ///     Legacy fixed-cadence gate. Retained for backwards compatibility:
+    ///     when <see cref="Trigger"/> is left at its disabled default, this
+    ///     value drives the original wall-clock behaviour. When
+    ///     <see cref="CalibrationTriggerOptions.Enabled"/> is true, this field
+    ///     is ignored and the adaptive trigger decides.
+    /// </summary>
     public int CalibrationIntervalMinutes { get; set; } = 30;
 
     /// <summary>Maximum α (descendant blend ratio) in archetype self-refinement.</summary>
     public double ArchetypeRefinementCap { get; set; } = 0.7;
+
+    /// <summary>
+    ///     Adaptive trigger policy. When <see cref="CalibrationTriggerOptions.Enabled"/>
+    ///     is true the calibration service consults
+    ///     <see cref="Triggers.AdaptiveTriggerEvaluator"/> on every Tick1s
+    ///     heartbeat instead of gating on <see cref="CalibrationIntervalMinutes"/>.
+    ///     Demo profiles set the floor as low as 1 s so learning is visible
+    ///     within seconds; production defaults are conservative.
+    /// </summary>
+    public CalibrationTriggerOptions Trigger { get; set; } = new();
+
+    /// <summary>
+    ///     Phase 3 umbrella-shrinkage knobs. Calibration narrows the catchment
+    ///     of archetypes whose drift metrics show leakage (descendants whose
+    ///     UA disagrees with what the archetype asserts) or excessive bloat
+    ///     (matching descendants drifting far from the centroid). See spec §2.C.
+    /// </summary>
+    public UmbrellaShrinkageOptions UmbrellaShrinkage { get; set; } = new();
+
+    /// <summary>
+    ///     Phase 4 centroid-mobility knobs (spec §2.D). Governs how aggressively
+    ///     refinement moves the centroid based on descendant variance and how
+    ///     long "pinned-with-disagreement" goes before raising a warning.
+    /// </summary>
+    public CentroidMobilityOptions CentroidMobility { get; set; } = new();
+}
+
+/// <summary>
+///     Knobs for the Phase 4 centroid-mobility rules. v1 is observe-only on
+///     neighbour proximity (no repulsion); the adaptive-&#x3B1; rule is active.
+/// </summary>
+public sealed class CentroidMobilityOptions
+{
+    /// <summary>
+    ///     Minimum &#x3B1; the adaptive rule will drop to when descendant variance
+    ///     is high. Default 0.2 -- below this the refinement effectively pauses
+    ///     and umbrella shrinkage carries the cleanup load.
+    /// </summary>
+    public double AlphaMin { get; set; } = 0.2;
+
+    /// <summary>
+    ///     Variance scale in the adaptive-&#x3B1; formula
+    ///     <c>&#x3B1; = &#x3B1;Cap * exp(-meanVariance / VarianceScale)</c>.
+    ///     Lower scale = &#x3B1; drops faster as variance rises. Default 0.1; the
+    ///     identity vector is L2-normalised so per-dim variance is small in
+    ///     absolute terms.
+    /// </summary>
+    public double VarianceScale { get; set; } = 0.1;
+
+    /// <summary>
+    ///     L2 delta below which a refinement counts as "no movement". Default
+    ///     0.001 (effectively pin). Drives the
+    ///     <see cref="IdentityArchetype.PinCycles"/> counter.
+    /// </summary>
+    public double PinDeltaThreshold { get; set; } = 0.001;
+
+    /// <summary>
+    ///     Consecutive pinned cycles before the calibration logs a warning.
+    ///     Default 5 -- the maintainer's "we're pinning and never updating"
+    ///     concern manifests visibly only after several cycles of no movement.
+    /// </summary>
+    public int PinWarnAfterCycles { get; set; } = 5;
+
+    /// <summary>
+    ///     Threshold on
+    ///     <see cref="IdentityArchetype.DescendantVarianceLastCycle"/> above
+    ///     which we consider descendants to be disagreeing. Pin + high variance
+    ///     together raise the warning. Default 0.05.
+    /// </summary>
+    public double HighVarianceThreshold { get; set; } = 0.05;
+
+    /// <summary>
+    ///     Phase 5 v2 (2026-06-21): active neighbour-aware repulsion. When the
+    ///     archetype currently being refined sits within
+    ///     <see cref="RepulsionRadius"/> of its
+    ///     <see cref="IdentityArchetype.NearestNeighbourId"/> AND has fewer
+    ///     descendants (it's the weaker one being eaten by the umbrella), the
+    ///     refinement target is pushed AWAY from the neighbour by
+    ///     <see cref="RepulsionStrength"/> of a unit vector. Without this,
+    ///     two converging archetypes silently merge -- the exact "moves closer
+    ///     to others" concern. Defaults are conservative; set
+    ///     <see cref="RepulsionStrength"/> to 0 to disable repulsion entirely
+    ///     and fall back to observe-only neighbour proximity.
+    /// </summary>
+    public double RepulsionRadius { get; set; } = 0.3;
+
+    /// <summary>
+    ///     L2 magnitude of the per-cycle repulsion vector applied to the
+    ///     refinement target when the conditions in <see cref="RepulsionRadius"/>
+    ///     are met. Default 0.02 -- intentionally small to avoid oscillation
+    ///     with adaptive &#x3B1; doing its own dampening.
+    /// </summary>
+    public double RepulsionStrength { get; set; } = 0.02;
+}
+
+/// <summary>
+///     Knobs for the Phase 3 umbrella-shrinkage action ladder. The defaults
+///     are conservative -- a stable archetype with no leakage doesn't shrink.
+///     See <c>docs/superpowers/specs/2026-06-21-adaptive-learning-loop-design.md</c>
+///     §2.C for the rationale on each knob.
+/// </summary>
+public sealed class UmbrellaShrinkageOptions
+{
+    /// <summary>
+    ///     Reference L2 distance treated as "normal catchment". Bloat is
+    ///     computed as <c>p90_drift / RadiusBaseline</c>. Default 0.5 -- the
+    ///     identity vector is L2-normalised so 0.5 is a sensible mid-range
+    ///     distance, tunable per-deployment as observability data accrues.
+    /// </summary>
+    public double RadiusBaseline { get; set; } = 0.5;
+
+    /// <summary>Bloat threshold at which shrinkage fires. Default 1.0.</summary>
+    public double BloatShrinkThreshold { get; set; } = 1.0;
+
+    /// <summary>
+    ///     Bloat threshold at which the calibration logs a
+    ///     <c>umbrella.split-candidate</c> signal. Splitting is operator-driven
+    ///     in v1 (the YAML author edits the catalogue); the signal makes the
+    ///     decision visible. Default 2.0.
+    /// </summary>
+    public double SplitCandidateThreshold { get; set; } = 2.0;
+
+    /// <summary>
+    ///     Multiplicative shrink rate per cycle. <c>VarianceMultiplier_new
+    ///     = VarianceMultiplier_prev * (1 - ShrinkRate)</c>. Default 0.05
+    ///     (5%) -- balances responsiveness against oscillation under the
+    ///     adaptive trigger's fast heartbeat.
+    /// </summary>
+    public double ShrinkRate { get; set; } = 0.05;
+
+    /// <summary>
+    ///     Floor for <c>VarianceMultiplier</c>. Prevents a perpetually-confused
+    ///     archetype from vanishing entirely. Default 0.05 = "down to 5 % of
+    ///     the original tolerance".
+    /// </summary>
+    public double Floor { get; set; } = 0.05;
+
+    /// <summary>
+    ///     Phase 5 auto-regrowth (2026-06-21). Consecutive healthy cycles (no
+    ///     leakage, bloat below threshold) before the calibration starts
+    ///     unwinding a previous shrinkage. Default 5 -- balances "react to a
+    ///     transient population shift" against "don't yo-yo on momentary
+    ///     quiet". Set to <see cref="int.MaxValue"/> to disable regrowth.
+    /// </summary>
+    public int RegrowAfterCycles { get; set; } = 5;
+
+    /// <summary>
+    ///     Per-cycle multiplicative regrowth rate. <c>VarianceMultiplier_new
+    ///     = min(1.0, VarianceMultiplier_prev * (1 + RegrowRate))</c>.
+    ///     Default 0.02 -- deliberately slower than <see cref="ShrinkRate"/>
+    ///     so a noisy population can't trigger oscillation by alternating
+    ///     leakage / quiet cycles.
+    /// </summary>
+    public double RegrowRate { get; set; } = 0.02;
+
+    /// <summary>
+    ///     Phase 5 v3 (2026-06-21) spec §2.D rule 3: convergence detection.
+    ///     L2 distance at or below this is "close enough to be a merge
+    ///     candidate". Pairs that stay close for
+    ///     <see cref="ConvergenceWarnAfterCycles"/> consecutive cycles raise a
+    ///     <c>centroid.merge-candidate</c> warning. Default 0.15 -- tighter
+    ///     than <see cref="CentroidMobilityOptions.RepulsionRadius"/> so we
+    ///     only warn on pairs that are genuinely converging despite Phase 5 v2
+    ///     repulsion.
+    /// </summary>
+    public double ConvergenceMergeThreshold { get; set; } = 0.15;
+
+    /// <summary>
+    ///     Consecutive cycles a pair must stay below
+    ///     <see cref="ConvergenceMergeThreshold"/> before the warning fires.
+    ///     Default 3 -- enough to filter momentary noise while still surfacing
+    ///     a real convergence within a single demo session.
+    /// </summary>
+    public int ConvergenceWarnAfterCycles { get; set; } = 3;
+}
+
+/// <summary>
+///     Configuration mirror of <see cref="Triggers.AdaptiveTriggerPolicy"/>
+///     suitable for binding from <c>appsettings.json</c>. Kept distinct from
+///     the policy record so the bound shape stays open to extension
+///     (additional axes, custom signal-key aliases) without forcing every
+///     consumer to construct the immutable policy by hand.
+/// </summary>
+public sealed class CalibrationTriggerOptions
+{
+    /// <summary>
+    ///     When false, the calibration service falls back to the legacy
+    ///     <see cref="IdentityCalibrationOptions.CalibrationIntervalMinutes"/>
+    ///     gate. Default false so the change is opt-in per environment.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    ///     Floor between calibration runs. Below this elapsed time we never
+    ///     fire, regardless of signal pressure. Default 30 s.
+    /// </summary>
+    public TimeSpan MinInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    ///     Safety net: once elapsed reaches this, the trigger fires even with
+    ///     no signal pressure. Null to disable the safety net (signal-only).
+    ///     Default 6 h.
+    /// </summary>
+    public TimeSpan? MaxInterval { get; set; } = TimeSpan.FromHours(6);
+
+    /// <summary>
+    ///     Highest <see cref="Services.LoadBand"/> we'll still calibrate at.
+    ///     Default <see cref="Services.LoadBand.Normal"/> (skip when High or
+    ///     Critical). Demo overrides may push this to Critical so demos still
+    ///     learn under synthetic load.
+    /// </summary>
+    public Services.LoadBand MaxBand { get; set; } = Services.LoadBand.Normal;
+
+    /// <summary>
+    ///     Observation-count threshold. The trigger fires when this many
+    ///     observations have been recorded since the last successful run.
+    ///     Default 50 -- balances "react to bursts" against "don't recalibrate
+    ///     for a handful of obs". Set to 1 in Demo profiles for instant
+    ///     feedback. Set to 0 to disable this axis.
+    /// </summary>
+    public long ObservationThreshold { get; set; } = 50;
+
+    /// <summary>
+    ///     Drift-L2 sum threshold. The trigger fires when accumulated
+    ///     per-fingerprint centroid movement crosses this value. Default 0.5
+    ///     -- captures "the population is shifting" without firing on noise.
+    ///     Set to 0 to disable this axis.
+    /// </summary>
+    public double DriftL2Threshold { get; set; } = 0.5;
 }
 
 public sealed class IdentityEngineOptions
