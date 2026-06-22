@@ -117,6 +117,14 @@ public sealed class NullFingerprintStore : IFingerprintStore
         string source = "matcher")
         => Task.CompletedTask;
 
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Null store discards every write so the contract gate has nothing to enforce;
+    ///     the counter stays at zero. Implementations that actually persist names
+    ///     (Sqlite, Postgres) wrap the write with the contract check.
+    /// </remarks>
+    public long BannedShapeRejectionsCount => 0;
+
     private static readonly IReadOnlyDictionary<string, string?> _emptyNames =
         new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 

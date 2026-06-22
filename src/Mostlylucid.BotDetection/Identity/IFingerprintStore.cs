@@ -146,6 +146,16 @@ public interface IFingerprintStore : IFingerprintReader
         string source = "matcher");
 
     /// <summary>
+    ///     Count of display-name writes rejected by the contract gate at
+    ///     <see cref="UpdateDisplayNameForSignatureAsync"/>. Non-zero means
+    ///     some upstream caller (LLM callback, operator label, legacy import)
+    ///     tried to write a shape the contract disallows; the name was
+    ///     normalised to <c>Unknown &lt;hex&gt;</c>. Observable so the
+    ///     rejection rate can be metered.
+    /// </summary>
+    long BannedShapeRejectionsCount { get; }
+
+    /// <summary>
     ///     Bulk transparent-LFU read for view rendering: signature -> current display
     ///     name. Composes the two existing LFU dicts (_fingerprintIdByPrimarySig +
     ///     _fingerprintById) so the dashboard's per-row name lookup costs nothing on

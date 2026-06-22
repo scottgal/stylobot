@@ -656,6 +656,14 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     currently maps to. One-shot helper for downstream consumers (the LLM-result callback,
     ///     dashboard "rename" controls) that have a signature in hand but not a fingerprint id.
     ///     Idempotent; no-op when the signature isn't bound to any fingerprint.
+    ///
+    ///     The contract gate at <see cref="Services.FingerprintNameComposerContract.IsAllowedShape"/>
+    ///     fires here because the contract is a property of the NAME, not of one composer.
+    ///     LLM callbacks (per task #115) and operator-provided labels go through this method
+    ///     directly; without a store-layer gate, a banned shape can still land. Banned shapes
+    ///     are normalised to the priority-4 <c>Unknown &lt;hex&gt;</c> fallback so the call's
+    ///     contract that *some* name lands is preserved. <see cref="BannedShapeRejectionsCount"/>
+    ///     increments so a dashboard / OTel meter can read the rejection rate.
     /// </summary>
     public async Task UpdateDisplayNameForSignatureAsync(
         string primarySignature, string displayName, DateTime updatedAt,
@@ -665,7 +673,38 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (string.IsNullOrEmpty(primarySignature)) return;
         var fingerprintId = await LookupFingerprintIdAsync(primarySignature, ct);
         if (fingerprintId is null) return;
+
+        if (!Services.FingerprintNameComposerContract.IsAllowedShape(displayName))
+        {
+            displayName = BuildUnknownFallback(fingerprintId, primarySignature);
+            System.Threading.Interlocked.Increment(ref _bannedShapeRejections);
+        }
+
         await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct, source);
+    }
+
+    private long _bannedShapeRejections;
+
+    /// <inheritdoc />
+    public long BannedShapeRejectionsCount => System.Threading.Interlocked.Read(ref _bannedShapeRejections);
+
+    /// <summary>
+    ///     Produce the priority-4 <c>Unknown &lt;hex&gt;</c> fallback for a banned-shape
+    ///     rejection. Prefers the fingerprint id's first 8 hex chars so the rendered name
+    ///     matches the existing identifier shape; falls back to the signature's first 8
+    ///     chars if the fingerprint id is too short (defensive — shouldn't happen in
+    ///     practice because the matcher always allocates a long id).
+    /// </summary>
+    private static string BuildUnknownFallback(string fingerprintId, string primarySignature)
+    {
+        string prefix;
+        if (!string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8)
+            prefix = fingerprintId[..8];
+        else if (!string.IsNullOrEmpty(primarySignature) && primarySignature.Length >= 8)
+            prefix = primarySignature[..8];
+        else
+            prefix = "00000000";
+        return $"Unknown {prefix}";
     }
 
     /// <summary>Append an unabsorbed observation row.</summary>
