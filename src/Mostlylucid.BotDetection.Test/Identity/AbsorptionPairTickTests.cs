@@ -191,7 +191,7 @@ public sealed class AbsorptionPairTickTests : IDisposable
         var env = await BuildEnvAsync();
         return new FingerprintModeAbsorptionService(
             NullLogger<FingerprintModeAbsorptionService>.Instance,
-            env.ModeStore, env.Archetypes, env.Options, coord);
+            env.ModeStore, env.Options, coord);
     }
 
     [Fact]
@@ -240,7 +240,7 @@ public sealed class AbsorptionPairTickTests : IDisposable
         var env = await BuildEnvAsync();
         using var sut = new FingerprintModeAbsorptionService(
             NullLogger<FingerprintModeAbsorptionService>.Instance,
-            env.ModeStore, env.Archetypes, env.Options, coord);
+            env.ModeStore, env.Options, coord);
 
         // Seed a fingerprint + an unabsorbed mode observation.
         await SeedFingerprintAsync(env.Store, "fp-mode-1");
@@ -274,7 +274,7 @@ public sealed class AbsorptionPairTickTests : IDisposable
             env.Store, env.Archetypes, env.Options, coord);
         using var mode = new FingerprintModeAbsorptionService(
             NullLogger<FingerprintModeAbsorptionService>.Instance,
-            env.ModeStore, env.Archetypes, env.Options, coord);
+            env.ModeStore, env.Options, coord);
         using var rollup = new FingerprintRollupRecomputeService(
             NullLogger<FingerprintRollupRecomputeService>.Instance,
             env.Store, env.ModeStore, env.Options, coord);

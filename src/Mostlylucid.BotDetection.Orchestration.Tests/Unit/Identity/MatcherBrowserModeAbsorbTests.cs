@@ -73,7 +73,7 @@ public sealed class MatcherBrowserModeAbsorbTests : IAsyncLifetime
         _modeStore = new SqliteFingerprintBrowserModeStore(
             _store, options, NullLogger<SqliteFingerprintBrowserModeStore>.Instance);
         _drainer = new FingerprintModeAbsorptionService(
-            NullLogger<FingerprintModeAbsorptionService>.Instance, _modeStore, archetypes, options);
+            NullLogger<FingerprintModeAbsorptionService>.Instance, _modeStore, options);
         var modes = new BrowserModeRegistry(
             NullLogger<BrowserModeRegistry>.Instance, fallbackModeId: "unknown");
         var modeResolver = new CachingBrowserModeResolver(modes);

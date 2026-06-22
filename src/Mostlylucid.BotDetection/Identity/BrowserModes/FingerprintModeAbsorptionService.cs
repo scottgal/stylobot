@@ -36,7 +36,6 @@ public sealed class FingerprintModeAbsorptionService : IDisposable
 {
     private readonly ILogger<FingerprintModeAbsorptionService> _logger;
     private readonly IFingerprintBrowserModeStore _modeStore;
-    private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
     private readonly IDisposable? _subscription;
@@ -45,13 +44,11 @@ public sealed class FingerprintModeAbsorptionService : IDisposable
     public FingerprintModeAbsorptionService(
         ILogger<FingerprintModeAbsorptionService> logger,
         IFingerprintBrowserModeStore modeStore,
-        IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _modeStore = modeStore;
-        _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled && _options.BrowserMode.Enabled;
 
