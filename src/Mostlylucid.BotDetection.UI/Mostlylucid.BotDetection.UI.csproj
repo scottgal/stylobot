@@ -35,10 +35,10 @@
 
     <ItemGroup>
         <PackageReference Include="Fluid.Core" Version="2.31.0" />
-        <PackageReference Include="MailKit" Version="4.16.0" />
-        <PackageReference Include="Markdig" Version="1.2.0" />
+        <PackageReference Include="MailKit" Version="4.17.0" />
+        <PackageReference Include="Markdig" Version="1.3.2" />
         <PackageReference Include="Mostlylucid.Notify" Version="0.1.1" />
-        <PackageReference Include="RazorSlices" Version="0.10.1" />
+        <PackageReference Include="RazorSlices" Version="0.11.1" />
         <PackageReference Include="MinVer" Version="7.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -135,18 +135,12 @@
     <ItemGroup>
         <_CsProjMarker Include="$(MSBuildProjectFullPath)" />
     </ItemGroup>
-    <Target Name="_PatchEditorConfigProjectDir"
-            AfterTargets="GenerateMSBuildEditorConfigFile">
+    <Target Name="_PatchEditorConfigProjectDir" AfterTargets="GenerateMSBuildEditorConfigFile">
         <PropertyGroup>
             <_CanonicalProjectDir>$([System.IO.Path]::GetDirectoryName(%(_CsProjMarker.FullPath)))</_CanonicalProjectDir>
         </PropertyGroup>
-        <WriteLinesToFile File="$(GeneratedMSBuildEditorConfigFile)"
-                          Lines="build_property.MSBuildProjectDirectory = $(_CanonicalProjectDir)"
-                          Overwrite="false"
-                          Condition="'$(_CanonicalProjectDir)' != '' AND '$(_CanonicalProjectDir)' != '$(MSBuildProjectDirectory)'" />
-        <Message Text="Patching editorconfig MSBuildProjectDirectory: $(MSBuildProjectDirectory) -&gt; $(_CanonicalProjectDir)"
-                 Importance="High"
-                 Condition="'$(_CanonicalProjectDir)' != '' AND '$(_CanonicalProjectDir)' != '$(MSBuildProjectDirectory)'" />
+        <WriteLinesToFile File="$(GeneratedMSBuildEditorConfigFile)" Lines="build_property.MSBuildProjectDirectory = $(_CanonicalProjectDir)" Overwrite="false" Condition="'$(_CanonicalProjectDir)' != '' AND '$(_CanonicalProjectDir)' != '$(MSBuildProjectDirectory)'" />
+        <Message Text="Patching editorconfig MSBuildProjectDirectory: $(MSBuildProjectDirectory) -&gt; $(_CanonicalProjectDir)" Importance="High" Condition="'$(_CanonicalProjectDir)' != '' AND '$(_CanonicalProjectDir)' != '$(MSBuildProjectDirectory)'" />
     </Target>
 
     <!-- Tailwind CSS build: compile on dotnet build if node_modules exists -->

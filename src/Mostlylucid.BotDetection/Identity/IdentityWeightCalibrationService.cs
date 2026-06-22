@@ -433,9 +433,12 @@ public sealed class IdentityWeightCalibrationService : IDisposable
         // POST-refinement centroids (we want "how far have my descendants strayed
         // from where I just decided I sit" not "from where I used to sit"). The
         // archetype lookup uses the refined list so the centroid match is exact.
-        var metrics = ComputeDriftMetrics(
-            await _store.ListRecentObservationsForDriftAsync(maxRowsPerArchetype: 5000, ct),
-            refined);
+        // Defensive ?? empty-list because Moq-wrapped IFingerprintStore proxies
+        // bypass the interface's default implementation and return null for
+        // IReadOnlyList<T> setup-less methods.
+        var driftRows = await _store.ListRecentObservationsForDriftAsync(maxRowsPerArchetype: 5000, ct)
+            ?? Array.Empty<DriftObservationRow>();
+        var metrics = ComputeDriftMetrics(driftRows, refined);
         if (metrics.Count > 0)
         {
             try

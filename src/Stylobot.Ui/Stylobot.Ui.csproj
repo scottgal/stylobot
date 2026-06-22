@@ -20,7 +20,7 @@
         <!-- SignalR client for the live-feed relay (remote mode listens to the gateway's
              hub and re-broadcasts beacons into the local hub so browser HTMX listeners
              pick them up). -->
-        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.8" />
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
     </ItemGroup>
 
     <ItemGroup>

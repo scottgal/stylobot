@@ -14,9 +14,9 @@
     <ItemGroup>
         <PackageReference Include="LLamaSharp" Version="0.27.0" />
         <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.8" />
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
-        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.8" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.9" />
     </ItemGroup>
 
 </Project>

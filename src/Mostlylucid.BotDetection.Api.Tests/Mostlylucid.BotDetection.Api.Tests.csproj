@@ -8,22 +8,22 @@
         <IsTestProject>true</IsTestProject>
     </PropertyGroup>
     <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.4.0"/>
-        <PackageReference Include="xunit" Version="2.9.3"/>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+        <PackageReference Include="xunit" Version="2.9.3" />
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Moq" Version="4.20.72"/>
+        <PackageReference Include="Moq" Version="4.20.72" />
     </ItemGroup>
     <ItemGroup>
-        <Using Include="Xunit"/>
-        <Using Include="Moq"/>
+        <Using Include="Xunit" />
+        <Using Include="Moq" />
     </ItemGroup>
     <ItemGroup>
-        <ProjectReference Include="..\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj" />
     </ItemGroup>
 </Project>

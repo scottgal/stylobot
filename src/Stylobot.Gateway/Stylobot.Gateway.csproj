@@ -60,7 +60,7 @@
         <!-- EF Core base only. Postgres / SqlServer / MySql etc. providers are added
              by commercial add-on packs via IBotDetectionExtension; not shipped in
              FOSS Gateway. -->
-        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
 
         <!-- Logging -->
         <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
@@ -68,10 +68,10 @@
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
 
         <!-- OpenAPI -->
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
 
         <!-- OpenTelemetry -->
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
         <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.11.0-beta.1" />
         <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
     </ItemGroup>

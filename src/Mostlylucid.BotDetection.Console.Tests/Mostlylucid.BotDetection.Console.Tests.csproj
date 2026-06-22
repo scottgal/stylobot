@@ -19,18 +19,18 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
         <PackageReference Include="xunit" Version="2.9.3" />
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="coverlet.collector" Version="10.0.0">
+        <PackageReference Include="coverlet.collector" Version="10.0.1">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="FluentAssertions" Version="8.10.0" />
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     </ItemGroup>
 
     <ItemGroup>
@@ -42,10 +42,8 @@
             instead of taking a project reference, so we don't pull every
             integration-test transitive dependency.
         -->
-        <Compile Include="..\Mostlylucid.BotDetection.Test\Scheduling\Helpers\RecordingScheduleCoordinator.cs"
-                 Link="Scheduling\Helpers\RecordingScheduleCoordinator.cs" />
-        <Compile Include="..\Mostlylucid.BotDetection.Test\Scheduling\Helpers\FixedTimeProvider.cs"
-                 Link="Scheduling\Helpers\FixedTimeProvider.cs" />
+        <Compile Include="..\Mostlylucid.BotDetection.Test\Scheduling\Helpers\RecordingScheduleCoordinator.cs" Link="Scheduling\Helpers\RecordingScheduleCoordinator.cs" />
+        <Compile Include="..\Mostlylucid.BotDetection.Test\Scheduling\Helpers\FixedTimeProvider.cs" Link="Scheduling\Helpers\FixedTimeProvider.cs" />
     </ItemGroup>
 
     <ItemGroup>

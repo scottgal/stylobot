@@ -33,18 +33,18 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
+        <PackageReference Include="OpenTelemetry.Api" Version="1.16.0" />
 <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
-        <PackageReference Include="XenoAtom.Terminal.UI" Version="3.2.2" />
+        <PackageReference Include="XenoAtom.Terminal.UI" Version="3.7.4" />
         <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
         <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-        <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.0" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.6" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.6" />
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.11.2" />
+        <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.9" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.9" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
         <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.11.0-beta.1" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.11.1" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
     </ItemGroup>
 
     <ItemGroup>
@@ -87,17 +87,14 @@
         osx-arm64). dotnet publish does not prune them by default for this
         package, so we do it ourselves below.
     -->
-    <Target Name="PruneForeignRuntimeNatives" AfterTargets="Publish"
-            Condition="'$(RuntimeIdentifier)' != ''">
+    <Target Name="PruneForeignRuntimeNatives" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
         <ItemGroup>
-            <_ForeignRids Include="win-x64;win-arm64;linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64"
-                          Exclude="$(RuntimeIdentifier)" />
+            <_ForeignRids Include="win-x64;win-arm64;linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64" Exclude="$(RuntimeIdentifier)" />
             <_ForeignNatives Include="$(PublishDir)runtimes/%(_ForeignRids.Identity)/**/*" />
         </ItemGroup>
         <Delete Files="@(_ForeignNatives)" />
         <RemoveDir Directories="$(PublishDir)runtimes/%(_ForeignRids.Identity)" />
-        <Message Importance="high"
-                 Text="Pruned foreign-RID natives for $(RuntimeIdentifier); kept runtimes/$(RuntimeIdentifier)/ only" />
+        <Message Importance="high" Text="Pruned foreign-RID natives for $(RuntimeIdentifier); kept runtimes/$(RuntimeIdentifier)/ only" />
     </Target>
 
 </Project>
