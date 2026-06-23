@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Grouping;
+using Mostlylucid.BotDetection.UI.Models.Primitives;
 
 namespace Mostlylucid.BotDetection.UI.Models;
 
@@ -51,6 +52,20 @@ public class CachedVisitor
 
     public GroupKey? GroupKey { get; set; }
     public int GroupMemberCount { get; set; } = 1;
+
+    /// <summary>
+    ///     Gateway-projected drift badge for the visitor row (plan task 19).
+    ///     Null when the visitor has no bound fingerprint, the fingerprint has
+    ///     no root centroid yet (cold start), the drift magnitude is below
+    ///     <c>IdentityOptions.Drift.DriftBadgeThreshold</c>, or the dashboard
+    ///     is running in a remote-mode host without IFingerprintReader. The
+    ///     view treats null as "no badge"; a non-null with
+    ///     <see cref="DriftBadgeModel.IsDrifted"/> == false also renders
+    ///     nothing — the partial fast-skips on that flag. Per spec D5 the
+    ///     threshold cross + label resolution happen on the gateway; this
+    ///     field carries the projected payload only.
+    /// </summary>
+    public DriftBadgeModel? DriftBadge { get; set; }
 
     public string TimeAgo
     {

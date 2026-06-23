@@ -151,6 +151,15 @@ else
         {
             <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold border @trustClass" title="@trustTooltip">@trustText</span>
         }
+        @* Gateway-projected drift badge (plan task 19). Renders only when
+           Model.DriftBadge is non-null AND its IsDrifted flag is true; the
+           partial returns early otherwise. Sits inside the header flex so
+           SignalR-driven OOB swaps of this surface refresh the badge with
+           the rest of the identity summary -- one beacon, one re-render. *@
+        @if (Model.DriftBadge is { } headerBadge)
+        {
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_DriftBadge.cshtml", headerBadge)
+        }
         @{
             var (badgeText, badgeBg) = Model.BotProbability switch
             {

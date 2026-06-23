@@ -81,6 +81,11 @@
                             hx-get="@SortUrl("name")" hx-target="#visitor-list" hx-swap="outerHTML transition:true">
                             Name @Html.Raw(SortIcon("name"))
                         </th>
+                        @* Drift column: empty header, the badge itself carries
+                           the semantics ("drifted N.NN" with tooltip). No sort
+                           on this column -- the operator filters via the
+                           existing Bots/Humans/AI chips, not by drift. *@
+                        <th class="py-1 w-6"></th>
                         <th class="py-1 text-base-content/40">UA</th>
                         <th class="py-1 text-base-content/40">Ver</th>
                         <th class="py-1 text-base-content/40">Bot type</th>
@@ -125,6 +130,18 @@
                             <td class="py-1 font-medium text-xs truncate max-w-[200px]"
                                 title="Signature: @v.PrimarySignature">
                                 <span class="hover:underline">@displayName</span>
+                            </td>
+                            <td class="py-1 w-6">
+                                @* Drift badge -- gateway-projected, threshold-crossed.
+                                   Partial renders nothing when IsDrifted is false, so
+                                   non-drifted rows leave the cell empty. Lives next to
+                                   the name column because drift is naming-adjacent
+                                   context: "this identity has shifted from its origin
+                                   archetype". *@
+                                @if (v.DriftBadge is { } badge)
+                                {
+                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_DriftBadge.cshtml", badge)
+                                }
                             </td>
                             <td class="py-1 text-xs text-base-content/70">@uaFamily</td>
                             <td class="py-1 text-xs text-base-content/50 font-mono">@(string.IsNullOrEmpty(uaVersion) ? "-" : uaVersion)</td>

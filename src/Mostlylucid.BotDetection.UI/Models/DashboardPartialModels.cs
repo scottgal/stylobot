@@ -431,6 +431,17 @@ public sealed class SignatureDetailModel
     /// </summary>
     public IReadOnlyList<SignatureBrowserModeRow> BrowserModes { get; init; }
         = Array.Empty<SignatureBrowserModeRow>();
+
+    /// <summary>
+    ///     Gateway-projected drift badge for the signature header (plan task
+    ///     19). Null when the signature has no bound fingerprint, the
+    ///     fingerprint has no root centroid yet, the drift magnitude is below
+    ///     <c>IdentityOptions.Drift.DriftBadgeThreshold</c>, or the dashboard
+    ///     runs on a remote-mode host without IFingerprintReader. Per spec D5
+    ///     the threshold cross + label resolution happen on the gateway; the
+    ///     wire carries this projected payload only.
+    /// </summary>
+    public Mostlylucid.BotDetection.UI.Models.Primitives.DriftBadgeModel? DriftBadge { get; init; }
 }
 
 /// <summary>
