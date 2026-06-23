@@ -1,0 +1,29 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model DriftBadgeModel
+@{
+    // Drift badge: rendered only when the gateway has already crossed the
+    // IdentityDriftOptions.DriftBadgeThreshold (default 0.15 cosine delta).
+    // The IsDrifted flag IS that threshold-cross result -- this partial does
+    // not re-evaluate it, it just renders or skips.
+    //
+    // Tooltip carries the OriginArchetypeId (where this identity STARTED)
+    // and the TopSlotLabel (which signal slot is currently driving the
+    // drift). Both strings are pre-resolved on the gateway via
+    // SignalCatalog -> SlotKeyLabel fallback -- this view does not own
+    // any vocabulary mapping.
+    //
+    // Colour: warning amber, matching the established palette used by
+    // _RiskBadge.cshtml / _VerificationBadge.cshtml for the "noticed,
+    // not yet alarming" band. Drift is observation, not a verdict.
+    if (!Model.IsDrifted) { return; }
+
+    var magnitudeText = Model.Magnitude.ToString("F2");
+    var tip = $"Drifted {magnitudeText} from origin archetype \"{Model.OriginArchetypeId}\" -- top slot: {Model.TopSlotLabel}";
+}
+<span class="tooltip tooltip-left sb-drift-badge inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400 align-middle"
+      data-tip="@tip"
+      title="@tip"
+      aria-label="@tip">
+    <i class="bx bx-trending-up text-[11px]"></i>
+    <span>drifted @magnitudeText</span>
+</span>

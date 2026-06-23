@@ -94,6 +94,21 @@ public sealed record GroupChipModel(
     Mostlylucid.BotDetection.Grouping.GroupKey? Key,
     int MemberCount);
 
+/// <summary>
+///     View-model for the drift badge primitive (`_DriftBadge.cshtml`).
+///     IsDrifted is the threshold-cross result -- true means render the
+///     badge, false means skip. Magnitude is the cosine delta value.
+///     OriginArchetypeId and TopSlotLabel populate the hover tooltip.
+///     The threshold cross + label resolution happen on the gateway;
+///     this record is the projected payload. See spec D4 + D5 in
+///     docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
+/// </summary>
+public sealed record DriftBadgeModel(
+    bool IsDrifted,
+    double Magnitude,
+    string OriginArchetypeId,
+    string TopSlotLabel);
+
 /// <summary>Filter chip in the table toolbar. Count is optional -- null hides the count badge.</summary>
 public sealed record FilterChip(string Key, string Label, int? Count, string Url);
 
