@@ -1,5 +1,11 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies.Signals;
+using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Primitives;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -92,5 +98,104 @@ public static class FingerprintDriftProjector
             Magnitude: magnitude,
             OriginArchetypeId: fingerprint.ArchetypeOrigin ?? "—",
             TopSlotLabel: topSlotLabel);
+    }
+
+    /// <summary>
+    ///     Enrich a batch of visitor rows with their drift badges using the
+    ///     fingerprint reader + identity options resolved off
+    ///     <paramref name="services"/>. Every visitor-list render path (dashboard
+    ///     shell, HTMX partial swap, widget batch, ViewComponent invocation)
+    ///     calls this so the badge surfaces consistently. Silent no-op when
+    ///     <see cref="IFingerprintReader"/> isn't registered (remote-mode
+    ///     dashboard host), <see cref="BotDetectionOptions"/> isn't bound, or
+    ///     the threshold is non-positive. Per spec D4 every read recomputes;
+    ///     there is no private cache.
+    /// </summary>
+    public static async Task EnrichVisitorsAsync(
+        IReadOnlyList<CachedVisitor> visitors,
+        IServiceProvider services,
+        CancellationToken ct = default,
+        ILogger? logger = null)
+    {
+        if (visitors.Count == 0) return;
+
+        var reader = services.GetService<IFingerprintReader>();
+        if (reader is null) return;
+
+        var idOpts = services.GetService<IOptions<BotDetectionOptions>>()?.Value.Identity;
+        if (idOpts is null) return;
+        var threshold = idOpts.Drift.DriftBadgeThreshold;
+        if (threshold <= 0) return;
+
+        var layout = services.GetService<IdentityVectorLayout>();
+        var signalCatalog = services.GetService<ISignalCatalog>();
+
+        foreach (var v in visitors)
+        {
+            if (string.IsNullOrEmpty(v.PrimarySignature)) continue;
+            try
+            {
+                var fpId = await reader.LookupFingerprintIdAsync(v.PrimarySignature, ct);
+                if (string.IsNullOrEmpty(fpId)) continue;
+
+                var fp = await reader.GetFingerprintAsync(fpId, ct);
+                if (fp is null) continue;
+
+                v.DriftBadge = Project(fp, threshold, layout, signalCatalog);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogDebug(ex,
+                    "Drift badge enrichment failed for visitor signature {Signature}; row renders without badge",
+                    v.PrimarySignature);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Resolve the drift badge for a single signature using the fingerprint
+    ///     reader + identity options off <paramref name="services"/>. The
+    ///     signature-detail header and any other single-row surface call this
+    ///     so the badge contract stays identical across surfaces. Returns null
+    ///     under the same conditions <see cref="EnrichVisitorsAsync"/> early-
+    ///     returns: identity DI missing, threshold non-positive, no fingerprint
+    ///     binding, no usable root centroid, or the drift magnitude is below
+    ///     threshold.
+    /// </summary>
+    public static async Task<DriftBadgeModel?> ResolveForSignatureAsync(
+        string primarySignature,
+        IServiceProvider services,
+        CancellationToken ct = default,
+        ILogger? logger = null)
+    {
+        if (string.IsNullOrEmpty(primarySignature)) return null;
+
+        var reader = services.GetService<IFingerprintReader>();
+        if (reader is null) return null;
+
+        var idOpts = services.GetService<IOptions<BotDetectionOptions>>()?.Value.Identity;
+        if (idOpts is null) return null;
+        var threshold = idOpts.Drift.DriftBadgeThreshold;
+
+        var layout = services.GetService<IdentityVectorLayout>();
+        var signalCatalog = services.GetService<ISignalCatalog>();
+
+        try
+        {
+            var fpId = await reader.LookupFingerprintIdAsync(primarySignature, ct);
+            if (string.IsNullOrEmpty(fpId)) return null;
+
+            var fp = await reader.GetFingerprintAsync(fpId, ct);
+            if (fp is null) return null;
+
+            return Project(fp, threshold, layout, signalCatalog);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug(ex,
+                "Drift badge lookup failed for {Signature}; surface renders without drift badge",
+                primarySignature);
+            return null;
+        }
     }
 }

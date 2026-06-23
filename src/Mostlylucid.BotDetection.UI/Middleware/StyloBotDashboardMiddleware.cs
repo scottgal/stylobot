@@ -1164,8 +1164,10 @@ public class StyloBotDashboardMiddleware
         // Plan task 19: enrich the first-paint visitor slice with the
         // gateway-projected drift badge. Lives next to the projection so
         // the SSR'd dashboard shell stays in agreement with the HTMX-swap
-        // re-renders below (which also run EnrichVisitorDriftBadgesAsync).
-        await EnrichVisitorDriftBadgesAsync(context, visitors);
+        // re-renders below (which all share Services.FingerprintDriftProjector
+        // for one consistent enrichment contract).
+        await Services.FingerprintDriftProjector.EnrichVisitorsAsync(
+            visitors, context.RequestServices, context.RequestAborted, _logger);
 
         DashboardSummary summary;
         // Serve the broadcaster-precomputed summary; only fall through to the
@@ -3020,7 +3022,8 @@ public class StyloBotDashboardMiddleware
         // Plan task 19: enrich the paged visitor slice with the gateway-
         // projected drift badge. Only the visible page pays the lookup
         // cost — pageSize is bounded above to 100 by the query parser.
-        await EnrichVisitorDriftBadgesAsync(context, items);
+        await Services.FingerprintDriftProjector.EnrichVisitorsAsync(
+            items, context.RequestServices, context.RequestAborted, _logger);
 
         var model = new VisitorListModel
         {
@@ -5362,7 +5365,8 @@ public class StyloBotDashboardMiddleware
         // Plan task 19: same gateway-projected drift badge enrichment the
         // dedicated visitor-list partial path runs. Keeps the multi-widget
         // bulk renderer in agreement with the single-widget HTMX endpoint.
-        await EnrichVisitorDriftBadgesAsync(context, items);
+        await Services.FingerprintDriftProjector.EnrichVisitorsAsync(
+            items, context.RequestServices, context.RequestAborted, _logger);
 
         var model = new VisitorListModel
         {
@@ -5737,7 +5741,8 @@ public class StyloBotDashboardMiddleware
             LooksLike = looksLike,
             FingerprintShape = fingerprintShape,
             BrowserModes = await ResolveBrowserModesAsync(context, decodedSignature),
-            DriftBadge = await ResolveDriftBadgeAsync(context, decodedSignature),
+            DriftBadge = await Services.FingerprintDriftProjector.ResolveForSignatureAsync(
+                decodedSignature, context.RequestServices, context.RequestAborted, _logger),
         };
 
         context.Response.ContentType = "text/html";
@@ -5888,111 +5893,6 @@ public class StyloBotDashboardMiddleware
                 "Browser-mode lookup failed for {Signature}; rendering signature detail without modes panel",
                 decodedSignature);
             return Array.Empty<SignatureBrowserModeRow>();
-        }
-    }
-
-    /// <summary>
-    ///     Resolve the drift badge for a single signature (plan task 19).
-    ///     Returns null when identity is disabled, the reader is absent on a
-    ///     remote-mode dashboard host, the signature has no fingerprint
-    ///     binding, the fingerprint has no usable root centroid, or the
-    ///     projected magnitude lands below the configured threshold. The
-    ///     header partial fast-skips on either null or
-    ///     <see cref="Mostlylucid.BotDetection.UI.Models.Primitives.DriftBadgeModel.IsDrifted"/>
-    ///     false. Per spec D5 (project_gateway_data_locality) the threshold
-    ///     cross + label resolution run here on the gateway; the wire payload
-    ///     is the small projected record.
-    /// </summary>
-    private async Task<Mostlylucid.BotDetection.UI.Models.Primitives.DriftBadgeModel?>
-        ResolveDriftBadgeAsync(HttpContext context, string decodedSignature)
-    {
-        var reader = context.RequestServices.GetService<IFingerprintReader>();
-        if (reader is null) return null;
-
-        var idOpts = context.RequestServices
-            .GetService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>()
-            ?.Value.Identity;
-        if (idOpts is null) return null;
-        var threshold = idOpts.Drift.DriftBadgeThreshold;
-
-        var layout = context.RequestServices.GetService<IdentityVectorLayout>();
-        var signalCatalog = context.RequestServices
-            .GetService<BotDetection.Policies.Signals.ISignalCatalog>();
-
-        try
-        {
-            var fpId = await reader.LookupFingerprintIdAsync(decodedSignature, context.RequestAborted);
-            if (string.IsNullOrEmpty(fpId)) return null;
-
-            var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
-            if (fp is null) return null;
-
-            return Mostlylucid.BotDetection.UI.Services.FingerprintDriftProjector.Project(
-                fp, threshold, layout, signalCatalog);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex,
-                "Drift badge lookup failed for {Signature}; rendering surface without drift badge",
-                decodedSignature);
-            return null;
-        }
-    }
-
-    /// <summary>
-    ///     Enrich a batch of visitor rows with their drift badges (plan task
-    ///     19). Mirrors the per-row projection
-    ///     <see cref="ResolveDriftBadgeAsync"/> does for the signature detail
-    ///     header, but batched per-list so the visitor-list partial pays for
-    ///     one reader resolution rather than one per row. Per spec D4
-    ///     (feedback_centralised_change_detection) every read recomputes off
-    ///     the current fingerprint snapshot — no private cache.
-    ///     <para>
-    ///     Silently returns when identity DI is absent or the threshold is
-    ///     non-positive; the caller's
-    ///     <see cref="CachedVisitor.DriftBadge"/> stays null and the view
-    ///     skips the column for that row.
-    ///     </para>
-    /// </summary>
-    private async Task EnrichVisitorDriftBadgesAsync(
-        HttpContext context, IReadOnlyList<CachedVisitor> visitors)
-    {
-        if (visitors.Count == 0) return;
-
-        var reader = context.RequestServices.GetService<IFingerprintReader>();
-        if (reader is null) return;
-
-        var idOpts = context.RequestServices
-            .GetService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>()
-            ?.Value.Identity;
-        if (idOpts is null) return;
-        var threshold = idOpts.Drift.DriftBadgeThreshold;
-        if (threshold <= 0) return;
-
-        var layout = context.RequestServices.GetService<IdentityVectorLayout>();
-        var signalCatalog = context.RequestServices
-            .GetService<BotDetection.Policies.Signals.ISignalCatalog>();
-
-        foreach (var v in visitors)
-        {
-            if (string.IsNullOrEmpty(v.PrimarySignature)) continue;
-            try
-            {
-                var fpId = await reader.LookupFingerprintIdAsync(v.PrimarySignature, context.RequestAborted);
-                if (string.IsNullOrEmpty(fpId)) continue;
-
-                var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
-                if (fp is null) continue;
-
-                v.DriftBadge = Mostlylucid.BotDetection.UI.Services.FingerprintDriftProjector.Project(
-                    fp, threshold, layout, signalCatalog);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex,
-                    "Drift badge enrichment failed for visitor signature {Signature}; row renders without badge",
-                    v.PrimarySignature);
-            }
         }
     }
 

@@ -35,6 +35,14 @@ public class SbVisitorListViewComponent(
         var (items, total, counts) = WidgetRenderHelpers.ProjectAsVisitors(
             raw, filter, sort, dir, page, pageSize);
 
+        // Plan task 19: same gateway-projected drift badge enrichment the
+        // dedicated visitor-list endpoints run. No-ops on a remote-mode host
+        // that didn't register IFingerprintReader (marketing site embed),
+        // so the badge surfaces on the gateway and gracefully disappears
+        // where the data isn't available.
+        await FingerprintDriftProjector.EnrichVisitorsAsync(
+            items, HttpContext.RequestServices, HttpContext.RequestAborted);
+
         return View(new VisitorListModel
         {
             Visitors = items,

@@ -176,6 +176,13 @@ public sealed class SbWidgetBatchMiddleware
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = WidgetRenderHelpers.QueryPage(q);
         var (items, totalCount, _, _) = signatureCache.GetFiltered(filter, sortField, sortDir, page, 24);
+
+        // Plan task 19: same gateway-projected drift badge enrichment every
+        // other visitor-list render path runs. Keeps the batch widget endpoint
+        // in agreement with /partials/visitors and the SSR shell.
+        await FingerprintDriftProjector.EnrichVisitorsAsync(
+            items, context.RequestServices, context.RequestAborted);
+
         var model = new VisitorListModel
         {
             Visitors = items,
