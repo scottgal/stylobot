@@ -677,6 +677,19 @@ public static class SignalKeys
     public const string IdentityBrowserModeMaturity = "identity.browser_mode_maturity";
 
     /// <summary>
+    ///     Double in [-1, 1]: raw cosine similarity between the request's
+    ///     mode-vector and the winning centroid in the
+    ///     <c>browser_mode</c> catalogue. Surfaces the nearest-centroid
+    ///     classifier's confidence so callers (dashboard, gating logic) can
+    ///     reason about "matched mode X at 0.92" without re-running the
+    ///     cosine themselves. Written by
+    ///     <c>BrowserModeClassifierContributor</c> alongside
+    ///     <see cref="IdentityBrowserMode"/>. Per design spec D2 (centroids,
+    ///     not rules) and <c>feedback_centroids_not_rules</c>.
+    /// </summary>
+    public const string IdentityBrowserModeSimilarity = "identity.browser_mode_similarity";
+
+    /// <summary>
     ///     Bool: true when this is the first request the matched browser mode
     ///     was ever observed on this fingerprint. The verdict composer treats
     ///     a true emergence here as a per-request anomaly axis (composite spec

@@ -54,8 +54,23 @@ public sealed class BrowserModeClassifierContributor : ContributingDetectorBase,
         // policy already classified this request at policy-eval time (composite
         // spec step 5), the HttpContext.Items cache returns the same id with no
         // recomputation; otherwise the resolver computes it now.
+        //
+        // Spec D2 + feedback_centroids_not_rules: the production resolver is
+        // CentroidBrowserModeResolver -- nearest-centroid cosine over the
+        // browser_mode catalogue, not a YAML-predicate walk. The contributor
+        // stays oblivious to which resolver impl is registered so commercial
+        // / test hosts can swap behaviour without touching the contributor.
         var modeId = _resolver.Resolve(state.HttpContext);
         state.WriteSignal(SignalKeys.IdentityBrowserMode, modeId);
+
+        // Surface the classifier's cosine score when the centroid resolver
+        // populated the items entry. Null means a non-centroid resolver was
+        // used (test/legacy); leaving the signal absent is the correct shape
+        // -- downstream consumers treat the missing signal as "no similarity
+        // surfaced" rather than 0.0.
+        var similarity = CentroidBrowserModeResolver.TryGetSimilarity(state.HttpContext);
+        if (similarity.HasValue)
+            state.WriteSignal(SignalKeys.IdentityBrowserModeSimilarity, similarity.Value);
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
     }

@@ -944,21 +944,56 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.IdentityAiOpinionService>();
         services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
         // Browser-mode classifier: same browser, different modes (navigation/xhr/
-        // sub-resource/signalr-negotiate/...). YAML-driven inventory in
-        // Definitions/BrowserModes/*.yaml. Foundation contributor priority 6,
-        // emits identity.browser_mode signal. See
-        // docs/architecture/composite-character-fingerprints.md.
+        // sub-resource/signalr-negotiate/...). Foundation contributor priority
+        // 6, emits identity.browser_mode (+ identity.browser_mode_similarity)
+        // signal. See docs/architecture/composite-character-fingerprints.md
+        // and the 2026-06-22 identity / mode / archetype / name design spec.
+        //
+        // The legacy YAML-predicate BrowserModeRegistry is still registered
+        // (other code paths -- registry inventory dumps, predicate-shape
+        // tests -- still touch it) but is NOT on the request-scoped
+        // classification path any more. T14 retired the predicate walk in
+        // favour of nearest-centroid cosine over the browser_mode catalogue
+        // (catalogue_kind = 'browser_mode' rows in identity_archetypes), so
+        // calibration drift survives gateway restart. See
+        // feedback_centroids_not_rules.
         services.TryAddSingleton<Identity.BrowserModes.BrowserModeRegistry>(sp =>
             new Identity.BrowserModes.BrowserModeRegistry(
                 sp.GetRequiredService<ILogger<Identity.BrowserModes.BrowserModeRegistry>>(),
                 sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.Identity.BrowserMode.FallbackModeId));
+
+        // Mode-centroid catalogue + classifier (T11b / T12 / T13 / T14).
+        // YamlBrowserModeSeedSource pulls cold-start seeds from
+        // Definitions/BrowserModes/*.yaml; ModeCentroidCatalogue persists
+        // each seed into identity_archetypes on first read and surfaces drift
+        // updates on subsequent reads. ModeCentroidClassifier snapshots the
+        // catalogue into an in-memory nearest-centroid scanner at startup.
+        // GetAwaiter().GetResult() at DI build time is acceptable here: the
+        // load is read-only and bounded by the small browser_mode row count.
+        services.TryAddSingleton<Identity.BrowserModes.IBrowserModeSeedSource>(sp =>
+            new Identity.BrowserModes.YamlBrowserModeSeedSource(
+                sp.GetRequiredService<Identity.IdentityVectorLayout>(),
+                sp.GetService<ILogger<Identity.BrowserModes.YamlBrowserModeSeedSource>>()));
+        services.TryAddSingleton<Identity.BrowserModes.ModeCentroidCatalogue>();
+        services.TryAddSingleton<Identity.BrowserModes.ModeCentroidClassifier>(sp =>
+        {
+            var catalogue = sp.GetRequiredService<Identity.BrowserModes.ModeCentroidCatalogue>();
+            var layout    = sp.GetRequiredService<Identity.IdentityVectorLayout>();
+            return Identity.BrowserModes.ModeCentroidClassifier
+                .LoadAsync(catalogue, layout)
+                .GetAwaiter().GetResult();
+        });
+
         // Request-scoped BrowserMode resolver: lazy-classifies on first call,
         // caches in HttpContext.Items. EndpointPolicy (early in the pipeline)
         // and BrowserModeClassifierContributor / FingerprintMatchContributor
         // (mid-pipeline, after BotDetection wave starts) all consult the same
-        // resolver, so a request is classified at most once.
+        // resolver, so a request is classified at most once. Production impl
+        // is CentroidBrowserModeResolver (cosine over the browser_mode
+        // catalogue); the YAML-predicate CachingBrowserModeResolver is kept
+        // for callers that explicitly construct it (tests).
         services.TryAddSingleton<Identity.BrowserModes.IBrowserModeResolver,
-            Identity.BrowserModes.CachingBrowserModeResolver>();
+            Identity.BrowserModes.CentroidBrowserModeResolver>();
         services.AddSingleton<IContributingDetector, BrowserModeClassifierContributor>();
         // Per-fingerprint browser-mode store (step 2 of the composite spec).
         // Surface the interface so commercial Postgres can swap in its impl;
@@ -978,6 +1013,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Identity.BrowserModes.FingerprintModeAbsorptionService>();
         services.AddSingleton<Identity.BrowserModes.FingerprintRollupRecomputeService>();
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
+        // Spec D2 (deferred -- T14 follow-up): FingerprintNameComposer should
+        // recompute the display name as a SignalSink on FingerprintMatched /
+        // MatcherCatalogUpdated events so a centroid-drift or archetype
+        // recompose updates the persisted name without a manual call site.
+        // Neither the typed FingerprintMatched / MatcherCatalogUpdated signal
+        // nor a FOSS-side ISignalSink pub-sub bus exists yet (the
+        // Mostlylucid.Ephemeral SignalSink is a request-scoped ledger, not a
+        // pub-sub bus), so wiring the subscriber lands in a later task
+        // (identity-plan T16+). Today the composer stays statically invoked
+        // by the matcher + LLM callback + IFingerprintStore display-name
+        // gate. Per feedback_no_background_services, when this lands it MUST
+        // NOT be a HostedService -- it subscribes to the signal flow.
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
         // Wave 2: FingerprintDriftService subscribes to
         // IScheduleCoordinator.Tick10s at construction. Drop the
