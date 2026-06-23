@@ -25,6 +25,22 @@ namespace Mostlylucid.BotDetection.UI.Services;
 public sealed class SignatureAggregateCache
 {
     private readonly ConcurrentDictionary<string, SignatureAggregate> _entries = new();
+
+    /// <summary>
+    ///     Resolved display names indexed by primary signature. Populated EXCLUSIVELY by
+    ///     <see cref="TryApplyStoreResolvedName"/> -- the only entry point that callers
+    ///     wire to <c>IFingerprintStore.GetDisplayNamesBySignaturesAsync</c>, the
+    ///     contract-gated read of the canonical <c>Fingerprint.DisplayName</c>. The
+    ///     per-detection write path does NOT touch this dict, so a banned-shape name
+    ///     ("Win Chrome 149", "Akkoma ...") on a transient <c>DashboardDetectionEvent.BotName</c>
+    ///     can never bleed into the dashboard rows. <see cref="ToEntry"/>,
+    ///     <see cref="ToCachedVisitor"/>, and the warmed cold-load paths read off this
+    ///     dict; lookups not yet populated leave the row's name null until a refresh
+    ///     pulls it from the store.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, string> _resolvedNames =
+        new(StringComparer.Ordinal);
+
     private readonly object _sortLock = new();
     private readonly StyloBotDashboardOptions _options;
     private readonly IBehaviouralGrouper? _grouper;
@@ -105,6 +121,39 @@ public sealed class SignatureAggregateCache
         if (Interlocked.Increment(ref _updateCounter) % AccessCountAgingInterval == 0)
             AgeAccessCounts();
     }
+
+    /// <summary>
+    ///     Push a batch of store-resolved display names into the projection-time
+    ///     name dict. Callers fetch the names via
+    ///     <c>IFingerprintStore.GetDisplayNamesBySignaturesAsync</c> -- the
+    ///     contract-gated read of the canonical <c>Fingerprint.DisplayName</c> --
+    ///     and hand them to this method. This is the ONLY writer to
+    ///     <see cref="_resolvedNames"/>; the per-detection write path no longer
+    ///     populates names anywhere, so banned-shape detection-event values cannot
+    ///     enter the dashboard surface. Null/empty values clear an existing entry.
+    /// </summary>
+    public void ApplyResolvedNames(IReadOnlyDictionary<string, string?> resolved)
+    {
+        foreach (var kv in resolved)
+        {
+            if (string.IsNullOrEmpty(kv.Key)) continue;
+            if (string.IsNullOrEmpty(kv.Value))
+                _resolvedNames.TryRemove(kv.Key, out _);
+            else
+                _resolvedNames[kv.Key] = kv.Value;
+        }
+        _sortDirty = true;
+    }
+
+    /// <summary>
+    ///     Read a previously-applied resolved name. Returns null when the cache
+    ///     hasn't been seeded for this signature yet -- callers should treat null
+    ///     as "no name yet" and either skip the row or fall through to the next
+    ///     available label (entity id, UA family). Never fall back to a transient
+    ///     detection-event value; that defeats the parasitic-write fix.
+    /// </summary>
+    public string? GetResolvedName(string signature)
+        => _resolvedNames.TryGetValue(signature, out var n) ? n : null;
 
     /// <summary>
     ///     Apply an LLM-generated description (per-signature transient narrative) to
@@ -361,10 +410,16 @@ public sealed class SignatureAggregateCache
     {
         foreach (var bot in topBots)
         {
+            // The seed event store's bot_name column was historically written
+            // by the (parasitic) detection.BotName path, so we do NOT copy it
+            // into _resolvedNames here. Names are seeded ONLY by
+            // ApplyResolvedNames callers feeding from
+            // IFingerprintStore.GetDisplayNamesBySignaturesAsync; the cache stays
+            // nameless until a contract-gated fetch arrives.
+
             var agg = new SignatureAggregate
             {
                 HitCount = bot.HitCount,
-                BotName = bot.BotName,
                 BotType = bot.BotType,
                 RiskBand = bot.RiskBand,
                 BotProbability = bot.BotProbability,
@@ -443,22 +498,17 @@ public sealed class SignatureAggregateCache
                 minProc = d.ProcessingTimeMs;
         }
 
-        var stickyBotName = detections.Select(d => d.BotName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? latest.BotName;
         var stickyBotType = detections.Select(d => d.BotType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? latest.BotType;
 
-        // When ANY detection in the window classified this fingerprint as a named
-        // bot identity (Googlebot/2.1, GPTBot, Spoofed-Bingbot, ...), the row's
-        // BotProbability is the MAX score seen for that identity -- never the
-        // latest. Per the user's spec: once a Googlebot UA + matching version
-        // (+ rDNS in the background) has been recognised on this fingerprint at
-        // 1.00, a subsequent low-score request must not drag the operator-facing
-        // probability down to 0.20 and make a confirmed bot row read as "human-
-        // ish". For un-named rows (ordinary visitors, "Tool"/"Unknown" bot-types
-        // with no real identity) we keep the latest-wins semantics so an
-        // outlier-high score from one anomalous request doesn't stick forever
-        // on a real human fingerprint.
-        var hasNamedIdentity = !string.IsNullOrEmpty(stickyBotName)
-            && !stickyBotName.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+        // Sticky-max BotProbability now keys off BotType, not BotName -- per the
+        // single-source spec the per-detection BotName is gone. A real catalogue
+        // identity always carries a non-Unknown BotType (Googlebot -> SearchEngine,
+        // GPTBot -> AICrawler, etc.), so this is the same operator-facing signal
+        // without leaking the parasitic name path back in. Keeps the "once a
+        // confirmed bot row scores at 1.00 a later 0.20 cannot drag it down"
+        // rule intact.
+        var hasNamedIdentity = !string.IsNullOrEmpty(stickyBotType)
+            && !stickyBotType.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
         var stickyBotProbability = hasNamedIdentity
             ? detections.Max(d => d.BotProbability)
             : latest.BotProbability;
@@ -466,7 +516,6 @@ public sealed class SignatureAggregateCache
         var agg = new SignatureAggregate
         {
             HitCount = detections.Count,
-            BotName = stickyBotName,
             BotType = stickyBotType,
             RiskBand = riskBand,
             BotProbability = stickyBotProbability,
@@ -631,9 +680,12 @@ public sealed class SignatureAggregateCache
     ///     Project a stable, lock-bounded snapshot of an aggregate as a
     ///     <see cref="CachedVisitor" /> for the visitor card / list surfaces.
     ///     Held under SyncRoot so mutable collections (Paths, ring buffers)
-    ///     don't tear during the copy.
+    ///     don't tear during the copy. The visible <c>BotName</c> on the
+    ///     projection is pulled from <see cref="_resolvedNames"/>, the
+    ///     store-gated read of <c>Fingerprint.DisplayName</c>; null when no
+    ///     <see cref="ApplyResolvedNames"/> has populated it yet.
     /// </summary>
-    private static CachedVisitor Project(string signature, SignatureAggregate agg)
+    private CachedVisitor Project(string signature, SignatureAggregate agg)
     {
         lock (agg.SyncRoot)
         {
@@ -650,7 +702,7 @@ public sealed class SignatureAggregateCache
                 LastPath = agg.LastPath,
                 Paths = agg.Paths.ToList(),
                 Action = agg.Action ?? "Allow",
-                BotName = agg.BotName,
+                BotName = GetResolvedName(signature),
                 BotType = agg.BotType,
                 CountryCode = agg.CountryCode,
                 UserAgent = agg.UserAgent,
@@ -823,7 +875,10 @@ public sealed class SignatureAggregateCache
         var agg = new SignatureAggregate
         {
             HitCount = 1,
-            BotName = detection.BotName,
+            // BotName intentionally NOT populated from detection.BotName --
+            // the per-detection event carries a transient, unvetted name
+            // (banned-shape "Win Chrome 149" etc.). Names enter the cache
+            // only via ApplyResolvedNames from IFingerprintStore.
             BotType = detection.BotType,
             RiskBand = detection.RiskBand,
             BotProbability = detection.BotProbability,
@@ -936,43 +991,24 @@ public sealed class SignatureAggregateCache
         lock (existing.SyncRoot)
         {
             existing.HitCount++;
-            var classificationFlipped = existing.IsBot != detection.IsBot;
             existing.IsBot = detection.IsBot;
-            // Name + type are owned by the canonical naming pipeline (UpdateSignatureBotNameAsync
-            // calling ApplyBotName, write-through to the dashboard_signatures table). Per-detection
-            // updates must NEVER overwrite a name that's already been set -- otherwise an early
-            // heuristic guess like "British Suspicious Client" clobbers a later LLM-resolved name,
-            // or vice versa, and the cache drifts permanently away from the persistent store.
-            // The only mutation allowed here is the first-time seed when the cache has no name yet.
-            if (string.IsNullOrEmpty(existing.BotName) && !string.IsNullOrEmpty(detection.BotName))
-            {
-                existing.BotName = detection.BotName;
-                existing.BotType = detection.BotType;
-            }
-            else if (classificationFlipped && !string.IsNullOrEmpty(detection.BotName)
-                     && !string.Equals(detection.BotName, existing.BotName, StringComparison.Ordinal))
-            {
-                // Bot<->human flip: the source already re-derived the name (absorption cleared the
-                // stale name -> matcher recomposed from the new archetype). This is an authoritative
-                // rename, not heuristic churn, so accept it -- never show e.g. "Googlebot" on a row
-                // that has flipped to human.
-                existing.BotName = detection.BotName;
-                existing.BotType = detection.BotType;
-            }
-            else if (string.IsNullOrEmpty(existing.BotType) && !string.IsNullOrEmpty(detection.BotType))
+            // Name is no longer mutated here -- it lives in _resolvedNames, populated
+            // only by ApplyResolvedNames from IFingerprintStore. BotType still tracks
+            // the latest non-empty value from detections; it carries the catalogue
+            // identity bucket (SearchEngine / AICrawler / Tool / ...) which is
+            // orthogonal to the display name and not gated by the same contract.
+            if (string.IsNullOrEmpty(existing.BotType) && !string.IsNullOrEmpty(detection.BotType))
             {
                 existing.BotType = detection.BotType;
             }
             existing.RiskBand = detection.RiskBand;
-            // BotProbability is sticky-max for fingerprints with a named identity
-            // (Googlebot, GPTBot, Spoofed-Bingbot, ...). Once we've observed the
-            // pattern scoring at 1.00, a subsequent low-score request can't drag
-            // the operator-facing probability back down -- the identity itself is
-            // still a bot, and the row needs to read that way. Un-named rows
-            // keep latest-wins so a spike doesn't permanently mis-label a real
-            // human. Mirrors the same rule in the BuildAggregate cold-load path.
-            var hasNamedIdentity = !string.IsNullOrEmpty(existing.BotName)
-                && !existing.BotName.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+            // BotProbability is sticky-max for fingerprints with a known identity --
+            // pre-spec this keyed off existing.BotName, now it keys off BotType
+            // (catalogue identity bucket: SearchEngine / AICrawler / Tool / ...).
+            // The signal is the same: a catalogue-bound identity scoring at 1.00
+            // shouldn't be dragged down by a later 0.20 detection on the same fp.
+            var hasNamedIdentity = !string.IsNullOrEmpty(existing.BotType)
+                && !existing.BotType.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
             existing.BotProbability = hasNamedIdentity
                 ? Math.Max(existing.BotProbability, detection.BotProbability)
                 : detection.BotProbability;
@@ -1092,7 +1128,11 @@ public sealed class SignatureAggregateCache
             {
                 PrimarySignature = signature,
                 HitCount = agg.HitCount,
-                BotName = agg.BotName,
+                // Display name resolved from the store-gated dict (populated via
+                // ApplyResolvedNames from IFingerprintStore.GetDisplayNamesBySignaturesAsync).
+                // Null until that read has populated the entry; views must tolerate
+                // null and fall through to entity-id / UA-family labels per spec.
+                BotName = GetResolvedName(signature),
                 CustomBotName = customName,
                 BotType = agg.BotType,
                 RiskBand = agg.RiskBand,
@@ -1172,7 +1212,12 @@ public sealed class SignatureAggregateCache
 public sealed class SignatureAggregate
 {
     public int HitCount;
-    public string? BotName;
+    // BotName field DELETED per 2026-06-19-single-source-fingerprint-name spec
+    // step 3. The display name lives ONLY in Fingerprint.DisplayName, gated by
+    // IFingerprintStore.UpdateDisplayNameForSignatureAsync; view projections
+    // fetch it at read-time via IFingerprintStore.GetDisplayNamesBySignaturesAsync.
+    // Storing a parallel copy here was the parasitic path that produced
+    // "Win Chrome 149" / "Akkoma akkoma..." banned-shape names on staging.
     public string? BotType;
     public string? RiskBand;
     public double BotProbability;

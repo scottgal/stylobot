@@ -6023,7 +6023,10 @@ public class StyloBotDashboardMiddleware
             DateTime inferLastSeen = DateTime.UtcNow;
             if (aggCache is not null && aggCache.TryGet(decodedSignature, out var agg) && agg is not null)
             {
-                inferBotName = agg.BotName;
+                // BotName no longer lives on the aggregate -- pull from the
+                // resolved-name dict (store-gated) instead. BotType still
+                // tracks the catalogue identity bucket on the aggregate.
+                inferBotName = aggCache.GetResolvedName(decodedSignature);
                 inferBotType = agg.BotType;
                 inferFirstSeen = agg.FirstSeen;
                 inferLastSeen = agg.LastSeen;
@@ -6105,19 +6108,21 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     Map a <see cref="SignatureAggregate"/> with no bound fingerprint
-    ///     to the archetype whose label best fits its known bot-name /
-    ///     bot-type signal. Prefer exact name match (e.g. "bingbot" agg →
-    ///     "bingbot" archetype), fall back to bot-type kind match
-    ///     (Scraper/Crawler/Tool/User), fall back to the human-baseline
-    ///     archetype. Used by <see cref="ResolveFingerprintShapeAsync"/>'s
-    ///     defensive fallback so signatures without a fingerprint_keys row
-    ///     still render an inferred polygon rather than the
-    ///     home-card-only "calibrating" placeholder.
+    ///     Map a <see cref="SignatureAggregate"/> with no bound fingerprint to the
+    ///     archetype whose label best fits its known bot-type signal plus the
+    ///     resolved display name pulled from <see cref="SignatureAggregateCache.GetResolvedName"/>.
+    ///     Prefer exact name match (e.g. "bingbot" → "bingbot" archetype), fall
+    ///     back to bot-type kind match (Scraper/Crawler/Tool/User), fall back to
+    ///     the human-baseline archetype. Used by
+    ///     <see cref="ResolveFingerprintShapeAsync"/>'s defensive fallback so
+    ///     signatures without a fingerprint_keys row still render an inferred
+    ///     polygon rather than the home-card-only "calibrating" placeholder.
     /// </summary>
     private static IdentityArchetype? FindInferredArchetype(
-        IdentityArchetypeRegistry registry, SignatureAggregate aggregate)
-        => FindInferredArchetypeFor(registry, aggregate.BotName, aggregate.BotType);
+        IdentityArchetypeRegistry registry,
+        SignatureAggregate aggregate,
+        string? resolvedName)
+        => FindInferredArchetypeFor(registry, resolvedName, aggregate.BotType);
 
     /// <summary>
     ///     Field-driven sibling of <see cref="FindInferredArchetype"/>. Drives

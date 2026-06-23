@@ -49,8 +49,15 @@ public static class SessionEnrichmentExtensions
         string? storedName)
     {
         if (!string.IsNullOrEmpty(storedName)) return storedName;
-        if (cache is not null && cache.TryGet(signature, out var agg) && !string.IsNullOrEmpty(agg?.BotName))
-            return agg.BotName;
+        // The in-memory cache no longer carries a BotName field; the resolved
+        // dict (populated by ApplyResolvedNames from IFingerprintStore) is the
+        // only on-the-gateway path. Falls through to the dashboard_signatures
+        // lookup when the cache hasn't been seeded yet.
+        if (cache is not null)
+        {
+            var cached = cache.GetResolvedName(signature);
+            if (!string.IsNullOrEmpty(cached)) return cached;
+        }
         return signatureLookup.TryGetValue(signature, out var name) ? name : null;
     }
 

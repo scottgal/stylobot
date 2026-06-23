@@ -86,7 +86,11 @@ public static class ReadEndpoints
             var agg = await signatureCache.GetOrLoadAsync(signature);
             if (agg is not null)
             {
-                var det = SynthesizeDetectionFromAggregate(signature, agg);
+                // Resolved name comes from the cache's store-gated dict, NOT from
+                // a per-detection field (which no longer exists). Null when no
+                // fingerprint has been allocated yet for this signature.
+                var det = SynthesizeDetectionFromAggregate(
+                    signature, agg, signatureCache.GetResolvedName(signature));
                 return TypedResults.Ok(new PaginatedResponse<DashboardDetectionEvent>
                 {
                     Data = new List<DashboardDetectionEvent> { det },
@@ -122,7 +126,7 @@ public static class ReadEndpoints
     ///     doesn't track per-request rows.
     /// </summary>
     private static DashboardDetectionEvent SynthesizeDetectionFromAggregate(
-        string signature, SignatureAggregate agg) => new()
+        string signature, SignatureAggregate agg, string? resolvedName) => new()
     {
         RequestId = "cache",
         Timestamp = agg.LastSeen == default ? DateTime.UtcNow : agg.LastSeen,
@@ -131,7 +135,7 @@ public static class ReadEndpoints
         Confidence = agg.Confidence,
         RiskBand = agg.RiskBand ?? "Unknown",
         BotType = agg.BotType,
-        BotName = agg.BotName,
+        BotName = resolvedName,
         Action = agg.Action,
         Method = "GET",
         Path = "/",

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -26,17 +27,20 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
     private readonly IDashboardEventStore _eventStore;
     private readonly SignatureAggregateCache _cache;
     private readonly ILogger<SignatureAggregateCacheWarmupService> _logger;
+    private readonly IFingerprintStore? _fingerprintStore;
     private readonly bool _isRemoteMode;
 
     public SignatureAggregateCacheWarmupService(
         IDashboardEventStore eventStore,
         SignatureAggregateCache cache,
         ILogger<SignatureAggregateCacheWarmupService> logger,
-        DashboardSourceOptions? sourceOptions = null)
+        DashboardSourceOptions? sourceOptions = null,
+        IFingerprintStore? fingerprintStore = null)
     {
         _eventStore = eventStore;
         _cache = cache;
         _logger = logger;
+        _fingerprintStore = fingerprintStore;
         // Presence of DashboardSourceOptions (registered by AddStyloBotDashboardRemote)
         // means this host is a remote-mode dashboard viewer. Dashboard state lives on
         // the gateway in that case ([[project_gateway_data_locality]]); seeding a local
@@ -71,6 +75,39 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
                 _logger.LogInformation(
                     "Warmed signature aggregate cache with {Count} signatures from last 24h",
                     topBots.Count);
+
+                // Pull display names from the contract-gated fingerprint store
+                // (Fingerprint.DisplayName) and push them into the cache's
+                // resolved-name dict. This is the ONLY path that populates names
+                // post-2026-06-19-single-source-fingerprint-name spec; the
+                // per-detection write path no longer touches names. Skipped when
+                // no IFingerprintStore is registered (e.g. legacy fixtures).
+                if (_fingerprintStore is not null)
+                {
+                    try
+                    {
+                        var sigs = topBots
+                            .Select(b => b.PrimarySignature)
+                            .Where(s => !string.IsNullOrEmpty(s))
+                            .Distinct(StringComparer.Ordinal)
+                            .ToList();
+                        if (sigs.Count > 0)
+                        {
+                            var names = await _fingerprintStore.GetDisplayNamesBySignaturesAsync(
+                                sigs, stoppingToken);
+                            _cache.ApplyResolvedNames(names);
+                            _logger.LogInformation(
+                                "Pulled {Count} display names from IFingerprintStore for warmed cache entries",
+                                names.Count(kv => !string.IsNullOrEmpty(kv.Value)));
+                        }
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to pull display names from IFingerprintStore -- visitor list will render without names until a refresh succeeds");
+                    }
+                }
 
                 // Pre-warm the per-signature hit ring buffers from the last hour of stored
                 // detections so the Live Activity sparkline column shows real trend on
