@@ -45,6 +45,21 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
+    // Operator-mounted config volume. CreateBuilder loads the baked-in
+    // src/Stylobot.Gateway/appsettings.json; adding the volume here makes
+    // /config/appsettings.json an override layer, the same role the
+    // startup banner's earlyConfig already assumes the file plays. Without
+    // this line the volume was a parasitic store: operators edited it
+    // thinking it overrode runtime settings, but only the banner read it
+    // (caught in PR #38 when the StyloExtract rules landed in /config/
+    // and never fired). Listed after env vars in CreateBuilder so the
+    // file takes precedence over env (the documented convention for an
+    // operator-mounted volume override).
+    builder.Configuration.AddJsonFile(
+        Path.Combine(GatewayPaths.Config, "appsettings.json"),
+        optional: true,
+        reloadOnChange: true);
+
     // Configure Kestrel: accept H1 and H2C (cleartext HTTP/2).
     // H2C is required when cloudflared has http2Origin: true - cloudflared speaks H2C to the origin.
     // Without this, cloudflared falls back to H1 and loses multiplexing benefits.
