@@ -104,11 +104,17 @@ public static class ModeDeltaProjector
     /// </summary>
     private static string ResolveLabel(string slotKey, ISignalCatalog signalCatalog)
     {
+        // T17 audit (2026-06-22): IdentityVectorLayout slot names and SignalKeys
+        // constants live in separate namespaces, so signalCatalog.TryGet returns
+        // null for every drift-prone layout slot today. Two-stage fallback:
+        // catalogue Short text when present, structural normalisation of the slot
+        // key otherwise (drop the namespace prefix + replace underscores). Keeps
+        // the path open for a future curated-label layer on IdentityVectorSlot
+        // without forcing one now.
         var descriptor = signalCatalog.TryGet(slotKey);
-        if (descriptor is null)
-            return slotKey;
+        if (descriptor is not null && !string.IsNullOrWhiteSpace(descriptor.Short))
+            return descriptor.Short;
 
-        var s = descriptor.Short;
-        return string.IsNullOrWhiteSpace(s) ? slotKey : s;
+        return SlotKeyLabel.ToHumanLabel(slotKey);
     }
 }
