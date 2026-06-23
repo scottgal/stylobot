@@ -12,7 +12,7 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     methods are never called at all -- they exist so the service registration
 ///     can still be satisfied without dragging SQLite into the process.
 /// </summary>
-public sealed class NullFingerprintStore : IFingerprintStore
+public class NullFingerprintStore : IFingerprintStore
 {
     private static readonly IReadOnlyDictionary<string, float[]> _emptyCentroids
         = new Dictionary<string, float[]>();
@@ -166,6 +166,27 @@ public sealed class NullFingerprintStore : IFingerprintStore
         => Task.FromResult<(float[], DateTime)?>(null);
 
     public Task UpsertArchetypeAsync(IdentityArchetype archetype, CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    /// <summary>
+    ///     Null store keeps no rows; virtual so test doubles (e.g. the
+    ///     in-memory mode-centroid catalogue store) can layer real semantics
+    ///     on top without restubbing the rest of the interface.
+    /// </summary>
+    public virtual Task<IReadOnlyList<IdentityArchetypeRow>> GetByCatalogueKindAsync(
+        string catalogueKind, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<IdentityArchetypeRow>>(Array.Empty<IdentityArchetypeRow>());
+
+    /// <summary>
+    ///     Null store discards centroid writes; virtual so test doubles can
+    ///     observe and persist them in-memory.
+    /// </summary>
+    public virtual Task UpsertCentroidAsync(
+        string archetypeId,
+        string catalogueKind,
+        float[] centroid,
+        double maturity,
+        CancellationToken ct = default)
         => Task.CompletedTask;
 
     // ── Vec KNN ──────────────────────────────────────────────────────────────

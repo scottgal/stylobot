@@ -220,6 +220,44 @@ public interface IFingerprintStore : IFingerprintReader
         => UpsertArchetypeAsync(archetype, ct);
 
     /// <summary>
+    ///     Snapshot of every row in <c>identity_archetypes</c> matching the
+    ///     given <paramref name="catalogueKind"/> discriminator. Used by mode
+    ///     classification (kind: <c>browser_mode</c>) and identity archetype
+    ///     loading (kind: <c>identity</c>) without duplicating the underlying
+    ///     table or calibration infrastructure. Default returns an empty list
+    ///     so older store impls keep compiling; concrete stores (Sqlite,
+    ///     PostgreSQL) filter on <c>catalogue_kind = @kind</c>.
+    /// </summary>
+    Task<IReadOnlyList<IdentityArchetypeRow>> GetByCatalogueKindAsync(
+        string catalogueKind, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<IdentityArchetypeRow>>(Array.Empty<IdentityArchetypeRow>());
+
+    /// <summary>
+    ///     Upsert one centroid row into <c>identity_archetypes</c>. Used by both
+    ///     the identity-archetype calibration pass (kind: <c>identity</c>) and
+    ///     the mode-centroid catalogue (kind: <c>browser_mode</c>). Idempotent
+    ///     on <paramref name="archetypeId"/>. Unlike
+    ///     <see cref="UpsertArchetypeAsync"/> this write does not require a
+    ///     fully-populated <see cref="IdentityArchetype"/> record -- it carries
+    ///     only the persisted columns the mode-centroid catalogue actually
+    ///     drives (id, kind, centroid, maturity). Other columns either default
+    ///     in the DB (<c>catalogue_kind</c>) or are populated on first insert
+    ///     with sensible neutrals (name = id, archetype_kind = catalogue_kind,
+    ///     descendant_count = 0) so the row is valid for the existing
+    ///     calibration / drift / read paths.
+    ///     Default no-op so older store impls keep compiling without
+    ///     this column-level surface; concrete stores (Sqlite, PostgreSQL)
+    ///     override with the matching UPSERT.
+    /// </summary>
+    Task UpsertCentroidAsync(
+        string archetypeId,
+        string catalogueKind,
+        float[] centroid,
+        double maturity,
+        CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    /// <summary>
     ///     Persist a batch of per-archetype drift metrics computed by a single
     ///     calibration pass. Idempotent on <c>(archetype_id, ua_family,
     ///     calibrated_at)</c> -- a re-run with the same timestamp replaces the

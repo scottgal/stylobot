@@ -1868,6 +1868,85 @@ public class SqliteFingerprintStore : IFingerprintStore
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    ///     <inheritdoc cref="IFingerprintStore.GetByCatalogueKindAsync"/>
+    ///     SQLite read filtered on the <c>catalogue_kind</c> column. The
+    ///     <c>centroid</c> BLOB rehydrates via the same
+    ///     <c>BlobToFloats</c> helper that powers the rest of this store, so
+    ///     dim conversion stays in one place.
+    /// </summary>
+    public async Task<IReadOnlyList<IdentityArchetypeRow>> GetByCatalogueKindAsync(
+        string catalogueKind, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT archetype_id, catalogue_kind, centroid, descendant_count
+              FROM identity_archetypes
+             WHERE catalogue_kind = @kind
+            """;
+        cmd.Parameters.AddWithValue("@kind", catalogueKind);
+        var rows = new List<IdentityArchetypeRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var id = reader.GetString(0);
+            var kind = reader.GetString(1);
+            var blob = (byte[])reader.GetValue(2);
+            var maturity = reader.GetInt64(3);
+            rows.Add(new IdentityArchetypeRow(id, kind, BlobToFloats(blob), maturity));
+        }
+        return rows;
+    }
+
+    /// <summary>
+    ///     <inheritdoc cref="IFingerprintStore.UpsertCentroidAsync"/>
+    ///     SQLite upsert. On insert this populates the columns the existing
+    ///     identity-archetype rows require (<c>name</c>, <c>archetype_kind</c>,
+    ///     <c>dimension_mask</c>, <c>last_refined_at</c>) with neutral defaults
+    ///     so the new row is valid for the existing read paths. On conflict
+    ///     ONLY the centroid + maturity + last_refined_at are touched -- name /
+    ///     kind / mask are owned by the YAML loader and stay stable across
+    ///     drift updates.
+    /// </summary>
+    public async Task UpsertCentroidAsync(
+        string archetypeId,
+        string catalogueKind,
+        float[] centroid,
+        double maturity,
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO identity_archetypes
+                (archetype_id, name, description, centroid, dimension_mask, archetype_kind,
+                 descendant_count, last_refined_at, variance_multiplier, catalogue_kind)
+            VALUES (@id, @name, NULL, @centroid, @mask, @kind, @count, @ts, 1.0, @cat_kind)
+            ON CONFLICT(archetype_id) DO UPDATE SET
+                centroid          = excluded.centroid,
+                descendant_count  = excluded.descendant_count,
+                last_refined_at   = excluded.last_refined_at
+            """;
+        cmd.Parameters.AddWithValue("@id", archetypeId);
+        cmd.Parameters.AddWithValue("@name", archetypeId);
+        cmd.Parameters.AddWithValue("@centroid", FloatsToBlob(centroid));
+        // dimension_mask is BLOB NOT NULL on legacy schemas; mode-centroid rows
+        // don't carry a per-dim mask (mode classifiers project the full
+        // centroid). Persist an empty BLOB rather than null so the column
+        // constraint holds across SQLite + Postgres.
+        cmd.Parameters.AddWithValue("@mask", Array.Empty<byte>());
+        cmd.Parameters.AddWithValue("@kind", catalogueKind);
+        cmd.Parameters.AddWithValue("@count", (int)Math.Round(maturity));
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("@cat_kind", catalogueKind);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private static void BindArchetypeParams(SqliteCommand cmd, IdentityArchetype archetype)
     {
         cmd.Parameters.AddWithValue("@id", archetype.ArchetypeId);

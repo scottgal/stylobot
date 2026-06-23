@@ -47,7 +47,7 @@ public sealed record IdentityArchetype
     ///     (Chrome XHR, future Chrome SignalR, etc.) which exists ONLY to give the
     ///     nearest-archetype matcher a per-mode anchor so a real Chrome doing XHR
     ///     does not drift to googlebot / mastodon shapes. Mode archetypes ARE still
-    ///     scored by <see cref="IdentityArchetypeRegistry.FindNearest"/> (they're
+    ///     scored by <see cref="IdentityArchetypeRegistry.FindNearest(float[], string?)"/> (they're
     ///     necessary priors), but they MUST NOT be used as the client identity for
     ///     naming or for the drift "Origin -> Current" comparison -- "Chrome
     ///     Desktop -> Chrome XHR" is a mode shift, not an identity drift, and
@@ -72,7 +72,7 @@ public sealed record IdentityArchetype
     ///     in the hash space let a Chrome observation match a "freshping" archetype at
     ///     0.95 just because their hashes collided.
     ///
-    ///     Consumed by <see cref="IdentityArchetypeRegistry.FindNearest"/> as a hard
+    ///     Consumed by <see cref="IdentityArchetypeRegistry.FindNearest(float[], string?)"/> as a hard
     ///     candidacy gate: when the caller supplies the observation's UA family string,
     ///     archetypes whose <c>AssertedUaFamily</c> differs are dropped before cosine
     ///     scoring. Archetypes that don't assert a UA family (this field is null) are
@@ -161,3 +161,20 @@ public sealed record IdentityArchetype
 ///     plus the score that drove the choice.
 /// </summary>
 public sealed record ArchetypeMatch(IdentityArchetype Archetype, double Score);
+
+/// <summary>
+///     Storage-shaped projection of one <c>identity_archetypes</c> row. Carries
+///     only the columns relevant to the dual-purpose catalogue surface
+///     (<see cref="IFingerprintStore.GetByCatalogueKindAsync"/> +
+///     <see cref="IFingerprintStore.UpsertCentroidAsync"/>) so the
+///     mode-centroid catalogue (kind: <c>browser_mode</c>) can stay decoupled
+///     from <see cref="IdentityArchetype"/>'s richer YAML-loader-facing shape.
+///     <see cref="Maturity"/> is the centroid maturity counter (descendant
+///     count for the identity catalogue; per-mode observation absorption
+///     count for the browser-mode catalogue).
+/// </summary>
+public sealed record IdentityArchetypeRow(
+    string ArchetypeId,
+    string CatalogueKind,
+    float[] Centroid,
+    double Maturity);
