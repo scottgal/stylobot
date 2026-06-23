@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.HttpOverrides;
+using Mostlylucid.BotDetection.EndpointPolicies;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Honeypot;
 using Mostlylucid.BotDetection.Licensing;
@@ -297,6 +298,15 @@ try
 
     // Bot Detection middleware - runs on every request
     app.UseBotDetection();
+
+    // DetectionPolicyMiddleware: dispatches IActionPolicy entries by name from
+    // BotDetection:DetectionPolicies:Rules based on the detection verdict.
+    // Required for the extract-markdown / extract-headers / extract-sidecar
+    // policies (and the existing block-hard rules) to actually fire — without
+    // this hook the rules are evaluated by no one. Must run AFTER UseBotDetection
+    // so AggregatedEvidence is on HttpContext, and BEFORE MapReverseProxy so the
+    // policy can short-circuit upstream forwarding when a content transform fires.
+    app.UseDetectionPolicies();
 
     // Persist detections to shared DB + broadcast via SignalR
     // Downstream dashboard clients (on the website) can connect to this hub
