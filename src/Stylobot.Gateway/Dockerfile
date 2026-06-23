@@ -12,6 +12,7 @@ COPY Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaS
 COPY Mostlylucid.Common/Mostlylucid.Common.csproj Mostlylucid.Common/
 COPY Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj Mostlylucid.GeoDetection/
 COPY Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj Mostlylucid.GeoDetection.Contributor/
+COPY Mostlylucid.BotDetection.StyloExtract/Mostlylucid.BotDetection.StyloExtract.csproj Mostlylucid.BotDetection.StyloExtract/
 # csproj files read ReleaseNotes.txt during restore for PackageReleaseNotes
 COPY Mostlylucid.BotDetection/ReleaseNotes.txt Mostlylucid.BotDetection/
 COPY Mostlylucid.GeoDetection/ReleaseNotes.txt Mostlylucid.GeoDetection/
@@ -27,6 +28,7 @@ COPY Mostlylucid.BotDetection.OpenApi/ Mostlylucid.BotDetection.OpenApi/
 COPY Mostlylucid.Common/ Mostlylucid.Common/
 COPY Mostlylucid.GeoDetection/ Mostlylucid.GeoDetection/
 COPY Mostlylucid.GeoDetection.Contributor/ Mostlylucid.GeoDetection.Contributor/
+COPY Mostlylucid.BotDetection.StyloExtract/ Mostlylucid.BotDetection.StyloExtract/
 RUN dotnet publish Stylobot.Gateway/Stylobot.Gateway.csproj -c Release -o /app
 
 # Install dotnet-trace into the build output so it's available at runtime

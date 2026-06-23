@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.HttpOverrides;
+using Mostlylucid.BotDetection.EndpointPolicies;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Honeypot;
 using Mostlylucid.BotDetection.Licensing;
@@ -10,8 +11,10 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Telemetry;
 using Mostlylucid.BotDetection.UI.Extensions;
+using Mostlylucid.BotDetection.StyloExtract.Extensions;
 // PostgreSQL dashboard persistence is in the commercial repo (stylobot-commercial)
 using Mostlylucid.GeoDetection.Extensions;
+using StyloExtract.AspNetCore;
 using Mostlylucid.GeoDetection.Models;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -159,6 +162,18 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
+    // StyloExtract action policies: registers extract-markdown / extract-headers /
+    // extract-sidecar / extract-passthrough into the IActionPolicyRegistry. The
+    // BotDetection middleware (UseBotDetection below) dispatches them by name from
+    // BotDetection:DetectionPolicies:Rules so AI scrapers visiting /docs paths can
+    // be served clean Markdown instead of HTML. Body interception happens here at
+    // the gateway because YARP terminates the upstream response; the website is a
+    // pure dashboard viewer with no detection middleware in its pipeline.
+    // AddStyloExtract registers the extractor + SQLite template store; the pack's
+    // four IActionPolicy entries are wired by AddStyloExtractActionPolicies.
+    builder.Services.AddStyloExtract();
+    builder.Services.AddStyloExtractActionPolicies();
+
     // LLM provider for background classification, bot naming, and score-change
     // narratives. When BotDetection:AiDetection:Provider=ollama (or the env var
     // BOTDETECTION__AIDETECTION__PROVIDER=ollama), register the HTTP Ollama
@@ -283,6 +298,15 @@ try
 
     // Bot Detection middleware - runs on every request
     app.UseBotDetection();
+
+    // DetectionPolicyMiddleware: dispatches IActionPolicy entries by name from
+    // BotDetection:DetectionPolicies:Rules based on the detection verdict.
+    // Required for the extract-markdown / extract-headers / extract-sidecar
+    // policies (and the existing block-hard rules) to actually fire — without
+    // this hook the rules are evaluated by no one. Must run AFTER UseBotDetection
+    // so AggregatedEvidence is on HttpContext, and BEFORE MapReverseProxy so the
+    // policy can short-circuit upstream forwarding when a content transform fires.
+    app.UseDetectionPolicies();
 
     // Persist detections to shared DB + broadcast via SignalR
     // Downstream dashboard clients (on the website) can connect to this hub

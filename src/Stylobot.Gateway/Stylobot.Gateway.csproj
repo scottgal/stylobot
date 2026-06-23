@@ -42,6 +42,15 @@
         <!-- Geo Detection for country code enrichment -->
         <ProjectReference Include="..\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj" />
         <ProjectReference Include="..\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj" />
+
+        <!-- StyloExtract integration pack: registers four IActionPolicy entries
+             (extract-markdown / extract-headers / extract-sidecar / extract-passthrough)
+             into the IActionPolicyRegistry. The gateway's BotDetection middleware
+             dispatches them by name from BotDetection:DetectionPolicies:Rules so
+             AI scrapers visiting documentation routes can be served clean Markdown
+             instead of HTML. Sibling ProjectReference so BotDetection AssemblyVersion
+             matches gateway-local BotDetection at runtime. -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.StyloExtract\Mostlylucid.BotDetection.StyloExtract.csproj" />
     </ItemGroup>
 
     <ItemGroup>
