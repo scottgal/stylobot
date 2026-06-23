@@ -29,29 +29,74 @@ public interface IBrowserModeSeedSource
 
 /// <summary>
 ///     Default seed source used until T13 fills in <c>centroid:</c> blocks on
-///     the <c>Definitions/BrowserModes/*.yaml</c> files. Hard-codes the seven
-///     known modes' centroids per the design table in
-///     <c>docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md</c>.
-///     The dimensions here are intentionally tiny (4 floats) -- the
-///     classifier (T12) projects the full <see cref="IdentityVectorLayout"/>
-///     vector down to the mode-comparable subspace before scoring, so the
-///     seed centroid only needs to live in that subspace. T13 will replace
-///     this with the YAML-backed source and keep the interface stable.
+///     the <c>Definitions/BrowserModes/*.yaml</c> files. Builds layout-sized
+///     centroid vectors via <see cref="ModeVectorEncoder"/> so seeds live in
+///     the SAME vector space as observations the classifier encodes at
+///     request time. The dimensionality matches
+///     <see cref="IdentityVectorLayout.Dimension"/> — mode centroids are
+///     sparse identity vectors per the design spec
+///     (<c>docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md</c>),
+///     not a separate four-float subspace.
+///
+///     <para>
+///     T13 will replace this with the YAML-backed source and keep the
+///     interface stable. The seed values here are the design's "prior"; once
+///     observations absorb into a row, drift updates the persisted centroid
+///     and the YAML seed is never consulted again for that row.
+///     </para>
 /// </summary>
 public sealed class HardcodedBrowserModeSeedSource : IBrowserModeSeedSource
 {
-    // [method_get, sec_fetch_navigate, sec_fetch_cors, upgrade_ws]
-    // Order pinned by docs/superpowers/specs/2026-06-22-...md seed table.
-    private static readonly IReadOnlyList<ModeSeed> _seeds = new[]
+    private readonly IdentityVectorLayout _layout;
+    private readonly IReadOnlyList<ModeSeed> _seeds;
+
+    public HardcodedBrowserModeSeedSource(IdentityVectorLayout layout)
     {
-        new ModeSeed("navigation",         new[] { 1f, 1f, 0f, 0f }),
-        new ModeSeed("xhr",                new[] { 1f, 0f, 1f, 0f }),
-        new ModeSeed("sub-resource",       new[] { 1f, 0f, 0f, 0f }),
-        new ModeSeed("signalr-negotiate",  new[] { 0f, 0f, 1f, 0f }),
-        new ModeSeed("websocket-upgrade",  new[] { 1f, 1f, 0f, 1f }),
-        new ModeSeed("bot-raw",            new[] { 1f, 0f, 0f, 0f }),
-        new ModeSeed("unknown",            new[] { 0f, 0f, 0f, 0f }),
-    };
+        _layout = layout;
+        _seeds = BuildSeeds();
+    }
 
     public IReadOnlyList<ModeSeed> LoadYamlSeeds() => _seeds;
+
+    private IReadOnlyList<ModeSeed> BuildSeeds()
+    {
+        // Seeds are encoded via ModeVectorEncoder so the canonical method /
+        // sec-fetch / upgrade slot writes match what the classifier produces
+        // for a live observation. Per the design table in
+        // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md:
+        //
+        //   navigation         GET   navigate  upgrade=false
+        //   xhr                GET   cors      upgrade=false
+        //   sub-resource       GET   no-cors   upgrade=false
+        //   signalr-negotiate  GET   cors      upgrade=false   (path-distinguished
+        //                                                       in production; the
+        //                                                       3-input classifier
+        //                                                       can't separate it
+        //                                                       from xhr, so seed
+        //                                                       mirrors xhr and
+        //                                                       iter-order picks
+        //                                                       xhr first on tie —
+        //                                                       T14 will fold path
+        //                                                       into the catalogue
+        //                                                       vector to break it)
+        //   websocket-upgrade  GET   navigate  upgrade=true
+        //   bot-raw            GET   (no sfm)  upgrade=false   (no Sec-Fetch headers
+        //                                                       = bitmask 0 →
+        //                                                       BitmaskScaled = -1)
+        //   unknown            all zeros (sentinel)
+        return new List<ModeSeed>
+        {
+            new("navigation",        ModeVectorEncoder.Encode(_layout, "GET",  "navigate", upgradeWebsocket: false)),
+            new("xhr",               ModeVectorEncoder.Encode(_layout, "GET",  "cors",     upgradeWebsocket: false)),
+            new("sub-resource",      ModeVectorEncoder.Encode(_layout, "GET",  "no-cors",  upgradeWebsocket: false)),
+            new("signalr-negotiate", ModeVectorEncoder.Encode(_layout, "GET",  "cors",     upgradeWebsocket: false)),
+            new("websocket-upgrade", ModeVectorEncoder.Encode(_layout, "GET",  "navigate", upgradeWebsocket: true)),
+            new("bot-raw",           ModeVectorEncoder.Encode(_layout, "GET",  secFetchMode: null, upgradeWebsocket: false)),
+            // The unknown sentinel is the catalogue's "didn't recognise
+            // anything" row. Centroid is all-zeros so cosine only picks it
+            // when no other centroid scores positive against the
+            // observation, which is exactly the desired fallback semantics.
+            new("unknown",           new float[_layout.Dimension]),
+        };
+    }
 }
