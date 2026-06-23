@@ -9,3 +9,12 @@ predicate:
   path_matches:
     - "*/hub/negotiate*"
     - "*/negotiate*"
+# Seed mirrors xhr (GET + cors) because the 3-input mode classifier
+# surface cannot see path; signalr-negotiate is distinguished from xhr in
+# production via the path predicate above, not via centroid coordinates.
+# Once T14 folds path into the observation vector this seed will get its
+# own coordinates and break the mirror.
+seed:
+  method: GET
+  sec_fetch_mode: cors
+  upgrade_websocket: false

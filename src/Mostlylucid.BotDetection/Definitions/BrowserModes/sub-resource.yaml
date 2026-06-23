@@ -14,3 +14,7 @@ predicate:
     - "video"
     - "track"
     - "worker"
+seed:
+  method: GET
+  sec_fetch_mode: no-cors
+  upgrade_websocket: false

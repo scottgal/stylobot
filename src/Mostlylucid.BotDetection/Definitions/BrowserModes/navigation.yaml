@@ -6,3 +6,12 @@ predicate:
   method_in: ["GET"]
   sec_fetch_pattern_in: [7, 15]
   accept_contains: "text/html"
+# Cold-start seed centroid (see YamlBrowserModeSeedSource). Carries the
+# canonical signal values for this mode; the loader passes them through
+# ModeVectorEncoder to produce the layout-sized centroid that lives in the
+# same vector space as live observations. Once the catalogue persists this
+# row and drift starts moving it, the YAML seed is no longer consulted.
+seed:
+  method: GET
+  sec_fetch_mode: navigate
+  upgrade_websocket: false

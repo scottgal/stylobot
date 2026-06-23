@@ -7,3 +7,7 @@ predicate:
     - "Sec-WebSocket-Key"
   header_equals:
     Upgrade: "websocket"
+seed:
+  method: GET
+  sec_fetch_mode: navigate
+  upgrade_websocket: true

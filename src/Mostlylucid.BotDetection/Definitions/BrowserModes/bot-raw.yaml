@@ -4,3 +4,10 @@ description: No Sec-Fetch-* headers at all. Googlebot, curl, python-requests, wg
 order: 80
 predicate:
   sec_fetch_pattern_in: [0]
+# Empty sec_fetch_mode is the canonical "no Sec-Fetch headers" shape; the
+# encoder maps that to bitmask 0 → BitmaskScaled = -1, which is exactly
+# what cosine needs to separate bot-raw from every browser-shaped mode.
+seed:
+  method: GET
+  sec_fetch_mode: ""
+  upgrade_websocket: false

@@ -10,3 +10,7 @@ predicate:
     - "application/json"
     - "application/json, text/plain, */*"
     - "text/plain, */*; q=0.01"
+seed:
+  method: GET
+  sec_fetch_mode: cors
+  upgrade_websocket: false

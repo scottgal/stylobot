@@ -7,3 +7,9 @@ predicate:
     - "Sec-Purpose"
   header_equals:
     Sec-Purpose: "prefetch"
+# No seed: block today — prefetch is path/header-distinguished (Sec-Purpose
+# header), not centroid-distinguished, and the 3-input mode classifier
+# surface can't see headers beyond Sec-Fetch-Mode + Upgrade. Adding a seed
+# here would collide with navigation's (GET + navigate). T14's request
+# pipeline wiring widens the observation space; prefetch gets its own seed
+# at that point.

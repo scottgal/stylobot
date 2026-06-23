@@ -3,3 +3,7 @@ name: Unknown
 description: Fallback character — the registry returns this when no other predicate matches. The empty predicate matches anything, so this row is always the last walked. Operators can introduce new characters by adding a YAML file with a lower order; this row stays the floor.
 order: 9999
 predicate: {}
+# No seed: block — the unknown sentinel intentionally carries an
+# all-zeros centroid. Cosine against zero is zero, so the unknown row
+# only wins the nearest-centroid search when every other centroid also
+# scores zero (i.e. the observation itself is zero / unrepresented).
