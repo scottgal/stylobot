@@ -10,8 +10,10 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Telemetry;
 using Mostlylucid.BotDetection.UI.Extensions;
+using Mostlylucid.BotDetection.StyloExtract.Extensions;
 // PostgreSQL dashboard persistence is in the commercial repo (stylobot-commercial)
 using Mostlylucid.GeoDetection.Extensions;
+using StyloExtract.AspNetCore;
 using Mostlylucid.GeoDetection.Models;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -158,6 +160,18 @@ try
     // Add Bot Detection - the core feature of this gateway!
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
+
+    // StyloExtract action policies: registers extract-markdown / extract-headers /
+    // extract-sidecar / extract-passthrough into the IActionPolicyRegistry. The
+    // BotDetection middleware (UseBotDetection below) dispatches them by name from
+    // BotDetection:DetectionPolicies:Rules so AI scrapers visiting /docs paths can
+    // be served clean Markdown instead of HTML. Body interception happens here at
+    // the gateway because YARP terminates the upstream response; the website is a
+    // pure dashboard viewer with no detection middleware in its pipeline.
+    // AddStyloExtract registers the extractor + SQLite template store; the pack's
+    // four IActionPolicy entries are wired by AddStyloExtractActionPolicies.
+    builder.Services.AddStyloExtract();
+    builder.Services.AddStyloExtractActionPolicies();
 
     // LLM provider for background classification, bot naming, and score-change
     // narratives. When BotDetection:AiDetection:Provider=ollama (or the env var
