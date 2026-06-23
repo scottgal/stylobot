@@ -232,17 +232,11 @@ internal static class FingerprintNameComposer
             }
             else
             {
-                // No UA at all -- emit the canonical Unknown <hex> terminal directly
-                // so the composer obeys the three-shape contract by construction
-                // (no curated allow-lists at the contract layer; the composer is the
-                // guard, the structural contract is the safety net). NoUserAgentFallback
+                // No UA at all -- emit a canonical Unknown terminal. NoUserAgentFallback
                 // is retained as a const so IsFallback still recognises legacy stored
                 // "No User-Agent" rows for hysteresis-aware overwrite, but Compose
                 // never produces that string.
-                var prefix = !string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8
-                    ? fingerprintId[..8]
-                    : "00000000";
-                finalName = $"Unknown {prefix}";
+                finalName = ComposeUnknownTerminal(signals, fingerprintId);
             }
         }
 
@@ -251,16 +245,42 @@ internal static class FingerprintNameComposer
         // optional discriminator/spoofed marker, or matched archetype name). Anything
         // that funnels through priority-3/4 must conform to the three allowed shapes
         // (bot name | browser family | Unknown <hex>) or it is re-routed to the
-        // Unknown-<hex> terminal so we never emit a lying multi-token name string.
+        // Unknown terminal so we never emit a lying multi-token name string.
         // See docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
         if (!FingerprintNameComposerContract.IsAllowedShape(finalName))
         {
-            var prefix = !string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8
-                ? fingerprintId[..8]
-                : "00000000";
-            finalName = $"Unknown {prefix}";
+            finalName = ComposeUnknownTerminal(signals, fingerprintId);
         }
         return finalName;
+    }
+
+    /// <summary>
+    ///     The "Unknown" terminal name. Picks the most informative discriminator from
+    ///     what is actually known about the request, in order of preference:
+    ///       1. Fingerprint-id prefix (8 hex chars) when allocation has happened.
+    ///       2. ASN ("Unknown AS15169") -- network-level identity, present from the
+    ///          first request because the IP contributors run before UA parsing.
+    ///       3. Country code ("Unknown US") -- geo signal, also network-level.
+    ///       4. Bare "Unknown" -- only when literally no discriminating signal exists.
+    ///
+    ///     Never emits "Unknown 00000000" -- that all-zero placeholder is a lying name
+    ///     that pretends a fingerprint exists when it does not. If we cannot honestly
+    ///     produce a prefix, we say so by using a real-signal discriminator or none.
+    /// </summary>
+    private static string ComposeUnknownTerminal(
+        IReadOnlyDictionary<string, object> signals,
+        string? fingerprintId)
+    {
+        if (!string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8)
+            return $"Unknown {fingerprintId[..8]}";
+
+        var asn = GetString(signals, SignalKeys.IpAsn);
+        if (!string.IsNullOrEmpty(asn)) return $"Unknown AS{asn}";
+
+        var country = GetString(signals, SignalKeys.GeoCountryCode);
+        if (!string.IsNullOrEmpty(country)) return $"Unknown {country}";
+
+        return "Unknown";
     }
 
     /// <summary>

@@ -127,9 +127,15 @@
                                          alt="@v.CountryCode" class="w-4 h-3 rounded-sm" loading="lazy" />
                                 }
                             </td>
-                            <td class="py-1 font-medium text-xs truncate max-w-[200px]"
-                                title="Signature: @v.PrimarySignature">
-                                <span class="hover:underline">@displayName</span>
+                            @* Name cell: long names like "Chrome Privacy Preserving Prefetch Proxy"
+                               or "Amazonbot developer.amazon.com" can run past 200px. Tailwind
+                               'truncate' on a <td> in an auto-layout table does not constrain
+                               an inline child, so the span used to bust the cell width and
+                               overflow into the drift column. The fix is to put the truncate
+                               on a block-level child whose max-width is the cell's max-width. *@
+                            <td class="py-1 max-w-[200px]"
+                                title="@displayName — Signature: @v.PrimarySignature">
+                                <div class="block truncate font-medium text-xs hover:underline">@displayName</div>
                             </td>
                             <td class="py-1 w-6">
                                 @* Drift badge -- gateway-projected, threshold-crossed.
