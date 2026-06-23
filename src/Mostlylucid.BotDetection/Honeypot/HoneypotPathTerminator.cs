@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Honeypot;
 /// <remarks>
 ///     <para>
 ///         Pipeline placement: AFTER <see cref="HoneypotPathTagger"/> (so the
-///         tag is set) and AFTER <see cref="BotDetectionMiddleware"/> (so the
+///         tag is set) and AFTER <see cref="Mostlylucid.BotDetection.Middleware.BotDetectionMiddleware"/> (so the
 ///         detection event is recorded against the dashboard's event store,
 ///         honeypot panel, and threat aggregator), but BEFORE the YARP
 ///         reverse-proxy mapping (so the upstream origin never sees the
@@ -33,7 +33,7 @@ namespace Mostlylucid.BotDetection.Honeypot;
 ///         Why a separate middleware instead of folding into the tagger:
 ///         the dashboard panel + threat aggregator both consume the tag,
 ///         and they get fed by the detection event store -- the
-///         <see cref="BotDetectionMiddleware"/> needs to RUN against the
+///         <see cref="Mostlylucid.BotDetection.Middleware.BotDetectionMiddleware"/> needs to RUN against the
 ///         tagged request to write that event. Terminating in the tagger
 ///         would silence the dashboard ("0 honeypot hits") even when the
 ///         scanner is hammering us. Terminating AFTER detection keeps the

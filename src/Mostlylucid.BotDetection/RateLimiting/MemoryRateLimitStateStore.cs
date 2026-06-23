@@ -4,7 +4,7 @@ namespace Mostlylucid.BotDetection.RateLimiting;
 
 /// <summary>
 ///     In-memory token-bucket store. One <see cref="Bucket"/> per key, refilled
-///     on access via <see cref="Stopwatch.GetTimestamp"/> monotonic time. Atomic
+///     on access via <see cref="System.Diagnostics.Stopwatch.GetTimestamp"/> monotonic time. Atomic
 ///     via a per-bucket lock (cheaper than CAS-looping double-fields on the hot
 ///     path and trivially correct).
 ///     <para>

@@ -3,7 +3,7 @@ namespace Mostlylucid.BotDetection.Policies.Decisions;
 /// <summary>
 ///     No-op <see cref="IPolicyDecisionLogQueue"/> for hosts that didn't wire
 ///     a durable <see cref="IPolicyDecisionLog"/> or didn't register an
-///     <see cref="Scheduling.IScheduleCoordinator"/>. Calls to
+///     <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator"/>. Calls to
 ///     <see cref="Enqueue"/> are silently dropped (and counted) so the
 ///     dispatcher continues to function without a hard dependency on the
 ///     decision log.

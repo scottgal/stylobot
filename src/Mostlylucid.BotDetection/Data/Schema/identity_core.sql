@@ -139,8 +139,10 @@ CREATE TABLE IF NOT EXISTS identity_archetypes (
     -- inserts specify 'browser_mode' explicitly.
     catalogue_kind          TEXT NOT NULL DEFAULT 'identity'
 );
-CREATE INDEX IF NOT EXISTS ix_identity_archetypes_catalogue_kind
-    ON identity_archetypes (catalogue_kind);
+-- ix_identity_archetypes_catalogue_kind is created by
+-- IdentitySchema.MigrateExistingTablesAsync AFTER the ADD COLUMN migration runs
+-- so legacy databases (table exists, column doesn't) don't trip the index
+-- create with "no such column: catalogue_kind".
 
 CREATE TABLE IF NOT EXISTS identity_vector_layout (
     id                  INTEGER PRIMARY KEY CHECK (id = 1),

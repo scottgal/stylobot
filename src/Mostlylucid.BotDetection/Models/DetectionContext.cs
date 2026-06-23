@@ -805,8 +805,7 @@ public static class SignalKeys
     /// </summary>
     public const string IdentityDisplayName = "identity.display_name";
 
-    /// <summary>bool: transport-layer dims are zero on what should be TLS-fronted traffic.</summary>
-
+    // bool: transport-layer dims are zero on what should be TLS-fronted traffic.
     // Periodicity Detection
     // ==========================================
 
@@ -938,24 +937,15 @@ public static class SignalKeys
     // Requires: utm.present = true AND clickfraud.checked = true
     // ==========================================
 
-    /// <summary>Double 0.0-1.0: cross-session campaign abuse score (log-scaled distinct signatures).</summary>
-
-    /// <summary>Bool: signature arrived from more than N distinct campaigns in 24h (cookie stuffing).</summary>
-
-    /// <summary>Bool: same click ID hash seen from multiple distinct signatures (click ID reuse).</summary>
-
-    /// <summary>Bool: source platform changed between sessions for this signature.</summary>
-
-    /// <summary>String: IAB IVT class -- "GIVT" or "SIVT". Absent if traffic is legitimate.</summary>
-
-    /// <summary>True once AdTrafficContributor has run (gate for downstream triggers).</summary>
-
-    /// <summary>Double 0.0-1.0: likelihood this form submission is fraudulent (conversion endpoints only).</summary>
-
-    /// <summary>Bool: conversion fraud confirmed -- score exceeded configured threshold.</summary>
-
-    /// <summary>String: conversion endpoint pattern that matched (e.g. "/register").</summary>
-
+    // Double 0.0-1.0: cross-session campaign abuse score (log-scaled distinct signatures).
+    // Bool: signature arrived from more than N distinct campaigns in 24h (cookie stuffing).
+    // Bool: same click ID hash seen from multiple distinct signatures (click ID reuse).
+    // Bool: source platform changed between sessions for this signature.
+    // String: IAB IVT class -- "GIVT" or "SIVT". Absent if traffic is legitimate.
+    // True once AdTrafficContributor has run (gate for downstream triggers).
+    // Double 0.0-1.0: likelihood this form submission is fraudulent (conversion endpoints only).
+    // Bool: conversion fraud confirmed -- score exceeded configured threshold.
+    // String: conversion endpoint pattern that matched (e.g. "/register").
     // ==========================================
     // Cluster detection signals
     // Set by ClusterContributor when signature belongs to a discovered cluster
@@ -999,8 +989,7 @@ public static class SignalKeys
     /// <summary>Double: Peak-to-average magnitude ratio [0,1]. High = sharp spectral line (bot)</summary>
     public const string ClusterPeakToAvg = "cluster.peak_to_avg";
 
-    /// <summary>Double: Temporal correlation with other cluster members [0,1]. High = shared C2 timing</summary>
-
+    // Double: Temporal correlation with other cluster members [0,1]. High = shared C2 timing
     // ==========================================
     // Geographic and network classification signals
     // Written by GeoDetection.Contributor, read by core filters for geo/network blocking
@@ -1075,12 +1064,9 @@ public static class SignalKeys
     /// <summary>Double: Confidence score of the merge decision</summary>
     public const string ConvergenceMergeConfidence = "convergence.merge_confidence";
 
-    /// <summary>Boolean: Whether family members are coherent (no split candidates)</summary>
-
-    /// <summary>Double: Average bot probability across all family members</summary>
-
-    /// <summary>Int: Total request count across all family members</summary>
-
+    // Boolean: Whether family members are coherent (no split candidates)
+    // Double: Average bot probability across all family members
+    // Int: Total request count across all family members
     // ==========================================
     // Response behavior signals
     // Set by ResponseBehaviorContributor from historical response analysis
@@ -1616,12 +1602,9 @@ public static class SignalKeys
     // Set by DomainEntitlementMiddleware (warn-never-lock; never affects request flow)
     // ==========================================
 
-    /// <summary>Boolean: true when the request host did not match any licensed domain.</summary>
-
-    /// <summary>String: the mismatch classification - "mismatch", "mismatch_cloud_pool", or "no_host".</summary>
-
-    /// <summary>String: the normalized request host that triggered the mismatch.</summary>
-
+    // Boolean: true when the request host did not match any licensed domain.
+    // String: the mismatch classification - "mismatch", "mismatch_cloud_pool", or "no_host".
+    // String: the normalized request host that triggered the mismatch.
     // ==========================================
     // CVE / Threat Intelligence signals
     // Set by CveFingerprintContributor when traffic matches CVE-derived fingerprints
@@ -1799,7 +1782,7 @@ public static class SignalKeys
 
     /// <summary>
     ///     Bool: the adblocker probe reported back that the browser blocked a real
-    ///     ad-network resource. Set by <see cref="ClientSide.ClientSideContributor"/>
+    ///     ad-network resource. Set by <see cref="Orchestration.ContributingDetectors.ClientSideContributor"/>
     ///     from the stored <see cref="ClientSide.BrowserFingerprintResult.Adblocker"/>
     ///     flag. Treated as strong evidence that the visitor is human (overwhelmingly
     ///     bots don't run adblockers) AND suppresses the no-fingerprint penalty
@@ -1812,7 +1795,7 @@ public static class SignalKeys
     ///     String: ad-network provider alias the probe used (<c>"adsense"</c>,
     ///     <c>"amazon"</c>, <c>"medianet"</c>, <c>"custom"</c>).
     ///     <para>
-    ///     Diagnostic-only -- written by <see cref="ContributingDetectors.ClientSideContributor"/>
+    ///     Diagnostic-only -- written by <see cref="Orchestration.ContributingDetectors.ClientSideContributor"/>
     ///     but not consumed for any classification decision. Surfaces in the
     ///     BdfReplay probe list and dashboard signal inspector so operators can
     ///     see which provider URL the probe blocked. Don't gate any logic on
@@ -1827,9 +1810,9 @@ public static class SignalKeys
     ///     beacon (one of <c>wifi</c>, <c>cellular</c>, <c>ethernet</c>, <c>none</c>,
     ///     <c>bluetooth</c>, <c>wimax</c>, <c>mixed</c>, <c>other</c>, <c>unknown</c>;
     ///     empty when the API is unavailable). Set by
-    ///     <see cref="ContributingDetectors.ClientSideContributor"/> from the stored
+    ///     <see cref="Orchestration.ContributingDetectors.ClientSideContributor"/> from the stored
     ///     <see cref="ClientSide.BrowserFingerprintResult.ConnectionType"/>.
-    ///     Consumed by <see cref="ContributingDetectors.InconsistencyContributor"/>
+    ///     Consumed by <see cref="Orchestration.ContributingDetectors.InconsistencyContributor"/>
     ///     to flag mobile-claiming UAs paired with non-mobile connection classes
     ///     (the damru / Redroid-emulator pattern: real Android Chrome on a container
     ///     reports <c>ethernet</c> because <c>Network.overrideNetworkState</c> is
@@ -1845,7 +1828,7 @@ public static class SignalKeys
     ///     proxy layer. Catches damru (iptables drops Chrome's UID), Bright Data
     ///     Scraping Browser (restricted egress in their hosted environment), and
     ///     locked-down corporate VMs. Consumed by
-    ///     <see cref="ContributingDetectors.InconsistencyContributor"/> gated on
+    ///     <see cref="Orchestration.ContributingDetectors.InconsistencyContributor"/> gated on
     ///     mobile UA-CH.
     /// </summary>
     public const string ClientSideIceNoSrflx = "clientside.ice_no_srflx";
@@ -1855,7 +1838,7 @@ public static class SignalKeys
     ///     first paint. Real Android Chrome populates the list before the script
     ///     runs (the TTS engine starts at boot); damru runs a fresh Redroid
     ///     container per session and the voice list stays at 0 until first user
-    ///     gesture. Consumed by <see cref="ContributingDetectors.InconsistencyContributor"/>
+    ///     gesture. Consumed by <see cref="Orchestration.ContributingDetectors.InconsistencyContributor"/>
     ///     gated on a UA that contains "Android" (iOS Safari has its own voice
     ///     lifecycle so the check is Android-only to avoid false positives).
     /// </summary>
@@ -1865,7 +1848,7 @@ public static class SignalKeys
     ///     String: FingerprintJS BotD verdict kind ("selenium", "puppeteer",
     ///     "phantomjs", "headless_chrome", "cefsharp", "awesomium", "nightmare",
     ///     etc.) when BotD classified the visitor as automated; null otherwise.
-    ///     Written by <see cref="ContributingDetectors.ClientSideContributor"/>
+    ///     Written by <see cref="Orchestration.ContributingDetectors.ClientSideContributor"/>
     ///     from the stored fingerprint result for downstream consumers (cluster
     ///     attribution, dashboard "detected as X" surface, learning triggers).
     /// </summary>
@@ -1896,7 +1879,7 @@ public static class SignalKeys
     ///     Bool: every sampled mousemove event had integer client x/y
     ///     coordinates (the Kameleo Chroma CDP-synthesised pattern). Real
     ///     mice produce sub-pixel float coords on any DPR &gt; 1. Consumed by
-    ///     <see cref="ContributingDetectors.InconsistencyContributor"/> gated
+    ///     <see cref="Orchestration.ContributingDetectors.InconsistencyContributor"/> gated
     ///     on a desktop UA + non-trivial sample count.
     /// </summary>
     public const string ClientSideMouseAllIntegerCoords = "clientside.mouse_all_integer_coords";
@@ -1904,7 +1887,7 @@ public static class SignalKeys
     /// <summary>
     ///     Bool: observed JA3 string is a strict cipher-list subset of the
     ///     reference JA3 for the UA-claimed browser+version. Written by
-    ///     <see cref="ContributingDetectors.TlsFingerprintContributor"/>'s
+    ///     <see cref="Orchestration.ContributingDetectors.TlsFingerprintContributor"/>'s
     ///     subset check. The damru cipher-blacklist signal -- catches the
     ///     entire ~184-variant family with one rule.
     /// </summary>
@@ -1926,7 +1909,7 @@ public static class SignalKeys
     ///     supports -- the Multilogin Mimic / Kameleo Chroma pattern where
     ///     the patched Chromium fork's TLS lags Chrome stable by 1-2
     ///     releases. Written by
-    ///     <see cref="ContributingDetectors.TlsFingerprintContributor"/>'s
+    ///     <see cref="Orchestration.ContributingDetectors.TlsFingerprintContributor"/>'s
     ///     version-delta check.
     /// </summary>
     public const string TlsVersionDeltaFromUa = "tls.version_delta_from_ua";
@@ -1980,10 +1963,8 @@ public static class SignalKeys
     // Set by infrastructure detection when proxy/CDN headers are present
     // ==========================================
 
-    /// <summary>String: detected CDN/proxy provider name (e.g., "cloudflare", "aws-alb")</summary>
-
-    /// <summary>String: header name used to extract the real client IP for this provider</summary>
-
+    // String: detected CDN/proxy provider name (e.g., "cloudflare", "aws-alb")
+    // String: header name used to extract the real client IP for this provider
     // ==========================================
     // Headless automation framework signals
     // Set by ClientSideContributor / UserAgentContributor when automation is identified

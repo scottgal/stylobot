@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Scheduling;
 /// <summary>
 ///     Tiny bootstrap <see cref="IHostedService"/> whose only job is to RESOLVE
 ///     the FOSS core's migrated singletons at application start so their
-///     constructors fire <see cref="IScheduleCoordinator.Subscribe"/> against
+///     constructors fire <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator.Subscribe"/> against
 ///     the project-wide coordinator.
 ///     <para>
 ///         <b>Why this exists:</b> Wave 2 of the architectural-drift remediation

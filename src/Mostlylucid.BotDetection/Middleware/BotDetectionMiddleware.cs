@@ -1764,7 +1764,7 @@ public class BotDetectionMiddleware(
     ///     Compute the request's primary signature for pre-detection consumers (verdict gate,
     ///     signature-only paths). Post-detection consumers must read from
     ///     <see cref="AggregatedEvidence.Signals"/>[<see cref="SignalKeys.PrimarySignature"/>] —
-    ///     the foundation wave's <see cref="SignatureContributor"/> populates it. Returns null
+    ///     the foundation wave's <see cref="Mostlylucid.BotDetection.Orchestration.ContributingDetectors.SignatureContributor"/> populates it. Returns null
     ///     if the signature service is not registered.
     /// </summary>
     private string? ComputeSignature(HttpContext context)

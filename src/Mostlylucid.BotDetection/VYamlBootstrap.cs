@@ -34,12 +34,16 @@ namespace Mostlylucid.BotDetection;
 ///     </para>
 ///
 ///     <para>
-///     Uses <see cref="ModuleInitializerAttribute"/> so the wiring happens before any
+///     Uses <c>System.Runtime.CompilerServices.ModuleInitializerAttribute</c> so the wiring happens before any
 ///     consumer touches <see cref="YamlSerializer"/>.
 ///     </para>
 /// </summary>
 internal static class VYamlBootstrap
 {
+    // CA2255 advises module initializers belong in app code, but VYaml source-generated
+    // formatters are dropped by the trimmer unless they have a static call site; this
+    // wiring is the static site that keeps them. Suppressed deliberately.
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2255:The 'ModuleInitializer' attribute should not be used in libraries")]
     [ModuleInitializer]
     internal static void Init()
     {

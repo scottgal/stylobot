@@ -27,7 +27,7 @@ public static class SignatureRiskVerdictComposer
     /// <summary>
     ///     Cosine-delta threshold past which a friendly archetype anchor revokes its own
     ///     friendly pin. A signature stamped "Mastodon at allocation" but whose current
-    ///     centroid is &gt; <paramref name="friendlyArchetypeDriftRevokeThreshold"/>
+    ///     centroid is &gt; <c>friendlyArchetypeDriftRevokeThreshold</c>
     ///     further from the origin archetype than from the current-nearest is treated as
     ///     drifted and loses its friendly-archetype pin. Closes the "spoofed-UA-then-
     ///     behave-like-a-scraper" attack surface.

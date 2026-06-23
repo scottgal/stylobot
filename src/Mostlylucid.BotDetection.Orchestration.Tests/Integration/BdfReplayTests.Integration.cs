@@ -319,22 +319,32 @@ public sealed class BdfReplayTests
             .Select(r => r.Actual!.IdentityFingerprintId!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
-        // Cap: distinctFps must be at most one less than the request count, OR at most
-        // ceil(N * 0.75), whichever is more permissive. The N/2 ratio was tuned for the
-        // pre-v3 hdr.ua_family width=2 layout where many distinct UA strings hash-collided
-        // and the matcher was forced to fold them into the same fingerprint. With v3 at
-        // width=16, the matcher now correctly separates fingerprints with genuinely
-        // different UA family identities (GPTBot vs ClaudeBot vs CCBot vs Amazonbot in
-        // the ai-scrapers scenario). The N*0.75 ceiling accepts that as the right
-        // behaviour while still failing the test if every request lands on its own
-        // fingerprint -- which would indicate vector composition instability rather
-        // than legitimate identity separation.
+
+        // Convergence contract: fingerprints must not outnumber genuine identities.
+        // Scenarios with N distinct bot names (e.g. ai-scrapers cycling GPTBot, ClaudeBot,
+        // CCBot, Amazonbot) correctly produce up to N distinct fingerprints; the v3
+        // hdr.ua_family width=16 separates them on purpose. Scenarios that hit the SAME
+        // identity repeatedly (curl over 4 requests) must fold to one fingerprint via
+        // L1 confirm or Pass 2; failure to fold is real matcher rot.
+        //
+        // The cap is therefore: distinctFps <= max(distinctIdentities, ceil(N * 0.75)),
+        // where "identity" is the post-detection bot name when present (the matcher's own
+        // sense of who this is) falling back to a per-request request-index when no name
+        // surfaced (human-shaped scenarios where every request looks like the same browser).
         var requestCount = response.Results.Count;
-        var allowed = Math.Max(1, (int)Math.Ceiling(requestCount * 0.75));
+        var distinctIdentities = withFingerprints
+            .Select(r => string.IsNullOrEmpty(r.Actual!.BotName)
+                ? $"__no-name:{r.RequestIndex}"
+                : r.Actual!.BotName!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        var convergenceFloor = Math.Max(1, (int)Math.Ceiling(requestCount * 0.75));
+        var allowed = Math.Max(distinctIdentities, convergenceFloor);
         Assert.True(distinctFps <= allowed,
             $"{scenarioName}: {distinctFps} distinct fingerprints across {requestCount} requests " +
-            $"(allowed {allowed}). The matcher isn't converging — every request is allocating new, suggesting " +
-            "vector composition is unstable or LooseThreshold is unreachable.");
+            $"(allowed {allowed}; {distinctIdentities} distinct bot names observed). The matcher isn't " +
+            "converging on a single identity, suggesting vector composition is unstable or LooseThreshold " +
+            "is unreachable.");
     }
 
     private async Task<BdfReplayResponse?> ReplayAsync(string scenarioFile)

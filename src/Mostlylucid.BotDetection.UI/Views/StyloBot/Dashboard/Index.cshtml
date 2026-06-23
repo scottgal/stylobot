@@ -271,7 +271,7 @@
         }
 
         @{
-            var registry = Context.RequestServices
+            var registry = Context!.RequestServices
                 .GetRequiredService<Mostlylucid.BotDetection.UI.Dashboard.IDashboardRowRegistry>();
             var match = registry.Resolve(rowRef.Area, rowRef.Sub);
         }

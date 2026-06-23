@@ -11,7 +11,7 @@ namespace Mostlylucid.BotDetection.Data;
 /// <summary>
 ///     SQLite-backed session store. Zero external dependencies - just a file on disk.
 ///     Sessions are the unit of storage, not individual requests.
-///     Vector search uses brute-force cosine similarity (fast enough for <100K sessions).
+///     Vector search uses brute-force cosine similarity (fast enough for &lt;100K sessions).
 ///     For larger deployments, the commercial PostgreSQL + pgvector implementation
 ///     provides native HNSW indexing for sub-millisecond vector queries.
 /// </summary>

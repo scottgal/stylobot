@@ -5,7 +5,7 @@ namespace Mostlylucid.BotDetection.Actions;
 
 /// <summary>
 ///     Ephemeral in-memory PoW challenge store. Challenges and verification
-///     results live in <see cref="ConcurrentDictionary"/>s for the process
+///     results live in <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey, TValue}"/>s for the process
 ///     lifetime; nothing persists across restarts. Expired challenges are
 ///     reaped opportunistically on each <see cref="CreateChallenge"/> call.
 ///

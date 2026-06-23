@@ -157,9 +157,10 @@ public class SignatureStoreTests
     }
 
     [Fact]
-    public void ConcurrentAccess_ShouldBeSafe()
+    public async Task ConcurrentAccess_ShouldBeSafe()
     {
         // Arrange
+        var ct = TestContext.Current.CancellationToken;
         var store = new SignatureStore(TestHelpers.CreateMockLogger<SignatureStore>().Object, maxSignatures: 1000);
         var evidence = CreateTestEvidence(0.5);
         var httpContext = CreateTestHttpContext();
@@ -172,10 +173,10 @@ public class SignatureStoreTests
             tasks.Add(Task.Run(() =>
             {
                 store.StoreSignature($"sig-{index}", evidence, httpContext);
-            }));
+            }, ct));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         // Assert - All signatures should be stored successfully
         var stats = store.GetStats();

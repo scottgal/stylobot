@@ -1322,7 +1322,7 @@ try
             var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
             liveTableCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
             var liveTable = new LiveDetectionTableService(
-                detectionSink, mode, upstream, port, actionPolicy,
+                detectionSink, mode, upstream, port, actionPolicy ?? "auto",
                 useTls, tunnelEnabled, () => tunnelUrl);
             liveTableTask = liveTable.StartAsync(liveTableCts.Token);
         }

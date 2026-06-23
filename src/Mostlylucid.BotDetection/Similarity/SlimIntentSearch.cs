@@ -7,7 +7,7 @@ namespace Mostlylucid.BotDetection.Similarity;
 
 /// <summary>
 ///     Bounded in-memory intent similarity search backed by <see cref="IIntentCentroidStore"/>.
-///     Replaces <see cref="HnswIntentSearch"/> to eliminate unbounded LOH growth and file-system
+///     Replaces the prior <c>HnswIntentSearch</c> to eliminate unbounded LOH growth and file-system
 ///     dependency.
 ///
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking scan of the hot cache with

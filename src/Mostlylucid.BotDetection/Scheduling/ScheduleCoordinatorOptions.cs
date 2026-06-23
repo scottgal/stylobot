@@ -13,19 +13,19 @@ public sealed class ScheduleCoordinatorOptions
     /// <summary>Configuration section name when binding from <c>IConfiguration</c>.</summary>
     public const string SectionName = "BotDetection:Scheduling";
 
-    /// <summary><c>true</c> to fire <see cref="TickCadence.Tick1s"/>; disable on cost-sensitive hosts.</summary>
+    /// <summary><c>true</c> to fire <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1s"/>; disable on cost-sensitive hosts.</summary>
     public bool EnableTick1s { get; set; } = true;
 
-    /// <summary><c>true</c> to fire <see cref="TickCadence.Tick10s"/>.</summary>
+    /// <summary><c>true</c> to fire <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick10s"/>.</summary>
     public bool EnableTick10s { get; set; } = true;
 
-    /// <summary><c>true</c> to fire <see cref="TickCadence.Tick1m"/>.</summary>
+    /// <summary><c>true</c> to fire <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1m"/>.</summary>
     public bool EnableTick1m { get; set; } = true;
 
-    /// <summary><c>true</c> to fire <see cref="TickCadence.Tick5m"/>.</summary>
+    /// <summary><c>true</c> to fire <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick5m"/>.</summary>
     public bool EnableTick5m { get; set; } = true;
 
-    /// <summary><c>true</c> to fire <see cref="TickCadence.Tick1h"/>.</summary>
+    /// <summary><c>true</c> to fire <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1h"/>.</summary>
     public bool EnableTick1h { get; set; } = true;
 
     /// <summary>

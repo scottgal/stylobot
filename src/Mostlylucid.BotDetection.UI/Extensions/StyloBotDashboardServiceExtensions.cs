@@ -592,7 +592,9 @@ public static class StyloBotDashboardServiceExtensions
 
             // Dev no-op sender: logs tokens to console. Override with AddStyloBotSmtp()
             // or register your own IEmailSender<StyloBotUser> after this call.
+#pragma warning disable CS0618 // Kept for backward-compat DI lookups; new code uses Mostlylucid.Notify (AddNotifyEmailLogging).
             services.TryAddTransient<IEmailSender<StyloBotUser>, StyloBotDevEmailSender>();
+#pragma warning restore CS0618
         }
 
         // Register dashboard data API paths with the bot detection policy system.

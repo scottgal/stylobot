@@ -690,6 +690,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             // BotType.SearchEngine routes through rate-limit-search (60/min cap) instead
             // of the hard-coded throttle-status. Falls through to friendly-bot or
             // DefaultActionPolicyName when this map has no entry for the detected type.
+#pragma warning disable CS0618 // BotThreshold acts as the cross-policy "solidly a bot" routing floor here; migration to per-policy thresholds is tracked separately.
             if (string.IsNullOrEmpty(triggeredActionPolicyName)
                 && result.PrimaryBotType is not null and not BotType.Unknown
                 && result.BotProbability >= _fullOptions.BotThreshold
@@ -722,6 +723,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                     "Friendly bot type {BotType} over threshold ({Prob:F2}) - routing through throttle-status for {RequestId}",
                     result.PrimaryBotType, result.BotProbability, requestId);
             }
+#pragma warning restore CS0618
 
             if (finalAction.HasValue || !string.IsNullOrEmpty(triggeredActionPolicyName))
                 result = result with

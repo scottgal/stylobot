@@ -59,4 +59,13 @@
              unused here -no `using Npgsql` in any source file. -->
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- xunit.runner.json is consumed by the test host at runtime; copying to
+             the output directory ensures parallelizeTestCollections=false is honoured
+             by `dotnet test`. -->
+        <None Update="xunit.runner.json">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
 </Project>

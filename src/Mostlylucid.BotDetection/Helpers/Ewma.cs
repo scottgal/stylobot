@@ -2,7 +2,7 @@ namespace Mostlylucid.BotDetection.Helpers;
 
 /// <summary>
 ///     Exponential-moving-average update used wherever we blend a new observation into
-///     a running value. Convention: <paramref name="alpha"/> is the weight on the NEW
+///     a running value. Convention: <c>alpha</c> is the weight on the NEW
 ///     observation, so the previous value carries (1 - alpha). Higher alpha = faster
 ///     reaction to the latest observation; alpha = 0 freezes, alpha = 1 replaces.
 /// </summary>

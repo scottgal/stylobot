@@ -20,7 +20,7 @@ public enum IdentitySlowPathKind
 }
 
 /// <summary>
-///     Outcome of a coordinator-managed slow-path call. <see cref="Outcome.Shed"/> means
+///     Outcome of a coordinator-managed slow-path call. A <c>Shedded*</c> outcome means
 ///     the coordinator did not run the work — the caller should fall back to the
 ///     fast-path default verdict.
 /// </summary>

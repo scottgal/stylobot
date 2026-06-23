@@ -15,7 +15,7 @@ public static partial class PathNormalizer
     ///       /product/12345          → /product/{id}
     ///       /api/v2/users/abc-def   → /api/v{v}/users/{slug}
     ///       /assets/css/style.css   → {static}
-    ///       /search?q=foo&page=2    → /search
+    ///       /search?q=foo&amp;page=2    → /search
     /// </summary>
     public static string Normalize(string path)
     {

@@ -13,10 +13,8 @@ public sealed record SignatureBehaviorState
 {
     /// <summary>
     ///     Path entropy - measures unpredictability of URL selection.
-    ///     Low values (
-    ///     < 0.5) suggest sequential/ deterministic behavior.
-    ///         High values (>
-    ///         3.0) suggest exploratory/scanning behavior.
+    ///     Low values (&lt; 0.5) suggest sequential/deterministic behavior.
+    ///     High values (&gt; 3.0) suggest exploratory/scanning behavior.
     /// </summary>
     public double PathEntropy { get; init; }
 
@@ -29,52 +27,49 @@ public sealed record SignatureBehaviorState
 
     /// <summary>
     ///     Coefficient of Variation (CV) - stddev / mean of inter-request times.
-    ///     Low values (
-    ///     < 0.3) suggest consistent timing ( bots).
-    ///         High values (>
-    ///         0.7) suggest variable human timing.
+    ///     Low values (&lt; 0.3) suggest consistent timing (bots).
+    ///     High values (&gt; 0.7) suggest variable human timing.
     /// </summary>
     public double CoefficientOfVariation { get; init; }
 
     /// <summary>
     ///     Burst score - measures clustering of requests in time.
-    ///     High values (> 0.7) suggest bursty/aggressive scraping.
+    ///     High values (&gt; 0.7) suggest bursty/aggressive scraping.
     ///     Low values suggest steady browsing.
     /// </summary>
     public double BurstScore { get; init; }
 
     /// <summary>
     ///     Navigation anomaly score - measures how often URLs are non-afforded.
-    ///     High values (> 0.6) suggest scanner/crawler behavior.
+    ///     High values (&gt; 0.6) suggest scanner/crawler behavior.
     ///     Low values suggest normal UI navigation.
     /// </summary>
     public double NavAnomalyScore { get; init; }
 
     /// <summary>
     ///     Spectral peak-to-noise ratio - strength of timing periodicity.
-    ///     High values (> 4.0) suggest timer-driven scripts.
+    ///     High values (&gt; 4.0) suggest timer-driven scripts.
     ///     Low values suggest irregular human timing.
     /// </summary>
     public double SpectralPeakToNoise { get; init; }
 
     /// <summary>
     ///     Spectral entropy - complexity of timing frequency spectrum.
-    ///     Low values (
-    ///     < 0.4) suggest simple periodic patterns ( bots).
-    ///         High values suggest complex human timing.
+    ///     Low values (&lt; 0.4) suggest simple periodic patterns (bots).
+    ///     High values suggest complex human timing.
     /// </summary>
     public double SpectralEntropy { get; init; }
 
     /// <summary>
     ///     Affordance follow-through ratio - fraction of requests following UI links.
-    ///     High values (> 0.8) suggest real users clicking UI elements.
-    ///     Low values (< 0.4) suggest direct URL access or scanning.
+    ///     High values (&gt; 0.8) suggest real users clicking UI elements.
+    ///     Low values (&lt; 0.4) suggest direct URL access or scanning.
     /// </summary>
     public double AffordanceFollowThroughRatio { get; init; }
 
     /// <summary>
     ///     404 error ratio - fraction of requests returning 404 Not Found.
-    ///     High values (> 0.3) suggest path probing or discovery.
+    ///     High values (&gt; 0.3) suggest path probing or discovery.
     ///     Low values suggest knowledge of valid paths.
     /// </summary>
     public double FourOhFourRatio { get; init; }

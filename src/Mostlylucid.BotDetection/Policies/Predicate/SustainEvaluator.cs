@@ -8,7 +8,7 @@ namespace Mostlylucid.BotDetection.Policies.Predicate;
 ///     <see cref="Predicate.Sustain"/> node is currently satisfied; the
 ///     evaluator looks up (or creates) the atom and observes the current
 ///     inner-truth value. The time source is injected for testability so
-///     <see cref="Microsoft.Extensions.Time.Testing.FakeTimeProvider"/>-style
+///     <c>Microsoft.Extensions.Time.Testing.FakeTimeProvider</c>-style
 ///     fakes can drive transitions deterministically.
 ///
 ///     <para>

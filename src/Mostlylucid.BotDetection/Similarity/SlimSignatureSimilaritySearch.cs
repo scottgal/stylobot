@@ -7,7 +7,7 @@ namespace Mostlylucid.BotDetection.Similarity;
 
 /// <summary>
 ///     Bounded in-memory similarity search backed by SQLite centroids.
-///     Replaces <see cref="HnswFileSimilaritySearch"/> to eliminate unbounded LOH growth.
+///     Replaces the prior <c>HnswFileSimilaritySearch</c> to eliminate unbounded LOH growth.
 ///
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking TryGet on the hot cache then
 ///     SIMD cosine similarity. No SQLite I/O on the hot path.
@@ -134,7 +134,7 @@ public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
     public Task SaveAsync() => Task.CompletedTask;
 
     /// <inheritdoc/>
-    /// <remarks>No-op: startup warm-up is performed by <see cref="SessionVectorWarmupService"/> loading from SQLite.</remarks>
+    /// <remarks>No-op: startup warm-up is performed by <see cref="Mostlylucid.BotDetection.Services.SessionVectorWarmupService"/> loading from SQLite.</remarks>
     public Task LoadAsync() => Task.CompletedTask;
 
     private static bool IsValidVector(float[] v) => VectorMath.IsValidVector(v);

@@ -429,7 +429,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 // Deserialises to the same List<string> shape DashboardDetectionEvent
                 // exposes; null when the row hasn't been synthesised yet (or the
                 // join missed -- legacy pre-migration rows).
-                TopReasons      = ParseTopReasonsJson(SafeGetString(reader, "top_reasons_json")),
+                TopReasons      = ParseTopReasonsJson(SafeGetString(reader, "top_reasons_json")) ?? new List<string>(),
             });
         }
         return results;

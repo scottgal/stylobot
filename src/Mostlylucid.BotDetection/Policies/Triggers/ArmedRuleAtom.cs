@@ -7,7 +7,7 @@ namespace Mostlylucid.BotDetection.Policies.Triggers;
 ///
 ///     <para>
 ///         <see cref="Observe"/> is the only mutator. The
-///         <see cref="MeterTriggerService"/> calls it once per tick with the
+///         <c>MeterTriggerService</c> calls it once per tick with the
 ///         freshly-evaluated predicate result, the current wall-clock instant,
 ///         and the rule's <see cref="Rules.RuleTriggerOptions.EffectiveSustainFor"/>
 ///         + <see cref="Rules.RuleTriggerOptions.EffectiveRecoverAfter"/>. The

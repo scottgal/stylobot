@@ -561,6 +561,11 @@ public sealed class IdentityWeightCalibrationService : IDisposable
     ///     observability endpoint so operators can trace WHY an archetype's
     ///     catchment narrowed or widened this cycle.
     /// </summary>
+    /// <param name="PreviousMultiplier">Variance multiplier before this cycle.</param>
+    /// <param name="NewMultiplier">Variance multiplier after this cycle.</param>
+    /// <param name="Bloat">Measured catchment bloat metric.</param>
+    /// <param name="LeakageDescendantCount">Number of descendants flagged as leakage this cycle.</param>
+    /// <param name="SplitCandidate"><c>true</c> when the archetype is flagged for split consideration.</param>
     /// <param name="Kind">"shrink", "regrow", or "split-candidate".</param>
     public sealed record ShrinkageAction(
         double PreviousMultiplier,

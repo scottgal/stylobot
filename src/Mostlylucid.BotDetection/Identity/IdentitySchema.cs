@@ -99,6 +99,18 @@ internal static class IdentitySchema
         // 'identity' via the column default.
         await TryAddColumnAsync(conn,
             "ALTER TABLE identity_archetypes ADD COLUMN catalogue_kind TEXT NOT NULL DEFAULT 'identity'", ct);
+        // Index on catalogue_kind must be created AFTER the ADD COLUMN above:
+        // the schema CREATE INDEX was previously inline in identity_core.sql,
+        // but CREATE TABLE IF NOT EXISTS leaves legacy tables intact (no
+        // catalogue_kind yet), and the subsequent CREATE INDEX would then
+        // fail with "no such column" on databases that pre-date this
+        // column. Deferring the index here makes the order safe.
+        await using (var idxCmd = conn.CreateCommand())
+        {
+            idxCmd.CommandText =
+                "CREATE INDEX IF NOT EXISTS ix_identity_archetypes_catalogue_kind ON identity_archetypes (catalogue_kind)";
+            await idxCmd.ExecuteNonQueryAsync(ct);
+        }
 
         // 2026-06-22 -- drop fingerprint_modes parallel-axis columns. See
         // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.

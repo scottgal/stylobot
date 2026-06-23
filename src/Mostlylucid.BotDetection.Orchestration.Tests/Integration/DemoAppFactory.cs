@@ -42,6 +42,18 @@ public sealed class DemoAppFactory : IAsyncLifetime
                     // there's no second refresh while the test suite runs --
                     // gives consistent behaviour across runs.
                     ["BotDetection__EnableBackgroundUpdates"] = "false",
+                    // Disable the aggressive demo calibration trigger (1s min,
+                    // observation threshold = 1) so calibration cannot mutate
+                    // archetype variance multipliers / centroids mid-scenario.
+                    // The BDF rig is asserting deterministic matcher output
+                    // against frozen YAML archetypes; learning during a replay
+                    // makes "fp-chrome-windows-human matched to ublock-origin"
+                    // (umbrella-centroid drift) appear intermittently as
+                    // calibration ticks happen to fire before vs. after the
+                    // archetype set is read by the matcher. Falls back to the
+                    // wall-clock CalibrationIntervalMinutes = 1, which exceeds
+                    // a full BDF replay scenario's duration.
+                    ["BotDetection__Identity__Calibration__Trigger__Enabled"] = "false",
                 },
             },
         };

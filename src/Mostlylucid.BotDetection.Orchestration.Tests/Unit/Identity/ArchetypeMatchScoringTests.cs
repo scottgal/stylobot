@@ -526,24 +526,37 @@ public sealed class ArchetypeMatchScoringTests
     [Fact]
     public void Mahalanobis_AgainstUnpopulatedObservationDims_DoesNotPenalize()
     {
+        // Test invariant: the Gaussian per-dim Mahalanobis term must not contribute when
+        // an observation dim is unpopulated (it's a "no claim" signal, not a mismatch).
+        // We populate 5 mask-positive slots on the archetype so both observations clear
+        // the MinPopulatedSlotsForMatch sparsity threshold (4), isolating the
+        // Mahalanobis-only behaviour this test asserts.
         var dim = _encoder.Layout.Dimension;
         var centroid = new float[dim];
-        centroid[10] = 1.0f;
-        centroid[57] = 1.0f;
         var mask = new float[dim];
-        mask[10] = 0.9f;
-        mask[57] = 0.9f;
+        var slotOffsets = new[]
+            {
+                "network.is_datacenter", "network.is_vpn", "network.is_tor",
+                "locale.save_data", "hdr.sec_ch_ua_mobile"
+            }
+            .Select(n => _encoder.Layout.Slots.First(s => string.Equals(s.Name, n, StringComparison.OrdinalIgnoreCase)).Offset)
+            .ToArray();
+        foreach (var off in slotOffsets)
+        {
+            centroid[off] = 1.0f;
+            mask[off] = 0.9f;
+        }
         var variance = new float[dim];
         Array.Fill(variance, 0.05f);
         var archetype = BuildArchetype("multi-dim", centroid, mask, variance);
 
         var fullyPopulated = new float[dim];
-        fullyPopulated[10] = 1.0f;
-        fullyPopulated[57] = 1.0f;
+        foreach (var off in slotOffsets) fullyPopulated[off] = 1.0f;
 
         var partiallyPopulated = new float[dim];
-        partiallyPopulated[10] = 1.0f;
-        // slot at offset 57 left at 0
+        // Populate 4 of 5 claimed slots; both observations clear the sparsity threshold,
+        // so any residual score delta is pure Mahalanobis.
+        foreach (var off in slotOffsets.Take(4)) partiallyPopulated[off] = 1.0f;
 
         var fullScore = ScoreAgainst(fullyPopulated, archetype);
         var partialScore = ScoreAgainst(partiallyPopulated, archetype);
@@ -568,19 +581,23 @@ public sealed class ArchetypeMatchScoringTests
     {
         var dim = _encoder.Layout.Dimension;
 
-        // Centroid: encode just 3 booleans. After L2Normalise the magnitudes contract toward one
+        // Centroid: encode 4 booleans so the archetype claims at least
+        // MinPopulatedSlotsForMatch (4) mask-positive slots; otherwise the sparsity
+        // penalty caps the maximum achievable raw score below the 0.85 invariant this
+        // test protects. After L2Normalise the magnitudes contract toward one
         // unit-sphere position; before normalization they're 1.0 on each populated dim.
         var centroidRawValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
         {
             ["network.is_datacenter"] = true,
             ["network.is_vpn"] = true,
-            ["network.is_tor"] = true
+            ["network.is_tor"] = true,
+            ["locale.save_data"] = true
         };
         var centroid = _encoder.Encode(centroidRawValues);
         var centroidRaw = _encoder.EncodeRaw(centroidRawValues);
 
         var mask = new float[dim];
-        foreach (var slotName in new[] { "network.is_datacenter", "network.is_vpn", "network.is_tor" })
+        foreach (var slotName in new[] { "network.is_datacenter", "network.is_vpn", "network.is_tor", "locale.save_data" })
         {
             var slot = _encoder.Layout.Slots.First(s => string.Equals(s.Name, slotName, StringComparison.OrdinalIgnoreCase));
             mask[slot.Offset] = 0.9f;

@@ -142,6 +142,7 @@ public static class BdfReplayEndpoints
     private static async Task<IResult> ResetIdentityStore(
         Identity.IFingerprintStore store,
         Identity.IdentityProcessingCoordinator coordinator,
+        Identity.IdentityArchetypeRegistry archetypes,
         Orchestration.ContributingDetectors.FingerprintDimSnapshotCache snapshotCache,
         CancellationToken ct)
     {
@@ -156,6 +157,13 @@ public static class BdfReplayEndpoints
         // get reallocated from 1; without flushing, scenario N inherits
         // scenario N-1's surface-dim baselines and trips spurious risk.* signals.
         snapshotCache.Reset();
+        // Reload archetypes from embedded YAML so calibration-driven mutations
+        // (variance multipliers, refined centroids, pin counters) from earlier
+        // scenarios don't bleed into the next one. Without this, an earlier
+        // scenario's umbrella shrinkage could leave (say) the curl-tool basin
+        // wider than safari-mobile, causing fp-safari-ios to match curl-tool
+        // in the next scenario.
+        archetypes.ResetToSeedState();
         return Results.Ok(counts);
     }
 

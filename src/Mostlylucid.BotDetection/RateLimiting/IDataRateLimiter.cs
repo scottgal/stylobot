@@ -2,8 +2,8 @@ namespace Mostlylucid.BotDetection.RateLimiting;
 
 /// <summary>
 ///     A leaky-bucket response-bandwidth limiter. Wraps the upstream response
-///     <see cref="Stream"/> so writes that would exceed
-///     <paramref name="bytesPerSecond"/> block-await until the bucket refills.
+///     <see cref="Stream"/> so writes that would exceed the configured
+///     <c>bytesPerSecond</c> rate block-await until the bucket refills.
 ///     The client sees their effective download bandwidth capped at the
 ///     configured rate.
 ///     <para>

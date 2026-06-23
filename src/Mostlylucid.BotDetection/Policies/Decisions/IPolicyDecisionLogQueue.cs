@@ -6,7 +6,7 @@ namespace Mostlylucid.BotDetection.Policies.Decisions;
 ///     decisions via this contract instead of awaiting
 ///     <see cref="IPolicyDecisionLog.AppendAsync"/> directly; the default
 ///     implementation drains the queue into the underlying log on the
-///     project's <see cref="Scheduling.TickCadence.Tick1s"/>.
+///     project's <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1s"/>.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -21,7 +21,7 @@ namespace Mostlylucid.BotDetection.Policies.Decisions;
 ///         Reuses the same write-behind pattern as
 ///         <see cref="Telemetry.PolicyEffectivenessCache"/>: bounded channel
 ///         + drainer ticking on the project's
-///         <see cref="Scheduling.IScheduleCoordinator"/>. We do NOT introduce
+///         <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator"/>. We do NOT introduce
 ///         a new write-behind primitive (per the
 ///         <c>feedback_write_behind_lfu_facade</c> guidance).
 ///     </para>
@@ -38,7 +38,7 @@ public interface IPolicyDecisionLogQueue
     /// <summary>
     ///     Drain every queued decision into the underlying
     ///     <see cref="IPolicyDecisionLog"/>. Called by the project's tick
-    ///     coordinator at <see cref="Scheduling.TickCadence.Tick1s"/> in
+    ///     coordinator at <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1s"/> in
     ///     production; tests call this directly via the coordinator's
     ///     <c>TickOnceAsync</c> hook to flush the queue deterministically.
     /// </summary>

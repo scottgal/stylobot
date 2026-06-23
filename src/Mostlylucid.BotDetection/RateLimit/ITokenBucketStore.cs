@@ -34,7 +34,7 @@ public interface ITokenBucketStore
     /// </param>
     /// <param name="key">
     ///     Stable identity for the visitor (signature or IP, depending on
-    ///     <see cref="RateLimitActionOptions.KeyBy"/>).
+    ///     <see cref="Mostlylucid.BotDetection.Actions.RateLimitActionOptions.KeyBy"/>).
     /// </param>
     /// <param name="capacity">
     ///     Maximum bucket fill (the burst allowance).

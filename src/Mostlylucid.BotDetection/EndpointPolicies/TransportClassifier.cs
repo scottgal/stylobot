@@ -7,7 +7,7 @@ namespace Mostlylucid.BotDetection.EndpointPolicies;
 ///     <see cref="IEndpointPolicyResolver"/> pre-detection. Mirrors the
 ///     broad strokes of <c>TransportProtocolContributor</c> (Wave 0) but
 ///     runs synchronously without DI -- the resolver needs a class label
-///     before <see cref="BotDetectionMiddleware"/> runs.
+///     before <see cref="Mostlylucid.BotDetection.Middleware.BotDetectionMiddleware"/> runs.
 /// </summary>
 /// <remarks>
 ///     Returned values match the <c>EndpointPolicyRule.Transport</c>

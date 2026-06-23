@@ -53,6 +53,10 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
     /// <summary>
     ///     Creates a new action policy registry.
     /// </summary>
+    /// <param name="options">Bot detection options containing action-policy configuration.</param>
+    /// <param name="factories">Discovered <see cref="IActionPolicyFactory"/> instances used to materialize policies.</param>
+    /// <param name="additionalPolicies">Optional manually-registered policies merged with the factory output.</param>
+    /// <param name="logger">Optional logger for registry diagnostics.</param>
     /// <param name="tokenBucketStore">
     ///     Backing store for the built-in <see cref="RateLimitActionPolicy"/>
     ///     instances. Defaults to a fresh
@@ -66,6 +70,7 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
     ///     current degradation-tier multiplier. <c>null</c> in tests or when
     ///     adaptive scaling is disabled in config.
     /// </param>
+    /// <param name="stickyDenyTracker">Optional sticky-deny tracker used to apply repeat-offender escalation.</param>
     public ActionPolicyRegistry(
         IOptions<BotDetectionOptions> options,
         IEnumerable<IActionPolicyFactory> factories,

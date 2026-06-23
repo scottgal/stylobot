@@ -1003,7 +1003,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     ///     this hook existed, the DNS code was dead because
     ///     <see cref="ContributingDetectors.VerifiedBotContributor"/> is excluded
     ///     from every <see cref="DetectionPolicy"/> and
-    ///     <see cref="BackgroundEnrichmentService"/> only ran the Project Honeypot
+    ///     <see cref="Mostlylucid.BotDetection.Services.BackgroundEnrichmentService"/> only ran the Project Honeypot
     ///     lookup.
     /// </summary>
     private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)

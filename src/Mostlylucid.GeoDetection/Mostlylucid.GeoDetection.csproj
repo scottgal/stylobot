@@ -36,6 +36,8 @@
         <PackageReference Include="MaxMind.GeoIP2" Version="6.0.0" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+        <!-- Force non-vulnerable SQLite native binary; EF Core Sqlite 10.0.9 still pulls in 2.1.11 transitively (NU1903 GHSA-2m69-gcr7-jv3q). -->
+        <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
         <PackageReference Include="MinVer" Version="7.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

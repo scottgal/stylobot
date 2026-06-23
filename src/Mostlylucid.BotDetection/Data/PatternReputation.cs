@@ -169,7 +169,7 @@ public class ReputationOptions
 
     /// <summary>
     ///     Prior to decay toward when no new evidence arrives.
-    ///     0.5 = neutral, <0.5 = bias toward human, >0.5 = bias toward bot.
+    ///     0.5 = neutral, &lt;0.5 = bias toward human, &gt;0.5 = bias toward bot.
     ///     Default: 0.5
     /// </summary>
     public double Prior { get; set; } = 0.5;

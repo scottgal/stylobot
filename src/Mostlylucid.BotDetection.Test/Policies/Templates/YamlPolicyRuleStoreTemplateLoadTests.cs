@@ -68,7 +68,7 @@ public class YamlPolicyRuleStoreTemplateLoadTests
         var materialized = all.Where(r => r.Origin is not null).ToArray();
         Assert.Single(materialized);
         Assert.Equal(template.Id, materialized[0].Origin!.TemplateId);
-        Assert.Equal("test-app", materialized[0].Origin.ApplicationId);
+        Assert.Equal("test-app", materialized[0].Origin!.ApplicationId);
         Assert.Empty(store.DivergedRuleIds);
     }
 

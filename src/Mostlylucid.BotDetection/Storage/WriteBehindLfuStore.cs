@@ -58,6 +58,8 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     /// <param name="batchMaxSize">Max items in one durable-tier batch flush.</param>
     /// <param name="drainInterval">Maximum wait before flushing a partial
     ///     batch. Smaller = lower persistence latency, more DB round-trips.</param>
+    /// <param name="logger">Logger used to surface batch flush failures and shed events.</param>
+    /// <param name="keyComparer">Optional comparer for the hot-tier dictionary keys.</param>
     protected WriteBehindLfuStore(
         int maxEntries,
         int writeQueueCapacity,

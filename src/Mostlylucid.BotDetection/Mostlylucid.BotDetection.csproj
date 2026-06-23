@@ -27,7 +27,10 @@
              / Long stay empty. CS1591 is suppressed broadly because the public surface
              far predates the catalog and we don't want a churn-the-world XML-doc commit. -->
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <NoWarn>$(NoWarn);CS1591</NoWarn>
+        <!-- NU5104: Mostlylucid.Common is a sibling project ref whose Debug MinVer build
+             stamps an alpha SemVer; the pack step then flags the dep range as prerelease.
+             Harmless: Release builds with synced MinVer tags produce stable versions. -->
+        <NoWarn>$(NoWarn);CS1591;NU5104</NoWarn>
 
         <!-- AOT/trim posture: every own-code call site is either source-generated or
              explicitly annotated with [RequiresUnreferencedCode] / [RequiresDynamicCode] /

@@ -414,7 +414,7 @@ public static class RouteBuilderExtensions
     }
 
     /// <summary>
-    ///     Format probability as percentage, showing "<1%" for very low values.
+    ///     Format probability as percentage, showing "&lt;1%" for very low values.
     /// </summary>
     private static string FormatProbability(double probability)
     {
@@ -614,7 +614,7 @@ public static class RouteBuilderExtensions
 
     private static string RenderSitemap(HttpContext ctx, StyloBotSitemapOptions options, SitemapVerdict verdict)
     {
-        var baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host.Value.TrimEnd('/')}";
+        var baseUrl = $"{ctx.Request.Scheme}://{(ctx.Request.Host.Value ?? string.Empty).TrimEnd('/')}";
         var sb = new System.Text.StringBuilder();
         sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         sb.Append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
@@ -803,7 +803,7 @@ public static class RouteBuilderExtensions
         }
 
         var sitemap = options.SitemapUrl
-                      ?? $"{ctx.Request.Scheme}://{ctx.Request.Host.Value.TrimEnd('/')}/sitemap.xml";
+                      ?? $"{ctx.Request.Scheme}://{(ctx.Request.Host.Value ?? string.Empty).TrimEnd('/')}/sitemap.xml";
         sb.Append('\n').Append("Sitemap: ").Append(sitemap).Append('\n');
 
         return sb.ToString();

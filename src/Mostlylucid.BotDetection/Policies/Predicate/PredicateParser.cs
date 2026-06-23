@@ -13,14 +13,14 @@ namespace Mostlylucid.BotDetection.Policies.Predicate;
 ///     sustain_unit := atom ( "for" duration )?
 ///     atom     := "(" expr ")"  |  "not" atom  |  term
 ///     term     := IDENT op value
-///     op       := "=" | "!=" | ">=" | ">" | "<=" | "<"
+///     op       := "=" | "!=" | "&gt;=" | "&gt;" | "&lt;=" | "&lt;"
 ///                | "in" | "not in"
 ///                | "between" scalar "and" scalar
 ///                | "matches" | "contains" | "any in" | "all in"
 ///     value    := list | scalar
 ///     list     := "(" scalar ("," scalar)* ")"
 ///     scalar   := NUMBER | STRING | BOOL | IDENT
-///     duration := <DurationParser shorthand>  -- 30s, 5m, 1h, 1h30m, 1d, ...
+///     duration := &lt;DurationParser shorthand&gt;  -- 30s, 5m, 1h, 1h30m, 1d, ...
 ///     </code>
 ///     <c>between A and B</c> is currently parsed but folded into a single
 ///     <see cref="PredicateOp.Between"/> term whose value is a string[]

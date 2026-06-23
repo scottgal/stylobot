@@ -586,7 +586,7 @@ public static class DetectionLedgerExtensions
     /// probability >= 0.70 with active threat OR >= 5 requests.
     /// </summary>
     /// <summary>
-    ///     Thin wrapper that builds <see cref="SignatureRiskInputs"/> from the
+    ///     Thin wrapper that builds <see cref="Risk.SignatureRiskInputs"/> from the
     ///     pipeline-side primitives and delegates to
     ///     <see cref="Risk.SignatureRiskVerdictComposer.Compose"/>. The body that
     ///     used to live here -- a parallel implementation of friendly-pin /

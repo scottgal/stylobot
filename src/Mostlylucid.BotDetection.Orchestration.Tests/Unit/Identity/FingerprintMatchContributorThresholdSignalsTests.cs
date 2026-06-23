@@ -32,6 +32,7 @@ namespace Mostlylucid.BotDetection.Orchestration.Tests.Unit.Identity;
 ///     invoked directly (not through the orchestrator's policy layer). The BDF rig is the
 ///     authoritative production-policy gate for the first-seen signal.
 /// </summary>
+[Collection("IdentitySqlite")]
 public sealed class FingerprintMatchContributorThresholdSignalsTests : IAsyncLifetime
 {
     private string _tempDir = string.Empty;

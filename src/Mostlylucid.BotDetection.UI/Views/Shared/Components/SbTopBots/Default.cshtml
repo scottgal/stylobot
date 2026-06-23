@@ -24,9 +24,6 @@
         ? "text-base-content/70 font-bold cursor-pointer"
         : "text-base-content/40 hover:text-base-content/60 cursor-pointer";
 
-    bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
-    string FlagUrl(string code) => $"/_content/Mostlylucid.BotDetection.UI/flags/{code.ToLowerInvariant()}.svg";
-
     var widgetRootId = Model.WidgetId + "-list";
     var dataRegionId = Model.WidgetId + "-data";
 

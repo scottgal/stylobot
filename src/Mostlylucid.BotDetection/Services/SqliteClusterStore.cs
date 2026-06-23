@@ -13,7 +13,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///
 ///     The in-memory snapshot stays as a fast lookup cache; this store is the source of
 ///     truth. Restart restores the full snapshot — including LLM-derived labels and
-///     descriptions — instead of starting from an empty <see cref="ClusterSnapshot.Empty"/>.
+///     descriptions, instead of starting from an empty <c>ClusterSnapshot.Empty</c>.
 /// </summary>
 public sealed class SqliteClusterStore : IClusterStore
 {
@@ -85,7 +85,7 @@ public sealed class SqliteClusterStore : IClusterStore
     ///     Replaces the entire persisted cluster set atomically (TRUNCATE + bulk INSERT in a
     ///     single transaction). Called by <see cref="BotClusterService"/> after each
     ///     clustering cycle. Snapshot-replace semantics match the in-memory
-    ///     <see cref="ClusterSnapshot"/> atomic swap.
+    ///     <c>ClusterSnapshot</c> atomic swap.
     /// </summary>
     public async Task ReplaceAllAsync(IReadOnlyCollection<BotCluster> clusters, CancellationToken ct = default)
     {

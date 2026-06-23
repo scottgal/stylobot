@@ -90,10 +90,10 @@ public class HoneypotCategoryTests
     {
         var creds = HoneypotPathDefinitions.GetPathsByCategory(HoneypotCategory.Credentials);
 
-        Assert.True(creds.Contains("/.aws/credentials"));
-        Assert.True(creds.Contains("/.ssh/id_rsa"));
-        Assert.True(creds.Contains("/credentials.json"));
-        Assert.False(creds.Contains("/wp-login.php"));
+        Assert.Contains("/.aws/credentials", (IReadOnlySet<string>)creds);
+        Assert.Contains("/.ssh/id_rsa", (IReadOnlySet<string>)creds);
+        Assert.Contains("/credentials.json", (IReadOnlySet<string>)creds);
+        Assert.DoesNotContain("/wp-login.php", (IReadOnlySet<string>)creds);
     }
 
     [Fact]

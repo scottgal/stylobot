@@ -69,10 +69,10 @@ public class UserAgentContributorTests
     }
 
     [Theory]
-    [InlineData("Scrapy/2.7.0 (+https://scrapy.org)", "Scrapy")]
-    [InlineData("python-requests/2.28.0", "python-requests")]
-    [InlineData("curl/7.88.1", "curl")]
-    public async Task ContributeAsync_KnownBotPattern_ReturnsBotContribution(string userAgent, string expectedBotName)
+    [InlineData("Scrapy/2.7.0 (+https://scrapy.org)")]
+    [InlineData("python-requests/2.28.0")]
+    [InlineData("curl/7.88.1")]
+    public async Task ContributeAsync_KnownBotPattern_ReturnsBotContribution(string userAgent)
     {
         // No pattern cache - test the built-in IsCommonBotPattern
         var contributor = CreateContributor(patternCache: null);

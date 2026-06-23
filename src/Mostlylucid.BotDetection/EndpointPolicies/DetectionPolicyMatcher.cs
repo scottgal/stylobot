@@ -84,7 +84,7 @@ public static class DetectionPolicyMatcher
     }
 
     /// <summary>
-    ///     Parse and apply a comparison expression like ">= 0.7", "< 0.5",
+    ///     Parse and apply a comparison expression like "&gt;= 0.7", "&lt; 0.5",
     ///     "== 1.0". Whitespace is optional. Returns false on parse failure
     ///     (operators see the rule as "didn't match" rather than a hard
     ///     load-time error -- config validation flags it separately).

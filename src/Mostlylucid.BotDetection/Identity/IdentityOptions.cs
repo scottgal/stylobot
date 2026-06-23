@@ -63,9 +63,9 @@ public sealed class BrowserModeOptions
 
     /// <summary>
     ///     Per-tick cap on the reconciliation pass that re-runs the UA-family-
-    ///     gated <see cref="IdentityArchetypeRegistry.FindNearest"/> over
+    ///     gated <see cref="Mostlylucid.BotDetection.Identity.IdentityArchetypeRegistry.FindNearest(float[])"/> over
     ///     pre-existing <c>fingerprint_modes</c> rows. Necessary because
-    ///     <see cref="FingerprintModeAbsorptionService"/> only writes
+    ///     <see cref="Mostlylucid.BotDetection.Identity.BrowserModes.FingerprintModeAbsorptionService"/> only writes
     ///     <c>inferred_archetype</c> when a fresh observation lands -- mode
     ///     rows whose last observation predates a matcher-contract change
     ///     (e.g. the UA gate added 2026-06-18) keep their stale classification
@@ -226,7 +226,7 @@ public sealed class IdentityVectorOptions
     public int[] NotifyOnCountCrossings { get; set; } = new[] { 1, 3, 10, 30, 100 };
 
     /// <summary>
-    ///     Per-fingerprint debounce window for the <see cref="IFingerprintStore.ObservationAppended"/>
+    ///     Per-fingerprint debounce window for the <see cref="Mostlylucid.BotDetection.Identity.IFingerprintStore.ObservationAppended"/>
     ///     subscription. A second event for the same fingerprint within this window collapses
     ///     into a single absorption run. Prevents storms when a hot visitor floods observations
     ///     faster than absorption can drain. Default 250ms.
@@ -243,7 +243,7 @@ public sealed class IdentityVectorOptions
 
     /// <summary>
     ///     Amortise the per-request encoder cost across sub-resource requests in a page load.
-    ///     When enabled (default), <see cref="EncoderResultCache"/> short-circuits the encode
+    ///     When enabled (default), <see cref="Mostlylucid.BotDetection.Identity.EncoderResultCache"/> short-circuits the encode
     ///     step for any request whose <c>primary_signature</c> was seen within the TTL window.
     ///     For a 30-asset page load this collapses 30 × ~1 μs of encode to one encode plus
     ///     29 cache lookups. Disable on hosts that need per-request encode fidelity (e.g.
@@ -415,7 +415,7 @@ public sealed class IdentityCalibrationOptions
     /// <summary>
     ///     Adaptive trigger policy. When <see cref="CalibrationTriggerOptions.Enabled"/>
     ///     is true the calibration service consults
-    ///     <see cref="Triggers.AdaptiveTriggerEvaluator"/> on every Tick1s
+    ///     <see cref="Mostlylucid.BotDetection.Identity.Triggers.AdaptiveTriggerEvaluator"/> on every Tick1s
     ///     heartbeat instead of gating on <see cref="CalibrationIntervalMinutes"/>.
     ///     Demo profiles set the floor as low as 1 s so learning is visible
     ///     within seconds; production defaults are conservative.
@@ -463,7 +463,7 @@ public sealed class CentroidMobilityOptions
     /// <summary>
     ///     L2 delta below which a refinement counts as "no movement". Default
     ///     0.001 (effectively pin). Drives the
-    ///     <see cref="IdentityArchetype.PinCycles"/> counter.
+    ///     <see cref="Mostlylucid.BotDetection.Identity.IdentityArchetype.PinCycles"/> counter.
     /// </summary>
     public double PinDeltaThreshold { get; set; } = 0.001;
 
@@ -476,7 +476,7 @@ public sealed class CentroidMobilityOptions
 
     /// <summary>
     ///     Threshold on
-    ///     <see cref="IdentityArchetype.DescendantVarianceLastCycle"/> above
+    ///     <see cref="Mostlylucid.BotDetection.Identity.IdentityArchetype.DescendantVarianceLastCycle"/> above
     ///     which we consider descendants to be disagreeing. Pin + high variance
     ///     together raise the warning. Default 0.05.
     /// </summary>
@@ -486,7 +486,7 @@ public sealed class CentroidMobilityOptions
     ///     Phase 5 v2 (2026-06-21): active neighbour-aware repulsion. When the
     ///     archetype currently being refined sits within
     ///     <see cref="RepulsionRadius"/> of its
-    ///     <see cref="IdentityArchetype.NearestNeighbourId"/> AND has fewer
+    ///     <see cref="Mostlylucid.BotDetection.Identity.IdentityArchetype.NearestNeighbourId"/> AND has fewer
     ///     descendants (it's the weaker one being eaten by the umbrella), the
     ///     refinement target is pushed AWAY from the neighbour by
     ///     <see cref="RepulsionStrength"/> of a unit vector. Without this,
@@ -588,7 +588,7 @@ public sealed class UmbrellaShrinkageOptions
 }
 
 /// <summary>
-///     Configuration mirror of <see cref="Triggers.AdaptiveTriggerPolicy"/>
+///     Configuration mirror of <see cref="Mostlylucid.BotDetection.Identity.Triggers.AdaptiveTriggerPolicy"/>
 ///     suitable for binding from <c>appsettings.json</c>. Kept distinct from
 ///     the policy record so the bound shape stays open to extension
 ///     (additional axes, custom signal-key aliases) without forcing every

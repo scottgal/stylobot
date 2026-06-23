@@ -176,7 +176,7 @@ public class GhostCentroidMatchingTests : IAsyncLifetime
         Assert.Single(results);
         Assert.NotNull(results[0].FrequencyFingerprint);
         Assert.Equal(fingerprint.Length, results[0].FrequencyFingerprint!.Length);
-        Assert.Equal(0.9f, results[0].FrequencyFingerprint[0], 3);
+        Assert.Equal(0.9f, results[0].FrequencyFingerprint![0], 3);
     }
 
     [Fact]

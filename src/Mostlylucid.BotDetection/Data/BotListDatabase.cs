@@ -61,7 +61,7 @@ public class BotListDatabase : IBotListDatabase, IDisposable
     /// <summary>
     ///     Ensures the schema exists on the given open connection. Idempotent.
     ///     DDL lives in <c>Data/Schema/bot_list_database.sql</c>; loaded once
-    ///     and cached by <see cref="SchemaLoader"/>.
+    ///     and cached by <see cref="Schema.SchemaLoader"/>.
     /// </summary>
     private static async Task EnsureSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {

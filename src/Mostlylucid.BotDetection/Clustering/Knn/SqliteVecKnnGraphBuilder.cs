@@ -55,7 +55,7 @@ public sealed class SqliteVecKnnGraphBuilder : IKnnGraphBuilder
         _centroidDim = centroidDim;
     }
 
-    /// <summary>Path passed to <see cref="SqliteConnection.LoadExtension(string)"/>.</summary>
+    /// <summary>Path passed to <c>SqliteConnection.LoadExtension(string)</c>.</summary>
     public string ExtensionPath => _extensionPath ?? "vec0";
 
     public Dictionary<int, List<(int Neighbor, double Weight)>> Build(

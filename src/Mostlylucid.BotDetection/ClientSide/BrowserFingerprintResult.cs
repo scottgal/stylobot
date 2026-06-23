@@ -451,7 +451,7 @@ public class BrowserFingerprintResult
     ///     True when the adblocker probe (inlined by <c>AdblockerProbeTagHelper</c>)
     ///     reported that the configured ad-network resource was blocked. Drives the
     ///     <see cref="Models.SignalKeys.ClientSideAdblockerDetected"/> blackboard
-    ///     signal so <see cref="ContributingDetectors.ClientSideContributor"/> can
+    ///     signal so <see cref="Orchestration.ContributingDetectors.ClientSideContributor"/> can
     ///     suppress the no-fingerprint penalty for legitimate users whose adblocker
     ///     blocked the fingerprint script along with everything else.
     /// </summary>

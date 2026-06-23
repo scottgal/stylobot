@@ -9,7 +9,7 @@ namespace Mostlylucid.BotDetection.Similarity;
 
 /// <summary>
 ///     Bounded in-memory similarity search backed by <see cref="ISessionCentroidStore"/> (SQLite).
-///     Replaces <see cref="HnswSessionVectorSearch"/> to eliminate HNSW graph overhead and unbounded
+///     Replaces the prior <c>HnswSessionVectorSearch</c> to eliminate HNSW graph overhead and unbounded
 ///     LOH growth. No file I/O on the hot path.
 ///
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking SIMD cosine scan over the hot cache.

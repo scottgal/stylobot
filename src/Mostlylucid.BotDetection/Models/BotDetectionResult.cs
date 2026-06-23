@@ -88,7 +88,7 @@ public enum BotType
     ///     traffic was the cause of the BDF replay 429 loop and similar
     ///     dashboard-self-poll latency spikes. Distinct from
     ///     <see cref="Tool"/> so the dashboard label reads "Internal" instead
-    ///     of "Tool", and from <see cref="InternalNetworkBotTypeActionPolicies"/>
+    ///     of "Tool", and from <see cref="BotDetectionOptions.InternalNetworkBotTypeActionPolicies"/>
     ///     which only overrides the action while keeping the original UA-
     ///     derived classification.
     /// </summary>

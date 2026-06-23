@@ -268,7 +268,7 @@ public class BdfScenarioGenerator
             },
             "security" or "scanner" => new BotProfile
             {
-                BehaviorTypes = new[]
+                BehaviorTypes = new (string, string?)[]
                 {
                     ("vulnerability-scanner", "suspicious"),
                     ("path-discovery", "suspicious")
