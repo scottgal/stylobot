@@ -386,6 +386,10 @@ else
                             <th class="text-left py-1 pr-2">Mode</th>
                             <th class="text-right py-1 px-2 tabular-nums" sb-tooltip="modes.observations">Observations</th>
                             <th class="text-right py-1 px-2 tabular-nums" sb-tooltip="modes.maturity">Maturity</th>
+                            <th class="text-left py-1 px-2"
+                                title="L2 distance from this identity's rolled-up centroid; top slots are the largest per-slot deltas. Replaces the deleted Nearest archetype column.">
+                                Shift from baseline
+                            </th>
                             <th class="text-right py-1 pl-2 whitespace-nowrap">Last seen</th>
                         </tr>
                     </thead>
@@ -396,6 +400,20 @@ else
                                 <td class="py-1 pr-2 font-mono text-[11px]" sb-tooltip="modes.id">@m.ModeId</td>
                                 <td class="py-1 px-2 text-right tabular-nums text-base-content/85">@m.ObservationCount</td>
                                 <td class="py-1 px-2 text-right tabular-nums text-base-content/85">@m.CentroidMaturity</td>
+                                <td class="py-1 px-2 text-[11px]">
+                                    @if (m.Shift is { } shift)
+                                    {
+                                        <span class="tabular-nums text-base-content/85">@shift.Magnitude.ToString("F2")</span>
+                                        if (shift.TopSlotLabels.Count > 0)
+                                        {
+                                            <span class="text-base-content/50 ml-1">(@string.Join(", ", shift.TopSlotLabels))</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="text-base-content/40">—</span>
+                                    }
+                                </td>
                                 <td class="py-1 pl-2 text-right text-[11px] text-base-content/50 tabular-nums whitespace-nowrap">@m.LastSeen.ToString("HH:mm:ss")</td>
                             </tr>
                         }

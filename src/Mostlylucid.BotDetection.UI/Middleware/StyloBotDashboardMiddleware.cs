@@ -5805,6 +5805,17 @@ public class StyloBotDashboardMiddleware
             .GetService<BotDetection.Identity.BrowserModes.IFingerprintBrowserModeStore>();
         if (modeStore is null) return Array.Empty<SignatureBrowserModeRow>();
 
+        // Optional dependencies for the per-mode shift projection (plan task
+        // 15). Both are present on the gateway (layout is registered by
+        // AddStyloBotIdentity; catalogue by AddStyloBotPolicyStack) and may
+        // be absent on a thin remote-mode dashboard host. Missing-on-purpose
+        // means we skip the projection per row but still render the modes
+        // panel without it.
+        var layout = context.RequestServices
+            .GetService<BotDetection.Identity.IdentityVectorLayout>();
+        var signalCatalog = context.RequestServices
+            .GetService<BotDetection.Policies.Signals.ISignalCatalog>();
+
         try
         {
             var fpId = await reader.LookupFingerprintIdAsync(decodedSignature, context.RequestAborted);
@@ -5813,17 +5824,43 @@ public class StyloBotDashboardMiddleware
             var modes = await modeStore.GetModesAsync(fpId, context.RequestAborted);
             if (modes.Count == 0) return Array.Empty<SignatureBrowserModeRow>();
 
+            // Fetch the parent fingerprint once so per-mode rows can project
+            // their shift off the same rolled-up centroid. Per spec D5 the
+            // projection runs here on the gateway -- the view-model carries
+            // only the small ModeDelta record.
+            BotDetection.Identity.Fingerprint? parentFp = null;
+            if (layout is not null && signalCatalog is not null)
+                parentFp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
+
             // Project to the view-row record; sort by last_seen descending so
             // the most-recently-played mode renders first.
             return modes
                 .OrderByDescending(m => m.LastSeen)
-                .Select(m => new SignatureBrowserModeRow
+                .Select(m =>
                 {
-                    ModeId             = m.ModeId,
-                    CentroidMaturity   = m.CentroidMaturity,
-                    ObservationCount   = m.ObservationCount,
-                    FirstSeen          = m.FirstSeen,
-                    LastSeen           = m.LastSeen,
+                    Mostlylucid.BotDetection.UI.Services.ModeDelta? shift = null;
+                    if (parentFp is not null
+                        && layout is not null
+                        && signalCatalog is not null
+                        && m.Centroid.Length == parentFp.Centroid.Length
+                        && m.Centroid.Length > 0)
+                    {
+                        shift = Mostlylucid.BotDetection.UI.Services.ModeDeltaProjector.Project(
+                            identityCentroid: parentFp.Centroid.AsSpan(),
+                            modeCentroid:     m.Centroid.AsSpan(),
+                            layout:           layout,
+                            signalCatalog:    signalCatalog);
+                    }
+
+                    return new SignatureBrowserModeRow
+                    {
+                        ModeId             = m.ModeId,
+                        CentroidMaturity   = m.CentroidMaturity,
+                        ObservationCount   = m.ObservationCount,
+                        FirstSeen          = m.FirstSeen,
+                        LastSeen           = m.LastSeen,
+                        Shift              = shift,
+                    };
                 })
                 .ToList();
         }

@@ -452,6 +452,19 @@ public sealed record SignatureBrowserModeRow
 
     public required DateTime FirstSeen { get; init; }
     public required DateTime LastSeen { get; init; }
+
+    /// <summary>
+    ///     Per-mode shift off the parent fingerprint's rolled-up centroid
+    ///     (composite-spec step 7, plan task 15). Replaces the deleted
+    ///     "Nearest archetype" column with the spec's honest framing: "this
+    ///     mode shifts your baseline by X, top dims: …". Projected on the
+    ///     gateway (per spec D5 / <c>project_gateway_data_locality</c>) so
+    ///     the wire payload never carries raw centroid arrays. Null when the
+    ///     parent fingerprint or the mode row has no centroid to project
+    ///     against (legacy migration boundary; runtime steady state always
+    ///     populates it).
+    /// </summary>
+    public Mostlylucid.BotDetection.UI.Services.ModeDelta? Shift { get; init; }
 }
 
 /// <summary>
