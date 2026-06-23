@@ -22,6 +22,16 @@ public sealed class IdentityOptions
     public IdentityCoordinatorOptions Coordinator { get; set; } = new();
     public IdentityLooksLikeOptions LooksLike { get; set; } = new();
     public BrowserModeOptions BrowserMode { get; set; } = new();
+
+    /// <summary>
+    ///     When true (default), <see cref="Services.FingerprintNameComposer"/>
+    ///     recomposes the display name on every matcher tick (lookup hit).
+    ///     When false, the name is computed once at cold-start and reused.
+    ///     Production leaves this on so a freshly-arrived bot-pattern match
+    ///     replaces an earlier UA-family fallback. Spec D2 (deferred SignalSink
+    ///     wiring — currently honored by direct invocation from the matcher).
+    /// </summary>
+    public bool NameRecomposeOnMatch { get; set; } = true;
 }
 
 /// <summary>
@@ -62,23 +72,6 @@ public sealed class BrowserModeOptions
     public int DrainMaxRowsPerTick { get; set; } = 5_000;
 
     /// <summary>
-    ///     Per-tick cap on the reconciliation pass that re-runs the UA-family-
-    ///     gated <see cref="Mostlylucid.BotDetection.Identity.IdentityArchetypeRegistry.FindNearest(float[])"/> over
-    ///     pre-existing <c>fingerprint_modes</c> rows. Necessary because
-    ///     <see cref="Mostlylucid.BotDetection.Identity.BrowserModes.FingerprintModeAbsorptionService"/> only writes
-    ///     <c>inferred_archetype</c> when a fresh observation lands -- mode
-    ///     rows whose last observation predates a matcher-contract change
-    ///     (e.g. the UA gate added 2026-06-18) keep their stale classification
-    ///     forever otherwise. The reconciliation pass walks N rows per tick,
-    ///     looks up the parent fingerprint's latest <c>ua_family</c> from
-    ///     <c>fingerprint_observations</c>, runs the gated FindNearest, and
-    ///     updates the row when the classification differs. Bounded so the
-    ///     pass amortises across ticks instead of spiking CPU on the first
-    ///     wave window after the deploy.
-    /// </summary>
-    public int ReconcileMaxRowsPerTick { get; set; } = 200;
-
-    /// <summary>
     ///     Composite spec step 4: parent fingerprint centroid becomes a
     ///     maturity-weighted mean of its child mode centroids, recomputed on
     ///     a tick. Default false initially so this lands as observable
@@ -106,23 +99,6 @@ public sealed class BrowserModeOptions
     ///     orders by oldest-mode-row-last-seen.
     /// </summary>
     public int RollupMaxFingerprintsPerTick { get; set; } = 1_000;
-
-    /// <summary>
-    ///     Minimum archetype similarity required before
-    ///     <c>FingerprintModeAbsorptionService</c> persists the nearest archetype as
-    ///     the per-mode row's <c>InferredArchetype</c>. Below this floor the field stays
-    ///     <c>null</c> and the signature detail's "Nearest archetype" column renders as
-    ///     <c>-</c> — explicit "no confident match" beats a noise-driven false positive.
-    ///
-    ///     <para>
-    ///     The post-Gaussian-NLL scoring is bounded to (0, 1) with ~0.5 corresponding
-    ///     to "no information"; populated-but-distant observations score below ~0.55
-    ///     and populated-and-close observations land above ~0.7. Default of 0.55
-    ///     filters the umbrella-centroid floor while letting genuine matches through
-    ///     after a single absorption.
-    ///     </para>
-    /// </summary>
-    public double MinInferredArchetypeScore { get; set; } = 0.55;
 }
 
 /// <summary>
@@ -396,6 +372,16 @@ public sealed class IdentityDriftOptions
     ///     path on >40% of recent requests is doing something legitimate clients don't.
     /// </summary>
     public double AmbiguityProbingThreshold { get; set; } = 0.4;
+
+    /// <summary>
+    ///     Cosine delta past which the dashboard row shows the "drifted" badge
+    ///     and the signature detail page renders the drift detail panel. Lower
+    ///     than <see cref="IdentityMatchOptions.SignificantDriftEpsilon"/> on
+    ///     purpose — the operator-visible warning fires before the friendly-pin
+    ///     revocation. Default 0.15. See
+    ///     docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
+    /// </summary>
+    public double DriftBadgeThreshold { get; set; } = 0.15;
 }
 
 public sealed class IdentityCalibrationOptions
