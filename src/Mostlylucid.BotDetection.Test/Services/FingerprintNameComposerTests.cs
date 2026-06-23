@@ -146,13 +146,12 @@ public class FingerprintNameComposerTests
     public void Compose_ReturnsUnknownTerminal_WhenNoUsableSignal()
     {
         // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks
-        // enough information to label this visitor. T5 (2026-06-22): the truthful
-        // terminal is now "Unknown <hex>" (or "Unknown 00000000" when no fingerprintId
-        // is supplied). The "No User-Agent" multi-token terminal violated the
-        // three-shape display-name contract; the defensive gate converts it to the
-        // canonical Unknown shape. IsFallback still recognises it so a real Priority
-        // 1-3 name later wins via hysteresis.
-        Assert.Equal("Unknown 00000000",
+        // enough information to label this visitor. 2026-06-23: ComposeUnknownTerminal
+        // picks the most informative discriminator -- fingerprintId prefix when present,
+        // else ASN, else country, else bare "Unknown". With nothing at all, bare
+        // "Unknown" is the truthful terminal -- IsFallback still recognises it so a
+        // real Priority 1-3 name later wins via hysteresis.
+        Assert.Equal("Unknown",
             FingerprintNameComposer.Compose(new Dictionary<string, object>()));
         Assert.Equal("Unknown abc123de",
             FingerprintNameComposer.Compose(
@@ -308,7 +307,7 @@ public class FingerprintNameComposerTests
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
             previousName: "analysing");
-        Assert.Equal("Unknown 00000000", name);
+        Assert.Equal("Unknown", name);
     }
 
     [Fact]

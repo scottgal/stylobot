@@ -321,6 +321,7 @@ internal static class FingerprintNameComposer
         var paren = composedName.IndexOf(" (", StringComparison.Ordinal);
         var baseName = paren > 0 ? composedName[..paren] : composedName;
         if (baseName == "analysing"
+            || baseName == "Unknown"
             || baseName.StartsWith("unknown ", StringComparison.Ordinal)
             || baseName.StartsWith("Unknown ", StringComparison.Ordinal))
             return true;

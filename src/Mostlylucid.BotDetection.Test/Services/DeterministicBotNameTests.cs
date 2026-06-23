@@ -153,7 +153,7 @@ public class DeterministicBotNameTests
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Equal("Unknown 00000000", name);
+        Assert.Equal("Unknown", name);
     }
 
     // ─── Detailed (name + description) ─────────────────────────────────
