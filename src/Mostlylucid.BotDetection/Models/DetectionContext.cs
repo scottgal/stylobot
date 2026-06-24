@@ -1311,6 +1311,19 @@ public static class SignalKeys
     public const string TimeIsBusinessHours = "time.is_business_hours";
 
     // ==========================================
+    // Organisation signals (operator-toggleable)
+    // Set by a commercial-side contributor that reads IOrgSignalStore (control plane
+    // backed by Postgres). FOSS owns the key constant because policy predicates in
+    // FOSS-side rule evaluators reference it; only the writer side is commercial.
+    // Used by the lockdown-mode policy template -- a single org-wide kill switch
+    // an operator can flip from the dashboard to drop traffic to humans-only / pinned
+    // bots without redeploying or re-uploading rules.
+    // ==========================================
+
+    /// <summary>Bool: true when the operator has flipped the org-wide "lockdown" switch via the dashboard. Read by the <c>lockdown-mode</c> policy template's rule predicate. False when no row exists for the org (the default after a fresh install or before a paid plug-in is licensed).</summary>
+    public const string OrgLockdown = "org.lockdown";
+
+    // ==========================================
     // Transport protocol signals
     // Set by TransportProtocolContributor when analyzing upgrade/protocol headers
     // ==========================================
