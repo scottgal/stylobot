@@ -8,7 +8,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     Endpoint) so the operator reads left-to-right exactly the way the
 ///     resolver builds the chain. Rule rows inside the group are
 ///     ALREADY-built <see cref="PolicyStackRowViewModel"/> instances --
-///     reusing the compact <c>_RuleRow</c> partial from the Effective tab
+///     reusing the compact <c>_RuleCard</c> partial from the Effective tab
 ///     is the whole point of the layered design.
 /// </summary>
 /// <param name="Scope">The scope this group represents.</param>

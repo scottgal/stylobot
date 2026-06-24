@@ -12,7 +12,7 @@
     button -- the chips and the textarea are two views of the same
     predicate, kept in sync by policy-stack-edit.js.
 
-    Edit affordances themselves (the pencil on _RuleRow, the + Add rule
+    Edit affordances themselves (the pencil on _RuleCard, the + Add rule
     on _Full) only render when canEdit. The _EditRow itself is only ever
     reached by an HTMX swap from one of those buttons, so it does not
     re-check the canEdit gate here.

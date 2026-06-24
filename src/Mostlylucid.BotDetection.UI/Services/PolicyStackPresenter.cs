@@ -499,6 +499,7 @@ public sealed class PolicyStackPresenter
             LastEditedAt: entry.Rule.CreatedAt,
             ActionKind: ActionKind(entry.Rule.Action),
             ScopeKind: ScopeKindToken(entry.SourceScope),
+            Priority: entry.Rule.Priority,
             // C6 -- threaded from BuildAsync's canEdit parameter. The row
             // doesn't decide gating; the call site does, and this flag is
             // just what RuleRow's pencil affordance checks.

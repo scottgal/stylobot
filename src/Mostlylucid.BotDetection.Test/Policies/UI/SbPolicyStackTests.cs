@@ -864,7 +864,7 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
 
     private static IReadOnlyList<string> ExtractRuleIdOrder(string html)
     {
-        // data-rule-id appears once per _RuleRow. The match order in the
+        // data-rule-id appears once per _RuleCard. The match order in the
         // rendered HTML reflects the visible row order, which is what the
         // sort test asserts against.
         var ids = new List<string>();

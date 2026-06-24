@@ -33,6 +33,13 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <param name="LastEditedAt">When the rule was last edited; equal to <paramref name="CreatedAt"/> for default rules. Powers the <c>@since:</c> filter + the <see cref="PolicyStackSortKey.LastEdited"/> sort.</param>
 /// <param name="ActionKind">Lowercase canonical action kind (<c>"block"</c>, <c>"challenge"</c>, ...) for the <c>@action:</c> filter.</param>
 /// <param name="ScopeKind">Lowercase canonical source-scope kind (<c>"endpoint"</c>, <c>"subdomain"</c>, <c>"domain"</c>, <c>"wildcard"</c>) for the <c>@scope:</c> filter.</param>
+/// <param name="Priority">
+///     Threaded straight from <see cref="PolicyRule.Priority"/>. Lower
+///     number = higher priority within the scope; ties broken by
+///     <see cref="PolicyRule.Id"/>. Surfaced in Band 1 of
+///     <c>_RuleCard.cshtml</c> as the leading <c>#N</c> chip so the
+///     operator can see ordering at a glance without scanning siblings.
+/// </param>
 /// <param name="CanEdit">When <c>true</c>, the row renders the C6 pencil button that swaps the row in for the <c>_EditRow</c> partial. Threaded from the call-site canEdit flag, which itself is gated on the operator's <c>dashboard-write</c> role.</param>
 /// <param name="Origin">
 ///     Template-provenance stamp -- <c>null</c> for hand-authored rules.
@@ -43,7 +50,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     <c>true</c> when the materialized rule has been edited away from
 ///     the template's last materialization (T2 override-divergence
 ///     detection). Drives the inline "diverged from template" banner on
-///     <c>_RuleRow.cshtml</c>. Always <c>false</c> for hand-authored
+///     <c>_RuleCard.cshtml</c>. Always <c>false</c> for hand-authored
 ///     rules and on stores that do not perform divergence tracking.
 /// </param>
 /// <param name="AutoPromoteAt">
@@ -81,6 +88,7 @@ public sealed record PolicyStackRowViewModel(
     DateTimeOffset LastEditedAt,
     string ActionKind,
     string ScopeKind,
+    int Priority,
     bool CanEdit = false,
     RuleOrigin? Origin = null,
     bool IsDiverged = false,

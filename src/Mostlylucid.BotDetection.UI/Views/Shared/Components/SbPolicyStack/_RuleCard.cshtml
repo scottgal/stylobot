@@ -3,168 +3,48 @@
 @using Mostlylucid.BotDetection.UI.Services
 @inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackRowViewModel
+@*
+    A4 -- structural rewrite of the old _RuleRow.cshtml. This file is now
+    the 3-band card skeleton; A5 fills in Band 2 (IF/THEN body) and A6
+    fills in Band 3 (mode dot + counters + auto-promote / diverged banners).
+    Band 1 (Headline) lands HERE and shows priority # + the webmaster-
+    readable scope target + edit / drag affordances. The orthogonal slots
+    (Method / Geo / Identity) deliberately do NOT surface in the headline --
+    the inline edit-expand surface (B8) owns those.
+*@
 @{
-    var modeLower = Model.Mode.ToString().ToLowerInvariant();
-    var sourcePillClasses = Model.IsInherited
-        ? "badge source-pill is-inherited"
-        : "badge source-pill";
-    var explainScope = PolicyScopeUrl.Encode(Model.SourceScope);
-    var explainUrl = DashboardLinks.Resolve($"/policystack/explain?scope={explainScope}&focusRule={Model.RuleId}");
-    var editUrl = DashboardLinks.Resolve($"/policystack/edit?ruleId={Model.RuleId}");
-    // C7 -- inherited rows are not reorderable from a descendant view; their
-    // source pill becomes a click target that navigates to the owning scope
-    // where the drag handle DOES render. PolicyScopeUrl.Encode handles the
-    // round-trip; the actual dashboard route picks the scope up from
-    // ?scope=<encoded>.
-    var sourcePillHref = Model.IsInherited
-        ? DashboardLinks.Resolve($"/policies?scope={PolicyScopeUrl.Encode(Model.SourceScope)}")
-        : null;
+    var modeLower   = Model.Mode.ToString().ToLowerInvariant();
+    var editUrl     = DashboardLinks.Resolve($"/policystack/edit?ruleId={Model.RuleId}");
+    var scopeTarget = PolicyScopeFormatter.ToHeadline(Model.SourceScope);
 }
-<article class="sb-policy-stack-row"
-         data-rule-row
-         data-rule-id="@Model.RuleId"
-         data-source-pill="@Model.SourcePill"
-         data-mode="@modeLower"
-         data-no-hits="@(Model.HasNoHits ? "true" : "false")"
-         data-template-id="@(Model.Origin?.TemplateId ?? "")"
-         data-application-id="@(Model.Origin?.ApplicationId ?? "")"
-         data-diverged="@(Model.IsDiverged ? "true" : "false")">
-    <header class="sb-policy-stack-row-head">
-        @if (sourcePillHref is not null)
-        {
-            <span class="@sourcePillClasses"
-                  data-source="@Model.SourcePill.ToLowerInvariant()"
-                  data-source-pill-href="@sourcePillHref"
-                  role="link"
-                  tabindex="0">@Model.SourcePill</span>
-        }
-        else
-        {
-            <span class="@sourcePillClasses"
-                  data-source="@Model.SourcePill.ToLowerInvariant()">@Model.SourcePill</span>
-        }
-        <span class="badge mode-pill mode-@modeLower">@Model.ModePill</span>
-        @await Html.PartialAsync("Components/SbPolicyStack/_PredicateChips", Model.Chips)
-        <span class="verdict @Model.ActionColorClass" data-verdict="@Model.ActionColorClass">
-            @(Model.IsObserveMode ? "would " : "")@Model.ActionVerdict
-        </span>
-        @* C7 -- drag handle. Only renders when the operator has dashboard-
-           write (CanEdit) AND the rule lives at the current scope (not
-           inherited). Inherited rules must be reordered from their owning
-           scope; clicking the source pill walks the operator there. *@
-        @if (Model.CanEdit && !Model.IsInherited)
-        {
-            <button type="button"
-                    class="sb-policy-stack-drag-handle"
-                    aria-label="Drag to reorder"
-                    data-policy-stack-drag-handle
-                    draggable="true">⋮⋮</button>
-        }
-    </header>
 
-    <div class="sb-policy-stack-row-signals">
-        <span class="triggers" title="Matched / Total evaluations in window">
-            @Model.TriggerCount/@Model.TotalEvaluations
-        </span>
-        @if (!string.IsNullOrEmpty(Model.DistributionLine))
-        {
-            <span class="distribution">@Model.DistributionLine</span>
-        }
-        else if (Model.HasNoHits)
-        {
-            <span class="distribution sb-policy-stack-no-hits text-base-content/40">no hits in window</span>
-        }
-        @if (!string.IsNullOrEmpty(Model.LatencyLine))
-        {
-            <span class="latency">@Model.LatencyLine</span>
-        }
-        <span class="metadata text-base-content/40">@Model.MetadataLine</span>
-        <button type="button"
-                class="sb-policy-stack-row-explain"
-                data-action="explain"
-                data-rule-id="@Model.RuleId"
-                hx-get="@explainUrl"
-                hx-target="#sb-policy-stack-explainer"
-                hx-swap="outerHTML"
-                aria-label="Show rule explainer">ⓘ</button>
-        @* C6 -- pencil-shaped edit button. canEdit on the row VM is the
-           SAME flag the parent PolicyStackPresenter threads in from the
-           call site, which itself is whatever the host wires in (the
-           commercial dashboard plumbs it from the DashboardWrite policy
-           backstop). The button ONLY renders when canEdit is true so a
-           read-only viewer never sees the affordance. *@
-        @if (Model.CanEdit)
-        {
-            <button type="button"
-                    class="sb-policy-stack-row-edit"
-                    data-action="edit"
-                    data-rule-id="@Model.RuleId"
-                    aria-label="Edit rule"
-                    hx-get="@editUrl"
-                    hx-target="closest article"
-                    hx-swap="outerHTML">&#x270e;</button>
-        }
-        @* Task 17 -- "Promote to OBSERVE for 24h" affordance. Only renders
-           when the operator has dashboard-write AND the rule is in DRAFT
-           (the only mode where promotion is meaningful). Posts the
-           commercial control-plane endpoint that flips mode + schedules
-           the auto-promote; the row swap then re-renders with the banner
-           below. The legacy inline PUT path on /api/v1/policies/{id}
-           still accepts autoPromoteAt for callers that want the bulk
-           edit; this button is the focused API. *@
-        @if (Model.CanEdit && Model.Mode == PolicyMode.Draft)
-        {
-            <button type="button"
-                    class="sb-policy-stack-row-promote-observe"
-                    data-action="promote-observe"
-                    data-promote-observe
-                    data-rule-id="@Model.RuleId"
-                    aria-label="Promote rule to OBSERVE for 24 hours"
-                    hx-post="/api/v1/policies/@Model.RuleId/promote-observe"
-                    hx-ext="json-enc"
-                    hx-vals='{}'
-                    hx-target="closest article"
-                    hx-swap="outerHTML">Promote to OBSERVE for 24h</button>
-        }
-    </div>
-    @if (Model.AutoPromoteAt is not null)
-    {
-        @* Task 17 -- auto-promote banner. Renders for OBSERVE rules with
-           an active hold window; the Cancel button DELETEs the commercial
-           promote-observe endpoint which clears auto_promote_at but
-           leaves the rule in OBSERVE (operators that want LIVE go via
-           the regular edit path). *@
-        <p class="sb-policy-stack-row-auto-promote sb-auto-promote-banner" data-policy-stack-auto-promote role="note">
-            <span class="sb-policy-stack-row-auto-promote-pill">scheduled</span>
-            <span class="sb-policy-stack-row-auto-promote-meta">
-                Auto-promotes to LIVE at @Model.AutoPromoteAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
-            </span>
-            @if (Model.CanEdit)
+<article class="sb-policy-card"
+         data-rule-card
+         data-rule-id="@Model.RuleId"
+         data-mode="@modeLower"
+         data-inherited="@(Model.IsInherited ? "true" : "false")">
+    <header class="sb-policy-card-head">
+        <span class="sb-policy-card-priority">#@Model.Priority</span>
+        <span class="sb-policy-card-target" title="@scopeTarget">@scopeTarget</span>
+        <div class="sb-policy-card-actions">
+            @if (Model.CanEdit && !Model.IsInherited)
             {
                 <button type="button"
-                        class="sb-policy-stack-row-auto-promote-cancel"
-                        data-action="cancel-auto-promote"
-                        data-rule-id="@Model.RuleId"
-                        aria-label="Cancel scheduled auto-promote"
-                        hx-delete="/api/v1/policies/@Model.RuleId/promote-observe"
+                        class="sb-policy-card-edit"
+                        data-action="edit"
+                        hx-get="@editUrl"
                         hx-target="closest article"
-                        hx-swap="outerHTML">Cancel</button>
+                        hx-swap="outerHTML"
+                        aria-label="Edit rule">&#x270e;</button>
+                <button type="button"
+                        class="sb-policy-card-drag"
+                        aria-label="Drag to reorder"
+                        data-policy-stack-drag-handle
+                        draggable="true">&#x22EE;&#x22EE;</button>
             }
-        </p>
-    }
-    @if (Model.IsDiverged && Model.Origin is not null)
-    {
-        @* T4 Part B -- inline divergence banner. The rule was emitted by a
-           template + application but its current text no longer matches
-           the last materialization (the operator hand-edited it). Re-apply
-           the template to drop the divergence, or detach the rule from
-           the application to keep the edit. *@
-        <p class="sb-policy-stack-row-diverged" data-policy-stack-diverged-banner role="note">
-            <span class="sb-policy-stack-row-diverged-pill">diverged from template</span>
-            <span class="sb-policy-stack-row-diverged-meta">
-                originated from <code>@Model.Origin.TemplateId</code>
-                via application <code>@Model.Origin.ApplicationId</code>
-            </span>
-        </p>
-    }
+        </div>
+    </header>
+
+    @* Band 2 (Body) -- A5 fills this in *@
+    @* Band 3 (Meta) -- A6 fills this in *@
 </article>

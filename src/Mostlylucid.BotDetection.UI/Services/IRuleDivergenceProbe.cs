@@ -6,7 +6,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     Read-side probe the dashboard uses to ask whether a materialized
 ///     rule has diverged from its template's last materialization. The
 ///     answer drives the "diverged from template" banner on
-///     <c>_RuleRow.cshtml</c> (T4 Part B): the banner only renders for
+///     <c>_RuleCard.cshtml</c> (T4 Part B): the banner only renders for
 ///     rules whose <see cref="PolicyRule.Origin"/> is non-null AND whose
 ///     id is in the probe's diverged-set.
 ///

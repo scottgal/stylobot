@@ -172,6 +172,7 @@ public sealed class PolicyTemplateGroupingTests
             LastEditedAt: DateTimeOffset.UtcNow,
             ActionKind: "block",
             ScopeKind: "wildcard",
+            Priority: 0,
             CanEdit: false,
             Origin: origin,
             IsDiverged: isDiverged);

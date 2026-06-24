@@ -4,7 +4,7 @@
  * Two behaviours wired here:
  *
  *   1) Within the Effective tab, an operator with dashboard-write can grab a
- *      row by its drag handle (rendered by _RuleRow.cshtml only when
+ *      row by its drag handle (rendered by _RuleCard.cshtml only when
  *      canEdit && !IsInherited) and drop it to a new position in the SAME
  *      scope. On drop we POST { scope, ruleIdsInOrder } to the commercial
  *      mutation API at /api/v1/policies/reorder. The server bumps each

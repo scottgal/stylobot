@@ -58,7 +58,7 @@ else
         @foreach (var row in Model.Rows)
         {
             <li>
-                @await Html.PartialAsync("Components/SbPolicyStack/_RuleRow", row)
+                @await Html.PartialAsync("Components/SbPolicyStack/_RuleCard", row)
             </li>
         }
     </ul>
