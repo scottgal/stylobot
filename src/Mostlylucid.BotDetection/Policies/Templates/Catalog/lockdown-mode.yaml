@@ -1,0 +1,39 @@
+# lockdown-mode: webmaster engages the org.lockdown toggle (see the
+# commercial control-plane endpoint backed by IOrgSignalStore) and every
+# rule below fires. While org.lockdown = false the predicates short-
+# circuit on the missing-key default (FOSS predicate evaluator returns
+# false for unknown facets), so this template is a true no-op until the
+# operator deliberately flips the switch.
+#
+# Three rules, each predicated on org.lockdown = true AND a per-rule
+# guard that targets a distinct actor class:
+#   1. ua.is_bot = true                          -> block every UA flagged as bot
+#   2. ua.bot_type in ("Scraper", "AiBot")       -> belt-and-braces catch
+#   3. geo.is_vpn = true OR geo.is_tor = true    -> challenge VPN/Tor traffic
+#
+# bot_type values are the BotType enum's .ToString() projection
+# (PascalCase: "Scraper", "AiBot") -- the PredicateEvaluator's in-list
+# comparison is ordinal case-sensitive.
+template: lockdown-mode
+display-name: "Lockdown mode"
+description: "Engaged via org.lockdown. Blocks every bot family and challenges VPN/Tor visitors while the toggle is on."
+category: org-toggle
+
+expansion:
+  - suffix: block-bots
+    predicate: 'org.lockdown = true and ua.is_bot = true'
+    action: '{ kind: block }'
+    priority: 0
+    mode: live
+
+  - suffix: block-bot-types
+    predicate: 'org.lockdown = true and ua.bot_type in ("Scraper", "AiBot")'
+    action: '{ kind: block }'
+    priority: 1
+    mode: live
+
+  - suffix: challenge-vpn-tor
+    predicate: 'org.lockdown = true and (geo.is_vpn = true or geo.is_tor = true)'
+    action: '{ kind: challenge }'
+    priority: 2
+    mode: live

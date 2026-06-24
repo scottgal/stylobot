@@ -15,10 +15,10 @@ public class YamlTemplateStoreTests
 
         var templates = store.LoadEmbeddedCatalog();
 
-        // The catalog ships nine seed templates -- if anyone adds another
+        // The catalog ships ten seed templates -- if anyone adds another
         // YAML file without registering it as an EmbeddedResource the assert
         // tells you immediately.
-        Assert.Equal(9, templates.Count);
+        Assert.Equal(10, templates.Count);
         Assert.All(templates, t =>
         {
             Assert.False(string.IsNullOrWhiteSpace(t.Id));
@@ -44,6 +44,9 @@ public class YamlTemplateStoreTests
         Assert.Single(templates["keep-verified-bots-working"].Expansion);
         Assert.Single(templates["preserve-humans-during-overload"].Expansion);
         Assert.Equal(2, templates["aspnet-adaptive-rate-limit"].Expansion.Count);
+        // B5: org.lockdown toggle template emits three rules (one per
+        // actor class -- bot UA, bot type, VPN/Tor).
+        Assert.Equal(3, templates["lockdown-mode"].Expansion.Count);
     }
 
     [Fact]
