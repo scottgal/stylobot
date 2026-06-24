@@ -160,6 +160,21 @@ internal static class FingerprintNameComposer
             return composed;
         }
 
+        // Priority 1.5: verdict-honest bot terminal. When the bot classifier disagrees
+        // with the archetype matcher -- the fingerprint's cached bot probability is
+        // above the bot threshold but no Priority 1 catalog match fired -- the human-
+        // browser archetype name is a false label. A chrome-xhr archetype hit on a
+        // 90%-confidence Scraper verdict is exactly the kind of coincidence we forbid
+        // surfacing as "Chrome Desktop". Route through a verdict-honest "Unknown Bot
+        // {family}" terminal that uniquifies on real UA signals (family + version + OS)
+        // without lying that the visitor is a recognised browser identity.
+        var cachedBotProbability = GetDouble(signals, SignalKeys.IdentityCachedBotProbability);
+        var isLikelyBot = cachedBotProbability >= BotProbabilityNamingThreshold;
+        if (isLikelyBot)
+        {
+            return ComposeUnknownBotTerminal(signals, userAgent);
+        }
+
         // Priority 2: matched archetype name + variance term -- but ONLY when the matched
         // archetype is human-browser-shaped. Naming invariant: if Priority 1 didn't fire,
         // the UA is not a self-declared bot. Matching a bot-shaped archetype (verified-bot
@@ -272,6 +287,64 @@ internal static class FingerprintNameComposer
             finalName = ComposeUnknownTerminal(signals, fingerprintId);
         }
         return finalName;
+    }
+
+    /// <summary>
+    ///     Cached bot-probability threshold for the verdict-honest naming branch.
+    ///     At or above this value the name composer treats the fingerprint as a bot
+    ///     for naming purposes -- the archetype matcher is ignored and the name is
+    ///     emitted via ComposeUnknownBotTerminal. 0.5 catches Medium / Elevated /
+    ///     High / VeryHigh risk bands; below it the matcher's archetype name still
+    ///     wins so human visitors continue to display their real browser identity.
+    /// </summary>
+    public const double BotProbabilityNamingThreshold = 0.5;
+
+    /// <summary>
+    ///     "Unknown Bot" terminal for fingerprints the bot classifier flagged
+    ///     (cached bot probability >= <see cref="BotProbabilityNamingThreshold"/>)
+    ///     but for which Priority 1 produced no catalog match. Uniquifies on real
+    ///     UA signals so adjacent rows are still distinguishable:
+    ///       family + version + os -> "Unknown Bot Win Chrome 149"
+    ///       family + os            -> "Unknown Bot Win Chrome"
+    ///       family + version       -> "Unknown Bot Chrome 149"
+    ///       family                 -> "Unknown Bot Chrome"
+    ///       no UA at all           -> "Unknown Bot"
+    ///     The "Unknown Bot " prefix is recognised by IsFallback so a later
+    ///     Priority 1 catalog match (e.g., the UA contributor finally writes
+    ///     ua.bot_name) overrides this name on next compose -- it's a verdict-
+    ///     anchored placeholder, not a permanent label.
+    /// </summary>
+    private static string ComposeUnknownBotTerminal(
+        IReadOnlyDictionary<string, object> signals,
+        string? userAgent)
+    {
+        var family = GetString(signals, SignalKeys.UserAgentFamily);
+        var familyVersion = GetString(signals, SignalKeys.UserAgentFamilyVersion);
+        var os = GetString(signals, SignalKeys.UserAgentOs);
+        var rawUaForParse = !string.IsNullOrEmpty(userAgent)
+            ? userAgent
+            : GetString(signals, SignalKeys.UserAgent);
+        if ((string.IsNullOrEmpty(family) || string.IsNullOrEmpty(familyVersion)) && !string.IsNullOrEmpty(rawUaForParse))
+        {
+            var parsed = UserAgentParser.Parse(rawUaForParse);
+            if (string.IsNullOrEmpty(family)) family = parsed.Family;
+            if (string.IsNullOrEmpty(familyVersion)) familyVersion = parsed.Version;
+        }
+        if (string.IsNullOrEmpty(os) && !string.IsNullOrEmpty(rawUaForParse))
+            os = UserAgentParser.ExtractOs(rawUaForParse);
+
+        if (string.IsNullOrEmpty(family) || family == "Other")
+            return "Unknown Bot";
+
+        var major = ExtractMajorVersion(familyVersion);
+        var osShort = ShortOs(os);
+        return (osShort, major) switch
+        {
+            ({ Length: > 0 } o, { Length: > 0 } v) => $"Unknown Bot {o} {family} {v}",
+            ({ Length: > 0 } o, _)                 => $"Unknown Bot {o} {family}",
+            (_, { Length: > 0 } v)                 => $"Unknown Bot {family} {v}",
+            _                                       => $"Unknown Bot {family}"
+        };
     }
 
     /// <summary>

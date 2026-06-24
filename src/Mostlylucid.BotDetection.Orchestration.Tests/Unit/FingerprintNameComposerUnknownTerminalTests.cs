@@ -187,6 +187,128 @@ public class FingerprintNameComposerUnknownTerminalTests
         Assert.Equal("Win Chrome 146", name);
     }
 
+    // ---------------- verdict-honest bot branch (Priority 1.5) ----------------
+
+    [Fact]
+    public void High_bot_probability_with_no_claim_yields_Unknown_Bot_family()
+    {
+        // Repro from prod fingerprint fA_cI4MGbTxkwr9-4UsUEg: archetype matcher
+        // landed on chrome-xhr (human-browser kind) but the bot classifier said
+        // 90% Scraper. Composer must NOT trust the human archetype name here;
+        // the name has to reflect the verdict.
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IdentityCachedBotProbability] = 0.9,
+            [SignalKeys.IdentityArchetypeName]        = "chrome-xhr",
+            [SignalKeys.IdentityArchetypeKind]        = "human-browser",
+            [SignalKeys.UserAgentFamily]              = "Chrome",
+            [SignalKeys.UserAgentFamilyVersion]       = "149.0.0.0",
+            [SignalKeys.UserAgentOs]                  = "Windows",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("Unknown Bot Win Chrome 149", name);
+    }
+
+    [Fact]
+    public void Bot_probability_below_threshold_keeps_human_archetype_name()
+    {
+        // Boundary check: under the threshold, the matcher's human-browser
+        // archetype name is allowed to win. A 40% bot probability is below the
+        // bot-naming line so a real human visitor still shows "chrome-xhr".
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IdentityCachedBotProbability] = 0.4,
+            [SignalKeys.IdentityArchetypeName]        = "chrome-xhr",
+            [SignalKeys.IdentityArchetypeKind]        = "human-browser",
+            [SignalKeys.UserAgentFamily]              = "Chrome",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("chrome-xhr", name);
+    }
+
+    [Fact]
+    public void Bot_probability_with_no_UA_signals_yields_bare_Unknown_Bot()
+    {
+        // Bot verdict but UA contributor hasn't written family yet AND no UA
+        // string was passed in -> emit bare "Unknown Bot" rather than fabricating
+        // a family.
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IdentityCachedBotProbability] = 0.9,
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("Unknown Bot", name);
+    }
+
+    [Fact]
+    public void Bot_probability_with_only_family_signal_yields_Unknown_Bot_family()
+    {
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IdentityCachedBotProbability] = 0.75,
+            [SignalKeys.UserAgentFamily]              = "Chrome",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("Unknown Bot Chrome", name);
+    }
+
+    [Fact]
+    public void Bot_probability_self_rescues_family_from_UA_when_signals_missing()
+    {
+        // Matcher fires before the UA contributor: family signal is absent at
+        // compose time. The composer parses the raw UA itself so a high-bot-
+        // probability fingerprint still produces "Unknown Bot Win Chrome 149"
+        // instead of bare "Unknown Bot".
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IdentityCachedBotProbability] = 0.9,
+        };
+        var ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                 "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: ua);
+
+        Assert.Equal("Unknown Bot Win Chrome 149", name);
+    }
+
+    [Fact]
+    public void Claimed_bot_name_wins_over_bot_probability_branch()
+    {
+        // Priority 1 still fires for self-declared bots (Googlebot etc.) even
+        // when bot probability is high. The Priority 1.5 branch is only for the
+        // "bot verdict + no claim" case.
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IdentityCachedBotProbability] = 0.95,
+            [SignalKeys.UserAgent]                    = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.StartsWith("Googlebot", name);
+    }
+
+    [Fact]
+    public void Unknown_Bot_name_is_recognised_as_fallback_for_hysteresis_override()
+    {
+        // IsFallback returns true for "Unknown ..." names (the existing rule).
+        // That means once Priority 1 starts producing a real bot name -- e.g.,
+        // the UA contributor catches up and ua.bot_name lands "AhrefsBot" -- the
+        // Priority-1.5 placeholder is overridable by hysteresis. Anchor that
+        // contract.
+        Assert.True(FingerprintNameComposer.IsFallback("Unknown Bot Win Chrome 149"));
+        Assert.True(FingerprintNameComposer.IsFallback("Unknown Bot Chrome"));
+        Assert.True(FingerprintNameComposer.IsFallback("Unknown Bot"));
+    }
+
     [Fact]
     public void Unknown_terminal_never_contains_zero_padded_suffix()
     {
