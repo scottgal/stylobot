@@ -18,9 +18,17 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     </para>
 ///
 ///     <para>
+///         <b>A2 sort order.</b> The Effective list is sorted by composite scope
+///         specificity descending (most-specific first), then by priority
+///         ascending within a tie (Cloudflare convention -- lower priority
+///         number wins). This matches the win-order used by
+///         <c>DefaultPolicyResolver</c>, so the first card in the Effective tab
+///         is the rule that would fire at the queried scope.
+///     </para>
+///
+///     <para>
 ///         <b>What this does NOT do yet.</b>
 ///         <list type="bullet">
-///           <item><description>Sort the Effective list -- A2 sorts by specificity desc, then priority asc, then id.</description></item>
 ///           <item><description>Compute shadowed/overridden/unreachable annotations -- A3 owns that.</description></item>
 ///           <item><description>Build row view-models -- the presenter (A10) supplies the row builder.</description></item>
 ///         </list>
@@ -54,6 +62,26 @@ public sealed class EffectiveStackResolver : IEffectiveStackResolver
             effective.Add(projection);
             if (!isInherited) owned.Add(projection);
         }
+
+        // A2 sort: specificity descending, priority ascending within a tie.
+        // We reach back to the originating PolicyRule for the priority key
+        // because the projection doesn't carry it (and adding a field is A10's
+        // job, not ours). Build a quick id->priority lookup so the sort is
+        // O(n log n) rather than O(n^2) on rule scans.
+        var priorityById = new Dictionary<Guid, int>(allRules.Count);
+        for (var i = 0; i < allRules.Count; i++) priorityById[allRules[i].Id] = allRules[i].Priority;
+
+        effective.Sort((a, b) =>
+        {
+            // Descending specificity: reuse the canonical PolicyScope.Specificity
+            // weighted-sum (Endpoint=8, Subdomain=4, Domain=2, Wildcard=0, plus
+            // +1 each for Method / Geo / Identity slots). DefaultPolicyResolver
+            // uses the same property -- keeping a single source of truth.
+            var spec = b.OwningScope.Specificity.CompareTo(a.OwningScope.Specificity);
+            if (spec != 0) return spec;
+            // Ascending priority: lower number = higher precedence.
+            return priorityById[a.RuleId].CompareTo(priorityById[b.RuleId]);
+        });
 
         return new EffectiveStackView(
             Owned: owned,

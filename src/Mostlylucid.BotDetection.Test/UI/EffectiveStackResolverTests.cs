@@ -47,6 +47,46 @@ public class EffectiveStackResolverTests
         view.Annotations.Should().BeEmpty();
     }
 
+    [Fact]
+    public void EffectiveRules_sorted_most_specific_first_then_priority_ascending()
+    {
+        var domainRule = MakeRule(scope: PolicyScope.Domain("example.com"), priority: 1);
+        var endpointHighPri = MakeRule(
+            scope: PolicyScope.Endpoint("example.com", string.Empty, "/api/*"),
+            priority: 1);
+        var endpointLowPri = MakeRule(
+            scope: PolicyScope.Endpoint("example.com", string.Empty, "/api/*"),
+            priority: 0);
+        var wildcardRule = MakeRule(scope: PolicyScope.Wildcard(), priority: 0);
+
+        var rules = new[] { domainRule, endpointHighPri, endpointLowPri, wildcardRule };
+
+        var view = new EffectiveStackResolver()
+            .ResolveAt(PolicyScope.Endpoint("example.com", string.Empty, "/api/*"), rules);
+
+        // Specificity descending: endpoint > domain > wildcard.
+        // Within same specificity: priority ascending (0 wins over 1).
+        view.Effective.Select(r => r.RuleId).Should().Equal(
+            endpointLowPri.Id, endpointHighPri.Id, domainRule.Id, wildcardRule.Id);
+    }
+
+    [Fact]
+    public void EffectiveRules_inherited_flag_true_for_broader_scopes()
+    {
+        var endpointRule = MakeRule(
+            scope: PolicyScope.Endpoint("example.com", string.Empty, "/api/*"),
+            priority: 0);
+        var wildcardRule = MakeRule(scope: PolicyScope.Wildcard(), priority: 0);
+
+        var view = new EffectiveStackResolver()
+            .ResolveAt(
+                PolicyScope.Endpoint("example.com", string.Empty, "/api/*"),
+                new[] { endpointRule, wildcardRule });
+
+        view.Effective.First(r => r.RuleId == endpointRule.Id).IsInherited.Should().BeFalse();
+        view.Effective.First(r => r.RuleId == wildcardRule.Id).IsInherited.Should().BeTrue();
+    }
+
     /// <summary>
     ///     Build a vacuous PolicyRule -- only Scope + Id + Priority are
     ///     load-bearing for this test. Predicate is an empty AND (evaluates
