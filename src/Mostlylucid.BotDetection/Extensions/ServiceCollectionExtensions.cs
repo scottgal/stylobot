@@ -891,6 +891,10 @@ public static class ServiceCollectionExtensions
         // "off-hours" without a separate clock-aware predicate (priority 5).
         // BotDetection:Time section controls TimeZone + business-hours window.
         services.AddOptions<Models.TimeOptions>().BindConfiguration("BotDetection:Time");
+        // TimeContributor ctor takes TimeProvider; the test harness and slim
+        // hosts don't register it implicitly. TryAdd so a host that wants a
+        // FakeTimeProvider can override BEFORE calling AddStyloBotBotDetection.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.AddSingleton<IContributingDetector, TimeContributor>();
         // PII query string detection - privacy signals, not bot detection (priority 8)
         services.AddSingleton<IContributingDetector, PiiQueryStringContributor>();
