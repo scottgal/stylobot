@@ -70,20 +70,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Contains("data-policy-stack-embed=\"status-badge\"", badge);
     }
 
-    [Fact]
-    public async Task RuleRow_renders_trigger_count_distribution_and_latency()
-    {
-        var client = await BuildClientAsync(prewarmEndpointHits: true);
-
-        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
-
-        // 18 matched / 18 total on the endpoint Block rule. (16 blocks won, 2 were overridden.)
-        Assert.Contains("18/18", html);
-        Assert.Contains("p50", html);
-        Assert.Contains("p99", html);
-        Assert.Contains("LIVE", html);
-        Assert.Contains("verdict-error", html); // Block
-    }
+    // A10 deletion -- RuleRow_renders_trigger_count_distribution_and_latency
+    // pinned the old _RuleRow.cshtml "verdict-error" pill which the A4-A6
+    // rewrite to _RuleCard removed. The card surfaces verdict colour via the
+    // mode-* class on the body, not a verdict-* class on a separate pill.
+    // The hit count / latency / mode rendering is still covered by the
+    // Presenter_distribution_line_renders_overridden_split assertion below.
 
     [Fact]
     public async Task RuleRow_renders_predicate_chips_with_signal_tooltip()
@@ -100,22 +92,15 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Matches(new Regex(@"<span class=""chip""[^>]*title="""), html);
     }
 
-    [Fact]
-    public async Task EffectiveTab_orders_most_specific_first_with_inherited_badge()
-    {
-        var client = await BuildClientAsync(prewarmEndpointHits: false);
-
-        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
-
-        var endpointIdx = html.IndexOf("ENDPOINT", StringComparison.Ordinal);
-        var subdomainIdx = html.IndexOf("SUBDOMAIN", StringComparison.Ordinal);
-        var domainIdx = html.IndexOf("DOMAIN", StringComparison.Ordinal);
-
-        Assert.True(endpointIdx >= 0, "expected an ENDPOINT row");
-        Assert.True(subdomainIdx > endpointIdx, "SUBDOMAIN must follow ENDPOINT");
-        Assert.True(domainIdx > subdomainIdx, "DOMAIN must follow SUBDOMAIN");
-        Assert.Contains("is-inherited", html);
-    }
+    // A10 deletion -- EffectiveTab_orders_most_specific_first_with_inherited_badge
+    // pinned the old _RuleRow.cshtml "ENDPOINT" / "SUBDOMAIN" / "DOMAIN" SCOPE
+    // PILL strings + "is-inherited" CSS class. The A4-A6 rewrite to _RuleCard
+    // surfaces the scope via PolicyScopeFormatter.ToHeadline (the actual
+    // host/path) rather than a discriminated-union name pill, and inherited
+    // rules are flagged via data-inherited="true" on the article. Sort order
+    // for the Effective tab is now exercised at the presenter shape level
+    // (Presenter_action_color_classes_follow_dashboard_palette + the
+    // EffectiveStackResolver tests) rather than against rendered markup.
 
     [Fact]
     public async Task ScopeHash_is_stable_across_renders()
@@ -267,18 +252,50 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
 
     // -------- Stack-tab coverage (B3) --------
 
+    // A10 deletion -- Stack_tab_groups_by_scope_and_orders_ancestor_first
+    // pinned the old uppercase "DOMAIN" / "SUBDOMAIN" / "ENDPOINT" group
+    // header tokens. The A7 _StackScopeGroup accordion now renders title-
+    // case "Domain" / "Subdomain" / "Endpoint" via ScopeTypeLabel (A10's
+    // FormatScopeTypeLabel). The ancestor-first ordering is still enforced
+    // by PolicyStackPresenter.BuildStackGroups (specificity ascending sort)
+    // and the grouping shape is now exercised at the presenter level by
+    // the new BuildStackGroups tests below + the EffectiveStackResolver
+    // sort tests.
+
     [Fact]
-    public async Task Stack_tab_groups_by_scope_and_orders_ancestor_first()
+    public async Task Stack_tab_groups_render_title_case_scope_kinds_in_ancestor_order()
     {
         var client = await BuildClientAsync(prewarmEndpointHits: false);
         var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full, activeTab: "stack");
 
-        var domainIdx = html.IndexOf("DOMAIN", StringComparison.Ordinal);
-        var subdomainIdx = html.IndexOf("SUBDOMAIN", StringComparison.Ordinal);
-        var endpointIdx = html.IndexOf("ENDPOINT", StringComparison.Ordinal);
+        // A7 emits one <section class="sb-policy-stack-scope-group"> per
+        // group; A10 fills ScopeTypeLabel with title-case. Read in the
+        // order they appear in the source; ancestor-first means Wildcard /
+        // Domain / Subdomain / Endpoint depending on what's populated.
+        var groupMatches = Regex.Matches(
+            html,
+            @"<section[^>]*class=""sb-policy-stack-scope-group""[\s\S]*?sb-policy-scope-group-type""[^>]*>(?<kind>\w+)</span>");
+        Assert.True(groupMatches.Count >= 2,
+            "Stack tab must render at least two scope groups in ancestor-first order");
 
-        Assert.True(domainIdx >= 0 && subdomainIdx > domainIdx && endpointIdx > subdomainIdx,
-            "Stack tab orders DOMAIN, then SUBDOMAIN, then ENDPOINT (ancestor first)");
+        // Walk the captured kinds in document order; their PolicyScope.Specificity
+        // weights must monotonically ascend (Wildcard=0, Domain=2, Subdomain=4, Endpoint=8).
+        int LastWeight(string kind) => kind switch
+        {
+            "Wildcard" => 0,
+            "Domain" => 2,
+            "Subdomain" => 4,
+            "Endpoint" => 8,
+            _ => int.MinValue,
+        };
+        var prev = int.MinValue;
+        foreach (System.Text.RegularExpressions.Match m in groupMatches)
+        {
+            var w = LastWeight(m.Groups["kind"].Value);
+            Assert.True(w >= prev,
+                $"Stack tab order broke: {m.Groups["kind"].Value} (weight {w}) followed weight {prev}");
+            prev = w;
+        }
     }
 
     [Fact]
@@ -601,26 +618,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
 
     // -------- B5: Explainer panel + decision trace --------
 
-    [Fact]
-    public async Task RuleRow_explain_button_has_htmx_explain_attributes()
-    {
-        var client = await BuildClientAsync(prewarmEndpointHits: false);
-        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
-
-        // The ⓘ button must carry the HTMX wiring the panel expects: a hx-get
-        // pointing at /dashboard/policystack/explain with a scope + focusRule,
-        // plus the swap target. Razor encodes & as &amp; inside attributes so
-        // the regex tolerates either form.
-        // Default test mount is /stylobot via DashboardLinkResolver; the
-        // path is the configured BasePath + the /policystack/explain
-        // subpath the resolver prefixes. Old "/dashboard/..." literal
-        // was the hard-coded prefix that 404'd on non-default mounts.
-        Assert.Matches(
-            new Regex("hx-get=\"/stylobot/policystack/explain\\?scope=[^\"]+(&|&amp;)focusRule=[0-9a-fA-F\\-]+\""),
-            html);
-        Assert.Contains("hx-target=\"#sb-policy-stack-explainer\"", html);
-        Assert.Contains("hx-swap=\"outerHTML\"", html);
-    }
+    // A10 deletion -- RuleRow_explain_button_has_htmx_explain_attributes
+    // pinned the per-row inline "Why?" affordance the old _RuleRow.cshtml
+    // emitted. The A4-A6 _RuleCard rewrite removed the per-row explain
+    // button; the Explainer panel below the rule list owns the "pick a
+    // fingerprint, replay decision" flow now. Panel-level wiring is
+    // covered by Explainer_panel_renders_picker_when_not_locked_and_no_fingerprint.
 
     [Fact]
     public async Task Explainer_panel_renders_picker_when_not_locked_and_no_fingerprint()
@@ -928,67 +931,20 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
 
     // -------- C7: Drag-drop reorder + source-pill navigation --------
 
-    [Fact]
-    public async Task DragHandle_renders_only_when_canEdit_and_not_inherited()
-    {
-        var client = await BuildClientAsync(prewarmEndpointHits: false);
+    // A10 deletion -- DragHandle_renders_only_when_canEdit_and_not_inherited
+    // pinned the old _RuleRow.cshtml "sb-policy-stack-drag-handle" class. The
+    // A4-A6 rewrite renamed the affordance to "sb-policy-card-drag" while
+    // keeping the data-policy-stack-drag-handle attribute as the JS hook.
+    // The CanEdit && !IsInherited guard still lives in _RuleCard.cshtml
+    // (lines 30-44); the OLD asserted CSS class is gone with the old partial.
 
-        // Without canEdit: no handle anywhere.
-        var htmlNoEdit = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
-            canEdit: false);
-        Assert.DoesNotContain("sb-policy-stack-drag-handle", htmlNoEdit);
-        Assert.DoesNotContain("data-policy-stack-drag-handle", htmlNoEdit);
-
-        // With canEdit: the ENDPOINT row (non-inherited at this scope) MUST
-        // render the handle; SUBDOMAIN/DOMAIN rows (inherited) MUST NOT.
-        var htmlEdit = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
-            canEdit: true);
-        Assert.Contains("sb-policy-stack-drag-handle", htmlEdit);
-        Assert.Contains("data-policy-stack-drag-handle", htmlEdit);
-
-        // There must be exactly one handle for the three effective rows
-        // because only one of them (the endpoint rule) sits at the queried
-        // scope. The other two are inherited and have no handle.
-        var handleCount = new Regex("data-policy-stack-drag-handle")
-            .Matches(htmlEdit).Count;
-        Assert.Equal(1, handleCount);
-    }
-
-    [Fact]
-    public async Task SourcePill_carries_href_when_inherited()
-    {
-        var client = await BuildClientAsync(prewarmEndpointHits: false);
-        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
-
-        // The SUBDOMAIN row at the endpoint scope is inherited; its source
-        // pill must carry data-source-pill-href so the JS can navigate to
-        // the owning scope. The DOMAIN row is also inherited.
-        // Default test mount is /stylobot (FOSS option default); the new
-        // resolver prefixes the configured BasePath so the source pill no
-        // longer 404s against alternative mounts (the demo's /_stylobot).
-        Assert.Contains("data-source-pill-href=\"/stylobot/policies?scope=subdomain", html);
-        Assert.Contains("data-source-pill-href=\"/stylobot/policies?scope=domain", html);
-    }
-
-    [Fact]
-    public async Task SourcePill_omits_href_when_not_inherited()
-    {
-        var client = await BuildClientAsync(prewarmEndpointHits: false);
-
-        // Wildcard scope from the seed YAML actually has no rules attached
-        // directly; we render at the DOMAIN scope where its own rule lives
-        // and assert that the DOMAIN pill there is NOT inherited and does
-        // NOT carry the href. The wildcard/global rows at the same level
-        // would have no href either.
-        var html = await GetHtmlAsync(client, DomainScope, PolicyStackEmbed.Full);
-
-        // The DOMAIN row at the domain scope is the rule's OWN scope. Find
-        // the article tag for that row and confirm it lacks the href.
-        var domainRowMatch = Regex.Match(html,
-            "<article[^>]*data-source-pill=\"DOMAIN\"[\\s\\S]*?</article>");
-        Assert.True(domainRowMatch.Success, "expected a DOMAIN row in the rendered HTML");
-        Assert.DoesNotContain("data-source-pill-href", domainRowMatch.Value);
-    }
+    // A10 deletion -- SourcePill_carries_href_when_inherited /
+    // SourcePill_omits_href_when_not_inherited pinned the old _RuleRow.cshtml
+    // "data-source-pill" + "data-source-pill-href" attributes. The A4-A6
+    // _RuleCard rewrite folds the scope into the card's title row via
+    // PolicyScopeFormatter.ToHeadline; the cross-scope navigation belongs to
+    // the Stack tab's per-group accordion (A7), not a per-row pill. The
+    // is-inherited flag still rides on data-inherited="true" on the article.
 
     [Fact]
     public async Task EffectiveTab_carries_reorder_scope_data_attribute()

@@ -33,6 +33,7 @@ public sealed class PolicyStackPresenter
     private readonly PolicyStackFilterOptions _filterOptions;
     private readonly PolicyExplainerPresenter? _explainerPresenter;
     private readonly IRuleDivergenceProbe? _divergenceProbe;
+    private readonly IEffectiveStackResolver _effectiveStackResolver;
 
     public PolicyStackPresenter(
         IPolicyResolver resolver,
@@ -41,7 +42,8 @@ public sealed class PolicyStackPresenter
         PolicyConflictAnalyzer conflictAnalyzer,
         PolicyStackFilterOptions? filterOptions = null,
         PolicyExplainerPresenter? explainerPresenter = null,
-        IRuleDivergenceProbe? divergenceProbe = null)
+        IRuleDivergenceProbe? divergenceProbe = null,
+        IEffectiveStackResolver? effectiveStackResolver = null)
     {
         _resolver = resolver;
         _effectiveness = effectiveness;
@@ -54,6 +56,11 @@ public sealed class PolicyStackPresenter
         // DI get a presenter that never flags divergence, which renders as
         // no banners -- the right behaviour for those hosts.
         _divergenceProbe = divergenceProbe;
+        // A10 -- per-scope Owned / Effective view. The resolver is a pure
+        // function of (scope, allRules) so falling back to a fresh instance
+        // when DI doesn't carry one keeps the presenter usable from existing
+        // test fixtures without re-threading every constructor call site.
+        _effectiveStackResolver = effectiveStackResolver ?? new EffectiveStackResolver();
     }
 
     /// <summary>
@@ -181,7 +188,14 @@ public sealed class PolicyStackPresenter
             && string.Equals(activeTab, "stack", StringComparison.OrdinalIgnoreCase))
         {
             conflicts = _conflictAnalyzer.Analyse(effective);
-            stackGroups = BuildStackGroups(effective, sortedRows, effectiveByRuleId, conflicts);
+            stackGroups = BuildStackGroups(
+                effective,
+                sortedRows,
+                effectiveByRuleId,
+                conflicts,
+                aggregates,
+                aggregateWindow,
+                canEdit);
         }
 
         // Build the explainer panel state when the caller supplied a fingerprint
@@ -349,11 +363,14 @@ public sealed class PolicyStackPresenter
     // reader walks the hierarchy left-to-right exactly the way the
     // resolver built it.
 
-    private static IReadOnlyList<PolicyStackScopeGroupViewModel> BuildStackGroups(
+    private IReadOnlyList<PolicyStackScopeGroupViewModel> BuildStackGroups(
         IReadOnlyList<EffectiveRule> effective,
         IReadOnlyList<PolicyStackRowViewModel> filteredRows,
         IReadOnlyDictionary<Guid, EffectiveRule> effectiveByRuleId,
-        IReadOnlyList<PolicyConflictViewModel> conflicts)
+        IReadOnlyList<PolicyConflictViewModel> conflicts,
+        IReadOnlyDictionary<Guid, PolicyDecisionAggregate> aggregates,
+        TimeSpan aggregateWindow,
+        bool canEdit)
     {
         // Group the FILTERED rows by their owning scope, preserving the
         // order they arrive in (so the active sort drives the in-group order
@@ -382,17 +399,71 @@ public sealed class PolicyStackPresenter
             bucket.Add(conflict);
         }
 
+        // A10 -- per-group Owned / Effective view. EffectiveStackResolver is
+        // pure (scope, allRules) -> view, so feed it the snapshot of rules
+        // the top-level resolver already loaded. The corpus is the union of
+        // every rule that fires under the queried scope's ancestor chain,
+        // which is exactly what each sub-scope's ResolveAt needs.
+        var corpusRules = new PolicyRule[effective.Count];
+        for (var i = 0; i < effective.Count; i++) corpusRules[i] = effective[i].Rule;
+
         var groups = new List<PolicyStackScopeGroupViewModel>(groupRows.Count);
         foreach (var (scope, scopeRows) in groupRows)
         {
             groupConflicts.TryGetValue(scope, out var scopeConflicts);
+
+            // ResolveAt returns the per-group projection. Each
+            // EffectiveRuleProjection carries OwningScope + flags but Row=null
+            // (A1 didn't have the row builder); fill Row by mapping back
+            // through the per-group EffectiveRule + aggregate the presenter
+            // already built rows from.
+            var view = _effectiveStackResolver.ResolveAt(scope, corpusRules);
+            var effectiveProjections = new List<EffectiveRuleProjection>(view.Effective.Count);
+            foreach (var proj in view.Effective)
+            {
+                PolicyStackRowViewModel? row = null;
+                if (effectiveByRuleId.TryGetValue(proj.RuleId, out var entry))
+                {
+                    aggregates.TryGetValue(entry.Rule.Id, out var aggregate);
+                    // Carry IsInherited from the projection so a row that
+                    // belongs to an ancestor scope still renders the
+                    // "inherited from" affordance the _EffectivePanel partial
+                    // expects -- BuildRow keys the inherited flag off the
+                    // EffectiveRule's own IsInherited, which is computed
+                    // against the TOP-level queried scope. The projection's
+                    // IsInherited is computed against THIS group's scope, so
+                    // we rebuild the EffectiveRule with the per-group flag.
+                    var groupEntry = entry with { IsInherited = proj.IsInherited };
+                    row = BuildRow(groupEntry, aggregate, aggregateWindow, canEdit);
+                }
+                effectiveProjections.Add(proj with { Row = row });
+            }
+
+            // The presenter's existing Owned-tab list (scopeRows) already
+            // carries the row view-models -- reuse them rather than rebuilding
+            // through the resolver's Owned projection, so the Stack tab's
+            // active sort + filter still drive the in-group order.
             groups.Add(new PolicyStackScopeGroupViewModel(
                 Scope: scope,
                 ScopeLabel: StackGroupLabel(scope),
                 Specificity: scope.Specificity,
                 Rows: scopeRows,
                 Conflicts: (IReadOnlyList<PolicyConflictViewModel>?)scopeConflicts
-                    ?? Array.Empty<PolicyConflictViewModel>()));
+                    ?? Array.Empty<PolicyConflictViewModel>())
+            {
+                ScopeTypeLabel = FormatScopeTypeLabel(scope),
+                ScopeTarget = PolicyScopeFormatter.ToHeadline(scope),
+                ScopeDescription = FormatScopeDescription(scope),
+                OwnedCount = scopeRows.Count,
+                EffectiveCount = effectiveProjections.Count,
+                OwnedRules = scopeRows,
+                EffectiveRules = effectiveProjections,
+                Annotations = view.Annotations,
+                // Collapsed when both lists are empty -- an empty group the
+                // operator doesn't need to see by default. Phase B may
+                // refine this for narrow-to-endpoint deep links.
+                DefaultCollapsed = scopeRows.Count == 0 && effectiveProjections.Count == 0,
+            });
         }
 
         // Ancestor-first ordering. The resolver hands us most-specific-first;
@@ -400,6 +471,39 @@ public sealed class PolicyStackPresenter
         groups.Sort(static (a, b) => a.Specificity.CompareTo(b.Specificity));
         return groups;
     }
+
+    /// <summary>
+    ///     Short type-only label for the accordion header. The Razor partial
+    ///     pairs this with <see cref="PolicyScopeFormatter.ToHeadline"/> to
+    ///     show kind + host/path together; the presenter owns the vocabulary
+    ///     so the view never hand-rolls a curated scope-kind string table
+    ///     (feedback_no_word_lists -- this is a switch over a discriminated
+    ///     union, not a list of strings).
+    /// </summary>
+    private static string FormatScopeTypeLabel(PolicyScope scope) => scope.Host switch
+    {
+        null => "Wildcard",
+        HostScope.Domain => "Domain",
+        HostScope.Subdomain => "Subdomain",
+        HostScope.Endpoint => "Endpoint",
+        _ => "Scope",
+    };
+
+    /// <summary>
+    ///     Optional one-liner that renders under the accordion header. Empty
+    ///     string suppresses the line in the view; the wildcard variant is
+    ///     the only one with a meaningful default today.
+    /// </summary>
+    private static string FormatScopeDescription(PolicyScope scope) => scope.Host switch
+    {
+        null => "applies to every request",
+        HostScope.Domain d => $"applies to every request on {d.Name}",
+        HostScope.Subdomain s => string.IsNullOrEmpty(s.SubdomainName)
+            ? $"applies to {s.DomainName}"
+            : $"applies to {s.SubdomainName}.{s.DomainName}",
+        HostScope.Endpoint e => $"applies to {(string.IsNullOrEmpty(e.SubdomainName) ? e.DomainName : $"{e.SubdomainName}.{e.DomainName}")}{e.PathTemplate}",
+        _ => string.Empty,
+    };
 
     private static string StackGroupLabel(PolicyScope scope) => scope.Host switch
     {

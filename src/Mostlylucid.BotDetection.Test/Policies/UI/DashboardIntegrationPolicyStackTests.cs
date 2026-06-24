@@ -222,21 +222,17 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
 
         var composed = templateGroupsHtml + sbPolicyStackHtml;
 
-        // Count <article data-rule-id="..."> occurrences -- exactly ONE per
-        // rendered rule row (the row's own <article> element is the rule's
-        // anchor; child buttons inside the article carry the same attribute
-        // for HTMX wiring and would inflate a naive count). With the bug
-        // present every rule's article appeared twice; the fix forces
-        // SbPolicyStack to suppress its rule list so each rule's article
-        // appears exactly once -- inside its template group above the
-        // component.
-        // Match the row's anchor article regardless of attribute order; new
-        // marker attributes (e.g. data-rule-row) may sit between class and
-        // data-rule-id without changing identity. The (?:[^>]*?\s)? prefix
-        // tolerates any intervening attribute on the same article tag.
+        // Count <article ... data-rule-id="..."> occurrences -- exactly ONE
+        // per rendered rule row. A4-A6's _RuleCard rewrite changed the
+        // anchor class from sb-policy-stack-row to sb-policy-card, but the
+        // data-rule-id contract on the article is preserved so this
+        // duplication regression check still has a stable anchor. The
+        // article-tag scope keeps child elements (drag/edit buttons inside
+        // the article) from inflating the count -- those use data-action
+        // or data-policy-stack-drag-handle, not data-rule-id.
         var ruleIds = System.Text.RegularExpressions.Regex
             .Matches(composed,
-                @"<article\s+class=""sb-policy-stack-row""(?:[^>]*?\s)?data-rule-id=""(?<id>[0-9a-fA-F\-]+)""")
+                @"<article\s+class=""sb-policy-card""(?:[^>]*?\s)?data-rule-id=""(?<id>[0-9a-fA-F\-]+)""")
             .Select(m => m.Groups["id"].Value)
             .ToList();
         Assert.NotEmpty(ruleIds);
@@ -244,17 +240,17 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         Assert.True(duplicates.Count == 0,
             $"Each rule must render exactly once; duplicates: {string.Join(",", duplicates.Select(g => g.Key))}");
 
-        // Specific checks: the template-groups block carries the rule rows
+        // Specific checks: the template-groups block carries the rule cards
         // and SbPolicyStack contributes the surrounding chrome (filter bar,
         // aggregate strip) WITHOUT a rule envelope of its own.
         Assert.Contains("sb-policy-stack-template-group", templateGroupsHtml);
-        Assert.Contains("sb-policy-stack-row", templateGroupsHtml);
+        Assert.Contains("sb-policy-card", templateGroupsHtml);
         Assert.Contains("data-policy-stack-embed=\"full\"", sbPolicyStackHtml);
         Assert.Contains("sb-policy-stack-filter-bar", sbPolicyStackHtml);
         Assert.Contains("sb-policy-stack-aggregate-strip", sbPolicyStackHtml);
         Assert.DoesNotContain("sb-policy-stack-rows-envelope", sbPolicyStackHtml);
-        // SbPolicyStack with hideRuleList=true MUST emit no rule articles.
-        Assert.DoesNotContain("<article class=\"sb-policy-stack-row\"", sbPolicyStackHtml);
+        // SbPolicyStack with hideRuleList=true MUST emit no rule cards.
+        Assert.DoesNotContain("<article class=\"sb-policy-card\"", sbPolicyStackHtml);
     }
 
     private static string LocatePartial(string filename)

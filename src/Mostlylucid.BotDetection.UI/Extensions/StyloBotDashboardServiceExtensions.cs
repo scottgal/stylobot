@@ -306,6 +306,13 @@ public static class StyloBotDashboardServiceExtensions
         // the presenter's optional ctor parameter resolves cleanly.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IRuleDivergenceProbe,
                                  Mostlylucid.BotDetection.UI.Services.YamlRuleDivergenceProbe>();
+        // A10 -- per-group Owned / Effective resolver. Pure function of
+        // (scope, allRules); no state, no I/O. Registered before the
+        // presenter so the presenter's optional constructor parameter
+        // resolves to the real resolver rather than its self-constructed
+        // fallback instance.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IEffectiveStackResolver,
+                                 Mostlylucid.BotDetection.UI.Services.EffectiveStackResolver>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPresenter>();
         // C6 expression-editor presenter. Pure read surface; never mutates a
         // rule. The actual write goes through the commercial mutation API
