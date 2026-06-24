@@ -40,6 +40,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
     private const string PolicyStackRealtimePath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-realtime.js";
     private const string PolicyStackEditPath     = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-edit.js";
     private const string PolicyStackReorderPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-reorder.js";
+    private const string PolicyStackTabsPath     = "/_content/Mostlylucid.BotDetection.UI/vendor/js/policy-stack-tabs.js";
 
     // Module Version Id changes every build, so appending it as a query string
     // forces CDNs and browser caches to fetch the new asset after a deploy.
@@ -210,5 +211,15 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // (the drag handle itself is server-gated by canEdit).
         output.Content.AppendHtml(
             $@"<script src=""{PolicyStackReorderPath}?v={AssetVersion}""{nonceAttr}></script>");
+
+        // A8 -- Policy Stack scope-group accordion + Owned/Effective tab JS.
+        // Two document-level click listeners (event-delegated) drive the
+        // _StackScopeGroup partial's disclosure caret + tab pair so SignalR
+        // OOB swaps don't have to re-bind handlers. No-op when no
+        // [data-scope-group] / .sb-policy-scope-group-disclosure target
+        // exists on the page, so safe to emit unconditionally alongside
+        // the other policy-stack scripts.
+        output.Content.AppendHtml(
+            $@"<script src=""{PolicyStackTabsPath}?v={AssetVersion}""{nonceAttr}></script>");
     }
 }
