@@ -1290,6 +1290,27 @@ public static class SignalKeys
     public const string AtoDriftVelocity = "ato.drift_velocity";
 
     // ==========================================
+    // Time-of-day signals
+    // Set by TimeContributor on every request (foundation tier).
+    // Webmaster use case: "stricter rules during off-hours" expressed as
+    // `time.is_business_hours = false and bot.family = "scraper"`.
+    // The timezone, business-hours window, and weekend definition all live
+    // on <see cref="TimeOptions"/> so a webmaster can tune them per gateway.
+    // ==========================================
+
+    /// <summary>Int (0-23): hour of day in the gateway's configured <c>TimeOptions.TimeZone</c>.</summary>
+    public const string TimeHourOfDay = "time.hour_of_day";
+
+    /// <summary>String: short day-of-week token in the configured timezone — "mon" / "tue" / "wed" / "thu" / "fri" / "sat" / "sun".</summary>
+    public const string TimeDayOfWeek = "time.day_of_week";
+
+    /// <summary>Bool: true when <see cref="TimeDayOfWeek"/> is "sat" or "sun".</summary>
+    public const string TimeIsWeekend = "time.is_weekend";
+
+    /// <summary>Bool: true when <see cref="TimeHourOfDay"/> is within <c>[TimeOptions.BusinessHoursStart, TimeOptions.BusinessHoursEnd)</c> (exclusive end).</summary>
+    public const string TimeIsBusinessHours = "time.is_business_hours";
+
+    // ==========================================
     // Transport protocol signals
     // Set by TransportProtocolContributor when analyzing upgrade/protocol headers
     // ==========================================

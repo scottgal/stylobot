@@ -886,6 +886,12 @@ public static class ServiceCollectionExtensions
         // Wave 0 detectors (no dependencies - run first)
         // Unified signature - computes PrimarySignature + header hashes for all downstream detectors (priority 1)
         services.AddSingleton<IContributingDetector, SignatureContributor>();
+        // Time-of-day facets: emits time.hour_of_day / time.day_of_week /
+        // time.is_weekend / time.is_business_hours so DSL rules can key on
+        // "off-hours" without a separate clock-aware predicate (priority 5).
+        // BotDetection:Time section controls TimeZone + business-hours window.
+        services.AddOptions<Models.TimeOptions>().BindConfiguration("BotDetection:Time");
+        services.AddSingleton<IContributingDetector, TimeContributor>();
         // PII query string detection - privacy signals, not bot detection (priority 8)
         services.AddSingleton<IContributingDetector, PiiQueryStringContributor>();
         services.AddSingleton<IContributingDetector, UserAgentContributor>();
