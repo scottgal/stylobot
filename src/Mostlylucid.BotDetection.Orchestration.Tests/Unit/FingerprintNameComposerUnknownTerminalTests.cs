@@ -95,6 +95,99 @@ public class FingerprintNameComposerUnknownTerminalTests
     }
 
     [Fact]
+    public void Priority3_with_full_signals_yields_os_family_version()
+    {
+        // Single source of truth for the displayed name. When UA gives us OS +
+        // family + version, the name carries all three so the row uniquifies
+        // ("Win Chrome 146" not bare "Chrome").
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentFamily]        = "Chrome",
+            [SignalKeys.UserAgentFamilyVersion] = "146.0.6261.94",
+            [SignalKeys.UserAgentOs]            = "Windows",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("Win Chrome 146", name);
+    }
+
+    [Fact]
+    public void Priority3_mac_safari_short_form()
+    {
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentFamily]        = "Safari",
+            [SignalKeys.UserAgentFamilyVersion] = "17.5",
+            [SignalKeys.UserAgentOs]            = "macOS",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("Mac Safari 17", name);
+    }
+
+    [Fact]
+    public void Priority3_ios_passes_through_unchanged()
+    {
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentFamily]        = "Mobile Safari",
+            [SignalKeys.UserAgentFamilyVersion] = "13",
+            [SignalKeys.UserAgentOs]            = "iOS",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("iOS Mobile Safari 13", name);
+    }
+
+    [Fact]
+    public void Priority3_falls_back_when_version_missing()
+    {
+        // Version not in signals and UA can't supply it -> name drops version,
+        // keeps OS+family so it's still informative.
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentFamily] = "Chrome",
+            [SignalKeys.UserAgentOs]     = "Windows",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("Win Chrome", name);
+    }
+
+    [Fact]
+    public void Priority3_falls_back_when_os_missing()
+    {
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentFamily]        = "Chrome",
+            [SignalKeys.UserAgentFamilyVersion] = "146",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
+
+        Assert.Equal("Chrome 146", name);
+    }
+
+    [Fact]
+    public void Priority3_parses_version_from_raw_UA_when_signals_missing()
+    {
+        // Cold path: signals dict doesn't yet carry family/version because the
+        // matcher fires before UA contributor. UA string is enough -- composer
+        // self-rescues via UserAgentParser.Parse.
+        var signals = new Dictionary<string, object>();
+        var ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                 "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: ua);
+
+        Assert.Equal("Win Chrome 146", name);
+    }
+
+    [Fact]
     public void Unknown_terminal_never_contains_zero_padded_suffix()
     {
         // Defensive: across every combination of (no fingerprintId, no UA, with/without

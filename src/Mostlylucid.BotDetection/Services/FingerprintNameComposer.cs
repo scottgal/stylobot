@@ -195,24 +195,44 @@ internal static class FingerprintNameComposer
         // failed). The dashboard was rendering 8-char signature hashes for these rows
         // before this fix.
         var family = GetString(signals, SignalKeys.UserAgentFamily);
+        var familyVersion = GetString(signals, SignalKeys.UserAgentFamilyVersion);
         var os = GetString(signals, SignalKeys.UserAgentOs);
         var rawUaForParse = !string.IsNullOrEmpty(userAgent)
             ? userAgent
             : GetString(signals, SignalKeys.UserAgent);
-        if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(rawUaForParse))
-            family = UserAgentParser.Parse(rawUaForParse).Family;
+        if ((string.IsNullOrEmpty(family) || string.IsNullOrEmpty(familyVersion)) && !string.IsNullOrEmpty(rawUaForParse))
+        {
+            var parsed = UserAgentParser.Parse(rawUaForParse);
+            if (string.IsNullOrEmpty(family)) family = parsed.Family;
+            if (string.IsNullOrEmpty(familyVersion)) familyVersion = parsed.Version;
+        }
         if (string.IsNullOrEmpty(os) && !string.IsNullOrEmpty(rawUaForParse))
             os = UserAgentParser.ExtractOs(rawUaForParse);
 
         string? finalName;
         if (!string.IsNullOrEmpty(family) && family != "Other")
         {
-            // Display-name contract: priority-3 returns the UA family unchanged.
-            // No OS prefix, no version, no archetype suffix, no "w/" -- those belong
-            // to the drift / detail surfaces, not the name. See
-            // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md
-            // and FingerprintNameComposerContract.
-            finalName = family;
+            // Display-name contract (priority 3): {OS-short} {family} {major-version}
+            // composed here so the NAME itself is uniquifying ("Win Chrome 146" beats
+            // "Mac Chrome 146" beats bare "Chrome"). Each component is derived from
+            // real UA signals -- no invented hashes, no parasitic display-time
+            // extraction. The view just renders this string and truncates with an
+            // ellipsis when the row gets narrow.
+            //
+            // Falls back gracefully when individual components are missing:
+            //   family + version + os -> "Win Chrome 146"
+            //   family + version      -> "Chrome 146"
+            //   family + os           -> "Win Chrome"
+            //   family alone          -> "Chrome"
+            var major = ExtractMajorVersion(familyVersion);
+            var osShort = ShortOs(os);
+            finalName = (osShort, major) switch
+            {
+                ({ Length: > 0 } o, { Length: > 0 } v) => $"{o} {family} {v}",
+                ({ Length: > 0 } o, _)                 => $"{o} {family}",
+                (_, { Length: > 0 } v)                 => $"{family} {v}",
+                _                                       => family
+            };
         }
         else
         {
@@ -252,6 +272,36 @@ internal static class FingerprintNameComposer
             finalName = ComposeUnknownTerminal(signals, fingerprintId);
         }
         return finalName;
+    }
+
+    /// <summary>
+    ///     Major version from a uap-core version string ("122.0.6261.94" -> "122",
+    ///     "13" -> "13", "" -> null). Single source for major-version extraction;
+    ///     no parallel implementations in views.
+    /// </summary>
+    private static string? ExtractMajorVersion(string? familyVersion)
+    {
+        if (string.IsNullOrEmpty(familyVersion)) return null;
+        var dot = familyVersion.IndexOf('.');
+        var major = dot > 0 ? familyVersion[..dot] : familyVersion;
+        return major.Length == 0 ? null : major;
+    }
+
+    /// <summary>
+    ///     Short OS form for display: "Windows" -> "Win", "Mac OS X" / "macOS" -> "Mac".
+    ///     Other OS families pass through unchanged ("iOS", "Android", "Linux",
+    ///     "Chrome OS"). Returns null when input is null/empty so callers can branch
+    ///     on missing OS.
+    /// </summary>
+    private static string? ShortOs(string? os)
+    {
+        if (string.IsNullOrEmpty(os)) return null;
+        return os switch
+        {
+            "Windows"               => "Win",
+            "Mac OS X" or "macOS"   => "Mac",
+            _                        => os
+        };
     }
 
     /// <summary>
