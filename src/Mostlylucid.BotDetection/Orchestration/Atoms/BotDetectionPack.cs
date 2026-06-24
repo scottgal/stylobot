@@ -221,6 +221,26 @@ public sealed class BotDetectionPack : IDisposable
             primaryBotType = parsed;
         }
 
+        // Resolve PrimaryBotName via the same priority order the BlackboardOrchestrator
+        // path uses (DetectionLedgerExtensions.ResolveDisplayName): matcher-set
+        // IdentityDisplayName signal first, then ledger.BotName fallback, then
+        // FingerprintNameComposer.Compose for human-shape UA-only requests.
+        var primaryBotName = ResolveDisplayName(ledger.MergedSignals, ledger.BotName);
+
+        // Verdict-honest override: when the verdict says bot but the resolved name
+        // came from a human-browser archetype match (centroid coincidence on a Chrome
+        // XHR / uBlock shape that happens to overlap chrome-desktop or Mastodon),
+        // rewrite to "Unknown Bot {family}". The Ephemeral orchestrator's evidence
+        // build path must agree with the BlackboardOrchestrator path so the BDF
+        // missing-browser-headers case (prob=0.90 named "Chrome Desktop") and the
+        // prod regression on signature fA_cI4MGbTxkwr9-4UsUEg both get verdict-honest
+        // names regardless of which orchestrator is registered in DI.
+        var isActuallyBot = ledger.BotProbability >= 0.5;
+        if (isActuallyBot && IsHumanArchetypeWithoutCatalogClaim(ledger.MergedSignals, primaryBotName))
+        {
+            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(ledger.MergedSignals);
+        }
+
         return new AggregatedEvidence
         {
             Ledger = ledger,
@@ -230,13 +250,36 @@ public sealed class BotDetectionPack : IDisposable
             EarlyExit = ledger.EarlyExit,
             EarlyExitVerdict = earlyExitVerdict,
             PrimaryBotType = primaryBotType,
-            PrimaryBotName = ledger.BotName,
+            PrimaryBotName = primaryBotName,
             Signals = ledger.MergedSignals,
             TotalProcessingTimeMs = elapsed.TotalMilliseconds,
             CategoryBreakdown = ledger.CategoryBreakdown,
             ContributingDetectors = ledger.ContributingDetectors,
             FailedDetectors = ledger.FailedDetectors
         };
+    }
+
+    private static string? ResolveDisplayName(
+        IReadOnlyDictionary<string, object> signals, string? fallback)
+    {
+        var fromSignal = signals.TryGetValue(Models.SignalKeys.IdentityDisplayName, out var v)
+            ? v as string : null;
+        if (!string.IsNullOrEmpty(fromSignal)) return fromSignal;
+        if (!string.IsNullOrEmpty(fallback)) return fallback;
+        return Services.FingerprintNameComposer.Compose(signals);
+    }
+
+    private static bool IsHumanArchetypeWithoutCatalogClaim(
+        IReadOnlyDictionary<string, object> signals, string? resolvedName)
+    {
+        if (string.IsNullOrEmpty(resolvedName)) return false;
+        var hasCatalogClaim = signals.TryGetValue(Models.SignalKeys.UserAgentBotName, out var ubn)
+                              && ubn is string s && !string.IsNullOrEmpty(s);
+        if (hasCatalogClaim) return false;
+        var kind = signals.TryGetValue(Models.SignalKeys.IdentityArchetypeKind, out var k) ? k as string : null;
+        if (kind != "human-browser" && kind != "human-adblocker") return false;
+        var archetypeName = signals.TryGetValue(Models.SignalKeys.IdentityArchetypeName, out var n) ? n as string : null;
+        return !string.IsNullOrEmpty(archetypeName) && string.Equals(archetypeName, resolvedName, StringComparison.Ordinal);
     }
 
 

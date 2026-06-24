@@ -160,20 +160,17 @@ internal static class FingerprintNameComposer
             return composed;
         }
 
-        // Priority 1.5: verdict-honest bot terminal. When the bot classifier disagrees
-        // with the archetype matcher -- the fingerprint's cached bot probability is
-        // above the bot threshold but no Priority 1 catalog match fired -- the human-
-        // browser archetype name is a false label. A chrome-xhr archetype hit on a
-        // 90%-confidence Scraper verdict is exactly the kind of coincidence we forbid
-        // surfacing as "Chrome Desktop". Route through a verdict-honest "Unknown Bot
-        // {family}" terminal that uniquifies on real UA signals (family + version + OS)
-        // without lying that the visitor is a recognised browser identity.
-        var cachedBotProbability = GetDouble(signals, SignalKeys.IdentityCachedBotProbability);
-        var isLikelyBot = cachedBotProbability >= BotProbabilityNamingThreshold;
-        if (isLikelyBot)
-        {
-            return ComposeUnknownBotTerminal(signals, userAgent);
-        }
+        // Verdict-honest naming is enforced at the post-orchestration layer
+        // (DetectionLedgerExtensions.BuildEvidenceFromLedger), NOT here in the
+        // matcher's Compose. At matcher time (priority 6) the UA contributor
+        // (priority 10) hasn't run yet, so ua.bot_name is absent for everything
+        // -- and BotPatternLoader's well-known list is narrower than uap-core's
+        // family parser, so a known catalog bot like CrunchBot fails Priority 1
+        // here even though the UA contributor would later identify it. Firing
+        // "Unknown Bot" at this layer was renaming legitimate catalog bots.
+        // The ledger-side override has full signal access (ua.bot_name +
+        // ledger.BotProbability + IdentityArchetypeName/Kind) and is the right
+        // place for the verdict-honest rewrite.
 
         // Priority 2: matched archetype name + variance term -- but ONLY when the matched
         // archetype is human-browser-shaped. Naming invariant: if Priority 1 didn't fire,
@@ -293,17 +290,16 @@ internal static class FingerprintNameComposer
     ///     Cached bot-probability threshold for the verdict-honest naming branch.
     ///     At or above this value the name composer treats the fingerprint as a bot
     ///     for naming purposes -- the archetype matcher is ignored and the name is
-    ///     emitted via ComposeUnknownBotTerminal. 0.5 catches Medium / Elevated /
+    ///     emitted via ComposeUnknownBot. 0.5 catches Medium / Elevated /
     ///     High / VeryHigh risk bands; below it the matcher's archetype name still
     ///     wins so human visitors continue to display their real browser identity.
     /// </summary>
     public const double BotProbabilityNamingThreshold = 0.5;
 
     /// <summary>
-    ///     "Unknown Bot" terminal for fingerprints the bot classifier flagged
-    ///     (cached bot probability >= <see cref="BotProbabilityNamingThreshold"/>)
-    ///     but for which Priority 1 produced no catalog match. Uniquifies on real
-    ///     UA signals so adjacent rows are still distinguishable:
+    ///     "Unknown Bot" terminal for fingerprints the bot classifier flagged but
+    ///     for which Priority 1 produced no catalog match. Uniquifies on real UA
+    ///     signals so adjacent rows are still distinguishable:
     ///       family + version + os -> "Unknown Bot Win Chrome 149"
     ///       family + os            -> "Unknown Bot Win Chrome"
     ///       family + version       -> "Unknown Bot Chrome 149"
@@ -313,10 +309,18 @@ internal static class FingerprintNameComposer
     ///     Priority 1 catalog match (e.g., the UA contributor finally writes
     ///     ua.bot_name) overrides this name on next compose -- it's a verdict-
     ///     anchored placeholder, not a permanent label.
+    ///
+    ///     Public because the verdict-honest override at
+    ///     DetectionLedgerExtensions.BuildEvidenceFromLedger calls this directly
+    ///     to rewrite a human-browser archetype name when the CURRENT-request
+    ///     verdict disagrees. The matcher's Priority-1.5 branch above catches
+    ///     the same case on the 2nd+ request via cached probability; both layers
+    ///     compose so a misclassified row gets verdict-honest naming on the
+    ///     first request AND has the persisted name self-heal on the next.
     /// </summary>
-    private static string ComposeUnknownBotTerminal(
+    public static string ComposeUnknownBot(
         IReadOnlyDictionary<string, object> signals,
-        string? userAgent)
+        string? userAgent = null)
     {
         var family = GetString(signals, SignalKeys.UserAgentFamily);
         var familyVersion = GetString(signals, SignalKeys.UserAgentFamilyVersion);

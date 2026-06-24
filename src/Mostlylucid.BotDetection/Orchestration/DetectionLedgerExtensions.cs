@@ -254,6 +254,21 @@ public static class DetectionLedgerExtensions
         // (persisted, drift-gated) over the ledger's UA-derived name.
         var primaryBotName = ResolveDisplayName(preSignals, isActuallyBot ? ledger.BotName : null);
 
+        // Verdict-honest override. When the current-request verdict says bot but the
+        // resolved name came from a human-browser archetype match (Chrome XHR shape
+        // happens to overlap chrome-desktop's centroid; uBlock-Origin Chrome with
+        // minimal headers overlaps Mastodon), rewrite to "Unknown Bot {family}".
+        // The archetype centroid coincidence does not get to lie about identity when
+        // the classifier disagrees. Closes the prod regression on signature
+        // fA_cI4MGbTxkwr9-4UsUEg (Chrome Desktop named, Scraper at 0.90) and the BDF
+        // missing-browser-headers fixture (Chrome Desktop named, bot prob 0.90).
+        // Pairs with the matcher's Priority-1.5 branch which catches the same case
+        // on the next request via cached probability for a self-healing persisted name.
+        if (isActuallyBot && IsHumanArchetypeWithoutCatalogClaim(preSignals, primaryBotName))
+        {
+            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(preSignals);
+        }
+
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
         {
@@ -393,6 +408,15 @@ public static class DetectionLedgerExtensions
         // reputation-pattern id ("ip:::ffff::/48") that FastPathReputation supplied.
         // Confirmed-bad and high threat still escalate.
         var primaryBotName = ResolveDisplayName(earlySignals, exitContrib.BotName);
+        // Verdict-honest override for the early-exit path. Same rule as the post-
+        // orchestration path above: when the early-exit verdict says bot AND the
+        // resolved name came from a human-browser archetype hit, rewrite to
+        // "Unknown Bot {family}". The reputation/early-bypass shortcut does not get
+        // to ship a human-archetype label for a bot verdict either.
+        if (isBot && IsHumanArchetypeWithoutCatalogClaim(earlySignals, primaryBotName))
+        {
+            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(earlySignals);
+        }
         // Catalog authority (same rule as the post-orchestration path): when the
         // resolved BotName matches a BotPatternLoader entry, prefer the catalog's
         // BotType over the contributor's emission. Stops the early-exit shortcut
@@ -448,6 +472,36 @@ public static class DetectionLedgerExtensions
             ThreatScore = earlyThreatScore,
             ThreatBand = earlyThreatBand
         };
+    }
+
+    /// <summary>
+    ///     True when the resolved name came from a human-browser-shaped archetype
+    ///     match (IdentityArchetypeKind in {human-browser, human-adblocker}) AND
+    ///     no Priority 1 catalog claim is present (ua.bot_name absent / empty).
+    ///     A catalog-matched UA is authoritative -- the visitor self-declared as
+    ///     "CrunchBot" / "Googlebot" etc. and we honour that even when the request
+    ///     ALSO matched an archetype centroid. The override is for the case where
+    ///     the matcher landed on a human archetype, no catalog match supplied a
+    ///     bot name, AND the verdict says bot anyway: that combination is the
+    ///     centroid coincidence the user reported on
+    ///     fA_cI4MGbTxkwr9-4UsUEg / missing-browser-headers.
+    /// </summary>
+    private static bool IsHumanArchetypeWithoutCatalogClaim(
+        IReadOnlyDictionary<string, object> signals, string? resolvedName)
+    {
+        if (string.IsNullOrEmpty(resolvedName)) return false;
+        // Belt: a catalog claim wins outright (Googlebot / CrunchBot / Mastodon).
+        var hasCatalogClaim = signals.TryGetValue(SignalKeys.UserAgentBotName, out var ubn)
+                              && ubn is string s && !string.IsNullOrEmpty(s);
+        if (hasCatalogClaim) return false;
+        // Braces: only override when the resolved name actually CAME FROM the
+        // archetype hit (resolvedName == archetype.Name) AND that archetype is
+        // human-shaped. Anything else means the name has another provenance the
+        // override has no business rewriting.
+        var kind = signals.TryGetValue(SignalKeys.IdentityArchetypeKind, out var k) ? k as string : null;
+        if (kind != "human-browser" && kind != "human-adblocker") return false;
+        var archetypeName = signals.TryGetValue(SignalKeys.IdentityArchetypeName, out var n) ? n as string : null;
+        return !string.IsNullOrEmpty(archetypeName) && string.Equals(archetypeName, resolvedName, StringComparison.Ordinal);
     }
 
     /// <summary>
