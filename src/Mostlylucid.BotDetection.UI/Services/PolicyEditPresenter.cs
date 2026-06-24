@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
@@ -73,11 +74,13 @@ public sealed class PolicyEditPresenter
     private readonly IPolicyRuleStore _ruleStore;
     private readonly IOptions<PolicyEditTimingsOptions> _timings;
     private readonly IDashboardLinkResolver? _links;
+    private readonly IFacetPickerCatalog? _facetCatalog;
 
     public PolicyEditPresenter(
         IPolicyRuleStore ruleStore,
         IOptions<PolicyEditTimingsOptions>? timings = null,
-        IDashboardLinkResolver? links = null)
+        IDashboardLinkResolver? links = null,
+        IFacetPickerCatalog? facetCatalog = null)
     {
         _ruleStore = ruleStore;
         // Composition-light hosts (tests, AOT bundles) may skip binding the
@@ -85,6 +88,10 @@ public sealed class PolicyEditPresenter
         // presenter is always self-sufficient.
         _timings = timings ?? Microsoft.Extensions.Options.Options.Create(new PolicyEditTimingsOptions());
         _links = links;
+        // Catalog is optional so AOT bundles + tests that don't wire the
+        // picker still build the inner editor VM cleanly. Hosts that mount
+        // the expand surface always register the catalog (singleton).
+        _facetCatalog = facetCatalog;
     }
 
     private string CancelUrlFor(PolicyScope scope)
@@ -186,4 +193,142 @@ public sealed class PolicyEditPresenter
             new ThrottleActionEdit(t.RequestsPerSecond, t.Reason), "throttle"),
         _ => throw new InvalidOperationException($"Unhandled action kind {action.GetType().Name}")
     };
+
+    // ─── B8: card-shaped expand surface ────────────────────────────────────
+    //
+    // The expand VM WRAPS the existing PolicyEditRowViewModel rather than
+    // duplicating its fields. _RuleCardExpand.cshtml renders the card chrome
+    // (header / picker / hysteresis disclosure) and delegates the predicate
+    // editor + per-kind action editor to the existing _EditRow embed -- so
+    // the canonical form-encoding (action.kind / predicate / mode / notes)
+    // and all the JS the existing editor already drives keep working
+    // unchanged. The wire path is still PUT /api/v1/policies/{id}.
+
+    /// <summary>
+    ///     Build the card-shaped expand VM for an existing rule. Returns
+    ///     <c>null</c> when the rule id is unknown so the caller can map to
+    ///     a 404 cleanly.
+    /// </summary>
+    public async Task<RuleCardExpandViewModel?> BuildExpandForExistingRuleAsync(
+        Guid ruleId,
+        CancellationToken ct = default)
+    {
+        var rule = await _ruleStore.GetByIdAsync(ruleId, ct).ConfigureAwait(false);
+        if (rule is null) return null;
+
+        var inner = await BuildForExistingRuleAsync(ruleId, ct).ConfigureAwait(false);
+        if (inner is null) return null;
+
+        var rows = BuildPickerRows(rule.Predicate);
+        return new RuleCardExpandViewModel(
+            Editor: inner,
+            ScopeTarget: PolicyScopeFormatter.ToHeadline(rule.Scope),
+            Action: rule.Action,
+            AutoPromoteAt: rule.AutoPromoteAt,
+            Trigger: rule.Trigger,
+            PickerRows: rows);
+    }
+
+    /// <summary>
+    ///     Build the card-shaped expand VM for a new rule at the given scope.
+    ///     Picker rows start empty -- the operator either picks a facet or
+    ///     types directly into the raw-DSL textarea.
+    /// </summary>
+    public RuleCardExpandViewModel BuildExpandForNewRule(PolicyScope scope)
+    {
+        var inner = BuildForNewRule(scope);
+        return new RuleCardExpandViewModel(
+            Editor: inner,
+            ScopeTarget: PolicyScopeFormatter.ToHeadline(scope),
+            Action: null,
+            AutoPromoteAt: null,
+            Trigger: null,
+            PickerRows: Array.Empty<FacetPickerRowViewModel>());
+    }
+
+    /// <summary>
+    ///     Project the rule's predicate AST onto a flat list of picker rows
+    ///     when (and only when) the AST is shaped as a single
+    ///     <see cref="Predicate.Term"/> or an <see cref="Predicate.And"/>
+    ///     whose children are all <c>Term</c>s. Mixed AND/OR predicates and
+    ///     nested groupings return an empty list -- the raw-DSL textarea
+    ///     still carries the full predicate, and the picker just doesn't
+    ///     pre-populate. Picker rows that reference a facet missing from
+    ///     the catalog are dropped; the textarea remains canonical.
+    /// </summary>
+    private List<FacetPickerRowViewModel> BuildPickerRows(Predicate predicate)
+    {
+        var rows = new List<FacetPickerRowViewModel>();
+        if (_facetCatalog is null) return rows;
+
+        switch (predicate)
+        {
+            case Predicate.Term term:
+                AppendTerm(term, rows);
+                break;
+
+            case Predicate.And and:
+                foreach (var child in and.Children)
+                {
+                    if (child is Predicate.Term t) AppendTerm(t, rows);
+                    else
+                    {
+                        // Any non-Term child means the AST is structurally
+                        // richer than a flat AND-of-Terms; bail out so the
+                        // operator works exclusively from the raw textarea.
+                        rows.Clear();
+                        return rows;
+                    }
+                }
+                break;
+        }
+
+        return rows;
+    }
+
+    private void AppendTerm(Predicate.Term term, List<FacetPickerRowViewModel> rows)
+    {
+        // Skip terms whose facet isn't in the curated picker catalog -- the
+        // raw textarea still carries them; the picker just won't re-hydrate
+        // a row it has no input control for.
+        if (_facetCatalog?.FindByFacet(term.Facet) is null) return;
+
+        rows.Add(new FacetPickerRowViewModel(
+            Facet: term.Facet,
+            Op: OpKey(term.Op),
+            Value: TermValueText(term.Value, term.Op)));
+    }
+
+    private static string OpKey(PredicateOp op) => op switch
+    {
+        PredicateOp.Eq => "eq",
+        PredicateOp.Neq => "neq",
+        PredicateOp.Gte => "gte",
+        PredicateOp.Gt => "gt",
+        PredicateOp.Lte => "lte",
+        PredicateOp.Lt => "lt",
+        PredicateOp.In => "in",
+        PredicateOp.NotIn => "not_in",
+        PredicateOp.Between => "between",
+        PredicateOp.Matches => "matches",
+        PredicateOp.Contains => "contains",
+        PredicateOp.AnyIn => "any_in",
+        PredicateOp.AllIn => "all_in",
+        _ => op.ToString().ToLowerInvariant()
+    };
+
+    private static string TermValueText(object value, PredicateOp op)
+    {
+        if (op == PredicateOp.Between && value is string[] bounds && bounds.Length == 2)
+            return string.Concat(bounds[0], ",", bounds[1]);
+
+        return value switch
+        {
+            string[] arr => string.Join(",", arr),
+            bool b => b ? "true" : "false",
+            decimal d => d.ToString(CultureInfo.InvariantCulture),
+            null => string.Empty,
+            _ => value.ToString() ?? string.Empty,
+        };
+    }
 }

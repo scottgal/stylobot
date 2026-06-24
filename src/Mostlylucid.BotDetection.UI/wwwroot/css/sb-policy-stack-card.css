@@ -309,3 +309,225 @@
 
 /* Legacy classes from the deleted pill design intentionally NOT defined here.
    .badge.source-pill / .badge.mode-pill / .verdict — REMOVED 2026-06-24. */
+
+/* ─── B8: card-shaped inline expand surface ────────────────────── */
+
+/* Editing-state visual: keep the band 1 / 2 / 3 chrome from the compact
+   card and just highlight the border so the operator knows which card is
+   in edit mode. */
+.sb-policy-card-editing {
+    border-color: hsl(var(--p));
+    box-shadow: 0 0 0 2px hsl(var(--p) / 0.15);
+}
+.sb-policy-card-editing:hover {
+    transform: none;
+    box-shadow: 0 0 0 2px hsl(var(--p) / 0.15);
+}
+
+.sb-policy-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.sb-policy-card-save {
+    background: hsl(var(--p));
+    color: hsl(var(--pc));
+    border: 0;
+    padding: 0.375rem 0.875rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font: 600 0.8125rem/1.2 ui-sans-serif, system-ui;
+}
+.sb-policy-card-save:hover {
+    background: hsl(var(--p) / 0.9);
+}
+.sb-policy-card-cancel {
+    background: transparent;
+    color: hsl(var(--bc) / 0.7);
+    border: 1px solid hsl(var(--b3));
+    padding: 0.375rem 0.875rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font: 400 0.8125rem/1.2 ui-sans-serif, system-ui;
+}
+.sb-policy-card-cancel:hover {
+    color: hsl(var(--bc));
+    border-color: hsl(var(--bc) / 0.4);
+}
+
+.sb-policy-card-expand-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.sb-policy-card-if-builder {
+    border: 1px solid hsl(var(--b3));
+    border-radius: 0.375rem;
+    padding: 0.625rem 0.875rem;
+}
+.sb-policy-card-if-builder legend {
+    font: 600 0.6875rem/1.2 ui-sans-serif, system-ui;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: hsl(var(--bc) / 0.6);
+    padding: 0 0.5rem;
+}
+.sb-policy-card-keyword {
+    color: hsl(var(--p));
+}
+
+/* Facet picker rows. The picker is render-only in B8 (the textarea is the
+   source of truth) so all inputs render disabled. The visual still groups
+   the facet / op / value triple as a row. */
+.sb-facet-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.sb-facet-picker-empty {
+    margin: 0.25rem 0;
+    font-size: 0.8125rem;
+    color: hsl(var(--bc) / 0.5);
+}
+.sb-facet-picker-row {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) auto minmax(8rem, 2fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.25rem 0;
+}
+.sb-facet-picker-row select,
+.sb-facet-picker-row input[type="text"],
+.sb-facet-picker-row input[type="number"] {
+    padding: 0.25rem 0.375rem;
+    border: 1px solid hsl(var(--b3));
+    border-radius: 0.25rem;
+    background: hsl(var(--b1));
+    color: hsl(var(--bc));
+    font: 400 0.8125rem/1.2 ui-sans-serif, system-ui;
+    min-width: 0;
+}
+.sb-facet-picker-row select:disabled,
+.sb-facet-picker-row input:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+.sb-facet-picker-value {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+}
+.sb-facet-picker-glob-input {
+    flex: 1 1 auto;
+    font-family: ui-monospace, monospace;
+}
+.sb-facet-picker-glob-hint {
+    font-size: 0.6875rem;
+    color: hsl(var(--bc) / 0.5);
+    white-space: nowrap;
+}
+.sb-facet-picker-remove {
+    background: transparent;
+    color: hsl(var(--bc) / 0.4);
+    border: 0;
+    cursor: pointer;
+    padding: 0 0.5rem;
+    font-size: 1.125rem;
+    line-height: 1;
+}
+.sb-facet-picker-remove:hover:not(:disabled) {
+    color: hsl(var(--er));
+}
+.sb-facet-picker-remove:disabled {
+    cursor: not-allowed;
+}
+
+.sb-facet-picker-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.sb-facet-picker-add {
+    background: transparent;
+    color: hsl(var(--p));
+    border: 1px dashed hsl(var(--p) / 0.4);
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    font: 500 0.8125rem/1.2 ui-sans-serif, system-ui;
+}
+.sb-facet-picker-add:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+.sb-facet-picker-hint {
+    font-size: 0.6875rem;
+    color: hsl(var(--bc) / 0.5);
+}
+
+/* The wrapping div around the embedded _EditRow partial. The header's
+   "Save" button submits the inner form via form="@formId"; nothing extra
+   is needed here, but we strip the editor's own duplicated header/save
+   button background so the article reads as a single card surface. */
+.sb-policy-card-expand-editor {
+    display: contents;
+}
+.sb-policy-card-expand-editor .sb-policy-stack-edit-row {
+    border: 0;
+    padding: 0;
+    background: transparent;
+}
+
+/* Hysteresis disclosure. Same chrome style as the other <details>
+   disclosures on the card; the grid pairs sustain + recover. */
+.sb-policy-card-hysteresis summary,
+.sb-policy-card-auto-promote-note {
+    font: 400 0.75rem/1.4 ui-sans-serif, system-ui;
+    color: hsl(var(--bc) / 0.7);
+    cursor: pointer;
+}
+.sb-policy-card-hysteresis[open] summary {
+    margin-block-end: 0.5rem;
+}
+.sb-policy-card-hysteresis-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+.sb-policy-card-hysteresis-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    color: hsl(var(--bc) / 0.75);
+}
+.sb-policy-card-hysteresis-grid input[type="number"] {
+    padding: 0.25rem 0.375rem;
+    border: 1px solid hsl(var(--b3));
+    border-radius: 0.25rem;
+    background: hsl(var(--b1));
+    color: hsl(var(--bc));
+    font: 400 0.8125rem/1.2 ui-sans-serif, system-ui;
+    max-width: 8rem;
+}
+.sb-policy-card-hysteresis-help {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    color: hsl(var(--bc) / 0.55);
+}
+.sb-policy-card-hysteresis-help em {
+    font-style: normal;
+    font-weight: 600;
+    color: hsl(var(--bc) / 0.75);
+}
+.sb-policy-card-auto-promote-note {
+    margin: 0;
+    font-style: italic;
+    color: hsl(var(--bc) / 0.6);
+}

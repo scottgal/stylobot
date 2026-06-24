@@ -5,6 +5,9 @@
 @{
     var ruleIdAttr = Model.RuleId?.ToString() ?? "new";
     var scopeEncoded = PolicyScopeUrl.Encode(Model.Scope);
+    // Stable form id so the B8 _RuleCardExpand header's Save button can
+    // submit this form from outside the form subtree via form="...".
+    var editFormId = $"sb-rule-expand-form-{ruleIdAttr}";
 }
 @*
     C6 expression editor row. Both panes (chip builder + raw textarea)
@@ -24,7 +27,7 @@
          data-edit-http-method="@Model.HttpMethod"
          data-parse-debounce-ms="@Model.ParseDebounceMs"
          data-backtest-debounce-ms="@Model.BacktestDebounceMs">
-    <form class="sb-policy-stack-edit-form">
+    <form id="@editFormId" class="sb-policy-stack-edit-form">
         <fieldset class="sb-edit-predicate">
             <legend>WHEN</legend>
             <div class="sb-edit-panes">

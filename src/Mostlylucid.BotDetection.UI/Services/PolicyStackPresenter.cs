@@ -463,6 +463,11 @@ public sealed class PolicyStackPresenter
                 // operator doesn't need to see by default. Phase B may
                 // refine this for narrow-to-endpoint deep links.
                 DefaultCollapsed = scopeRows.Count == 0 && effectiveProjections.Count == 0,
+                // B8 -- the inline expand surface + GET /policystack/edit/new
+                // endpoint are wired; the "+ Add rule" affordance now lands
+                // on a real editor. The polish-pass default was false because
+                // the link went nowhere; B8 flips it on.
+                AddRuleEnabled = canEdit,
             });
         }
 

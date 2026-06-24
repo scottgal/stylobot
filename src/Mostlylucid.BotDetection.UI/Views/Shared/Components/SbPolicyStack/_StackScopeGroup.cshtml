@@ -1,6 +1,7 @@
 @using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackScopeGroupViewModel
 @*
     A7 -- structural rewrite. Each scope group is now an accordion with an
@@ -106,9 +107,17 @@
             }
             @if (Model.AddRuleEnabled)
             {
+                @* B8 -- wires the affordance to the existing /policystack/edit/new
+                   endpoint that returns a fresh _RuleCardExpand at this scope.
+                   HTMX appends the rendered card to the rows list (or replaces
+                   the empty-state block when this is the first rule at the
+                   scope). *@
                 <a class="sb-policy-scope-group-add"
                    data-scope-add
                    href="#"
+                   hx-get="@DashboardLinks.Resolve($"/policystack/edit/new?scope={scopeEncoded}")"
+                   hx-target="closest .sb-policy-scope-group-panel"
+                   hx-swap="beforeend transition:true"
                    data-scope="@scopeEncoded">+ Add rule at this scope</a>
             }
         </div>

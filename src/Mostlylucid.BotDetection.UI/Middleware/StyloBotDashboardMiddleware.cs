@@ -3432,10 +3432,12 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    // C6 -- GET /dashboard/policystack/edit?ruleId=<guid>
-    // Returns the rendered _EditRow.cshtml partial for an existing rule.
-    // HTMX swaps the compact row out for this. 404 when the rule is unknown
-    // or the editor presenter is not registered.
+    // B8 -- GET /dashboard/policystack/edit?ruleId=<guid>
+    // Returns the rendered _RuleCardExpand.cshtml partial for an existing
+    // rule. HTMX swaps the compact card out for the card-shaped expand
+    // surface (header + curated facet picker + the existing _EditRow form
+    // mechanics + hysteresis disclosure). 404 when the rule is unknown or
+    // the editor presenter is not registered.
     private async Task ServePolicyStackEditExistingAsync(HttpContext context)
     {
         var presenter = context.RequestServices
@@ -3453,7 +3455,7 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var vm = await presenter.BuildForExistingRuleAsync(ruleId, context.RequestAborted);
+        var vm = await presenter.BuildExpandForExistingRuleAsync(ruleId, context.RequestAborted);
         if (vm is null)
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -3461,14 +3463,14 @@ public class StyloBotDashboardMiddleware
         }
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/Shared/Components/SbPolicyStack/_EditRow.cshtml", vm, context);
+            "/Views/Shared/Components/SbPolicyStack/_RuleCardExpand.cshtml", vm, context);
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
     }
 
-    // C6 -- GET /dashboard/policystack/edit/new?scope=<encoded>
-    // Returns the rendered _EditRow.cshtml partial with empty defaults so
-    // the operator can fill in a new rule at the requested scope.
+    // B8 -- GET /dashboard/policystack/edit/new?scope=<encoded>
+    // Returns the rendered _RuleCardExpand.cshtml partial with empty defaults
+    // so the operator can fill in a new rule at the requested scope.
     private async Task ServePolicyStackEditNewAsync(HttpContext context)
     {
         var presenter = context.RequestServices
@@ -3481,10 +3483,10 @@ public class StyloBotDashboardMiddleware
 
         var scopeParam = context.Request.Query["scope"].ToString();
         var scope = Mostlylucid.BotDetection.UI.Services.PolicyScopeUrl.Decode(scopeParam);
-        var vm = presenter.BuildForNewRule(scope);
+        var vm = presenter.BuildExpandForNewRule(scope);
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/Shared/Components/SbPolicyStack/_EditRow.cshtml", vm, context);
+            "/Views/Shared/Components/SbPolicyStack/_RuleCardExpand.cshtml", vm, context);
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
     }

@@ -1,0 +1,126 @@
+@using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
+@model RuleCardExpandViewModel
+@*
+    B8 -- inline expand surface for the policy rule card. The webmaster
+    clicks the pencil on a _RuleCard and HTMX swaps the compact card out
+    for this expand view. Three structural pieces:
+
+      1. Card chrome (header with priority + scope + Save/Cancel buttons).
+      2. Curated facet picker (_FacetPicker partial) -- B6's catalog drives
+         the dropdown, B7's glob compiler validates path-or-host inputs at
+         save time. The picker is structural in B8: rows seed from the
+         existing AST when it parses cleanly into a flat AND-of-Terms; the
+         + AND / + OR buttons are visible-but-inert (client-side row
+         add/remove is a follow-on polish).
+      3. Existing _EditRow.cshtml mechanics (predicate chip pane + raw
+         textarea + per-kind action editor + mode + notes) -- wrapped
+         inside the card body so the canonical form-encoding
+         (action.kind / predicate / mode / notes) and the existing
+         policy-stack-edit.js wiring keep working unchanged. The PUT goes
+         straight to /api/v1/policies/{id} (commercial mutation API);
+         FOSS-only hosts return 404 there, which is the right behaviour.
+
+    Per-action sub-args (Tag.Name / Challenge.Kind / RateLimit details /
+    Throttle reason) are still rendered by _EditAction.cshtml's per-kind
+    partial swap chain. The dedicated picker-side action chooser is not
+    a separate control here -- the existing kind <select> in _EditAction
+    already drives the slot swap, and that's what the JS knows about.
+*@
+@{
+    var editor       = Model.Editor;
+    var ruleId       = editor.RuleId?.ToString() ?? "new";
+    var cancelUrl    = DashboardLinks.Resolve(editor.CancelUrl);
+    var formId       = $"sb-rule-expand-form-{ruleId}";
+}
+
+<article class="sb-policy-card sb-policy-card-editing"
+         data-rule-card
+         data-rule-card-expand
+         data-rule-id="@ruleId">
+    <header class="sb-policy-card-head">
+        <span class="sb-policy-card-priority">#@editor.Priority</span>
+        <span class="sb-policy-card-target" title="@Model.ScopeTarget">@Model.ScopeTarget</span>
+        <div class="sb-policy-card-actions">
+            <button type="submit"
+                    class="sb-policy-card-save"
+                    form="@formId"
+                    aria-label="Save changes">Save</button>
+            <button type="button"
+                    class="sb-policy-card-cancel"
+                    hx-get="@cancelUrl"
+                    hx-target="closest article"
+                    hx-swap="outerHTML transition:true"
+                    aria-label="Cancel">Cancel</button>
+        </div>
+    </header>
+
+    <div class="sb-policy-card-expand-body">
+        @* Curated facet picker. Catalog rows drive the dropdown; the per-
+           facet value control renders by type (enum / number / bool /
+           string / glob). Rows render via _FacetPicker. *@
+        <fieldset class="sb-policy-card-if-builder">
+            <legend><span class="sb-policy-card-keyword">IF</span></legend>
+            @await Html.PartialAsync("Components/SbPolicyStack/_FacetPicker", Model.PickerRows)
+            <div class="sb-facet-picker-actions">
+                <button type="button" class="sb-facet-picker-add" data-add-row="and" disabled>+ AND</button>
+                <button type="button" class="sb-facet-picker-add" data-add-row="or" disabled>+ OR</button>
+                <span class="sb-facet-picker-hint">Picker rows are visual today; the textarea below is the source of truth.</span>
+            </div>
+        </fieldset>
+
+        @* Existing _EditRow.cshtml carries the canonical predicate editor
+           (chip pane + raw textarea), per-kind action editor slot, mode
+           selector, and notes input. Its outer <form> posts to the
+           commercial mutation API. We expose its form id via a stable
+           wrapper attribute so the card-header Save button can submit it
+           from outside the article subtree. *@
+        <div class="sb-policy-card-expand-editor" data-edit-row-host data-form-id="@formId">
+            @await Html.PartialAsync("Components/SbPolicyStack/_EditRow", editor)
+        </div>
+
+        @* Hysteresis (sustain / recover). The trigger fields are metadata
+           on the rule; the existing PUT shape doesn't carry them yet, so
+           today the values render read-only when present and the form
+           inputs are name-prefixed under hysteresis_* for the commercial
+           mapper to pick up once the wire DTO supports them. <details>
+           opens by default when a trigger is set on the rule so the
+           operator can see + reason about the existing window. *@
+        <details class="sb-policy-card-hysteresis" @(Model.Trigger is not null ? "open" : "")>
+            <summary>Hysteresis (sustain / recover)</summary>
+            <div class="sb-policy-card-hysteresis-grid">
+                <label>
+                    Sustain (seconds)
+                    <input type="number"
+                           name="hysteresis_sustain_seconds"
+                           value="@((int)(Model.Trigger?.SustainFor.TotalSeconds ?? 0))"
+                           min="0"
+                           form="@formId">
+                </label>
+                <label>
+                    Recover (seconds)
+                    <input type="number"
+                           name="hysteresis_recover_seconds"
+                           value="@((int)(Model.Trigger?.RecoverAfter.TotalSeconds ?? 0))"
+                           min="0"
+                           form="@formId">
+                </label>
+            </div>
+            <p class="sb-policy-card-hysteresis-help">
+                Set both to 0 to disable hysteresis. The rule must match continuously for
+                <em>sustain</em> seconds before the action engages; it releases after
+                <em>recover</em> seconds of no-match. Recover must be at least sustain
+                to keep the rule from flapping at threshold.
+            </p>
+        </details>
+
+        @if (Model.AutoPromoteAt is not null)
+        {
+            <p class="sb-policy-card-auto-promote-note">
+                Auto-promotes to LIVE @PolicyScheduleFormatter.ToRelativeOrAbsolute(Model.AutoPromoteAt.Value).
+            </p>
+        }
+    </div>
+</article>
