@@ -68,5 +68,34 @@
         </div>
     </div>
 
-    @* Band 3 (Meta) -- A6 fills this in *@
+    <footer class="sb-policy-card-meta">
+        <span class="sb-policy-card-mode mode-@modeLower" aria-label="mode @modeLower">
+            <span class="sb-policy-card-mode-dot" aria-hidden="true"></span>@Model.ModePill
+        </span>
+        <span class="sb-policy-card-hits" title="Matched / Total evaluations in window">
+            @Model.TriggerCount/@Model.TotalEvaluations hits / 5m
+        </span>
+        @if (!string.IsNullOrEmpty(Model.LatencyLine))
+        {
+            <span class="sb-policy-card-latency">@Model.LatencyLine</span>
+        }
+        @if (!string.IsNullOrEmpty(Model.DistributionLine))
+        {
+            <span class="sb-policy-card-distribution">@Model.DistributionLine</span>
+        }
+        @if (Model.HasNoHits)
+        {
+            <span class="sb-policy-card-no-hits">waiting for traffic</span>
+        }
+        @if (Model.AutoPromoteAt is not null)
+        {
+            <span class="sb-policy-card-auto-promote">
+                auto-promotes to LIVE @PolicyScheduleFormatter.ToRelativeOrAbsolute(Model.AutoPromoteAt.Value)
+            </span>
+        }
+        @if (Model.IsDiverged && Model.Origin is not null)
+        {
+            <span class="sb-policy-card-diverged">diverged from template <code>@Model.Origin.TemplateId</code></span>
+        }
+    </footer>
 </article>
