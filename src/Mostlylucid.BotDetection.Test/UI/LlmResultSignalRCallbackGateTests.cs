@@ -67,11 +67,17 @@ public class LlmResultSignalRCallbackGateTests : IDisposable
         // Belt-and-braces: also pin the original parasite path. With a
         // composer-set name already on the row, the LLM callback must leave
         // it alone (description is the only side effect).
+        //
+        // Seed name is an allowed shape per FingerprintNameComposerContract --
+        // T24a now gates UpdateDisplayNameAsync at the store boundary, so a
+        // seed containing '/' or parentheses would be normalised to Unknown
+        // <hex> and the assertion would be about the gate, not the LLM
+        // no-overwrite contract this test exists to pin.
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
         await store.InsertFingerprintAsync(NewFingerprint("fp-human", dim), primarySignature: "sig-human");
         await store.UpdateDisplayNameAsync(
-            "fp-human", "Chrome 149 / macOS", DateTime.UtcNow, source: "matcher");
+            "fp-human", "Chrome 149", DateTime.UtcNow, source: "matcher");
 
         var callback = NewCallback();
         await callback.OnSignatureDescriptionAsync(
@@ -81,7 +87,7 @@ public class LlmResultSignalRCallbackGateTests : IDisposable
 
         var fp = await store.GetFingerprintAsync("fp-human");
         Assert.NotNull(fp);
-        Assert.Equal("Chrome 149 / macOS", fp!.DisplayName);
+        Assert.Equal("Chrome 149", fp!.DisplayName);
     }
 
     private async Task<SqliteFingerprintStore> NewStoreAsync()

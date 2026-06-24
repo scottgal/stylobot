@@ -388,7 +388,14 @@ public class SqliteFingerprintStore : IFingerprintStore
             cmd.Parameters.AddWithValue("@cached_updated",
                 (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@ambiguity", fp.AmbiguityPersistence);
-            cmd.Parameters.AddWithValue("@display_name", fp.DisplayName ?? "");
+            // Contract gate at the row's initial allocation. The matcher seeds the
+            // display name on the brand-new fingerprint record from FingerprintNameComposer
+            // (verifiedbot path) or persistedDisplayName (new-allocation path); a banned
+            // shape from either path must never land on disk. Empty string passes through
+            // so the no-name-yet allocation case still works.
+            cmd.Parameters.AddWithValue(
+                "@display_name",
+                NormaliseBannedShape(fp.DisplayName, fp.FingerprintId, primarySignature));
             cmd.Parameters.AddWithValue("@display_name_updated",
                 fp.DisplayNameUpdatedAt == default ? "" : fp.DisplayNameUpdatedAt.ToString("O"));
             // root_centroid is the reference drift is measured against. The matcher
@@ -508,6 +515,16 @@ public class SqliteFingerprintStore : IFingerprintStore
         string source = "matcher")
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;
+
+        // Contract gate at the single durable write boundary. The matcher's
+        // EmitDisplayNameSignal calls here directly (not via the signature-keyed
+        // helper), and the gate must fire here too so a banned shape from any
+        // caller -- matcher recompose, operator label, legacy import -- can't
+        // land. Mirrors UpdateDisplayNameForSignatureAsync. Empty string is
+        // passthrough so the absorption service's "clear name on archetype flip"
+        // path still works.
+        displayName = NormaliseBannedShape(displayName, fingerprintId);
+
         await EnsureInitialisedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -674,13 +691,30 @@ public class SqliteFingerprintStore : IFingerprintStore
         var fingerprintId = await LookupFingerprintIdAsync(primarySignature, ct);
         if (fingerprintId is null) return;
 
-        if (!Services.FingerprintNameComposerContract.IsAllowedShape(displayName))
-        {
-            displayName = BuildUnknownFallback(fingerprintId, primarySignature);
-            System.Threading.Interlocked.Increment(ref _bannedShapeRejections);
-        }
+        displayName = NormaliseBannedShape(displayName, fingerprintId, primarySignature);
 
         await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct, source);
+    }
+
+    /// <summary>
+    ///     Shared display-name contract gate. Every write path that lands a value
+    ///     in <c>display_name</c> funnels through this helper so a banned shape
+    ///     can never reach the row no matter which entry point fired -- T24
+    ///     staging found rows like <c>"Chrome Desktop (missing client hints)"</c>
+    ///     persisted by paths that bypassed the original
+    ///     <see cref="UpdateDisplayNameForSignatureAsync"/>-only gate. Empty /
+    ///     null values are passthrough: callers (e.g. the absorption service
+    ///     clearing a stale name after archetype flip) intentionally write
+    ///     empty-string to reset the field, and an empty string is not a
+    ///     banned-shape rejection -- it's an explicit clear.
+    /// </summary>
+    private string NormaliseBannedShape(string? displayName, string fingerprintId, string? primarySignature = null)
+    {
+        if (string.IsNullOrEmpty(displayName)) return displayName ?? string.Empty;
+        if (Services.FingerprintNameComposerContract.IsAllowedShape(displayName))
+            return displayName;
+        System.Threading.Interlocked.Increment(ref _bannedShapeRejections);
+        return BuildUnknownFallback(fingerprintId, primarySignature ?? string.Empty);
     }
 
     private long _bannedShapeRejections;
