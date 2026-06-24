@@ -11,9 +11,12 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///
 ///     <para>
 ///         A1 produces the unsorted-but-correctly-filtered shape; A2 owns the
-///         specificity-desc + priority-asc sort, A3 owns the
-///         shadowed / overridden / unreachable annotations. Until A3 lands,
-///         <see cref="Annotations"/> is always empty.
+///         specificity-desc + priority-asc sort, A3 owns the shadowed
+///         annotation (the only kind A3 can fairly observe in the FOSS layer).
+///         <c>"overridden"</c> requires commercial parameter-override
+///         visibility and <c>"unreachable"</c> requires per-rule hit counts on
+///         <see cref="PolicyRule"/> -- both are deferred to A10 / a later
+///         phase.
 ///     </para>
 /// </summary>
 /// <param name="Owned">
@@ -28,7 +31,12 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     with the specificity-desc sort.
 /// </param>
 /// <param name="Annotations">
-///     Per-rule callouts (shadowed, overridden, unreachable). Empty until A3.
+///     Per-rule callouts (shadowed, overridden, unreachable). A3 emits the
+///     <c>"shadowed"</c> kind whenever an earlier (win-order) projection in
+///     <see cref="Effective"/> shares the same predicate hash. The
+///     <c>"overridden"</c> and <c>"unreachable"</c> kinds are reserved for the
+///     commercial resolver / A10 row builder once they can observe
+///     parameter overrides and hit counts respectively.
 /// </param>
 public sealed record EffectiveStackView(
     IReadOnlyList<EffectiveRuleProjection> Owned,
@@ -63,9 +71,22 @@ public sealed record EffectiveStackView(
 ///     <c>true</c> when <see cref="OwningScope"/> is NOT structurally equal
 ///     to the queried scope -- the rule walks down from an ancestor.
 /// </param>
-/// <param name="IsShadowed">A3 fills this. Always <c>false</c> in A1.</param>
-/// <param name="IsOverridden">A3 fills this. Always <c>false</c> in A1.</param>
-/// <param name="IsUnreachable">A3 fills this. Always <c>false</c> in A1.</param>
+/// <param name="IsShadowed">
+///     A3 sets this <c>true</c> when an earlier projection in
+///     <see cref="EffectiveStackView.Effective"/> (win-order) shares the same
+///     predicate hash (<see cref="PredicateHasher.Hash"/>). The earlier rule
+///     fires first, so this projection is dead at the queried scope.
+/// </param>
+/// <param name="IsOverridden">
+///     Reserved for the commercial resolver / A10 -- requires parameter-override
+///     visibility (<c>IConfigOverrideStore</c>) which the FOSS-side resolver
+///     cannot see. Always <c>false</c> in A3.
+/// </param>
+/// <param name="IsUnreachable">
+///     Reserved for the A10 row builder -- requires a per-rule hit-count
+///     signal that <see cref="PolicyRule"/> does not carry today. Always
+///     <c>false</c> in A3.
+/// </param>
 public sealed record EffectiveRuleProjection(
     Guid RuleId,
     PolicyStackRowViewModel? Row,

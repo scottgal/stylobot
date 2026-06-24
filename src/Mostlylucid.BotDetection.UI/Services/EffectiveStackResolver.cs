@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Policies.Predicate;
 using Mostlylucid.BotDetection.Policies.Rules;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -27,9 +28,39 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     </para>
 ///
 ///     <para>
+///         <b>A3 annotation pass.</b> After the A2 sort, walk the Effective list
+///         once. The list is already in win-order, so any projection whose
+///         predicate hash matches an earlier projection's hash is shadowed by
+///         the earlier rule (it would never fire at the queried scope because
+///         the more-specific / lower-priority earlier rule wins first). The
+///         pass emits <c>"shadowed"</c> annotations and flips
+///         <see cref="EffectiveRuleProjection.IsShadowed"/> on the loser.
+///     </para>
+///
+///     <para>
 ///         <b>What this does NOT do yet.</b>
 ///         <list type="bullet">
-///           <item><description>Compute shadowed/overridden/unreachable annotations -- A3 owns that.</description></item>
+///           <item><description>
+///             <c>"overridden"</c>: parameter-override visibility lives in the
+///             commercial layer (<c>IConfigOverrideStore</c>); the FOSS-side
+///             resolver has no hook to observe overrides, so A3 leaves the
+///             <see cref="EffectiveRuleProjection.IsOverridden"/> flag and the
+///             override-annotation emission for the commercial resolver / A10.
+///           </description></item>
+///           <item><description>
+///             <c>"unreachable"</c>: requires a per-rule "zero hits in window"
+///             signal. <see cref="PolicyRule"/> does not carry hit counts
+///             today; A10's row builder is the natural place to fold in
+///             telemetry. A3 leaves <see cref="EffectiveRuleProjection.IsUnreachable"/>
+///             permanently <c>false</c> until that signal is wired.
+///           </description></item>
+///           <item><description>
+///             Predicate <i>subsumption</i> (e.g. <c>bot.type in (scraper, ai-crawler)</c>
+///             shadows <c>bot.type = scraper</c>) is intentionally out of scope:
+///             A3 only matches by structural-hash equality via
+///             <see cref="PredicateHasher.Hash"/>. Subsumption requires a SAT-ish
+///             walk over the AST and lands in a later phase.
+///           </description></item>
 ///           <item><description>Build row view-models -- the presenter (A10) supplies the row builder.</description></item>
 ///         </list>
 ///     </para>
@@ -55,9 +86,9 @@ public sealed class EffectiveStackResolver : IEffectiveStackResolver
                 Row: null, // A10 wires the row builder; A1 leaves this null.
                 OwningScope: rule.Scope,
                 IsInherited: isInherited,
-                IsShadowed: false, // A3
-                IsOverridden: false, // A3
-                IsUnreachable: false); // A3
+                IsShadowed: false, // A3 fills this below.
+                IsOverridden: false, // A3 leaves false -- see class comment.
+                IsUnreachable: false); // A3 leaves false -- see class comment.
 
             effective.Add(projection);
             if (!isInherited) owned.Add(projection);
@@ -68,8 +99,10 @@ public sealed class EffectiveStackResolver : IEffectiveStackResolver
         // because the projection doesn't carry it (and adding a field is A10's
         // job, not ours). Build a quick id->priority lookup so the sort is
         // O(n log n) rather than O(n^2) on rule scans.
-        var priorityById = new Dictionary<Guid, int>(allRules.Count);
-        for (var i = 0; i < allRules.Count; i++) priorityById[allRules[i].Id] = allRules[i].Priority;
+        // The same lookup also keys the A3 annotation pass by rule id, so we
+        // build a rule-by-id dictionary once and reuse it.
+        var ruleById = new Dictionary<Guid, PolicyRule>(allRules.Count);
+        for (var i = 0; i < allRules.Count; i++) ruleById[allRules[i].Id] = allRules[i];
 
         effective.Sort((a, b) =>
         {
@@ -80,14 +113,81 @@ public sealed class EffectiveStackResolver : IEffectiveStackResolver
             var spec = b.OwningScope.Specificity.CompareTo(a.OwningScope.Specificity);
             if (spec != 0) return spec;
             // Ascending priority: lower number = higher precedence.
-            return priorityById[a.RuleId].CompareTo(priorityById[b.RuleId]);
+            return ruleById[a.RuleId].Priority.CompareTo(ruleById[b.RuleId].Priority);
         });
+
+        // A3 annotation pass: post-sort walk. The list is in win-order, so for
+        // each projection at index i, any earlier projection (index < i) with
+        // the same predicate hash is the one that actually fires at the
+        // queried scope -- this projection is shadowed by that earlier rule.
+        //
+        // PredicateHasher.Hash is the codebase's canonical structural-equality
+        // hash (SustainEvaluator keys atoms by it). We rely on hash equality
+        // only; subsumption-based shadowing is deferred (see class summary).
+        //
+        // Pre-compute hashes once per projection so the inner Take-scan is
+        // O(n^2) hash compares instead of O(n^2) full PredicateHasher walks.
+        var annotations = new List<EffectiveAnnotation>();
+        var hashes = new int[effective.Count];
+        for (var i = 0; i < effective.Count; i++)
+            hashes[i] = PredicateHasher.Hash(ruleById[effective[i].RuleId].Predicate);
+
+        for (var i = 0; i < effective.Count; i++)
+        {
+            var hash = hashes[i];
+            EffectiveRuleProjection? shadower = null;
+            for (var j = 0; j < i; j++)
+            {
+                if (hashes[j] != hash) continue;
+                shadower = effective[j];
+                break;
+            }
+
+            if (shadower is null) continue;
+
+            effective[i] = effective[i] with { IsShadowed = true };
+            annotations.Add(new EffectiveAnnotation(
+                Kind: "shadowed",
+                RuleId: effective[i].RuleId,
+                DetailText: $"shadowed by rule at more-specific scope ({DescribeScope(shadower.OwningScope)})"));
+        }
+
+        // Keep the Owned list referentially consistent with Effective: if a
+        // post-sort projection was flagged shadowed, the matching Owned entry
+        // (added during the initial filter pass) still has IsShadowed=false.
+        // Re-sync by replacing each Owned entry with its Effective counterpart
+        // by RuleId so consumers reading Owned see the same annotation flags.
+        if (annotations.Count > 0 && owned.Count > 0)
+        {
+            var effectiveById = effective.ToDictionary(p => p.RuleId);
+            for (var i = 0; i < owned.Count; i++)
+            {
+                if (effectiveById.TryGetValue(owned[i].RuleId, out var updated))
+                    owned[i] = updated;
+            }
+        }
 
         return new EffectiveStackView(
             Owned: owned,
             Effective: effective,
-            Annotations: Array.Empty<EffectiveAnnotation>());
+            Annotations: annotations);
     }
+
+    /// <summary>
+    ///     Short human-readable scope label used in the
+    ///     <see cref="EffectiveAnnotation.DetailText"/> for shadowed rules.
+    ///     Mirrors the dashboard's "scope group" labelling so the annotation
+    ///     points at a scope the operator can find in the same panel.
+    /// </summary>
+    private static string DescribeScope(PolicyScope scope) => scope.Host switch
+    {
+        HostScope.Endpoint e => $"endpoint {e.PathTemplate} on {e.DomainName}",
+        HostScope.Subdomain s => string.IsNullOrEmpty(s.SubdomainName)
+            ? $"domain {s.DomainName}"
+            : $"subdomain {s.SubdomainName}.{s.DomainName}",
+        HostScope.Domain d => $"domain {d.Name}",
+        _ => "wildcard scope",
+    };
 
     /// <summary>
     ///     True when <paramref name="ruleScope"/> applies at <paramref name="queriedScope"/>:
