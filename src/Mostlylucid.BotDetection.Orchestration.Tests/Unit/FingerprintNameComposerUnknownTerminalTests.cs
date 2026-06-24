@@ -94,98 +94,22 @@ public class FingerprintNameComposerUnknownTerminalTests
         Assert.Equal("Unknown abcdef12", name);
     }
 
-    [Fact]
-    public void Priority3_with_full_signals_yields_os_family_version()
-    {
-        // Single source of truth for the displayed name. When UA gives us OS +
-        // family + version, the name carries all three so the row uniquifies
-        // ("Win Chrome 146" not bare "Chrome").
-        var signals = new Dictionary<string, object>
-        {
-            [SignalKeys.UserAgentFamily]        = "Chrome",
-            [SignalKeys.UserAgentFamilyVersion] = "146.0.6261.94",
-            [SignalKeys.UserAgentOs]            = "Windows",
-        };
-
-        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
-
-        Assert.Equal("Win Chrome 146", name);
-    }
-
-    [Fact]
-    public void Priority3_mac_safari_short_form()
-    {
-        var signals = new Dictionary<string, object>
-        {
-            [SignalKeys.UserAgentFamily]        = "Safari",
-            [SignalKeys.UserAgentFamilyVersion] = "17.5",
-            [SignalKeys.UserAgentOs]            = "macOS",
-        };
-
-        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
-
-        Assert.Equal("Mac Safari 17", name);
-    }
-
-    [Fact]
-    public void Priority3_ios_passes_through_unchanged()
-    {
-        var signals = new Dictionary<string, object>
-        {
-            [SignalKeys.UserAgentFamily]        = "Mobile Safari",
-            [SignalKeys.UserAgentFamilyVersion] = "13",
-            [SignalKeys.UserAgentOs]            = "iOS",
-        };
-
-        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
-
-        Assert.Equal("iOS Mobile Safari 13", name);
-    }
-
-    [Fact]
-    public void Priority3_falls_back_when_version_missing()
-    {
-        // Version not in signals and UA can't supply it -> name drops version,
-        // keeps OS+family so it's still informative.
-        var signals = new Dictionary<string, object>
-        {
-            [SignalKeys.UserAgentFamily] = "Chrome",
-            [SignalKeys.UserAgentOs]     = "Windows",
-        };
-
-        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
-
-        Assert.Equal("Win Chrome", name);
-    }
-
-    [Fact]
-    public void Priority3_falls_back_when_os_missing()
-    {
-        var signals = new Dictionary<string, object>
-        {
-            [SignalKeys.UserAgentFamily]        = "Chrome",
-            [SignalKeys.UserAgentFamilyVersion] = "146",
-        };
-
-        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: null);
-
-        Assert.Equal("Chrome 146", name);
-    }
-
-    [Fact]
-    public void Priority3_parses_version_from_raw_UA_when_signals_missing()
-    {
-        // Cold path: signals dict doesn't yet carry family/version because the
-        // matcher fires before UA contributor. UA string is enough -- composer
-        // self-rescues via UserAgentParser.Parse.
-        var signals = new Dictionary<string, object>();
-        var ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                 "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
-
-        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abcdef12", userAgent: ua);
-
-        Assert.Equal("Win Chrome 146", name);
-    }
+    // REMOVED: the 6 "Win Chrome 146" / "Mac Safari 17" tests pinned the
+    // {OS-short} {family} {major-version} shape from commit 760fd0e1. That
+    // shape was reverted in 3ca80b92 ("re-apply T5") per the user directive:
+    // "Mac Chrome 149 w/ uBlock -- multi-word descriptive synthetics, even if
+    // accurate, fight the bot-name / browser-family / unknown trichotomy.
+    // Drop. (Task #121 was the wrong direction.)"
+    //
+    // Priority 3 now returns the UA family UNCHANGED (plain "Chrome" / "Safari" /
+    // "Firefox"). Uniqueness comes from the existing BuildDistinctiveModifier
+    // path (ASN / country / IP /16) appended by FingerprintMatchContributor as
+    // "{family} ({mod})" -- and ONLY on collision (when a different fingerprint
+    // already owns the bare-family name). See spec at
+    //   docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md
+    // and FingerprintNameComposerContract.IsAllowedShape (which rejects names
+    // with parens / slashes / " w/ " on the composer-output side; the matcher's
+    // collision-suffix is the only sanctioned `(...)` form).
 
     // The matcher-side Priority 1.5 branch was removed -- verdict-honest naming
     // is now enforced at DetectionLedgerExtensions.BuildEvidenceFromLedger where

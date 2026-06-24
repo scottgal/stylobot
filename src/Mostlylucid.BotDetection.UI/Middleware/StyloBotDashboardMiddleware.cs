@@ -5690,10 +5690,22 @@ public class StyloBotDashboardMiddleware
             else if (checkedFlag || !string.IsNullOrEmpty(uaTrustMethod)) uaTrustState = "unverified";
         }
 
-        // Headline fields ALL come from the latest detection, never from the cache. This
-        // is what keeps the signature-detail page in agreement with the home "Your
-        // Detection" card and the Top Bots row -- all three surfaces now read the same
-        // most-recent persisted row for the same signature.
+        // Name goes through the canonical read-through path -- SignatureAggregateCache
+        // is the LFU source of truth at read time and the matcher's recompose keeps
+        // it fresh, so the detail page agrees with the list, the visitor card, and the
+        // Top Bots row by construction. latest.BotName becomes the cache-miss fallback,
+        // not the primary; the pre-2026-06-24 raw read of latest.BotName was the
+        // list-vs-detail divergence the user called out ("list says X, click through
+        // says Y") and the path that was rendering stale "Chrome Desktop" / "Unknown
+        // 000000" rows after the matcher had already recomposed to the right name.
+        // Other headline fields (risk band, probability, action, threat) still come
+        // from the latest detection row -- they are not subject to the matcher
+        // recompose and the user's "one name at a time" rule is about identity, not
+        // verdict shape.
+        var detailSigLookup = await _eventStore.LoadSignatureLookupAsync();
+        var canonicalDetailName = detailSigLookup.ResolveBotName(
+            _signatureCache, decodedSignature, latest.BotName);
+
         model = new SignatureDetailModel
         {
             SignatureId = decodedSignature,
@@ -5702,7 +5714,7 @@ public class StyloBotDashboardMiddleware
             CspNonce = cspNonce,
             HubPath = _options.HubPath,
             Found = true,
-            BotName = latest.BotName,
+            BotName = canonicalDetailName,
             BotType = latest.BotType,
             RiskBand = latest.RiskBand,
             BotProbability = latest.BotProbability,
@@ -6683,6 +6695,13 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 if (detections.Count > 0)
                 {
                     var d = detections[0];
+                    // Name goes through the same canonical resolver the visitor list
+                    // uses so the "Your Detection" card and the rest of the dashboard
+                    // can't disagree on the same signature. d.BotName is the cache-miss
+                    // fallback, not the primary.
+                    var yourSigLookup = await _eventStore.LoadSignatureLookupAsync();
+                    var canonicalYourName = yourSigLookup.ResolveBotName(
+                        signatureCache, sigs.PrimarySignature, d.BotName);
                     return new YourDetectionModel
                     {
                         HasData = true,
@@ -6695,7 +6714,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                         BasePath = _options.BasePath.TrimEnd('/'),
                         CountryCode = d.CountryCode,
                         UserAgent = d.UserAgent,
-                        BotName = d.BotName,
+                        BotName = canonicalYourName,
                         BotType = d.BotType,
                     };
                 }

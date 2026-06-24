@@ -37,10 +37,34 @@ public static class SessionEnrichmentExtensions
     }
 
     /// <summary>
-    ///     Resolve a session's display name in order of preference: the stored value (if the
-    ///     session row already had one), then the in-memory cache, then the persistent
-    ///     dashboard_signatures lookup. Returns null when no name is known anywhere; callers
-    ///     fall back to the raw signature substring.
+    ///     Resolve a signature's display name from the canonical read-through path.
+    ///     The LFU <see cref="SignatureAggregateCache"/> is the source of truth at
+    ///     read time -- it gets the latest composed name from the matcher's
+    ///     <c>EmitDisplayNameSignal</c> recompose, so the dashboard list, the
+    ///     signature-detail page, and the "Your Detection" card all see the same
+    ///     name on the same render.
+    ///
+    ///     Order:
+    ///     <list type="number">
+    ///         <item>Cache hit with a non-fallback name -> wins outright. The
+    ///             matcher's recompose path keeps this fresh; a stored / lookup
+    ///             value that hasn't caught up yet must NOT override.</item>
+    ///         <item>Stored name (last persisted detection's <c>bot_name</c>) when
+    ///             it's a real Priority-1/2 catalog name -- this is what carries
+    ///             the row through a cold dashboard render before the cache has
+    ///             been seeded for that signature.</item>
+    ///         <item>Cache hit even if fallback-shaped -- a fresh "Unknown" from
+    ///             the cache beats a missing lookup.</item>
+    ///         <item>The persisted <c>dashboard_signatures</c> lookup as last
+    ///             resort.</item>
+    ///     </list>
+    ///
+    ///     Crucially the stored value NEVER wins over a fresh non-fallback cache
+    ///     hit. That was the pre-2026-06-24 priority and it created the
+    ///     list-vs-detail divergence the user called out ("list shows X, click
+    ///     through to detail shows Y") because the detail page was raw-reading
+    ///     the stale <c>latest.bot_name</c> from the detection row while the list
+    ///     went through the cache.
     /// </summary>
     public static string? ResolveBotName(
         this Dictionary<string, string?> signatureLookup,
@@ -48,17 +72,31 @@ public static class SessionEnrichmentExtensions
         string signature,
         string? storedName)
     {
-        if (!string.IsNullOrEmpty(storedName)) return storedName;
-        // The in-memory cache no longer carries a BotName field; the resolved
-        // dict (populated by ApplyResolvedNames from IFingerprintStore) is the
-        // only on-the-gateway path. Falls through to the dashboard_signatures
-        // lookup when the cache hasn't been seeded yet.
-        if (cache is not null)
-        {
-            var cached = cache.GetResolvedName(signature);
-            if (!string.IsNullOrEmpty(cached)) return cached;
-        }
-        return signatureLookup.TryGetValue(signature, out var name) ? name : null;
+        var cached = cache?.GetResolvedName(signature);
+
+        // Cache wins over stored as long as the cache value isn't a fallback
+        // ("Unknown ..." / "analysing" / UA-prefix). A fresh real name from the
+        // matcher recompose beats a stale stored name on the detection row.
+        if (!string.IsNullOrEmpty(cached)
+            && !Mostlylucid.BotDetection.Services.FingerprintNameComposer.IsFallback(cached))
+            return cached;
+
+        // Stored name is the cold-render fallback (dashboard renders before the
+        // cache is seeded for this signature). Still only when it's a real name --
+        // a previously-persisted fallback ("Chrome Desktop" before the verdict-
+        // honest rewrite, "Unknown 0..." pre-cleanup) must yield to the cache.
+        if (!string.IsNullOrEmpty(storedName)
+            && !Mostlylucid.BotDetection.Services.FingerprintNameComposer.IsFallback(storedName))
+            return storedName;
+
+        // Cache wins for fallbacks too -- fresh "Unknown" beats nothing.
+        if (!string.IsNullOrEmpty(cached)) return cached;
+
+        // Final resort: the persistent signatures-lookup dict (loaded from
+        // dashboard_signatures.bot_name via LoadSignatureLookupAsync). Then null.
+        if (signatureLookup.TryGetValue(signature, out var name) && !string.IsNullOrEmpty(name))
+            return name;
+        return !string.IsNullOrEmpty(storedName) ? storedName : null;
     }
 
     /// <summary>
