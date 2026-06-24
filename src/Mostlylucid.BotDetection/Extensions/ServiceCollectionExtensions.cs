@@ -1277,7 +1277,10 @@ public static class ServiceCollectionExtensions
                 highStarvedTicks: o.HighStarvedTicks,
                 criticalStarvedTicks: o.CriticalStarvedTicks,
                 highGen2PerSec: o.HighGen2PerSec,
-                criticalGen2PerSec: o.CriticalGen2PerSec);
+                criticalGen2PerSec: o.CriticalGen2PerSec,
+                baselineWindowSamples: o.BaselineWindowSamples,
+                baselinePercentile: o.BaselinePercentile,
+                baselineUpwardDriftPerTick: o.BaselineUpwardDriftPerTick);
         });
         services.AddSingleton<Services.ILoadBandSource>(sp => sp.GetRequiredService<Services.PipelineLoadSensor>());
         services.AddSingleton<Services.LoadShedDecision>();

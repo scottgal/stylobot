@@ -72,6 +72,19 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     private readonly double _highGen2PerSec;
     private readonly double _criticalGen2PerSec;
 
+    // --- baseline window ---
+    private readonly double[] _latencyWindow;
+    private readonly double[] _rttWindow;
+    private readonly int _baselineWindowSize;
+    private readonly double _baselinePercentile;
+    private readonly double _baselineUpwardDriftPerTick;
+    private int _latencyWindowWriteIdx;
+    private int _latencyWindowFilled;
+    private int _rttWindowWriteIdx;
+    private int _rttWindowFilled;
+    private readonly object _latencyWindowLock = new();
+    private readonly object _rttWindowLock = new();
+
     private readonly Timer _ticker;
 
     // RPS tracking (still exposed for backward compat)
@@ -113,7 +126,9 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             normalRps, highRps, criticalRps,
             highRatio: 2.0, criticalRatio: 5.0,
             highStarvedTicks: 3, criticalStarvedTicks: 6,
-            highGen2PerSec: 1.0, criticalGen2PerSec: 2.0)
+            highGen2PerSec: 1.0, criticalGen2PerSec: 2.0,
+            baselineWindowSamples: 120, baselinePercentile: 0.10,
+            baselineUpwardDriftPerTick: 0.001)
     { }
 
     /// <summary>
@@ -130,7 +145,10 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
         int highStarvedTicks,
         int criticalStarvedTicks,
         double highGen2PerSec,
-        double criticalGen2PerSec)
+        double criticalGen2PerSec,
+        int baselineWindowSamples = 120,
+        double baselinePercentile = 0.10,
+        double baselineUpwardDriftPerTick = 0.001)
     {
         _normalRps             = normalRps;
         _highRps               = highRps;
@@ -141,6 +159,12 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
         _criticalStarvedTicks  = criticalStarvedTicks;
         _highGen2PerSec        = highGen2PerSec;
         _criticalGen2PerSec    = criticalGen2PerSec;
+
+        _baselineWindowSize          = Math.Max(8, baselineWindowSamples);
+        _baselinePercentile          = Math.Clamp(baselinePercentile, 0.0, 0.5);
+        _baselineUpwardDriftPerTick  = Math.Max(0.0, baselineUpwardDriftPerTick);
+        _latencyWindow               = new double[_baselineWindowSize];
+        _rttWindow                   = new double[_baselineWindowSize];
 
         _lastGen2Count = GC.CollectionCount(2);
 
@@ -334,24 +358,23 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             var newLat = Ewma.Update(prevLat, meanUs, Alpha);
             Interlocked.Exchange(ref _latencyEmaUs, newLat);
 
-            // Baseline tracks the MIN of recent samples instead of an EMA
-            // mean. The min captures the system's healthy steady state;
-            // pressure events can't lower it, so the ratio (fastEma / min)
-            // stays high during sustained pressure and we keep firing the
-            // band. The previous EMA-mean approach got contaminated during
-            // initial-traffic warmup and drifted up, masking subsequent
-            // pressure. The min only decays UPWARD at 1%/tick — slowly
-            // enough that real diurnal latency drift is eventually tracked
-            // but a 10-min pressure event won't dominate.
-            // Baseline tracks the minimum sample ever observed. Pressure
-            // events can't move it; only a genuinely-healthier observation
-            // can. Means a sustained pressure event keeps reading
-            // pressureMean / minObserved which stays above the ratio
-            // thresholds and keeps the shed firing. Real long-term drift
-            // (different workload, new hardware) isn't tracked — by design;
-            // operators can reset the sensor or restart the process.
-            var prevBase = Volatile.Read(ref _latencyBaselineUs);
-            var newBase = prevBase == 0 ? meanUs : Math.Min(meanUs, prevBase);
+            // Baseline is the configured percentile of a rolling window
+            // (default 10th of last 120 samples). The fast end of recent
+            // reality, robust to one anomalously-fast warmup sample. The
+            // pre-2026-06-24 implementation locked the baseline to the
+            // all-time min, which on low-traffic deployments captured the
+            // first ultra-fast warmup sample (~0.1ms) and made every
+            // subsequent real request read as 50-100x over baseline, tripping
+            // LoadBand.Critical and refusing traffic with 503. The percentile
+            // window can drift up when the workload genuinely shifts, so
+            // operators no longer need a process restart to recover.
+            var prevLatBase = Volatile.Read(ref _latencyBaselineUs);
+            var latWarmedUp = Volatile.Read(ref _latencyBaselineSamples) >= BaselineWarmupTicks;
+            var newBase = UpdateRollingBaseline(
+                _latencyWindow, _latencyWindowLock,
+                ref _latencyWindowWriteIdx, ref _latencyWindowFilled,
+                meanUs, _baselinePercentile,
+                prevLatBase, latWarmedUp, _baselineUpwardDriftPerTick);
             Interlocked.Exchange(ref _latencyBaselineUs, newBase);
             Interlocked.Increment(ref _latencyBaselineSamples);
         }
@@ -366,8 +389,13 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             var newRtt = Ewma.Update(prevRtt, meanUs, Alpha);
             Interlocked.Exchange(ref _rttEmaUs, newRtt);
 
-            var prevBase = Volatile.Read(ref _rttBaselineUs);
-            var newBase = prevBase == 0 ? meanUs : Math.Min(meanUs, prevBase);
+            var prevRttBase = Volatile.Read(ref _rttBaselineUs);
+            var rttWarmedUp = Volatile.Read(ref _rttBaselineSamples) >= BaselineWarmupTicks;
+            var newBase = UpdateRollingBaseline(
+                _rttWindow, _rttWindowLock,
+                ref _rttWindowWriteIdx, ref _rttWindowFilled,
+                meanUs, _baselinePercentile,
+                prevRttBase, rttWarmedUp, _baselineUpwardDriftPerTick);
             Interlocked.Exchange(ref _rttBaselineUs, newBase);
             Interlocked.Increment(ref _rttBaselineSamples);
         }
@@ -384,6 +412,46 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
         _lastGen2Count = gen2Now;
         var prevGen2 = Volatile.Read(ref _gen2PerSecondEma);
         Interlocked.Exchange(ref _gen2PerSecondEma, Ewma.Update(prevGen2, gen2Delta, Alpha));
+    }
+
+    /// <summary>
+    ///     Writes one sample into the rolling window and returns the new
+    ///     baseline. During warmup (filled &lt; <c>BaselineWarmupTicks</c>) the
+    ///     baseline tracks the percentile freely so a bad initial outlier
+    ///     gets washed out within ~50 ticks. After warmup the baseline can
+    ///     drop freely (genuine improvements are tracked immediately) but
+    ///     upward movement is capped at <paramref name="upwardDriftPerTick"/>
+    ///     so a sustained pressure event cannot wash the baseline up to
+    ///     match itself.
+    /// </summary>
+    private static double UpdateRollingBaseline(
+        double[] window,
+        object gate,
+        ref int writeIdx,
+        ref int filled,
+        double sampleUs,
+        double percentile,
+        double prevBaseline,
+        bool warmedUp,
+        double upwardDriftPerTick)
+    {
+        double candidate;
+        lock (gate)
+        {
+            window[writeIdx] = sampleUs;
+            writeIdx = (writeIdx + 1) % window.Length;
+            if (filled < window.Length) filled++;
+            var snapshot = new double[filled];
+            Array.Copy(window, snapshot, filled);
+            Array.Sort(snapshot);
+            var idx = (int)Math.Floor(percentile * (filled - 1));
+            candidate = snapshot[Math.Clamp(idx, 0, filled - 1)];
+        }
+
+        if (!warmedUp || prevBaseline <= 0) return candidate;
+        if (candidate <= prevBaseline) return candidate;
+        var cap = prevBaseline * (1.0 + upwardDriftPerTick);
+        return Math.Min(candidate, cap);
     }
 }
 

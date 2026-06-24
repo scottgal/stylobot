@@ -179,4 +179,30 @@ public sealed class PipelineLoadSensorTests
         Assert.NotEqual(LoadBand.Low, s.CurrentBand);
         Assert.NotEqual(LoadBand.Normal, s.CurrentBand);
     }
+
+    [Fact]
+    public void Baseline_RecoversFromAnomalouslyFastWarmupSample()
+    {
+        // Regression for the staging-503 issue: on a low-traffic deployment
+        // the first sample after start can be anomalously fast (~0.1ms — a
+        // local warm call before real traffic begins). The pre-fix baseline
+        // tracked the all-time min and locked there, so every later real
+        // request read as 50-100x over baseline and tripped Critical, which
+        // refused half the site with 503 + Retry-After. The percentile
+        // window must wash the outlier out within ~window-length ticks and
+        // the band must come back to Low under normal load.
+        var s = New();
+
+        // One ultra-fast outlier (e.g. a startup health-check call), then
+        // 120 ticks of representative normal-traffic latency. With the old
+        // min-baseline that single 0.05ms sample would dominate forever.
+        s.RecordDetectionLatency(0.05);
+        s.TickOnce();
+        for (var i = 0; i < 130; i++)
+        {
+            s.RecordDetectionLatency(8);
+            s.TickOnce();
+        }
+        Assert.Equal(LoadBand.Low, s.CurrentBand);
+    }
 }

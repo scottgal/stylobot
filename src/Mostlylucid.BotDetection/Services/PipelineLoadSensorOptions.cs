@@ -56,4 +56,35 @@ public sealed class PipelineLoadSensorOptions
 
     /// <summary>Gen2 collections/sec EMA that trips Critical. Default 2.0.</summary>
     public double CriticalGen2PerSec { get; set; } = 2.0;
+
+    // --- baseline window ---
+
+    /// <summary>
+    ///     Number of one-second samples held in the latency / RTT baseline window.
+    ///     The baseline is the <see cref="BaselinePercentile"/>-th value of this
+    ///     window, recomputed on each tick. Larger windows resist transient
+    ///     pressure spikes; smaller windows track real long-term drift faster.
+    ///     Default 120 (2 minutes).
+    /// </summary>
+    public int BaselineWindowSamples { get; set; } = 120;
+
+    /// <summary>
+    ///     Percentile (0.0 - 1.0) of the baseline window used as the "healthy
+    ///     steady state" floor. The fast end of recent reality, robust to a
+    ///     single anomalously-fast warmup sample (the previous min-tracking
+    ///     baseline locked on that sample and made every later request read
+    ///     as 50-100x over baseline on low-traffic deployments). Default 0.10
+    ///     (10th percentile).
+    /// </summary>
+    public double BaselinePercentile { get; set; } = 0.10;
+
+    /// <summary>
+    ///     Maximum fraction the baseline can drift UPWARD per tick once the
+    ///     warmup window has filled. Stops a sustained pressure event from
+    ///     washing the baseline up to match itself (which would mask the
+    ///     pressure). Downward movement is unrestricted -- genuine speedups
+    ///     are tracked immediately. Default 0.001 (0.1% per tick = ~12 minute
+    ///     half-life for real diurnal drift).
+    /// </summary>
+    public double BaselineUpwardDriftPerTick { get; set; } = 0.001;
 }
