@@ -84,5 +84,86 @@
                 </div>
             </div>
         }
+
+        @* Recent log entries panel. The rows here come from the gateway's
+           FingerprintTimelineAtom (per-fingerprint LFU sliding cache that already
+           indexes every span/log/metric the gateway receives) -- we deliberately
+           read from that cache instead of holding a parallel ring. The Priority
+           column shows the fingerprint's LFU hit-count so the operator can see
+           WHY a row floated up: "this fp has 1,247 cached observations, here are
+           its last log lines." Bodies are PII-scrubbed at the provider boundary. *@
+        <div class="card bg-base-100 shadow-sm rounded-xl border border-base-300">
+            <div class="card-body p-3 md:p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="card-title text-base">Recent log lines</h3>
+                    <span class="text-[11px] text-base-content/50">
+                        from per-fingerprint LFU cache · PII scrubbed
+                    </span>
+                </div>
+                @if (Model.RecentEntries.Count == 0)
+                {
+                    <div class="text-sm text-base-content/60 py-3">
+                        No log lines in the gateway's LFU cache yet. They'll start
+                        appearing as soon as the ASP.NET pack drains a batch.
+                    </div>
+                }
+                else
+                {
+                    <div class="overflow-x-auto">
+                        <table class="table table-zebra table-sm sb-aspnet-pack__row-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Level</th>
+                                    <th>Category</th>
+                                    <th>Body</th>
+                                    <th class="text-right sb-aspnet-pack__num"
+                                        title="LFU hit-count for this entry's fingerprint -- higher = more cached observations">
+                                        Priority
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in Model.RecentEntries)
+                                {
+                                    var levelClass = entry.Level switch
+                                    {
+                                        Microsoft.Extensions.Logging.LogLevel.Critical or
+                                            Microsoft.Extensions.Logging.LogLevel.Error => "badge-error",
+                                        Microsoft.Extensions.Logging.LogLevel.Warning   => "badge-warning",
+                                        Microsoft.Extensions.Logging.LogLevel.Information => "badge-info",
+                                        _ => "badge-ghost"
+                                    };
+                                    <tr>
+                                        <td class="text-xs text-base-content/70 whitespace-nowrap font-mono">
+                                            @entry.TimestampUtc.ToString("HH:mm:ss.fff")
+                                        </td>
+                                        <td>
+                                            <span class="badge badge-sm @levelClass">@entry.Level</span>
+                                        </td>
+                                        <td class="text-xs text-base-content/80 font-mono whitespace-nowrap">
+                                            @entry.Category
+                                        </td>
+                                        <td class="text-xs">
+                                            <div class="truncate max-w-[40ch] md:max-w-[60ch]"
+                                                 title="@entry.ScrubbedBody">@entry.ScrubbedBody</div>
+                                            @if (!string.IsNullOrEmpty(entry.FingerprintId))
+                                            {
+                                                <div class="text-[10px] text-base-content/40 font-mono mt-0.5">
+                                                    fp: @entry.FingerprintId
+                                                </div>
+                                            }
+                                        </td>
+                                        <td class="text-right font-mono sb-aspnet-pack__num text-xs">
+                                            @entry.FingerprintPriority.ToString("N0")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
     }
 </section>
