@@ -417,6 +417,13 @@ public static class StyloBotDashboardServiceExtensions
         // registry never gets queried on FOSS hosts that haven't opted in.
         services.AddSingleton<DashboardTooltipRegistry>();
 
+        // Curated facet picker catalog — loads the ~25 webmaster-facing facets
+        // (label / value-type / per-facet operator subset) from FOSS-embedded
+        // YAML at Definitions/PolicyFacets/picker-catalog.yaml. The inline
+        // policy rule editor (B8) reads this for its facet dropdown; the raw
+        // 380+ SignalKeys remain accessible via the text DSL on expand.
+        services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
+
         // Static detection-side data the dashboard renders need. Registered as
         // TryAddSingleton so that hosts which also call AddBotDetection get
         // those richer registrations instead. Pure dashboard-viewer hosts

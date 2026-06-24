@@ -1,0 +1,192 @@
+# Curated webmaster-facing facets for the policy rule editor.
+#
+# The 380+ raw SignalKeys constants remain accessible via the raw text DSL
+# on expand; this picker narrows the menu webmasters see in the inline
+# editor to ~25 of the most-useful facets, each with a friendly label and a
+# per-facet operator subset.
+#
+# Each entry:
+#   label:    webmaster-visible string ("Bot type", not "ua.bot_type")
+#   facet:    actual SignalKey value, verified against
+#             Models/DetectionContext.cs. Never invented.
+#   type:     value type the picker UI renders
+#             (enum / number / bool / string / glob)
+#   ops:      operator subset valid for this facet
+#             (subset of the grammar's canonical operators)
+#   values:   when type == enum, the allowed value list. PascalCase mirrors
+#             the source enum (e.g. BotType.AiBot.ToString()) so the
+#             InList comparison -- which is ordinal/case-sensitive -- can
+#             actually match what contributors write.
+#   range:    when type == number, { min, max, step } for the slider.
+#   help:     one-line operator-readable hint shown in the picker dropdown.
+
+version: 1
+facets:
+  - label: "Bot type"
+    facet: "ua.bot_type"
+    type: enum
+    ops: [eq, in, not_in]
+    values:
+      - Unknown
+      - SearchEngine
+      - SocialMediaBot
+      - MonitoringBot
+      - Scraper
+      - MaliciousBot
+      - GoodBot
+      - VerifiedBot
+      - AiBot
+      - Tool
+      - ExploitScanner
+      - ClickFraud
+      - Internal
+    help: "What kind of bot this user-agent looks like. Case-sensitive."
+
+  - label: "Bot family"
+    facet: "ua.family"
+    type: string
+    ops: [eq, contains, matches]
+    help: "Browser or bot family from the UA parser (Chrome, Firefox, Googlebot)."
+
+  - label: "User-agent is bot"
+    facet: "ua.is_bot"
+    type: bool
+    ops: [eq]
+    help: "True when the UA parser classifies this request as a bot."
+
+  - label: "Verified bot name"
+    facet: "verifiedbot.name"
+    type: string
+    ops: [eq, in]
+    help: "Name of the verified bot when reverse-DNS / IP-range checks pass (Googlebot, Bingbot)."
+
+  - label: "Verified bot confirmed"
+    facet: "verifiedbot.confirmed"
+    type: bool
+    ops: [eq]
+    help: "True when the bot's claimed identity passed external verification."
+
+  - label: "Verified bot spoofed"
+    facet: "verifiedbot.spoofed"
+    type: bool
+    ops: [eq]
+    help: "True when a friendly UA failed verification (likely spoof)."
+
+  - label: "Risk band"
+    facet: "risk.band"
+    type: enum
+    ops: [eq, in, not_in]
+    values: [VeryLow, Low, Medium, High, VeryHigh]
+    help: "Final risk tier from DetermineRiskBand."
+
+  - label: "Risk score"
+    facet: "risk.score"
+    type: number
+    ops: [gte, lte, between]
+    range:
+      min: 0.0
+      max: 1.0
+      step: 0.05
+    help: "Aggregated bot-probability for this request (0.0 human, 1.0 bot)."
+
+  - label: "Country"
+    facet: "geo.country_code"
+    type: enum
+    ops: [in, not_in]
+    help: "ISO 3166-1 alpha-2 country code. Picker renders a search input."
+
+  - label: "From VPN"
+    facet: "geo.is_vpn"
+    type: bool
+    ops: [eq]
+    help: "True when the client IP resolves to a known VPN exit."
+
+  - label: "From Tor"
+    facet: "geo.is_tor"
+    type: bool
+    ops: [eq]
+    help: "True when the client IP is a Tor exit node."
+
+  - label: "From datacenter"
+    facet: "ip.is_datacenter"
+    type: bool
+    ops: [eq]
+    help: "True when the client IP is in a known datacenter ASN."
+
+  - label: "ASN"
+    facet: "ip.asn"
+    type: number
+    ops: [eq, in, not_in]
+    help: "Autonomous System Number of the client IP."
+
+  - label: "ASN org"
+    facet: "ip.asn_org"
+    type: string
+    ops: [contains, matches]
+    help: "Organisation name that owns the ASN (e.g. AMAZON-02)."
+
+  - label: "Path"
+    facet: "request.path"
+    type: glob
+    ops: [matches, eq]
+    help: "Request path. Glob: * matches one segment, ** matches across segments."
+
+  - label: "Domain"
+    facet: "request.domain"
+    type: string
+    ops: [eq, in]
+    help: "Full request host (example.com)."
+
+  - label: "Subdomain"
+    facet: "request.subdomain"
+    type: string
+    ops: [eq, in]
+    help: "Subdomain portion of the request host (api in api.example.com)."
+
+  - label: "HTTP method"
+    facet: "request.method"
+    type: enum
+    ops: [eq, in]
+    values: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
+    help: "HTTP verb of the request."
+
+  - label: "Has Accept header"
+    facet: "header.has_accept"
+    type: bool
+    ops: [eq]
+    help: "True when the request sent an Accept header. Real browsers always do."
+
+  - label: "Has Accept-Language header"
+    facet: "header.has_accept_language"
+    type: bool
+    ops: [eq]
+    help: "True when the request sent an Accept-Language header."
+
+  - label: "Sec-Fetch-Mode"
+    facet: "header.sec_fetch_mode"
+    type: string
+    ops: [eq, in]
+    help: "Sec-Fetch-Mode header value (navigate, cors, no-cors, same-origin, websocket)."
+
+  - label: "Hour of day"
+    facet: "time.hour_of_day"
+    type: number
+    ops: [between, gte, lte]
+    range:
+      min: 0
+      max: 23
+      step: 1
+    help: "Local hour of day from the configured time zone (0-23)."
+
+  - label: "Day of week"
+    facet: "time.day_of_week"
+    type: enum
+    ops: [in, eq]
+    values: [mon, tue, wed, thu, fri, sat, sun]
+    help: "Local day of week, lowercase three-letter abbreviation."
+
+  - label: "Lockdown active"
+    facet: "org.lockdown"
+    type: bool
+    ops: [eq]
+    help: "True when the operator has toggled the org-wide lockdown switch."
