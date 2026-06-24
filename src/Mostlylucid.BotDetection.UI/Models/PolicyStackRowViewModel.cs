@@ -62,6 +62,22 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     hold (the common case); FOSS-only hosts never set this because the
 ///     sweep service is a commercial-control-plane concern.
 /// </param>
+/// <param name="Action">
+///     The rule's authored action threaded straight from
+///     <see cref="PolicyRule.Action"/>. Band 2 (Body) of <c>_RuleCard.cshtml</c>
+///     feeds this through <see cref="Services.ActionVerbFormatter.ToSentence"/>
+///     to render the THEN line ("allow", "block", "challenge with turnstile",
+///     "rate-limit to 60/min", ...). The pre-rendered <see cref="ActionVerdict"/>
+///     string remains for any consumer that still wants the legacy pill copy.
+/// </param>
+/// <param name="Trigger">
+///     Optional sustain/recover hysteresis options threaded straight from
+///     <see cref="PolicyRule.Trigger"/>. <c>null</c> on every regular
+///     per-request rule (the common case). Band 2 reads this only as
+///     <c>!= null</c> so the THEN line can append <c>"&#183; hysteresis"</c>;
+///     the full sustain/recover/armed payload lives in the expand surface
+///     (B8), not the headline.
+/// </param>
 public sealed record PolicyStackRowViewModel(
     Guid RuleId,
     PolicyScope SourceScope,
@@ -92,7 +108,9 @@ public sealed record PolicyStackRowViewModel(
     bool CanEdit = false,
     RuleOrigin? Origin = null,
     bool IsDiverged = false,
-    DateTimeOffset? AutoPromoteAt = null);
+    DateTimeOffset? AutoPromoteAt = null,
+    PolicyAction? Action = null,
+    RuleTriggerOptions? Trigger = null);
 
 /// <summary>
 ///     One predicate chip on the compact rule row. Either a real term

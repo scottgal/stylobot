@@ -1,6 +1,6 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model IReadOnlyList<PolicyStackChipViewModel>
-<div class="predicate-chips" data-chips="@Model.Count">
+<div class="predicate-chips sb-policy-card-chips" data-chips="@Model.Count">
     <span class="kw kw-when" aria-hidden="true">WHEN</span>
     @for (var i = 0; i < Model.Count; i++)
     {

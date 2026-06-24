@@ -45,6 +45,28 @@
         </div>
     </header>
 
-    @* Band 2 (Body) -- A5 fills this in *@
+    @* Band 2 (Body) -- IF / THEN sentence pair. The IF line reuses the
+       existing _PredicateChips partial (now carrying sb-policy-card-chips
+       so A9's stylesheet can scope chip restyling to the card without
+       bleeding into other surfaces). The THEN line runs the rule's action
+       through ActionVerbFormatter -- observe mode prepends "would ",
+       Trigger != null appends " · hysteresis" as a marker that the full
+       sustain/recover/armed payload lives in the expand surface (B8).
+       Model.Action may be null on stale call-sites that constructed the
+       VM before A5 added the trailing positional; fall back to the
+       pre-rendered ActionVerdict so the row never blanks. *@
+    <div class="sb-policy-card-body">
+        <div class="sb-policy-card-if">
+            <span class="sb-policy-card-keyword">IF</span>
+            @await Html.PartialAsync("Components/SbPolicyStack/_PredicateChips", Model.Chips)
+        </div>
+        <div class="sb-policy-card-then">
+            <span class="sb-policy-card-keyword">THEN</span>
+            <span class="sb-policy-card-action">@(Model.Action is null
+                ? Model.ActionVerdict
+                : ActionVerbFormatter.ToSentence(Model.Action, Model.IsObserveMode, Model.Trigger is not null))</span>
+        </div>
+    </div>
+
     @* Band 3 (Meta) -- A6 fills this in *@
 </article>

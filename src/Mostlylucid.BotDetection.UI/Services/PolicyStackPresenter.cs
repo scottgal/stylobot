@@ -516,7 +516,13 @@ public sealed class PolicyStackPresenter
             // Cancel button. FOSS-only hosts never populate this column
             // (no commercial auto-promote sweep service); the banner just
             // never renders.
-            AutoPromoteAt: entry.Rule.AutoPromoteAt);
+            AutoPromoteAt: entry.Rule.AutoPromoteAt,
+            // A5 -- Band 2 (Body) THEN line feeds Action through
+            // ActionVerbFormatter.ToSentence; Trigger is read only as
+            // != null so the line can append " · hysteresis". Same
+            // passthrough pattern as Origin / AutoPromoteAt above.
+            Action: entry.Rule.Action,
+            Trigger: entry.Rule.Trigger);
     }
 
     private static string SourcePillFor(PolicyScope scope) => scope.Host switch
