@@ -873,10 +873,40 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal);
         if (shouldPersist)
         {
-            // Fire-and-forget. Consistent with other matcher writes that avoid blocking the
-            // request path. freshName is non-null inside this branch (checked above).
-            _ = _store.UpdateDisplayNameAsync(matched.FingerprintId, freshName!, DateTime.UtcNow,
-                CancellationToken.None, source: "matcher");
+            // Capture the signals snapshot locally so the fire-and-forget continuation can
+            // read it after this request's BlackboardState is reset for the next one.
+            var signalsSnapshot = state.Signals.ToDictionary(kv => kv.Key, kv => kv.Value);
+            var newId = matched.FingerprintId;
+            var baseName = freshName!;
+
+            // Collision discrimination on the recompose path. Allocation already does this
+            // before the row exists; recompose has to do it too because the population may
+            // have grown a same-name peer in the meantime. Without this check, a recompose
+            // that loses its earlier "(AS15169)" modifier would let two fingerprints share
+            // bare "Chrome" -- breaking the "ONE name at a time" rule across surfaces.
+            _ = Task.Run(async () =>
+            {
+                var displayName = baseName;
+                for (var attempt = 0; attempt < 4; attempt++)
+                {
+                    var collisions = await _store.CountByDisplayNameExcludingFingerprintAsync(
+                        displayName, newId, CancellationToken.None);
+                    if (collisions == 0) break;
+
+                    var modifier = attempt < 3
+                        ? FingerprintNameComposer.BuildDistinctiveModifier(signalsSnapshot, attempt)
+                        : null;
+                    modifier ??= newId.Length >= 8 ? newId[..8] : newId;
+
+                    displayName = $"{baseName} ({modifier})";
+                }
+
+                if (!string.Equals(displayName, matched.DisplayName, StringComparison.Ordinal))
+                {
+                    await _store.UpdateDisplayNameAsync(newId, displayName, DateTime.UtcNow,
+                        CancellationToken.None, source: "matcher");
+                }
+            });
         }
     }
 

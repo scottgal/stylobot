@@ -668,6 +668,22 @@ public class SqliteFingerprintStore : IFingerprintStore
         return raw is long n ? (int)n : 0;
     }
 
+    public async Task<int> CountByDisplayNameExcludingFingerprintAsync(
+        string displayName, string excludedFingerprintId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(displayName)) return 0;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT COUNT(*) FROM fingerprints WHERE display_name = @name AND fingerprint_id != @fp";
+        cmd.Parameters.AddWithValue("@name", displayName);
+        cmd.Parameters.AddWithValue("@fp", excludedFingerprintId ?? string.Empty);
+        var raw = await cmd.ExecuteScalarAsync(ct);
+        return raw is long n ? (int)n : 0;
+    }
+
     /// <summary>
     ///     Update the display name on whichever fingerprint <paramref name="primarySignature"/>
     ///     currently maps to. One-shot helper for downstream consumers (the LLM-result callback,

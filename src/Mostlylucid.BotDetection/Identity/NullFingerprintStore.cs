@@ -111,6 +111,10 @@ public class NullFingerprintStore : IFingerprintStore
     public Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default)
         => Task.FromResult(0);
 
+    public Task<int> CountByDisplayNameExcludingFingerprintAsync(
+        string displayName, string excludedFingerprintId, CancellationToken ct = default)
+        => Task.FromResult(0);
+
     public Task UpdateDisplayNameForSignatureAsync(
         string primarySignature, string displayName, DateTime updatedAt,
         CancellationToken ct = default,

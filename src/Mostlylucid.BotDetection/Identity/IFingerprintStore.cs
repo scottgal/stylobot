@@ -140,6 +140,17 @@ public interface IFingerprintStore : IFingerprintReader
 
     Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Same shape as <see cref="CountByDisplayNameAsync"/> but excludes one
+    ///     fingerprint from the count. Used by the matcher's recompose path so
+    ///     "I currently hold this name" doesn't read as a collision: a count
+    ///     of 1 where the only row is me means rename is safe; anything &gt; 0
+    ///     after exclusion means another fingerprint genuinely owns the name
+    ///     and the recompose must apply a distinctive modifier.
+    /// </summary>
+    Task<int> CountByDisplayNameExcludingFingerprintAsync(
+        string displayName, string excludedFingerprintId, CancellationToken ct = default);
+
     Task UpdateDisplayNameForSignatureAsync(
         string primarySignature, string displayName, DateTime updatedAt,
         CancellationToken ct = default,
