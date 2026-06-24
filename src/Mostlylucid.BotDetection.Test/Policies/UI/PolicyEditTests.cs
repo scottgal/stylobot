@@ -103,11 +103,11 @@ public sealed class PolicyEditTests : IAsyncDisposable
         var client = await BuildClientAsync();
 
         var htmlNoEdit = await GetHtmlAsync(client, EndpointScope, canEdit: false);
-        Assert.DoesNotContain("sb-policy-stack-row-edit", htmlNoEdit);
+        Assert.DoesNotContain("sb-policy-card-edit", htmlNoEdit);
         Assert.DoesNotContain("data-action=\"edit\"", htmlNoEdit);
 
         var htmlEdit = await GetHtmlAsync(client, EndpointScope, canEdit: true);
-        Assert.Contains("sb-policy-stack-row-edit", htmlEdit);
+        Assert.Contains("sb-policy-card-edit", htmlEdit);
         Assert.Contains("data-action=\"edit\"", htmlEdit);
         // Resolver-driven path: the default dashboard mount under
         // WebApplicationFactory<TestStartup> is /stylobot (the FOSS
