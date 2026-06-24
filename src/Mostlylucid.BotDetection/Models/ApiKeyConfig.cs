@@ -122,6 +122,27 @@ public class ApiKeyConfig
     ///     Future: bind key to a specific user identity.
     /// </summary>
     public string? BoundIdentity { get; set; }
+
+    /// <summary>
+    ///     When true, requests authenticated with this key produce NO learning
+    ///     side-effects: the reputation cache is not updated, Markov transitions
+    ///     are not recorded, and observations are not queued for absorption.
+    ///     Detection still runs (so the key holder sees a normal verdict header
+    ///     trail) but the request does not shape the model.
+    ///     <para>
+    ///         Set this for debug, smoke-test, monitoring, and CI keys -- anything
+    ///         whose traffic is unrepresentative of real users. Real human or bot
+    ///         traffic that flows through a key with this flag set will be invisible
+    ///         to the centroid/reputation pipeline, so keep it OFF for production
+    ///         tooling whose traffic you want the model to learn from.
+    ///     </para>
+    ///     <para>
+    ///         API keys are debug-bypass credentials, NOT user-facing auth -- they
+    ///         must be protected from disclosure. Anyone holding a key with this
+    ///         flag set can browse the site without contributing to detection.
+    ///     </para>
+    /// </summary>
+    public bool DisableLearningWrites { get; set; }
 }
 
 /// <summary>
@@ -136,6 +157,15 @@ public sealed record ApiKeyContext
     public string? DetectionPolicyName { get; init; }
     public string? ActionPolicyName { get; init; }
     public IReadOnlyList<string> Tags { get; init; } = [];
+
+    /// <summary>
+    ///     Mirrors <see cref="ApiKeyConfig.DisableLearningWrites"/>. When true,
+    ///     the middleware skips enqueuing background enrichment, recording
+    ///     Markov transitions, and queueing identity observations. Reads still
+    ///     happen, so detection runs and the verdict header trail is honest;
+    ///     only write-back into the model is suppressed.
+    /// </summary>
+    public bool DisableLearningWrites { get; init; }
 
     /// <summary>
     ///     Whether all detectors are disabled (key has ["*"] in DisabledDetectors).

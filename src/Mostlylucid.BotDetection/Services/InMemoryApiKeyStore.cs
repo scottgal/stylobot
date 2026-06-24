@@ -124,7 +124,8 @@ public sealed class InMemoryApiKeyStore : IApiKeyStore
             WeightOverrides = matchedConfig.WeightOverrides.AsReadOnly(),
             DetectionPolicyName = matchedConfig.DetectionPolicyName,
             ActionPolicyName = matchedConfig.ActionPolicyName,
-            Tags = matchedConfig.Tags.AsReadOnly()
+            Tags = matchedConfig.Tags.AsReadOnly(),
+            DisableLearningWrites = matchedConfig.DisableLearningWrites
         };
 
         return (new ApiKeyValidationResult { Context = context, KeyId = matchedKeyId }, null);

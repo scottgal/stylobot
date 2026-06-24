@@ -11,6 +11,7 @@ using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
@@ -841,8 +842,11 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                             ipHash: ipHash,
                             contributions: contributionsSnapshot);
 
-                        // Record path transition in Markov chain (non-blocking)
-                        if (_markovTracker != null)
+                        // Record path transition in Markov chain (non-blocking).
+                        // API-key holders flagged with DisableLearningWrites contribute
+                        // no transitions -- their unrepresentative debug traffic must
+                        // not enter the cohort baselines.
+                        if (_markovTracker != null && !httpContext.IsLearningSuppressedByApiKey())
                         {
                             var isBot = result.BotProbability > 0.5;
                             var isReturning = false;
@@ -1292,6 +1296,12 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)
     {
         if (_enrichmentService == null)
+            return;
+
+        // API-key holders flagged DisableLearningWrites skip background enrichment:
+        // the FCrDNS / DNSBL outcome would otherwise flow into the reputation
+        // cache via SessionEscalationService and poison the model with debug traffic.
+        if (httpContext.IsLearningSuppressedByApiKey())
             return;
 
         var enrichmentOptions = _fullOptions.BackgroundEnrichment;

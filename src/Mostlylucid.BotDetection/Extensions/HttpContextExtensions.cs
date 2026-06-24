@@ -51,6 +51,21 @@ public static partial class HttpContextExtensions
     }
 
     /// <summary>
+    ///     Returns true if the current request's API key has
+    ///     <see cref="ApiKeyConfig.DisableLearningWrites"/> set. Orchestrators
+    ///     and learning queues consult this to skip enqueuing reputation
+    ///     updates, Markov transition recordings, and identity observations
+    ///     for unrepresentative debug traffic. Detection still runs and the
+    ///     response header trail is honest; only write-back into the model
+    ///     is suppressed. Returns false for legacy-bypass keys (no rich
+    ///     context attached) and for keyless traffic.
+    /// </summary>
+    public static bool IsLearningSuppressedByApiKey(this HttpContext context)
+    {
+        return context.GetApiKeyContext()?.DisableLearningWrites == true;
+    }
+
+    /// <summary>
     ///     Returns true if the current request is from a verified good bot (e.g., Googlebot).
     /// </summary>
     public static bool IsVerifiedBot(this HttpContext context)

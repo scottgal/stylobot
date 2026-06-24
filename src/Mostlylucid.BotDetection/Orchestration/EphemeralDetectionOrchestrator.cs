@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.Ephemeral;
@@ -1009,6 +1010,11 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)
     {
         if (_enrichmentService is null || _piiHasher is null) return;
+
+        // API-key holders flagged DisableLearningWrites skip background enrichment:
+        // the FCrDNS / DNSBL outcome would otherwise flow into the reputation
+        // cache via SessionEscalationService and poison the model with debug traffic.
+        if (httpContext.IsLearningSuppressedByApiKey()) return;
 
         var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
         if (string.IsNullOrEmpty(clientIp)) return;
