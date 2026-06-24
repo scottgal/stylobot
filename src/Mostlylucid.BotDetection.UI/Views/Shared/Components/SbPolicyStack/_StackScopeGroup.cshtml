@@ -1,6 +1,17 @@
 @using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @model PolicyStackScopeGroupViewModel
+@*
+    A7 -- structural rewrite. Each scope group is now an accordion with an
+    Owned / Effective tab pair. A8 owns the disclosure + tab-toggle JS; A9
+    owns the styling. This file sets the initial markup state only:
+    - aria-expanded reflects Model.DefaultCollapsed
+    - the body region is hidden when collapsed
+    - the Owned tab is selected, the Effective panel is hidden
+    Conflict callouts continue to render inside the Owned panel (they
+    belong to the owning scope, same shape as the cards).
+*@
 @{
     var scopeKind = Model.Scope.Host switch
     {
@@ -10,24 +21,98 @@
         HostScope.Endpoint => "endpoint",
         _ => "wildcard"
     };
+    var groupId = $"policy-scope-group-{Model.Scope.GetHashCode():x8}";
+    var contentId = $"{groupId}-content";
+    var ownedTabId = $"{groupId}-owned-tab";
+    var ownedPanelId = $"{groupId}-owned";
+    var effectiveTabId = $"{groupId}-effective-tab";
+    var effectivePanelId = $"{groupId}-effective";
+    var expandedAttr = Model.DefaultCollapsed ? "false" : "true";
+    var scopeEncoded = PolicyScopeUrl.Encode(Model.Scope);
 }
 <section class="sb-policy-stack-scope-group"
          data-scope-kind="@scopeKind"
-         data-specificity="@Model.Specificity">
-    <header class="sb-policy-stack-scope-header">@Model.ScopeLabel</header>
-    @if (Model.Rows.Count > 0)
-    {
-        <ul class="sb-policy-stack-rows" role="list">
-            @foreach (var row in Model.Rows)
+         data-specificity="@Model.Specificity"
+         data-scope-group
+         data-default-collapsed="@(Model.DefaultCollapsed ? "true" : "false")">
+    <header class="sb-policy-scope-group-head">
+        <button type="button"
+                class="sb-policy-scope-group-disclosure"
+                aria-expanded="@expandedAttr"
+                aria-controls="@contentId">
+            <span class="sb-policy-scope-group-caret" aria-hidden="true">&#9660;</span>
+            <span class="sb-policy-scope-group-type">@Model.ScopeTypeLabel</span>
+            @if (!string.IsNullOrEmpty(Model.ScopeTarget))
             {
-                <li>
-                    @await Html.PartialAsync("Components/SbPolicyStack/_RuleCard", row)
-                </li>
+                <span class="sb-policy-scope-group-target">&#183; <code>@Model.ScopeTarget</code></span>
             }
-        </ul>
-    }
-    @foreach (var conflict in Model.Conflicts)
-    {
-        @await Html.PartialAsync("Components/SbPolicyStack/_ConflictCallout", conflict)
-    }
+            <span class="sb-policy-scope-group-count">(@Model.OwnedCount owned &#183; @Model.EffectiveCount effective)</span>
+        </button>
+        @if (!string.IsNullOrEmpty(Model.ScopeDescription))
+        {
+            <p class="sb-policy-scope-group-desc">@Model.ScopeDescription</p>
+        }
+    </header>
+
+    <div id="@contentId"
+         class="sb-policy-scope-group-body"
+         role="region"
+         aria-labelledby="@groupId-disclosure"
+         hidden="@(Model.DefaultCollapsed ? "hidden" : null)">
+        <div class="sb-policy-scope-group-tabs" role="tablist">
+            <button type="button"
+                    role="tab"
+                    id="@ownedTabId"
+                    aria-controls="@ownedPanelId"
+                    aria-selected="true"
+                    class="sb-policy-scope-group-tab"
+                    data-tab="owned">Owned</button>
+            <button type="button"
+                    role="tab"
+                    id="@effectiveTabId"
+                    aria-controls="@effectivePanelId"
+                    aria-selected="false"
+                    class="sb-policy-scope-group-tab"
+                    data-tab="effective">Effective</button>
+        </div>
+
+        <div id="@ownedPanelId"
+             role="tabpanel"
+             aria-labelledby="@ownedTabId"
+             class="sb-policy-scope-group-panel"
+             data-panel="owned">
+            @if (Model.OwnedRules.Count > 0)
+            {
+                <ul class="sb-policy-stack-rows" role="list">
+                    @foreach (var row in Model.OwnedRules)
+                    {
+                        <li>
+                            @await Html.PartialAsync("Components/SbPolicyStack/_RuleCard", row)
+                        </li>
+                    }
+                </ul>
+            }
+            else
+            {
+                <p class="sb-policy-scope-group-empty">No rules owned at this scope. Effective rules come from broader scopes.</p>
+            }
+            @foreach (var conflict in Model.Conflicts)
+            {
+                @await Html.PartialAsync("Components/SbPolicyStack/_ConflictCallout", conflict)
+            }
+            <a class="sb-policy-scope-group-add"
+               data-scope-add
+               href="#"
+               data-scope="@scopeEncoded">+ Add rule at this scope</a>
+        </div>
+
+        <div id="@effectivePanelId"
+             role="tabpanel"
+             aria-labelledby="@effectiveTabId"
+             class="sb-policy-scope-group-panel"
+             data-panel="effective"
+             hidden>
+            @await Html.PartialAsync("Components/SbPolicyStack/_EffectivePanel", Model)
+        </div>
+    </div>
 </section>

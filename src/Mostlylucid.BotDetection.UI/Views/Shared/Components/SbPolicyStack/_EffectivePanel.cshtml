@@ -1,0 +1,56 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@model PolicyStackScopeGroupViewModel
+@*
+    A7 -- structural panel for the "Effective" tab on a scope group. The
+    A1-A3 resolver hands the presenter a list of EffectiveRuleProjection
+    + EffectiveAnnotation; A10 owns wiring those onto the group view-model.
+    Until then EffectiveRules / Annotations are empty and the placeholder
+    line renders.
+
+    EffectiveRuleProjection.Row is nullable until A10 builds the card-row
+    on the projection -- the guard below keeps the panel from blowing up
+    if a projection arrives without its row populated yet.
+*@
+
+@if (Model.EffectiveRules.Count == 0)
+{
+    <p class="sb-policy-scope-group-empty">No effective rules at this scope.</p>
+}
+else
+{
+    <ul class="sb-effective-rows" role="list">
+        @foreach (var proj in Model.EffectiveRules)
+        {
+            <li class="sb-effective-row"
+                data-rule-id="@proj.RuleId"
+                data-inherited="@(proj.IsInherited ? "true" : "false")"
+                data-shadowed="@(proj.IsShadowed ? "true" : "false")"
+                data-overridden="@(proj.IsOverridden ? "true" : "false")"
+                data-unreachable="@(proj.IsUnreachable ? "true" : "false")">
+                @if (proj.Row is not null)
+                {
+                    @await Html.PartialAsync("Components/SbPolicyStack/_RuleCard", proj.Row)
+                }
+                @if (proj.IsInherited)
+                {
+                    <p class="sb-effective-inherited">
+                        inherited from <code>@PolicyScopeFormatter.ToHeadline(proj.OwningScope)</code>
+                    </p>
+                }
+            </li>
+        }
+    </ul>
+}
+
+@if (Model.Annotations.Count > 0)
+{
+    <ul class="sb-effective-annotations">
+        @foreach (var ann in Model.Annotations)
+        {
+            <li class="sb-effective-annotation" data-kind="@ann.Kind">
+                <code>@ann.RuleId</code>: @ann.DetailText
+            </li>
+        }
+    </ul>
+}
