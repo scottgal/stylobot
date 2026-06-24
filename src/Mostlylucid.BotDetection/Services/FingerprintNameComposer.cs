@@ -207,44 +207,25 @@ internal static class FingerprintNameComposer
         // failed). The dashboard was rendering 8-char signature hashes for these rows
         // before this fix.
         var family = GetString(signals, SignalKeys.UserAgentFamily);
-        var familyVersion = GetString(signals, SignalKeys.UserAgentFamilyVersion);
-        var os = GetString(signals, SignalKeys.UserAgentOs);
         var rawUaForParse = !string.IsNullOrEmpty(userAgent)
             ? userAgent
             : GetString(signals, SignalKeys.UserAgent);
-        if ((string.IsNullOrEmpty(family) || string.IsNullOrEmpty(familyVersion)) && !string.IsNullOrEmpty(rawUaForParse))
-        {
-            var parsed = UserAgentParser.Parse(rawUaForParse);
-            if (string.IsNullOrEmpty(family)) family = parsed.Family;
-            if (string.IsNullOrEmpty(familyVersion)) familyVersion = parsed.Version;
-        }
-        if (string.IsNullOrEmpty(os) && !string.IsNullOrEmpty(rawUaForParse))
-            os = UserAgentParser.ExtractOs(rawUaForParse);
+        if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(rawUaForParse))
+            family = UserAgentParser.Parse(rawUaForParse).Family;
 
         string? finalName;
         if (!string.IsNullOrEmpty(family) && family != "Other")
         {
-            // Display-name contract (priority 3): {OS-short} {family} {major-version}
-            // composed here so the NAME itself is uniquifying ("Win Chrome 146" beats
-            // "Mac Chrome 146" beats bare "Chrome"). Each component is derived from
-            // real UA signals -- no invented hashes, no parasitic display-time
-            // extraction. The view just renders this string and truncates with an
-            // ellipsis when the row gets narrow.
-            //
-            // Falls back gracefully when individual components are missing:
-            //   family + version + os -> "Win Chrome 146"
-            //   family + version      -> "Chrome 146"
-            //   family + os           -> "Win Chrome"
-            //   family alone          -> "Chrome"
-            var major = ExtractMajorVersion(familyVersion);
-            var osShort = ShortOs(os);
-            finalName = (osShort, major) switch
-            {
-                ({ Length: > 0 } o, { Length: > 0 } v) => $"{o} {family} {v}",
-                ({ Length: > 0 } o, _)                 => $"{o} {family}",
-                (_, { Length: > 0 } v)                 => $"{family} {v}",
-                _                                       => family
-            };
+            // Display-name contract (T5, 2026-06-22, user-approved): priority-3
+            // returns the UA family UNCHANGED. No OS prefix, no version, no
+            // archetype suffix, no "w/" -- those belong to the drift / detail
+            // surfaces, not the name. See spec at
+            //   docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md
+            // and FingerprintNameComposerContract. The user-directed ban is
+            // explicit: "Mac Chrome 149 w/ uBlock -- multi-word descriptive
+            // synthetics, even if accurate, fight the bot-name / browser-family
+            // / unknown trichotomy. Drop. (Task #121 was the wrong direction.)"
+            finalName = family;
         }
         else
         {
