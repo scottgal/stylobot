@@ -11,7 +11,32 @@
     border-radius: 0.5rem;
     padding: 0;
     margin-block-end: 0.75rem;
-    overflow: hidden;
+     /* overflow: clip keeps the inner band backgrounds contained inside the
+       rounded border without establishing a scroll container, so an
+       ancestor with position: sticky (the scope-group header) still
+       sticks. Drop-in upgrade over the older overflow: hidden. */
+    overflow: clip;
+    transition: transform 100ms ease-out, box-shadow 100ms ease-out;
+}
+.sb-policy-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px hsl(var(--bc) / 0.08);
+}
+/* Inherited cards in the Effective panel are read-only at this scope --
+   they belong to a broader-scope group. Don't lift on hover so the visual
+   doesn't suggest direct editability. */
+.sb-effective-row[data-inherited="true"] .sb-policy-card:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* Drag-in-progress visual. policy-stack-reorder.js sets the
+   .sb-row-dragging class on the <li> that owns the dragged card; we style
+   the inner card so the border-radius + shadow ride along cleanly. */
+.sb-row-dragging .sb-policy-card {
+    opacity: 0.5;
+    transform: rotate(0.5deg);
+    cursor: grabbing;
 }
 
 /* ─── Band 1: Headline ─────────────────────────────────────────── */
@@ -216,10 +241,37 @@
 .sb-policy-scope-group-add:hover {
     text-decoration: underline;
 }
+/* Empty state — icon stacked above a bold headline + muted help line.
+   Used by both the Owned panel ("no rules at this scope") and the
+   Effective panel ("no rules fire here"); the partials supply the icon
+   class + the two text strings. */
 .sb-policy-scope-group-empty {
-    font: 400 0.875rem/1.4 ui-sans-serif, system-ui;
-    color: hsl(var(--bc) / 0.5);
-    padding: 0.5rem 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.25rem;
+    padding: 1.25rem 0.5rem;
+    color: hsl(var(--bc) / 0.6);
+}
+.sb-policy-scope-group-empty-icon {
+    font-size: 1.5rem;
+    color: hsl(var(--bc) / 0.35);
+    margin-block-end: 0.125rem;
+}
+.sb-policy-scope-group-empty-head {
+    font: 600 0.875rem/1.3 ui-sans-serif, system-ui;
+    color: hsl(var(--bc) / 0.75);
+    margin: 0;
+}
+.sb-policy-scope-group-empty-help {
+    font: 400 0.8125rem/1.4 ui-sans-serif, system-ui;
+    color: hsl(var(--bc) / 0.55);
+    margin: 0;
+}
+.sb-policy-scope-group-empty-help strong {
+    color: hsl(var(--bc) / 0.75);
+    font-weight: 600;
 }
 
 /* ─── Effective panel — inherited / shadowed / unreachable ─────── */

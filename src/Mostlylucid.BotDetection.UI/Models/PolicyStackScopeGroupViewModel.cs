@@ -108,6 +108,15 @@ public sealed record PolicyStackScopeGroupViewModel(
     /// </summary>
     public bool DefaultCollapsed { get; init; }
 
+    /// <summary>
+    ///     Gate for the per-scope "+ Add rule" affordance. False today because
+    ///     the actual add-rule editor (curated facet picker + inline expand
+    ///     surface) lands in Phase B (task B8). The polish pass hides the
+    ///     dead anchor by default; Phase B flips this to <c>true</c> once the
+    ///     editor is wired so the link goes somewhere real.
+    /// </summary>
+    public bool AddRuleEnabled { get; init; }
+
     private static string StackScopeKindLabel(PolicyScope scope) => scope.Host switch
     {
         null => "Wildcard",

@@ -94,16 +94,23 @@
             }
             else
             {
-                <p class="sb-policy-scope-group-empty">No rules owned at this scope. Effective rules come from broader scopes.</p>
+                <div class="sb-policy-scope-group-empty">
+                    <i class="bx bx-rule sb-policy-scope-group-empty-icon" aria-hidden="true"></i>
+                    <p class="sb-policy-scope-group-empty-head">No rules owned at this scope</p>
+                    <p class="sb-policy-scope-group-empty-help">Look in <strong>Effective</strong> to see rules inherited from broader scopes.</p>
+                </div>
             }
             @foreach (var conflict in Model.Conflicts)
             {
                 @await Html.PartialAsync("Components/SbPolicyStack/_ConflictCallout", conflict)
             }
-            <a class="sb-policy-scope-group-add"
-               data-scope-add
-               href="#"
-               data-scope="@scopeEncoded">+ Add rule at this scope</a>
+            @if (Model.AddRuleEnabled)
+            {
+                <a class="sb-policy-scope-group-add"
+                   data-scope-add
+                   href="#"
+                   data-scope="@scopeEncoded">+ Add rule at this scope</a>
+            }
         </div>
 
         <div id="@effectivePanelId"

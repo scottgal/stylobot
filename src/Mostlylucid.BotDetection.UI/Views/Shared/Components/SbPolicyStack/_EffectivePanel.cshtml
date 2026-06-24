@@ -15,7 +15,11 @@
 
 @if (Model.EffectiveRules.Count == 0)
 {
-    <p class="sb-policy-scope-group-empty">No effective rules at this scope.</p>
+    <div class="sb-policy-scope-group-empty">
+        <i class="bx bx-check-circle sb-policy-scope-group-empty-icon" aria-hidden="true"></i>
+        <p class="sb-policy-scope-group-empty-head">No rules fire at this scope</p>
+        <p class="sb-policy-scope-group-empty-help">Traffic here is unfiltered. Add a rule in <strong>Owned</strong> to start matching.</p>
+    </div>
 }
 else
 {
@@ -48,7 +52,14 @@ else
     <ul class="sb-effective-annotations">
         @foreach (var ann in Model.Annotations)
         {
-            <li class="sb-effective-annotation" data-kind="@ann.Kind">
+            var annTitle = ann.Kind switch
+            {
+                "shadowed"    => "A more-specific rule with the same predicate fires first; this rule never wins here.",
+                "unreachable" => "Zero hits in the window and shadowed; likely a dead rule, safe to delete.",
+                "overridden"  => "A parameter override at this scope changes this rule's effective action.",
+                _             => ann.DetailText,
+            };
+            <li class="sb-effective-annotation" data-kind="@ann.Kind" title="@annTitle">
                 <code>@ann.RuleId</code>: @ann.DetailText
             </li>
         }

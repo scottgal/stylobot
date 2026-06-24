@@ -16,6 +16,14 @@
     var modeLower   = Model.Mode.ToString().ToLowerInvariant();
     var editUrl     = DashboardLinks.Resolve($"/policystack/edit?ruleId={Model.RuleId}");
     var scopeTarget = PolicyScopeFormatter.ToHeadline(Model.SourceScope);
+    var modeTitle   = modeLower switch
+    {
+        "live"     => "Live: rule is active and affecting requests.",
+        "observe"  => "Observe: rule logs matches without taking action.",
+        "draft"    => "Draft: rule is configured but not yet promoted.",
+        "disabled" => "Disabled: rule is configured but turned off.",
+        _          => "Mode: " + modeLower,
+    };
 }
 
 <article class="sb-policy-card"
@@ -34,7 +42,7 @@
                         data-action="edit"
                         hx-get="@editUrl"
                         hx-target="closest article"
-                        hx-swap="outerHTML"
+                        hx-swap="outerHTML transition:true"
                         aria-label="Edit rule">&#x270e;</button>
                 <button type="button"
                         class="sb-policy-card-drag"
@@ -69,7 +77,9 @@
     </div>
 
     <footer class="sb-policy-card-meta">
-        <span class="sb-policy-card-mode mode-@modeLower" aria-label="mode @modeLower">
+        <span class="sb-policy-card-mode mode-@modeLower"
+              aria-label="mode @modeLower"
+              title="@modeTitle">
             <span class="sb-policy-card-mode-dot" aria-hidden="true"></span>@Model.ModePill
         </span>
         <span class="sb-policy-card-hits" title="Matched / Total evaluations in window">
