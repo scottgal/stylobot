@@ -32,6 +32,7 @@ namespace Mostlylucid.BotDetection.UI.TagHelpers;
 public class SbLiveUpdatesTagHelper : TagHelper
 {
     private const string AssetCssPath       = "/_content/Mostlylucid.BotDetection.UI/vendor/css/sb-live-updates.css";
+    private const string PolicyStackCardCssPath = "/_content/Mostlylucid.BotDetection.UI/css/sb-policy-stack-card.css";
     private const string AssetJsPath        = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
     private const string HtmxScriptPath     = "/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js";
     private const string SignalRScriptPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js";
@@ -123,6 +124,12 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // transition opt-out rule. Inline <style> would force unsafe-inline in the
         // CSP; the <link> reference stays self-hosted and nonceable.
         output.Content.AppendHtml($@"<link rel=""stylesheet"" href=""{AssetCssPath}?v={AssetVersion}"" />");
+
+        // A9 -- Policy Stack 3-band card + scope-group accordion + Owned/Effective
+        // tab styling. Pure CSS, daisyUI hsl(var(--...)) tokens, no JS. Replaces
+        // the deleted source/mode/verdict pill rules from the old _RuleRow design.
+        // Spec: docs/superpowers/specs/2026-06-24-policy-stack-3band-card-design.md
+        output.Content.AppendHtml($@"<link rel=""stylesheet"" href=""{PolicyStackCardCssPath}?v={AssetVersion}"" />");
 
         // Vendor scripts -- htmx + signalR client. Both are dependencies of the
         // coordinator below; emitting them here means the host doesn't have to

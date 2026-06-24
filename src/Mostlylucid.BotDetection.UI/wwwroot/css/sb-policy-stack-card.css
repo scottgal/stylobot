@@ -1,0 +1,259 @@
+/* sb-policy-stack-card.css
+   3-band card + scope-group accordion + Owned/Effective tabs for the
+   policy stack surface. Spec: docs/superpowers/specs/2026-06-24-policy-stack-3band-card-design.md
+   Replaces the deleted source/mode/verdict pill styling. */
+
+/* ─── Card surface ─────────────────────────────────────────────── */
+
+.sb-policy-card {
+    background: hsl(var(--b1));
+    border: 1px solid hsl(var(--b3));
+    border-radius: 0.5rem;
+    padding: 0;
+    margin-block-end: 0.75rem;
+    overflow: hidden;
+}
+
+/* ─── Band 1: Headline ─────────────────────────────────────────── */
+
+.sb-policy-card-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 1rem;
+    border-block-end: 1px solid hsl(var(--b3));
+}
+.sb-policy-card-priority {
+    font: 500 0.75rem/1 ui-monospace, monospace;
+    color: hsl(var(--bc) / 0.5);
+}
+.sb-policy-card-target {
+    font: 600 0.875rem/1.2 ui-monospace, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sb-policy-card-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+.sb-policy-card-edit, .sb-policy-card-drag {
+    border: 0;
+    background: transparent;
+    color: hsl(var(--bc) / 0.5);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    line-height: 1;
+}
+.sb-policy-card-edit:hover, .sb-policy-card-drag:hover {
+    color: hsl(var(--bc));
+    background: hsl(var(--b2));
+}
+
+/* ─── Band 2: Body ─────────────────────────────────────────────── */
+
+.sb-policy-card-body {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.25rem 0.75rem;
+    padding: 0.75rem 1rem;
+    background: hsl(var(--b2) / 0.3);
+}
+.sb-policy-card-if, .sb-policy-card-then { display: contents; }
+.sb-policy-card-keyword {
+    font: 500 0.625rem/1 ui-sans-serif, system-ui;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: hsl(var(--bc) / 0.5);
+    align-self: center;
+}
+.sb-policy-card-action {
+    font: 400 0.875rem/1.4 ui-sans-serif, system-ui;
+}
+
+/* Predicate chips inside the card -- flat tokens, not badges */
+.sb-policy-card-chips,
+.predicate-chips.sb-policy-card-chips {
+    font: 400 0.875rem/1.4 ui-sans-serif, system-ui;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+}
+.sb-policy-card-chips .chip {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    border: 1px solid hsl(var(--b3));
+    border-radius: 0.25rem;
+    background: hsl(var(--b1));
+    font-family: ui-monospace, monospace;
+    font-size: 0.8125rem;
+}
+.sb-policy-card-chips .kw {
+    color: hsl(var(--bc) / 0.45);
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+    letter-spacing: 0.05em;
+}
+
+/* ─── Band 3: Meta ─────────────────────────────────────────────── */
+
+.sb-policy-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    font: 400 0.75rem/1.2 ui-sans-serif, system-ui;
+    color: hsl(var(--bc) / 0.6);
+}
+.sb-policy-card-mode {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+}
+.sb-policy-card-mode-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: hsl(var(--b3));
+    display: inline-block;
+}
+.sb-policy-card-mode.mode-live     .sb-policy-card-mode-dot { background: hsl(var(--su)); }
+.sb-policy-card-mode.mode-observe  .sb-policy-card-mode-dot { background: hsl(var(--in)); }
+.sb-policy-card-mode.mode-draft    .sb-policy-card-mode-dot { background: hsl(var(--bc) / 0.4); }
+.sb-policy-card-mode.mode-disabled .sb-policy-card-mode-dot { background: hsl(var(--b3)); }
+.sb-policy-card-no-hits, .sb-policy-card-diverged {
+    color: hsl(var(--wa));
+}
+.sb-policy-card-diverged code {
+    background: transparent;
+    padding: 0;
+    font: inherit;
+}
+
+/* ─── Scope-group accordion ────────────────────────────────────── */
+
+.sb-policy-scope-group {
+    margin-block-end: 1.5rem;
+}
+.sb-policy-scope-group-head {
+    position: sticky;
+    top: 0;
+    background: hsl(var(--b1));
+    z-index: 1;
+    padding: 0.5rem 0;
+}
+.sb-policy-scope-group-disclosure {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font: 600 0.875rem/1.2 ui-sans-serif, system-ui;
+    padding: 0;
+    color: inherit;
+}
+.sb-policy-scope-group-caret {
+    transition: transform 100ms ease;
+    display: inline-block;
+}
+.sb-policy-scope-group-disclosure[aria-expanded="false"] .sb-policy-scope-group-caret {
+    transform: rotate(-90deg);
+}
+.sb-policy-scope-group-type {
+    color: hsl(var(--bc) / 0.6);
+    text-transform: lowercase;
+}
+.sb-policy-scope-group-target code {
+    background: transparent;
+    padding: 0;
+    font: inherit;
+}
+.sb-policy-scope-group-count {
+    color: hsl(var(--bc) / 0.5);
+    font-weight: 400;
+    font-size: 0.8125rem;
+}
+.sb-policy-scope-group-desc {
+    font: 400 0.8125rem/1.4 ui-sans-serif, system-ui;
+    color: hsl(var(--bc) / 0.55);
+    font-style: italic;
+    margin: 0.125rem 0 0 0;
+}
+
+/* ─── Owned / Effective tabs ───────────────────────────────────── */
+
+.sb-policy-scope-group-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-block-end: 1px solid hsl(var(--b3));
+    margin-block-end: 0.75rem;
+}
+.sb-policy-scope-group-tab {
+    background: transparent;
+    border: 0;
+    padding: 0.5rem 0.875rem;
+    font: 500 0.8125rem/1 ui-sans-serif, system-ui;
+    cursor: pointer;
+    color: hsl(var(--bc) / 0.55);
+    border-block-end: 2px solid transparent;
+}
+.sb-policy-scope-group-tab[aria-selected="true"] {
+    color: hsl(var(--bc));
+    border-block-end-color: hsl(var(--p));
+}
+.sb-policy-scope-group-add {
+    display: inline-block;
+    margin-block-start: 0.5rem;
+    font: 400 0.8125rem/1 ui-sans-serif, system-ui;
+    color: hsl(var(--p));
+    text-decoration: none;
+}
+.sb-policy-scope-group-add:hover {
+    text-decoration: underline;
+}
+.sb-policy-scope-group-empty {
+    font: 400 0.875rem/1.4 ui-sans-serif, system-ui;
+    color: hsl(var(--bc) / 0.5);
+    padding: 0.5rem 0;
+}
+
+/* ─── Effective panel — inherited / shadowed / unreachable ─────── */
+
+.sb-effective-row[data-inherited="true"] .sb-policy-card {
+    border-left: 3px solid hsl(var(--in));
+}
+.sb-effective-row[data-shadowed="true"] .sb-policy-card {
+    opacity: 0.55;
+}
+.sb-effective-row[data-unreachable="true"] .sb-policy-card {
+    opacity: 0.4;
+    border-style: dashed;
+}
+.sb-effective-inherited {
+    font: 400 0.75rem/1.2 ui-sans-serif, system-ui;
+    color: hsl(var(--bc) / 0.5);
+    margin: -0.25rem 0 0.5rem 1rem;
+}
+.sb-effective-inherited code {
+    background: transparent;
+    padding: 0;
+    font: inherit;
+}
+.sb-effective-annotations {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+    font-size: 0.8125rem;
+    color: hsl(var(--bc) / 0.6);
+}
+.sb-effective-annotation {
+    padding: 0.25rem 0;
+}
+
+/* Legacy classes from the deleted pill design intentionally NOT defined here.
+   .badge.source-pill / .badge.mode-pill / .verdict — REMOVED 2026-06-24. */
