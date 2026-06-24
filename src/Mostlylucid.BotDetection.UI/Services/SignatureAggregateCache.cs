@@ -301,12 +301,22 @@ public sealed class SignatureAggregateCache
     /// </summary>
     public TopBotsCounts GetCounts()
     {
-        int bots = 0, humans = 0;
+        // Internal (BotType.Internal -> loopback / RFC1918 / docker bridge / self-
+        // traffic) is hidden from the All / Bots / Humans chips by default and
+        // surfaced only by the dedicated Internal chip. See SbWidgetBatchMiddleware
+        // .BuildTopBotsModel for the rationale.
+        int bots = 0, humans = 0, internalCount = 0;
         foreach (var kvp in _entries)
         {
-            if (kvp.Value.IsBot) bots++; else humans++;
+            var e = kvp.Value;
+            if (string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
+                internalCount++;
+            else if (e.IsBot)
+                bots++;
+            else
+                humans++;
         }
-        return new TopBotsCounts(All: bots + humans, Bots: bots, Humans: humans);
+        return new TopBotsCounts(All: bots + humans, Bots: bots, Humans: humans, Internal: internalCount);
     }
 
     /// <summary>

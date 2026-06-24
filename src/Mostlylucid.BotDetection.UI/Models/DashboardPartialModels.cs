@@ -299,18 +299,25 @@ public sealed class TopBotsListModel
     public string NavBasePath { get; init; } = "";
     public string ResolvedNavBasePath => string.IsNullOrEmpty(NavBasePath) ? BasePath : NavBasePath;
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
-    /// <summary>Entry filter: "bots" (default), "humans", or "all".</summary>
+    /// <summary>Entry filter: "bots" (default), "humans", "all", or "internal".</summary>
     public string Filter { get; init; } = "bots";
     /// <summary>HTML id prefix; allows multiple widget instances on the same page.</summary>
     public string WidgetId { get; init; } = "topbots";
     /// <summary>Per-filter counts so the toolbar chips can render real numbers.</summary>
-    public TopBotsCounts Counts { get; init; } = new(0, 0, 0);
+    public TopBotsCounts Counts { get; init; } = new(0, 0, 0, 0);
     /// <summary>Active search query (substring on bot name / type / signature). Null = no filter.</summary>
     public string? Query { get; init; }
 }
 
-/// <summary>Counts per filter bucket for the SbTopBots toolbar chips.</summary>
-public sealed record TopBotsCounts(int All, int Bots, int Humans);
+/// <summary>
+///     Counts per filter bucket for the SbTopBots toolbar chips.
+///     <see cref="Internal"/> is the count of network-trusted operator traffic
+///     (loopback / RFC1918 / docker bridge, BotType=Internal). All / Bots /
+///     Humans are computed EXCLUDING internal so the toolbar reflects what the
+///     operator cares about — public traffic. Internal is shown only when the
+///     dedicated chip is active.
+/// </summary>
+public sealed record TopBotsCounts(int All, int Bots, int Humans, int Internal);
 
 /// <summary>
 ///     View model for the signature detail page.

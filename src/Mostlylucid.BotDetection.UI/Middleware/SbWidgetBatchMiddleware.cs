@@ -321,13 +321,24 @@ public sealed class SbWidgetBatchMiddleware
             startTime: DateTime.UtcNow.AddHours(-24),
             endTime: DateTime.UtcNow,
             audienceFilter: "all");
-        var bots = raw.Count(b => b.IsKnownBot);
-        var humans = raw.Count - bots;
+        // Internal = network-trusted operator/self traffic (loopback / RFC1918 /
+        // docker bridge -> BotType.Internal). Hidden from the All / Bots / Humans
+        // chips by default because it's almost always StyloBot Internal hitting
+        // its own dashboard endpoints and OTel collector noise that drowns out
+        // the rows the operator actually wants to triage. The dedicated "Internal"
+        // chip surfaces it on demand.
+        static bool IsInternal(DashboardTopBotEntry e) =>
+            string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
+        var publicTraffic = raw.Where(b => !IsInternal(b)).ToList();
+        var internalCount = raw.Count - publicTraffic.Count;
+        var bots = publicTraffic.Count(b => b.IsKnownBot);
+        var humans = publicTraffic.Count - bots;
         IEnumerable<DashboardTopBotEntry> filtered = filter switch
         {
-            "bots" => raw.Where(b => b.IsKnownBot),
-            "humans" => raw.Where(b => !b.IsKnownBot),
-            _ => raw
+            "bots"     => publicTraffic.Where(b => b.IsKnownBot),
+            "humans"   => publicTraffic.Where(b => !b.IsKnownBot),
+            "internal" => raw.Where(IsInternal),
+            _          => publicTraffic
         };
         var sorted = WidgetRenderHelpers.SortTopBots(filtered, sortBy, sortDir).ToList();
         var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
@@ -345,7 +356,7 @@ public sealed class SbWidgetBatchMiddleware
             BasePath = _options.BasePath.TrimEnd('/'),
             Filter = filter,
             WidgetId = widgetId,
-            Counts = new TopBotsCounts(All: raw.Count, Bots: bots, Humans: humans),
+            Counts = new TopBotsCounts(All: publicTraffic.Count, Bots: bots, Humans: humans, Internal: internalCount),
             Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
         };
     }

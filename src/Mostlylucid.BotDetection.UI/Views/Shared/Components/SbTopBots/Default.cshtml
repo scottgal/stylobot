@@ -27,12 +27,17 @@
     var widgetRootId = Model.WidgetId + "-list";
     var dataRegionId = Model.WidgetId + "-data";
 
-    // Filter chips carry real per-bucket counts from SignatureAggregateCache.GetCounts.
+    // Filter chips. Per-bucket counts from the SignatureAggregateCache / event store.
+    // "Internal" is OFF by default -- All / Bots / Humans counts EXCLUDE internal
+    // traffic (BotType.Internal -> loopback / RFC1918 / docker bridge), so the
+    // operator's view of Live Activity isn't drowned by StyloBot self-traffic and
+    // OTel collector noise. The Internal chip surfaces it explicitly when needed.
     var chips = new[]
     {
-        new FilterChip("all",    "All",    (int?)Model.Counts.All,    FilterUrl("all")),
-        new FilterChip("bots",   "Bots",   (int?)Model.Counts.Bots,   FilterUrl("bots")),
-        new FilterChip("humans", "Humans", (int?)Model.Counts.Humans, FilterUrl("humans")),
+        new FilterChip("all",      "All",      (int?)Model.Counts.All,      FilterUrl("all")),
+        new FilterChip("bots",     "Bots",     (int?)Model.Counts.Bots,     FilterUrl("bots")),
+        new FilterChip("humans",   "Humans",   (int?)Model.Counts.Humans,   FilterUrl("humans")),
+        new FilterChip("internal", "Internal", (int?)Model.Counts.Internal, FilterUrl("internal")),
     };
 
     // Search box hits the same partial route; q is included via hx-include="this".
