@@ -105,29 +105,33 @@
     // section. "effective" and "stack" both map to the "rules" panel
     // (the server-rendered body shows whichever one was active when the
     // page was requested); "templates" maps to the lazy-loaded panel.
-    document.addEventListener('click', function (ev) {
-        var tab = ev.target.closest('.sb-policy-stack-tabs > .sb-policy-stack-tab');
-        if (!tab) return;
+    //
+    // C12 also calls switchSectionTab() from the empty-state CTAs via
+    // [data-action="switch-tab"][data-target="..."] so a fresh scope with
+    // zero rules can jump to the Templates gallery without the operator
+    // hunting for the tab strip.
+    function switchSectionTab(section, targetTabName) {
+        if (!section || !targetTabName) return;
 
-        var section = tab.closest('.sb-policy-stack');
-        if (!section) return;
-
-        var targetTabName = tab.getAttribute('data-tab');
-        if (!targetTabName) return;
-
-        // tab -> panel name. Effective/Stack share the "rules" panel.
+        // tab -> panel name. Effective/Stack share the "rules" panel;
+        // Templates owns its own panel.
         var targetPanelName = targetTabName === 'templates' ? 'templates' : 'rules';
 
-        // Flip aria-selected + is-active on every sibling tab in the same strip.
-        var strip = tab.parentNode;
-        var siblings = strip.querySelectorAll('.sb-policy-stack-tab');
-        for (var i = 0; i < siblings.length; i++) {
-            var isMe = siblings[i] === tab;
-            siblings[i].setAttribute('aria-selected', isMe ? 'true' : 'false');
-            if (isMe) {
-                siblings[i].classList.add('is-active');
-            } else {
-                siblings[i].classList.remove('is-active');
+        // Flip aria-selected + is-active on every tab in the section's
+        // tab strip. We find the strip via the section -> .sb-policy-stack-tabs
+        // selector so the helper is callable from anywhere inside the section
+        // (not just from a click on the tab itself).
+        var strip = section.querySelector('.sb-policy-stack-tabs');
+        if (strip) {
+            var siblings = strip.querySelectorAll('.sb-policy-stack-tab');
+            for (var i = 0; i < siblings.length; i++) {
+                var isMe = siblings[i].getAttribute('data-tab') === targetTabName;
+                siblings[i].setAttribute('aria-selected', isMe ? 'true' : 'false');
+                if (isMe) {
+                    siblings[i].classList.add('is-active');
+                } else {
+                    siblings[i].classList.remove('is-active');
+                }
             }
         }
 
@@ -145,5 +149,23 @@
                 panels[j].setAttribute('hidden', '');
             }
         }
+    }
+
+    document.addEventListener('click', function (ev) {
+        // C12 -- [data-action="switch-tab"][data-target="<name>"] wins
+        // over the tab-strip click. Used by the empty-state Browse-templates
+        // button so the operator stays on the same page and the gallery
+        // reveals in place.
+        var switcher = ev.target.closest('[data-action="switch-tab"]');
+        if (switcher) {
+            var section = switcher.closest('.sb-policy-stack');
+            switchSectionTab(section, switcher.getAttribute('data-target'));
+            return;
+        }
+
+        var tab = ev.target.closest('.sb-policy-stack-tabs > .sb-policy-stack-tab');
+        if (!tab) return;
+
+        switchSectionTab(tab.closest('.sb-policy-stack'), tab.getAttribute('data-tab'));
     });
 })();

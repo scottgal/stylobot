@@ -1,5 +1,6 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
+@inject IDashboardLinkResolver DashboardLinks
 @model PolicyStackViewModel
 @*
     Effective tab body. Sortable column headers render above the rule list;
@@ -9,11 +10,32 @@
 *@
 @if (Model.Rows.Count == 0)
 {
-    <div class="sb-policy-stack-empty" data-policy-stack-empty="true">
-        @(Model.Filter.IsActive
-            ? "No rules match the current filter."
-            : "No effective rules at this scope.")
-    </div>
+    if (Model.Filter.IsActive)
+    {
+        <div class="sb-policy-stack-empty" data-policy-stack-empty="true">
+            No rules match the current filter.
+        </div>
+    }
+    else
+    {
+        @* C12 -- zero-rules empty state: webmaster-facing CTAs to either
+           pick a vetted template (switches the section-level Templates tab
+           via policy-stack-tabs.js [data-action="switch-tab"] handler) or
+           jump straight into the inline rule editor (B8's
+           /policystack/edit/new endpoint returns a fresh _RuleCardExpand
+           scaffold at this scope). *@
+        <div class="sb-policy-empty" data-policy-stack-empty="true">
+            <p>No manually authored rules yet at this scope.</p>
+            <div class="sb-policy-empty-actions">
+                <button type="button"
+                        class="sb-template-use"
+                        data-action="switch-tab"
+                        data-target="templates">Browse templates</button>
+                <a class="sb-template-preview"
+                   href="@DashboardLinks.Resolve($"/policystack/edit/new?scope={PolicyScopeUrl.Encode(Model.Scope)}")">Start blank</a>
+            </div>
+        </div>
+    }
 }
 else
 {

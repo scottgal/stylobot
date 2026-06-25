@@ -655,3 +655,21 @@
     font-weight: 600;
 }
 .sb-template-card-preview:empty { display: none; }
+
+/* C12 -- zero-rules empty state on the Effective / Stack tabs. The
+   container is the muted card; the actions row pairs the primary
+   "Browse templates" button (.sb-template-use from C8) with the
+   neutral "Start blank" link (.sb-template-preview from C8). */
+.sb-policy-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: color-mix(in srgb, var(--color-base-content) 65%, transparent);
+    background: color-mix(in srgb, var(--color-base-200) 50%, transparent);
+    border-radius: 8px;
+    margin: 12px 0;
+}
+.sb-policy-empty-actions {
+    display: inline-flex;
+    gap: 8px;
+    margin-top: 12px;
+}
