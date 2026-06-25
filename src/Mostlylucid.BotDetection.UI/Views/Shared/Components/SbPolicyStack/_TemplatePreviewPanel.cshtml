@@ -1,0 +1,37 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model TemplatePreviewViewModel
+
+<div class="sb-template-preview-panel" data-template-id="@Model.TemplateId" data-scope="@Model.Scope">
+    <h4 class="sb-template-preview-heading">
+        Would add @Model.AddedRules.Count rule(s) at scope @Model.Scope
+    </h4>
+
+    @if (Model.Conflicts.Count > 0)
+    {
+        <p class="sb-template-preview-warn" role="alert">
+            @Model.Conflicts.Count existing rule(s) would become shadowed by this template.
+        </p>
+    }
+
+    @if (Model.Shadowed.Count > 0)
+    {
+        <p class="sb-template-preview-warn" role="alert">
+            @Model.Shadowed.Count rule(s) inside this template are already shadowed by your existing stack.
+        </p>
+    }
+
+    <ul class="sb-template-preview-list">
+        @foreach (var r in Model.AddedRules)
+        {
+            <li class="sb-template-preview-item">
+                <span class="sb-template-preview-priority">#@r.Priority</span>
+                <span class="sb-template-preview-action">@r.ActionDisplay</span>
+                <span class="sb-template-preview-mode">(@r.ModeDisplay)</span>
+                @if (!string.IsNullOrWhiteSpace(r.PredicateText))
+                {
+                    <span class="sb-template-preview-predicate">@r.PredicateText</span>
+                }
+            </li>
+        }
+    </ul>
+</div>
