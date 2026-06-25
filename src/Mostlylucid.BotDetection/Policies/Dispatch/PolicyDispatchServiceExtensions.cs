@@ -100,6 +100,7 @@ public static class PolicyDispatchServiceExtensions
             return new TemplateRegistry(store.LoadEmbeddedCatalog());
         });
         services.TryAddSingleton<TemplateResolver>();
+        services.TryAddSingleton<Rules.PolicyIntentClassifier>();
 
         // The dispatcher itself. Singleton: handlers are stateless, the
         // resolver is singleton-shaped, the decision log queue is singleton-shaped.
