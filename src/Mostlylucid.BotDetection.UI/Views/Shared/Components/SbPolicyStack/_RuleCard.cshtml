@@ -24,13 +24,20 @@
         "disabled" => "Disabled: rule is configured but turned off.",
         _          => "Mode: " + modeLower,
     };
+    var intent      = ViewBag.PolicyIntent as PolicyIntentKind? ?? PolicyIntentKind.Observe;
+    var intentLower = intent.ToString().ToLowerInvariant();
+    var pill = Model.Action is null
+        ? new ActionVerbFormatter.ActionPill("observe", "RULE", Model.ActionVerdict ?? "")
+        : ActionVerbFormatter.ToPill(Model.Action, intent, Model.Trigger is not null);
 }
 
 <article class="sb-policy-card"
          data-rule-card
          data-rule-id="@Model.RuleId"
          data-mode="@modeLower"
+         data-intent="@intentLower"
          data-inherited="@(Model.IsInherited ? "true" : "false")">
+    <span class="sb-policy-card-intent" aria-hidden="true"></span>
     <header class="sb-policy-card-head">
         <span class="sb-policy-card-priority">#@Model.Priority</span>
         <span class="sb-policy-card-target" title="@scopeTarget">@scopeTarget</span>
@@ -70,9 +77,21 @@
         </div>
         <div class="sb-policy-card-then">
             <span class="sb-policy-card-keyword">THEN</span>
-            <span class="sb-policy-card-action">@(Model.Action is null
-                ? Model.ActionVerdict
-                : ActionVerbFormatter.ToSentence(Model.Action, Model.IsObserveMode, Model.Trigger is not null))</span>
+            @if (Model.Action is null)
+            {
+                <span class="sb-policy-card-action">@Model.ActionVerdict</span>
+            }
+            else
+            {
+                <span class="sb-action-pill" data-intent="@intentLower">
+                    @await Html.PartialAsync("Components/SbPolicyStack/_IntentIcons", pill.IconRef)
+                    <span class="sb-action-pill-text">@pill.PillText</span>
+                </span>
+                @if (!string.IsNullOrEmpty(pill.DetailText))
+                {
+                    <span class="sb-action-pill-detail">@pill.DetailText</span>
+                }
+            }
         </div>
     </div>
 

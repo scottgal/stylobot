@@ -52,4 +52,37 @@ public static class ActionVerbFormatter
         var suffix = hasTrigger ? " · hysteresis" : string.Empty;
         return $"{prefix}{verb}{suffix}";
     }
+
+    public readonly record struct ActionPill(string IconRef, string PillText, string DetailText);
+
+    public static ActionPill ToPill(PolicyAction action, PolicyIntentKind intent, bool hasTrigger)
+    {
+        var (iconRef, pillText) = intent switch
+        {
+            PolicyIntentKind.Block     => ("block",     "BLOCK"),
+            PolicyIntentKind.Challenge => ("challenge", "CHALLENGE"),
+            PolicyIntentKind.Throttle  => ("throttle",  "THROTTLE"),
+            PolicyIntentKind.Allow     => ("allow",     "ALLOW"),
+            PolicyIntentKind.Tag       => ("tag",       "TAG"),
+            PolicyIntentKind.Observe   => ("observe",   "OBSERVE"),
+            PolicyIntentKind.Lockdown  => ("lockdown",  "LOCKDOWN"),
+            _                          => ("observe",   "RULE"),
+        };
+
+        var detail = action switch
+        {
+            PolicyAction.Allow             => "",
+            PolicyAction.Observe           => "",
+            PolicyAction.Block             when intent == PolicyIntentKind.Observe => "would block",
+            PolicyAction.Block             => "",
+            PolicyAction.Tag t             => $"as {t.Name}",
+            PolicyAction.Challenge c       => $"with {c.Kind}",
+            PolicyAction.RateLimit r       => $"to {r.RequestsPerMinute}/min",
+            PolicyAction.Throttle th       => $"to {th.RequestsPerSecond} rps"
+                + (string.IsNullOrEmpty(th.Reason) ? "" : $" ({th.Reason})"),
+            _                              => "",
+        };
+        if (hasTrigger) detail = string.IsNullOrEmpty(detail) ? "hysteresis" : $"{detail} · hysteresis";
+        return new ActionPill(iconRef, pillText, detail);
+    }
 }
