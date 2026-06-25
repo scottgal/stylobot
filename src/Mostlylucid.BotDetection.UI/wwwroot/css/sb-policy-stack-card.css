@@ -578,3 +578,80 @@
 .sb-facet-pill-op   { color: color-mix(in srgb, var(--color-base-content) 55%, transparent); }
 .sb-facet-pill-val  { color: var(--color-base-content); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
 .sb-facet-pill[data-uncatalogued="true"] { opacity: 0.7; font-style: italic; }
+
+/* Phase C8: template gallery + intent-coloured template cards. The card
+   reuses the same intent-strip vocabulary as the rule card so the
+   templates tab feels visually consistent with the owned-rules tab.
+   Strip colour is driven entirely off data-intent (no JS), grid is
+   responsive auto-fill so 280px is the minimum card width. */
+.sb-template-gallery {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    margin-top: 12px;
+}
+.sb-template-card {
+    position: relative;
+    background: var(--color-base-100);
+    border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+    border-radius: 10px;
+    padding: 16px 16px 12px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.sb-template-card-intent {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+    background: color-mix(in srgb, var(--color-base-content) 14%, transparent);
+}
+.sb-template-card[data-intent="block"]     .sb-template-card-intent { background: var(--color-error); }
+.sb-template-card[data-intent="challenge"] .sb-template-card-intent { background: var(--color-warning); }
+.sb-template-card[data-intent="throttle"]  .sb-template-card-intent { background: color-mix(in srgb, var(--color-warning) 70%, var(--color-base-100)); }
+.sb-template-card[data-intent="allow"]     .sb-template-card-intent { background: var(--color-success); }
+.sb-template-card[data-intent="tag"]       .sb-template-card-intent { background: color-mix(in srgb, var(--color-base-content) 40%, transparent); }
+.sb-template-card[data-intent="observe"]   .sb-template-card-intent { background: var(--color-info); }
+.sb-template-card[data-intent="lockdown"]  .sb-template-card-intent { background: var(--color-primary); }
+.sb-template-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sb-template-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--color-base-content);
+}
+.sb-template-card-desc {
+    font-size: 13px;
+    line-height: 1.5;
+    color: color-mix(in srgb, var(--color-base-content) 75%, transparent);
+    margin: 0;
+    white-space: pre-line;
+}
+.sb-template-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.sb-template-use,
+.sb-template-preview {
+    border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);
+    background: transparent;
+    color: var(--color-base-content);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.sb-template-use {
+    background: var(--color-primary);
+    color: var(--color-primary-content, white);
+    border-color: var(--color-primary);
+    font-weight: 600;
+}
+.sb-template-card-preview:empty { display: none; }

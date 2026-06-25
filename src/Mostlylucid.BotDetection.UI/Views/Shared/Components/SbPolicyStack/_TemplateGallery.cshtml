@@ -1,0 +1,9 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model IReadOnlyList<TemplateSummaryViewModel>
+
+<section class="sb-template-gallery" aria-label="Policy templates">
+    @foreach (var t in Model)
+    {
+        @await Html.PartialAsync("Components/SbPolicyStack/_TemplateCard", t)
+    }
+</section>

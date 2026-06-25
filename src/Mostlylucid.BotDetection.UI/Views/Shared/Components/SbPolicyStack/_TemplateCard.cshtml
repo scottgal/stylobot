@@ -1,0 +1,16 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model TemplateSummaryViewModel
+
+<article class="sb-template-card" data-intent="@Model.Intent" data-template-id="@Model.Id">
+    <span class="sb-template-card-intent" aria-hidden="true"></span>
+    <header class="sb-template-card-head">
+        @await Html.PartialAsync("Components/SbPolicyStack/_IntentIcons", Model.Intent)
+        <h3 class="sb-template-card-title">@Model.DisplayName</h3>
+    </header>
+    <p class="sb-template-card-desc">@Model.Description</p>
+    <footer class="sb-template-card-actions">
+        <button type="button" class="sb-template-use" data-action="use" data-template-id="@Model.Id">Use this template</button>
+        <button type="button" class="sb-template-preview" data-action="preview" data-template-id="@Model.Id">Preview</button>
+    </footer>
+    <div class="sb-template-card-preview" data-preview-target></div>
+</article>
