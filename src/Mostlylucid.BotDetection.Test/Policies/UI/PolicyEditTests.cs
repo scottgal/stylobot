@@ -485,6 +485,8 @@ public sealed class PolicyEditTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyStackPresenter>();
         builder.Services.AddSingleton<PolicyEditPresenter>();
         builder.Services.AddSingleton<RazorViewRenderer>();
+        builder.Services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
+        builder.Services.AddSingleton<FacetPillRenderer>();
         // Task 18: view component reads IPolicyCanEditPolicy when the
         // canEdit override is unset. FOSS default is read-only; these
         // tests pin canEdit via the controller param so the gate is

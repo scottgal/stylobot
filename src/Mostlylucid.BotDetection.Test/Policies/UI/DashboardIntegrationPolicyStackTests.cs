@@ -344,6 +344,8 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyConflictAnalyzer>();
         builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetPickerCatalog, Mostlylucid.BotDetection.UI.Services.FacetPickerCatalog>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.FacetPillRenderer>();
         // Task 18: SbPolicyStackViewComponent reads IPolicyCanEditPolicy
         // when the canEdit override is unset. These integration tests
         // exercise the dashboard partials that embed the view component;

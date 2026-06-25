@@ -86,10 +86,11 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
 
         Assert.Contains("score.bot_probability", html);
         Assert.Contains("&gt;=", html); // HTML-encoded >=
-        // Every chip carries a title= attribute even when the SignalCatalog
-        // doesn't know the facet (seed-rule facets like "bot.type" are not
-        // SignalKeys constants); the wire-up itself is what matters here.
-        Assert.Matches(new Regex(@"<span class=""chip""[^>]*title="""), html);
+        // C6: chips became labelled facet pills (<span class="sb-facet-pill ...">)
+        // produced by FacetPillRenderer. Every pill still carries a title= attribute
+        // even when the SignalCatalog doesn't know the facet -- the wire-up itself
+        // is what matters here.
+        Assert.Matches(new Regex(@"<span class=""sb-facet-pill [^""]*""[^>]*title="""), html);
     }
 
     // A10 deletion -- EffectiveTab_orders_most_specific_first_with_inherited_badge
@@ -1113,6 +1114,8 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyConflictAnalyzer>();
         builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetPickerCatalog, Mostlylucid.BotDetection.UI.Services.FacetPickerCatalog>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.FacetPillRenderer>();
         // Task 18: the view component reads IPolicyCanEditPolicy when the
         // optional canEdit override is unset. These tests pin canEdit via
         // the controller param so the gate is rarely consulted, but the

@@ -129,6 +129,8 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyConflictAnalyzer>();
         builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetPickerCatalog, Mostlylucid.BotDetection.UI.Services.FacetPickerCatalog>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.FacetPillRenderer>();
         builder.Services.AddSingleton(canEditPolicy);
         // Resolver-driven dashboard URLs replaced hard-coded /dashboard prefixes
         // in the policy-stack partials; tests that render those partials must
