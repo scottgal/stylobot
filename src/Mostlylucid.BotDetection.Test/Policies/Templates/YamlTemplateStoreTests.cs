@@ -15,10 +15,12 @@ public class YamlTemplateStoreTests
 
         var templates = store.LoadEmbeddedCatalog();
 
-        // The catalog ships ten seed templates -- if anyone adds another
-        // YAML file without registering it as an EmbeddedResource the assert
-        // tells you immediately.
-        Assert.Equal(10, templates.Count);
+        // The catalog ships thirteen seed templates (ten original B5-era
+        // entries + the three C7 gap-fillers: block-ai-scrapers,
+        // honeypot-trap, shadow-mode). If anyone adds another YAML file
+        // without registering it as an EmbeddedResource the assert tells
+        // you immediately.
+        Assert.Equal(13, templates.Count);
         Assert.All(templates, t =>
         {
             Assert.False(string.IsNullOrWhiteSpace(t.Id));

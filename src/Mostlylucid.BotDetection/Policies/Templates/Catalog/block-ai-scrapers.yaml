@@ -1,0 +1,33 @@
+# block-ai-scrapers: turn off training-corpus collection for this site.
+# Two rules with overlapping coverage so a UA can be caught either by the
+# UA-parser's bot_type classification (ua.bot_type = "AiBot") or by the
+# named-UA allow-list when a fresh crawler shows up before the bot parser
+# corpus has tagged it. The named list is the union of the AI-scraper UAs
+# publicly documented by their operators:
+#   GPTBot / ChatGPT-User                  -- OpenAI
+#   ClaudeBot / ClaudeBot-Anthropic        -- Anthropic crawler
+#   anthropic-ai                           -- Anthropic in-product fetcher
+#   Bytespider                             -- ByteDance / TikTok
+#   PerplexityBot                          -- Perplexity AI
+#   CCBot                                  -- Common Crawl (LLM training)
+#   Diffbot                                -- Diffbot scraping platform
+#   Amazonbot                              -- Amazon's crawler (used for AI)
+# In-list comparison is ordinal case-sensitive (PredicateEvaluator), so
+# the UA family strings here must match the UA parser's projection exactly.
+template: block-ai-scrapers
+display-name: "Block AI scrapers"
+description: "Stop AI training and inference crawlers from harvesting the site -- blocks anything the UA parser tags as AiBot plus the named operators that publish their crawler identifiers (GPTBot, ChatGPT-User, ClaudeBot, ClaudeBot-Anthropic, anthropic-ai, Bytespider, PerplexityBot, CCBot, Diffbot, Amazonbot)."
+category: scraping-defence
+
+expansion:
+  - suffix: block-ai-bot-type
+    predicate: 'ua.bot_type = "AiBot"'
+    action: '{ kind: block }'
+    priority: 100
+    mode: live
+
+  - suffix: block-named-ai-uas
+    predicate: 'ua.family in ("GPTBot", "ChatGPT-User", "ClaudeBot", "ClaudeBot-Anthropic", "anthropic-ai", "Bytespider", "PerplexityBot", "CCBot", "Diffbot", "Amazonbot")'
+    action: '{ kind: block }'
+    priority: 110
+    mode: live

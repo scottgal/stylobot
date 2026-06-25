@@ -1,0 +1,37 @@
+# honeypot-trap: tripwire rules over paths that no legitimate visitor (or
+# legitimate bot) ever requests. A hit on any of these paths is a strong
+# bot signal on its own; pairing the path predicate with ua.is_bot
+# tightens the rule from "anyone curl-ing /.env" to "an identified bot
+# curl-ing /.env" so we don't accidentally block a developer poking at
+# their own server with curl.
+#
+# Three tripwires:
+#   1. /.env*           -- secret-file probe; immediate block
+#   2. /wp-login.php    -- WordPress brute-force probe; tight rate limit
+#   3. /admin/config.php -- CMS config probe; tag for downstream review
+#
+# Path predicates use request.path with the `matches` glob operator;
+# request.path is the verified SignalKey (Models/DetectionContext.cs).
+template: honeypot-trap
+display-name: "Honeypot trap"
+description: "Tripwire rules over decoy paths no legitimate visitor requests -- blocks .env probes, rate-limits WordPress login brute-forcers, and tags admin config probes for review."
+category: endpoint-protection
+
+expansion:
+  - suffix: block-dotenv-probe
+    predicate: 'request.path matches "/.env*" and ua.is_bot = true'
+    action: '{ kind: block }'
+    priority: 100
+    mode: live
+
+  - suffix: rate-limit-wp-login
+    predicate: 'request.path = "/wp-login.php"'
+    action: '{ kind: rate_limit, rpm: 5 }'
+    priority: 110
+    mode: live
+
+  - suffix: tag-admin-config-probe
+    predicate: 'request.path = "/admin/config.php"'
+    action: '{ kind: tag, name: "honeypot-trip" }'
+    priority: 120
+    mode: live

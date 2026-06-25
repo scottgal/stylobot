@@ -1,0 +1,37 @@
+# shadow-mode: dry-run template -- every rule is authored at `mode: observe`
+# so the dispatcher logs decisions without enforcing them. Operators apply
+# this template to confirm what *would* fire before flipping the same
+# predicates to `mode: live` (typically via the block-ai-scrapers template
+# or hand-authored rules).
+#
+# Three observe-only rules covering the canonical bot-action triad:
+#   1. ua.bot_type = "AiBot"      -- would block AI crawlers
+#   2. ua.bot_type = "Scraper"    -- would block generic scrapers
+#   3. risk.score >= 0.8          -- would challenge high-risk traffic
+#
+# risk.score is the aggregated bot-probability (0.0 human, 1.0 bot) from
+# the FOSS detection pipeline -- the verified SignalKey is risk.score
+# (Models/DetectionContext.cs), NOT the older score.bot_probability label.
+template: shadow-mode
+display-name: "Shadow mode"
+description: "Dry-run: log what would happen without enforcing. Three observe-only rules covering AI bots, generic scrapers, and high-risk traffic -- flip to live mode once the predictions look right."
+category: observability
+
+expansion:
+  - suffix: would-block-ai-bots
+    predicate: 'ua.bot_type = "AiBot"'
+    action: '{ kind: block }'
+    priority: 100
+    mode: observe
+
+  - suffix: would-block-scrapers
+    predicate: 'ua.bot_type = "Scraper"'
+    action: '{ kind: block }'
+    priority: 110
+    mode: observe
+
+  - suffix: would-challenge-high-risk
+    predicate: 'risk.score >= 0.8'
+    action: '{ kind: challenge, challenge_kind: turnstile }'
+    priority: 120
+    mode: observe
