@@ -111,18 +111,6 @@ facets:
     category: risk
     icon: chart-bar
 
-  - label: "Bot probability"
-    facet: "score.bot_probability"
-    type: number
-    ops: [gte, lte, between]
-    range:
-      min: 0.0
-      max: 1.0
-      step: 0.05
-    help: "Per-request bot probability from the scoring pipeline (0.0 human, 1.0 bot)."
-    category: risk
-    icon: chart-bar
-
   - label: "Country"
     facet: "geo.country_code"
     type: enum
@@ -184,14 +172,6 @@ facets:
     type: glob
     ops: [matches, eq]
     help: "Request path. Glob: * matches one segment, ** matches across segments."
-    category: endpoint
-    icon: globe-alt
-
-  - label: "Path glob"
-    facet: "path.glob"
-    type: glob
-    ops: [matches, eq]
-    help: "Glob-matched request path. Convenience alias for path-pattern rules."
     category: endpoint
     icon: globe-alt
 

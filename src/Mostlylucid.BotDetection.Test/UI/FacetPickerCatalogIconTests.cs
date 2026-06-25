@@ -17,10 +17,10 @@ public sealed class FacetPickerCatalogIconTests
 
     [Theory]
     [InlineData("ua.family", "cpu-chip")]
-    [InlineData("path.glob", "globe-alt")]
+    [InlineData("request.path", "globe-alt")]
     [InlineData("geo.country", "map-pin")]
     [InlineData("time.hour_of_day", "clock")]
-    [InlineData("score.bot_probability", "chart-bar")]
+    [InlineData("risk.score", "chart-bar")]
     [InlineData("attestation.api_key", "key")]
     [InlineData("org.lockdown", "building-office")]
     public void Catalogued_Facet_Has_Expected_Icon(string facet, string expectedIcon)
