@@ -6,8 +6,8 @@
 /* ─── Card surface ─────────────────────────────────────────────── */
 
 .sb-policy-card {
-    background: hsl(var(--b1));
-    border: 1px solid hsl(var(--b3));
+    background: var(--color-base-100);
+    border: 1px solid var(--color-base-300);
     border-radius: 0.5rem;
     padding: 0;
     margin-block-end: 0.75rem;
@@ -20,7 +20,7 @@
 }
 .sb-policy-card:hover {
     transform: translateY(-1px);
-    box-shadow: 0 2px 8px hsl(var(--bc) / 0.08);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--color-base-content) 8%, transparent);
 }
 /* Inherited cards in the Effective panel are read-only at this scope --
    they belong to a broader-scope group. Don't lift on hover so the visual
@@ -47,11 +47,11 @@
     align-items: center;
     gap: 0.75rem;
     padding: 0.625rem 1rem;
-    border-block-end: 1px solid hsl(var(--b3));
+    border-block-end: 1px solid var(--color-base-300);
 }
 .sb-policy-card-priority {
     font: 500 0.75rem/1 ui-monospace, monospace;
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
 }
 .sb-policy-card-target {
     font: 600 0.875rem/1.2 ui-monospace, monospace;
@@ -66,15 +66,15 @@
 .sb-policy-card-edit, .sb-policy-card-drag {
     border: 0;
     background: transparent;
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
     cursor: pointer;
     padding: 0.25rem 0.5rem;
     border-radius: 0.25rem;
     line-height: 1;
 }
 .sb-policy-card-edit:hover, .sb-policy-card-drag:hover {
-    color: hsl(var(--bc));
-    background: hsl(var(--b2));
+    color: var(--color-base-content);
+    background: var(--color-base-200);
 }
 
 /* ─── Band 2: Body ─────────────────────────────────────────────── */
@@ -84,14 +84,14 @@
     grid-template-columns: max-content 1fr;
     gap: 0.25rem 0.75rem;
     padding: 0.75rem 1rem;
-    background: hsl(var(--b2) / 0.3);
+    background: color-mix(in srgb, var(--color-base-200) 30%, transparent);
 }
 .sb-policy-card-if, .sb-policy-card-then { display: contents; }
 .sb-policy-card-keyword {
     font: 500 0.625rem/1 ui-sans-serif, system-ui;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
     align-self: center;
 }
 .sb-policy-card-action {
@@ -110,14 +110,14 @@
     display: inline-flex;
     gap: 0.25rem;
     padding: 0.125rem 0.375rem;
-    border: 1px solid hsl(var(--b3));
+    border: 1px solid var(--color-base-300);
     border-radius: 0.25rem;
-    background: hsl(var(--b1));
+    background: var(--color-base-100);
     font-family: ui-monospace, monospace;
     font-size: 0.8125rem;
 }
 .sb-policy-card-chips .kw {
-    color: hsl(var(--bc) / 0.45);
+    color: color-mix(in srgb, var(--color-base-content) 45%, transparent);
     text-transform: uppercase;
     font-size: 0.6875rem;
     letter-spacing: 0.05em;
@@ -132,7 +132,7 @@
     align-items: center;
     padding: 0.5rem 1rem;
     font: 400 0.75rem/1.2 ui-sans-serif, system-ui;
-    color: hsl(var(--bc) / 0.6);
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
 }
 .sb-policy-card-mode {
     display: inline-flex;
@@ -143,15 +143,15 @@
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 50%;
-    background: hsl(var(--b3));
+    background: var(--color-base-300);
     display: inline-block;
 }
-.sb-policy-card-mode.mode-live     .sb-policy-card-mode-dot { background: hsl(var(--su)); }
-.sb-policy-card-mode.mode-observe  .sb-policy-card-mode-dot { background: hsl(var(--in)); }
-.sb-policy-card-mode.mode-draft    .sb-policy-card-mode-dot { background: hsl(var(--bc) / 0.4); }
-.sb-policy-card-mode.mode-disabled .sb-policy-card-mode-dot { background: hsl(var(--b3)); }
+.sb-policy-card-mode.mode-live     .sb-policy-card-mode-dot { background: var(--color-success); }
+.sb-policy-card-mode.mode-observe  .sb-policy-card-mode-dot { background: var(--color-info); }
+.sb-policy-card-mode.mode-draft    .sb-policy-card-mode-dot { background: color-mix(in srgb, var(--color-base-content) 40%, transparent); }
+.sb-policy-card-mode.mode-disabled .sb-policy-card-mode-dot { background: var(--color-base-300); }
 .sb-policy-card-no-hits, .sb-policy-card-diverged {
-    color: hsl(var(--wa));
+    color: var(--color-warning);
 }
 .sb-policy-card-diverged code {
     background: transparent;
@@ -167,7 +167,7 @@
 .sb-policy-scope-group-head {
     position: sticky;
     top: 0;
-    background: hsl(var(--b1));
+    background: var(--color-base-100);
     z-index: 1;
     padding: 0.5rem 0;
 }
@@ -190,7 +190,7 @@
     transform: rotate(-90deg);
 }
 .sb-policy-scope-group-type {
-    color: hsl(var(--bc) / 0.6);
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
     text-transform: lowercase;
 }
 .sb-policy-scope-group-target code {
@@ -199,13 +199,13 @@
     font: inherit;
 }
 .sb-policy-scope-group-count {
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
     font-weight: 400;
     font-size: 0.8125rem;
 }
 .sb-policy-scope-group-desc {
     font: 400 0.8125rem/1.4 ui-sans-serif, system-ui;
-    color: hsl(var(--bc) / 0.55);
+    color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
     font-style: italic;
     margin: 0.125rem 0 0 0;
 }
@@ -215,7 +215,7 @@
 .sb-policy-scope-group-tabs {
     display: flex;
     gap: 0.25rem;
-    border-block-end: 1px solid hsl(var(--b3));
+    border-block-end: 1px solid var(--color-base-300);
     margin-block-end: 0.75rem;
 }
 .sb-policy-scope-group-tab {
@@ -224,18 +224,18 @@
     padding: 0.5rem 0.875rem;
     font: 500 0.8125rem/1 ui-sans-serif, system-ui;
     cursor: pointer;
-    color: hsl(var(--bc) / 0.55);
+    color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
     border-block-end: 2px solid transparent;
 }
 .sb-policy-scope-group-tab[aria-selected="true"] {
-    color: hsl(var(--bc));
-    border-block-end-color: hsl(var(--p));
+    color: var(--color-base-content);
+    border-block-end-color: var(--color-primary);
 }
 .sb-policy-scope-group-add {
     display: inline-block;
     margin-block-start: 0.5rem;
     font: 400 0.8125rem/1 ui-sans-serif, system-ui;
-    color: hsl(var(--p));
+    color: var(--color-primary);
     text-decoration: none;
 }
 .sb-policy-scope-group-add:hover {
@@ -252,32 +252,32 @@
     text-align: center;
     gap: 0.25rem;
     padding: 1.25rem 0.5rem;
-    color: hsl(var(--bc) / 0.6);
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
 }
 .sb-policy-scope-group-empty-icon {
     font-size: 1.5rem;
-    color: hsl(var(--bc) / 0.35);
+    color: color-mix(in srgb, var(--color-base-content) 35%, transparent);
     margin-block-end: 0.125rem;
 }
 .sb-policy-scope-group-empty-head {
     font: 600 0.875rem/1.3 ui-sans-serif, system-ui;
-    color: hsl(var(--bc) / 0.75);
+    color: color-mix(in srgb, var(--color-base-content) 75%, transparent);
     margin: 0;
 }
 .sb-policy-scope-group-empty-help {
     font: 400 0.8125rem/1.4 ui-sans-serif, system-ui;
-    color: hsl(var(--bc) / 0.55);
+    color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
     margin: 0;
 }
 .sb-policy-scope-group-empty-help strong {
-    color: hsl(var(--bc) / 0.75);
+    color: color-mix(in srgb, var(--color-base-content) 75%, transparent);
     font-weight: 600;
 }
 
 /* ─── Effective panel — inherited / shadowed / unreachable ─────── */
 
 .sb-effective-row[data-inherited="true"] .sb-policy-card {
-    border-left: 3px solid hsl(var(--in));
+    border-left: 3px solid var(--color-info);
 }
 .sb-effective-row[data-shadowed="true"] .sb-policy-card {
     opacity: 0.55;
@@ -288,7 +288,7 @@
 }
 .sb-effective-inherited {
     font: 400 0.75rem/1.2 ui-sans-serif, system-ui;
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
     margin: -0.25rem 0 0.5rem 1rem;
 }
 .sb-effective-inherited code {
@@ -301,7 +301,7 @@
     padding: 0;
     margin: 1rem 0;
     font-size: 0.8125rem;
-    color: hsl(var(--bc) / 0.6);
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
 }
 .sb-effective-annotation {
     padding: 0.25rem 0;
@@ -316,12 +316,12 @@
    card and just highlight the border so the operator knows which card is
    in edit mode. */
 .sb-policy-card-editing {
-    border-color: hsl(var(--p));
-    box-shadow: 0 0 0 2px hsl(var(--p) / 0.15);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 15%, transparent);
 }
 .sb-policy-card-editing:hover {
     transform: none;
-    box-shadow: 0 0 0 2px hsl(var(--p) / 0.15);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 15%, transparent);
 }
 
 .sb-policy-card-actions {
@@ -330,8 +330,8 @@
     gap: 0.5rem;
 }
 .sb-policy-card-save {
-    background: hsl(var(--p));
-    color: hsl(var(--pc));
+    background: var(--color-primary);
+    color: white;
     border: 0;
     padding: 0.375rem 0.875rem;
     border-radius: 0.25rem;
@@ -339,20 +339,20 @@
     font: 600 0.8125rem/1.2 ui-sans-serif, system-ui;
 }
 .sb-policy-card-save:hover {
-    background: hsl(var(--p) / 0.9);
+    background: color-mix(in srgb, var(--color-primary) 9%, transparent);
 }
 .sb-policy-card-cancel {
     background: transparent;
-    color: hsl(var(--bc) / 0.7);
-    border: 1px solid hsl(var(--b3));
+    color: color-mix(in srgb, var(--color-base-content) 7%, transparent);
+    border: 1px solid var(--color-base-300);
     padding: 0.375rem 0.875rem;
     border-radius: 0.25rem;
     cursor: pointer;
     font: 400 0.8125rem/1.2 ui-sans-serif, system-ui;
 }
 .sb-policy-card-cancel:hover {
-    color: hsl(var(--bc));
-    border-color: hsl(var(--bc) / 0.4);
+    color: var(--color-base-content);
+    border-color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
 }
 
 .sb-policy-card-expand-body {
@@ -363,7 +363,7 @@
 }
 
 .sb-policy-card-if-builder {
-    border: 1px solid hsl(var(--b3));
+    border: 1px solid var(--color-base-300);
     border-radius: 0.375rem;
     padding: 0.625rem 0.875rem;
 }
@@ -371,11 +371,11 @@
     font: 600 0.6875rem/1.2 ui-sans-serif, system-ui;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: hsl(var(--bc) / 0.6);
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
     padding: 0 0.5rem;
 }
 .sb-policy-card-keyword {
-    color: hsl(var(--p));
+    color: var(--color-primary);
 }
 
 /* Facet picker rows. The picker is render-only in B8 (the textarea is the
@@ -389,7 +389,7 @@
 .sb-facet-picker-empty {
     margin: 0.25rem 0;
     font-size: 0.8125rem;
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
 }
 .sb-facet-picker-row {
     display: grid;
@@ -402,10 +402,10 @@
 .sb-facet-picker-row input[type="text"],
 .sb-facet-picker-row input[type="number"] {
     padding: 0.25rem 0.375rem;
-    border: 1px solid hsl(var(--b3));
+    border: 1px solid var(--color-base-300);
     border-radius: 0.25rem;
-    background: hsl(var(--b1));
-    color: hsl(var(--bc));
+    background: var(--color-base-100);
+    color: var(--color-base-content);
     font: 400 0.8125rem/1.2 ui-sans-serif, system-ui;
     min-width: 0;
 }
@@ -426,12 +426,12 @@
 }
 .sb-facet-picker-glob-hint {
     font-size: 0.6875rem;
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
     white-space: nowrap;
 }
 .sb-facet-picker-remove {
     background: transparent;
-    color: hsl(var(--bc) / 0.4);
+    color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
     border: 0;
     cursor: pointer;
     padding: 0 0.5rem;
@@ -439,7 +439,7 @@
     line-height: 1;
 }
 .sb-facet-picker-remove:hover:not(:disabled) {
-    color: hsl(var(--er));
+    color: var(--color-error);
 }
 .sb-facet-picker-remove:disabled {
     cursor: not-allowed;
@@ -454,8 +454,8 @@
 }
 .sb-facet-picker-add {
     background: transparent;
-    color: hsl(var(--p));
-    border: 1px dashed hsl(var(--p) / 0.4);
+    color: var(--color-primary);
+    border: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
     border-radius: 0.25rem;
     padding: 0.25rem 0.5rem;
     cursor: pointer;
@@ -467,7 +467,7 @@
 }
 .sb-facet-picker-hint {
     font-size: 0.6875rem;
-    color: hsl(var(--bc) / 0.5);
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
 }
 
 /* The wrapping div around the embedded _EditRow partial. The header's
@@ -488,7 +488,7 @@
 .sb-policy-card-hysteresis summary,
 .sb-policy-card-auto-promote-note {
     font: 400 0.75rem/1.4 ui-sans-serif, system-ui;
-    color: hsl(var(--bc) / 0.7);
+    color: color-mix(in srgb, var(--color-base-content) 7%, transparent);
     cursor: pointer;
 }
 .sb-policy-card-hysteresis[open] summary {
@@ -504,14 +504,14 @@
     flex-direction: column;
     gap: 0.25rem;
     font-size: 0.75rem;
-    color: hsl(var(--bc) / 0.75);
+    color: color-mix(in srgb, var(--color-base-content) 75%, transparent);
 }
 .sb-policy-card-hysteresis-grid input[type="number"] {
     padding: 0.25rem 0.375rem;
-    border: 1px solid hsl(var(--b3));
+    border: 1px solid var(--color-base-300);
     border-radius: 0.25rem;
-    background: hsl(var(--b1));
-    color: hsl(var(--bc));
+    background: var(--color-base-100);
+    color: var(--color-base-content);
     font: 400 0.8125rem/1.2 ui-sans-serif, system-ui;
     max-width: 8rem;
 }
@@ -519,15 +519,15 @@
     margin: 0.5rem 0 0 0;
     font-size: 0.6875rem;
     line-height: 1.4;
-    color: hsl(var(--bc) / 0.55);
+    color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
 }
 .sb-policy-card-hysteresis-help em {
     font-style: normal;
     font-weight: 600;
-    color: hsl(var(--bc) / 0.75);
+    color: color-mix(in srgb, var(--color-base-content) 75%, transparent);
 }
 .sb-policy-card-auto-promote-note {
     margin: 0;
     font-style: italic;
-    color: hsl(var(--bc) / 0.6);
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
 }
