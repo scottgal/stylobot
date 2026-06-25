@@ -12,6 +12,11 @@
     var rowsUrl = DashboardLinks.Resolve($"/policystack/rows?scope={PolicyScopeUrl.Encode(Model.Scope)}&tab={activeTabToken}");
     var applyTemplateUrl = DashboardLinks.Resolve($"/policies/templates/apply?scope={PolicyScopeUrl.Encode(Model.Scope)}");
     var newRuleUrl = DashboardLinks.Resolve($"/policystack/edit/new?scope={PolicyScopeUrl.Encode(Model.Scope)}");
+    // C11 -- absolute path: the gallery is served by the commercial
+    // PolicyTemplatesController at /api/v1/policies/templates (HX-Request
+    // returns the bare _TemplateGallery partial). FOSS shows an empty-state
+    // body when the endpoint is absent.
+    const string templatesUrl = "/api/v1/policies/templates";
 }
 <section class="sb-policy-stack"
          data-policy-stack-embed="full"
@@ -46,6 +51,11 @@
                     role="tab"
                     data-tab="stack"
                     aria-selected="@(!effectiveActive ? "true" : "false")">Stack</button>
+            <button type="button"
+                    class="sb-policy-stack-tab"
+                    role="tab"
+                    data-tab="templates"
+                    aria-selected="false">Templates</button>
         </div>
 
         @if (Model.CanEdit)
@@ -86,7 +96,7 @@
        swap envelope is also skipped because there are no rows to swap. *@
     @if (!Model.HideRuleList)
     {
-        <div class="sb-policy-stack-body">
+        <div class="sb-policy-stack-body" data-tab-panel="rules">
             @* B6: outerHTML target for the SignalR-driven row swap. The /dashboard/
                policystack/rows endpoint returns the same div with the same id so an
                hx-swap=outerHTML targeting #sb-policy-stack-rows-<hash> refreshes the
@@ -101,6 +111,21 @@
                     @await Html.PartialAsync("Components/SbPolicyStack/_StackTab", Model)
                 }
             </div>
+        </div>
+
+        @* C11 -- Templates tab panel. Hidden on first paint; the tab-toggle
+           JS reveals it and dispatches a 'reveal' CustomEvent so the
+           hx-trigger="reveal once" fires the lazy GET against the commercial
+           PolicyTemplatesController. hx-swap="innerHTML" replaces this
+           placeholder body with the bare _TemplateGallery markup. *@
+        <div class="sb-policy-stack-body sb-policy-stack-templates"
+             data-tab-panel="templates"
+             hidden
+             hx-get="@templatesUrl"
+             hx-trigger="reveal once"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <em class="sb-policy-stack-templates-loading">Loading templates&hellip;</em>
         </div>
     }
 

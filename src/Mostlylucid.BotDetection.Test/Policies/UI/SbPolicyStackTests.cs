@@ -59,9 +59,16 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Contains("data-policy-stack-embed=\"full\"", full);
         Assert.Contains("data-tab=\"effective\"", full);
         Assert.Contains("data-tab=\"stack\"", full);
+        // C11 -- Templates tab + reveal-once HTMX gallery panel.
+        Assert.Contains("data-tab=\"templates\"", full);
+        Assert.Contains("data-tab-panel=\"templates\"", full);
+        Assert.Contains("data-tab-panel=\"rules\"", full);
+        Assert.Contains("hx-get=\"/api/v1/policies/templates\"", full);
+        Assert.Contains("hx-trigger=\"reveal once\"", full);
 
         var only = await GetHtmlAsync(client, WildcardScope, PolicyStackEmbed.EffectiveOnly);
         Assert.DoesNotContain("data-tab=\"stack\"", only);
+        Assert.DoesNotContain("data-tab=\"templates\"", only);
         Assert.Contains("data-policy-stack-embed=\"effective-only\"", only);
 
         var badge = await GetHtmlAsync(client, DomainScope, PolicyStackEmbed.StatusBadge);
