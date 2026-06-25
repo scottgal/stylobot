@@ -7,23 +7,40 @@ namespace Mostlylucid.BotDetection.Policies.Rules;
 /// </summary>
 public abstract record PolicyAction
 {
+    public abstract PolicyIntentKind Intent { get; }
+
     /// <summary>Let the request through untouched.</summary>
-    public sealed record Allow : PolicyAction;
+    public sealed record Allow : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.Allow;
+    }
 
     /// <summary>Record that the rule matched but otherwise let the request through. Used in <see cref="PolicyMode.Observe"/>-paired authoring.</summary>
-    public sealed record Observe : PolicyAction;
+    public sealed record Observe : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.Observe;
+    }
 
     /// <summary>Attach <paramref name="Name"/> as a labelled tag to the request for downstream consumers.</summary>
-    public sealed record Tag(string Name) : PolicyAction;
+    public sealed record Tag(string Name) : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.Tag;
+    }
 
     /// <summary>
     ///     Present a challenge of the specified <paramref name="Kind"/>
     ///     (e.g. <c>"turnstile"</c>, <c>"captcha"</c>, <c>"jschallenge"</c>).
     /// </summary>
-    public sealed record Challenge(string Kind) : PolicyAction;
+    public sealed record Challenge(string Kind) : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.Challenge;
+    }
 
     /// <summary>Apply a rate limit of <paramref name="RequestsPerMinute"/> requests per minute on the matched cohort.</summary>
-    public sealed record RateLimit(int RequestsPerMinute) : PolicyAction;
+    public sealed record RateLimit(int RequestsPerMinute) : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.Throttle;
+    }
 
     /// <summary>
     ///     Process-wide rate cap keyed by the rule's <see cref="PolicyScope"/>.
@@ -64,8 +81,13 @@ public abstract record PolicyAction
 
         /// <summary>Optional operator-facing label surfaced in decision-log entries.</summary>
         public string? Reason { get; init; }
+
+        public override PolicyIntentKind Intent => PolicyIntentKind.Throttle;
     }
 
     /// <summary>Block the request outright.</summary>
-    public sealed record Block : PolicyAction;
+    public sealed record Block : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.Block;
+    }
 }

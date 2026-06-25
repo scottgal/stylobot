@@ -422,5 +422,8 @@ public sealed class PolicyActionDispatcherTests
     ///     Synthetic action subtype not registered with any handler. Used by
     ///     <see cref="Unknown_action_type_falls_through_gracefully"/>.
     /// </summary>
-    private sealed record UnknownAction : PolicyAction;
+    private sealed record UnknownAction : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.Observe;
+    }
 }
