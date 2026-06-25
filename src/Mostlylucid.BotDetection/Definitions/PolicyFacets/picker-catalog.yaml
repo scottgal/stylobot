@@ -19,6 +19,12 @@
 #             actually match what contributors write.
 #   range:    when type == number, { min, max, step } for the slider.
 #   help:     one-line operator-readable hint shown in the picker dropdown.
+#   category: grouping bucket the picker UI uses for default icon + colour
+#             (bot-identity / endpoint / geo / time / risk / attestation /
+#             user / org). Omitted entries fall back to the generic 'tag'
+#             icon via FacetPickerCatalog.ResolveIcon.
+#   icon:     heroicon outline ref overriding the category default. When
+#             omitted, the category-default fallback fills it in.
 
 version: 1
 facets:
@@ -41,36 +47,48 @@ facets:
       - ClickFraud
       - Internal
     help: "What kind of bot this user-agent looks like. Case-sensitive."
+    category: bot-identity
+    icon: cpu-chip
 
   - label: "Bot family"
     facet: "ua.family"
     type: string
     ops: [eq, contains, matches]
     help: "Browser or bot family from the UA parser (Chrome, Firefox, Googlebot)."
+    category: bot-identity
+    icon: cpu-chip
 
   - label: "User-agent is bot"
     facet: "ua.is_bot"
     type: bool
     ops: [eq]
     help: "True when the UA parser classifies this request as a bot."
+    category: bot-identity
+    icon: cpu-chip
 
   - label: "Verified bot name"
     facet: "verifiedbot.name"
     type: string
     ops: [eq, in]
     help: "Name of the verified bot when reverse-DNS / IP-range checks pass (Googlebot, Bingbot)."
+    category: bot-identity
+    icon: cpu-chip
 
   - label: "Verified bot confirmed"
     facet: "verifiedbot.confirmed"
     type: bool
     ops: [eq]
     help: "True when the bot's claimed identity passed external verification."
+    category: bot-identity
+    icon: cpu-chip
 
   - label: "Verified bot spoofed"
     facet: "verifiedbot.spoofed"
     type: bool
     ops: [eq]
     help: "True when a friendly UA failed verification (likely spoof)."
+    category: bot-identity
+    icon: cpu-chip
 
   - label: "Risk band"
     facet: "risk.band"
@@ -78,6 +96,8 @@ facets:
     ops: [eq, in, not_in]
     values: [VeryLow, Low, Medium, High, VeryHigh]
     help: "Final risk tier from DetermineRiskBand."
+    category: risk
+    icon: chart-bar
 
   - label: "Risk score"
     facet: "risk.score"
@@ -88,60 +108,108 @@ facets:
       max: 1.0
       step: 0.05
     help: "Aggregated bot-probability for this request (0.0 human, 1.0 bot)."
+    category: risk
+    icon: chart-bar
+
+  - label: "Bot probability"
+    facet: "score.bot_probability"
+    type: number
+    ops: [gte, lte, between]
+    range:
+      min: 0.0
+      max: 1.0
+      step: 0.05
+    help: "Per-request bot probability from the scoring pipeline (0.0 human, 1.0 bot)."
+    category: risk
+    icon: chart-bar
 
   - label: "Country"
     facet: "geo.country_code"
     type: enum
     ops: [in, not_in]
     help: "ISO 3166-1 alpha-2 country code. Picker renders a search input."
+    category: geo
+    icon: map-pin
+
+  - label: "Country name"
+    facet: "geo.country"
+    type: string
+    ops: [eq, in, not_in]
+    help: "Friendly country name resolved from the geo lookup."
+    category: geo
+    icon: map-pin
 
   - label: "From VPN"
     facet: "geo.is_vpn"
     type: bool
     ops: [eq]
     help: "True when the client IP resolves to a known VPN exit."
+    category: geo
+    icon: map-pin
 
   - label: "From Tor"
     facet: "geo.is_tor"
     type: bool
     ops: [eq]
     help: "True when the client IP is a Tor exit node."
+    category: geo
+    icon: map-pin
 
   - label: "From datacenter"
     facet: "ip.is_datacenter"
     type: bool
     ops: [eq]
     help: "True when the client IP is in a known datacenter ASN."
+    category: geo
+    icon: map-pin
 
   - label: "ASN"
     facet: "ip.asn"
     type: number
     ops: [eq, in, not_in]
     help: "Autonomous System Number of the client IP."
+    category: geo
+    icon: map-pin
 
   - label: "ASN org"
     facet: "ip.asn_org"
     type: string
     ops: [contains, matches]
     help: "Organisation name that owns the ASN (e.g. AMAZON-02)."
+    category: geo
+    icon: map-pin
 
   - label: "Path"
     facet: "request.path"
     type: glob
     ops: [matches, eq]
     help: "Request path. Glob: * matches one segment, ** matches across segments."
+    category: endpoint
+    icon: globe-alt
+
+  - label: "Path glob"
+    facet: "path.glob"
+    type: glob
+    ops: [matches, eq]
+    help: "Glob-matched request path. Convenience alias for path-pattern rules."
+    category: endpoint
+    icon: globe-alt
 
   - label: "Domain"
     facet: "request.domain"
     type: string
     ops: [eq, in]
     help: "Full request host (example.com)."
+    category: endpoint
+    icon: globe-alt
 
   - label: "Subdomain"
     facet: "request.subdomain"
     type: string
     ops: [eq, in]
     help: "Subdomain portion of the request host (api in api.example.com)."
+    category: endpoint
+    icon: globe-alt
 
   - label: "HTTP method"
     facet: "request.method"
@@ -149,24 +217,32 @@ facets:
     ops: [eq, in]
     values: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
     help: "HTTP verb of the request."
+    category: endpoint
+    icon: globe-alt
 
   - label: "Has Accept header"
     facet: "header.has_accept"
     type: bool
     ops: [eq]
     help: "True when the request sent an Accept header. Real browsers always do."
+    category: endpoint
+    icon: globe-alt
 
   - label: "Has Accept-Language header"
     facet: "header.has_accept_language"
     type: bool
     ops: [eq]
     help: "True when the request sent an Accept-Language header."
+    category: endpoint
+    icon: globe-alt
 
   - label: "Sec-Fetch-Mode"
     facet: "header.sec_fetch_mode"
     type: string
     ops: [eq, in]
     help: "Sec-Fetch-Mode header value (navigate, cors, no-cors, same-origin, websocket)."
+    category: endpoint
+    icon: globe-alt
 
   - label: "Hour of day"
     facet: "time.hour_of_day"
@@ -177,6 +253,8 @@ facets:
       max: 23
       step: 1
     help: "Local hour of day from the configured time zone (0-23)."
+    category: time
+    icon: clock
 
   - label: "Day of week"
     facet: "time.day_of_week"
@@ -184,9 +262,21 @@ facets:
     ops: [in, eq]
     values: [mon, tue, wed, thu, fri, sat, sun]
     help: "Local day of week, lowercase three-letter abbreviation."
+    category: time
+    icon: clock
+
+  - label: "API key presented"
+    facet: "attestation.api_key"
+    type: string
+    ops: [eq, in]
+    help: "Caller attested with this API key. Used to gate trusted automations."
+    category: attestation
+    icon: key
 
   - label: "Lockdown active"
     facet: "org.lockdown"
     type: bool
     ops: [eq]
     help: "True when the operator has toggled the org-wide lockdown switch."
+    category: org
+    icon: building-office

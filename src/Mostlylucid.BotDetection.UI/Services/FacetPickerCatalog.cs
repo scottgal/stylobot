@@ -17,8 +17,26 @@ public sealed class FacetPickerCatalog : IFacetPickerCatalog
 
     public FacetPickerCatalog()
     {
-        All = LoadFromEmbeddedResource();
+        var raw = LoadFromEmbeddedResource();
+        All = raw.Select(e => e with { Icon = ResolveIcon(e) }).ToList();
         _byFacet = All.ToDictionary(e => e.Facet, StringComparer.Ordinal);
+    }
+
+    private static string ResolveIcon(FacetPickerEntry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.Icon)) return entry.Icon!;
+        return entry.Category?.ToLowerInvariant() switch
+        {
+            "bot-identity" => "cpu-chip",
+            "endpoint"     => "globe-alt",
+            "geo"          => "map-pin",
+            "time"         => "clock",
+            "risk"         => "chart-bar",
+            "attestation"  => "key",
+            "user"         => "user",
+            "org"          => "building-office",
+            _              => "tag",
+        };
     }
 
     public IReadOnlyList<FacetPickerEntry> All { get; }
@@ -59,7 +77,9 @@ public sealed class FacetPickerCatalog : IFacetPickerCatalog
                 Ops: (IReadOnlyList<string>?)f.Ops ?? Array.Empty<string>(),
                 Values: (IReadOnlyList<string>?)f.Values ?? Array.Empty<string>(),
                 Range: f.Range is null ? null : new FacetRange(f.Range.Min, f.Range.Max, f.Range.Step),
-                Help: f.Help ?? string.Empty));
+                Help: f.Help ?? string.Empty,
+                Category: f.Category,
+                Icon: f.Icon));
         }
 
         return entries;
@@ -88,6 +108,8 @@ public sealed partial class FacetEntryYaml
     public List<string>? Values { get; set; }
     public FacetRangeYaml? Range { get; set; }
     public string? Help { get; set; }
+    public string? Category { get; set; }
+    public string? Icon { get; set; }
 }
 
 [YamlObject(NamingConvention.SnakeCase)]
