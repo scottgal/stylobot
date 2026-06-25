@@ -1,6 +1,10 @@
 @*
-    Intent SVG bundle. Inlining avoids an HTTP round-trip per icon
-    and keeps theme colour via currentColor.
+    Intent / facet category SVG bundle. Inlining avoids an HTTP round-trip
+    per icon and keeps theme colour via currentColor. Two icon size classes:
+    sb-action-pill-icon (14px) for the action-pill in Band 2, sb-facet-pill-icon
+    (13px) for the predicate facet pills. The `tag` icon serves both roles
+    (action-intent Tag, uncatalogued / category-default fallback) so it
+    carries both classes.
 *@
 @model string
 
@@ -31,7 +35,7 @@
         </svg>
         break;
     case "tag":
-        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <svg class="sb-action-pill-icon sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
             <path d="M3 11V4h7l7 7-7 7-7-7Z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>
         </svg>
         break;
@@ -45,6 +49,53 @@
         <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
             <rect x="4" y="9" width="12" height="8" rx="1.5"/>
             <path d="M7 9V6a3 3 0 0 1 6 0v3"/>
+        </svg>
+        break;
+    case "cpu-chip":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <rect x="4" y="4" width="12" height="12" rx="1.5"/>
+            <rect x="7" y="7" width="6" height="6"/>
+            <path d="M7 2v2M13 2v2M7 16v2M13 16v2M2 7h2M2 13h2M16 7h2M16 13h2"/>
+        </svg>
+        break;
+    case "globe-alt":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="10" cy="10" r="7"/>
+            <path d="M3 10h14M10 3c2.5 2 2.5 12 0 14M10 3c-2.5 2-2.5 12 0 14"/>
+        </svg>
+        break;
+    case "map-pin":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M10 18s-5-5-5-9a5 5 0 0 1 10 0c0 4-5 9-5 9Z"/>
+            <circle cx="10" cy="9" r="2"/>
+        </svg>
+        break;
+    case "clock":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/>
+        </svg>
+        break;
+    case "chart-bar":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M3 17h14M5 17V9m4 8V5m4 12v-6m4 6v-3"/>
+        </svg>
+        break;
+    case "key":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="14" cy="6" r="3"/>
+            <path d="M12 8 4 16m2 0-2 2m4-4 2 2"/>
+        </svg>
+        break;
+    case "user":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="10" cy="7" r="3"/>
+            <path d="M3 17c0-3 3-5 7-5s7 2 7 5"/>
+        </svg>
+        break;
+    case "building-office":
+        <svg class="sb-facet-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <rect x="4" y="3" width="12" height="14" rx="0.5"/>
+            <path d="M7 6h2M11 6h2M7 9h2M11 9h2M7 12h2M11 12h2"/>
         </svg>
         break;
 }

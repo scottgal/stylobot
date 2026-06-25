@@ -1,4 +1,6 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@inject FacetPillRenderer FacetRenderer
 @model IReadOnlyList<PolicyStackChipViewModel>
 <div class="predicate-chips sb-policy-card-chips" data-chips="@Model.Count">
     <span class="kw kw-when" aria-hidden="true">WHEN</span>
@@ -17,10 +19,15 @@
             {
                 <span class="kw kw-and" aria-hidden="true">AND</span>
             }
-            <span class="chip" title="@chip.Tooltip" data-facet="@chip.Facet">
-                <span class="chip-facet">@chip.Facet</span>
-                <span class="chip-op">@chip.Op</span>
-                <span class="chip-value">@chip.ValueText</span>
+            var pill = FacetRenderer.Render(chip.Facet, chip.Op, chip.ValueText);
+            <span class="sb-facet-pill @pill.CategoryClass"
+                  title="@chip.Tooltip"
+                  data-facet="@pill.Key"
+                  data-uncatalogued="@(pill.IsUncatalogued ? "true" : "false")">
+                @await Html.PartialAsync("Components/SbPolicyStack/_IntentIcons", pill.IconRef)
+                <span class="sb-facet-pill-cat">@pill.CategoryLabel</span>
+                <span class="sb-facet-pill-op">@pill.OperatorLabel</span>
+                <span class="sb-facet-pill-val">@pill.ValueDisplay</span>
             </span>
         }
     }

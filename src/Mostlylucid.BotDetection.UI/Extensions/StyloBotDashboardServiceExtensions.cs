@@ -423,6 +423,7 @@ public static class StyloBotDashboardServiceExtensions
         // policy rule editor (B8) reads this for its facet dropdown; the raw
         // 380+ SignalKeys remain accessible via the text DSL on expand.
         services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
+        services.TryAddSingleton<FacetPillRenderer>();
 
         // Static detection-side data the dashboard renders need. Registered as
         // TryAddSingleton so that hosts which also call AddBotDetection get

@@ -565,3 +565,16 @@
 .sb-action-pill[data-intent="observe"]   { background: color-mix(in srgb, var(--color-info) 18%, transparent);      color: var(--color-info); }
 .sb-action-pill[data-intent="lockdown"]  { background: color-mix(in srgb, var(--color-primary) 18%, transparent);   color: var(--color-primary); }
 .sb-action-pill-detail { margin-left: 8px; color: color-mix(in srgb, var(--color-base-content) 55%, transparent); font-size: 12px; }
+
+.sb-facet-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 999px;
+    font-size: 12px; line-height: 1;
+    background: color-mix(in srgb, var(--color-base-content) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+.sb-facet-pill-icon { width: 13px; height: 13px; opacity: 0.7; }
+.sb-facet-pill-cat  { font-weight: 600; color: var(--color-base-content); }
+.sb-facet-pill-op   { color: color-mix(in srgb, var(--color-base-content) 55%, transparent); }
+.sb-facet-pill-val  { color: var(--color-base-content); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+.sb-facet-pill[data-uncatalogued="true"] { opacity: 0.7; font-style: italic; }
