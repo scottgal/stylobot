@@ -573,7 +573,7 @@
     background: color-mix(in srgb, var(--color-base-content) 6%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
 }
-.sb-facet-pill-icon { width: 13px; height: 13px; opacity: 0.7; }
+.sb-facet-pill .sb-facet-pill-icon { width: 13px; height: 13px; opacity: 0.7; }
 .sb-facet-pill-cat  { font-weight: 600; color: var(--color-base-content); }
 .sb-facet-pill-op   { color: color-mix(in srgb, var(--color-base-content) 55%, transparent); }
 .sb-facet-pill-val  { color: var(--color-base-content); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }

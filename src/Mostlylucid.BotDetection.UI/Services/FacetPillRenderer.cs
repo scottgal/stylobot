@@ -11,9 +11,9 @@ public sealed record FacetPillModel(
 
 public sealed class FacetPillRenderer
 {
-    private readonly FacetPickerCatalog _catalog;
+    private readonly IFacetPickerCatalog _catalog;
 
-    public FacetPillRenderer(FacetPickerCatalog catalog) => _catalog = catalog;
+    public FacetPillRenderer(IFacetPickerCatalog catalog) => _catalog = catalog;
 
     public FacetPillModel Render(string facet, string op, string valueText)
     {
