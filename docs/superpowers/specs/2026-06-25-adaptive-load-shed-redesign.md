@@ -245,6 +245,86 @@ public surface. One caller in the middleware updates to
 `RecordUpstreamDeviation(double ratio)`. The detection-latency caller
 is unchanged.
 
+## Architectural constraint compliance
+
+This design lands inside a system with hard architectural rules. Each
+constraint and how the design satisfies it:
+
+### Parasitic-aggregation bound
+
+`DashboardEventStoreBackedEndpointPerfBaseline` groups raw-path rows
+into normalized-template buckets and computes a per-template
+weighted p95. That is a NEW aggregation projection that does not
+exist on `IDashboardEventStore` today. To avoid the
+"two p95s with different keying" failure mode (where future code
+reads from this cache and gets a different number than dashboard
+rendering or policy decisions get from the store):
+
+- **This cache is for the load-shed hot path only.** Dashboard
+  rendering, policy decisions, ops surfaces, exports, and every other
+  read site continue to read raw-path stats from
+  `IDashboardEventStore` directly.
+- The cache exposes `IEndpointPerfBaseline` only. No
+  `GetTemplateStats`, no `GetAllTemplates`, no "convenient" extra
+  surface that would let other code start consuming it. A consumer
+  that wants per-template aggregation must depend on a future spec
+  that pushes template aggregation into `IDashboardEventStore`
+  itself, not on this cache.
+- Class is `internal` in `Mostlylucid.BotDetection`; only the
+  middleware OnCompleted hook consumes it.
+
+### Why not LFU on this cache
+
+The standing rule is "every in-memory store: hot dictionary + bounded
+channel + background drainer", and "LFU sliding cache is lookback".
+That rule is for stores keyed by visitor / signature / fingerprint
+where the working set is bounded by request volume and we must evict
+cold entries.
+
+This cache is keyed by `(method, normalizedTemplate)` where the
+working set is bounded by the route table, typically a few hundred
+templates per host. Full dictionary is correct; LFU would add
+complexity without solving anything. The cache is also read-only on
+the hot path (refresh is the only writer, and it runs on the tick
+coordinator thread), so no bounded channel or drainer is required.
+
+### Atom and signal positioning
+
+`PipelineLoadSensor` is the atom for adaptive pressure state; it
+already exists and this design preserves its shape. The atom holds
+the band, the per-axis EMAs, and the sample windows.
+
+`PressureSignalContributor` already projects sensor state into the
+per-request signal dictionary (`pressure.band`,
+`pressure.detection_latency_ratio`, and friends). That projection
+continues unchanged; the meaning of the upstream-RTT projection
+shifts from "absolute ms over baseline" to "deviation over endpoint
+p95" but the signal key set is the same.
+
+What this design does NOT add (deliberately): a band-transition
+signal that fires when `CurrentBand` crosses Normal -> High ->
+Critical or back. Today the sensor's state is read per-request via
+property; nothing announces a band change as an event. Operators
+that want to react have to poll. That is an existing pattern gap, not
+introduced by this work; see Out of scope below.
+
+### Centralised change detection
+
+Refresh runs on `IScheduleCoordinator.Tick1m`, the same cadence the
+dashboard already uses for aggregate refresh. No parallel
+change-detection mechanism is introduced. The cache's snapshot swap
+is the single update event; consumers (just the middleware OnCompleted
+hook) read whatever is current at the moment of the call.
+
+### Gateway data locality
+
+The baseline lives on the gateway because `IDashboardEventStore`
+lives on the gateway. Hosts that proxy or display dashboard data
+remotely (the website host in remote mode) do not register
+`IEndpointPerfBaseline`; the middleware degrades to "ratio 1.0, no
+shed contribution" on those hosts, which is correct because those
+hosts also do not run the gateway-side detection pipeline.
+
 ## Error handling
 
 - `IEndpointPerfBaseline.GetExpectedMs` throws: caught at the
@@ -354,6 +434,23 @@ meaning (ratio vs absolute ms), not the math itself.
   class, baseline freshness). Worth a separate UI spec once this
   ships and operators want visibility into what is actually being
   shed and why.
+
+- Band-transition signals from `PipelineLoadSensor`. Today the
+  sensor exposes `CurrentBand` as a property; consumers poll. A
+  proper announce-on-transition signal (Normal -> High -> Critical
+  and back) fits the signals/atoms pattern and would let dashboard
+  widgets and ops tooling react without polling. Out of scope for
+  this work because it touches a different surface (the sensor's
+  observer side, not its measurement side); deserves its own spec
+  alongside any operator-visibility UI work.
+
+- Pushing per-template aggregation into `IDashboardEventStore`
+  itself. The cache currently transforms raw-path rows into
+  template-keyed p95 inside the load-shed cache. Eventually this
+  should be a first-class store query so dashboard surfaces, exports,
+  and policy decisions can also reason about templates. Separate spec
+  because it touches storage schema (or the SQLite query layer at
+  minimum) and has its own migration concerns.
 
 ## References
 
