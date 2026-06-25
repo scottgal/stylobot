@@ -18,6 +18,7 @@ using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.OpenApi;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.UI.Atoms;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Middleware;
@@ -424,6 +425,15 @@ public static class StyloBotDashboardServiceExtensions
         // 380+ SignalKeys remain accessible via the text DSL on expand.
         services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
         services.TryAddSingleton<FacetPillRenderer>();
+
+        // Bounded, scope-keyed counter of policy rule hits per intent. Atom-backed
+        // (in-memory), not persisted -- the tick.1m subscription below drains
+        // records older than RetentionWindow so memory stays bounded without a
+        // background polling loop.
+        services.AddOptions<Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions>()
+            .BindConfiguration("BotDetection:Policies:HitAtom");
+        services.TryAddSingleton<PolicyStackHitAtom>();
+        services.AddHostedService<PolicyStackHitAtomTickHook>();
 
         // Static detection-side data the dashboard renders need. Registered as
         // TryAddSingleton so that hosts which also call AddBotDetection get
