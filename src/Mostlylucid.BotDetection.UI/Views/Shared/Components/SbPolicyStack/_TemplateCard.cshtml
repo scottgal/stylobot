@@ -10,7 +10,10 @@
     <p class="sb-template-card-desc">@Model.Description</p>
     <footer class="sb-template-card-actions">
         <button type="button" class="sb-template-use" data-action="use" data-template-id="@Model.Id">Use this template</button>
-        <button type="button" class="sb-template-preview" data-action="preview" data-template-id="@Model.Id">Preview</button>
+        <button type="button" class="sb-template-preview" data-action="preview" data-template-id="@Model.Id"
+                hx-post="/api/v1/policies/templates/@Model.Id/preview?scope=global"
+                hx-target="next .sb-template-card-preview"
+                hx-swap="innerHTML">Preview</button>
     </footer>
     <div class="sb-template-card-preview" data-preview-target></div>
 </article>
