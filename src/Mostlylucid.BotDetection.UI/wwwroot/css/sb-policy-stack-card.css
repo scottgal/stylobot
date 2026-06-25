@@ -532,7 +532,6 @@
     color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
 }
 
-/* Phase C: intent shapes */
 .sb-policy-card { position: relative; }
 .sb-policy-card-intent {
     position: absolute;
