@@ -531,3 +531,38 @@
     font-style: italic;
     color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
 }
+
+/* Phase C: intent shapes */
+.sb-policy-card { position: relative; }
+.sb-policy-card-intent {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: color-mix(in srgb, var(--color-base-content) 12%, transparent);
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+.sb-policy-card[data-intent="block"]     .sb-policy-card-intent { background: var(--color-error); }
+.sb-policy-card[data-intent="challenge"] .sb-policy-card-intent { background: var(--color-warning); }
+.sb-policy-card[data-intent="throttle"]  .sb-policy-card-intent { background: color-mix(in srgb, var(--color-warning) 70%, var(--color-base-100)); }
+.sb-policy-card[data-intent="allow"]     .sb-policy-card-intent { background: var(--color-success); }
+.sb-policy-card[data-intent="tag"]       .sb-policy-card-intent { background: color-mix(in srgb, var(--color-base-content) 40%, transparent); }
+.sb-policy-card[data-intent="observe"]   .sb-policy-card-intent { background: var(--color-info); }
+.sb-policy-card[data-intent="lockdown"]  .sb-policy-card-intent { background: var(--color-primary); }
+
+.sb-action-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 10px; border-radius: 999px;
+    font-weight: 600; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+    background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+    color: var(--color-base-content);
+}
+.sb-action-pill-icon { width: 14px; height: 14px; flex: 0 0 14px; }
+.sb-action-pill[data-intent="block"]     { background: color-mix(in srgb, var(--color-error) 18%, transparent);     color: var(--color-error); }
+.sb-action-pill[data-intent="challenge"] { background: color-mix(in srgb, var(--color-warning) 18%, transparent);   color: var(--color-warning); }
+.sb-action-pill[data-intent="throttle"]  { background: color-mix(in srgb, var(--color-warning) 14%, transparent);   color: var(--color-warning); }
+.sb-action-pill[data-intent="allow"]     { background: color-mix(in srgb, var(--color-success) 18%, transparent);   color: var(--color-success); }
+.sb-action-pill[data-intent="tag"]       { background: color-mix(in srgb, var(--color-base-content) 14%, transparent); color: var(--color-base-content); }
+.sb-action-pill[data-intent="observe"]   { background: color-mix(in srgb, var(--color-info) 18%, transparent);      color: var(--color-info); }
+.sb-action-pill[data-intent="lockdown"]  { background: color-mix(in srgb, var(--color-primary) 18%, transparent);   color: var(--color-primary); }
+.sb-action-pill-detail { margin-left: 8px; color: color-mix(in srgb, var(--color-base-content) 55%, transparent); font-size: 12px; }

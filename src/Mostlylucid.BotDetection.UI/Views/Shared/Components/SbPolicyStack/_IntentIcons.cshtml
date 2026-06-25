@@ -1,0 +1,50 @@
+@*
+    Phase C intent SVG bundle. Renderable via <partial name="Components/SbPolicyStack/_IntentIcons" model="intentKey" />.
+    Inlining avoids an HTTP round-trip per icon and keeps theme colour via currentColor.
+*@
+@model string
+
+@switch (Model)
+{
+    case "block":
+        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M10 2 2 5v5c0 4 3 7 8 8 5-1 8-4 8-8V5l-8-3Z"/>
+            <path d="M10 7v4M10 13.5v.5"/>
+        </svg>
+        break;
+    case "challenge":
+        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="10" cy="10" r="7"/>
+            <path d="M8 8c0-1 1-2 2-2s2 1 2 2-2 1.5-2 3"/>
+            <path d="M10 14v.5"/>
+        </svg>
+        break;
+    case "throttle":
+        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/>
+        </svg>
+        break;
+    case "allow":
+        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M10 2 2 5v5c0 4 3 7 8 8 5-1 8-4 8-8V5l-8-3Z"/>
+            <path d="m7 10 2 2 4-4"/>
+        </svg>
+        break;
+    case "tag":
+        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M3 11V4h7l7 7-7 7-7-7Z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>
+        </svg>
+        break;
+    case "observe":
+        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <path d="M2 10c2-3.5 5-5 8-5s6 1.5 8 5c-2 3.5-5 5-8 5s-6-1.5-8-5Z"/>
+            <circle cx="10" cy="10" r="2.4"/>
+        </svg>
+        break;
+    case "lockdown":
+        <svg class="sb-action-pill-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <rect x="4" y="9" width="12" height="8" rx="1.5"/>
+            <path d="M7 9V6a3 3 0 0 1 6 0v3"/>
+        </svg>
+        break;
+}
