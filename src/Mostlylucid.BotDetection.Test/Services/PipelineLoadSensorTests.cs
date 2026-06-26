@@ -205,4 +205,18 @@ public sealed class PipelineLoadSensorTests
         }
         Assert.Equal(LoadBand.Low, s.CurrentBand);
     }
+
+    [Fact]
+    public void Options_default_MinSamplesForTrustedBaseline_is_30()
+    {
+        var opts = new PipelineLoadSensorOptions();
+        Assert.Equal(30, opts.MinSamplesForTrustedBaseline);
+    }
+
+    [Fact]
+    public void Options_default_BaselineRefreshInterval_is_one_minute()
+    {
+        var opts = new PipelineLoadSensorOptions();
+        Assert.Equal(TimeSpan.FromMinutes(1), opts.BaselineRefreshInterval);
+    }
 }

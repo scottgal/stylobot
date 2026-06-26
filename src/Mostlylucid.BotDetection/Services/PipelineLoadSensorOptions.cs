@@ -57,6 +57,28 @@ public sealed class PipelineLoadSensorOptions
     /// <summary>Gen2 collections/sec EMA that trips Critical. Default 2.0.</summary>
     public double CriticalGen2PerSec { get; set; } = 2.0;
 
+    // --- baseline freshness (consumed by IEndpointPerfBaseline impls) ---
+
+    /// <summary>
+    ///     Minimum aggregated sample count for a per-endpoint template before
+    ///     its baseline is trusted. Below this floor,
+    ///     <see cref="IEndpointPerfBaseline.GetExpectedMs(string,string)"/>
+    ///     returns 0 (treated as no baseline so the request contributes a
+    ///     neutral 1.0 ratio). Strict less-than: a template with exactly this
+    ///     many samples IS trusted. Default 30.
+    /// </summary>
+    public int MinSamplesForTrustedBaseline { get; set; } = 30;
+
+    /// <summary>
+    ///     How often
+    ///     <see cref="DashboardEventStoreBackedEndpointPerfBaseline"/>
+    ///     refreshes its in-memory snapshot. Piggybacks on the existing
+    ///     <see cref="IScheduleCoordinator"/> tick cadence (matched to the
+    ///     nearest available cadence; current impl subscribes to
+    ///     <c>TickCadence.Tick1m</c>). Default 1 minute.
+    /// </summary>
+    public TimeSpan BaselineRefreshInterval { get; set; } = TimeSpan.FromMinutes(1);
+
     // --- baseline window ---
 
     /// <summary>
