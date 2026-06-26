@@ -110,7 +110,7 @@ The policy editor supports 7 action kinds, each with a dedicated partial:
 | `tag` | `_EditAction_Tag` |
 | `observe` | `_EditAction_Observe` |
 
-The kind selector uses HTMX to swap the per-kind slot on change. The full action kind list is driven by `PolicyActionEditorViewPaths.KindsForSelector` - a single source of truth for both the dropdown and the dispatcher.
+The kind selector is a radio-card list (one card per kind) with each card carrying an HTMX swap that fetches the per-kind slot on change. The full action kind list is driven by `PolicyActionEditorViewPaths.KindsForSelector` - a single source of truth for both the radio cards (kind + label + intent + explanation) and the dispatcher.
 
 All dashboard URLs are routed through `IDashboardLinkResolver` (7.5+), which reads `StyloBotDashboardOptions.NavBasePath` (or falls back to `BasePath`) so links work regardless of the mount point.
 
