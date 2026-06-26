@@ -673,3 +673,50 @@
     gap: 8px;
     margin-top: 12px;
 }
+
+/* C15 -- posture summary card replacing the dry "N requests / N rules /
+   N triggered" footer. The data-posture attribute drives the left border
+   colour (lockdown=primary, strict=error, balanced=warning, permissive=
+   muted) so the operator gets a glanceable at-rest read on how much
+   enforcement is live at this scope. */
+.sb-posture-card {
+    background: var(--color-base-100);
+    border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 16px;
+}
+.sb-posture-card[data-posture="lockdown"]   { border-left: 4px solid var(--color-primary); }
+.sb-posture-card[data-posture="strict"]     { border-left: 4px solid var(--color-error); }
+.sb-posture-card[data-posture="balanced"]   { border-left: 4px solid var(--color-warning); }
+.sb-posture-card[data-posture="permissive"] { border-left: 4px solid color-mix(in srgb, var(--color-base-content) 30%, transparent); }
+.sb-posture-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.sb-posture-label {
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.sb-posture-level {
+    font-size: 16px;
+}
+.sb-posture-stats {
+    font-size: 12px;
+    color: color-mix(in srgb, var(--color-base-content) 75%, transparent);
+    margin: 0;
+}
+.sb-posture-suggestion {
+    font-size: 13px;
+    color: var(--color-base-content);
+    margin: 4px 0 0 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}

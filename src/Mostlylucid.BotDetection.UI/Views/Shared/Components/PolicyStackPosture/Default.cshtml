@@ -1,0 +1,28 @@
+@using Mostlylucid.BotDetection.UI.Services
+@model PolicyStackPosture
+@{
+    var levelLower = Model.Level.ToString().ToLowerInvariant();
+}
+<aside class="sb-posture-card" data-posture="@levelLower">
+    <header class="sb-posture-head">
+        <span class="sb-posture-label">Posture:</span>
+        <strong class="sb-posture-level">@Model.Level</strong>
+    </header>
+    <p class="sb-posture-stats">
+        @Model.BlocksLast24h blocks &middot; @Model.ChallengesLast24h challenges &middot;
+        @Model.ThrottlesLast24h throttles &middot; @Model.AllowsLast24h allows &middot;
+        @Model.ObservesLast24h observes
+    </p>
+    @if (!string.IsNullOrEmpty(Model.SuggestedReason))
+    {
+        <p class="sb-posture-suggestion">@Model.SuggestedReason
+            @if (Model.SuggestedTemplateId is not null)
+            {
+                <button type="button"
+                        class="sb-template-use"
+                        data-action="switch-tab"
+                        data-target="templates">Browse templates &rarr;</button>
+            }
+        </p>
+    }
+</aside>

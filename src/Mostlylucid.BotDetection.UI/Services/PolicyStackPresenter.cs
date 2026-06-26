@@ -115,7 +115,8 @@ public sealed class PolicyStackPresenter
                 Filter: effectiveFilter,
                 Sort: effectiveSort,
                 AggregateStrip: null,
-                Explainer: null);
+                Explainer: null,
+                EffectiveRulesSnapshot: Array.Empty<PolicyRule>());
         }
 
         // Bulk read all aggregates in a single hop. The cache serves these from
@@ -213,6 +214,13 @@ public sealed class PolicyStackPresenter
                 .ConfigureAwait(false);
         }
 
+        // C15 -- the posture view component classifies the LIVE rules at this
+        // scope, not the filtered rows. Snapshot the raw PolicyRule list from
+        // the EffectiveRule entries so the posture summary stays stable as the
+        // operator narrows the filter.
+        var effectiveRulesSnapshot = new PolicyRule[effective.Count];
+        for (var i = 0; i < effective.Count; i++) effectiveRulesSnapshot[i] = effective[i].Rule;
+
         return new PolicyStackViewModel(
             Scope: scope,
             BreadcrumbPath: breadcrumb,
@@ -231,7 +239,8 @@ public sealed class PolicyStackPresenter
             Sort: effectiveSort,
             AggregateStrip: strip,
             Explainer: explainer,
-            HideRuleList: hideRuleList);
+            HideRuleList: hideRuleList,
+            EffectiveRulesSnapshot: effectiveRulesSnapshot);
     }
 
     // -------- Filter --------

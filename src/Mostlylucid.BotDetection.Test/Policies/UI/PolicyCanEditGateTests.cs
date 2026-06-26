@@ -131,6 +131,16 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyStackPresenter>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetPickerCatalog, Mostlylucid.BotDetection.UI.Services.FacetPickerCatalog>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.FacetPillRenderer>();
+        // C15: the SbPolicyStack Full embed now invokes PolicyStackPostureViewComponent
+        // in place of the dry "N requests · N rules · N hits" aggregate strip. The
+        // view component pulls a PolicyStackHitSnapshot from PolicyStackHitAtom and
+        // classifies it via PolicyStackPostureClassifier, so both must be in DI.
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.Policies.Rules.PolicyIntentClassifier>();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Atoms.PolicyStackHitAtom>();
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PostureClassifierOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPostureClassifier>();
         builder.Services.AddSingleton(canEditPolicy);
         // Resolver-driven dashboard URLs replaced hard-coded /dashboard prefixes
         // in the policy-stack partials; tests that render those partials must

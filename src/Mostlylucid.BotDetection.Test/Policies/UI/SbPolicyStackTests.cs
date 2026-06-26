@@ -516,22 +516,24 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Aggregate_strip_shows_visible_counts()
+    public async Task Posture_card_renders_in_full_embed_with_level_and_counters()
     {
+        // C15 -- the dry "N requests · N rules · N triggered · N rules with 0 hits"
+        // aggregate strip was replaced by PolicyStackPostureViewComponent. The
+        // posture card surfaces a Permissive/Balanced/Strict/Lockdown level + a
+        // per-intent counter line (blocks / challenges / throttles / allows /
+        // observes) so the operator gets the same at-a-glance summary in a more
+        // actionable shape.
         var client = await BuildClientAsync(prewarmEndpointHits: false);
         var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
-        Assert.Contains("rules effective here", html);
-        Assert.Contains("triggered in 24h", html);
-    }
-
-    [Fact]
-    public async Task Aggregate_strip_no_hits_chip_applies_no_hits_filter()
-    {
-        // With no prewarm, every rule has 0 hits so the chip MUST render. We
-        // assert the data attribute the chip exposes for B6 to bind to.
-        var client = await BuildClientAsync(prewarmEndpointHits: false);
-        var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full);
-        Assert.Contains("data-filter-apply=\"@no-hits\"", html);
+        Assert.Contains("sb-posture-card", html);
+        Assert.Contains("data-posture=", html);
+        Assert.Contains("Posture:", html);
+        Assert.Contains("blocks", html);
+        Assert.Contains("challenges", html);
+        Assert.Contains("throttles", html);
+        Assert.Contains("allows", html);
+        Assert.Contains("observes", html);
     }
 
     [Fact]
@@ -547,14 +549,15 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task EffectiveOnly_embed_does_not_render_filter_bar_or_strip()
+    public async Task EffectiveOnly_embed_does_not_render_filter_bar_or_posture_card()
     {
         // EffectiveOnly is the tight-pane shape: no chrome at all. The filter
-        // bar + strip live in _Full so they're absent here by construction.
+        // bar + C15 posture card live in _Full so they're absent here by
+        // construction.
         var client = await BuildClientAsync(prewarmEndpointHits: false);
         var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.EffectiveOnly);
         Assert.DoesNotContain("sb-policy-stack-filter-bar", html);
-        Assert.DoesNotContain("sb-policy-stack-aggregate-strip", html);
+        Assert.DoesNotContain("sb-posture-card", html);
     }
 
     [Fact]
@@ -600,19 +603,21 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Aggregate_strip_total_requests_sums_visible_evaluations()
+    public async Task Posture_card_renders_on_full_embed_with_prewarmed_decisions()
     {
-        // With prewarm: endpoint rule sees 18 matches across 18 evaluations.
+        // C15 -- the per-request hit counters that feed the posture card come
+        // from PolicyStackHitAtom which is fed by a separate atom pipeline (not
+        // PolicyEffectivenessCache); the prewarm path used here does not flow
+        // into the atom, so the counters are zero by design. The card itself
+        // MUST still render with the Permissive level (zero blocks / zero
+        // challenges → Permissive) and the structural counter line.
         var client = await BuildClientAsync(prewarmEndpointHits: true);
-
-        // Scoped to the endpoint rule via @scope:endpoint -> only one row.
         var html = await GetHtmlAsync(client, EndpointScope, PolicyStackEmbed.Full,
             filterExpression: "@scope:endpoint");
 
-        // Strip must report 18 requests and 1 rule visible.
-        Assert.Contains("<strong>18</strong> requests", html);
-        Assert.Contains("<strong>1</strong> rules effective here", html);
-        Assert.Contains("<strong>1</strong> triggered in 24h", html);
+        Assert.Contains("sb-posture-card", html);
+        Assert.Contains("data-posture=", html);
+        Assert.Contains("Posture:", html);
     }
 
     [Fact]
@@ -977,12 +982,12 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
     // -------- F3: HideRuleList flag (policies-page double-render fix) --------
 
     [Fact]
-    public async Task HideRuleList_true_suppresses_rule_list_but_keeps_aggregate_strip_filter_bar_explainer()
+    public async Task HideRuleList_true_suppresses_rule_list_but_keeps_posture_card_filter_bar_explainer()
     {
         // /dashboard/policies renders the T4 template-grouped block ABOVE
         // SbPolicyStack and would print every rule twice if SbPolicyStack
         // also rendered its Effective tab. hideRuleList=true skips just
-        // the rule-list section; the filter bar, aggregate strip, and
+        // the rule-list section; the filter bar, C15 posture card, and
         // explainer panel still render so the tools surface stays usable.
         var client = await BuildClientAsync(prewarmEndpointHits: false);
 
@@ -1000,11 +1005,11 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         Assert.Contains("sb-policy-stack-rows-envelope", visible);
         Assert.Contains("data-rule-id=", visible);
 
-        // Filter bar + aggregate strip + explainer panel STILL render --
+        // Filter bar + posture card + explainer panel STILL render --
         // the page wants those surfaces; only the rule list moves up to
         // the T4 template-grouped block above the component.
         Assert.Contains("sb-policy-stack-filter-bar", hidden);
-        Assert.Contains("sb-policy-stack-aggregate-strip", hidden);
+        Assert.Contains("sb-posture-card", hidden);
         Assert.Contains("id=\"sb-policy-stack-explainer\"", hidden);
 
         // The header / breadcrumb / tabs survive too -- the operator can
@@ -1123,6 +1128,16 @@ public sealed class SbPolicyStackTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyStackPresenter>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetPickerCatalog, Mostlylucid.BotDetection.UI.Services.FacetPickerCatalog>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.FacetPillRenderer>();
+        // C15: the SbPolicyStack Full embed now invokes PolicyStackPostureViewComponent
+        // in place of the dry "N requests · N rules · N hits" aggregate strip. The
+        // view component pulls a PolicyStackHitSnapshot from PolicyStackHitAtom and
+        // classifies it via PolicyStackPostureClassifier, so both must be in DI.
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.Policies.Rules.PolicyIntentClassifier>();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Atoms.PolicyStackHitAtom>();
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PostureClassifierOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPostureClassifier>();
         // Task 18: the view component reads IPolicyCanEditPolicy when the
         // optional canEdit override is unset. These tests pin canEdit via
         // the controller param so the gate is rarely consulted, but the

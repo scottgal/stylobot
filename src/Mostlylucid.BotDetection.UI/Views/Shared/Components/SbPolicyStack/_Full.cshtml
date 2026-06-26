@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Policies
 @using Mostlylucid.BotDetection.UI.Services
@@ -86,7 +87,16 @@
     </header>
 
     @await Html.PartialAsync("Components/SbPolicyStack/_FilterBar", Model)
-    @await Html.PartialAsync("Components/SbPolicyStack/_AggregateStrip", Model)
+    @* C15 -- the dry "N requests · N rules effective · N triggered · N rules with 0 hits"
+       aggregate strip is replaced with the posture summary card. The classifier reads the
+       LIVE rules at this scope + the last-24h hit counts from PolicyStackHitAtom and
+       renders a Permissive/Balanced/Strict/Lockdown level + per-intent counters +
+       optional suggestion (e.g. "promote Observe rules" / "apply Lockdown template"). *@
+    @await Component.InvokeAsync("PolicyStackPosture", new
+    {
+        rules = (IReadOnlyList<PolicyRule>?)Model.EffectiveRulesSnapshot ?? Array.Empty<PolicyRule>(),
+        scopeKey = PolicyScopeKeys.ScopeKey(Model.Scope)
+    })
 
     @* F3 -- /dashboard/policies renders a T4 template-grouped block above
        this component that already owns the per-rule rendering, so the page

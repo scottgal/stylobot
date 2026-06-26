@@ -34,6 +34,14 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     this flag the page would render every rule twice. Defaults to
 ///     <c>false</c> so the other 9 SbPolicyStack call sites are unchanged.
 /// </param>
+/// <param name="EffectiveRulesSnapshot">
+///     Flat list of every <see cref="PolicyRule"/> effective at <see cref="Scope"/>
+///     -- the underlying rule objects behind <see cref="Rows"/>. Threaded
+///     through so the C15 posture view component can call
+///     <c>PolicyStackPostureClassifier.Classify</c> without going back to the
+///     resolver. Empty array on the <see cref="PolicyStackEmbed.StatusBadge"/>
+///     embed (which intentionally skips the per-rule fan-out).
+/// </param>
 public sealed record PolicyStackViewModel(
     PolicyScope Scope,
     IReadOnlyList<PolicyScope> BreadcrumbPath,
@@ -52,4 +60,5 @@ public sealed record PolicyStackViewModel(
     PolicyStackSort Sort,
     PolicyStackAggregateStrip? AggregateStrip,
     PolicyExplainerViewModel? Explainer = null,
-    bool HideRuleList = false);
+    bool HideRuleList = false,
+    IReadOnlyList<PolicyRule>? EffectiveRulesSnapshot = null);

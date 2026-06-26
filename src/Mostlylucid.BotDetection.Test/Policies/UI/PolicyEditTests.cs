@@ -487,6 +487,16 @@ public sealed class PolicyEditTests : IAsyncDisposable
         builder.Services.AddSingleton<RazorViewRenderer>();
         builder.Services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
         builder.Services.AddSingleton<FacetPillRenderer>();
+        // C15: the SbPolicyStack Full embed now invokes PolicyStackPostureViewComponent
+        // in place of the dry "N requests · N rules · N hits" aggregate strip. The
+        // view component pulls a PolicyStackHitSnapshot from PolicyStackHitAtom and
+        // classifies it via PolicyStackPostureClassifier, so both must be in DI.
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.Policies.Rules.PolicyIntentClassifier>();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Atoms.PolicyStackHitAtom>();
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PostureClassifierOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPostureClassifier>();
         // Task 18: view component reads IPolicyCanEditPolicy when the
         // canEdit override is unset. FOSS default is read-only; these
         // tests pin canEdit via the controller param so the gate is

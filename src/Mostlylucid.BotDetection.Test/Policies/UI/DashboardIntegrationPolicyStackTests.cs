@@ -242,12 +242,12 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
 
         // Specific checks: the template-groups block carries the rule cards
         // and SbPolicyStack contributes the surrounding chrome (filter bar,
-        // aggregate strip) WITHOUT a rule envelope of its own.
+        // C15 posture card) WITHOUT a rule envelope of its own.
         Assert.Contains("sb-policy-stack-template-group", templateGroupsHtml);
         Assert.Contains("sb-policy-card", templateGroupsHtml);
         Assert.Contains("data-policy-stack-embed=\"full\"", sbPolicyStackHtml);
         Assert.Contains("sb-policy-stack-filter-bar", sbPolicyStackHtml);
-        Assert.Contains("sb-policy-stack-aggregate-strip", sbPolicyStackHtml);
+        Assert.Contains("sb-posture-card", sbPolicyStackHtml);
         Assert.DoesNotContain("sb-policy-stack-rows-envelope", sbPolicyStackHtml);
         // SbPolicyStack with hideRuleList=true MUST emit no rule cards.
         Assert.DoesNotContain("<article class=\"sb-policy-card\"", sbPolicyStackHtml);
@@ -346,6 +346,16 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyStackPresenter>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetPickerCatalog, Mostlylucid.BotDetection.UI.Services.FacetPickerCatalog>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.FacetPillRenderer>();
+        // C15: the SbPolicyStack Full embed now invokes PolicyStackPostureViewComponent
+        // in place of the dry "N requests · N rules · N hits" aggregate strip. The
+        // view component pulls a PolicyStackHitSnapshot from PolicyStackHitAtom and
+        // classifies it via PolicyStackPostureClassifier, so both must be in DI.
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.Policies.Rules.PolicyIntentClassifier>();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Atoms.PolicyStackHitAtom>();
+        builder.Services.AddSingleton(Options.Create(new Mostlylucid.BotDetection.UI.Options.PostureClassifierOptions()));
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackPostureClassifier>();
         // Task 18: SbPolicyStackViewComponent reads IPolicyCanEditPolicy
         // when the canEdit override is unset. These integration tests
         // exercise the dashboard partials that embed the view component;
