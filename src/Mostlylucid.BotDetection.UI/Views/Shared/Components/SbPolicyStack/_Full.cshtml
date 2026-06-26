@@ -122,22 +122,25 @@
                 }
             </div>
         </div>
-
-        @* C11 -- Templates tab panel. Hidden on first paint; the tab-toggle
-           JS reveals it and dispatches a 'reveal' CustomEvent so the
-           hx-trigger="reveal once" fires the lazy GET against the commercial
-           PolicyTemplatesController. hx-swap="innerHTML" replaces this
-           placeholder body with the bare _TemplateGallery markup. *@
-        <div class="sb-policy-stack-body sb-policy-stack-templates"
-             data-tab-panel="templates"
-             hidden
-             hx-get="@templatesUrl"
-             hx-trigger="reveal once"
-             hx-target="this"
-             hx-swap="innerHTML">
-            <em class="sb-policy-stack-templates-loading">Loading templates&hellip;</em>
-        </div>
     }
+
+    @* Templates tab panel. Lives OUTSIDE the HideRuleList branch so the
+       primary /dashboard/policies surface (which sets HideRuleList=true
+       because the T4 template-grouped block above owns rule rendering)
+       still gets a working Templates tab. Hidden on first paint; the
+       tab-toggle JS reveals it and dispatches a 'reveal' CustomEvent so
+       hx-trigger="reveal once" fires the lazy GET against the commercial
+       PolicyTemplatesController. hx-swap="innerHTML" replaces this
+       placeholder body with the bare _TemplateGallery markup. *@
+    <div class="sb-policy-stack-body sb-policy-stack-templates"
+         data-tab-panel="templates"
+         hidden
+         hx-get="@templatesUrl"
+         hx-trigger="reveal once"
+         hx-target="this"
+         hx-swap="innerHTML">
+        <em class="sb-policy-stack-templates-loading">Loading templates&hellip;</em>
+    </div>
 
     @await Html.PartialAsync("Components/SbPolicyStack/_ExplainerPanel", Model)
 </section>

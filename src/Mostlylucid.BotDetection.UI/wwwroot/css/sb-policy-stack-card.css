@@ -547,7 +547,7 @@
 .sb-policy-card[data-intent="allow"]     .sb-policy-card-intent { background: var(--color-success); }
 .sb-policy-card[data-intent="tag"]       .sb-policy-card-intent { background: color-mix(in srgb, var(--color-base-content) 40%, transparent); }
 .sb-policy-card[data-intent="observe"]   .sb-policy-card-intent { background: var(--color-info); }
-.sb-policy-card[data-intent="lockdown"]  .sb-policy-card-intent { background: var(--color-primary); }
+.sb-policy-card[data-intent="lockdown"]  .sb-policy-card-intent { background: color-mix(in srgb, var(--color-error) 65%, black); }
 
 .sb-action-pill {
     display: inline-flex; align-items: center; gap: 6px;
@@ -563,7 +563,7 @@
 .sb-action-pill[data-intent="allow"]     { background: color-mix(in srgb, var(--color-success) 18%, transparent);   color: var(--color-success); }
 .sb-action-pill[data-intent="tag"]       { background: color-mix(in srgb, var(--color-base-content) 14%, transparent); color: var(--color-base-content); }
 .sb-action-pill[data-intent="observe"]   { background: color-mix(in srgb, var(--color-info) 18%, transparent);      color: var(--color-info); }
-.sb-action-pill[data-intent="lockdown"]  { background: color-mix(in srgb, var(--color-primary) 18%, transparent);   color: var(--color-primary); }
+.sb-action-pill[data-intent="lockdown"]  { background: color-mix(in srgb, var(--color-error) 22%, transparent);     color: color-mix(in srgb, var(--color-error) 65%, black); }
 .sb-action-pill-detail { margin-left: 8px; color: color-mix(in srgb, var(--color-base-content) 55%, transparent); font-size: 12px; }
 
 .sb-facet-pill {
@@ -614,7 +614,7 @@
 .sb-template-card[data-intent="allow"]     .sb-template-card-intent { background: var(--color-success); }
 .sb-template-card[data-intent="tag"]       .sb-template-card-intent { background: color-mix(in srgb, var(--color-base-content) 40%, transparent); }
 .sb-template-card[data-intent="observe"]   .sb-template-card-intent { background: var(--color-info); }
-.sb-template-card[data-intent="lockdown"]  .sb-template-card-intent { background: var(--color-primary); }
+.sb-template-card[data-intent="lockdown"]  .sb-template-card-intent { background: color-mix(in srgb, var(--color-error) 65%, black); }
 .sb-template-card-head {
     display: flex;
     align-items: center;
@@ -689,7 +689,7 @@
     gap: 6px;
     margin-top: 16px;
 }
-.sb-posture-card[data-posture="lockdown"]   { border-left: 4px solid var(--color-primary); }
+.sb-posture-card[data-posture="lockdown"]   { border-left: 4px solid color-mix(in srgb, var(--color-error) 65%, black); }
 .sb-posture-card[data-posture="strict"]     { border-left: 4px solid var(--color-error); }
 .sb-posture-card[data-posture="balanced"]   { border-left: 4px solid var(--color-warning); }
 .sb-posture-card[data-posture="permissive"] { border-left: 4px solid color-mix(in srgb, var(--color-base-content) 30%, transparent); }
