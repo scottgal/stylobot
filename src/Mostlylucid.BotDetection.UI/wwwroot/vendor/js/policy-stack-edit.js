@@ -79,6 +79,17 @@
             });
         });
 
+        // Facet picker wiring. The picker lives in the OUTER _RuleCardExpand
+        // card (sibling-of-this-article via the data-edit-row-host div), so
+        // we walk up to find it. Picker rows write through to this article's
+        // textarea on every change, and the existing parse-debounce takes
+        // over from there. The Sustain wrapper checkbox + duration live
+        // alongside the picker; they wrap the serialised predicate in
+        // <inner> for <duration> when toggled on, which the parser
+        // recognises directly (ParseSustainUnit in PredicateParser.cs).
+        var cardHost = article.closest('.sb-policy-card-editing') || article.parentElement;
+        setUpFacetPicker(cardHost, article, expr, runParse);
+
         // Initial parse from the textarea seed.
         runParse(expr.value);
 
@@ -615,6 +626,204 @@
             // action.
             if (ast && expr.value.trim()) scheduleBacktest(expr.value.trim());
         });
+    }
+
+    // ─── Facet picker (chip composer) ─────────────────────────────────────
+    //
+    // Drives the curated facet picker rows that sit ABOVE the textarea in
+    // _RuleCardExpand. The picker authors a small subset of the predicate
+    // grammar -- a flat AND-of-Terms with an optional single OR-group
+    // (rows tagged data-group="or" join via OR; rows without join via AND)
+    // and an optional Sustain wrapper that uses the parser's existing
+    // "<inner> for <duration>" syntax. Anything more complex than that
+    // (nested groups, mixed AND/OR with multiple groups) must be authored
+    // in the textarea -- the picker hides itself when the AST can't be
+    // round-tripped through this shape.
+    //
+    // The textarea is the canonical source of truth: every picker edit
+    // serialises the row state to DSL, writes it into the textarea, and
+    // fires `input` so the existing parse-debounce picks it up. There is
+    // no separate picker→AST path; we go picker→DSL→parse-as-usual so the
+    // backtest and validation pipeline runs unchanged.
+    function setUpFacetPicker(cardHost, editorArticle, expr, runParse) {
+        if (!cardHost) return;
+        if (cardHost.dataset.facetPickerInitialised === '1') return;
+        cardHost.dataset.facetPickerInitialised = '1';
+
+        var pickerRoot = cardHost.querySelector('[data-facet-picker]');
+        if (!pickerRoot) return;
+
+        // The + AND / + OR buttons live in the actions strip next to the
+        // picker. The Sustain wrapper toggle + duration input live further
+        // below in the same fieldset.
+        var actionsHost = cardHost.querySelector('.sb-facet-picker-actions');
+        var addAndBtn = actionsHost ? actionsHost.querySelector('[data-add-row="and"]') : null;
+        var addOrBtn = actionsHost ? actionsHost.querySelector('[data-add-row="or"]') : null;
+        var sustainHost = cardHost.querySelector('[data-predicate-sustain]');
+        var sustainToggle = sustainHost ? sustainHost.querySelector('[data-predicate-sustain-toggle]') : null;
+        var sustainDuration = sustainHost ? sustainHost.querySelector('[data-predicate-sustain-duration]') : null;
+
+        // Template element for adding new rows. The Razor partial pre-renders
+        // a hidden <template class="sb-facet-picker-row-template"> with the
+        // catalog's first entry as the default; cloning it means the same
+        // catalog drives seed rows and added rows.
+        var rowTemplate = pickerRoot.querySelector('.sb-facet-picker-row-template');
+
+        wirePickerRow(pickerRoot, expr, runParse);
+        if (addAndBtn) addAndBtn.addEventListener('click', function () { addRow('and'); });
+        if (addOrBtn) addOrBtn.addEventListener('click', function () { addRow('or'); });
+        if (sustainToggle) sustainToggle.addEventListener('change', writeExpression);
+        if (sustainDuration) sustainDuration.addEventListener('input', writeExpression);
+
+        // When the textarea successfully parses, the chip pane re-renders.
+        // The picker is structurally separate -- it carries its own seed
+        // rows from the server render and stays out of the way. We do NOT
+        // auto-re-seed the picker on every parse: that would clobber a row
+        // the operator is mid-edit. The picker is a co-equal authoring
+        // surface, not a passive read-out of the AST. If the operator
+        // wants to re-seed from the textarea, the page reload (or Cancel +
+        // re-Edit) does that naturally on the server side.
+
+        function wirePickerRow(scope, expr, runParse) {
+            scope.querySelectorAll('.sb-facet-picker-row').forEach(function (row) {
+                if (row.closest('.sb-facet-picker-row-template')) return; // skip template
+                if (row.dataset.pickerWired === '1') return;
+                row.dataset.pickerWired = '1';
+
+                row.querySelectorAll('select, input').forEach(function (el) {
+                    el.addEventListener('change', writeExpression);
+                    el.addEventListener('input', writeExpression);
+                });
+                var removeBtn = row.querySelector('[data-remove-row]');
+                if (removeBtn) {
+                    removeBtn.addEventListener('click', function () {
+                        row.parentNode.removeChild(row);
+                        reindexRows();
+                        writeExpression();
+                    });
+                }
+            });
+        }
+
+        function addRow(group) {
+            if (!rowTemplate) return;
+            // <template>.content.firstElementChild is the seed row; clone
+            // it deeply so we get a fresh DOM subtree with the catalog's
+            // default selections already populated.
+            var content = rowTemplate.content || rowTemplate;
+            var seed = content.querySelector('.sb-facet-picker-row');
+            if (!seed) return;
+            var clone = seed.cloneNode(true);
+            if (group === 'or') clone.setAttribute('data-group', 'or');
+            // If the empty-state placeholder is still present, replace it.
+            var empty = pickerRoot.querySelector('.sb-facet-picker-empty');
+            if (empty) empty.parentNode.removeChild(empty);
+            // Insert before the <template> element so seeded rows + added
+            // rows share the same flat parent and ordering is preserved.
+            pickerRoot.insertBefore(clone, rowTemplate);
+            reindexRows();
+            wirePickerRow(pickerRoot, expr, runParse);
+            writeExpression();
+        }
+
+        function reindexRows() {
+            var rows = pickerRoot.querySelectorAll('.sb-facet-picker-row');
+            var idx = 0;
+            rows.forEach(function (row) {
+                if (row.closest('.sb-facet-picker-row-template')) return;
+                row.setAttribute('data-row-index', String(idx));
+                row.querySelectorAll('[name^="picker_"]').forEach(function (el) {
+                    var name = el.getAttribute('name') || '';
+                    var stripped = name.replace(/_\d+$/, '');
+                    el.setAttribute('name', stripped + '_' + idx);
+                });
+                idx++;
+            });
+        }
+
+        function readRow(row) {
+            var facetEl = row.querySelector('.sb-facet-picker-facet');
+            var opEl = row.querySelector('.sb-facet-picker-op');
+            var valEl = row.querySelector('.sb-facet-picker-value-input');
+            return {
+                facet: facetEl ? facetEl.value : '',
+                op: opEl ? opEl.value : 'eq',
+                value: valEl ? valEl.value : '',
+                group: row.getAttribute('data-group') || 'and'
+            };
+        }
+
+        function termToText(t) {
+            // Map the canonical op keys to the parser's surface tokens.
+            // Mirrors PredicateFormatter.OpText so a round-trip
+            // textarea → AST → format → picker → textarea stays stable.
+            var opText = ({
+                eq: '=', neq: '!=', gte: '>=', gt: '>', lte: '<=', lt: '<',
+                'in': 'in', not_in: 'not in', between: 'between',
+                matches: 'matches', contains: 'contains',
+                any_in: 'any in', all_in: 'all in'
+            })[t.op] || t.op;
+
+            var facet = (t.facet || '').trim();
+            var value = (t.value || '').trim();
+            if (!facet) return '';
+            if (!value) return facet + ' ' + opText + ' ';
+            return facet + ' ' + opText + ' ' + value;
+        }
+
+        function serialiseRows() {
+            var rows = Array.prototype.filter.call(
+                pickerRoot.querySelectorAll('.sb-facet-picker-row'),
+                function (r) { return !r.closest('.sb-facet-picker-row-template'); });
+            if (rows.length === 0) return '';
+
+            var ands = [];
+            var ors = [];
+            rows.forEach(function (row) {
+                var t = readRow(row);
+                var txt = termToText(t);
+                if (!txt) return;
+                if (t.group === 'or') ors.push(txt);
+                else ands.push(txt);
+            });
+
+            var combined;
+            if (ors.length === 0) {
+                combined = ands.join(' and ');
+            } else if (ands.length === 0) {
+                combined = ors.join(' or ');
+            } else {
+                // Minimum-viable OR shape: one OR group at top level.
+                // The AND-rows form one branch; each OR-row is its own
+                // branch. Parens around the AND-chain keep precedence
+                // explicit (Or binds looser than And in the grammar, so
+                // they aren't strictly required, but they read clearer).
+                combined = '(' + ands.join(' and ') + ') or ' + ors.join(' or ');
+            }
+
+            return combined;
+        }
+
+        function writeExpression() {
+            var text = serialiseRows();
+            if (sustainToggle && sustainToggle.checked) {
+                var dur = (sustainDuration && sustainDuration.value) ? sustainDuration.value.trim() : '';
+                if (text && dur) {
+                    // The parser accepts "<inner> for <duration>" directly
+                    // (PredicateParser.ParseSustainUnit). Parenthesise the
+                    // inner when there's a top-level OR so Sustain
+                    // associates with the whole predicate, not just the
+                    // last OR-branch.
+                    var needsParens = /\s(or|and)\s/i.test(text) && !/^\(.*\)$/.test(text);
+                    text = (needsParens ? '(' + text + ')' : text) + ' for ' + dur;
+                }
+            }
+
+            expr.value = text;
+            // Fire input so the textarea's existing parse-debounce picks
+            // the change up uniformly with hand-typed edits.
+            expr.dispatchEvent(new Event('input', { bubbles: true }));
+        }
     }
 
     if (document.readyState === 'loading') {

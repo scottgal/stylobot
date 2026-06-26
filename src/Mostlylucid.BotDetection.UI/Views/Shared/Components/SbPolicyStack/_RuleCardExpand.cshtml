@@ -65,9 +65,20 @@
             <legend><span class="sb-policy-card-keyword">IF</span></legend>
             @await Html.PartialAsync("Components/SbPolicyStack/_FacetPicker", Model.PickerRows)
             <div class="sb-facet-picker-actions">
-                <button type="button" class="sb-facet-picker-add" data-add-row="and" disabled>+ AND</button>
-                <button type="button" class="sb-facet-picker-add" data-add-row="or" disabled>+ OR</button>
-                <span class="sb-facet-picker-hint">Picker rows are visual today; the textarea below is the source of truth.</span>
+                <button type="button" class="sb-facet-picker-add" data-add-row="and">+ AND</button>
+                <button type="button" class="sb-facet-picker-add" data-add-row="or">+ OR</button>
+                <span class="sb-facet-picker-hint">Picker and textarea are co-equal. Edits in either pane sync to the other on each successful parse.</span>
+            </div>
+            <div class="sb-facet-picker-sustain" data-predicate-sustain>
+                <label class="sb-facet-picker-sustain-toggle">
+                    <input type="checkbox" data-predicate-sustain-toggle>
+                    Wrap the predicate in <code>for</code> (Sustain) — only matches when the
+                    condition has held continuously for the duration below.
+                </label>
+                <label class="sb-facet-picker-sustain-duration">
+                    Duration
+                    <input type="text" data-predicate-sustain-duration value="30s" placeholder="30s / 5m / 1h">
+                </label>
             </div>
         </fieldset>
 

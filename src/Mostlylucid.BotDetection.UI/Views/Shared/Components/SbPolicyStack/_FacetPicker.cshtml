@@ -3,122 +3,35 @@
 @inject IFacetPickerCatalog FacetCatalog
 @model IReadOnlyList<FacetPickerRowViewModel>
 @*
-    B8 -- curated facet picker. The catalog drives the dropdown (B6
-    loader); per-facet ops + value-input-type render from the catalog
-    entry. The picker is structural-only in B8: rows seed from a flat
-    AND-of-Terms predicate when the rule's AST projects cleanly, and
-    the raw-DSL textarea below remains the canonical source of truth.
+    Curated facet picker. The catalog drives the dropdown; per-facet ops and
+    the value-input control render from the catalog entry.
 
-    Mixed AND/OR predicates and nested groups render an empty picker
-    on purpose -- the textarea always carries the full predicate.
+    Rows seed from a flat AND-of-Terms or AND/OR-of-Terms predicate when the
+    AST projects cleanly; otherwise the picker collapses to an "advanced
+    predicate" notice and the raw-DSL textarea is the only edit surface.
 
-    No client-side add/remove yet: + AND / + OR buttons in
-    _RuleCardExpand.cshtml are visible-but-inert in B8. Picker-driven
-    write-through to the textarea lands in a follow-on polish.
+    The picker view is co-equal with the textarea: editing here writes
+    through to the textarea (and re-parses), editing the textarea re-seeds
+    the chips on each successful parse. policy-stack-edit.js owns that sync.
+
+    Minimum-viable OR support: a row marked data-group="or" joins via OR;
+    rows without the marker join via AND. The serialiser groups all OR rows
+    into one OR with the AND rows wrapped, e.g.
+        (term1 AND term2) OR term3 OR term4
+    Nested groups are deferred -- compose those in the textarea.
 *@
 @{
     var rows = (Model is null || Model.Count == 0)
         ? Array.Empty<FacetPickerRowViewModel>()
         : Model;
     var catalog = FacetCatalog.All;
+    var firstFacet = catalog.Count > 0 ? catalog[0].Facet : "ua.bot_type";
 }
-
-<div class="sb-facet-picker" data-facet-picker>
-    @if (rows.Count == 0)
-    {
-        <p class="sb-facet-picker-empty">
-            No picker rows for this rule. Use the raw textarea below to read or edit the predicate.
-        </p>
-    }
-    else
-    {
-        for (var i = 0; i < rows.Count; i++)
-        {
-            var row = rows[i];
-            var entry = FacetCatalog.FindByFacet(row.Facet);
-            <div class="sb-facet-picker-row" data-row-index="@i">
-                <select name="picker_facet_@i" class="sb-facet-picker-facet" disabled>
-                    @foreach (var candidate in catalog)
-                    {
-                        <option value="@candidate.Facet" selected="@(candidate.Facet == row.Facet)">@candidate.Label</option>
-                    }
-                    @if (entry is null && !string.IsNullOrEmpty(row.Facet))
-                    {
-                        @* Row references a facet missing from the curated catalog --
-                           keep it visible so the operator sees what's there. *@
-                        <option value="@row.Facet" selected>@row.Facet</option>
-                    }
-                </select>
-
-                <select name="picker_op_@i" class="sb-facet-picker-op" disabled>
-                    @if (entry is not null && entry.Ops.Count > 0)
-                    {
-                        foreach (var op in entry.Ops)
-                        {
-                            <option value="@op" title="@OpExplain(op)" selected="@(op == row.Op)">@OpDisplay(op)</option>
-                        }
-                    }
-                    else
-                    {
-                        <option value="@row.Op" title="@OpExplain(row.Op)" selected>@OpDisplay(row.Op)</option>
-                    }
-                </select>
-
-                <div class="sb-facet-picker-value">
-                    @if (entry?.Type == "bool")
-                    {
-                        <select name="picker_value_@i" disabled>
-                            <option value="true"  selected="@(row.Value == "true")">true</option>
-                            <option value="false" selected="@(row.Value == "false")">false</option>
-                        </select>
-                    }
-                    else if (entry?.Type == "enum" && entry.Values.Count > 0)
-                    {
-                        <select name="picker_value_@i" disabled>
-                            @foreach (var v in entry.Values)
-                            {
-                                <option value="@v" selected="@(v == row.Value)">@v</option>
-                            }
-                        </select>
-                    }
-                    else if (entry?.Type == "number" && entry.Range is not null)
-                    {
-                        <input type="number" name="picker_value_@i" value="@row.Value"
-                               min="@entry.Range.Min" max="@entry.Range.Max" step="@entry.Range.Step"
-                               disabled>
-                    }
-                    else if (entry?.Type == "glob")
-                    {
-                        <input type="text" name="picker_value_@i" value="@row.Value"
-                               placeholder="/api/users/*"
-                               class="sb-facet-picker-glob-input"
-                               disabled>
-                        <span class="sb-facet-picker-glob-hint">* = one segment, ** = any depth</span>
-                    }
-                    else
-                    {
-                        <input type="text" name="picker_value_@i" value="@row.Value" disabled>
-                    }
-                </div>
-
-                <button type="button" class="sb-facet-picker-remove"
-                        data-remove-row aria-label="Remove" disabled>×</button>
-                @if (entry is not null && !string.IsNullOrWhiteSpace(entry.Help))
-                {
-                    <p class="sb-facet-picker-help">@entry.Help</p>
-                }
-            </div>
-        }
-    }
-</div>
 
 @functions {
     /// <summary>
-    ///     Display text for the canonical predicate operator keys. Source of
-    ///     truth for the strings is the predicate grammar (PredicateOp +
-    ///     PolicyEditPresenter.OpKey); this is the operator-friendly form for
-    ///     the dropdown only. Falls through to the raw key when an unknown
-    ///     operator slips in from the catalog so nothing renders blank.
+    ///     Display text for the canonical predicate operator keys. Mirrors
+    ///     PolicyEditPresenter.OpKey for the dropdown only.
     /// </summary>
     static string OpDisplay(string op) => op switch
     {
@@ -138,8 +51,6 @@
         _          => op,
     };
 
-    /// <summary>Plain-English explanation surfaced via the option title=
-    /// attribute so an operator can hover an op without committing.</summary>
     static string OpExplain(string op) => op switch
     {
         "eq"       => "Equal to",
@@ -158,3 +69,162 @@
         _          => op,
     };
 }
+
+<div class="sb-facet-picker" data-facet-picker data-default-facet="@firstFacet">
+    @if (rows.Count == 0)
+    {
+        <p class="sb-facet-picker-empty">
+            No picker rows yet. Add a term with <code>+ AND</code> below, or edit the predicate
+            text directly.
+        </p>
+    }
+    else
+    {
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var entry = FacetCatalog.FindByFacet(row.Facet);
+            <div class="sb-facet-picker-row" data-row-index="@i">
+                <select name="picker_facet_@i" class="sb-facet-picker-facet">
+                    @foreach (var candidate in catalog)
+                    {
+                        <option value="@candidate.Facet" selected="@(candidate.Facet == row.Facet)">@candidate.Label</option>
+                    }
+                    @if (entry is null && !string.IsNullOrEmpty(row.Facet))
+                    {
+                        <option value="@row.Facet" selected>@row.Facet</option>
+                    }
+                </select>
+
+                <select name="picker_op_@i" class="sb-facet-picker-op">
+                    @if (entry is not null && entry.Ops.Count > 0)
+                    {
+                        foreach (var op in entry.Ops)
+                        {
+                            <option value="@op" title="@OpExplain(op)" selected="@(op == row.Op)">@OpDisplay(op)</option>
+                        }
+                    }
+                    else
+                    {
+                        <option value="@row.Op" title="@OpExplain(row.Op)" selected>@OpDisplay(row.Op)</option>
+                    }
+                </select>
+
+                <div class="sb-facet-picker-value">
+                    @if (entry?.Type == "bool")
+                    {
+                        <select name="picker_value_@i" class="sb-facet-picker-value-input">
+                            <option value="true"  selected="@(row.Value == "true")">true</option>
+                            <option value="false" selected="@(row.Value == "false")">false</option>
+                        </select>
+                    }
+                    else if (entry?.Type == "enum" && entry.Values.Count > 0)
+                    {
+                        <select name="picker_value_@i" class="sb-facet-picker-value-input">
+                            @foreach (var v in entry.Values)
+                            {
+                                <option value="@v" selected="@(v == row.Value)">@v</option>
+                            }
+                        </select>
+                    }
+                    else if (entry?.Type == "number" && entry.Range is not null)
+                    {
+                        <input type="number" name="picker_value_@i" value="@row.Value"
+                               class="sb-facet-picker-value-input"
+                               min="@entry.Range.Min" max="@entry.Range.Max" step="@entry.Range.Step">
+                    }
+                    else if (entry?.Type == "glob")
+                    {
+                        <input type="text" name="picker_value_@i" value="@row.Value"
+                               placeholder="/api/users/*"
+                               class="sb-facet-picker-value-input sb-facet-picker-glob-input">
+                        <span class="sb-facet-picker-glob-hint">* = one segment, ** = any depth</span>
+                    }
+                    else
+                    {
+                        <input type="text" name="picker_value_@i" value="@row.Value"
+                               class="sb-facet-picker-value-input">
+                    }
+                </div>
+
+                <button type="button" class="sb-facet-picker-remove"
+                        data-remove-row aria-label="Remove">×</button>
+                @if (entry is not null && !string.IsNullOrWhiteSpace(entry.Help))
+                {
+                    <p class="sb-facet-picker-help">@entry.Help</p>
+                }
+            </div>
+        }
+    }
+
+    @*
+        Row template used by policy-stack-edit.js when the operator clicks
+        + AND or + OR. We pre-render the full <select> list inside an inert
+        <template> tag so the JS doesn't have to re-construct it from the
+        catalog -- cloning the template means the same Razor source of
+        truth drives both seed rows and added rows.
+
+        Defaults are bound to the first catalog entry. The JS rewrites the
+        name="picker_*" indices when it inserts the clone.
+    *@
+    @{
+        var defaultEntry = catalog.Count > 0 ? catalog[0] : null;
+    }
+    <template class="sb-facet-picker-row-template">
+        <div class="sb-facet-picker-row" data-row-index="0">
+            <select name="picker_facet_0" class="sb-facet-picker-facet">
+                @foreach (var candidate in catalog)
+                {
+                    <option value="@candidate.Facet" selected="@(defaultEntry is not null && candidate.Facet == defaultEntry.Facet)">@candidate.Label</option>
+                }
+            </select>
+
+            <select name="picker_op_0" class="sb-facet-picker-op">
+                @if (defaultEntry is not null && defaultEntry.Ops.Count > 0)
+                {
+                    foreach (var op in defaultEntry.Ops)
+                    {
+                        <option value="@op" title="@OpExplain(op)" selected="@(op == defaultEntry.Ops[0])">@OpDisplay(op)</option>
+                    }
+                }
+                else
+                {
+                    <option value="eq" selected>=</option>
+                }
+            </select>
+
+            <div class="sb-facet-picker-value">
+                @if (defaultEntry?.Type == "bool")
+                {
+                    <select name="picker_value_0" class="sb-facet-picker-value-input">
+                        <option value="true" selected>true</option>
+                        <option value="false">false</option>
+                    </select>
+                }
+                else if (defaultEntry?.Type == "enum" && defaultEntry.Values.Count > 0)
+                {
+                    <select name="picker_value_0" class="sb-facet-picker-value-input">
+                        @foreach (var v in defaultEntry.Values)
+                        {
+                            <option value="@v" selected="@(v == defaultEntry.Values[0])">@v</option>
+                        }
+                    </select>
+                }
+                else if (defaultEntry?.Type == "number" && defaultEntry.Range is not null)
+                {
+                    <input type="number" name="picker_value_0" value="0"
+                           class="sb-facet-picker-value-input"
+                           min="@defaultEntry.Range.Min" max="@defaultEntry.Range.Max" step="@defaultEntry.Range.Step">
+                }
+                else
+                {
+                    <input type="text" name="picker_value_0" value=""
+                           class="sb-facet-picker-value-input">
+                }
+            </div>
+
+            <button type="button" class="sb-facet-picker-remove"
+                    data-remove-row aria-label="Remove">×</button>
+        </div>
+    </template>
+</div>
