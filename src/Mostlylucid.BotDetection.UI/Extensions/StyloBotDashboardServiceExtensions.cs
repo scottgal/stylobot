@@ -436,6 +436,11 @@ public static class StyloBotDashboardServiceExtensions
         // dashboard-only hosts (test fixtures, marketing-site embed) don't always
         // call that extension. TryAdd preserves any upstream registration.
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        // PolicyStackPostureClassifier (C14) needs PolicyIntentClassifier (C2);
+        // C2 registers it via AddPolicyDispatcher, but the marketing-site
+        // dashboard host calls only AddStyloBotDashboard. Without this TryAdd,
+        // /dashboard/policies 500s on PostureViewComponent activation.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Rules.PolicyIntentClassifier>();
         services.TryAddSingleton<PolicyStackHitAtom>();
         // Same reasoning for IScheduleCoordinator: dashboard-only hosts need a
         // no-op so PolicyStackHitAtomTickHook's ctor injection doesn't tear down
