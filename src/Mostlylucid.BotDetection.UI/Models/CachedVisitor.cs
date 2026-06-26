@@ -67,6 +67,24 @@ public class CachedVisitor
     /// </summary>
     public DriftBadgeModel? DriftBadge { get; set; }
 
+    /// <summary>
+    ///     Previous display name from <c>fingerprint_name_history</c>,
+    ///     populated when the current BotName changed within the recent-window
+    ///     (default 7d). The visitor card renders a small "was: X" pill next
+    ///     to <see cref="BotName"/> so an operator can see at a glance that
+    ///     the fingerprint has drifted into a new presentation. Null when no
+    ///     prior history exists or the change is older than the window.
+    ///     Spec docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md.
+    /// </summary>
+    public string? PriorBotName { get; set; }
+
+    /// <summary>
+    ///     UTC timestamp when <see cref="BotName"/> was last updated.
+    ///     Drives the recent-window gate for <see cref="PriorBotName"/>;
+    ///     null when no name has been written yet.
+    /// </summary>
+    public DateTime? BotNameUpdatedAt { get; set; }
+
     public string TimeAgo
     {
         get

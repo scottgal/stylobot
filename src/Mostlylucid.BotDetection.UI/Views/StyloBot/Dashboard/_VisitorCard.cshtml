@@ -14,6 +14,16 @@
     // Single source: matcher (FingerprintNameComposer) is the sole writer of
     // Fingerprint.DisplayName. View just renders what the store returned.
     var displayName = Model.BotName;
+    // 2026-06-26 drift signifier: when the fingerprint's name changed within
+    // the recent window (default 7d), show the previous name next to the
+    // current one. Operator scans the visitor list and sees at a glance
+    // which fingerprints have shifted presentation. Spec
+    //   docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md
+    var priorBotName = Model.PriorBotName;
+    var showWasPill = !string.IsNullOrEmpty(priorBotName)
+        && !string.Equals(priorBotName, displayName, StringComparison.Ordinal)
+        && Model.BotNameUpdatedAt is { } updatedAt
+        && (DateTime.UtcNow - updatedAt) < TimeSpan.FromDays(7);
     var probPct = (Model.BotProbability * 100).ToString("F0");
     var confPct = (Model.Confidence * 100).ToString("F0");
     var actionClass = ActionDisplayHelper.GetBadgeCssClass(Model.Action);
@@ -31,6 +41,13 @@
         <div class="flex items-center justify-between">
             <div class="flex items-center gap-2 min-w-0">
                 <span class="text-sm font-bold truncate max-w-[180px]">@displayName</span>
+                @if (showWasPill)
+                {
+                    <span class="badge badge-xs badge-ghost italic text-base-content/50"
+                          title="@($"Renamed from {priorBotName}. The fingerprint's observed signals have shifted; click through to the signature detail view for the per-snapshot diff.")">
+                        was: @priorBotName
+                    </span>
+                }
                 @{
                     var (vBadge, vBadgeClass) = Model.BotProbability switch
                     {
