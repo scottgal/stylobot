@@ -130,6 +130,7 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyExplainerPresenter>();
         builder.Services.AddSingleton<PolicyStackPresenter>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetPickerCatalog, Mostlylucid.BotDetection.UI.Services.FacetPickerCatalog>();
+        builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IFacetAutocompleteSource, Mostlylucid.BotDetection.UI.Services.FacetAutocompleteSource>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.UI.Services.FacetPillRenderer>();
         // C15: the SbPolicyStack Full embed now invokes PolicyStackPostureViewComponent
         // in place of the dry "N requests · N rules · N hits" aggregate strip. The

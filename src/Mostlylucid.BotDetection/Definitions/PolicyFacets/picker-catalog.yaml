@@ -25,6 +25,12 @@
 #             icon via FacetPickerCatalog.ResolveIcon.
 #   icon:     heroicon outline ref overriding the category default. When
 #             omitted, the category-default fallback fills it in.
+#   datalist: optional autocomplete key the string-input branch wires into a
+#             FOSS-side IFacetAutocompleteSource entry. Only set when the
+#             value space is owned by an authoritative FOSS catalog -- never
+#             a hand-rolled list. Operator-specific string facets
+#             (request.domain, ip.asn_org) deliberately omit this and the
+#             picker falls back to a free-text input.
 
 version: 1
 facets:
@@ -70,6 +76,10 @@ facets:
     facet: "verifiedbot.name"
     type: string
     ops: [eq, in]
+    # Values come from the FOSS bot-patterns + arcjet well-known-bot catalogs
+    # via FacetAutocompleteSource. Operators get type-to-filter on the
+    # canonical casing instead of mistyping "googlebot"/"GoogleBot".
+    datalist: verifiedbot-names
     help: "Name of the verified bot when reverse-DNS / IP-range checks pass (Googlebot, Bingbot)."
     category: bot-identity
     icon: cpu-chip
@@ -115,7 +125,10 @@ facets:
     facet: "geo.country_code"
     type: enum
     ops: [in, not_in]
-    help: "ISO 3166-1 alpha-2 country code. Picker renders a search input."
+    # Values list is injected at construction time from IsoCountryCodes.Alpha2
+    # (249 entries). Kept out of the YAML so the file stays readable; the
+    # ISO 3166-1 alpha-2 standard is the source of truth for the picker.
+    help: "ISO 3166-1 alpha-2 country code."
     category: geo
     icon: map-pin
 

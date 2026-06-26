@@ -18,8 +18,24 @@ public sealed class FacetPickerCatalog : IFacetPickerCatalog
     public FacetPickerCatalog()
     {
         var raw = LoadFromEmbeddedResource();
-        All = raw.Select(e => e with { Icon = ResolveIcon(e) }).ToList();
+        All = raw.Select(e => InjectStaticValues(e with { Icon = ResolveIcon(e) })).ToList();
         _byFacet = All.ToDictionary(e => e.Facet, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    ///     Some enum facets (notably <c>geo.country_code</c>) have value sets
+    ///     too large to inline in the catalog YAML. The YAML carries the entry
+    ///     shape (type, ops, help, icon); the catalog injects the value list
+    ///     from a code-side authoritative source at construction time so the
+    ///     YAML stays readable and the source list lives in exactly one place.
+    /// </summary>
+    private static FacetPickerEntry InjectStaticValues(FacetPickerEntry entry)
+    {
+        if (entry.Facet == "geo.country_code" && entry.Values.Count == 0)
+        {
+            return entry with { Values = IsoCountryCodes.Alpha2 };
+        }
+        return entry;
     }
 
     private static string ResolveIcon(FacetPickerEntry entry)
@@ -79,7 +95,8 @@ public sealed class FacetPickerCatalog : IFacetPickerCatalog
                 Range: f.Range is null ? null : new FacetRange(f.Range.Min, f.Range.Max, f.Range.Step),
                 Help: f.Help ?? string.Empty,
                 Category: f.Category,
-                Icon: f.Icon));
+                Icon: f.Icon,
+                DatalistKey: string.IsNullOrWhiteSpace(f.Datalist) ? null : f.Datalist));
         }
 
         return entries;
@@ -110,6 +127,7 @@ public sealed partial class FacetEntryYaml
     public string? Help { get; set; }
     public string? Category { get; set; }
     public string? Icon { get; set; }
+    public string? Datalist { get; set; }
 }
 
 [YamlObject(NamingConvention.SnakeCase)]

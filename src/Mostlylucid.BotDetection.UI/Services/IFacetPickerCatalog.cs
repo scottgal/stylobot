@@ -16,7 +16,8 @@ public sealed record FacetPickerEntry(
     FacetRange? Range,
     string Help,
     string? Category = null,
-    string? Icon = null);
+    string? Icon = null,
+    string? DatalistKey = null);
 
 /// <summary>Slider range for <c>type: number</c> facets.</summary>
 public sealed record FacetRange(double Min, double Max, double Step);

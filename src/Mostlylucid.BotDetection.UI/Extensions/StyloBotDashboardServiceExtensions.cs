@@ -426,6 +426,14 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
         services.TryAddSingleton<FacetPillRenderer>();
 
+        // Datalist-backed autocomplete for the few string facets whose value
+        // space is owned by a FOSS catalog (e.g. verifiedbot.name). Reads
+        // BotPatternLoader / WellKnownBotIndex at construction time. Plain
+        // string facets without an authoritative source (request.domain,
+        // ip.asn_org) deliberately have no entry here -- the picker falls
+        // back to a free-text input rather than fabricating options.
+        services.TryAddSingleton<IFacetAutocompleteSource, FacetAutocompleteSource>();
+
         // Bounded, scope-keyed counter of policy rule hits per intent. Atom-backed
         // (in-memory), not persisted -- the tick.1m subscription below drains
         // records older than RetentionWindow so memory stays bounded without a

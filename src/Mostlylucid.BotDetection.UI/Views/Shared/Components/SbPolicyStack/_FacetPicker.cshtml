@@ -1,6 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @inject IFacetPickerCatalog FacetCatalog
+@inject IFacetAutocompleteSource FacetAutocomplete
 @model IReadOnlyList<FacetPickerRowViewModel>
 @*
     Curated facet picker. The catalog drives the dropdown; per-facet ops and
@@ -26,6 +27,17 @@
         : Model;
     var catalog = FacetCatalog.All;
     var firstFacet = catalog.Count > 0 ? catalog[0].Facet : "ua.bot_type";
+
+    // Collect distinct datalist keys actually referenced by the catalog so we
+    // emit one <datalist> per key at the picker root (not per-row). The
+    // string-input branches below reference these via list="sb-facet-datalist-{key}".
+    var datalists = catalog
+        .Where(e => !string.IsNullOrWhiteSpace(e.DatalistKey))
+        .Select(e => e.DatalistKey!)
+        .Distinct(StringComparer.Ordinal)
+        .Select(key => new { Key = key, Id = $"sb-facet-datalist-{key}", Options = FacetAutocomplete.GetOptions(key) })
+        .Where(d => d.Options is { Count: > 0 })
+        .ToList();
 }
 
 @functions {
@@ -140,6 +152,13 @@
                                class="sb-facet-picker-value-input sb-facet-picker-glob-input">
                         <span class="sb-facet-picker-glob-hint">* = one segment, ** = any depth</span>
                     }
+                    else if (!string.IsNullOrEmpty(entry?.DatalistKey))
+                    {
+                        var listId = $"sb-facet-datalist-{entry.DatalistKey}";
+                        <input type="text" name="picker_value_@i" value="@row.Value"
+                               list="@listId"
+                               class="sb-facet-picker-value-input">
+                    }
                     else
                     {
                         <input type="text" name="picker_value_@i" value="@row.Value"
@@ -227,4 +246,21 @@
                     data-remove-row aria-label="Remove">×</button>
         </div>
     </template>
+
+    @*
+        Autocomplete sources for high-cardinality string facets backed by a
+        FOSS-side catalog (verifiedbot-names from BotPatternLoader +
+        WellKnownBotIndex). One <datalist> per key at the picker root so
+        list="..." references it by id; per-row inputs reuse the same list
+        instead of duplicating options.
+    *@
+    @foreach (var d in datalists)
+    {
+        <datalist id="@d.Id">
+            @foreach (var opt in d.Options!)
+            {
+                <option value="@opt"></option>
+            }
+        </datalist>
+    }
 </div>

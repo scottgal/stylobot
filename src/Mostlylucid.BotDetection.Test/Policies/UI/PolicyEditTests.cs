@@ -556,6 +556,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyEditPresenter>();
         builder.Services.AddSingleton<RazorViewRenderer>();
         builder.Services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
+        builder.Services.AddSingleton<IFacetAutocompleteSource, FacetAutocompleteSource>();
         builder.Services.AddSingleton<FacetPillRenderer>();
         // C15: the SbPolicyStack Full embed now invokes PolicyStackPostureViewComponent
         // in place of the dry "N requests · N rules · N hits" aggregate strip. The

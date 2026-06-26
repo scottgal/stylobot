@@ -233,6 +233,7 @@ public sealed class PolicyEditComposerTests : IAsyncDisposable
         builder.Services.AddSingleton<PolicyEditPresenter>();
         builder.Services.AddSingleton<RazorViewRenderer>();
         builder.Services.AddSingleton<IFacetPickerCatalog, FacetPickerCatalog>();
+        builder.Services.AddSingleton<IFacetAutocompleteSource, FacetAutocompleteSource>();
         builder.Services.AddSingleton<FacetPillRenderer>();
         builder.Services.AddSingleton<Mostlylucid.BotDetection.Policies.Rules.PolicyIntentClassifier>();
         builder.Services.AddSingleton(TimeProvider.System);
