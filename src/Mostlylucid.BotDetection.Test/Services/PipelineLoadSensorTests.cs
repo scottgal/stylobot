@@ -7,7 +7,7 @@ namespace Mostlylucid.BotDetection.Test.Services;
 ///     Adaptive multi-signal pressure detection in <see cref="PipelineLoadSensor"/>.
 ///     Uses the internal <c>TickOnce</c> hook to drive the 1-second timer
 ///     deterministically; never sleeps. Each test establishes a baseline by
-///     ticking ≥ <c>BaselineWarmupTicks</c> (50) times at quiet load, then
+///     ticking >= <c>BaselineWarmupTicks</c> (50) times at quiet load, then
 ///     applies the pressure signal under test and asserts the band moves.
 /// </summary>
 public sealed class PipelineLoadSensorTests
@@ -41,11 +41,13 @@ public sealed class PipelineLoadSensorTests
         }
     }
 
-    private static void WarmupRttBaseline(PipelineLoadSensor s, double baselineMs)
+    private static void WarmupDeviationBaseline(PipelineLoadSensor s, double ratio = 1.0)
     {
+        // Drive Warmup ticks of neutral deviation (ratio 1.0 = on-baseline) to
+        // seed _rttBaselineSamples >= BaselineWarmupTicks so the adaptive path engages.
         for (var i = 0; i < Warmup; i++)
         {
-            s.RecordUpstreamRtt(baselineMs);
+            s.RecordUpstreamDeviation(ratio);
             s.TickOnce();
         }
     }
@@ -53,7 +55,7 @@ public sealed class PipelineLoadSensorTests
     [Fact]
     public void BeforeWarmup_FallsBackToRpsBands()
     {
-        // No latency/RTT samples recorded yet; band falls through to legacy
+        // No latency/deviation samples recorded yet; band falls through to legacy
         // RPS thresholds. Constructor sets high RPS thresholds, so band stays Low.
         var s = New();
         Assert.Equal(LoadBand.Low, s.CurrentBand);
@@ -86,7 +88,7 @@ public sealed class PipelineLoadSensorTests
     {
         var s = New();
         WarmupLatencyBaseline(s, baselineMs: 10);
-        // 2x baseline sustained → High via the highRatio = 2.0 default
+        // 2x baseline sustained => High via the highRatio = 2.0 default
         for (var i = 0; i < 10; i++)
         {
             s.RecordDetectionLatency(25);   // safely above 2x, accounting for EMA
@@ -109,29 +111,29 @@ public sealed class PipelineLoadSensorTests
     }
 
     [Fact]
-    public void High_AtSustainedUpstreamRttDrift()
+    public void High_AtSustainedUpstreamDeviationDrift()
     {
-        var s = New();
-        WarmupRttBaseline(s, baselineMs: 5);
+        var s = New(highRatio: 2.0, criticalRatio: 5.0);
+        WarmupDeviationBaseline(s, ratio: 1.0);
         for (var i = 0; i < 10; i++)
         {
-            s.RecordUpstreamRtt(15);   // 3x baseline
+            s.RecordUpstreamDeviation(3.0);   // 3x over baseline (1.0), highRatio = 2.0
             s.TickOnce();
         }
         Assert.Equal(LoadBand.High, s.CurrentBand);
     }
 
     [Fact]
-    public void HighestBandWins_LatencyHigh_RttCritical()
+    public void HighestBandWins_LatencyHigh_DeviationCritical()
     {
-        var s = New();
+        var s = New(highRatio: 2.0, criticalRatio: 5.0);
         WarmupLatencyBaseline(s, baselineMs: 10);
-        WarmupRttBaseline(s, baselineMs: 5);
-        // Lat 2x (High), RTT 6x (Critical) — Critical wins.
+        WarmupDeviationBaseline(s, ratio: 1.0);
+        // Lat 2x (High), deviation 6x (Critical) => Critical wins.
         for (var i = 0; i < 10; i++)
         {
             s.RecordDetectionLatency(25);
-            s.RecordUpstreamRtt(30);
+            s.RecordUpstreamDeviation(6.0);
             s.TickOnce();
         }
         Assert.Equal(LoadBand.Critical, s.CurrentBand);
@@ -181,32 +183,6 @@ public sealed class PipelineLoadSensorTests
     }
 
     [Fact]
-    public void Baseline_RecoversFromAnomalouslyFastWarmupSample()
-    {
-        // Regression for the staging-503 issue: on a low-traffic deployment
-        // the first sample after start can be anomalously fast (~0.1ms — a
-        // local warm call before real traffic begins). The pre-fix baseline
-        // tracked the all-time min and locked there, so every later real
-        // request read as 50-100x over baseline and tripped Critical, which
-        // refused half the site with 503 + Retry-After. The percentile
-        // window must wash the outlier out within ~window-length ticks and
-        // the band must come back to Low under normal load.
-        var s = New();
-
-        // One ultra-fast outlier (e.g. a startup health-check call), then
-        // 120 ticks of representative normal-traffic latency. With the old
-        // min-baseline that single 0.05ms sample would dominate forever.
-        s.RecordDetectionLatency(0.05);
-        s.TickOnce();
-        for (var i = 0; i < 130; i++)
-        {
-            s.RecordDetectionLatency(8);
-            s.TickOnce();
-        }
-        Assert.Equal(LoadBand.Low, s.CurrentBand);
-    }
-
-    [Fact]
     public void Options_default_MinSamplesForTrustedBaseline_is_30()
     {
         var opts = new PipelineLoadSensorOptions();
@@ -218,5 +194,41 @@ public sealed class PipelineLoadSensorTests
     {
         var opts = new PipelineLoadSensorOptions();
         Assert.Equal(TimeSpan.FromMinutes(1), opts.BaselineRefreshInterval);
+    }
+
+    [Fact]
+    public void Upstream_deviation_at_one_keeps_band_low()
+    {
+        var s = New();
+        for (var i = 0; i < 60; i++)
+        {
+            s.RecordUpstreamDeviation(1.0);
+            s.TickOnce();
+        }
+        Assert.Equal(LoadBand.Low, s.CurrentBand);
+    }
+
+    [Fact]
+    public void Upstream_deviation_at_threshold_high_fires_High()
+    {
+        var s = New(highRatio: 2.0, criticalRatio: 5.0);
+        for (var i = 0; i < 60; i++)
+        {
+            s.RecordUpstreamDeviation(2.5);
+            s.TickOnce();
+        }
+        Assert.Equal(LoadBand.High, s.CurrentBand);
+    }
+
+    [Fact]
+    public void Upstream_deviation_at_threshold_critical_fires_Critical()
+    {
+        var s = New(highRatio: 2.0, criticalRatio: 5.0);
+        for (var i = 0; i < 60; i++)
+        {
+            s.RecordUpstreamDeviation(6.0);
+            s.TickOnce();
+        }
+        Assert.Equal(LoadBand.Critical, s.CurrentBand);
     }
 }

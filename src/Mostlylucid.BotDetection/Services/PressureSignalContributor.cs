@@ -10,13 +10,16 @@ namespace Mostlylucid.BotDetection.Services;
 ///
 ///     Signal keys contributed:
 ///     <list type="bullet">
-///       <item><c>pressure.band</c> — string: "Low" / "Normal" / "High" / "Critical"</item>
-///       <item><c>pressure.detection_latency_ratio</c> — double: fast EMA over min-baseline</item>
-///       <item><c>pressure.upstream_rtt_ratio</c> — double: same shape for upstream RTT</item>
-///       <item><c>pressure.threadpool_starved_ticks</c> — int: consecutive 1-second
+///       <item><c>pressure.band</c> - string: "Low" / "Normal" / "High" / "Critical"</item>
+///       <item><c>pressure.detection_latency_ratio</c> - double: fast EMA over min-baseline</item>
+///       <item><c>pressure.upstream_rtt_ratio</c> - double: EMA of upstream deviation ratio
+///           (semantics changed 2026-06-25: was absolute-ms over rolling baseline, now is
+///           the EMA of actualMs/expectedMs from IEndpointPerfBaseline; key is unchanged
+///           so existing operator policy predicates keep working)</item>
+///       <item><c>pressure.threadpool_starved_ticks</c> - int: consecutive 1-second
 ///           samples with non-zero <see cref="ThreadPool.PendingWorkItemCount"/></item>
-///       <item><c>pressure.gen2_per_sec</c> — double: EMA of Gen2 collection rate</item>
-///       <item><c>pressure.smoothed_rps</c> — double: 1-second EMA of inbound RPS</item>
+///       <item><c>pressure.gen2_per_sec</c> - double: EMA of Gen2 collection rate</item>
+///       <item><c>pressure.smoothed_rps</c> - double: 1-second EMA of inbound RPS</item>
 ///     </list>
 ///
 ///     Wired into the FOSS DefaultPolicyResolver via DI: rule predicates can do
@@ -40,7 +43,7 @@ public sealed class PressureSignalContributor : ISignalContributor
         // and won't collide, but request-side overrides are still legal.
         signals.TryAdd("pressure.band",                       _sensor.CurrentBand.ToString());
         signals.TryAdd("pressure.detection_latency_ratio",    _sensor.DetectionLatencyRatio);
-        signals.TryAdd("pressure.upstream_rtt_ratio",         _sensor.UpstreamRttRatio);
+        signals.TryAdd("pressure.upstream_rtt_ratio",         _sensor.UpstreamDeviationEma);
         signals.TryAdd("pressure.threadpool_starved_ticks",   _sensor.ThreadPoolStarvedTicks);
         signals.TryAdd("pressure.gen2_per_sec",               _sensor.Gen2PerSecond);
         signals.TryAdd("pressure.smoothed_rps",               _sensor.SmoothedRps);

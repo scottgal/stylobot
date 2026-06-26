@@ -166,8 +166,11 @@ public class BotDetectionMiddleware(
             {
                 var detectionMs = (context.Items[AggregatedEvidenceKey] as AggregatedEvidence)?.TotalProcessingTimeMs ?? 0.0;
                 if (detectionMs > 0) _loadSensor.RecordDetectionLatency(detectionMs);
-                var upstreamMs = latencyMs - detectionMs;
-                if (upstreamMs > 0) _loadSensor.RecordUpstreamRtt(upstreamMs);
+                // IEndpointPerfBaseline lookup is wired by a later task; pass 1.0
+                // (neutral / on-baseline) until per-endpoint baselines exist.
+                // When the baseline store is available the call site will compute
+                // actualUpstreamMs / expectedMs and pass that ratio instead.
+                _loadSensor.RecordUpstreamDeviation(1.0);
             }
             return Task.CompletedTask;
         });

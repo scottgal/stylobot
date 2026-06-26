@@ -8,7 +8,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///     a hardcoded RPS threshold. The same code therefore reports Low on a
 ///     server idling at 1000 RPS and High on a Pi being slammed at 30 RPS,
 ///     because the band reflects ACTUAL pressure (ThreadPool starvation, GC
-///     churn, detection-latency drift, upstream-RTT drift) rather than an
+///     churn, detection-latency drift, upstream deviation) rather than an
 ///     absolute traffic level.
 ///
 ///     Inputs (all updated every 1-second tick):
@@ -21,23 +21,25 @@ namespace Mostlylucid.BotDetection.Services;
 ///         <see cref="RecordDetectionLatency"/> samples. The band fires High when
 ///         recent samples are <c>HighRatio</c> over the slow baseline, Critical
 ///         at <c>CriticalRatio</c>.</item>
-///       <item><b>Upstream-RTT EMA</b>. Same shape, fed by
-///         <see cref="RecordUpstreamRtt"/> from the middleware's <c>_next</c>
-///         timing.</item>
+///       <item><b>Upstream deviation EMA</b>. EMA of the per-request deviation
+///         ratio fed by <see cref="RecordUpstreamDeviation"/>. Ratio 1.0 means
+///         the request hit its endpoint's own normal. Band fires when the EMA
+///         crosses <c>HighRatio</c> or <c>CriticalRatio</c> directly (no
+///         per-axis rolling baseline; implicit baseline is 1.0).</item>
 ///       <item><b>ThreadPool starvation</b>. Each tick checks
-///         <see cref="ThreadPool.PendingWorkItemCount"/>; ≥ <c>HighStarvedTicks</c>
-///         consecutive non-zero readings fires High, ≥
+///         <see cref="ThreadPool.PendingWorkItemCount"/>; >= <c>HighStarvedTicks</c>
+///         consecutive non-zero readings fires High, >=
 ///         <c>CriticalStarvedTicks</c> fires Critical.</item>
-///       <item><b>Gen2 GC rate</b>. Sustained Gen2 collections (≥ <c>HighGen2PerSec</c>
+///       <item><b>Gen2 GC rate</b>. Sustained Gen2 collections (>= <c>HighGen2PerSec</c>
 ///         averaged) indicates we're allocating too fast for the heap and is a
-///         High signal; ≥ <c>CriticalGen2PerSec</c> is Critical.</item>
+///         High signal; >= <c>CriticalGen2PerSec</c> is Critical.</item>
 ///     </list>
 ///
 ///     The highest band any input reports wins. Bands decay back down naturally
 ///     as the EMAs catch up.
 ///
 ///     Backward compat: when only the RPS-threshold constructor is used (no
-///     latency/RTT samples ever recorded), the sensor falls through to the
+///     latency/deviation samples ever recorded), the sensor falls through to the
 ///     classic RPS-only bands.
 ///
 ///     Background services consume <see cref="GetAdaptiveInterval"/> and
@@ -72,18 +74,14 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     private readonly double _highGen2PerSec;
     private readonly double _criticalGen2PerSec;
 
-    // --- baseline window ---
+    // --- baseline window (detection-latency axis only; deviation axis has implicit baseline 1.0) ---
     private readonly double[] _latencyWindow;
-    private readonly double[] _rttWindow;
     private readonly int _baselineWindowSize;
     private readonly double _baselinePercentile;
     private readonly double _baselineUpwardDriftPerTick;
     private int _latencyWindowWriteIdx;
     private int _latencyWindowFilled;
-    private int _rttWindowWriteIdx;
-    private int _rttWindowFilled;
     private readonly object _latencyWindowLock = new();
-    private readonly object _rttWindowLock = new();
 
     private readonly Timer _ticker;
 
@@ -98,11 +96,10 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     private double _latencyBaselineUs;
     private int _latencyBaselineSamples;
 
-    // Upstream-RTT tracking.
+    // Upstream-deviation tracking (EMA of ratio; implicit baseline 1.0).
     private long _rttAccumUs;
     private int _rttSampleCount;
     private double _rttEmaUs;
-    private double _rttBaselineUs;
     private int _rttBaselineSamples;
 
     // ThreadPool starvation.
@@ -116,7 +113,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     ///     Legacy RPS-only constructor. Retained so existing call sites
     ///     (incl. <c>BlackboardOrchestratorLoadShedTests</c>) keep compiling.
     ///     Adaptive thresholds default to the values used by the adaptive
-    ///     constructor; latency/RTT inputs are no-ops if never called.
+    ///     constructor; latency/deviation inputs are no-ops if never called.
     /// </summary>
     public PipelineLoadSensor(
         double normalRps = 20,
@@ -164,7 +161,6 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
         _baselinePercentile          = Math.Clamp(baselinePercentile, 0.0, 0.5);
         _baselineUpwardDriftPerTick  = Math.Max(0.0, baselineUpwardDriftPerTick);
         _latencyWindow               = new double[_baselineWindowSize];
-        _rttWindow                   = new double[_baselineWindowSize];
 
         _lastGen2Count = GC.CollectionCount(2);
 
@@ -188,17 +184,12 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     }
 
     /// <summary>
-    ///     Current upstream-RTT EMA divided by min-baseline. Returns 0 when
-    ///     no baseline established yet.
+    ///     Current EMA of the per-request deviation ratio fed by
+    ///     <see cref="RecordUpstreamDeviation"/>. Returns 0 before the
+    ///     first sample. Band escalates when this value crosses the
+    ///     configured High / Critical ratios.
     /// </summary>
-    public double UpstreamRttRatio
-    {
-        get
-        {
-            var baseline = Volatile.Read(ref _rttBaselineUs);
-            return baseline <= 0 ? 0 : Volatile.Read(ref _rttEmaUs) / baseline;
-        }
-    }
+    public double UpstreamDeviationEma => Volatile.Read(ref _rttEmaUs);
 
     /// <summary>
     ///     Consecutive 1-second ticks at which ThreadPool.PendingWorkItemCount
@@ -218,7 +209,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     {
         get
         {
-            // No latency/RTT input has been wired yet, OR not enough samples
+            // No latency/deviation input has been wired yet, OR not enough samples
             // collected to trust the baseline. Fall back to the RPS bands; the
             // adaptive layer only takes over once baselines stabilise.
             var latencyReady = Volatile.Read(ref _latencyBaselineSamples) >= BaselineWarmupTicks;
@@ -248,14 +239,10 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
 
             if (rttReady)
             {
-                var baseUs = Volatile.Read(ref _rttBaselineUs);
-                if (baseUs > 0)
-                {
-                    var ratio = Volatile.Read(ref _rttEmaUs) / baseUs;
-                    if (ratio >= _criticalRatio) return LoadBand.Critical;
-                    if (ratio >= _highRatio)     band = Worse(band, LoadBand.High);
-                    else if (ratio >= NormalRatio) band = Worse(band, LoadBand.Normal);
-                }
+                var ratio = Volatile.Read(ref _rttEmaUs);
+                if (ratio >= _criticalRatio) return LoadBand.Critical;
+                if (ratio >= _highRatio)     band = Worse(band, LoadBand.High);
+                else if (ratio >= NormalRatio) band = Worse(band, LoadBand.Normal);
             }
 
             var starved = Volatile.Read(ref _consecutiveStarvedTicks);
@@ -301,14 +288,26 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     }
 
     /// <summary>
-    ///     Records an upstream proxy RTT, in milliseconds (typically the
-    ///     wall-clock time the middleware spent inside <c>_next(context)</c>).
-    ///     Lock-free.
+    ///     Records the post-detection-deviation ratio for one completed
+    ///     request, where <paramref name="ratio"/> is
+    ///     <c>actualUpstreamMs / expectedMsFromIEndpointPerfBaseline</c>.
+    ///     1.0 means the request hit its endpoint's own normal; 2.0 means
+    ///     twice the endpoint's p95; etc. Unknown endpoints (no baseline)
+    ///     should pass 1.0 so they contribute a neutral sample.
+    ///     <para>
+    ///     Replaces the pre-2026-06-25 <c>RecordUpstreamRtt(double ms)</c>
+    ///     which fed absolute milliseconds into a global rolling-window
+    ///     baseline. That design tripped Critical on hosts that serve both
+    ///     fast static assets and slow dashboard pages (different intrinsic
+    ///     latencies cannot share one baseline). The deviation ratio
+    ///     normalises against each endpoint's own normal, so a mixed
+    ///     workload stays in Low band by default.
+    ///     </para>
     /// </summary>
-    public void RecordUpstreamRtt(double ms)
+    public void RecordUpstreamDeviation(double ratio)
     {
-        if (ms <= 0 || double.IsNaN(ms) || double.IsInfinity(ms)) return;
-        Interlocked.Add(ref _rttAccumUs, (long)(ms * 1000.0));
+        if (ratio <= 0 || double.IsNaN(ratio) || double.IsInfinity(ratio)) return;
+        Interlocked.Add(ref _rttAccumUs, (long)(ratio * 1_000_000.0));  // scaled so the EMA accumulator stays in long range
         Interlocked.Increment(ref _rttSampleCount);
     }
 
@@ -379,24 +378,23 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             Interlocked.Increment(ref _latencyBaselineSamples);
         }
 
-        // ---- Upstream RTT: same shape ----
+        // ---- Upstream deviation EMA (replaces the old rolling-baseline path) ----
+        // _rttAccumUs / _rttSampleCount produces the mean ratio for the tick;
+        // the EMA smooths it; band selection (below) compares EMA ratio
+        // directly to HighRatio / CriticalRatio. Baseline is implicitly 1.0
+        // because the input is already normalised by the per-endpoint p95
+        // from IEndpointPerfBaseline at the call site.
         var rttAccum = Interlocked.Exchange(ref _rttAccumUs, 0);
         var rttCount = Interlocked.Exchange(ref _rttSampleCount, 0);
         if (rttCount > 0)
         {
-            var meanUs = (double)rttAccum / rttCount;
-            var prevRtt = Volatile.Read(ref _rttEmaUs);
-            var newRtt = Ewma.Update(prevRtt, meanUs, Alpha);
-            Interlocked.Exchange(ref _rttEmaUs, newRtt);
-
-            var prevRttBase = Volatile.Read(ref _rttBaselineUs);
-            var rttWarmedUp = Volatile.Read(ref _rttBaselineSamples) >= BaselineWarmupTicks;
-            var newBase = UpdateRollingBaseline(
-                _rttWindow, _rttWindowLock,
-                ref _rttWindowWriteIdx, ref _rttWindowFilled,
-                meanUs, _baselinePercentile,
-                prevRttBase, rttWarmedUp, _baselineUpwardDriftPerTick);
-            Interlocked.Exchange(ref _rttBaselineUs, newBase);
+            // Recover the ratio from the scaled accumulator (see RecordUpstreamDeviation).
+            var meanRatio = (rttAccum / 1_000_000.0) / rttCount;
+            var prevEma = Volatile.Read(ref _rttEmaUs);
+            // Re-use _rttEmaUs to hold the EMA of ratios (scaled by 1.0 here
+            // since the input is already dimensionless).
+            Interlocked.Exchange(ref _rttEmaUs, Ewma.Update(prevEma, meanRatio, Alpha));
+            // Mark the axis as having data so the band selector engages.
             Interlocked.Increment(ref _rttBaselineSamples);
         }
 
