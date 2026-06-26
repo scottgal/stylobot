@@ -432,7 +432,17 @@ public static class StyloBotDashboardServiceExtensions
         // background polling loop.
         services.AddOptions<Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions>()
             .BindConfiguration("BotDetection:Policies:HitAtom");
+        // Atom ctor needs TimeProvider; AddStyloBotBotDetection registers it but
+        // dashboard-only hosts (test fixtures, marketing-site embed) don't always
+        // call that extension. TryAdd preserves any upstream registration.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<PolicyStackHitAtom>();
+        // Same reasoning for IScheduleCoordinator: dashboard-only hosts need a
+        // no-op so PolicyStackHitAtomTickHook's ctor injection doesn't tear down
+        // the whole host on startup. TryAdd lets a real coordinator win when one
+        // is wired upstream.
+        services.TryAddSingleton<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(
+            Mostlylucid.Common.Scheduling.NullScheduleCoordinator.Instance);
         services.AddHostedService<PolicyStackHitAtomTickHook>();
 
         // Replace the FOSS NullPolicyHitRecorder (registered by AddPolicyDispatcher)
