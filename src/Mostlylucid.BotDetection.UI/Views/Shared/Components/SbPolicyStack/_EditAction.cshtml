@@ -4,40 +4,57 @@
 @inject IDashboardLinkResolver DashboardLinks
 @model PolicyEditRowViewModel
 @*
-    Task 8 -- kind selector + per-kind slot. The <select name="action.kind">
-    HTMX-fetches the per-kind partial into [data-action-editor-slot] when the
-    operator changes the action kind; the slot is server-rendered on initial
-    load so the form arrives populated for the no-JS path AND for the first
-    paint after the row-level swap from the pencil affordance.
+    C-UX2 -- radio-card action selector + per-kind slot. Each row is a
+    full-width <label> wrapping a hidden-but-accessible radio input
+    (name="action.kind") so the whole card is the click target and the
+    keyboard arrow-keys walk through the kinds naturally.
 
-    The <option> list is enumerated from
-    PolicyActionEditorViewPaths.KindsForSelector -- the same single source of
-    truth ForKind() / BuildActionEditorModel() dispatch off of. Keeping the
-    selector and the dispatcher fed from the same list closes the drift
-    surface feedback_no_word_lists calls out.
+    The radio input carries [data-action-kind-select] so policy-stack-edit.js
+    can drive the existing partial-swap mechanism off `change` events
+    unchanged from the pre-radio-card era. HTMX fetches the per-kind partial
+    into [data-action-editor-slot] when the operator picks a new kind; the
+    slot is server-rendered on initial load so the form arrives populated
+    for the no-JS path AND for the first paint after the row-level swap
+    from the pencil affordance.
+
+    The card list is enumerated from PolicyActionEditorViewPaths.KindsForSelector
+    -- the same single source of truth ForKind() / BuildActionEditorModel()
+    dispatch off of, now extended with Intent (drives the data-intent
+    coloured stripe) and Explanation (the one-line operator-facing copy
+    extracted verbatim from each per-kind partial's first paragraph).
 *@
 <fieldset class="sb-edit-action-frame">
     <legend>THEN</legend>
-    <label>
-        Action
-        <select name="action.kind"
-                data-action-kind-select
-                hx-get="@DashboardLinks.Resolve("/policystack/action-editor")"
-                hx-target="[data-action-editor-slot]"
-                hx-swap="innerHTML"
-                hx-include="this"
-                hx-trigger="change">
-            @foreach (var (kind, label) in PolicyActionEditorViewPaths.KindsForSelector)
-            {
-                <option value="@kind" selected="@(Model.ActionKind == kind ? "selected" : null)">@label</option>
-            }
-        </select>
-    </label>
+    <div class="sb-action-radio-list" role="radiogroup" aria-label="Action">
+        @foreach (var (kind, label, intent, explanation) in PolicyActionEditorViewPaths.KindsForSelector)
+        {
+            var selected = Model.ActionKind == kind;
+            <label class="sb-action-radio-card" data-intent="@intent" data-action-radio-card="@kind">
+                <span class="sb-action-radio-stripe" aria-hidden="true"></span>
+                <input type="radio"
+                       name="action.kind"
+                       value="@kind"
+                       class="sb-action-radio-input"
+                       data-action-kind-select
+                       hx-get="@DashboardLinks.Resolve("/policystack/action-editor")"
+                       hx-target="[data-action-editor-slot]"
+                       hx-swap="innerHTML"
+                       hx-vals='{"kind":"@kind"}'
+                       hx-trigger="change"
+                       checked="@(selected ? "checked" : null)" />
+                <span class="sb-action-radio-icon" aria-hidden="true">
+                    @await Html.PartialAsync("Components/SbPolicyStack/_IntentIcons", intent)
+                </span>
+                <span class="sb-action-radio-label">@label</span>
+                <span class="sb-action-radio-explain">@explanation</span>
+            </label>
+        }
+    </div>
 
     <div data-action-editor-slot>
         @*
             Server-render the active partial so the row arrives populated;
-            HTMX swaps replace ONLY the slot contents on selector change.
+            HTMX swaps replace ONLY the slot contents on radio change.
             The dispatch mirrors PolicyActionEditorViewPaths.ForKind so the
             initial render and the swap render reach the same partial. Tag
             / Challenge / RateLimit / Throttle carry their per-kind slice

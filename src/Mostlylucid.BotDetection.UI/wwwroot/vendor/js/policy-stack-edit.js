@@ -30,13 +30,30 @@
         var validation = article.querySelector('[data-edit-validation]');
         var saveBtn = article.querySelector('[data-edit-save]');
         var acList = article.querySelector('[data-edit-autocomplete]');
-        // Task 8 -- the kind selector is the <select name="action.kind"> at the
-        // top of _EditAction.cshtml, marked with [data-action-kind-select]. The
-        // per-kind partial fieldsets carry [data-edit-action-kind="<kind>"] as
-        // a STRING (not a select value); they're the swap target, not the
-        // selector. Reading kind from the SELECT is what flows into
-        // collectActionFromForm + scheduleBacktest.
-        var actionKindSelect = article.querySelector('[data-action-kind-select]');
+        // C-UX2 -- the kind selector is now a radio-card group at the top of
+        // _EditAction.cshtml: N <input type="radio" name="action.kind">
+        // elements, each marked with [data-action-kind-select]. The per-kind
+        // partial fieldsets carry [data-edit-action-kind="<kind>"] as a STRING
+        // (not a control value); they're the swap target, not the selector.
+        // Reading the kind from the checked radio is what flows into
+        // collectActionFromForm + scheduleBacktest. The pre-radio-card era
+        // used a single <select>; the helper below normalises both shapes
+        // so the JS reads "the currently-selected kind" without caring
+        // which control type backs it.
+        var actionKindRadios = article.querySelectorAll('input[type="radio"][data-action-kind-select]');
+        function readActionKind() {
+            // Radio shape: find the checked one and read its value.
+            if (actionKindRadios.length > 0) {
+                for (var i = 0; i < actionKindRadios.length; i++) {
+                    if (actionKindRadios[i].checked) return actionKindRadios[i].value;
+                }
+                return actionKindRadios[0].value || 'observe';
+            }
+            // Legacy <select> shape (kept for safety; the radio shape is the
+            // only one shipped today): read the value directly.
+            var sel = article.querySelector('select[data-action-kind-select]');
+            return sel ? sel.value : 'observe';
+        }
         var form = article.querySelector('form');
 
         if (!expr || !chipPane || !validation || !saveBtn || !acList || !form) return;
@@ -52,25 +69,25 @@
         var ast = null;
         var lastGoodAst = null;
 
-        // Task 8 swap pattern -- when the operator changes the action kind,
-        // the <select>'s hx-get fetches /dashboard/policystack/action-editor
-        // and replaces [data-action-editor-slot]'s contents. HTMX's own
-        // change handler issues the swap; we listen too so we can re-fire
-        // the C8 backtest (the projection depends on the selected kind).
-        // No DOM toggling here -- the slot-swap replaces the per-kind
+        // C-UX2 swap pattern -- when the operator picks a different action
+        // kind, the chosen radio's hx-get fetches /dashboard/policystack/
+        // action-editor and replaces [data-action-editor-slot]'s contents.
+        // HTMX's own change handler issues the swap; we listen too so we can
+        // re-fire the C8 backtest (the projection depends on the selected
+        // kind). No DOM toggling here -- the slot-swap replaces the per-kind
         // partial in full, so the old [data-edit-action-meta] hide/show
         // pattern is gone (Task 8 asserts non-active kinds aren't in the
-        // DOM at all). The htmx:afterSwap handler at the bottom catches
-        // the actual slot replacement and re-triggers backtest from the
-        // current expr value.
-        if (actionKindSelect) {
-            actionKindSelect.addEventListener('change', function () {
+        // DOM at all). The htmx:afterSwap handler at the bottom catches the
+        // actual slot replacement and re-triggers backtest from the current
+        // expr value.
+        actionKindRadios.forEach(function (radio) {
+            radio.addEventListener('change', function () {
                 // The HTMX swap is in flight; the afterSwap handler will
                 // re-fire the backtest once the new partial is in place.
                 // We don't queue anything here because the slot's stale
                 // contents would re-render with stale kind data otherwise.
             });
-        }
+        });
 
         // Chip-control buttons (+ AND / + OR).
         article.querySelectorAll('[data-edit-chip-add]').forEach(function (btn) {
@@ -166,7 +183,7 @@
             var slot = article.querySelector('[data-edit-backtest-slot]');
             if (!slot) return;
             var currentWindow = readCurrentWindow();
-            var currentActionKind = actionKindSelect ? actionKindSelect.value : 'observe';
+            var currentActionKind = readActionKind();
             fetch('/dashboard/policystack/backtest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -544,19 +561,22 @@
         }
 
         function collectActionFromForm(article) {
-            // Task 8 -- the kind lives on the <select name="action.kind">, not
-            // on the per-kind partial's <fieldset data-edit-action-kind="...">
-            // (which carries the kind as a string attribute, not a `value`).
-            // The per-kind partials (Tasks 4-7) emit dotted form-encoded
-            // field names (action.tag.name, action.challenge.kind,
+            // C-UX2 -- the kind lives on the radio-card group at the top of
+            // _EditAction.cshtml: each <input type="radio" name="action.kind">
+            // carries [data-action-kind-select]; readActionKind() picks the
+            // checked one. The per-kind partial's
+            // <fieldset data-edit-action-kind="..."> carries the kind as a
+            // string ATTRIBUTE -- not a control value -- so we never read
+            // from that element here (Task 11 lockstep). The per-kind
+            // partials (Tasks 4-7) emit dotted form-encoded field names
+            // (action.tag.name, action.challenge.kind,
             // action.ratelimit.rate, action.throttle.rps, ...). Read each
             // by name and map to the canonical lowercase action DTO the
             // commercial mutation API consumes (Task 2 widened the DTO to
             // accept the full surface; Task 16 lands the JSONB sidecar for
             // the ratelimit fields that don't yet round-trip through the
             // discriminated-union runtime contract).
-            var kindEl = article.querySelector('[data-action-kind-select]');
-            var kind = kindEl ? kindEl.value : 'observe';
+            var kind = readActionKind();
             var out = { kind: kind };
 
             function val(name) {

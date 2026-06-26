@@ -70,14 +70,23 @@ public sealed class PipelineLoadSensorOptions
     public int MinSamplesForTrustedBaseline { get; set; } = 30;
 
     /// <summary>
-    ///     How often
-    ///     <see cref="DashboardEventStoreBackedEndpointPerfBaseline"/>
-    ///     refreshes its in-memory snapshot. Piggybacks on the existing
-    ///     <see cref="IScheduleCoordinator"/> tick cadence (matched to the
-    ///     nearest available cadence; current impl subscribes to
-    ///     <c>TickCadence.Tick1m</c>). Default 1 minute.
+    ///     Advisory interval for baseline refresh cycles. The impl in
+    ///     <c>Mostlylucid.BotDetection.UI</c> is hardwired to
+    ///     <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1m"/> (this
+    ///     property is noted for operators but does not affect the refresh rate).
+    ///     Default 1 minute.
     /// </summary>
     public TimeSpan BaselineRefreshInterval { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    ///     Maximum number of endpoint-stat rows pulled from
+    ///     <c>IDashboardEventStore.GetEndpointStatsAsync</c> on each baseline
+    ///     refresh. Default <c>int.MaxValue</c> (load every row) preserves
+    ///     historical behavior. Operators on very large endpoint catalogs can
+    ///     cap this to bound the refresh cost; the LFU-of-templates that
+    ///     results is the natural N-templates working set anyway.
+    /// </summary>
+    public int MaxEndpointStatsRows { get; set; } = int.MaxValue;
 
     // --- baseline window ---
 

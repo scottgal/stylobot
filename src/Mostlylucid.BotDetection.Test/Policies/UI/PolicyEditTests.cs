@@ -187,13 +187,21 @@ public sealed class PolicyEditTests : IAsyncDisposable
         var html = await client.GetStringAsync(
             $"/_test/policy-stack-edit?ruleId={ruleId}");
 
-        // Task 8 -- the selector is now <select name="action.kind"> (dotted
-        // form-encoding consistent with the per-kind partials), KindsForSelector
-        // feeds the <option> rows, and the seeded Block rule's <option> carries
-        // the human label, not the bare lower-case kind.
+        // C-UX2 -- the selector is now a radio-card list (each card a
+        // <label> wrapping <input type="radio" name="action.kind">). The
+        // seeded Block rule's radio carries checked="checked", and the
+        // sibling .sb-action-radio-label span carries the human label
+        // (KindsForSelector still drives the option order + labels). The
+        // dotted form-encoding ("action.kind") matches the per-kind
+        // partials unchanged from the Task 8 selector era.
         Assert.Contains("name=\"action.kind\"", html);
-        Assert.Matches(new Regex(@"<option value=""block"" selected=""selected"">Block</option>"),
+        // The checked radio for kind="block" is the load-bearing assertion:
+        // value="block" + checked="checked" on the same input element.
+        Assert.Matches(
+            new Regex(@"<input[^>]*name=""action\.kind""[^>]*value=""block""[^>]*checked=""checked"""),
             html);
+        // The card carries the human label inside .sb-action-radio-label.
+        Assert.Contains("class=\"sb-action-radio-label\">Block</span>", html);
     }
 
     [Fact]
@@ -227,33 +235,95 @@ public sealed class PolicyEditTests : IAsyncDisposable
     [Fact]
     public async Task EditRow_kind_selector_is_data_action_kind_select_not_per_kind_fieldset_marker()
     {
-        // Task 11 audit guard: policy-stack-edit.js reads the active action
-        // kind from the <select name="action.kind"> (marked
-        // [data-action-kind-select]), NOT from the per-kind partial's
-        // <fieldset data-edit-action-kind="..."> (which carries the kind as
-        // a STRING attribute, not a `value` property). The earlier 530-line
-        // module wired its actionKind.value off the wrong element; this
-        // assertion is the lockstep that prevents the same regression next
-        // time someone refactors the partial.
+        // Task 11 audit guard (updated for C-UX2): policy-stack-edit.js
+        // reads the active action kind from the radio-card group at the top
+        // of _EditAction.cshtml -- each
+        // <input type="radio" name="action.kind"> carries
+        // [data-action-kind-select], and readActionKind() picks the
+        // currently-checked one. The kind is NOT read from the per-kind
+        // partial's <fieldset data-edit-action-kind="..."> (which carries
+        // the kind as a STRING attribute, not a `value` property). The
+        // earlier 530-line module wired its actionKind.value off the wrong
+        // element; this assertion is the lockstep that prevents the same
+        // regression next time someone refactors the partial.
         var client = await BuildClientAsync();
         var ruleId = await GetEndpointRuleIdAsync();
 
         var html = await client.GetStringAsync(
             $"/_test/policy-stack-edit?ruleId={ruleId}");
 
-        // Exactly one [data-action-kind-select] in the row -- the <select>.
+        // [data-action-kind-select] appears on each radio in the group --
+        // there's one per supported kind (KindsForSelector ships 7 today).
         Assert.Contains("data-action-kind-select", html);
         // The per-kind fieldset carries [data-edit-action-kind="<kind>"] as
         // a marker, not as a control source. The seeded endpoint rule is
         // "block", so we see the block marker on the <fieldset>.
         Assert.Contains("data-edit-action-kind=\"block\"", html);
         // The two attributes MUST NOT appear on the same element -- the
-        // selector and the slot's per-kind partial are separate concerns
-        // (Task 8 separated them).
-        var selectorMatch = new Regex(@"<select[^>]*data-action-kind-select[^>]*>");
+        // selector group and the slot's per-kind partial are separate
+        // concerns (Task 8 separated them). The radios are
+        // <input type="radio" data-action-kind-select>; the fieldset is
+        // <fieldset data-edit-action-kind="...">.
+        var selectorMatch = new Regex(@"<input[^>]*type=""radio""[^>]*data-action-kind-select[^>]*>");
         Assert.Matches(selectorMatch, html);
         var fieldsetMatch = new Regex(@"<fieldset[^>]*data-edit-action-kind=""[a-z]+""[^>]*>");
         Assert.Matches(fieldsetMatch, html);
+    }
+
+    [Fact]
+    public async Task EditRow_action_radio_cards_render_one_per_kind_with_intent_and_explanation()
+    {
+        // C-UX2 contract: the action selector is a radio-card list, one card
+        // per kind in PolicyActionEditorViewPaths.KindsForSelector. Each card
+        // is a <label> wrapping the radio input + an intent stripe + the
+        // human label + the operator-facing explanation. The card carries
+        // data-action-radio-card="<kind>" so DOM-level diffing can target a
+        // specific row, and data-intent="<intent>" drives the coloured
+        // stripe + selected-state pop (same vocabulary as the rule-card
+        // intent strip).
+        //
+        // The seeded endpoint rule's action is Block, so the "block" card
+        // is the one with checked="checked". Every other kind in the
+        // catalogue still renders an unchecked card so the operator can
+        // pick it without an extra fetch.
+        var client = await BuildClientAsync();
+        var ruleId = await GetEndpointRuleIdAsync();
+
+        var html = await client.GetStringAsync(
+            $"/_test/policy-stack-edit?ruleId={ruleId}");
+
+        // The radiogroup wrapper exists and carries role="radiogroup" so
+        // keyboard arrow-key navigation works without JS.
+        Assert.Contains("class=\"sb-action-radio-list\"", html);
+        Assert.Contains("role=\"radiogroup\"", html);
+
+        // Every kind in the catalogue renders its own card with its own
+        // explanation extracted verbatim from PolicyActionEditorViewPaths.
+        // The radio carries name="action.kind" and value="<kind>"; the
+        // <label> carries data-action-radio-card="<kind>" and the intent.
+        foreach (var (kind, label, intent, explanation) in PolicyActionEditorViewPaths.KindsForSelector)
+        {
+            Assert.Contains($"data-action-radio-card=\"{kind}\"", html);
+            Assert.Contains($"data-intent=\"{intent}\"", html);
+            Assert.Contains($"value=\"{kind}\"", html);
+            Assert.Contains($">{label}</span>", html);
+            // Explanation copy is rendered verbatim into .sb-action-radio-explain.
+            // The "TBD" placeholders for challenge / ratelimit assert as-is;
+            // a follow-up that adds visible copy to those partials updates
+            // the catalogue in one place and this assertion follows.
+            // Razor's default HtmlEncoder escapes ASCII apostrophes to
+            // &#x27;; mirror that here so the assertion stays stable
+            // against the encoder's output without relying on us hand-
+            // matching every special character in the source copy.
+            var encodedExplanation = System.Net.WebUtility.HtmlEncode(explanation)
+                .Replace("&#39;", "&#x27;");
+            Assert.Contains($"class=\"sb-action-radio-explain\">{encodedExplanation}</span>", html);
+        }
+
+        // The seeded rule is Block -- exactly the block radio is checked.
+        Assert.Matches(
+            new Regex(@"<input[^>]*name=""action\.kind""[^>]*value=""block""[^>]*checked=""checked"""),
+            html);
     }
 
     [Fact]
@@ -295,7 +365,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
         // switch are two sides of the same single source of truth. If a kind
         // ever lands on one without the other this test catches it before the
         // editor silently drops a rendered <option> on the floor.
-        foreach (var (kind, _) in PolicyActionEditorViewPaths.KindsForSelector)
+        foreach (var (kind, _, _, _) in PolicyActionEditorViewPaths.KindsForSelector)
         {
             Assert.NotNull(PolicyActionEditorViewPaths.ForKind(kind));
         }
@@ -311,7 +381,7 @@ public sealed class PolicyEditTests : IAsyncDisposable
         // recognised", not "a model is built": ForKind() already proved a
         // partial exists, this proves the dispatcher accepts the kind at all.
         var emptyQuery = new Microsoft.AspNetCore.Http.QueryCollection();
-        foreach (var (kind, _) in PolicyActionEditorViewPaths.KindsForSelector)
+        foreach (var (kind, _, _, _) in PolicyActionEditorViewPaths.KindsForSelector)
         {
             // BuildActionEditorModel returns null for zero-field kinds AND for
             // unknown kinds. The lockstep contract is that for every kind in

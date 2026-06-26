@@ -64,19 +64,48 @@ internal static class PolicyActionEditorViewPaths
     ///     <see cref="ForKind"/> -- adding a kind here without adding it to
     ///     <see cref="ForKind"/> (or vice versa) is an inconsistency the
     ///     unit test catches. The selector partial enumerates this list to
-    ///     render <c>&lt;option&gt;</c> rows instead of hand-rolling a
-    ///     parallel literal (the duplication smell
-    ///     <c>feedback_no_word_lists</c> calls out).
+    ///     render the radio-card rows instead of hand-rolling a parallel
+    ///     literal (the duplication smell <c>feedback_no_word_lists</c>
+    ///     calls out).
+    ///
+    ///     <para>
+    ///     <c>Explanation</c> is the one-line operator-facing copy that
+    ///     surfaces NEXT TO the radio control in the radio-card list so the
+    ///     operator sees what they're choosing BEFORE they commit. Copy is
+    ///     EXTRACTED VERBATIM from the visible first paragraph of each
+    ///     per-kind partial -- not invented here. Two partials (challenge,
+    ///     ratelimit) have no visible operator-facing first paragraph today,
+    ///     so their explanation is "TBD" rather than fabricated; the
+    ///     follow-up that adds visible copy to those partials will swap
+    ///     the placeholder here at the same time.
+    ///     </para>
+    ///
+    ///     <para>
+    ///     <c>Intent</c> is the canonical action-pill intent name the
+    ///     <c>data-intent</c> attribute consumes on the rule card and the
+    ///     radio card alike, so the colour stripe + pill chrome stay
+    ///     visually consistent across surfaces. Both <c>ratelimit</c> and
+    ///     <c>throttle</c> map to the <c>throttle</c> intent because they
+    ///     are two shapes of the same enforcement category
+    ///     (<see cref="Mostlylucid.BotDetection.Policies.Rules.PolicyIntentKind.Throttle"/>).
+    ///     </para>
     /// </summary>
-    public static IReadOnlyList<(string Kind, string Label)> KindsForSelector { get; } = new[]
+    public static IReadOnlyList<(string Kind, string Label, string Intent, string Explanation)> KindsForSelector { get; } = new[]
     {
-        ("allow",     "Allow"),
-        ("observe",   "Observe"),
-        ("tag",       "Tag"),
-        ("challenge", "Challenge"),
-        ("ratelimit", "Rate limit"),
-        ("throttle",  "Throttle (scope-wide)"),
-        ("block",     "Block"),
+        ("allow",     "Allow",                 "allow",
+            "Matching requests pass through untouched."),
+        ("observe",   "Observe",               "observe",
+            "The rule counts matches but emits no enforcement."),
+        ("tag",       "Tag",                   "tag",
+            "Becomes the attached label on the matched request for downstream consumers."),
+        ("challenge", "Challenge",             "challenge",
+            "TBD"),
+        ("ratelimit", "Rate limit",            "throttle",
+            "TBD"),
+        ("throttle",  "Throttle (scope-wide)", "throttle",
+            "Process-wide bucket keyed by the rule's scope."),
+        ("block",     "Block",                 "block",
+            "Matching requests receive HTTP 403."),
     };
 
     /// <summary>

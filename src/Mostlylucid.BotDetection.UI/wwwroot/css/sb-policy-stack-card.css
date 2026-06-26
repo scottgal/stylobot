@@ -728,3 +728,156 @@
     align-items: center;
     gap: 10px;
 }
+
+/* ─── C-UX2: action radio-card list ───────────────────────────────
+   Replaces the bare <select name="action.kind"> in _EditAction.cshtml
+   with a visible radio-card list so an operator sees what they're
+   choosing BEFORE they commit. Each card is the click target for its
+   own radio; the whole row is the <label>, so clicking anywhere on
+   the card selects the radio. Keyboard arrow-keys walk through the
+   list naturally because the inputs are real radios in a role=radiogroup.
+
+   The data-intent attribute matches the C3/C4 rule-card vocabulary
+   (block / allow / challenge / throttle / tag / observe) so the
+   coloured stripe on the left of each card reads as a small version
+   of the rule-card intent strip and the operator's selection feels
+   visually consistent with the rule-card surface they're authoring. */
+
+.sb-action-radio-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-block-end: 12px;
+}
+
+.sb-action-radio-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    grid-template-areas:
+        "icon label   label"
+        "icon explain explain";
+    column-gap: 12px;
+    row-gap: 2px;
+    align-items: center;
+    padding: 10px 14px 10px 22px;
+    border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+    border-radius: 8px;
+    background: var(--color-base-100);
+    cursor: pointer;
+    transition: border-color 100ms ease-out, background 100ms ease-out, box-shadow 100ms ease-out;
+}
+.sb-action-radio-card:hover {
+    border-color: color-mix(in srgb, var(--color-base-content) 28%, transparent);
+    background: color-mix(in srgb, var(--color-base-200) 35%, var(--color-base-100));
+}
+
+/* Left coloured stripe — same intent vocabulary as the rule card so
+   the picker reads as "small versions of the thing I'm picking". */
+.sb-action-radio-stripe {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: color-mix(in srgb, var(--color-base-content) 14%, transparent);
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+.sb-action-radio-card[data-intent="block"]     .sb-action-radio-stripe { background: var(--color-error); }
+.sb-action-radio-card[data-intent="challenge"] .sb-action-radio-stripe { background: var(--color-warning); }
+.sb-action-radio-card[data-intent="throttle"]  .sb-action-radio-stripe { background: color-mix(in srgb, var(--color-warning) 70%, var(--color-base-100)); }
+.sb-action-radio-card[data-intent="allow"]     .sb-action-radio-stripe { background: var(--color-success); }
+.sb-action-radio-card[data-intent="tag"]       .sb-action-radio-stripe { background: color-mix(in srgb, var(--color-base-content) 40%, transparent); }
+.sb-action-radio-card[data-intent="observe"]   .sb-action-radio-stripe { background: var(--color-info); }
+
+/* The actual radio is visually hidden but stays focusable so arrow-key
+   navigation across the radiogroup still works. Hiding via opacity/size
+   rather than display:none keeps it part of the focus order. */
+.sb-action-radio-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    margin: 0;
+}
+
+.sb-action-radio-icon {
+    grid-area: icon;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+}
+.sb-action-radio-icon .sb-action-pill-icon {
+    width: 18px;
+    height: 18px;
+}
+
+.sb-action-radio-label {
+    grid-area: label;
+    font: 600 0.8125rem/1.2 ui-sans-serif, system-ui;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-base-content);
+}
+
+.sb-action-radio-explain {
+    grid-area: explain;
+    font: 400 0.8125rem/1.4 ui-sans-serif, system-ui;
+    color: color-mix(in srgb, var(--color-base-content) 65%, transparent);
+}
+
+/* Selected-state pop — the card carries the intent colour in its
+   border + a soft tinted background so the operator's choice is
+   visible at a glance. The icon picks up the same intent colour so
+   the head row reads as a single coloured token. */
+.sb-action-radio-card:has(.sb-action-radio-input:checked) {
+    border-color: color-mix(in srgb, var(--color-base-content) 35%, transparent);
+    background: color-mix(in srgb, var(--color-base-200) 60%, var(--color-base-100));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-base-content) 22%, transparent);
+}
+.sb-action-radio-card[data-intent="block"]:has(.sb-action-radio-input:checked) {
+    border-color: var(--color-error);
+    background: color-mix(in srgb, var(--color-error) 8%, var(--color-base-100));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-error) 35%, transparent);
+}
+.sb-action-radio-card[data-intent="block"]:has(.sb-action-radio-input:checked) .sb-action-radio-icon { color: var(--color-error); }
+.sb-action-radio-card[data-intent="challenge"]:has(.sb-action-radio-input:checked) {
+    border-color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 9%, var(--color-base-100));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 35%, transparent);
+}
+.sb-action-radio-card[data-intent="challenge"]:has(.sb-action-radio-input:checked) .sb-action-radio-icon { color: var(--color-warning); }
+.sb-action-radio-card[data-intent="throttle"]:has(.sb-action-radio-input:checked) {
+    border-color: color-mix(in srgb, var(--color-warning) 75%, var(--color-base-100));
+    background: color-mix(in srgb, var(--color-warning) 7%, var(--color-base-100));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 30%, transparent);
+}
+.sb-action-radio-card[data-intent="throttle"]:has(.sb-action-radio-input:checked) .sb-action-radio-icon { color: color-mix(in srgb, var(--color-warning) 80%, var(--color-base-content)); }
+.sb-action-radio-card[data-intent="allow"]:has(.sb-action-radio-input:checked) {
+    border-color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 8%, var(--color-base-100));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-success) 35%, transparent);
+}
+.sb-action-radio-card[data-intent="allow"]:has(.sb-action-radio-input:checked) .sb-action-radio-icon { color: var(--color-success); }
+.sb-action-radio-card[data-intent="observe"]:has(.sb-action-radio-input:checked) {
+    border-color: var(--color-info);
+    background: color-mix(in srgb, var(--color-info) 8%, var(--color-base-100));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-info) 35%, transparent);
+}
+.sb-action-radio-card[data-intent="observe"]:has(.sb-action-radio-input:checked) .sb-action-radio-icon { color: var(--color-info); }
+.sb-action-radio-card[data-intent="tag"]:has(.sb-action-radio-input:checked) {
+    border-color: color-mix(in srgb, var(--color-base-content) 45%, transparent);
+    background: color-mix(in srgb, var(--color-base-content) 5%, var(--color-base-100));
+}
+.sb-action-radio-card[data-intent="tag"]:has(.sb-action-radio-input:checked) .sb-action-radio-icon { color: color-mix(in srgb, var(--color-base-content) 75%, transparent); }
+
+/* Focus-visible ring on the card when the hidden radio takes focus via
+   keyboard navigation. Matches the visual weight of the selected-state
+   ring above so keyboard + pointer users get equivalent feedback. */
+.sb-action-radio-card:focus-within {
+    outline: 2px solid color-mix(in srgb, var(--color-primary) 65%, transparent);
+    outline-offset: 1px;
+}

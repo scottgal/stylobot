@@ -9,9 +9,8 @@ namespace Mostlylucid.BotDetection.UI.Services;
 
 /// <summary>
 ///     Read-through baseline cache backed by the FOSS dashboard event store.
-///     On each <see cref="TickCadence.Tick1m"/> (or whatever cadence
-///     <see cref="PipelineLoadSensorOptions.BaselineRefreshInterval"/>
-///     translates to), pulls per-(method, path) stats from
+///     On each <see cref="TickCadence.Tick1m"/> tick from
+///     <c>IScheduleCoordinator</c>, pulls per-(method, path) stats from
 ///     <see cref="IDashboardEventStore.GetEndpointStatsAsync"/>, groups by
 ///     <c>(method, PathNormalizer.Normalize(path))</c>, computes a per-template
 ///     count-weighted p95 plus total sample count, and atomically swaps the
@@ -76,7 +75,7 @@ internal sealed class DashboardEventStoreBackedEndpointPerfBaseline : IEndpointP
     {
         try
         {
-            var stats = await _store.GetEndpointStatsAsync(count: int.MaxValue);
+            var stats = await _store.GetEndpointStatsAsync(count: _options.MaxEndpointStatsRows);
             var grouped = new Dictionary<(string, string), (double WeightedP95Sum, long TotalCount)>();
             foreach (var s in stats)
             {

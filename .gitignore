@@ -494,3 +494,4 @@ docs/legacy/
 
 # Runtime signature snapshots written by the Console binary on each run
 signatures-*.jsonl
+/.superpowers/sdd/*
