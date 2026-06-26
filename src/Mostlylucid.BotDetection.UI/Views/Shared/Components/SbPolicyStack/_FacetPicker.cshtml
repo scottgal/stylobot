@@ -55,12 +55,12 @@
                     {
                         foreach (var op in entry.Ops)
                         {
-                            <option value="@op" selected="@(op == row.Op)">@OpDisplay(op)</option>
+                            <option value="@op" title="@OpExplain(op)" selected="@(op == row.Op)">@OpDisplay(op)</option>
                         }
                     }
                     else
                     {
-                        <option value="@row.Op" selected>@OpDisplay(row.Op)</option>
+                        <option value="@row.Op" title="@OpExplain(row.Op)" selected>@OpDisplay(row.Op)</option>
                     }
                 </select>
 
@@ -103,6 +103,10 @@
 
                 <button type="button" class="sb-facet-picker-remove"
                         data-remove-row aria-label="Remove" disabled>×</button>
+                @if (entry is not null && !string.IsNullOrWhiteSpace(entry.Help))
+                {
+                    <p class="sb-facet-picker-help">@entry.Help</p>
+                }
             </div>
         }
     }
@@ -131,6 +135,26 @@
         "contains" => "contains",
         "any_in"   => "any of",
         "all_in"   => "all of",
+        _          => op,
+    };
+
+    /// <summary>Plain-English explanation surfaced via the option title=
+    /// attribute so an operator can hover an op without committing.</summary>
+    static string OpExplain(string op) => op switch
+    {
+        "eq"       => "Equal to",
+        "neq"      => "Not equal to",
+        "gte"      => "Greater than or equal to",
+        "gt"       => "Greater than",
+        "lte"      => "Less than or equal to",
+        "lt"       => "Less than",
+        "in"       => "Matches any value in the list",
+        "not_in"   => "Matches none of the values in the list",
+        "between"  => "Between two bounds (inclusive)",
+        "matches"  => "Glob pattern match (* = one segment, ** = any depth)",
+        "contains" => "String contains the value",
+        "any_in"   => "Any of the listed values match",
+        "all_in"   => "All of the listed values must match",
         _          => op,
     };
 }

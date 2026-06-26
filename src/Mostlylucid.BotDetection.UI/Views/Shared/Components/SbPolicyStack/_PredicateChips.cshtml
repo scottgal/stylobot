@@ -3,7 +3,7 @@
 @inject FacetPillRenderer FacetRenderer
 @model IReadOnlyList<PolicyStackChipViewModel>
 <div class="predicate-chips sb-policy-card-chips" data-chips="@Model.Count">
-    <span class="kw kw-when" aria-hidden="true">WHEN</span>
+    <span class="kw kw-if" aria-hidden="true">IF</span>
     @for (var i = 0; i < Model.Count; i++)
     {
         var chip = Model[i];

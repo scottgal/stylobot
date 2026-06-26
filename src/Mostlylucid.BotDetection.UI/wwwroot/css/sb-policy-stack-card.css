@@ -429,6 +429,14 @@
     color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
     white-space: nowrap;
 }
+.sb-facet-picker-help {
+    grid-column: 1 / -1;
+    margin: 0.125rem 0 0 0;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+    font-style: italic;
+}
 .sb-facet-picker-remove {
     background: transparent;
     color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
