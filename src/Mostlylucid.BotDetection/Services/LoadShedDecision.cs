@@ -13,24 +13,6 @@ public interface ILoadBandSource
 }
 
 /// <summary>
-///     A cheap hint about whether the current request looks human or bot,
-///     supplied by the caller from the per-signature verdict cache. Lets the
-///     shed decision protect known humans under High load instead of shedding
-///     them uniformly. Cold-cache (no prior verdict for this signature) is
-///     <see cref="Unknown"/> - random shed applies.
-/// </summary>
-[Obsolete("Replaced by VisitorClass in Task 7")]
-public enum ShedHint
-{
-    /// <summary>No prior verdict on file for this request signature.</summary>
-    Unknown,
-    /// <summary>Verdict cache says this signature was last classified human.</summary>
-    LikelyHuman,
-    /// <summary>Verdict cache says this signature was last classified bot.</summary>
-    LikelyBot
-}
-
-/// <summary>
 ///     Visitor-class-aware shed decision. Resolves the per-band, per-class
 ///     shed fraction from <see cref="LoadShedOptions"/> and rolls a
 ///     deterministic bucket from the request seed.
@@ -82,20 +64,4 @@ public sealed class LoadShedDecision
         return DeterministicBucket.ShouldFire(requestSeed, fraction);
     }
 
-    /// <summary>
-    ///     Legacy overload for backward compatibility with Task 8 middleware.
-    ///     Maps ShedHint to VisitorClass before calling the new ShouldShed.
-    ///     Task 8 will remove this and update all call sites directly.
-    /// </summary>
-    [Obsolete("Use ShouldShed(VisitorClass, LoadShedOptions, int) instead. Task 8 will remove this.")]
-    public bool ShouldShed(LoadShedOptions options, int requestSeed, ShedHint hint = ShedHint.Unknown)
-    {
-        var visitorClass = hint switch
-        {
-            ShedHint.LikelyHuman => VisitorClass.Human,
-            ShedHint.LikelyBot => VisitorClass.Bot,
-            _ => VisitorClass.Unknown,
-        };
-        return ShouldShed(visitorClass, options, requestSeed);
-    }
 }

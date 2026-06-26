@@ -1284,6 +1284,14 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<Services.ILoadBandSource>(sp => sp.GetRequiredService<Services.PipelineLoadSensor>());
         services.AddSingleton<Services.LoadShedDecision>();
+        // Per-endpoint perf baseline for the load-shed hot path.
+        // TryAdd NullEndpointPerfBaseline as the default so hosts without
+        // an IDashboardEventStore boot; deployments that DO register the
+        // store can call AddDashboardEndpointPerfBaseline() to replace it
+        // with the DashboardEventStore-backed impl. Per the
+        // remote-mode-optional-DI rule, the middleware tolerates either.
+        Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions
+            .TryAddSingleton<Services.IEndpointPerfBaseline, Services.NullEndpointPerfBaseline>(services);
         // Pumps the sensor's live state into the per-request signal vocabulary
         // (pressure.band, pressure.detection_latency_ratio, ...) so policy rule
         // predicates can react to system pressure without a metrics round-trip.

@@ -19,6 +19,7 @@ using Mostlylucid.BotDetection.Policies.Dispatch;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Licensing;
+using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
@@ -60,7 +61,8 @@ public class BotDetectionMiddleware(
     LoadShedDecision? loadShedDecision = null,
     Services.SignatureVerdictGate? verdictGate = null,
     Services.VarianceWatchdog? watchdog = null,
-    PolicyActionDispatcher? policyDispatcher = null)
+    PolicyActionDispatcher? policyDispatcher = null,
+    Services.IEndpointPerfBaseline? endpointPerfBaseline = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -120,6 +122,10 @@ public class BotDetectionMiddleware(
     // on every request. Hosts that didn't AddPolicyDispatcher get null and
     // the dispatch block falls through unchanged.
     private readonly PolicyActionDispatcher? _policyDispatcher = policyDispatcher;
+    // Per-endpoint p95 baseline for the load-shed upstream-deviation ratio.
+    // Nullable: hosts without IDashboardEventStore get NullEndpointPerfBaseline
+    // via DI (returns 0), and the OnCompleted hook falls back to ratio 1.0.
+    private readonly Services.IEndpointPerfBaseline? _endpointPerfBaseline = endpointPerfBaseline;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -166,11 +172,32 @@ public class BotDetectionMiddleware(
             {
                 var detectionMs = (context.Items[AggregatedEvidenceKey] as AggregatedEvidence)?.TotalProcessingTimeMs ?? 0.0;
                 if (detectionMs > 0) _loadSensor.RecordDetectionLatency(detectionMs);
-                // IEndpointPerfBaseline lookup is wired by a later task; pass 1.0
-                // (neutral / on-baseline) until per-endpoint baselines exist.
-                // When the baseline store is available the call site will compute
-                // actualUpstreamMs / expectedMs and pass that ratio instead.
-                _loadSensor.RecordUpstreamDeviation(1.0);
+
+                var upstreamMs = latencyMs - detectionMs;
+                if (upstreamMs > 0)
+                {
+                    // Per-endpoint deviation: ratio = actualUpstreamMs / endpointP95.
+                    // Unknown endpoints (no baseline) contribute neutral 1.0 so they
+                    // cannot trip pressure on their own. Per-endpoint baseline is
+                    // optional DI (NullEndpointPerfBaseline default), so this is
+                    // safe on hosts that have no DashboardEventStore.
+                    double ratio = 1.0;
+                    try
+                    {
+                        var expected = _endpointPerfBaseline?.GetExpectedMs(
+                            context.Request.Method,
+                            PathNormalizer.Normalize(requestPath)) ?? 0.0;
+                        if (expected > 0) ratio = upstreamMs / expected;
+                    }
+                    catch
+                    {
+                        // Defensive: a baseline impl that throws falls back to
+                        // ratio 1.0 (no contribution). The other sensor axes
+                        // continue to drive the band.
+                        ratio = 1.0;
+                    }
+                    _loadSensor.RecordUpstreamDeviation(ratio);
+                }
             }
             return Task.CompletedTask;
         });
@@ -695,9 +722,9 @@ public class BotDetectionMiddleware(
                 ?? 0;
             // Cheap verdict-cache peek so the shed protects known humans and
             // preferentially drops known bots. At Critical the LoadShedDecision
-            // ignores the hint (lookup itself too expensive at peak pressure).
-            var shedHint = ResolveShedHint(context);
-            if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed, shedHint))
+            // uses the full VisitorClass fraction table regardless.
+            var visitorClass = ResolveVisitorClass(context, policy.LoadShed);
+            if (_loadShedDecision.ShouldShed(visitorClass, policy.LoadShed, loadShedSeed))
             {
                 // Mark the request as shed so the OnCompleted hook skips it
                 // for sensor sampling (artificial-low-latency feedback loop).
@@ -1487,27 +1514,25 @@ public class BotDetectionMiddleware(
     #region Policy Resolution
 
     /// <summary>
-    ///     Cheap verdict hint for the adaptive load-shed gate. The verdict gate
-    ///     (Bias path) has already stashed the cached prior probability on
-    ///     <c>context.Items[SignalKeys.FingerprintPriorProbability]</c>, so this
-    ///     is a dictionary lookup -- no lock, no allocation. Returns
-    ///     <see cref="Services.ShedHint.LikelyHuman"/> when the prior says human,
-    ///     <see cref="Services.ShedHint.LikelyBot"/> when it says bot,
-    ///     <see cref="Services.ShedHint.Unknown"/> on cold cache or borderline.
-    ///     At Critical band this isn't called -- the LoadShedDecision ignores
-    ///     the hint because the lookup itself is too expensive at peak pressure.
+    ///     Resolve the visitor class for the shed decision from the cached
+    ///     prior verdict stashed in <c>HttpContext.Items</c>. Reads the
+    ///     prior probability and confidence under
+    ///     <see cref="SignalKeys.FingerprintPriorProbability"/> and
+    ///     <see cref="SignalKeys.FingerprintPriorConfidence"/>, runs them
+    ///     through <see cref="ClassGateResolver.Resolve"/> against the
+    ///     policy's <see cref="LoadShedOptions.HumanGate"/> /
+    ///     <see cref="LoadShedOptions.BotGate"/>. Cold cache returns
+    ///     <see cref="VisitorClass.Unknown"/>.
     /// </summary>
-    private static Services.ShedHint ResolveShedHint(HttpContext context)
+    private static VisitorClass ResolveVisitorClass(HttpContext context, LoadShedOptions options)
     {
-        if (!context.Items.TryGetValue(SignalKeys.FingerprintPriorProbability, out var probObj)
-            || probObj is not double prob)
-            return Services.ShedHint.Unknown;
-        // Conservative thresholds: only protect / preferentially-shed when the
-        // verdict is fairly definite. Borderline (0.3-0.7) requests stay in
-        // the random pool.
-        if (prob <= 0.3) return Services.ShedHint.LikelyHuman;
-        if (prob >= 0.7) return Services.ShedHint.LikelyBot;
-        return Services.ShedHint.Unknown;
+        double? prob = context.Items.TryGetValue(SignalKeys.FingerprintPriorProbability, out var p) && p is double pd
+            ? pd
+            : null;
+        double? conf = context.Items.TryGetValue(SignalKeys.FingerprintPriorConfidence, out var c) && c is double cd
+            ? cd
+            : null;
+        return ClassGateResolver.Resolve(prob, conf, options.HumanGate, options.BotGate);
     }
 
     private DetectionPolicy ResolvePolicy(
@@ -2157,7 +2182,8 @@ public class BotDetectionMiddleware(
                 var loadShedSeed = context.Connection?.Id?.GetHashCode()
                     ?? context.Request.Path.Value?.GetHashCode()
                     ?? 0;
-                if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
+                var visitorClass2 = ResolveVisitorClass(context, policy.LoadShed);
+                if (_loadShedDecision.ShouldShed(visitorClass2, policy.LoadShed, loadShedSeed))
                 {
                     context.Response.Headers["X-StyloBot-Shed"] = "1";
                     _logger.LogInformation("Load-shed: skipping detection for {Path}", context.Request.Path);

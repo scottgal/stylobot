@@ -1056,4 +1056,21 @@ public static class StyloBotDashboardServiceExtensions
 
         return app;
     }
+
+    /// <summary>
+    ///     Replace the default <see cref="Mostlylucid.BotDetection.Services.NullEndpointPerfBaseline"/>
+    ///     with the <see cref="Mostlylucid.BotDetection.UI.Services.DashboardEventStoreBackedEndpointPerfBaseline"/>
+    ///     that reads per-(method, normalized-template) p95 from
+    ///     <see cref="Mostlylucid.BotDetection.UI.Services.IDashboardEventStore"/>. Call this from the
+    ///     gateway / dashboard-host bootstrap AFTER
+    ///     <c>AddBotDetectionDashboard()</c> so the store is registered first.
+    /// </summary>
+    public static IServiceCollection AddDashboardEndpointPerfBaseline(this IServiceCollection services)
+    {
+        Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions
+            .RemoveAll<Mostlylucid.BotDetection.Services.IEndpointPerfBaseline>(services);
+        services.AddSingleton<Mostlylucid.BotDetection.Services.IEndpointPerfBaseline,
+            Mostlylucid.BotDetection.UI.Services.DashboardEventStoreBackedEndpointPerfBaseline>();
+        return services;
+    }
 }

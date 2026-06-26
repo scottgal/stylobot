@@ -26,12 +26,14 @@ public class BotDetectionMiddlewareFailureTests
         var alwaysShedPolicy = new DetectionPolicy
         {
             Name = "shed-all",
-            LoadShed = new LoadShedOptions { DropFractionAtCritical = 1.0 }
+            LoadShed = new LoadShedOptions { BotShedAtCritical = 1.0 }
         };
-        Assert.True(decision.ShouldShed(alwaysShedPolicy.LoadShed, requestSeed: 42));
+        // Bot class + BotShedAtCritical=1.0 at Critical band: always shed.
+        Assert.True(decision.ShouldShed(VisitorClass.Bot, alwaysShedPolicy.LoadShed, requestSeed: 42));
 
         var neverShedPolicy = new DetectionPolicy { Name = "default" };
-        Assert.False(decision.ShouldShed(neverShedPolicy.LoadShed, requestSeed: 42));
+        // Human class + HumanShedAtCritical=0.0 (default): never shed.
+        Assert.False(decision.ShouldShed(VisitorClass.Human, neverShedPolicy.LoadShed, requestSeed: 42));
     }
 
     [Fact]
