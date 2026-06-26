@@ -435,6 +435,13 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<PolicyStackHitAtom>();
         services.AddHostedService<PolicyStackHitAtomTickHook>();
 
+        // Derives a 4-level posture (Permissive / Balanced / Strict / Lockdown)
+        // from the live rule set + a PolicyStackHitSnapshot from the atom above,
+        // plus a single suggestion arm. Pure compute; no DB, no per-request work.
+        services.AddOptions<Mostlylucid.BotDetection.UI.Options.PostureClassifierOptions>()
+            .BindConfiguration("BotDetection:Policies:Posture");
+        services.TryAddSingleton<PolicyStackPostureClassifier>();
+
         // Static detection-side data the dashboard renders need. Registered as
         // TryAddSingleton so that hosts which also call AddBotDetection get
         // those richer registrations instead. Pure dashboard-viewer hosts
