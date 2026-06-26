@@ -56,20 +56,24 @@ public class DeterministicBotNameTests
     // ─── Priority 2: archetype name + variance ─────────────────────────
 
     [Fact]
-    public async Task ArchetypeName_UsedAsBase_WhenPresent()
+    public async Task ArchetypeName_IsIgnored_ProjectionUsesObservedSignalsOnly()
     {
+        // 2026-06-26 contract: inferred archetype labels are NEVER name inputs.
+        // The name is a projection from directly-observed signals only.
         var signals = new Dictionary<string, object?>
         {
             ["identity.archetype_name"] = "Chrome on Windows",
             ["identity.archetype_kind"] = "human-browser",
             ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "Windows",
             ["geo.country_code"] = "US"
         };
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
         Assert.NotNull(name);
-        Assert.StartsWith("Chrome on Windows", name);
+        Assert.StartsWith("Chrome Windows", name);
+        Assert.DoesNotContain("on Windows", name);
         Assert.DoesNotContain("Automated", name);
         Assert.DoesNotContain("Bot", name);
     }
@@ -84,17 +88,18 @@ public class DeterministicBotNameTests
     [Fact]
     public async Task ArchetypeName_NoDriftSignal_NoVarianceParenthetical()
     {
+        // 2026-06-26 contract: archetype ignored; no parenthetical drift labels.
         var signals = new Dictionary<string, object?>
         {
             ["identity.archetype_name"] = "Chrome on Windows",
-            ["identity.archetype_kind"] = "human-browser"
+            ["identity.archetype_kind"] = "human-browser",
+            ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "Windows"
         };
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.StartsWith("Chrome on Windows", name);
-        // Unique() may still append "(country:sigprefix)" when geo/sig are present; assert no
-        // drift label by checking specific labels rather than parenthesis presence.
+        Assert.StartsWith("Chrome Windows", name);
         Assert.DoesNotContain("from ", name);
         Assert.DoesNotContain("tooled", name);
         Assert.DoesNotContain("drifted", name);

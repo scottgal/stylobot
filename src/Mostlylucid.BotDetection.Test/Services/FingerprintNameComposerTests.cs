@@ -23,8 +23,11 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_Priority2_ArchetypeName_BeatsFamily()
+    public void Compose_ArchetypeName_DoesNotEnterName()
     {
+        // Per the 2026-06-26 contract restore: archetype names are inferred labels
+        // and belong to the drift-badge column, NEVER the name. The name is a
+        // projection from directly-observed signals only.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["identity.archetype_name"] = "Chrome Desktop",
@@ -32,38 +35,43 @@ public class FingerprintNameComposerTests
             ["ua.family"] = "Chrome"
         });
 
-        Assert.StartsWith("Chrome Desktop", name);
+        Assert.DoesNotContain("Desktop", name ?? string.Empty);
+        Assert.Equal("Chrome", name);
     }
 
     [Fact]
-    public void Compose_Priority2_HumanAdblockerArchetype_NamesTheVisitor()
+    public void Compose_AdblockerArchetype_DoesNotEnterName_ButObservedModifierDoes()
     {
-        // Adblockers are first-class human-positive identities in this system,
-        // so the composer must treat human-adblocker the same way it treats
-        // human-browser -- the matched archetype name (uBlock Origin, AdGuard,
-        // generic-adblocker) wins the visitor's display name. Without this,
-        // a real Chrome + uBlock Origin visitor would render as plain "Chrome"
-        // and the entire reason for adding the adblocker roots disappears
-        // (the basin exists but never produces a visible name).
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        // Inferred adblocker archetype is OUT (it's a centroid match, not an
+        // observed signal). The "+ uBlock" only appears when the directly-observed
+        // presentation.has_ublock signal is true -- that's the architectural
+        // distinction: observed vs inferred.
+        var nameNoSignal = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["identity.archetype_name"] = "uBlock Origin",
             ["identity.archetype_kind"] = "human-adblocker",
             ["ua.family"] = "Chrome"
         });
+        Assert.DoesNotContain("uBlock", nameNoSignal ?? string.Empty);
+        Assert.Equal("Chrome", nameNoSignal);
 
-        Assert.StartsWith("uBlock Origin", name);
+        var nameWithObservedSignal = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["identity.archetype_name"] = "uBlock Origin",
+            ["identity.archetype_kind"] = "human-adblocker",
+            ["ua.family"] = "Chrome",
+            ["presentation.has_ublock"] = true,
+        });
+        Assert.Contains("+ uBlock", nameWithObservedSignal ?? string.Empty);
     }
 
     [Fact]
-    public void Compose_Priority2_BotArchetypeKind_DoesNotName_WhenUaIsNotBot()
+    public void Compose_BotArchetypeKind_DoesNotName_WhenUaIsNotBot()
     {
-        // Naming invariant: a visitor whose UA is a real browser (Priority 1 -- ua.bot_name --
-        // did NOT fire) must never be labelled with a bot-shaped archetype name even when the
-        // matcher's nearest centroid happens to be a verified-bot family. The bug this guards
-        // against: a UK Chrome visitor whose header pattern partially overlaps the Mastodon
-        // Family centroid was rendered as "Mastodon Family (header drift)" + Human verdict,
-        // which is an impossible combination.
+        // Per the 2026-06-26 contract restore: rich projection (family + os) for
+        // a real Chrome visitor that grazes a bot-shaped archetype centroid.
+        // The archetype is IGNORED; the name reflects what the fingerprint
+        // actually looks like.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["identity.archetype_name"] = "Mastodon Family",
@@ -73,9 +81,7 @@ public class FingerprintNameComposerTests
         });
 
         Assert.DoesNotContain("Mastodon", name ?? string.Empty);
-        // Priority 3 (T5, 2026-06-22): returns the plain UA family. OS prefix lives on
-        // the dashboard detail surface, not the name.
-        Assert.Equal("Chrome", name);
+        Assert.Equal("Chrome Mac OS X", name);
     }
 
     [Fact]
@@ -93,7 +99,7 @@ public class FingerprintNameComposerTests
         });
 
         Assert.DoesNotContain("python", name ?? string.Empty);
-        Assert.Equal("Firefox", name);
+        Assert.Equal("Firefox Linux", name);
     }
 
     [Fact]
@@ -114,12 +120,11 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_Priority3_ReturnsPlainFamily()
+    public void Compose_Priority3_ProjectsFamilyAndOs()
     {
-        // T5 (2026-06-22): Priority 3 returns the UA family unchanged. No OS prefix,
-        // no version, no archetype suffix, no distinguisher -- those live on the
-        // signature detail / drift surfaces. The display-name contract pins the
-        // three allowed shapes (bot name | browser family | Unknown <hex>).
+        // 2026-06-26 contract restore: Priority 3 projects family + os (+ version,
+        // os_version, observed modifiers when present). Geo / archetype / signature
+        // signals never enter the name.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Firefox",
@@ -127,7 +132,7 @@ public class FingerprintNameComposerTests
             ["geo.country_code"] = "GB"
         });
 
-        Assert.Equal("Firefox", name);
+        Assert.Equal("Firefox Linux", name);
     }
 
     [Fact]
@@ -174,11 +179,8 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_DoesNotLeakSigPrefixOrColonForm_IntoName()
     {
-        // T5 (2026-06-22): Priority 3 now returns the plain UA family. The historic
-        // status-as-name worry ("(US:abcd)") is structurally impossible -- no code
-        // path here ever assembles those tokens. This test pins the absence of
-        // signature-hash and colon-form leakage even when those fields exist in
-        // the signal dict.
+        // 2026-06-26 contract: name projects from observed family + os only; geo
+        // and signature signals never leak in regardless of what's in the dict.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
@@ -187,7 +189,7 @@ public class FingerprintNameComposerTests
             ["signature.primary"] = "abcd1234efgh5678"
         });
 
-        Assert.Equal("Chrome", name);
+        Assert.Equal("Chrome Windows", name);
     }
 
     [Fact]
@@ -286,13 +288,12 @@ public class FingerprintNameComposerTests
     public void Compose_Hysteresis_FreshWins_WhenItIsNotFallback()
     {
         // Fresh has real signals - we upgrade past the previous "analysing".
-        // T5 (2026-06-22): Priority 3 returns the plain UA family; the OS slot is
-        // no longer part of the name.
+        // 2026-06-26: Priority 3 projects family + os.
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object> { ["ua.family"] = "Chrome", ["user_agent.os"] = "Windows" },
             previousName: "analysing");
 
-        Assert.Equal("Chrome", name);
+        Assert.Equal("Chrome Windows", name);
     }
 
     [Fact]
@@ -349,17 +350,16 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_PrefersFamily_OverUaPrefixFallback()
     {
-        // Priority 3 (plain UA family, T5 2026-06-22) must still beat the defensive
-        // Unknown <hex> terminal. The presence of a raw UA string with a banned shape
-        // ("Mozilla/5.0 ...") must not leak into the name -- the family signal is the
-        // load-bearing source for the priority-3 output.
+        // Priority 3 (rich projection per 2026-06-26 contract) must still beat
+        // the defensive Unknown <hex> terminal. The raw UA's "Mozilla/5.0 ..."
+        // prefix must not leak in -- the family + os signals own the result.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
             ["user_agent.os"] = "Windows",
             ["ua.raw"] = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36"
         });
-        Assert.Equal("Chrome", name);
+        Assert.Equal("Chrome Windows 10", name);
     }
 
     [Fact]
@@ -453,8 +453,7 @@ public class FingerprintNameComposerTests
     {
         // Regression: real Chrome with privacy headers must not be mis-claimed. The
         // catalog won't match anything in the UA, so P1 returns null and we fall to
-        // P3 (plain UA family per T5 2026-06-22). The result is the expected browser
-        // label, NOT a wrong catalog hit. OS lives on the dashboard detail surface.
+        // P3 (rich projection per 2026-06-26 contract).
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.raw"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -462,7 +461,8 @@ public class FingerprintNameComposerTests
             ["user_agent.os"] = "macOS",
         });
 
-        Assert.Equal("Chrome", name);
+        Assert.StartsWith("Chrome", name);
+        Assert.Contains("macOS", name);
     }
 
     [Fact]
@@ -514,7 +514,7 @@ public class FingerprintNameComposerTests
     public void Compose_ClaimFirst_UnknownUa_FallsThroughToP3()
     {
         // The catalog has no entry for a totally novel UA. We must NOT invent a P1 claim.
-        // P3 takes over, returning the plain UA family (T5 2026-06-22).
+        // P3 takes over with rich projection (2026-06-26 contract).
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.raw"] = "MyCustomScanner/1.0",
@@ -522,7 +522,7 @@ public class FingerprintNameComposerTests
             ["user_agent.os"] = "Linux",
         });
 
-        Assert.Equal("Firefox", name);
+        Assert.Equal("Firefox Linux", name);
     }
 
     [Fact]
@@ -559,6 +559,58 @@ public class FingerprintNameComposerTests
 
         Assert.NotNull(name);
         Assert.Equal("Mastodon mas.to", name);
+    }
+
+    // ----- 2026-06-26 contract restore tests --------------------------------------------
+
+    [Fact]
+    public void Compose_Projection_AppendsVersion_WhenFamilyVersionSignalPresent()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.family"] = "Chrome",
+            ["ua.family_version"] = "149.0.0",
+            ["user_agent.os"] = "macOS",
+        });
+        Assert.Equal("Chrome 149.0.0 macOS", name);
+    }
+
+    [Fact]
+    public void Compose_Projection_AppendsObservedUblockModifier()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "macOS",
+            ["presentation.has_ublock"] = true,
+        });
+        Assert.Equal("Chrome macOS + uBlock", name);
+    }
+
+    [Fact]
+    public void Compose_Projection_AppendsMultipleObservedModifiers()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.family"] = "Firefox",
+            ["user_agent.os"] = "Linux",
+            ["presentation.has_ublock"] = true,
+            ["transport.is_tor"] = true,
+        });
+        Assert.Equal("Firefox Linux + uBlock + Tor", name);
+    }
+
+    [Fact]
+    public void Compose_Projection_OmitsModifiers_WhenSignalsAreFalse()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.family"] = "Chrome",
+            ["user_agent.os"] = "Windows",
+            ["presentation.has_ublock"] = false,
+            ["transport.is_tor"] = false,
+        });
+        Assert.Equal("Chrome Windows", name);
     }
 
 }

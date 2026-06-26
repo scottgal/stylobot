@@ -172,60 +172,59 @@ internal static class FingerprintNameComposer
         // ledger.BotProbability + IdentityArchetypeName/Kind) and is the right
         // place for the verdict-honest rewrite.
 
-        // Priority 2: matched archetype name + variance term -- but ONLY when the matched
-        // archetype is human-browser-shaped. Naming invariant: if Priority 1 didn't fire,
-        // the UA is not a self-declared bot. Matching a bot-shaped archetype (verified-bot
-        // / tool / headless / anything not human-browser) in that case is a fingerprint
-        // coincidence -- typically header drift on a real browser that happens to overlap
-        // a bot family's centroid. Naming a real visitor "Mastodon Family (header drift)"
-        // or "Googlebot (header drift)" is exactly the false labelling we forbid. Bot-shaped
-        // archetypes fall through to Priority 3 (UA family + OS) which produces the right
-        // label for the actual UA. Self-declared bot UAs are already handled at Priority 1.
-        var archetypeName = GetString(signals, SignalKeys.IdentityArchetypeName);
-        var archetypeKind = GetString(signals, SignalKeys.IdentityArchetypeKind);
-        // human-browser AND human-adblocker are both "real human" kinds for
-        // naming purposes -- the adblocker variant is the system's first-class
-        // human-positive signal, so a fingerprint that lands on a uBlock
-        // Origin / AdGuard / generic-adblocker root must surface that name
-        // as the display name instead of falling through to plain UA family.
-        if (!string.IsNullOrEmpty(archetypeName)
-            && (archetypeKind == "human-browser" || archetypeKind == "human-adblocker"))
-        {
-            return archetypeName;
-        }
-
-        // Priority 3: UA family + OS characterization. Reads the signals first; falls back
-        // to parsing the raw UA string when signals are absent. Two sources of the raw UA:
-        // the explicit userAgent parameter (matcher's hot path passes it) AND signals[ua.raw]
-        // (UserAgentContributor writes it on every request). Either one is enough to
-        // self-rescue Priority 3 when ua.family / user_agent.os signals haven't been
-        // written yet -- matcher Priority 6 runs before UserAgentContributor Priority 10,
-        // so signals[ua.family] is missing on the matcher's first call but signals[ua.raw]
-        // is populated by the time BuildEvidenceFromLedger calls ResolveDisplayName.
-        // Reading signals[ua.raw] here closes the gap that left "Chrome on macOS" humans
-        // falling through to a UA prefix label at Priority 4 (or null when even that
-        // failed). The dashboard was rendering 8-char signature hashes for these rows
-        // before this fix.
+        // Priority 2: projection from observed signals. Spec
+        //   docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md
+        // Name reflects what THIS fingerprint looks like right now: browser
+        // family + version + OS + OS version + directly-observed modifiers.
+        // Two fingerprints differ iff their signals differ -> their names
+        // must differ. Unique by construction.
+        //
+        // INFERRED archetype names (header-drift, Mastodon Family centroid
+        // grazing, etc.) are explicitly EXCLUDED here -- those go to the
+        // drift-badge column. Only directly-observed signals feed the name.
+        //
+        // Source order for each component:
+        //   1. signal dict (UserAgentContributor wrote it)
+        //   2. UserAgentParser fallback (matcher races UserAgentContributor;
+        //      uap-core gives us the full Family+Version+Os+OsVersion tuple)
         var family = GetString(signals, SignalKeys.UserAgentFamily);
+        var version = GetString(signals, SignalKeys.UserAgentFamilyVersion);
+        var os = GetString(signals, SignalKeys.UserAgentOs);
+        string? osVersion = null;
         var rawUaForParse = !string.IsNullOrEmpty(userAgent)
             ? userAgent
             : GetString(signals, SignalKeys.UserAgent);
-        if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(rawUaForParse))
-            family = UserAgentParser.Parse(rawUaForParse).Family;
+        if (!string.IsNullOrEmpty(rawUaForParse) &&
+            (string.IsNullOrEmpty(family) || string.IsNullOrEmpty(version)
+             || string.IsNullOrEmpty(os) || string.IsNullOrEmpty(osVersion)))
+        {
+            var parsed = Helpers.UapCoreUserAgentParser.Default.Parse(rawUaForParse);
+            if (parsed is var (parsedFamily, parsedVersion))
+            {
+                family ??= parsedFamily;
+                version ??= parsedVersion;
+            }
+            var parsedOs = Helpers.UapCoreUserAgentParser.Default.Os(rawUaForParse);
+            if (parsedOs is var (parsedOsFamily, parsedOsVersion))
+            {
+                os ??= parsedOsFamily;
+                osVersion ??= parsedOsVersion;
+            }
+        }
 
         string? finalName;
         if (!string.IsNullOrEmpty(family) && family != "Other")
         {
-            // Display-name contract (T5, 2026-06-22, user-approved): priority-3
-            // returns the UA family UNCHANGED. No OS prefix, no version, no
-            // archetype suffix, no "w/" -- those belong to the drift / detail
-            // surfaces, not the name. See spec at
-            //   docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md
-            // and FingerprintNameComposerContract. The user-directed ban is
-            // explicit: "Mac Chrome 149 w/ uBlock -- multi-word descriptive
-            // synthetics, even if accurate, fight the bot-name / browser-family
-            // / unknown trichotomy. Drop. (Task #121 was the wrong direction.)"
-            finalName = family;
+            var parts = new List<string>(5) { family };
+            if (!string.IsNullOrEmpty(version)) parts.Add(version);
+            if (!string.IsNullOrEmpty(os) && os != "Other")
+            {
+                parts.Add(os);
+                if (!string.IsNullOrEmpty(osVersion)) parts.Add(osVersion);
+            }
+            var baseName = string.Join(' ', parts);
+            var modifiers = CollectObservedModifiers(signals);
+            finalName = string.IsNullOrEmpty(modifiers) ? baseName : $"{baseName} {modifiers}";
         }
         else
         {
@@ -488,6 +487,23 @@ internal static class FingerprintNameComposer
 
     private static bool GetBool(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is bool b && b;
+
+    /// <summary>
+    ///     Returns the "+ X + Y" tail of directly-observed presentation
+    ///     modifiers (uBlock, Tor, private headers) when their signals are
+    ///     true in the dict, or empty when none are present. Inferred
+    ///     archetype labels are NEVER inputs here -- only signals that the
+    ///     fingerprint was computed from. Spec
+    ///     docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md.
+    /// </summary>
+    private static string CollectObservedModifiers(IReadOnlyDictionary<string, object> signals)
+    {
+        var bits = new List<string>(3);
+        if (GetBool(signals, "presentation.has_ublock")) bits.Add("uBlock");
+        if (GetBool(signals, "transport.is_tor")) bits.Add("Tor");
+        if (GetBool(signals, "header.privacy_drift")) bits.Add("private headers");
+        return bits.Count == 0 ? string.Empty : "+ " + string.Join(" + ", bits);
+    }
 
     /// <summary>
     ///     Resolve the bot/tool/client name CLAIMED by this request, in priority order:

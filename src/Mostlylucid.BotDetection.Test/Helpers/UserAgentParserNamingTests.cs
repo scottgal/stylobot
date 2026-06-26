@@ -72,31 +72,38 @@ public class UserAgentParserNamingTests
     }
 
     [Fact]
-    public void Compose_FreshArchetype_BeatsPreviousMatcherName()
+    public void Compose_FreshFamilyOnly_StillBeatsPreviousName_WhenArchetypeIsIgnored()
     {
-        // Priority 2 case: archetype kind is human-browser, so the freshly-matched
-        // archetype name should win over a stale stored name.
-        var name = FingerprintNameComposer.Compose(
+        // 2026-06-26 contract: archetype is IGNORED. Without observed family/os
+        // signals, the fresh result is null/fallback and hysteresis keeps the
+        // previous name. With them, fresh wins.
+        var nameWithoutObservedSignals = FingerprintNameComposer.Compose(
             new Dictionary<string, object>
             {
                 [SignalKeys.IdentityArchetypeName] = "Firefox Desktop",
                 [SignalKeys.IdentityArchetypeKind] = "human-browser"
             },
             previousName: "Bytespider on Android");
+        // Archetype alone produces no name; hysteresis preserves the previous.
+        Assert.Equal("Bytespider on Android", nameWithoutObservedSignals);
 
-        Assert.NotNull(name);
-        Assert.StartsWith("Firefox Desktop", name);
-        Assert.DoesNotContain("Bytespider", name);
+        // Add the observed family signal -> fresh wins.
+        var nameWithObserved = FingerprintNameComposer.Compose(
+            new Dictionary<string, object>
+            {
+                [SignalKeys.IdentityArchetypeName] = "Firefox Desktop",
+                [SignalKeys.IdentityArchetypeKind] = "human-browser",
+                [SignalKeys.UserAgentFamily] = "Firefox",
+                [SignalKeys.UserAgentOs] = "Linux"
+            },
+            previousName: "Bytespider on Android");
+        Assert.Equal("Firefox Linux", nameWithObserved);
     }
 
     [Fact]
     public void Compose_FreshFamily_BeatsPreviousMatcherName()
     {
-        // Priority 3 case: the fresh signals carry UA family. That's more authoritative
-        // than a stale fingerprint name -- the stored name was right WHEN it was written,
-        // but a different family on the current request means we have newer evidence.
-        // T5 (2026-06-22): Priority 3 returns the plain UA family; OS lives on the
-        // detail surface, not the name.
+        // 2026-06-26 contract: fresh signals (family + os) project into the name.
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>
             {
@@ -105,7 +112,7 @@ public class UserAgentParserNamingTests
             },
             previousName: "Chrome on macOS (header drift)");
 
-        Assert.Equal("Edge", name);
+        Assert.Equal("Edge Windows", name);
     }
 
     [Fact]
