@@ -664,6 +664,46 @@
 }
 .sb-template-card-preview:empty { display: none; }
 
+/* C-UX5: named conflict-pair list inside the preview panel. The summary
+   keeps the existing one-line "N rule(s) would become shadowed" warn
+   text; the disclosure body enumerates each pair so the operator sees
+   which template rule shadows which existing rule by priority + action
+   + mode instead of having to count the surprise. */
+.sb-template-conflict-list { margin: 8px 0; }
+.sb-template-conflict-list > summary { cursor: pointer; }
+.sb-template-conflict-pairs {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.sb-template-conflict-pair {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+    border-left: 3px solid var(--color-warning);
+    border-radius: 4px;
+    font-size: 12px;
+}
+.sb-template-conflict-arrow {
+    text-align: center;
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.sb-template-conflict-template {
+    color: color-mix(in srgb, var(--color-error) 65%, black);
+    font-weight: 600;
+}
+.sb-template-conflict-existing {
+    color: color-mix(in srgb, var(--color-base-content) 70%, transparent);
+}
+
 /* C12 -- zero-rules empty state on the Effective / Stack tabs. The
    container is the muted card; the actions row pairs the primary
    "Browse templates" button (.sb-template-use from C8) with the

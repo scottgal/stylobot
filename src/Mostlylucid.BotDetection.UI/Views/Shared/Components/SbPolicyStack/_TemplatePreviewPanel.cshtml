@@ -8,16 +8,40 @@
 
     @if (Model.Conflicts.Count > 0)
     {
-        <p class="sb-template-preview-warn" role="alert">
-            @Model.Conflicts.Count existing rule(s) would become shadowed by this template.
-        </p>
+        <details class="sb-template-conflict-list" open>
+            <summary class="sb-template-warn">
+                @Model.Conflicts.Count existing rule(s) would become shadowed by this template.
+            </summary>
+            <ul class="sb-template-conflict-pairs">
+                @foreach (var pair in Model.Conflicts)
+                {
+                    <li class="sb-template-conflict-pair">
+                        <span class="sb-template-conflict-template">Template adds #@pair.TemplateRule.Priority @pair.TemplateRule.ActionDisplay (@pair.TemplateRule.ModeDisplay)</span>
+                        <span class="sb-template-conflict-arrow" aria-hidden="true">&darr; shadows &darr;</span>
+                        <span class="sb-template-conflict-existing">Existing #@pair.ExistingRule.Priority @pair.ExistingRule.ActionDisplay (@pair.ExistingRule.ModeDisplay)</span>
+                    </li>
+                }
+            </ul>
+        </details>
     }
 
     @if (Model.Shadowed.Count > 0)
     {
-        <p class="sb-template-preview-warn" role="alert">
-            @Model.Shadowed.Count rule(s) inside this template are already shadowed by your existing stack.
-        </p>
+        <details class="sb-template-conflict-list" open>
+            <summary class="sb-template-warn">
+                @Model.Shadowed.Count rule(s) inside this template are already shadowed by your existing stack.
+            </summary>
+            <ul class="sb-template-conflict-pairs">
+                @foreach (var r in Model.Shadowed)
+                {
+                    <li class="sb-template-conflict-pair">
+                        <span class="sb-template-conflict-template">Template adds #@r.Priority @r.ActionDisplay (@r.ModeDisplay)</span>
+                        <span class="sb-template-conflict-arrow" aria-hidden="true">&darr; already shadowed &darr;</span>
+                        <span class="sb-template-conflict-existing">Existing higher-precedence rule already wins at this scope</span>
+                    </li>
+                }
+            </ul>
+        </details>
     }
 
     <ul class="sb-template-preview-list">

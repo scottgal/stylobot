@@ -4,7 +4,7 @@ public sealed record TemplatePreviewViewModel(
     string TemplateId,
     string Scope,
     IReadOnlyList<TemplatePreviewRuleViewModel> AddedRules,
-    IReadOnlyList<TemplatePreviewRuleViewModel> Conflicts,
+    IReadOnlyList<TemplatePreviewConflictViewModel> Conflicts,
     IReadOnlyList<TemplatePreviewRuleViewModel> Shadowed);
 
 public sealed record TemplatePreviewRuleViewModel(
@@ -12,3 +12,7 @@ public sealed record TemplatePreviewRuleViewModel(
     string ActionDisplay,
     string ModeDisplay,
     string PredicateText);
+
+public sealed record TemplatePreviewConflictViewModel(
+    TemplatePreviewRuleViewModel TemplateRule,
+    TemplatePreviewRuleViewModel ExistingRule);
