@@ -133,10 +133,19 @@ public interface IFingerprintStore : IFingerprintReader
         CancellationToken ct = default);
 
     // ── Display name ─────────────────────────────────────────────────────────
+    /// <summary>
+    ///     Update a fingerprint's display name + append a history row when the
+    ///     name actually changed. <paramref name="signalSnapshotJson"/> (added
+    ///     2026-06-26) carries the projector inputs at the moment this name
+    ///     was generated; the history row stores it so the dashboard can
+    ///     render old fingerprint state next to the old name. Null is fine
+    ///     for legacy callers / non-matcher writes.
+    /// </summary>
     Task UpdateDisplayNameAsync(
         string fingerprintId, string displayName, DateTime updatedAt,
         CancellationToken ct = default,
-        string source = "matcher");
+        string source = "matcher",
+        string? signalSnapshotJson = null);
 
     Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default);
 
@@ -154,7 +163,8 @@ public interface IFingerprintStore : IFingerprintReader
     Task UpdateDisplayNameForSignatureAsync(
         string primarySignature, string displayName, DateTime updatedAt,
         CancellationToken ct = default,
-        string source = "matcher");
+        string source = "matcher",
+        string? signalSnapshotJson = null);
 
     /// <summary>
     ///     Count of display-name writes rejected by the contract gate at

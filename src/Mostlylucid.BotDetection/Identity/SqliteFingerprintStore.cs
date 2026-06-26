@@ -512,7 +512,8 @@ public class SqliteFingerprintStore : IFingerprintStore
     public async Task UpdateDisplayNameAsync(
         string fingerprintId, string displayName, DateTime updatedAt,
         CancellationToken ct = default,
-        string source = "matcher")
+        string source = "matcher",
+        string? signalSnapshotJson = null)
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;
 
@@ -582,14 +583,15 @@ public class SqliteFingerprintStore : IFingerprintStore
             await using var hist = conn.CreateCommand();
             hist.CommandText = """
                 INSERT INTO fingerprint_name_history
-                       (fingerprint_id, old_name, new_name, source, changed_at)
-                VALUES (@id, @old, @new, @src, @ts)
+                       (fingerprint_id, old_name, new_name, source, changed_at, signal_snapshot_json)
+                VALUES (@id, @old, @new, @src, @ts, @snap)
                 """;
             hist.Parameters.AddWithValue("@id", fingerprintId);
             hist.Parameters.AddWithValue("@old", string.IsNullOrEmpty(oldName) ? (object)DBNull.Value : oldName);
             hist.Parameters.AddWithValue("@new", newName);
             hist.Parameters.AddWithValue("@src", string.IsNullOrEmpty(source) ? "matcher" : source);
             hist.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
+            hist.Parameters.AddWithValue("@snap", (object?)signalSnapshotJson ?? DBNull.Value);
             await hist.ExecuteNonQueryAsync(ct);
         }
 
@@ -701,7 +703,8 @@ public class SqliteFingerprintStore : IFingerprintStore
     public async Task UpdateDisplayNameForSignatureAsync(
         string primarySignature, string displayName, DateTime updatedAt,
         CancellationToken ct = default,
-        string source = "matcher")
+        string source = "matcher",
+        string? signalSnapshotJson = null)
     {
         if (string.IsNullOrEmpty(primarySignature)) return;
         var fingerprintId = await LookupFingerprintIdAsync(primarySignature, ct);
@@ -709,7 +712,7 @@ public class SqliteFingerprintStore : IFingerprintStore
 
         displayName = NormaliseBannedShape(displayName, fingerprintId, primarySignature);
 
-        await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct, source);
+        await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct, source, signalSnapshotJson);
     }
 
     /// <summary>
@@ -1775,7 +1778,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT old_name, new_name, source, changed_at
+            SELECT old_name, new_name, source, changed_at, signal_snapshot_json
               FROM fingerprint_name_history
              WHERE fingerprint_id = @id
              ORDER BY changed_at DESC, id DESC
@@ -1791,7 +1794,8 @@ public class SqliteFingerprintStore : IFingerprintStore
             var @new = reader.GetString(1);
             var src = reader.GetString(2);
             var ts = DateTime.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind);
-            list.Add(new DisplayNameChange(old, @new, src, ts));
+            var snap = reader.IsDBNull(4) ? null : reader.GetString(4);
+            list.Add(new DisplayNameChange(old, @new, src, ts, snap));
         }
         return list;
     }

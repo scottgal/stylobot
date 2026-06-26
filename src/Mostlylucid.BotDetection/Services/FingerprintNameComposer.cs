@@ -506,6 +506,46 @@ internal static class FingerprintNameComposer
     }
 
     /// <summary>
+    ///     Serialise the projection-input subset of <paramref name="signals"/>
+    ///     for persistence on a <c>fingerprint_name_history</c> row. Cold-storage
+    ///     drift signifier -- lets the visitor list "was: X" pill + the
+    ///     signature-detail history strip render the old fingerprint state
+    ///     without joining to <c>fingerprint_observations</c>. Spec
+    ///     docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md.
+    /// </summary>
+    /// <remarks>
+    ///     Only the keys the projector actually reads end up in the JSON,
+    ///     plus archetype name/kind for drift-comparison context even though
+    ///     they don't feed the name. Caller passes <c>null</c> when no live
+    ///     signal dict is available (legacy callers); the helper returns
+    ///     <c>null</c> so the column stays NULL.
+    /// </remarks>
+    public static string? SerialiseProjectionSnapshot(IReadOnlyDictionary<string, object>? signals)
+    {
+        if (signals is null || signals.Count == 0) return null;
+        string[] keys =
+        {
+            SignalKeys.UserAgentFamily,
+            SignalKeys.UserAgentFamilyVersion,
+            SignalKeys.UserAgentOs,
+            SignalKeys.UserAgentBotName,
+            SignalKeys.UserAgentBotInstance,
+            SignalKeys.IdentityArchetypeName,
+            SignalKeys.IdentityArchetypeKind,
+            SignalKeys.VerifiedBotSpoofed,
+            "presentation.has_ublock",
+            "transport.is_tor",
+            "header.privacy_drift",
+        };
+        var snap = new Dictionary<string, object?>(capacity: keys.Length);
+        foreach (var k in keys)
+            if (signals.TryGetValue(k, out var v)) snap[k] = v;
+        return snap.Count == 0
+            ? null
+            : System.Text.Json.JsonSerializer.Serialize(snap);
+    }
+
+    /// <summary>
     ///     Resolve the bot/tool/client name CLAIMED by this request, in priority order:
     ///     <list type="number">
     ///         <item><c>ua.bot_name</c> from the signal dict, when UserAgentContributor

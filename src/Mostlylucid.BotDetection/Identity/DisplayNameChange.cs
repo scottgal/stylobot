@@ -15,8 +15,16 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     (future explicit rename via dashboard control).
 /// </param>
 /// <param name="ChangedAt">UTC timestamp of the transition.</param>
+/// <param name="SignalSnapshotJson">
+///     Projection-input snapshot at the time this name was generated -- the
+///     fingerprint's directly-observed signals (UA family/version, OS, modifiers,
+///     observation/member counts, claim status). Null on pre-2026-06-26 rows; the
+///     N3 schema migration adds the column nullable so legacy rows stay readable.
+///     See docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md.
+/// </param>
 public sealed record DisplayNameChange(
     string? OldName,
     string NewName,
     string Source,
-    DateTime ChangedAt);
+    DateTime ChangedAt,
+    string? SignalSnapshotJson = null);

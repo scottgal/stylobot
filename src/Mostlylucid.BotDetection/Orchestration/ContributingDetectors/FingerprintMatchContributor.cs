@@ -903,8 +903,13 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
                 if (!string.Equals(displayName, matched.DisplayName, StringComparison.Ordinal))
                 {
+                    // 2026-06-26 contract: persist the projection-input snapshot
+                    // alongside the name change so the dashboard can render the
+                    // old fingerprint state as a drift signifier next to the old
+                    // name. snapshot is null when no signals fed Compose this round.
+                    var snapshotJson = FingerprintNameComposer.SerialiseProjectionSnapshot(signalsSnapshot);
                     await _store.UpdateDisplayNameAsync(newId, displayName, DateTime.UtcNow,
-                        CancellationToken.None, source: "matcher");
+                        CancellationToken.None, source: "matcher", signalSnapshotJson: snapshotJson);
                 }
             });
         }

@@ -105,7 +105,8 @@ public class NullFingerprintStore : IFingerprintStore
     public Task UpdateDisplayNameAsync(
         string fingerprintId, string displayName, DateTime updatedAt,
         CancellationToken ct = default,
-        string source = "matcher")
+        string source = "matcher",
+        string? signalSnapshotJson = null)
         => Task.CompletedTask;
 
     public Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default)
@@ -118,7 +119,8 @@ public class NullFingerprintStore : IFingerprintStore
     public Task UpdateDisplayNameForSignatureAsync(
         string primarySignature, string displayName, DateTime updatedAt,
         CancellationToken ct = default,
-        string source = "matcher")
+        string source = "matcher",
+        string? signalSnapshotJson = null)
         => Task.CompletedTask;
 
     /// <inheritdoc />

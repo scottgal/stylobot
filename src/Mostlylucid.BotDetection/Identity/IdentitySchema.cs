@@ -112,6 +112,14 @@ internal static class IdentitySchema
             await idxCmd.ExecuteNonQueryAsync(ct);
         }
 
+        // 2026-06-26 -- per spec docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md.
+        // Each name-history row carries the projection-input snapshot (UA family/version/os/os_version,
+        // observed modifiers, archetype name/kind even though they don't feed the
+        // name -- they're useful drift context, observation/member counts, claim
+        // status) so old-name -> old-fingerprint-state is one row read.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprint_name_history ADD COLUMN signal_snapshot_json TEXT", ct);
+
         // 2026-06-22 -- drop fingerprint_modes parallel-axis columns. See
         // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
         // The per-mode "inferred archetype" was the parallel-axis bug: every
