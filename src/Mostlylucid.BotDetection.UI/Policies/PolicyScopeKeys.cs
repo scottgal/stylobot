@@ -46,16 +46,12 @@ public static class PolicyScopeKeys
     /// <summary>
     ///     Canonical scope key. Mirrors <c>PolicyStackPresenter.ComputeScopeHash</c>'s
     ///     pre-image so the hash matches whether you compute it from the
-    ///     presenter or from here.
+    ///     presenter or from here. The format is owned by
+    ///     <see cref="PolicyScope.ToScopeKey"/> in FOSS so the policy
+    ///     dispatcher's hit-recorder writes against the same key shape the
+    ///     dashboard view component reads with.
     /// </summary>
-    public static string ScopeKey(PolicyScope scope) => scope.Host switch
-    {
-        null => "wildcard||||",
-        HostScope.Domain d => $"domain|{d.Name}|||",
-        HostScope.Subdomain s => $"subdomain|{s.DomainName}|{s.SubdomainName}||",
-        HostScope.Endpoint e => $"endpoint|{e.DomainName}|{e.SubdomainName}|{e.PathTemplate}|",
-        _ => "unknown||||"
-    };
+    public static string ScopeKey(PolicyScope scope) => scope.ToScopeKey();
 
     /// <summary>
     ///     SHA-256(<see cref="ScopeKey"/>), truncated to the first 16 hex chars

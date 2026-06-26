@@ -112,4 +112,29 @@ public sealed record PolicyScope(
         $"m:{(Method ?? "*").ToLowerInvariant()}|" +
         $"g:{(Geo ?? "*").ToLowerInvariant()}|" +
         $"i:{Identity?.ToStableKey() ?? "*"}";
+
+    /// <summary>
+    ///     Canonical Host-only scope key projection -- the format the dashboard
+    ///     posture view component, the policy-stack presenter, and the SignalR
+    ///     scope broadcaster all share. Distinct from <see cref="ToStableKey"/>
+    ///     (which encodes every slot for token-bucket-style cache keys) because
+    ///     the dashboard scope tree only walks the Host axis. The
+    ///     <c>PolicyStackHitAtom</c> records and reads against this key so a
+    ///     rule attached at "Domain + Geo=RU" still bucket-aggregates to its
+    ///     Domain scope on the posture card.
+    /// </summary>
+    /// <returns>
+    ///     Pipe-delimited five-part string: <c>{kind}|{domain}|{subdomain}|{path}|</c>.
+    ///     The trailing empty pipe segment preserves the format originally
+    ///     established by <c>PolicyScopeKeys.ScopeKey</c> for wire compatibility
+    ///     with the dashboard's SignalR change broadcaster.
+    /// </returns>
+    public string ToScopeKey() => Host switch
+    {
+        null => "wildcard||||",
+        HostScope.Domain d => $"domain|{d.Name}|||",
+        HostScope.Subdomain s => $"subdomain|{s.DomainName}|{s.SubdomainName}||",
+        HostScope.Endpoint e => $"endpoint|{e.DomainName}|{e.SubdomainName}|{e.PathTemplate}|",
+        _ => "unknown||||",
+    };
 }

@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.Policies.Telemetry;
 using Mostlylucid.BotDetection.UI.Options;
 
 namespace Mostlylucid.BotDetection.UI.Atoms;
 
-public sealed class PolicyStackHitAtom
+public sealed class PolicyStackHitAtom : IPolicyHitRecorder
 {
     private readonly TimeProvider _clock;
     private readonly PolicyStackHitAtomOptions _options;

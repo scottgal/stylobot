@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Resolution;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.Policies.Telemetry;
 
 namespace Mostlylucid.BotDetection.Policies.Dispatch;
 
@@ -67,6 +68,8 @@ public sealed class PolicyActionDispatcher
     private readonly IReadOnlyDictionary<Type, IPolicyActionHandler> _handlers;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<PolicyActionDispatcher>? _logger;
+    private readonly IPolicyHitRecorder _hitRecorder;
+    private readonly PolicyIntentClassifier _intentClassifier;
 
     /// <summary>
     ///     Constructor for DI. The handler set is materialised once into a
@@ -85,13 +88,26 @@ public sealed class PolicyActionDispatcher
     ///         request thread enqueues and returns without blocking on the
     ///         underlying store.
     ///     </para>
+    ///     <para>
+    ///         <see cref="IPolicyHitRecorder"/> and
+    ///         <see cref="PolicyIntentClassifier"/> feed the dashboard's
+    ///         posture card: after the winning rule is picked, the dispatcher
+    ///         records (scope, intent) into the hit recorder. The FOSS default
+    ///         binding is <see cref="NullPolicyHitRecorder"/> (no-op);
+    ///         <c>AddStyloBotDashboard</c> replaces it with the atom that
+    ///         backs the posture view component. Both dependencies have
+    ///         constructor-default fallbacks so existing test call sites that
+    ///         build a dispatcher by hand keep compiling.
+    ///     </para>
     /// </remarks>
     public PolicyActionDispatcher(
         IPolicyResolver resolver,
         IEnumerable<IPolicyActionHandler> handlers,
         IPolicyDecisionLogQueue? decisionLogQueue = null,
         TimeProvider? timeProvider = null,
-        ILogger<PolicyActionDispatcher>? logger = null)
+        ILogger<PolicyActionDispatcher>? logger = null,
+        IPolicyHitRecorder? hitRecorder = null,
+        PolicyIntentClassifier? intentClassifier = null)
     {
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(handlers);
@@ -99,6 +115,8 @@ public sealed class PolicyActionDispatcher
         _decisionLogQueue = decisionLogQueue;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
+        _hitRecorder = hitRecorder ?? new NullPolicyHitRecorder();
+        _intentClassifier = intentClassifier ?? new PolicyIntentClassifier();
 
         var map = new Dictionary<Type, IPolicyActionHandler>();
         foreach (var h in handlers)
@@ -166,6 +184,7 @@ public sealed class PolicyActionDispatcher
                     // walking; they NEVER shape the HTTP response. An Observe
                     // rule that is also armed is treated as Live (the operator
                     // explicitly wired the trigger; armed beats authored mode).
+                    TryRecordHit(entry, entry.Rule.Action);
                     await TryLogDecisionAsync(context, entry, entry.Rule.Action,
                         matched: true, ObservedOutcome.Observed, ct).ConfigureAwait(false);
                     continue;
@@ -178,6 +197,15 @@ public sealed class PolicyActionDispatcher
 
         if (winner is null)
             return PolicyDispatchResult.FallThrough;
+
+        // Record the winning rule's hit against its source-scope key so the
+        // posture card on the dashboard sees real traffic. The FOSS default
+        // recorder is a no-op; AddStyloBotDashboard replaces it with the
+        // bounded atom. Recording happens BEFORE handler dispatch so a faulty
+        // handler doesn't drop the counter.
+        TryRecordHit(winner, winner.IsArmed && winner.Rule.Trigger?.ActionWhileArmed is not null
+            ? winner.Rule.Trigger.ActionWhileArmed
+            : winner.Rule.Action);
 
         // Phase G: if the rule is armed AND its trigger options carry an
         // ActionWhileArmed, substitute that for the authored action.
@@ -222,6 +250,33 @@ public sealed class PolicyActionDispatcher
             : ObservedOutcome.FellThrough;
         await TryLogDecisionAsync(context, winner, action, matched: true, outcome, ct).ConfigureAwait(false);
         return result;
+    }
+
+    /// <summary>
+    ///     Best-effort hit-recorder push. The intent classifier handles the
+    ///     Observe-overlay + lockdown-predicate cases so the dashboard posture
+    ///     card sees the actual ENFORCED intent, not just the authored action
+    ///     type. Recorded against the matched rule's source scope so a
+    ///     wildcard-attached rule's hits aggregate at the wildcard scope where
+    ///     the view component will read them.
+    /// </summary>
+    private void TryRecordHit(EffectiveRule entry, PolicyAction action)
+    {
+        try
+        {
+            var intent = _intentClassifier.Classify(entry.Rule);
+            var scopeKey = entry.SourceScope.ToScopeKey();
+            _hitRecorder.Record(scopeKey, intent);
+        }
+        catch (Exception ex)
+        {
+            // The recorder is observability-only -- never let it bring down a
+            // request. Atom internals don't throw, but a future remote impl
+            // might.
+            _logger?.LogWarning(ex,
+                "PolicyActionDispatcher: hit recorder threw for rule {RuleId}; ignoring",
+                entry.Rule.Id);
+        }
     }
 
     /// <summary>

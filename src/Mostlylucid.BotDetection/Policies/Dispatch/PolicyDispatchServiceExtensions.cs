@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Policies.Decisions;
 using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
 using Mostlylucid.BotDetection.Policies.Predicate;
+using Mostlylucid.BotDetection.Policies.Telemetry;
 using Mostlylucid.BotDetection.Policies.Templates;
 using Mostlylucid.BotDetection.Policies.Triggers;
 using Mostlylucid.BotDetection.RateLimit;
@@ -101,6 +102,13 @@ public static class PolicyDispatchServiceExtensions
         });
         services.TryAddSingleton<TemplateResolver>();
         services.TryAddSingleton<Rules.PolicyIntentClassifier>();
+
+        // Hot-path policy-hit recorder. The dashboard pack registers a real
+        // implementation (PolicyStackHitAtom backing the posture card); FOSS
+        // hosts without the dashboard get this no-op default so the dispatcher
+        // can call Record(...) unconditionally without a null check on every
+        // request.
+        services.TryAddSingleton<IPolicyHitRecorder, NullPolicyHitRecorder>();
 
         // The dispatcher itself. Singleton: handlers are stateless, the
         // resolver is singleton-shaped, the decision log queue is singleton-shaped.

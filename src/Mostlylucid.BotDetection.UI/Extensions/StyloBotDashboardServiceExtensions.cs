@@ -435,6 +435,16 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<PolicyStackHitAtom>();
         services.AddHostedService<PolicyStackHitAtomTickHook>();
 
+        // Replace the FOSS NullPolicyHitRecorder (registered by AddPolicyDispatcher)
+        // with the atom-backed implementation so the policy dispatcher's hot-path
+        // Record(...) calls land in the same bucket the posture view component
+        // reads. RemoveAll+AddSingleton (instead of TryAddSingleton) because
+        // TryAdd is a no-op when the null default is already registered; we
+        // explicitly want the atom to win when the dashboard pack is present.
+        services.RemoveAll<Mostlylucid.BotDetection.Policies.Telemetry.IPolicyHitRecorder>();
+        services.AddSingleton<Mostlylucid.BotDetection.Policies.Telemetry.IPolicyHitRecorder>(
+            sp => sp.GetRequiredService<PolicyStackHitAtom>());
+
         // Derives a 4-level posture (Permissive / Balanced / Strict / Lockdown)
         // from the live rule set + a PolicyStackHitSnapshot from the atom above,
         // plus a single suggestion arm. Pure compute; no DB, no per-request work.
