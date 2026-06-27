@@ -120,6 +120,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.St
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.StyloExtract.Test", "tests\Mostlylucid.BotDetection.StyloExtract.Test\Mostlylucid.BotDetection.StyloExtract.Test.csproj", "{A1011204-E7C9-49B3-984E-CB7DF92DD3BF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.Atoms.Ephemeral", "src\Mostlylucid.Atoms.Ephemeral\Mostlylucid.Atoms.Ephemeral.csproj", "{221C7C8B-75C6-4479-A23A-49D1C5CC4974}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -634,6 +636,18 @@ Global
 		{A1011204-E7C9-49B3-984E-CB7DF92DD3BF}.Release|x64.Build.0 = Release|Any CPU
 		{A1011204-E7C9-49B3-984E-CB7DF92DD3BF}.Release|x86.ActiveCfg = Release|Any CPU
 		{A1011204-E7C9-49B3-984E-CB7DF92DD3BF}.Release|x86.Build.0 = Release|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Debug|x64.Build.0 = Debug|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Debug|x86.Build.0 = Debug|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Release|Any CPU.Build.0 = Release|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Release|x64.ActiveCfg = Release|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Release|x64.Build.0 = Release|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Release|x86.ActiveCfg = Release|Any CPU
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -655,5 +669,6 @@ Global
 		{54A89325-645F-400F-833B-081CB1BABC1E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{5AD38B10-97D4-4DB4-BC8F-FE377BFA6551} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{A1011204-E7C9-49B3-984E-CB7DF92DD3BF} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{221C7C8B-75C6-4479-A23A-49D1C5CC4974} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
