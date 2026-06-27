@@ -111,6 +111,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.Common\Mostlylucid.Common.csproj" />
+        <ProjectReference Include="..\Mostlylucid.Atoms.Ephemeral\Mostlylucid.Atoms.Ephemeral.csproj" />
     </ItemGroup>
 
     <ItemGroup>
