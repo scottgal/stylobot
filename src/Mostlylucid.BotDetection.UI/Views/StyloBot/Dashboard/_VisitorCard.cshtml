@@ -51,7 +51,13 @@
                    unlicensed hosts simply 402/403 and the pencil reverts the
                    row (no client-side license check needed). Hidden by default
                    via opacity-0; .group on the parent <a> reveals it on hover. *@
-                <span class="fp-name inline-flex items-center gap-2 min-w-0">
+                @* data-fp-id marks the swap target for the HR2 SignalR
+                   `fingerprint:dirty` beacon. The sb-live-updates coordinator
+                   finds every matching .fp-name[data-fp-id="..."] on the page
+                   and HTMX-swaps it from the commercial /given-name/read
+                   fragment when a rename lands on this or a peer gateway. *@
+                <span class="fp-name inline-flex items-center gap-2 min-w-0"
+                      data-fp-id="@Model.FingerprintId">
                     <span class="text-sm font-bold truncate max-w-[180px]">@displayName</span>
                     @if (!string.IsNullOrEmpty(Model.FingerprintId))
                     {

@@ -37,4 +37,21 @@ public interface IStyloBotDashboardHub
     ///     <c>JoinPolicyGroup</c> / <c>LeavePolicyGroup</c> on the hub.
     /// </summary>
     Task PolicyChanged(string scopeKey);
+
+    /// <summary>
+    ///     Fingerprint name-slot dirty beacon (HR2). Fires after an operator
+    ///     pencil rename lands -- either on this gateway (the editor POST emits
+    ///     locally) or on a peer via the HR1 Redis subscriber. Every dashboard
+    ///     browser viewing the row finds the matching <c>.fp-name[data-fp-id]</c>
+    ///     wrapper and HTMX-swaps it from
+    ///     <c>/api/v1/commercial/fingerprints/{id}/given-name/read</c> so the
+    ///     row repaints without the operator pressing F5.
+    ///     <para>
+    ///         Payload is intentionally minimal: <paramref name="fingerprintId"/>
+    ///         identifies the row, <paramref name="slot"/> indicates which name
+    ///         slot moved (<c>given</c> / <c>llm</c> / <c>induced</c>). No name
+    ///         data crosses SignalR -- the swap fetch is the carrier.
+    ///     </para>
+    /// </summary>
+    Task FingerprintDirty(string fingerprintId, string slot);
 }

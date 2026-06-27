@@ -341,6 +341,47 @@
         if (signal) invalidate(signal);
     });
 
+    // HR2 -- fingerprint name-slot rename beacon. The commercial editor POST
+    // (and the HR1 Redis subscriber on every peer gateway) fires this with the
+    // affected fingerprint id + slot kind. We find every .fp-name wrapper on
+    // the page bound to that fingerprint (visitor list rows + signature detail
+    // header both carry data-fp-id) and HTMX-swap each from the commercial
+    // /given-name/read fragment so the row repaints without an F5.
+    //
+    // The fragment endpoint is gated by the same StyloBotApiKey policy as the
+    // editor itself; the operator dashboard's outbound fetch carries the
+    // session cookie / key the editor pencil already relies on, so a swap
+    // failure here is the same auth state as a failed editor click. We
+    // intentionally do NOT route this through the widget invalidation +
+    // batched flush path because the swap target is row-local (not widget-
+    // wide) and we don't want a name edit to trigger a full widget refresh.
+    connection.on('fingerprint:dirty', function (fingerprintId, slot) {
+        if (isPaused()) return;
+        if (!fingerprintId) return;
+        if (typeof htmx === 'undefined') return;
+        // Escape the id with CSS.escape so a fingerprint containing
+        // unexpected punctuation can't break the selector. Older browsers
+        // (we still target IE-class behaviour for safety on legacy intranet
+        // dashboards) fall back to a literal selector which is fine for the
+        // hex / base64 ids stylobot mints.
+        var safeId = (window.CSS && CSS.escape)
+            ? CSS.escape(fingerprintId)
+            : fingerprintId.replace(/"/g, '\\"');
+        var nodes = document.querySelectorAll('.fp-name[data-fp-id="' + safeId + '"]');
+        if (!nodes || nodes.length === 0) return;
+        var url = '/api/v1/commercial/fingerprints/'
+                + encodeURIComponent(fingerprintId)
+                + '/given-name/read';
+        nodes.forEach(function (node) {
+            htmx.ajax('GET', url, { target: node, swap: 'outerHTML' });
+        });
+        // slot is ignored on the client today -- every name slot resolves
+        // through the same /read endpoint so the swap covers given/llm/induced
+        // identically. Keep the parameter in the wire shape so future per-slot
+        // handlers don't need a contract change.
+        void slot;
+    });
+
     connection.onreconnecting(function () { setStatus('connecting'); });
     connection.onreconnected(function () { setStatus('connected'); });
     connection.onclose(function () { setStatus('disconnected'); });

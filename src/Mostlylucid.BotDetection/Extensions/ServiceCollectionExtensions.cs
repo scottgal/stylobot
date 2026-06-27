@@ -930,6 +930,13 @@ public static class ServiceCollectionExtensions
         // can swap in a Postgres-backed implementation. Defaults to the Sqlite store.
         services.TryAddSingleton<Identity.IFingerprintStore>(
             sp => sp.GetRequiredService<Identity.SqliteFingerprintStore>());
+        // HR2 dashboard live-update beacon for fingerprint name-slot edits. NoOp
+        // default keeps the commercial editor + Redis subscriber free of null
+        // guards on lightweight viewer hosts and test fixtures; AddStyloBotDashboard
+        // replaces this with a SignalR-backed broadcaster on hosts that mount the
+        // dashboard surface.
+        services.TryAddSingleton<Identity.IFingerprintDirtyBroadcaster,
+            Identity.NoOpFingerprintDirtyBroadcaster>();
         // Read-only entity-resolution surface. Local impl wraps the session store
         // (which owns the writes); remote-mode dashboards swap this for
         // RemoteEntityReader proxying /api/v1/entities/*.

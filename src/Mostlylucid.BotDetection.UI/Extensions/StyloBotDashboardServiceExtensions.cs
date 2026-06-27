@@ -412,6 +412,17 @@ public static class StyloBotDashboardServiceExtensions
             Mostlylucid.BotDetection.UI.Policies.SignalRPolicyChangeBroadcaster>();
         services.AddHostedService<Mostlylucid.BotDetection.UI.Policies.PolicyChangeNotificationHostedService>();
 
+        // HR2 -- fingerprint name-slot dirty beacon. Dashboard hosts (this extension's
+        // callers) get the SignalR-backed broadcaster that fans the beacon out to every
+        // connected operator browser via IStyloBotDashboardHub.FingerprintDirty. The
+        // FOSS core registers a NoOp default; Replace here so the commercial editor +
+        // HR1 Redis subscriber resolve the live SignalR impl on dashboards while
+        // lightweight viewer hosts still get the safe no-op.
+        services.Replace(
+            ServiceDescriptor.Singleton<
+                Mostlylucid.BotDetection.Identity.IFingerprintDirtyBroadcaster,
+                Mostlylucid.BotDetection.UI.Hubs.SignalRFingerprintDirtyBroadcaster>());
+
         // Dashboard tooltip registry — loads Definitions/Tooltips/*.yaml at
         // startup. Cheap to register unconditionally; the helper short-circuits
         // when StyloBotDashboardOptions.EnableTooltips is false so the resolved

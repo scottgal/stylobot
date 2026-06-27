@@ -152,7 +152,10 @@ else
            IFingerprintReader.LookupFingerprintIdAsync; null when the
            signature is unbound or the reader is absent (remote-mode dashboard)
            so the heading degrades to the bare h1 without the affordance. *@
-        <span class="fp-name inline-flex items-center gap-2">
+        @* data-fp-id is the swap target for the HR2 `fingerprint:dirty` SignalR
+           beacon (see _VisitorCard for the equivalent annotation). *@
+        <span class="fp-name inline-flex items-center gap-2"
+              data-fp-id="@Model.FingerprintId">
             <h1 class="text-lg font-bold text-base-content" title="Signature: @Model.SignatureId">@signatureDisplayName</h1>
             @if (!string.IsNullOrEmpty(Model.FingerprintId))
             {

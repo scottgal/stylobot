@@ -22,6 +22,7 @@
     §6.3 (demo-mode UI affordances) + §7 (operator editor surface).
 *@
 <form class="inline-flex items-center gap-1 fp-name"
+      data-fp-id="@Model.FingerprintId"
       hx-post="@Model.PostUrl"
       hx-target="closest .fp-name"
       hx-swap="outerHTML"
