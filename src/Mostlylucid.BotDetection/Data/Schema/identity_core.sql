@@ -88,7 +88,9 @@ CREATE TABLE IF NOT EXISTS fingerprint_name_history (
     -- Projection-input snapshot at the time the name was generated. Lets the
     -- visitor-list "was: X" pill + the signature-detail history strip render
     -- the old fingerprint state as a drift signifier without a join.
-    signal_snapshot_json  TEXT
+    signal_snapshot_json  TEXT,
+    name_kind                 TEXT NOT NULL DEFAULT 'induced',
+    operator_id               TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_fnh_fp_changedat
     ON fingerprint_name_history(fingerprint_id, changed_at DESC);

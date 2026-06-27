@@ -143,6 +143,10 @@ internal static class IdentitySchema
         await TryExecuteAsync(conn, "ALTER TABLE fingerprints DROP COLUMN display_name", ct);
         await TryExecuteAsync(conn, "ALTER TABLE fingerprints DROP COLUMN display_name_updated_at", ct);
 
+        // 2026-06-27 name-history audit: separate writer-kind from source string.
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprint_name_history ADD COLUMN name_kind TEXT NOT NULL DEFAULT 'induced'", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprint_name_history ADD COLUMN operator_id TEXT", ct);
+
         // 2026-06-22 -- drop fingerprint_modes parallel-axis columns. See
         // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
         // The per-mode "inferred archetype" was the parallel-axis bug: every

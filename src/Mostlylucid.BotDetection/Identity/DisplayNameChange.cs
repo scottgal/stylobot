@@ -22,9 +22,23 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     N3 schema migration adds the column nullable so legacy rows stay readable.
 ///     See docs/superpowers/specs/2026-06-26-fingerprint-name-projection-restore.md.
 /// </param>
+/// <param name="NameKind">
+///     Writer-kind discriminator -- one of <c>"induced"</c> (matcher recompose),
+///     <c>"llm"</c> (LLM namer), or <c>"given"</c> (operator UI). Separated from
+///     <see cref="Source"/> so the audit log can distinguish slot-of-origin from
+///     free-text source without parsing the string. Defaults to <c>"induced"</c>
+///     for legacy callsites + back-compat. See
+///     docs/superpowers/specs/2026-06-27-fingerprint-name-slots-editor-demo-mode-design.md §5.3.
+/// </param>
+/// <param name="OperatorId">
+///     Identifier of the operator who set the name when <see cref="NameKind"/> is
+///     <c>"given"</c>. Null otherwise.
+/// </param>
 public sealed record DisplayNameChange(
     string? OldName,
     string NewName,
     string Source,
     DateTime ChangedAt,
-    string? SignalSnapshotJson = null);
+    string? SignalSnapshotJson = null,
+    string NameKind = "induced",
+    string? OperatorId = null);
