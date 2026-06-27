@@ -320,12 +320,12 @@ public sealed class FingerprintAbsorptionService : IDisposable
                 "Fingerprint {Id} drifted: {Old} -> {New} (confidence {Conf:F2})",
                 obs.FingerprintId, obs.InferredClientType, newInferredType, newInferredConfidence);
 
-            // The inferred archetype flipped (e.g. bot -> human), so the persisted display
+            // The inferred archetype flipped (e.g. bot -> human), so the persisted induced
             // name is now stale -- a "Googlebot" name must not survive on a fingerprint that
-            // drifted human. Clear it; the matcher re-derives the name from the new archetype
-            // on the next request via EmitDisplayNameSignal's recompose-on-empty path. Rule:
-            // if the centroid flips the classification, the name must change.
-            await _store.UpdateDisplayNameAsync(obs.FingerprintId, string.Empty, DateTime.UtcNow, ct);
+            // drifted human. Clear the induced slot; the matcher re-derives the name from the
+            // new archetype on the next request via EmitDisplayNameSignal's recompose-on-empty
+            // path. Rule: if the centroid flips the classification, the name must change.
+            await _store.UpdateInducedNameAsync(obs.FingerprintId, string.Empty, DateTime.UtcNow, ct);
         }
 
         return (newCentroid, newMaturity, newWeights, newInferredType);

@@ -101,12 +101,20 @@ public class NullFingerprintStore : IFingerprintStore
         CancellationToken ct = default)
         => Task.CompletedTask;
 
-    // ── Display name ─────────────────────────────────────────────────────────
-    public Task UpdateDisplayNameAsync(
-        string fingerprintId, string displayName, DateTime updatedAt,
-        CancellationToken ct = default,
-        string source = "matcher",
-        string? signalSnapshotJson = null)
+    // ── Name slots (three-slot surface: induced / llm / given) ───────────────
+    public Task UpdateInducedNameAsync(
+        string fingerprintId, string inducedName, DateTime updatedAt,
+        CancellationToken ct, string? signalSnapshotJson = null)
+        => Task.CompletedTask;
+
+    public Task UpdateLlmNameAsync(
+        string fingerprintId, string llmName, string? description,
+        DateTime evaluatedAt, CancellationToken ct)
+        => Task.CompletedTask;
+
+    public Task UpdateGivenNameAsync(
+        string fingerprintId, string? givenName, string operatorId,
+        DateTime updatedAt, CancellationToken ct)
         => Task.CompletedTask;
 
     public Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default)
@@ -116,13 +124,6 @@ public class NullFingerprintStore : IFingerprintStore
         string displayName, string excludedFingerprintId, CancellationToken ct = default)
         => Task.FromResult(0);
 
-    public Task UpdateDisplayNameForSignatureAsync(
-        string primarySignature, string displayName, DateTime updatedAt,
-        CancellationToken ct = default,
-        string source = "matcher",
-        string? signalSnapshotJson = null)
-        => Task.CompletedTask;
-
     /// <inheritdoc />
     /// <remarks>
     ///     Null store discards every write so the contract gate has nothing to enforce;
@@ -131,12 +132,16 @@ public class NullFingerprintStore : IFingerprintStore
     /// </remarks>
     public long BannedShapeRejectionsCount => 0;
 
-    private static readonly IReadOnlyDictionary<string, string?> _emptyNames =
-        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+    public Task<IReadOnlyDictionary<string, string?>> GetResolvedNamesBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct)
+    {
+        var result = new Dictionary<string, string?>(primarySignatures.Count, StringComparer.Ordinal);
+        foreach (var sig in primarySignatures) result[sig] = null;
+        return Task.FromResult<IReadOnlyDictionary<string, string?>>(result);
+    }
 
-    public Task<IReadOnlyDictionary<string, string?>> GetDisplayNamesBySignaturesAsync(
-        IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default)
-        => Task.FromResult(_emptyNames);
+    public IReadOnlyList<Fingerprint> EnumerateLlmRepickCandidates(int maxCount)
+        => Array.Empty<Fingerprint>();
 
     public Task<IReadOnlyList<DisplayNameChange>> GetDisplayNameHistoryAsync(
         string fingerprintId, int limit = 50, CancellationToken ct = default)
