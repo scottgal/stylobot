@@ -32,21 +32,44 @@ public sealed record Fingerprint
     public double AmbiguityPersistence { get; init; }
 
     /// <summary>
-    ///     Human-readable display name. Generated once at allocation via
+    ///     Matcher-projected name. Composed at allocation and on significant drift via
     ///     <c>FingerprintNameComposer.Compose</c> from the matched archetype + UA
-    ///     characterization. Updated only when drift exceeds <c>Match.SignificantDriftEpsilon</c>.
-    ///     Empty for rows migrated from before the column existed; the matcher backfills on
-    ///     next match. The contract elsewhere is "every fingerprint always has a name" — this
-    ///     field's default is empty only to support migration, never as a runtime steady state.
+    ///     characterization. Pure deterministic projection of shape -- no LLM, no operator
+    ///     input. Nullable on the migration boundary; the matcher backfills on next match.
     /// </summary>
-    public string DisplayName { get; init; } = "";
+    public string? InducedName { get; init; }
+
+    /// <summary>UTC timestamp when <see cref="InducedName"/> was last computed.</summary>
+    public DateTime? InducedNameUpdatedAt { get; init; }
 
     /// <summary>
-    ///     UTC timestamp when <see cref="DisplayName"/> was last computed. Used by the
-    ///     significant-drift path to decide whether enough has changed to warrant a recompute,
-    ///     and surfaced to the dashboard as a freshness signal.
+    ///     LLM-derived characterization name. Written by the always-on LFU-driven namer
+    ///     when it walks the hot-N and finds this fingerprint missing or stale LLM coverage.
+    ///     Independent of <see cref="InducedName"/> -- the matcher never overwrites this.
     /// </summary>
-    public DateTime DisplayNameUpdatedAt { get; init; }
+    public string? LlmName { get; init; }
+
+    /// <summary>UTC timestamp when <see cref="LlmName"/> / <see cref="LlmDescription"/> were last written.</summary>
+    public DateTime? LlmEvaluatedAt { get; init; }
+
+    /// <summary>
+    ///     LLM-derived prose description companion to <see cref="LlmName"/>. Surfaced on the
+    ///     dashboard detail surface; not used for matching or scoring.
+    /// </summary>
+    public string? LlmDescription { get; init; }
+
+    /// <summary>
+    ///     Operator pin. Set explicitly via the dashboard editor when a human wants this
+    ///     fingerprint to display a specific name regardless of induced / LLM output.
+    ///     When non-null this wins the resolution race -- the resolver returns this first.
+    /// </summary>
+    public string? GivenName { get; init; }
+
+    /// <summary>UTC timestamp when <see cref="GivenName"/> was last set or cleared.</summary>
+    public DateTime? GivenNameUpdatedAt { get; init; }
+
+    /// <summary>Operator identity (user id / email) that last wrote <see cref="GivenName"/>. Audit trail.</summary>
+    public string? GivenNameOperatorId { get; init; }
 
     /// <summary>
     ///     The reference centroid that drift is measured against. Seeded at allocation
