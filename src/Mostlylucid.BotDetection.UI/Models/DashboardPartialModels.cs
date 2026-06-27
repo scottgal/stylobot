@@ -449,6 +449,18 @@ public sealed class SignatureDetailModel
     ///     wire carries this projected payload only.
     /// </summary>
     public Mostlylucid.BotDetection.UI.Models.Primitives.DriftBadgeModel? DriftBadge { get; init; }
+
+    /// <summary>
+    ///     The fingerprint id this signature currently resolves to (looked up
+    ///     via <c>IFingerprintReader.LookupFingerprintIdAsync</c> at model
+    ///     build time). Null when identity is disabled, the reader is absent
+    ///     (remote-mode adapter without an upstream id lookup), or the
+    ///     signature has not yet been bound to a fingerprint. The heading
+    ///     pencil/operator-edit affordance is rendered only when this is
+    ///     non-null because the commercial editor endpoint addresses fingerprints,
+    ///     not signatures. Spec ED4 §7.
+    /// </summary>
+    public string? FingerprintId { get; init; }
 }
 
 /// <summary>

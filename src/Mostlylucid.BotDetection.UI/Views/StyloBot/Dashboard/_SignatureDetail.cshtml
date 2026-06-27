@@ -136,12 +136,39 @@ else
        The inner one duplicated it ("Dashboard / Signature Detail" showed twice). *@
 
     <!-- Header -->
-    <div class="flex items-center gap-3 mb-2 flex-wrap">
+    @* `group` on the wrapper so the pencil's `opacity-0 group-hover:opacity-100`
+       reveal works on the heading the same way it does on the visitor card.
+       Without it the pencil would only appear once the operator hovered the
+       pencil itself, defeating the affordance. *@
+    <div class="flex items-center gap-3 mb-2 flex-wrap group">
         @if (HasFlag(Model.CountryCode))
         {
             <img src="@FlagUrl(Model.CountryCode!)" alt="@Model.CountryCode" class="w-6 h-4 object-cover rounded-sm" />
         }
-        <h1 class="text-lg font-bold text-base-content" title="Signature: @Model.SignatureId">@signatureDisplayName</h1>
+        @* Operator-name slot. Same .fp-name wrapper + pencil pattern as
+           _VisitorCard so the commercial inline editor (ED4 §7) swaps this
+           span on Save and reverts on Cancel. FingerprintId is plumbed into
+           the model from StyloBotDashboardMiddleware via
+           IFingerprintReader.LookupFingerprintIdAsync; null when the
+           signature is unbound or the reader is absent (remote-mode dashboard)
+           so the heading degrades to the bare h1 without the affordance. *@
+        <span class="fp-name inline-flex items-center gap-2">
+            <h1 class="text-lg font-bold text-base-content" title="Signature: @Model.SignatureId">@signatureDisplayName</h1>
+            @if (!string.IsNullOrEmpty(Model.FingerprintId))
+            {
+                <button type="button"
+                        class="opacity-0 group-hover:opacity-100 transition text-base-content/40 hover:text-base-content"
+                        hx-get="@($"/api/v1/commercial/fingerprints/{Uri.EscapeDataString(Model.FingerprintId)}/given-name/edit")"
+                        hx-target="closest .fp-name"
+                        hx-swap="outerHTML"
+                        aria-label="Edit name"
+                        data-testid="given-name-edit">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                </button>
+            }
+        </span>
         @if (!string.IsNullOrEmpty(uaPretty))
         {
             <span class="text-base-content/40">·</span>

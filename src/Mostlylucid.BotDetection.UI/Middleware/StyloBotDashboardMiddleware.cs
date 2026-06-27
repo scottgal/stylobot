@@ -5708,6 +5708,28 @@ public class StyloBotDashboardMiddleware
         var canonicalDetailName = detailSigLookup.ResolveBotName(
             _signatureCache, decodedSignature, latest.BotName);
 
+        // Resolve fingerprint id for the heading pencil/operator-edit affordance
+        // (ED4 §7). The commercial editor endpoint addresses fingerprints, not
+        // signatures, so the heading needs the id ahead of view render. Best-effort:
+        // remote-mode hosts without an IFingerprintReader / sigs not yet bound
+        // come back null and the heading skips the pencil silently.
+        string? headingFingerprintId = null;
+        try
+        {
+            var fpReader = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
+            if (fpReader is not null)
+            {
+                headingFingerprintId = await fpReader.LookupFingerprintIdAsync(
+                    decodedSignature, context.RequestAborted);
+            }
+        }
+        catch (Exception fpEx)
+        {
+            _logger.LogDebug(fpEx,
+                "FingerprintId lookup failed for {Signature}; signature heading renders without pencil",
+                decodedSignature);
+        }
+
         model = new SignatureDetailModel
         {
             SignatureId = decodedSignature,
@@ -5757,6 +5779,7 @@ public class StyloBotDashboardMiddleware
             BrowserModes = await ResolveBrowserModesAsync(context, decodedSignature),
             DriftBadge = await Services.FingerprintDriftProjector.ResolveForSignatureAsync(
                 decodedSignature, context.RequestServices, context.RequestAborted, _logger),
+            FingerprintId = headingFingerprintId,
         };
 
         context.Response.ContentType = "text/html";

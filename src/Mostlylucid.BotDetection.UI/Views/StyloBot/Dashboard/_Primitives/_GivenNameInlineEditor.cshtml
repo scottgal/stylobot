@@ -1,0 +1,44 @@
+@model Mostlylucid.BotDetection.UI.Models.Primitives.GivenNameEditorModel
+@*
+    Inline operator-name editor. Swapped into the dashboard's `.fp-name` wrapper
+    when the pencil button on _VisitorCard / _SignatureDetail header is clicked
+    (HTMX hx-get returns this partial, replaces the outer .fp-name).
+
+    On Save the form POSTs to Model.PostUrl. The commercial endpoint replies
+    with either:
+      - 200 + the updated read-only HTML (real Enterprise license)
+      - 403 + JSON refusal { reason: "demo_mode", message: "…" } (demo gate)
+      - 402 + JSON refusal { reason: "license_required", … }  (unlicensed)
+      - 400 + JSON refusal { reason: "shape_banned", … }      (banned input)
+
+    The `hx-on::after-request` handler catches the 403 demo-mode path: it pulls
+    the toast message out of the JSON body and pipes it through the global
+    `window.sbToast` (registered in the dashboard's persistent demo-pill JS;
+    falls through silently when the toast helper is absent so the partial is
+    safe on hosts that don't ship it). All other failure modes fall through to
+    HTMX's default error display.
+
+    Spec: docs/superpowers/specs/2026-06-27-fingerprint-name-slots-editor-demo-mode-design.md
+    §6.3 (demo-mode UI affordances) + §7 (operator editor surface).
+*@
+<form class="inline-flex items-center gap-1 fp-name"
+      hx-post="@Model.PostUrl"
+      hx-target="closest .fp-name"
+      hx-swap="outerHTML"
+      hx-on::after-request="if(event.detail.failed && event.detail.xhr.status===403){try{var r=JSON.parse(event.detail.xhr.responseText);if(window.sbToast){window.sbToast(r.message||'Demo mode - your change was not saved.','demo');}}catch(e){}}">
+    <input name="Name"
+           value="@Model.CurrentGivenName"
+           maxlength="@Model.MaxLength"
+           class="input input-xs input-bordered max-w-[200px]"
+           autocomplete="off"
+           autofocus />
+    <button type="submit"
+            class="btn btn-xs btn-primary"
+            data-testid="given-name-save">Save</button>
+    <button type="button"
+            hx-get="@Model.CancelUrl"
+            hx-target="closest .fp-name"
+            hx-swap="outerHTML"
+            class="btn btn-xs btn-ghost"
+            data-testid="given-name-cancel">Cancel</button>
+</form>
