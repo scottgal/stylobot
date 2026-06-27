@@ -684,6 +684,8 @@ public static class StyloBotDashboardServiceExtensions
             opts.PathPolicies[$"{basePath}/api/**"] = policyName;
         });
 
+        services.AddDashboardEndpointPerfBaseline();
+
         return services;
     }
 

@@ -6,7 +6,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///     deviation ratio. Implementations cache the values; the hot-path call
 ///     must be lock-free and allocation-free.
 ///     <para>
-///     Optional DI: hosts that have no <see cref="UI.Services.IDashboardEventStore"/>
+///     Optional DI: hosts that have no <c>IDashboardEventStore</c>
 ///     register <see cref="NullEndpointPerfBaseline"/>, and consumers degrade
 ///     to ratio 1.0 (no shed contribution) on those hosts.
 ///     </para>
@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///     <strong>Single consumer.</strong> Only the middleware OnCompleted hook
 ///     reads from this interface. Dashboard rendering, policy decisions, ops
 ///     surfaces all continue to read raw-path stats from
-///     <see cref="UI.Services.IDashboardEventStore"/> directly. Do not add
+///     <c>IDashboardEventStore</c> directly. Do not add
 ///     convenience members here that would invite other call sites.
 ///     </para>
 /// </summary>
