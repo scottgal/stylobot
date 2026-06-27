@@ -198,17 +198,22 @@ internal static class FingerprintNameComposer
             (string.IsNullOrEmpty(family) || string.IsNullOrEmpty(version)
              || string.IsNullOrEmpty(os) || string.IsNullOrEmpty(osVersion)))
         {
+            // Pattern-match against the nullable tuple explicitly. The original
+            // `parsed is var (a, b)` form deconstructs eagerly, which throws on
+            // a null tuple (uap-core's no-match return) and silently kills the
+            // matcher's fire-and-forget recompose. Use `is { } x` then
+            // deconstruct.
             var parsed = Helpers.UapCoreUserAgentParser.Default.Parse(rawUaForParse);
-            if (parsed is var (parsedFamily, parsedVersion))
+            if (parsed is { } parsedHit)
             {
-                family ??= parsedFamily;
-                version ??= parsedVersion;
+                family ??= parsedHit.Family;
+                version ??= parsedHit.Version;
             }
             var parsedOs = Helpers.UapCoreUserAgentParser.Default.Os(rawUaForParse);
-            if (parsedOs is var (parsedOsFamily, parsedOsVersion))
+            if (parsedOs is { } parsedOsHit)
             {
-                os ??= parsedOsFamily;
-                osVersion ??= parsedOsVersion;
+                os ??= parsedOsHit.Family;
+                osVersion ??= parsedOsHit.Version;
             }
         }
 
