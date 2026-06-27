@@ -27,8 +27,19 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     cached_risk_band            TEXT,
     cached_score_updated_at     TEXT,
     ambiguity_persistence       REAL NOT NULL DEFAULT 0,
-    display_name                TEXT NOT NULL DEFAULT '',
-    display_name_updated_at     TEXT NOT NULL DEFAULT '',
+    -- 2026-06-27 three-slot name model (Induced / Llm / Given), strict
+    -- precedence in the resolver. Replaces the single display_name slot;
+    -- the matcher writes induced_name, the LLM namer writes llm_name +
+    -- llm_description, the operator UI writes given_name + operator_id.
+    -- See docs/superpowers/specs/2026-06-27-fingerprint-name-slots-editor-demo-mode-design.md §5.2.
+    induced_name                TEXT,
+    induced_name_updated_at     TIMESTAMP,
+    llm_name                    TEXT,
+    llm_evaluated_at            TIMESTAMP,
+    llm_description             TEXT,
+    given_name                  TEXT,
+    given_name_updated_at       TIMESTAMP,
+    given_name_operator_id      TEXT,
     root_centroid               BLOB,
     root_centroid_at            TEXT,
     root_source                 TEXT,

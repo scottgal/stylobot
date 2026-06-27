@@ -120,6 +120,29 @@ internal static class IdentitySchema
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprint_name_history ADD COLUMN signal_snapshot_json TEXT", ct);
 
+        // 2026-06-27 three-slot name model -- split display_name into induced / llm / given.
+        // See docs/superpowers/specs/2026-06-27-fingerprint-name-slots-editor-demo-mode-design.md §5.2.
+        // Backfill copies any legacy display_name into induced_name (the safe default;
+        // matcher recompose / next LLM pass repopulate the other slots over time).
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN induced_name TEXT", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN induced_name_updated_at TIMESTAMP", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN llm_name TEXT", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN llm_evaluated_at TIMESTAMP", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN llm_description TEXT", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN given_name TEXT", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN given_name_updated_at TIMESTAMP", ct);
+        await TryAddColumnAsync(conn, "ALTER TABLE fingerprints ADD COLUMN given_name_operator_id TEXT", ct);
+
+        // Legacy display_name was NOT NULL DEFAULT '' on SQLite, so empty-string
+        // is the unset marker (NULL-tolerant covers fresh schemas where the
+        // column never existed at all).
+        await TryExecuteAsync(conn,
+            "UPDATE fingerprints SET induced_name = display_name, induced_name_updated_at = display_name_updated_at " +
+            "WHERE display_name IS NOT NULL AND display_name <> '' AND induced_name IS NULL", ct);
+
+        await TryExecuteAsync(conn, "ALTER TABLE fingerprints DROP COLUMN display_name", ct);
+        await TryExecuteAsync(conn, "ALTER TABLE fingerprints DROP COLUMN display_name_updated_at", ct);
+
         // 2026-06-22 -- drop fingerprint_modes parallel-axis columns. See
         // docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
         // The per-mode "inferred archetype" was the parallel-axis bug: every
@@ -166,6 +189,28 @@ internal static class IdentitySchema
         catch (SqliteException ex) when (ex.Message.Contains("no such column", StringComparison.OrdinalIgnoreCase))
         {
             // Already migrated; nothing to do.
+        }
+    }
+
+    /// <summary>
+    ///     Forward-only ALTER TABLE / UPDATE helper that swallows any SqliteException.
+    ///     Used for migration statements where the SQLite error surface varies by
+    ///     version (DROP COLUMN raises different codes depending on whether the
+    ///     column ever existed; an UPDATE that references a missing column raises
+    ///     a separate error). For a forward-only migration we want a no-op rather
+    ///     than a crash on already-applied state.
+    /// </summary>
+    private static async Task TryExecuteAsync(SqliteConnection conn, string sql, CancellationToken ct)
+    {
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (SqliteException)
+        {
+            // Forward-only migration; swallow already-applied / not-applicable cases.
         }
     }
 
