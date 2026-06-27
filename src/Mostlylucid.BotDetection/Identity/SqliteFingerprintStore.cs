@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -88,6 +89,37 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     <see cref="Triggers.CalibrationSignalSource"/>; tests pass null.
     /// </summary>
     private readonly Triggers.IAdaptiveTriggerSignalSource? _triggerSignals;
+
+    // ----------------------------------------------------------------------
+    // Write-behind LFU façade for name-slot writes (induced + llm). Per
+    // feedback_write_behind_lfu_facade + §4a constraint 2: matcher writes
+    // (per-request high-frequency) and LLM writes (drift-triggered, bounded
+    // concurrency) MUST NOT take a synchronous DB write — SQLite can't
+    // handle per-request hot-path writes. The dict (_fingerprintById) is
+    // source of truth; this channel funnels mutations to a single drainer
+    // task that batches UPDATE + INSERT INTO fingerprint_name_history.
+    //
+    // Operator GivenName edits stay synchronous: they're rare (operator-
+    // initiated) and durability matters before the endpoint returns 200.
+    // ----------------------------------------------------------------------
+    private abstract record NameWrite(string FingerprintId, DateTime At);
+    private sealed record InducedNameWrite(
+        string FingerprintId, string? OldName, string NewName, DateTime At, string? SignalSnapshotJson)
+        : NameWrite(FingerprintId, At);
+    private sealed record LlmNameWrite(
+        string FingerprintId, string? OldName, string NewName, string? Description, DateTime At)
+        : NameWrite(FingerprintId, At);
+
+    private const int NameWriteQueueCapacity = 4096;
+    private readonly Channel<NameWrite> _nameWriteChannel =
+        Channel.CreateBounded<NameWrite>(new BoundedChannelOptions(NameWriteQueueCapacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
+    private Task? _nameDrainerTask;
+    private readonly object _nameDrainerInitLock = new();
 
     public SqliteFingerprintStore(
         ILogger<SqliteFingerprintStore> logger,
@@ -320,7 +352,9 @@ public class SqliteFingerprintStore : IFingerprintStore
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
-                   display_name, display_name_updated_at,
+                   induced_name, induced_name_updated_at,
+                   llm_name, llm_evaluated_at, llm_description,
+                   given_name, given_name_updated_at, given_name_operator_id,
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations
               FROM fingerprints WHERE fingerprint_id = @id
@@ -355,7 +389,9 @@ public class SqliteFingerprintStore : IFingerprintStore
                     archetype_origin, inferred_client_type, inferred_type_confidence,
                     inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                     cached_score_updated_at, ambiguity_persistence,
-                    display_name, display_name_updated_at,
+                    induced_name, induced_name_updated_at,
+                    llm_name, llm_evaluated_at, llm_description,
+                    given_name, given_name_updated_at, given_name_operator_id,
                     root_centroid, root_centroid_at, root_source,
                     claim_status, verification_method, verified_at, trust_observations
                 ) VALUES (
@@ -364,7 +400,9 @@ public class SqliteFingerprintStore : IFingerprintStore
                     @origin, @inferred_type, @inferred_conf,
                     @inferred_changed, @cached_prob, @cached_band,
                     @cached_updated, @ambiguity,
-                    @display_name, @display_name_updated,
+                    @induced_name, @induced_name_updated,
+                    @llm_name, @llm_evaluated_at, @llm_description,
+                    @given_name, @given_name_updated, @given_name_operator,
                     @root_centroid, @root_at, @root_source,
                     @claim_status, @verification_method, @verified_at, @trust_observations
                 )
@@ -389,15 +427,25 @@ public class SqliteFingerprintStore : IFingerprintStore
                 (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@ambiguity", fp.AmbiguityPersistence);
             // Contract gate at the row's initial allocation. The matcher seeds the
-            // display name on the brand-new fingerprint record from FingerprintNameComposer
-            // (verifiedbot path) or persistedDisplayName (new-allocation path); a banned
+            // InducedName on the brand-new fingerprint record from FingerprintNameComposer
+            // (verifiedbot path) or persistedInducedName (new-allocation path); a banned
             // shape from either path must never land on disk. Empty string passes through
-            // so the no-name-yet allocation case still works.
+            // so the no-name-yet allocation case still works. LLM and Given slots are
+            // null at allocation; the LLM coordinator and operator editor populate them.
             cmd.Parameters.AddWithValue(
-                "@display_name",
-                NormaliseBannedShape(fp.DisplayName, fp.FingerprintId, primarySignature));
-            cmd.Parameters.AddWithValue("@display_name_updated",
-                fp.DisplayNameUpdatedAt == default ? "" : fp.DisplayNameUpdatedAt.ToString("O"));
+                "@induced_name",
+                NormaliseBannedShape(fp.InducedName, fp.FingerprintId, primarySignature));
+            cmd.Parameters.AddWithValue("@induced_name_updated",
+                fp.InducedNameUpdatedAt is { } iAt ? iAt.ToString("O") : "");
+            cmd.Parameters.AddWithValue("@llm_name", (object?)fp.LlmName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@llm_evaluated_at",
+                (object?)fp.LlmEvaluatedAt?.ToString("O") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@llm_description", (object?)fp.LlmDescription ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@given_name", (object?)fp.GivenName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@given_name_updated",
+                (object?)fp.GivenNameUpdatedAt?.ToString("O") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@given_name_operator",
+                (object?)fp.GivenNameOperatorId ?? DBNull.Value);
             // root_centroid is the reference drift is measured against. The matcher
             // is expected to seed it from the matched archetype's centroid (or the
             // seed centroid on the verifiedbot path); if anything in the allocation
@@ -459,8 +507,8 @@ public class SqliteFingerprintStore : IFingerprintStore
         // (requests 2..N for the same primarySig) resolves the fingerprint id without
         // racing the WAL flush. We deliberately do NOT pre-populate _fingerprintById
         // with the input fp: the INSERT self-seeds root_centroid / root_centroid_at /
-        // root_source when the input has nulls, and display_name_updated_at is coerced
-        // to empty-string on default DateTime, so caching the input object would serve
+        // root_source when the input has nulls, and induced_name_updated_at is coerced
+        // to empty-string on a null DateTime, so caching the input object would serve
         // a fingerprint shape that disagrees with the row on disk. Let the first
         // GetFingerprintAsync populate it from the canonical SELECT.
         _fingerprintIdByPrimarySig[primarySignature] = fp.FingerprintId;
@@ -502,100 +550,312 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     Updates a fingerprint's display name and timestamp. Called from
-    ///     <c>FingerprintMatchContributor</c> on two paths: (1) lazy backfill when a row
-    ///     migrated from before the column existed is matched and its <c>DisplayName</c>
-    ///     is empty; (2) significant-drift recompute (drift score above
-    ///     <c>Match.SignificantDriftEpsilon</c>). Idempotent; no-op when the row doesn't
-    ///     exist.
+    ///     Matcher writeback for <c>InducedName</c>. Per <c>feedback_write_behind_lfu_facade</c>
+    ///     this is per-request high-frequency — SQLite cannot take a synchronous DB write
+    ///     here. The dict (<c>_fingerprintById</c>) is updated synchronously so the next
+    ///     L1 read sees the new value; the DB UPDATE + history INSERT happens off-path
+    ///     via <see cref="_nameWriteChannel"/>'s drainer. No-op when the slot value is
+    ///     unchanged (re-confirmations from the matcher's hysteresis path must not tick
+    ///     <c>InducedNameUpdatedAt</c> — see spec §4 / NS7).
     /// </summary>
-    public async Task UpdateDisplayNameAsync(
-        string fingerprintId, string displayName, DateTime updatedAt,
-        CancellationToken ct = default,
-        string source = "matcher",
+    public Task UpdateInducedNameAsync(
+        string fingerprintId,
+        string inducedName,
+        DateTime updatedAt,
+        CancellationToken ct,
         string? signalSnapshotJson = null)
     {
-        if (string.IsNullOrEmpty(fingerprintId)) return;
+        if (string.IsNullOrEmpty(fingerprintId)) return Task.CompletedTask;
 
-        // Contract gate at the single durable write boundary. The matcher's
-        // EmitDisplayNameSignal calls here directly (not via the signature-keyed
-        // helper), and the gate must fire here too so a banned shape from any
-        // caller -- matcher recompose, operator label, legacy import -- can't
-        // land. Mirrors UpdateDisplayNameForSignatureAsync. Empty string is
-        // passthrough so the absorption service's "clear name on archetype flip"
-        // path still works.
-        displayName = NormaliseBannedShape(displayName, fingerprintId);
+        // Contract gate at the write boundary. Mirrors the pre-split behaviour:
+        // banned shapes get normalised to the priority-4 Unknown <hex> fallback
+        // before they reach the dict or the durable tier.
+        var name = NormaliseBannedShape(inducedName, fingerprintId);
 
-        await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-
-        // Single write gate. Read the current display name first so we can
-        // decide whether this rename is a real transition that deserves a
-        // history row, or a no-op that should not pollute the timeline view.
-        // Skip the history row when:
-        //   - new name is empty (the FingerprintAbsorptionService passes "" as
-        //     a placeholder during absorption; that's not a name change)
-        //   - new name equals old name (idempotent rewrites from the matcher's
-        //     hysteresis path -- don't want N identical history rows per match)
-        string? oldName = null;
-        {
-            await using var read = conn.CreateCommand();
-            read.CommandText = "SELECT display_name FROM fingerprints WHERE fingerprint_id = @id";
-            read.Parameters.AddWithValue("@id", fingerprintId);
-            var raw = await read.ExecuteScalarAsync(ct);
-            oldName = raw as string;
-        }
-
-        // Canonical-casing normalisation at the SINGLE write boundary into the
+        // Canonical-casing normalisation at the single write boundary into the
         // persistent fingerprint store. Whatever spelling a contributor or LLM
         // namer emits ("googlebot", "GOOGLEBOT", "Googlebot/2.1") gets folded
         // to the BotPatternLoader catalog's canonical casing before it lands
         // on the row. Stops casing-split parasites where the same identity
         // appeared as N rows because different writers raced to land different
-        // strings in the same field. Unknown names (custom matcher labels,
-        // fediverse instance suffixes not in the catalog) pass through as-is.
-        var canonical = !string.IsNullOrEmpty(displayName)
-            ? Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(displayName) ?? displayName
-            : "";
-        var newName = canonical;
+        // strings in the same field.
+        if (!string.IsNullOrEmpty(name))
+            name = Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(name) ?? name;
+
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var fp))
+        {
+            // Cold miss: nothing to merge into. The matcher always allocates +
+            // GetFingerprintAsync's the row before driving recompose, so this is
+            // a defensive return. Don't enqueue a write for a row we have no
+            // dict view of (drainer would have to re-read the prior name from DB
+            // for the history row, defeating the write-behind point).
+            return Task.CompletedTask;
+        }
+
+        // Idempotency: no-op when the new name equals the existing slot value.
+        // Avoids trigger-spam — InducedNameUpdatedAt ticks only on real transitions.
+        if (string.Equals(fp.InducedName, name, StringComparison.Ordinal))
+            return Task.CompletedTask;
+
+        var prior = fp.InducedName;
+        var updated = fp with { InducedName = name, InducedNameUpdatedAt = updatedAt };
+        _fingerprintById[fingerprintId] = updated;
+
+        EnsureNameDrainerStarted();
+        _nameWriteChannel.Writer.TryWrite(new InducedNameWrite(
+            fingerprintId, prior, name, updatedAt, signalSnapshotJson));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    ///     LLM-namer writeback for <c>LlmName</c> + <c>LlmDescription</c>. Medium-frequency
+    ///     (drift-triggered, bounded concurrency) — same write-behind LFU façade as
+    ///     <see cref="UpdateInducedNameAsync"/>. <c>LlmEvaluatedAt</c> ticks on every
+    ///     successful LLM pass per spec §4 so the picker can de-prioritise just-evaluated
+    ///     rows even when the LLM returned the same name.
+    /// </summary>
+    public Task UpdateLlmNameAsync(
+        string fingerprintId,
+        string llmName,
+        string? description,
+        DateTime evaluatedAt,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return Task.CompletedTask;
+
+        var name = NormaliseBannedShape(llmName, fingerprintId);
+        if (!string.IsNullOrEmpty(name))
+            name = Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(name) ?? name;
+
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var fp))
+            return Task.CompletedTask;
+
+        var prior = fp.LlmName;
+        var updated = fp with
+        {
+            LlmName = name,
+            LlmDescription = description,
+            LlmEvaluatedAt = evaluatedAt,
+        };
+        _fingerprintById[fingerprintId] = updated;
+
+        EnsureNameDrainerStarted();
+        _nameWriteChannel.Writer.TryWrite(new LlmNameWrite(
+            fingerprintId, prior, name, description, evaluatedAt));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    ///     Operator-edit writeback for <c>GivenName</c>. Low-frequency human-rate write
+    ///     where durability matters before the endpoint returns 200 — synchronous LFU+DB
+    ///     write inside the request handler is fine here per spec §4a constraint 2. A
+    ///     null / empty <paramref name="givenName"/> clears the pin so the resolver falls
+    ///     back to <c>LlmName</c> / <c>InducedName</c>.
+    /// </summary>
+    public async Task UpdateGivenNameAsync(
+        string fingerprintId,
+        string? givenName,
+        string operatorId,
+        DateTime updatedAt,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+
+        var trimmed = string.IsNullOrWhiteSpace(givenName) ? null : givenName!.Trim();
+
+        // Contract gate still fires on operator input — banned shapes from the
+        // editor get normalised the same as matcher / LLM writes.
+        if (trimmed is not null)
+        {
+            var normalised = NormaliseBannedShape(trimmed, fingerprintId);
+            trimmed = string.IsNullOrEmpty(normalised) ? null : normalised;
+        }
+
+        // Dict-authoritative replace so the next L1 read sees the operator pin
+        // without waiting for the SQL commit. Matches RecordVerdictAsync /
+        // UpdateClaimVerificationAsync patterns elsewhere in this store.
+        string? prior = null;
+        if (_fingerprintById.TryGetValue(fingerprintId, out var fp))
+        {
+            prior = fp.GivenName;
+            _fingerprintById[fingerprintId] = fp with
+            {
+                GivenName = trimmed,
+                GivenNameUpdatedAt = updatedAt,
+                GivenNameOperatorId = operatorId,
+            };
+        }
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
 
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
                 UPDATE fingerprints
-                   SET display_name = @name,
-                       display_name_updated_at = @ts
+                   SET given_name              = @name,
+                       given_name_updated_at   = @ts,
+                       given_name_operator_id  = @op
                  WHERE fingerprint_id = @id
                 """;
-            cmd.Parameters.AddWithValue("@name", newName);
+            cmd.Parameters.AddWithValue("@name", (object?)trimmed ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("@op", (object?)operatorId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@id", fingerprintId);
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
-        var isRealTransition =
-            !string.IsNullOrEmpty(newName) &&
-            !string.Equals(oldName ?? string.Empty, newName, StringComparison.Ordinal);
-
+        // Always record an operator edit in history — clears (trimmed == null)
+        // are audit-relevant transitions even when no display change results.
+        var isRealTransition = !string.Equals(prior ?? string.Empty, trimmed ?? string.Empty, StringComparison.Ordinal);
         if (isRealTransition)
         {
             await using var hist = conn.CreateCommand();
             hist.CommandText = """
                 INSERT INTO fingerprint_name_history
-                       (fingerprint_id, old_name, new_name, source, changed_at, signal_snapshot_json)
-                VALUES (@id, @old, @new, @src, @ts, @snap)
+                       (fingerprint_id, old_name, new_name, source, name_kind, operator_id, changed_at)
+                VALUES (@id, @old, @new, 'operator', 'given', @op, @ts)
                 """;
             hist.Parameters.AddWithValue("@id", fingerprintId);
-            hist.Parameters.AddWithValue("@old", string.IsNullOrEmpty(oldName) ? (object)DBNull.Value : oldName);
-            hist.Parameters.AddWithValue("@new", newName);
-            hist.Parameters.AddWithValue("@src", string.IsNullOrEmpty(source) ? "matcher" : source);
+            hist.Parameters.AddWithValue("@old", string.IsNullOrEmpty(prior) ? (object)DBNull.Value : prior);
+            hist.Parameters.AddWithValue("@new", (object?)trimmed ?? DBNull.Value);
+            hist.Parameters.AddWithValue("@op", (object?)operatorId ?? DBNull.Value);
             hist.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
-            hist.Parameters.AddWithValue("@snap", (object?)signalSnapshotJson ?? DBNull.Value);
             await hist.ExecuteNonQueryAsync(ct);
         }
+    }
 
-        InvalidateFingerprintCache(fingerprintId);
+    /// <summary>
+    ///     Idempotent drainer-task start. Lazy on first write so tests that
+    ///     instantiate the store but never write a name don't pay for a
+    ///     long-running task. Lock-guarded because multiple matcher threads
+    ///     can race the first <c>UpdateInducedNameAsync</c>.
+    /// </summary>
+    private void EnsureNameDrainerStarted()
+    {
+        if (_nameDrainerTask is not null) return;
+        lock (_nameDrainerInitLock)
+        {
+            _nameDrainerTask ??= Task.Run(DrainNameWritesAsync);
+        }
+    }
+
+    /// <summary>
+    ///     Background drainer: pulls queued <see cref="NameWrite"/> entries off the
+    ///     channel and persists them to SQLite. Each write does its own
+    ///     UPDATE + history INSERT inside the same connection — no transaction
+    ///     because (a) write-behind tolerates partial failure (the dict is the
+    ///     source of truth, durability is best-effort retry) and (b) batching
+    ///     N independent fingerprint updates in one transaction would serialise
+    ///     unrelated rows behind one another.
+    /// </summary>
+    private async Task DrainNameWritesAsync()
+    {
+        var reader = _nameWriteChannel.Reader;
+        try
+        {
+            while (await reader.WaitToReadAsync().ConfigureAwait(false))
+            {
+                while (reader.TryRead(out var write))
+                {
+                    try
+                    {
+                        await PersistNameWriteAsync(write).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Write-behind name drainer failed for fingerprint {Id}; dict remains authoritative",
+                            write.FingerprintId);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Write-behind name drainer crashed; in-memory dict still consistent");
+        }
+    }
+
+    private async Task PersistNameWriteAsync(NameWrite write)
+    {
+        await EnsureInitialisedAsync(CancellationToken.None).ConfigureAwait(false);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync().ConfigureAwait(false);
+
+        switch (write)
+        {
+            case InducedNameWrite ind:
+            {
+                await using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = """
+                        UPDATE fingerprints
+                           SET induced_name            = @name,
+                               induced_name_updated_at = @ts
+                         WHERE fingerprint_id = @id
+                        """;
+                    cmd.Parameters.AddWithValue("@name", (object?)ind.NewName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ts", ind.At.ToString("O"));
+                    cmd.Parameters.AddWithValue("@id", ind.FingerprintId);
+                    await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+
+                if (!string.IsNullOrEmpty(ind.NewName)
+                    && !string.Equals(ind.OldName ?? string.Empty, ind.NewName, StringComparison.Ordinal))
+                {
+                    await using var hist = conn.CreateCommand();
+                    hist.CommandText = """
+                        INSERT INTO fingerprint_name_history
+                               (fingerprint_id, old_name, new_name, source, name_kind, changed_at, signal_snapshot_json)
+                        VALUES (@id, @old, @new, 'matcher', 'induced', @ts, @snap)
+                        """;
+                    hist.Parameters.AddWithValue("@id", ind.FingerprintId);
+                    hist.Parameters.AddWithValue("@old", string.IsNullOrEmpty(ind.OldName) ? (object)DBNull.Value : ind.OldName);
+                    hist.Parameters.AddWithValue("@new", ind.NewName);
+                    hist.Parameters.AddWithValue("@ts", ind.At.ToString("O"));
+                    hist.Parameters.AddWithValue("@snap", (object?)ind.SignalSnapshotJson ?? DBNull.Value);
+                    await hist.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+                break;
+            }
+            case LlmNameWrite llm:
+            {
+                await using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = """
+                        UPDATE fingerprints
+                           SET llm_name         = @name,
+                               llm_description  = @desc,
+                               llm_evaluated_at = @ts
+                         WHERE fingerprint_id = @id
+                        """;
+                    cmd.Parameters.AddWithValue("@name", (object?)llm.NewName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@desc", (object?)llm.Description ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ts", llm.At.ToString("O"));
+                    cmd.Parameters.AddWithValue("@id", llm.FingerprintId);
+                    await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+
+                if (!string.IsNullOrEmpty(llm.NewName)
+                    && !string.Equals(llm.OldName ?? string.Empty, llm.NewName, StringComparison.Ordinal))
+                {
+                    await using var hist = conn.CreateCommand();
+                    hist.CommandText = """
+                        INSERT INTO fingerprint_name_history
+                               (fingerprint_id, old_name, new_name, source, name_kind, changed_at)
+                        VALUES (@id, @old, @new, 'llm', 'llm', @ts)
+                        """;
+                    hist.Parameters.AddWithValue("@id", llm.FingerprintId);
+                    hist.Parameters.AddWithValue("@old", string.IsNullOrEmpty(llm.OldName) ? (object)DBNull.Value : llm.OldName);
+                    hist.Parameters.AddWithValue("@new", llm.NewName);
+                    hist.Parameters.AddWithValue("@ts", llm.At.ToString("O"));
+                    await hist.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+                break;
+            }
+        }
     }
 
     /// <summary>
@@ -651,11 +911,12 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     Counts how many fingerprints already hold the given display name. Used by the
-    ///     matcher to enforce the "same name = same fingerprint" rule at allocation time:
-    ///     a non-zero count means a different fingerprint owns the name and the new one
-    ///     must take a distinguished form. Empty / null name returns 0 -- those names
-    ///     don't get persisted in the first place, so they never collide.
+    ///     Counts how many fingerprints already hold the given <c>induced_name</c>. Used by
+    ///     the matcher to enforce the "same name = same fingerprint" rule at allocation
+    ///     time: a non-zero count means a different fingerprint already projected to this
+    ///     induced name and the new one must take a distinguished form. The collision
+    ///     check is over the matcher-owned slot only — operator pins and LLM names are
+    ///     not part of the matcher's identity contract. Empty / null name returns 0.
     /// </summary>
     public async Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default)
     {
@@ -664,7 +925,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM fingerprints WHERE display_name = @name";
+        cmd.CommandText = "SELECT COUNT(*) FROM fingerprints WHERE induced_name = @name";
         cmd.Parameters.AddWithValue("@name", displayName);
         var raw = await cmd.ExecuteScalarAsync(ct);
         return raw is long n ? (int)n : 0;
@@ -679,7 +940,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText =
-            "SELECT COUNT(*) FROM fingerprints WHERE display_name = @name AND fingerprint_id != @fp";
+            "SELECT COUNT(*) FROM fingerprints WHERE induced_name = @name AND fingerprint_id != @fp";
         cmd.Parameters.AddWithValue("@name", displayName);
         cmd.Parameters.AddWithValue("@fp", excludedFingerprintId ?? string.Empty);
         var raw = await cmd.ExecuteScalarAsync(ct);
@@ -687,45 +948,16 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     Update the display name on whichever fingerprint <paramref name="primarySignature"/>
-    ///     currently maps to. One-shot helper for downstream consumers (the LLM-result callback,
-    ///     dashboard "rename" controls) that have a signature in hand but not a fingerprint id.
-    ///     Idempotent; no-op when the signature isn't bound to any fingerprint.
-    ///
-    ///     The contract gate at <see cref="Services.FingerprintNameComposerContract.IsAllowedShape"/>
-    ///     fires here because the contract is a property of the NAME, not of one composer.
-    ///     LLM callbacks (per task #115) and operator-provided labels go through this method
-    ///     directly; without a store-layer gate, a banned shape can still land. Banned shapes
-    ///     are normalised to the priority-4 <c>Unknown &lt;hex&gt;</c> fallback so the call's
-    ///     contract that *some* name lands is preserved. <see cref="BannedShapeRejectionsCount"/>
-    ///     increments so a dashboard / OTel meter can read the rejection rate.
-    /// </summary>
-    public async Task UpdateDisplayNameForSignatureAsync(
-        string primarySignature, string displayName, DateTime updatedAt,
-        CancellationToken ct = default,
-        string source = "matcher",
-        string? signalSnapshotJson = null)
-    {
-        if (string.IsNullOrEmpty(primarySignature)) return;
-        var fingerprintId = await LookupFingerprintIdAsync(primarySignature, ct);
-        if (fingerprintId is null) return;
-
-        displayName = NormaliseBannedShape(displayName, fingerprintId, primarySignature);
-
-        await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct, source, signalSnapshotJson);
-    }
-
-    /// <summary>
-    ///     Shared display-name contract gate. Every write path that lands a value
-    ///     in <c>display_name</c> funnels through this helper so a banned shape
-    ///     can never reach the row no matter which entry point fired -- T24
-    ///     staging found rows like <c>"Chrome Desktop (missing client hints)"</c>
-    ///     persisted by paths that bypassed the original
-    ///     <see cref="UpdateDisplayNameForSignatureAsync"/>-only gate. Empty /
-    ///     null values are passthrough: callers (e.g. the absorption service
-    ///     clearing a stale name after archetype flip) intentionally write
-    ///     empty-string to reset the field, and an empty string is not a
-    ///     banned-shape rejection -- it's an explicit clear.
+    ///     Shared name contract gate. Every write path that lands a value in any of the
+    ///     three name slots (<c>induced_name</c> / <c>llm_name</c> / <c>given_name</c>)
+    ///     funnels through this helper so a banned shape can never reach the row no
+    ///     matter which entry point fired -- T24 staging found rows like
+    ///     <c>"Chrome Desktop (missing client hints)"</c> persisted by paths that
+    ///     bypassed the original single-method gate. Empty / null values are passthrough:
+    ///     callers (e.g. the absorption service clearing a stale name after archetype
+    ///     flip, the operator editor clearing a pin) intentionally write empty-string to
+    ///     reset the field, and an empty string is not a banned-shape rejection -- it's
+    ///     an explicit clear.
     /// </summary>
     private string NormaliseBannedShape(string? displayName, string fingerprintId, string? primarySignature = null)
     {
@@ -1058,7 +1290,9 @@ public class SqliteFingerprintStore : IFingerprintStore
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
-                   display_name, display_name_updated_at,
+                   induced_name, induced_name_updated_at,
+                   llm_name, llm_evaluated_at, llm_description,
+                   given_name, given_name_updated_at, given_name_operator_id,
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations
               FROM fingerprints
@@ -1115,7 +1349,9 @@ public class SqliteFingerprintStore : IFingerprintStore
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
                    cached_score_updated_at, ambiguity_persistence,
-                   display_name, display_name_updated_at,
+                   induced_name, induced_name_updated_at,
+                   llm_name, llm_evaluated_at, llm_description,
+                   given_name, given_name_updated_at, given_name_operator_id,
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations
               FROM fingerprints
@@ -1696,11 +1932,12 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     Bulk transparent-LFU read for dashboard view rendering. For each signature:
     ///     check the two existing LFU dicts (_fingerprintIdByPrimarySig +
     ///     _fingerprintById); take the hits, batch the misses into one SQL roundtrip,
-    ///     populate both dicts with what we loaded, and return signature -> current
-    ///     display name. On a hot cache this never touches SQL.
+    ///     populate both dicts with what we loaded, and return signature -> resolved
+    ///     name (<c>given ?? llm ?? induced</c>) via <see cref="FingerprintNameResolver"/>.
+    ///     On a hot cache this never touches SQL.
     /// </summary>
-    public async Task<IReadOnlyDictionary<string, string?>> GetDisplayNamesBySignaturesAsync(
-        IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default)
+    public async Task<IReadOnlyDictionary<string, string?>> GetResolvedNamesBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct)
     {
         var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         if (primarySignatures.Count == 0) return result;
@@ -1715,7 +1952,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             if (_fingerprintIdByPrimarySig.TryGetValue(sig, out var fpId)
                 && _fingerprintById.TryGetValue(fpId, out var fp))
             {
-                result[sig] = string.IsNullOrEmpty(fp.DisplayName) ? null : fp.DisplayName;
+                result[sig] = FingerprintNameResolver.Resolve(fp);
                 continue;
             }
 
@@ -1728,9 +1965,13 @@ public class SqliteFingerprintStore : IFingerprintStore
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
+        // Cold-miss batch: resolve sig -> fingerprint_id + all three slot
+        // columns in one roundtrip so the resolver can run downstream without
+        // a second SELECT per row.
         var sb = new System.Text.StringBuilder();
         sb.Append("""
-            SELECT k.primary_signature, f.fingerprint_id, f.display_name
+            SELECT k.primary_signature, f.fingerprint_id,
+                   f.induced_name, f.llm_name, f.given_name
               FROM fingerprint_keys k
               JOIN fingerprints f ON f.fingerprint_id = k.fingerprint_id
              WHERE k.primary_signature IN (
@@ -1752,9 +1993,14 @@ public class SqliteFingerprintStore : IFingerprintStore
         {
             var sig = reader.GetString(0);
             var fpId = reader.GetString(1);
-            var name = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var induced = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var llm = reader.IsDBNull(3) ? null : reader.GetString(3);
+            var given = reader.IsDBNull(4) ? null : reader.GetString(4);
             _fingerprintIdByPrimarySig[sig] = fpId;
-            result[sig] = string.IsNullOrEmpty(name) ? null : name;
+            // Resolve inline rather than constructing a transient Fingerprint
+            // record — saves the heap alloc + Centroid clone on a hot read path.
+            var resolved = given ?? llm ?? induced;
+            result[sig] = string.IsNullOrEmpty(resolved) ? null : resolved;
         }
 
         foreach (var sig in missingSigs)
@@ -1762,6 +2008,47 @@ public class SqliteFingerprintStore : IFingerprintStore
                 result[sig] = null;
 
         return result;
+    }
+
+    /// <summary>
+    ///     Atom-walk enumeration for the LLM picker. Per spec §3 + NS7 / §4a constraint:
+    ///     never opens a DB connection — walks the in-memory <c>_fingerprintById</c>
+    ///     dict. Returns hot fingerprints whose induced has drifted since the last LLM
+    ///     eval (or never been evaluated). Sorted by <c>InducedNameUpdatedAt</c>
+    ///     descending so the most recently shifted shapes get re-named first.
+    /// </summary>
+    public IReadOnlyList<Fingerprint> EnumerateLlmRepickCandidates(int maxCount)
+    {
+        if (maxCount <= 0) return Array.Empty<Fingerprint>();
+
+        var candidates = new List<Fingerprint>();
+        foreach (var fp in _fingerprintById.Values)
+        {
+            // No induced name means the matcher never projected this shape (or
+            // banned-shape gate cleared it). Nothing for the LLM to react to —
+            // skip rather than burn a token budget on an empty prior.
+            if (string.IsNullOrEmpty(fp.InducedName)) continue;
+
+            if (fp.LlmEvaluatedAt is null)
+            {
+                candidates.Add(fp);
+                continue;
+            }
+
+            if (fp.InducedNameUpdatedAt is { } iAt && iAt > fp.LlmEvaluatedAt)
+                candidates.Add(fp);
+        }
+
+        // Surrogate ordering: no hot-score on Fingerprint today, so "recently
+        // updated" is the proxy for "shape that just moved". Real hot-score
+        // landing here is a future-work item per NS7 plan note.
+        candidates.Sort((a, b) =>
+            Nullable.Compare(b.InducedNameUpdatedAt, a.InducedNameUpdatedAt));
+
+        if (candidates.Count > maxCount)
+            candidates.RemoveRange(maxCount, candidates.Count - maxCount);
+
+        return candidates;
     }
 
     /// <summary>
@@ -2178,23 +2465,35 @@ public class SqliteFingerprintStore : IFingerprintStore
             ? null
             : DateTime.Parse(reader.GetString(16), null, System.Globalization.DateTimeStyles.RoundtripKind),
         AmbiguityPersistence = reader.GetDouble(17),
-        DisplayName = reader.GetString(18),
-        DisplayNameUpdatedAt = string.IsNullOrEmpty(reader.GetString(19))
-            ? default
+        // Three-slot names (induced / llm / given) replace the old single display_name.
+        // Each slot is independent; resolver picks given ?? llm ?? induced.
+        InducedName = reader.IsDBNull(18) ? null : reader.GetString(18),
+        InducedNameUpdatedAt = reader.IsDBNull(19) || string.IsNullOrEmpty(reader.GetString(19))
+            ? null
             : DateTime.Parse(reader.GetString(19), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        RootCentroid = reader.IsDBNull(20) ? null : BlobToFloats((byte[])reader.GetValue(20)),
-        RootCentroidAt = reader.IsDBNull(21)
+        LlmName = reader.IsDBNull(20) ? null : reader.GetString(20),
+        LlmEvaluatedAt = reader.IsDBNull(21)
             ? null
             : DateTime.Parse(reader.GetString(21), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        RootSource = reader.IsDBNull(22) ? null : reader.GetString(22),
+        LlmDescription = reader.IsDBNull(22) ? null : reader.GetString(22),
+        GivenName = reader.IsDBNull(23) ? null : reader.GetString(23),
+        GivenNameUpdatedAt = reader.IsDBNull(24)
+            ? null
+            : DateTime.Parse(reader.GetString(24), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        GivenNameOperatorId = reader.IsDBNull(25) ? null : reader.GetString(25),
+        RootCentroid = reader.IsDBNull(26) ? null : BlobToFloats((byte[])reader.GetValue(26)),
+        RootCentroidAt = reader.IsDBNull(27)
+            ? null
+            : DateTime.Parse(reader.GetString(27), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        RootSource = reader.IsDBNull(28) ? null : reader.GetString(28),
         // Trust state (gap #4). Older rows pre-migration default to
         // 'unverified' / NULL / NULL / 0 via the ALTER TABLE column defaults.
-        ClaimStatus = reader.IsDBNull(23) ? "unverified" : reader.GetString(23),
-        VerificationMethod = reader.IsDBNull(24) ? null : reader.GetString(24),
-        VerifiedAt = reader.IsDBNull(25)
+        ClaimStatus = reader.IsDBNull(29) ? "unverified" : reader.GetString(29),
+        VerificationMethod = reader.IsDBNull(30) ? null : reader.GetString(30),
+        VerifiedAt = reader.IsDBNull(31)
             ? null
-            : DateTime.Parse(reader.GetString(25), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        TrustObservations = reader.IsDBNull(26) ? 0 : reader.GetInt32(26),
+            : DateTime.Parse(reader.GetString(31), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        TrustObservations = reader.IsDBNull(32) ? 0 : reader.GetInt32(32),
     };
 
     /// <summary>
@@ -2284,7 +2583,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             if (neighbour is null) continue;
             matched.Add(new NearestFingerprint(
                 FingerprintId: id,
-                DisplayName: neighbour.DisplayName,
+                DisplayName: FingerprintNameResolver.Resolve(neighbour) ?? string.Empty,
                 InferredClientType: neighbour.InferredClientType,
                 Distance: distance));
             if (matched.Count >= k) break;
