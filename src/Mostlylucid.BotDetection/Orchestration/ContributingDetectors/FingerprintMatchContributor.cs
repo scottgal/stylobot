@@ -296,8 +296,12 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             CachedBotProbability = spoofed ? 0.95 : 0.85,
             CachedRiskBand = spoofed ? "VeryHigh" : "Medium",
             CachedScoreUpdatedAt = now,
-            DisplayName = displayName,
-            DisplayNameUpdatedAt = now,
+            // Matcher owns the InducedName slot (NS10); LlmName/GivenName are written by
+            // the LLM coordinator and operator respectively. FingerprintNameResolver picks
+            // given ?? llm ?? induced so this row's induced name only surfaces when no
+            // higher-precedence slot is populated.
+            InducedName = displayName,
+            InducedNameUpdatedAt = now,
             // Verifiedbot path has no archetype centroid to anchor against (the UA
             // name IS the identity); self-seed the root from the live vector so the
             // row has a non-null root from row 1. Drift starts at zero and grows if
@@ -588,8 +592,10 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             CachedBotProbability = 0.0,
             CachedRiskBand = null,
             CachedScoreUpdatedAt = null,
-            DisplayName = persistedDisplayName,
-            DisplayNameUpdatedAt = now,
+            // Matcher writes InducedName only (NS10) — LlmName + GivenName are owned by
+            // the LLM coordinator and operator respectively.
+            InducedName = persistedDisplayName,
+            InducedNameUpdatedAt = now,
             RootCentroid = rootCentroid,
             RootCentroidAt = now,
             RootSource = rootSource,
@@ -761,13 +767,13 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             state, vector,
             _archetypes.TryGetById(matched.InferredClientType),
             matched.InferredTypeConfidence);
-        EmitDisplayNameSignal(state, vector, matched, drift);
+        EmitInducedNameSignal(state, vector, matched, drift);
     }
 
     /// <summary>
     ///     Writes the archetype display-name signal and (when global weights are available)
     ///     the per-slot top-drift signals. Returns the drift result so callers can use it
-    ///     for the significant-drift gate (e.g. <see cref="EmitDisplayNameSignal"/>). No-op
+    ///     for the significant-drift gate (e.g. <see cref="EmitInducedNameSignal"/>). No-op
     ///     and returns null when no archetype matched.
     ///
     ///     The <paramref name="matchScore"/> gates name + drift emission via
@@ -817,11 +823,14 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     }
 
     /// <summary>
-    ///     Writes <see cref="SignalKeys.IdentityDisplayName"/> for a matched fingerprint.
+    ///     Writes <see cref="SignalKeys.IdentityDisplayName"/> for a matched fingerprint and,
+    ///     when the composed name has changed, persists it via the matcher-owned
+    ///     <see cref="IFingerprintStore.UpdateInducedNameAsync"/> slot (NS10).
     ///     <para>
     ///     Single path: always call <see cref="FingerprintNameComposer.Compose"/> with the
-    ///     stored <c>matched.DisplayName</c> as <c>previousName</c>. Compose already encodes
-    ///     the correct precedence:
+    ///     resolved name (<c>given ?? llm ?? induced</c> via
+    ///     <see cref="FingerprintNameResolver.Resolve"/>) as <c>previousName</c>. Compose
+    ///     already encodes the correct precedence:
     ///     </para>
     ///     <list type="bullet">
     ///         <item>Priority 1 (<c>ua.bot_name</c>) WINS over any stored name. A self-declared
@@ -849,28 +858,35 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     ///     guarantees we never overwrite a good stored name with a Priority-4 fallback.
     ///     </para>
     /// </summary>
-    private void EmitDisplayNameSignal(
+    private void EmitInducedNameSignal(
         BlackboardState state, float[] vector, Fingerprint matched,
         DriftResult? drift)
     {
+        // previousName drives Compose's hysteresis -- it's "the name the user saw last
+        // time". The resolved name (given ?? llm ?? induced) is the authoritative
+        // displayed label, so use the resolver here even though the matcher only writes
+        // the induced slot. This prevents a fresh Priority-4 fallback from blanking out
+        // a stored operator-given or LLM-given name.
+        var previousDisplayed = FingerprintNameResolver.Resolve(matched);
         var freshName = FingerprintNameComposer.Compose(
             state.Signals,
             userAgent: state.UserAgent,
-            previousName: string.IsNullOrEmpty(matched.DisplayName) ? null : matched.DisplayName);
+            previousName: string.IsNullOrEmpty(previousDisplayed) ? null : previousDisplayed);
 
         // Emit the signal only when there's a real name. Downstream sees null/missing and the
         // render layer synthesises a descriptive label from the row's threat / behaviour.
         if (!string.IsNullOrEmpty(freshName))
             state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
 
-        // Persist whenever Compose produced something that differs from the stored value.
-        // Compose's hysteresis already keeps the stored name on Priority-4 fresh-is-null
-        // requests, so a string difference here is either a first-time-real-name upgrade or
-        // an authoritative recompose from a now-classified UA / archetype / family. Both must
-        // overwrite the stored row -- the previous drift-gated persist let staging Bug 2's
-        // wrong names stick forever.
+        // Persist whenever Compose produced something that differs from the matcher-owned
+        // slot (InducedName, NS10). Compose's hysteresis already keeps the previous name
+        // on Priority-4 fresh-is-null requests, so a string difference here is either a
+        // first-time-real-name upgrade or an authoritative recompose from a now-classified
+        // UA / archetype / family. Both must overwrite the induced slot -- the previous
+        // drift-gated persist let staging Bug 2's wrong names stick forever. We never
+        // overwrite LlmName or GivenName -- the resolver decides what the UI shows.
         var shouldPersist = !string.IsNullOrEmpty(freshName)
-            && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal);
+            && !string.Equals(freshName, matched.InducedName, StringComparison.Ordinal);
         if (shouldPersist)
         {
             // Capture the signals snapshot locally so the fire-and-forget continuation can
@@ -884,6 +900,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // have grown a same-name peer in the meantime. Without this check, a recompose
             // that loses its earlier "(AS15169)" modifier would let two fingerprints share
             // bare "Chrome" -- breaking the "ONE name at a time" rule across surfaces.
+            // CountByDisplayName* now queries the induced_name slot (NS7), matching the
+            // slot the matcher writes.
             _ = Task.Run(async () =>
             {
                 var displayName = baseName;
@@ -901,15 +919,16 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
                     displayName = $"{baseName} ({modifier})";
                 }
 
-                if (!string.Equals(displayName, matched.DisplayName, StringComparison.Ordinal))
+                if (!string.Equals(displayName, matched.InducedName, StringComparison.Ordinal))
                 {
                     // 2026-06-26 contract: persist the projection-input snapshot
                     // alongside the name change so the dashboard can render the
                     // old fingerprint state as a drift signifier next to the old
                     // name. snapshot is null when no signals fed Compose this round.
                     var snapshotJson = FingerprintNameComposer.SerialiseProjectionSnapshot(signalsSnapshot);
-                    await _store.UpdateDisplayNameAsync(newId, displayName, DateTime.UtcNow,
-                        CancellationToken.None, source: "matcher", signalSnapshotJson: snapshotJson);
+                    await _store.UpdateInducedNameAsync(
+                        newId, displayName, DateTime.UtcNow, CancellationToken.None,
+                        signalSnapshotJson: snapshotJson);
                 }
             });
         }
