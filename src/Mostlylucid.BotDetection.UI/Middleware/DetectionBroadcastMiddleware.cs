@@ -11,7 +11,6 @@ using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
-using Mostlylucid.BotDetection.Services.Llm;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
@@ -150,13 +149,7 @@ public partial class DetectionBroadcastMiddleware
         IOptions<StyloBotDashboardOptions> dashboardOptionsAccessor,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
-        IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
-        // EC6c: re-pointed from the legacy SignatureDescriptionService onto the
-        // ephemeral LLM-namer's picker. The Track entry point is identical
-        // (signature + signals dict); the queue is now pull-style on Tick1m.
-        // Optional injection retained -- remote-mode hosts may not register the
-        // picker.
-        DriftTriggeredSignaturePicker? signaturePicker = null)
+        IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null)
     {
         // Build the detection from context.Items (populated by UseBotDetection earlier in
         // the pipeline) BEFORE proxying downstream. The in-memory cache update has to
@@ -309,8 +302,6 @@ public partial class DetectionBroadcastMiddleware
         // be disposed before the task runs.
         var detectionCapture = detection;
         var publisherCapture = detectionEventPublisher;
-        var sigPicker = signaturePicker;
-        var signalsCapture = evidenceCapture?.Signals;
         var pathLog = isUpstreamPath ? "upstream" : "evidence";
 
         // Guard against double-persist when this middleware is wired into the pipeline
@@ -338,21 +329,13 @@ public partial class DetectionBroadcastMiddleware
             try { await PublishEventAsync(publisherCapture, detectionCapture, context: null, evidence: null); }
             catch (Exception ex) { _logger.LogDebug(ex, "Detection event publish failed"); }
 
-            // Signature LLM-namer picker: feeds humans + bots into the
-            // drift-triggered tracker. EphemeralLlmCoordinator pulls past-threshold
-            // entries on its next Tick1m; this push call is hot-path safe (just a
-            // ConcurrentDictionary AddOrUpdate).
-            if (sigPicker is not null
-                && !string.IsNullOrEmpty(detectionCapture.PrimarySignature)
-                && signalsCapture is { Count: > 0 })
-            {
-                try
-                {
-                    var nullableSignals = signalsCapture.ToDictionary(s => s.Key, s => (object?)s.Value);
-                    sigPicker.TrackSignature(detectionCapture.PrimarySignature, nullableSignals);
-                }
-                catch (Exception ex) { _logger.LogDebug(ex, "TrackSignature failed"); }
-            }
+            // LL1: the per-fingerprint LLM namer is now atom-driven -- it walks
+            // IFingerprintStore.EnumerateLlmRepickCandidates on every Tick1m and
+            // doesn't need a per-request push to learn what to re-name. The
+            // legacy DriftTriggeredSignaturePicker.TrackSignature(...) call that
+            // used to live here has been deleted alongside the per-signature
+            // pipeline (see Mostlylucid.BotDetection.Extensions.ServiceCollectionExtensions
+            // / AddFingerprintLlmNamer).
         });
 
         _logger.LogDebug(

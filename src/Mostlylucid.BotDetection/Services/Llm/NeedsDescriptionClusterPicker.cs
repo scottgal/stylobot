@@ -27,10 +27,12 @@ public sealed class NeedsDescriptionClusterPicker : IEphemeralPicker<ClusterPick
     private readonly ClusterInFlightSet _inFlight;
 
     // Tracker: cluster_id -> (latest cluster snapshot, members from that wave).
-    // Push-state ported in (mirrors SignatureDescriptionService -> DriftTriggeredSignaturePicker
-    // pattern from EC6a). The legacy enqueue source was push-only via
-    // BotClusterDescriptionService.OnClustersUpdated; that callsite re-points onto
-    // TrackClusters in EC6c.
+    // Push-state ported in from the legacy SignatureDescriptionService picker
+    // pattern (EC6a). The legacy enqueue source was push-only via
+    // BotClusterDescriptionService.OnClustersUpdated; that callsite re-points
+    // onto TrackClusters in EC6c. The per-signature picker has since been
+    // replaced by DriftTriggeredFingerprintPicker (LL1) but the cluster path
+    // keeps the push tracker because cluster discovery is event-shaped.
     private readonly ConcurrentDictionary<string, ClusterTracker> _trackedClusters = new(StringComparer.Ordinal);
 
     public NeedsDescriptionClusterPicker(ClusterInFlightSet inFlight)

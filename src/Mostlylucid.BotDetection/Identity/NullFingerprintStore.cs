@@ -107,7 +107,7 @@ public class NullFingerprintStore : IFingerprintStore
         CancellationToken ct, string? signalSnapshotJson = null)
         => Task.CompletedTask;
 
-    public Task UpdateLlmNameAsync(
+    public virtual Task UpdateLlmNameAsync(
         string fingerprintId, string llmName, string? description,
         DateTime evaluatedAt, CancellationToken ct)
         => Task.CompletedTask;
@@ -140,10 +140,10 @@ public class NullFingerprintStore : IFingerprintStore
         return Task.FromResult<IReadOnlyDictionary<string, string?>>(result);
     }
 
-    public IReadOnlyList<Fingerprint> EnumerateLlmRepickCandidates(int maxCount)
+    public virtual IReadOnlyList<Fingerprint> EnumerateLlmRepickCandidates(int maxCount)
         => Array.Empty<Fingerprint>();
 
-    public Task<IReadOnlyList<DisplayNameChange>> GetDisplayNameHistoryAsync(
+    public virtual Task<IReadOnlyList<DisplayNameChange>> GetDisplayNameHistoryAsync(
         string fingerprintId, int limit = 50, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<DisplayNameChange>>(Array.Empty<DisplayNameChange>());
 

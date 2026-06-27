@@ -1436,9 +1436,12 @@ public static class ServiceCollectionExtensions
         // legacy LlmDescriptionCoordinator queue + BackgroundService pair. The
         // picker is registered as the concrete type AND as IEphemeralPicker<T>
         // pointing at the same singleton so middleware callers needing the
-        // concrete TrackSignature / TrackClusters entry point and the coordinator
-        // resolving IEphemeralPicker<T> share state.
-        services.AddSignatureLlmNamer();
+        // concrete TrackClusters entry point and the coordinator resolving
+        // IEphemeralPicker<T> share state. Fingerprint-naming picker is purely
+        // atom-driven -- it walks IFingerprintStore.EnumerateLlmRepickCandidates
+        // on tick and needs no middleware push (LL1, replaces the per-signature
+        // picker + DetectionBroadcastMiddleware.TrackSignature push).
+        services.AddFingerprintLlmNamer();
         services.AddClusterLlmNamer();
 
         // BotClusterDescriptionService still owns the IClusterDescriptionCallback
@@ -1699,27 +1702,34 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    ///     Registers the signature LLM-naming pipeline: drift-triggered picker,
-    ///     in-flight reservation set, prompter / invoker / writeback, and the
-    ///     per-(TItem,TResult) EphemeralLlmCoordinator with bootstrap. The
-    ///     concrete <see cref="DriftTriggeredSignaturePicker"/> singleton and the
-    ///     <see cref="IEphemeralPicker{T}"/> facet resolve to the SAME instance so
-    ///     callers that push via <c>TrackSignature(...)</c> and the coordinator
-    ///     pulling via <c>Pick(...)</c> share state.
+    ///     Registers the per-FINGERPRINT LLM-naming pipeline (LL1, spec §3.2 +
+    ///     §7): drift-triggered picker, in-flight reservation set, prompter /
+    ///     invoker / writeback, and the per-(TItem,TResult)
+    ///     EphemeralLlmCoordinator with bootstrap. Replaces the legacy per-
+    ///     SIGNATURE pipeline -- the picker now walks
+    ///     <see cref="IFingerprintStore.EnumerateLlmRepickCandidates"/> directly
+    ///     (atom-only, no DB) instead of a push-tracked signature LFU, and the
+    ///     writeback persists into <c>Fingerprint.LlmName</c> via
+    ///     <see cref="IFingerprintStore.UpdateLlmNameAsync"/> instead of the
+    ///     SignalR signature-name callback. The concrete
+    ///     <see cref="DriftTriggeredFingerprintPicker"/> and the
+    ///     <see cref="IEphemeralPicker{T}"/> facet resolve to the SAME singleton
+    ///     so the in-flight reservation set is observed consistently across
+    ///     callers (no parallel-axis pickers).
     /// </summary>
-    public static IServiceCollection AddSignatureLlmNamer(this IServiceCollection s) =>
-        s.AddSingleton<SignatureInFlightSet>()
-         .AddSingleton<DriftTriggeredSignaturePicker>()
-         .AddSingleton<IEphemeralPicker<SignaturePickItem>>(sp => sp.GetRequiredService<DriftTriggeredSignaturePicker>())
-         .AddSingleton<IEphemeralPrompter<SignaturePickItem>, SignatureNamingPrompter>()
-         .AddSingleton<IEphemeralLlmInvoker<SignatureNamingResult>, SignatureLlmInvoker>()
-         .AddSingleton<IEphemeralWriteback<SignaturePickItem, SignatureNamingResult>, SignatureLlmWriteback>()
-         .AddEphemeralLlmCoordinator<SignaturePickItem, SignatureNamingResult>(opts =>
+    public static IServiceCollection AddFingerprintLlmNamer(this IServiceCollection s) =>
+        s.AddSingleton<FingerprintInFlightSet>()
+         .AddSingleton<DriftTriggeredFingerprintPicker>()
+         .AddSingleton<IEphemeralPicker<FingerprintPickItem>>(sp => sp.GetRequiredService<DriftTriggeredFingerprintPicker>())
+         .AddSingleton<IEphemeralPrompter<FingerprintPickItem>, FingerprintNamingPrompter>()
+         .AddSingleton<IEphemeralLlmInvoker<FingerprintNamingResult>, FingerprintLlmInvoker>()
+         .AddSingleton<IEphemeralWriteback<FingerprintPickItem, FingerprintNamingResult>, FingerprintLlmWriteback>()
+         .AddEphemeralLlmCoordinator<FingerprintPickItem, FingerprintNamingResult>(opts =>
          {
              opts.Cadence = TickCadence.Tick1m;
              opts.MaxItemsPerTick = 10;
              opts.MaxConcurrent = Math.Max(1, Environment.ProcessorCount / 2);
-             opts.SubscriberName = "SignatureLlmNamer";
+             opts.SubscriberName = "FingerprintLlmNamer";
              opts.InvocationTimeout = TimeSpan.FromSeconds(30);
          });
 

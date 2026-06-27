@@ -4,7 +4,7 @@ namespace Mostlylucid.BotDetection.Services.Llm;
 
 /// <summary>
 ///     Shared per-key sequentiality guard for the cluster LLM path. Mirrors
-///     <see cref="SignatureInFlightSet"/> verbatim. Picker reserves the cluster id
+///     <see cref="FingerprintInFlightSet"/> verbatim. Picker reserves the cluster id
 ///     before returning the pick; writeback releases it after persistence. Invoker
 ///     failures (where the EphemeralLlmCoordinator skips writeback entirely) are
 ///     reclaimed automatically by the <see cref="_staleAfter"/> window — once a
