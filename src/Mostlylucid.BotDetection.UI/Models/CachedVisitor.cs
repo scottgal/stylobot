@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Grouping;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.UI.Models.Primitives;
 
 namespace Mostlylucid.BotDetection.UI.Models;
@@ -24,7 +25,54 @@ public class CachedVisitor
     public string? LastPath { get; set; }
     public List<string> Paths { get; set; } = new();
     public string Action { get; set; } = "Allow";
-    public string? BotName { get; set; }
+
+    /// <summary>
+    ///     Operator-pinned name slot. When non-null the resolver returns this
+    ///     regardless of the LLM or matcher slots. Drives the pinned-name
+    ///     indicator on the visitor card. Populated by callers that have
+    ///     access to the full <see cref="Fingerprint"/> record; null on
+    ///     projections that only have the resolved name in hand.
+    /// </summary>
+    public string? GivenName { get; set; }
+
+    /// <summary>
+    ///     LLM-coordinator name slot. Wins over the matcher's induced slot
+    ///     when present and no operator pin exists. Surfaced in the drift
+    ///     hint when the matcher's induced has diverged from this value.
+    /// </summary>
+    public string? LlmName { get; set; }
+
+    /// <summary>
+    ///     Matcher-projected name slot. Pure deterministic projection of
+    ///     observed signals (UA family + version + OS + modifiers). Always
+    ///     populated once the matcher has seen the fingerprint.
+    /// </summary>
+    public string? InducedName { get; set; }
+
+    /// <summary>
+    ///     Which slot the displayed <see cref="BotName"/> came from. Drives
+    ///     the visitor card's slot-hint badges (pinned indicator, drift
+    ///     marker between induced and LLM slots). <see cref="FingerprintNameKind.None"/>
+    ///     when no slot has been written yet (cold-start row).
+    /// </summary>
+    public FingerprintNameKind DisplayedSlot { get; set; }
+
+    /// <summary>
+    ///     Currently-displayed name. Back-compat surface that callers (Razor
+    ///     views, sort selectors) read instead of probing the three slots.
+    ///     Computed from the slots when none of the legacy resolved-name
+    ///     populators have run; setter is preserved so cache projections
+    ///     that still call <c>BotName = GetResolvedName(sig)</c> continue
+    ///     to work during the transition off the unified-name dict.
+    /// </summary>
+    public string? BotName
+    {
+        get => _botName ?? GivenName ?? LlmName ?? InducedName;
+        set => _botName = value;
+    }
+
+    private string? _botName;
+
     public string? BotType { get; set; }
     public string? CountryCode { get; set; }
     public string? UserAgent { get; set; }

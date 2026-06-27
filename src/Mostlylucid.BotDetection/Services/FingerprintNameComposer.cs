@@ -65,7 +65,7 @@ internal static class FingerprintNameComposer
     ///     the fresh compose would be a Priority-4 fallback ("analysing" / "unknown xxx")
     ///     but the previous compose found a real name, the previous wins. The matcher's
     ///     Path 2+3 recompose (in <c>EmitDisplayNameSignal</c>) passes the persisted
-    ///     <c>Fingerprint.DisplayName</c> here.
+    ///     <c>Fingerprint.InducedName</c> here.
     ///     </para>
     ///     <para>
     ///     Same-name collisions between distinct fingerprints (e.g. two Mastodon instances

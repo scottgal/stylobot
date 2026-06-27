@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.Identity
 @using Mostlylucid.BotDetection.UI.Services
 @using Mostlylucid.BotDetection.UI.Helpers
 @using Mostlylucid.BotDetection.UI.Models
@@ -11,8 +12,9 @@
         "Medium" or "Elevated" => "text-warning",
         _ => "text-success"
     };
-    // Single source: matcher (FingerprintNameComposer) is the sole writer of
-    // Fingerprint.DisplayName. View just renders what the store returned.
+    // Resolver-owned single source: given ?? llm ?? induced. View renders
+    // whatever the resolver picked; the slot-hint badges below indicate
+    // which slot won and whether other slots disagree.
     var displayName = Model.BotName;
     // 2026-06-26 drift signifier: when the fingerprint's name changed within
     // the recent window (default 7d), show the previous name next to the
@@ -47,6 +49,22 @@
                           title="@($"Renamed from {priorBotName}. The fingerprint's observed signals have shifted; click through to the signature detail view for the per-snapshot diff.")">
                         was: @priorBotName
                     </span>
+                }
+                @* Operator-pinned indicator. Shown alongside whatever is currently displaying;
+                   when the displayed slot IS Given the pin is implicit so we skip the badge. *@
+                @if (!string.IsNullOrEmpty(Model.GivenName) && Model.DisplayedSlot != FingerprintNameKind.Given)
+                {
+                    <span class="badge badge-xs badge-ghost" title="Pinned: @Model.GivenName">📌</span>
+                }
+                @* Drift hint: the LLM picked a name, but the matcher's induced
+                   slot has since diverged from it. Surface the divergence so an
+                   operator can spot stale LLM characterisations at a glance. *@
+                @if (Model.DisplayedSlot == FingerprintNameKind.Llm
+                     && !string.IsNullOrEmpty(Model.InducedName)
+                     && !string.Equals(Model.InducedName, Model.LlmName, StringComparison.Ordinal))
+                {
+                    <span class="badge badge-xs badge-ghost text-base-content/40 italic"
+                          title="Signals now read: @Model.InducedName">drift</span>
                 }
                 @{
                     var (vBadge, vBadgeClass) = Model.BotProbability switch

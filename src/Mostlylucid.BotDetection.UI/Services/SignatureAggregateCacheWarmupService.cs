@@ -76,10 +76,10 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
                     "Warmed signature aggregate cache with {Count} signatures from last 24h",
                     topBots.Count);
 
-                // Pull display names from the contract-gated fingerprint store
-                // (Fingerprint.DisplayName) and push them into the cache's
-                // resolved-name dict. This is the ONLY path that populates names
-                // post-2026-06-19-single-source-fingerprint-name spec; the
+                // Pull resolved names from the slot-aware fingerprint store
+                // (given ?? llm ?? induced via FingerprintNameResolver) and push
+                // them into the cache's resolved-name dict. This is the ONLY
+                // path that populates names post-name-slots split; the
                 // per-detection write path no longer touches names. Skipped when
                 // no IFingerprintStore is registered (e.g. legacy fixtures).
                 if (_fingerprintStore is not null)
@@ -93,11 +93,11 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
                             .ToList();
                         if (sigs.Count > 0)
                         {
-                            var names = await _fingerprintStore.GetDisplayNamesBySignaturesAsync(
+                            var names = await _fingerprintStore.GetResolvedNamesBySignaturesAsync(
                                 sigs, stoppingToken);
                             _cache.ApplyResolvedNames(names);
                             _logger.LogInformation(
-                                "Pulled {Count} display names from IFingerprintStore for warmed cache entries",
+                                "Pulled {Count} resolved names from IFingerprintStore for warmed cache entries",
                                 names.Count(kv => !string.IsNullOrEmpty(kv.Value)));
                         }
                     }
@@ -105,7 +105,7 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex,
-                            "Failed to pull display names from IFingerprintStore -- visitor list will render without names until a refresh succeeds");
+                            "Failed to pull resolved names from IFingerprintStore -- visitor list will render without names until a refresh succeeds");
                     }
                 }
 
