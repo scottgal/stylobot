@@ -132,20 +132,30 @@ public interface IFingerprintStore : IFingerprintReader
         DateTime? verifiedAt,
         CancellationToken ct = default);
 
-    // ── Display name ─────────────────────────────────────────────────────────
-    /// <summary>
-    ///     Update a fingerprint's display name + append a history row when the
-    ///     name actually changed. <paramref name="signalSnapshotJson"/> (added
-    ///     2026-06-26) carries the projector inputs at the moment this name
-    ///     was generated; the history row stores it so the dashboard can
-    ///     render old fingerprint state next to the old name. Null is fine
-    ///     for legacy callers / non-matcher writes.
-    /// </summary>
-    Task UpdateDisplayNameAsync(
-        string fingerprintId, string displayName, DateTime updatedAt,
-        CancellationToken ct = default,
-        string source = "matcher",
+    // ── Name slots ──────────────────────────────────────────────────────────
+    /// <summary>Matcher writeback. High-frequency, write-behind LFU façade.</summary>
+    Task UpdateInducedNameAsync(
+        string fingerprintId,
+        string inducedName,
+        DateTime updatedAt,
+        CancellationToken ct,
         string? signalSnapshotJson = null);
+
+    /// <summary>LLM coordinator writeback. Medium-frequency, write-behind LFU façade.</summary>
+    Task UpdateLlmNameAsync(
+        string fingerprintId,
+        string llmName,
+        string? description,
+        DateTime evaluatedAt,
+        CancellationToken ct);
+
+    /// <summary>Operator edit. Low-frequency, synchronous LFU+DB write.</summary>
+    Task UpdateGivenNameAsync(
+        string fingerprintId,
+        string? givenName,
+        string operatorId,
+        DateTime updatedAt,
+        CancellationToken ct);
 
     Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default);
 
@@ -160,15 +170,8 @@ public interface IFingerprintStore : IFingerprintReader
     Task<int> CountByDisplayNameExcludingFingerprintAsync(
         string displayName, string excludedFingerprintId, CancellationToken ct = default);
 
-    Task UpdateDisplayNameForSignatureAsync(
-        string primarySignature, string displayName, DateTime updatedAt,
-        CancellationToken ct = default,
-        string source = "matcher",
-        string? signalSnapshotJson = null);
-
     /// <summary>
-    ///     Count of display-name writes rejected by the contract gate at
-    ///     <see cref="UpdateDisplayNameForSignatureAsync"/>. Non-zero means
+    ///     Count of name writes rejected by the contract gate. Non-zero means
     ///     some upstream caller (LLM callback, operator label, legacy import)
     ///     tried to write a shape the contract disallows; the name was
     ///     normalised to <c>Unknown &lt;hex&gt;</c>. Observable so the
@@ -177,20 +180,19 @@ public interface IFingerprintStore : IFingerprintReader
     long BannedShapeRejectionsCount { get; }
 
     /// <summary>
-    ///     Bulk transparent-LFU read for view rendering: signature -> current display
-    ///     name. Composes the two existing LFU dicts (_fingerprintIdByPrimarySig +
-    ///     _fingerprintById) so the dashboard's per-row name lookup costs nothing on
-    ///     a hot cache. Misses fall through to one bulk SQL roundtrip that populates
-    ///     both dicts. Returned dictionary has an entry per input signature; value is
-    ///     null when no fingerprint has been allocated yet for the signature.
-    ///     <para>
-    ///     This is THE read path for dashboard views per the LFU contract -- there is
-    ///     no SignatureAggregate.BotName field; views ALWAYS go through this method
-    ///     so the name has exactly one source of truth (Fingerprint.DisplayName).
-    ///     </para>
+    ///     Bulk LFU read used by the dashboard. Returns the resolved
+    ///     <c>given ?? llm ?? induced</c> for each primary signature.
     /// </summary>
-    Task<IReadOnlyDictionary<string, string?>> GetDisplayNamesBySignaturesAsync(
-        IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default);
+    Task<IReadOnlyDictionary<string, string?>> GetResolvedNamesBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures,
+        CancellationToken ct);
+
+    /// <summary>
+    ///     Atom-walk enumeration for the LLM picker: returns hot fingerprints
+    ///     whose induced has drifted since the last LLM eval (or never).
+    ///     Never touches the DB; reads the in-memory LFU map only.
+    /// </summary>
+    IReadOnlyList<Fingerprint> EnumerateLlmRepickCandidates(int maxCount);
 
     /// <summary>
     ///     Snapshot read for the signature timeline view: returns the per-fingerprint
