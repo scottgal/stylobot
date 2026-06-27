@@ -82,6 +82,11 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // subscriptions are live before the first detection event lands.
         _services.GetService<LlmClassificationCoordinator>();
         _services.GetService<IntentClassificationCoordinator>();
+        // BotClusterDescriptionService subscribes to BotClusterService.ClustersUpdated
+        // at construction; without eager resolution the SignalR cluster-refresh
+        // broadcast + LLM-naming picker push never wire up. This was a pre-existing
+        // gap surfaced during the EC6c review; EC6f full-test-sweep will confirm.
+        _services.GetService<BotClusterDescriptionService>();
         // SessionPersistenceService subscribes to Tick10s + SessionStore.
         // SessionFinalized; the lifecycle host (separately registered) handles
         // boot init + graceful-shutdown drain.

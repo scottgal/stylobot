@@ -7,7 +7,7 @@ namespace Mostlylucid.BotDetection.Services.Llm;
 
 /// <summary>
 ///     Drift-triggered LFU picker for the signature LLM-naming path. Replaces the
-///     push-then-Task.Run flow inside the legacy <see cref="SignatureDescriptionService"/>:
+///     push-then-Task.Run flow inside the legacy <c>SignatureDescriptionService</c> (removed):
 ///     middleware still calls <see cref="TrackSignature"/> on every request to bump the
 ///     per-signature counter; the picker walks the in-memory tracker each tick and
 ///     surfaces signatures whose request count has crossed

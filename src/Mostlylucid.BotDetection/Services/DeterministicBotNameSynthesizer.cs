@@ -6,7 +6,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///     Async wrapper around <see cref="FingerprintNameComposer"/> for the
 ///     <see cref="IBotNameSynthesizer"/> contract. The composer is the single source of truth
 ///     for naming; this class just plugs it into the LLM-fallback path (see
-///     <c>LlmDescriptionCoordinator.ProcessSignatureAsync</c>).
+///     <c>SignatureLlmInvoker.InvokeAsync</c>).
 ///
 ///     The matcher (<c>FingerprintMatchContributor</c>) calls
 ///     <see cref="FingerprintNameComposer.Compose"/> directly on fingerprint allocation, so

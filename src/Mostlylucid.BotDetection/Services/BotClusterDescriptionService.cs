@@ -74,8 +74,8 @@ public class BotClusterDescriptionService : IDisposable
         // Push clusters that still need descriptions to the picker; the
         // EphemeralLlmCoordinator<ClusterPickItem,ClusterNamingResult> walks the
         // tracker on its next Tick5m. The picker's TrackClusters filter is the
-        // same string.IsNullOrEmpty(cluster.Description) gate the legacy
-        // EnqueueClustersForDescriptionAsync used.
+        // same string.IsNullOrEmpty(cluster.Description) gate the previous
+        // enqueue path used.
         if (_options.EnableLlmDescriptions)
         {
             try
