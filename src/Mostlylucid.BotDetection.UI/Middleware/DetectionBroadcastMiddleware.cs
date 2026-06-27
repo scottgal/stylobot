@@ -11,6 +11,7 @@ using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.Services.Llm;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
@@ -150,7 +151,12 @@ public partial class DetectionBroadcastMiddleware
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
         IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
-        SignatureDescriptionService? signatureDescriptionService = null)
+        // EC6c: re-pointed from the legacy SignatureDescriptionService onto the
+        // ephemeral LLM-namer's picker. The Track entry point is identical
+        // (signature + signals dict); the queue is now pull-style on Tick1m.
+        // Optional injection retained -- remote-mode hosts may not register the
+        // picker.
+        DriftTriggeredSignaturePicker? signaturePicker = null)
     {
         // Build the detection from context.Items (populated by UseBotDetection earlier in
         // the pipeline) BEFORE proxying downstream. The in-memory cache update has to
@@ -303,7 +309,7 @@ public partial class DetectionBroadcastMiddleware
         // be disposed before the task runs.
         var detectionCapture = detection;
         var publisherCapture = detectionEventPublisher;
-        var sigDescService = signatureDescriptionService;
+        var sigPicker = signaturePicker;
         var signalsCapture = evidenceCapture?.Signals;
         var pathLog = isUpstreamPath ? "upstream" : "evidence";
 
@@ -332,15 +338,18 @@ public partial class DetectionBroadcastMiddleware
             try { await PublishEventAsync(publisherCapture, detectionCapture, context: null, evidence: null); }
             catch (Exception ex) { _logger.LogDebug(ex, "Detection event publish failed"); }
 
-            // Description service: feeds humans + bots into the name/description synthesizer.
-            if (sigDescService is not null
+            // Signature LLM-namer picker: feeds humans + bots into the
+            // drift-triggered tracker. EphemeralLlmCoordinator pulls past-threshold
+            // entries on its next Tick1m; this push call is hot-path safe (just a
+            // ConcurrentDictionary AddOrUpdate).
+            if (sigPicker is not null
                 && !string.IsNullOrEmpty(detectionCapture.PrimarySignature)
                 && signalsCapture is { Count: > 0 })
             {
                 try
                 {
                     var nullableSignals = signalsCapture.ToDictionary(s => s.Key, s => (object?)s.Value);
-                    sigDescService.TrackSignature(detectionCapture.PrimarySignature, nullableSignals);
+                    sigPicker.TrackSignature(detectionCapture.PrimarySignature, nullableSignals);
                 }
                 catch (Exception ex) { _logger.LogDebug(ex, "TrackSignature failed"); }
             }

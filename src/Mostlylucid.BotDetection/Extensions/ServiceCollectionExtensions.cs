@@ -34,8 +34,11 @@ using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Similarity;
 using Mostlylucid.BotDetection.Compliance;
 using Mostlylucid.BotDetection.Proxy;
+using Mostlylucid.BotDetection.Services.Llm;
 using Mostlylucid.BotDetection.Setup;
 using Mostlylucid.BotDetection.SimulationPacks;
+using Mostlylucid.Atoms.Ephemeral;
+using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Extensions;
 
@@ -1425,9 +1428,23 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, ContentSequenceContributor>();
         services.AddHostedService<CentroidSequenceRebuildHostedService>();
         services.AddHostedService<AssetHashInitHostedService>();
-        // Constrained LLM description coordinator (KeyedSequentialAtom, 50% CPU concurrency)
-        services.AddSingleton<LlmDescriptionCoordinator>();
-        // LLM-based cluster descriptions (background, never in request pipeline)
+        // ==========================================
+        // Ephemeral LLM Namer pipelines (EC6c)
+        // ==========================================
+        // Per-(TItem,TResult) EphemeralLlmCoordinator drives picker -> prompter ->
+        // invoker -> writeback against a ScheduleCoordinator tick instead of the
+        // legacy LlmDescriptionCoordinator queue + BackgroundService pair. The
+        // picker is registered as the concrete type AND as IEphemeralPicker<T>
+        // pointing at the same singleton so middleware callers needing the
+        // concrete TrackSignature / TrackClusters entry point and the coordinator
+        // resolving IEphemeralPicker<T> share state.
+        services.AddSignatureLlmNamer();
+        services.AddClusterLlmNamer();
+
+        // BotClusterDescriptionService still owns the IClusterDescriptionCallback
+        // broadcast on ClustersUpdated (non-LLM, immediate). Its enqueue path is
+        // re-pointed onto NeedsDescriptionClusterPicker.TrackClusters; the legacy
+        // LlmDescriptionCoordinator queue is gone.
         services.AddSingleton<BotClusterDescriptionService>();
 
         // ==========================================
@@ -1437,14 +1454,6 @@ public static class ServiceCollectionExtensions
         // Deterministic naming from signals (immediate, no LLM required).
         // LLM packages override this with richer AI-generated names when available.
         services.TryAddSingleton<IBotNameSynthesizer, DeterministicBotNameSynthesizer>();
-
-        // ==========================================
-        // Signature Description Service (Background)
-        // ==========================================
-        // Generates LLM descriptions for signatures once they reach request threshold.
-        // Registered as singleton + hosted service so the broadcast middleware can inject it.
-        services.AddSingleton<SignatureDescriptionService>();
-        services.AddHostedService(sp => sp.GetRequiredService<SignatureDescriptionService>());
 
         // CVE fingerprint matching - runs after Heuristic (priority 55) to match traffic against CVE-derived shapes
         services.TryAddSingleton<ICveFingerprintMatcher, NullCveFingerprintMatcher>();
@@ -1688,4 +1697,54 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    ///     Registers the signature LLM-naming pipeline: drift-triggered picker,
+    ///     in-flight reservation set, prompter / invoker / writeback, and the
+    ///     per-(TItem,TResult) EphemeralLlmCoordinator with bootstrap. The
+    ///     concrete <see cref="DriftTriggeredSignaturePicker"/> singleton and the
+    ///     <see cref="IEphemeralPicker{T}"/> facet resolve to the SAME instance so
+    ///     callers that push via <c>TrackSignature(...)</c> and the coordinator
+    ///     pulling via <c>Pick(...)</c> share state.
+    /// </summary>
+    public static IServiceCollection AddSignatureLlmNamer(this IServiceCollection s) =>
+        s.AddSingleton<SignatureInFlightSet>()
+         .AddSingleton<DriftTriggeredSignaturePicker>()
+         .AddSingleton<IEphemeralPicker<SignaturePickItem>>(sp => sp.GetRequiredService<DriftTriggeredSignaturePicker>())
+         .AddSingleton<IEphemeralPrompter<SignaturePickItem>, SignatureNamingPrompter>()
+         .AddSingleton<IEphemeralLlmInvoker<SignatureNamingResult>, SignatureLlmInvoker>()
+         .AddSingleton<IEphemeralWriteback<SignaturePickItem, SignatureNamingResult>, SignatureLlmWriteback>()
+         .AddEphemeralLlmCoordinator<SignaturePickItem, SignatureNamingResult>(opts =>
+         {
+             opts.Cadence = TickCadence.Tick1m;
+             opts.MaxItemsPerTick = 10;
+             opts.MaxConcurrent = Math.Max(1, Environment.ProcessorCount / 2);
+             opts.SubscriberName = "SignatureLlmNamer";
+             opts.InvocationTimeout = TimeSpan.FromSeconds(30);
+         });
+
+    /// <summary>
+    ///     Registers the cluster LLM-naming pipeline: needs-description picker,
+    ///     in-flight reservation set, prompter / invoker / writeback, and the
+    ///     per-(TItem,TResult) EphemeralLlmCoordinator with bootstrap. The
+    ///     concrete <see cref="NeedsDescriptionClusterPicker"/> singleton and the
+    ///     <see cref="IEphemeralPicker{T}"/> facet resolve to the SAME instance so
+    ///     callers that push via <c>TrackClusters(...)</c> and the coordinator
+    ///     pulling via <c>Pick(...)</c> share state.
+    /// </summary>
+    public static IServiceCollection AddClusterLlmNamer(this IServiceCollection s) =>
+        s.AddSingleton<ClusterInFlightSet>()
+         .AddSingleton<NeedsDescriptionClusterPicker>()
+         .AddSingleton<IEphemeralPicker<ClusterPickItem>>(sp => sp.GetRequiredService<NeedsDescriptionClusterPicker>())
+         .AddSingleton<IEphemeralPrompter<ClusterPickItem>, ClusterNamingPrompter>()
+         .AddSingleton<IEphemeralLlmInvoker<ClusterNamingResult>, ClusterLlmInvoker>()
+         .AddSingleton<IEphemeralWriteback<ClusterPickItem, ClusterNamingResult>, ClusterLlmWriteback>()
+         .AddEphemeralLlmCoordinator<ClusterPickItem, ClusterNamingResult>(opts =>
+         {
+             opts.Cadence = TickCadence.Tick5m;
+             opts.MaxItemsPerTick = 4;
+             opts.MaxConcurrent = 2;
+             opts.SubscriberName = "ClusterLlmNamer";
+             opts.InvocationTimeout = TimeSpan.FromSeconds(60);
+         });
 }

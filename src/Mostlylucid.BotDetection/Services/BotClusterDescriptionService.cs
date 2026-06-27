@@ -2,35 +2,43 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Services.Llm;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Background service that generates LLM-based descriptions for bot clusters (GraphRAG-style).
-///     Subscribes to BotClusterService.ClustersUpdated events and processes clusters asynchronously.
-///     NEVER runs in the request pipeline - only fires after background clustering completes.
-///     Pushes updates via IClusterDescriptionCallback (SignalR) so dashboard users see live updates.
-///     Uses ILlmProvider (from plugin packages) if available; otherwise skips LLM descriptions.
+///     Listens for <see cref="BotClusterService.ClustersUpdated"/> waves and fans
+///     them out two ways: (1) immediate <see cref="IClusterDescriptionCallback"/>
+///     broadcast for SignalR so dashboard users see cluster refreshes live, and
+///     (2) <see cref="NeedsDescriptionClusterPicker.TrackClusters"/> push so the
+///     ephemeral LLM-naming coordinator can pull the next batch on its tick.
+///     NEVER runs in the request pipeline -- only fires after background
+///     clustering completes.
+///     <para>
+///         As of EC6c the legacy <c>LlmDescriptionCoordinator</c> queue is gone;
+///         the cluster-naming pipeline is now picker-driven against
+///         <c>ScheduleCoordinator</c> Tick5m.
+///     </para>
 /// </summary>
 public class BotClusterDescriptionService : IDisposable
 {
     private readonly ILogger<BotClusterDescriptionService> _logger;
     private readonly BotClusterService _clusterService;
     private readonly ClusterOptions _options;
-    private readonly LlmDescriptionCoordinator _coordinator;
+    private readonly NeedsDescriptionClusterPicker _clusterPicker;
     private readonly IClusterDescriptionCallback? _callback;
 
     public BotClusterDescriptionService(
         ILogger<BotClusterDescriptionService> logger,
         BotClusterService clusterService,
         IOptions<BotDetectionOptions> options,
-        LlmDescriptionCoordinator coordinator,
+        NeedsDescriptionClusterPicker clusterPicker,
         IClusterDescriptionCallback? callback = null)
     {
         _logger = logger;
         _clusterService = clusterService;
         _options = options.Value.Cluster;
-        _coordinator = coordinator;
+        _clusterPicker = clusterPicker;
         _callback = callback;
 
         if (_options.EnableLlmDescriptions || _callback != null)
@@ -63,37 +71,20 @@ public class BotClusterDescriptionService : IDisposable
             });
         }
 
-        // Enqueue clusters needing descriptions to the constrained coordinator
-        _ = EnqueueClustersForDescriptionAsync(clusters, behaviors);
-    }
-
-    private async Task EnqueueClustersForDescriptionAsync(
-        IReadOnlyList<BotCluster> clusters,
-        IReadOnlyList<SignatureBehavior> behaviors)
-    {
-        if (!_options.EnableLlmDescriptions)
-            return;
-
-        var behaviorMap = behaviors.ToDictionary(b => b.Signature);
-
-        foreach (var cluster in clusters.Where(c => string.IsNullOrEmpty(c.Description)))
+        // Push clusters that still need descriptions to the picker; the
+        // EphemeralLlmCoordinator<ClusterPickItem,ClusterNamingResult> walks the
+        // tracker on its next Tick5m. The picker's TrackClusters filter is the
+        // same string.IsNullOrEmpty(cluster.Description) gate the legacy
+        // EnqueueClustersForDescriptionAsync used.
+        if (_options.EnableLlmDescriptions)
         {
             try
             {
-                var members = cluster.MemberSignatures
-                    .Where(s => behaviorMap.ContainsKey(s))
-                    .Select(s => behaviorMap[s])
-                    .ToList();
-
-                if (members.Count == 0) continue;
-
-                await _coordinator.EnqueueClusterAsync(
-                    cluster.ClusterId, cluster, members, CancellationToken.None);
+                _clusterPicker.TrackClusters(clusters, behaviors);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to enqueue cluster {ClusterId} for description",
-                    cluster.ClusterId);
+                _logger.LogDebug(ex, "Failed to track clusters for LLM-naming picker");
             }
         }
     }
