@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -11,8 +12,8 @@ namespace Mostlylucid.BotDetection.Test.Identity;
 
 /// <summary>
 ///     Integration pin for the canonical-casing normalisation hook inside
-///     <see cref="SqliteFingerprintStore.UpdateDisplayNameAsync"/> /
-///     <see cref="SqliteFingerprintStore.UpdateDisplayNameForSignatureAsync"/>.
+///     the slot-aware name updaters on <see cref="SqliteFingerprintStore"/>
+///     (<c>UpdateInducedNameAsync</c> / <c>UpdateLlmNameAsync</c>).
 ///     Whatever spelling a contributor or LLM-namer hands the store
 ///     ("googlebot" / "GOOGLEBOT") is folded to the BotPatternLoader catalog's
 ///     canonical casing BEFORE landing on the row. Unknown names (operator
@@ -79,21 +80,24 @@ public class FingerprintStoreCanonicalDisplayNameTests : IDisposable
     [InlineData("googlebot",  "Googlebot")]
     [InlineData("GOOGLEBOT",  "Googlebot")]
     [InlineData("Googlebot",  "Googlebot")]
-    public async Task UpdateDisplayNameAsync_normalises_via_BotPatternLoader(string written, string expected)
+    public async Task UpdateInducedNameAsync_normalises_via_BotPatternLoader(string written, string expected)
     {
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
         await store.InsertFingerprintAsync(NewFingerprint("fp-canon", dim), primarySignature: "sig-canon");
+        // Warm the LFU dict — Update*NameAsync is a write-behind façade that
+        // short-circuits when the dict has no view of the row.
+        await store.GetFingerprintAsync("fp-canon");
 
-        await store.UpdateDisplayNameAsync("fp-canon", written, DateTime.UtcNow);
+        await store.UpdateInducedNameAsync("fp-canon", written, DateTime.UtcNow, CancellationToken.None);
 
         var fp = await store.GetFingerprintAsync("fp-canon");
         Assert.NotNull(fp);
-        Assert.Equal(expected, fp!.DisplayName);
+        Assert.Equal(expected, FingerprintNameResolver.Resolve(fp));
     }
 
     [Fact]
-    public async Task UpdateDisplayNameAsync_passes_unknown_name_through_unchanged()
+    public async Task UpdateInducedNameAsync_passes_unknown_name_through_unchanged()
     {
         // Operator-set labels and fediverse instance suffixes aren't in the catalog --
         // the normaliser must leave them alone. Round-trip through the store so a
@@ -102,28 +106,32 @@ public class FingerprintStoreCanonicalDisplayNameTests : IDisposable
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
         await store.InsertFingerprintAsync(NewFingerprint("fp-custom", dim), primarySignature: "sig-custom");
+        await store.GetFingerprintAsync("fp-custom"); // warm LFU dict
 
-        await store.UpdateDisplayNameAsync("fp-custom", "Customer FX scraper", DateTime.UtcNow);
+        await store.UpdateInducedNameAsync("fp-custom", "Customer FX scraper", DateTime.UtcNow, CancellationToken.None);
 
         var fp = await store.GetFingerprintAsync("fp-custom");
         Assert.NotNull(fp);
-        Assert.Equal("Customer FX scraper", fp!.DisplayName);
+        Assert.Equal("Customer FX scraper", FingerprintNameResolver.Resolve(fp));
     }
 
     [Fact]
-    public async Task UpdateDisplayNameForSignatureAsync_also_normalises()
+    public async Task UpdateLlmNameAsync_also_normalises()
     {
-        // The signature-keyed overload (used by LlmResultSignalRCallback) shares the
+        // The LLM-slot updater (used by LlmResultSignalRCallback writers) shares the
         // same write boundary -- pin that it also canonicalises so the LLM namer
         // can't sneak a casing variant in past the matcher path.
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
         await store.InsertFingerprintAsync(NewFingerprint("fp-llm", dim), primarySignature: "sig-llm");
+        await store.GetFingerprintAsync("fp-llm"); // warm LFU dict
 
-        await store.UpdateDisplayNameForSignatureAsync("sig-llm", "googlebot", DateTime.UtcNow);
+        await store.UpdateLlmNameAsync("fp-llm", "googlebot", description: null, DateTime.UtcNow, CancellationToken.None);
 
         var fp = await store.GetFingerprintAsync("fp-llm");
         Assert.NotNull(fp);
-        Assert.Equal("Googlebot", fp!.DisplayName);
+        // LLM-slot wins over Induced in the resolver: given ?? llm ?? induced
+        Assert.Equal("Googlebot", FingerprintNameResolver.Resolve(fp));
+        Assert.Equal("Googlebot", fp!.LlmName);
     }
 }

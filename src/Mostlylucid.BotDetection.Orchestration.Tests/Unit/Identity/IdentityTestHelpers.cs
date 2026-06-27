@@ -70,8 +70,8 @@ internal static class IdentityTestHelpers
             CachedBotProbability = cachedBotProbability,
             CachedRiskBand = cachedRiskBand,
             CachedScoreUpdatedAt = cachedScoreUpdatedAt,
-            DisplayName = displayName ?? string.Empty,
-            DisplayNameUpdatedAt = displayName is null ? default : now
+            InducedName = displayName,
+            InducedNameUpdatedAt = displayName is null ? default(DateTime?) : now
         };
     }
 }

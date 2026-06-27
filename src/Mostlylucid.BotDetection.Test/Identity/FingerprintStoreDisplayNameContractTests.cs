@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,12 +15,12 @@ namespace Mostlylucid.BotDetection.Test.Identity;
 /// <summary>
 ///     Pins the store-layer enforcement of the display-name contract.
 ///     <see cref="FingerprintNameComposerContract.IsAllowedShape"/> is a
-///     property of the NAME, not of one composer. Any caller writing a
-///     display name through <see cref="IFingerprintStore.UpdateDisplayNameForSignatureAsync"/>
-///     (LLM callbacks per task #115, operator labels, legacy imports) must
-///     be blocked from landing a banned shape. A regression that allows a
-///     banned shape to land via this entry point silently reduces the
-///     trichotomy contract to a polite suggestion.
+///     property of the NAME, not of one composer. Every slot-aware name
+///     updater on <see cref="IFingerprintStore"/>
+///     (<see cref="IFingerprintStore.UpdateInducedNameAsync"/>,
+///     <see cref="IFingerprintStore.UpdateLlmNameAsync"/>,
+///     <see cref="IFingerprintStore.UpdateGivenNameAsync"/>) must block a
+///     banned-shape candidate from landing.
 ///
 ///     Banned shapes are normalised to the priority-4 "Unknown &lt;hex&gt;"
 ///     fallback so the call's contract that *some* name lands is preserved,
@@ -47,28 +48,29 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
     [InlineData("Unknown 8c41b2bd",                            true)]
     [InlineData("Chrome Desktop (missing client hints)",       false)]
     [InlineData("Mac Chrome 149 w/ uBlock GB",                 false)]
-    public async Task UpdateDisplayNameForSignatureAsync_rejects_banned_shapes(string candidate, bool shouldLand)
+    public async Task UpdateLlmNameAsync_rejects_banned_shapes(string candidate, bool shouldLand)
     {
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
         const string fpId = "fp-contract";
         const string sig  = "sig-contract";
         await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySignature: sig);
+        await store.GetFingerprintAsync(fpId); // warm LFU dict
 
-        await store.UpdateDisplayNameForSignatureAsync(sig, candidate, DateTime.UtcNow, source: "test");
+        await store.UpdateLlmNameAsync(fpId, candidate, description: null, DateTime.UtcNow, CancellationToken.None);
         var fp = await store.GetFingerprintAsync(fpId);
 
         fp.Should().NotBeNull();
         if (shouldLand)
         {
-            fp!.DisplayName.Should().Be(candidate,
-                "allowed shape must land verbatim through the signature-keyed write");
+            FingerprintNameResolver.Resolve(fp).Should().Be(candidate,
+                "allowed shape must land verbatim through the LLM-slot write");
         }
         else
         {
-            fp!.DisplayName.Should().NotBe(candidate,
+            FingerprintNameResolver.Resolve(fp).Should().NotBe(candidate,
                 "banned shape must be rejected and normalised to Unknown <hex>");
-            fp.DisplayName.Should().StartWith("Unknown ",
+            FingerprintNameResolver.Resolve(fp).Should().StartWith("Unknown ",
                 "banned shape must be normalised to the priority-4 fallback");
         }
     }
@@ -81,8 +83,8 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
         await store.InsertFingerprintAsync(NewFingerprint("fp-counter", dim), primarySignature: "sig-counter");
 
         var before = store.BannedShapeRejectionsCount;
-        await store.UpdateDisplayNameForSignatureAsync(
-            "sig-counter", "Chrome (privacy-aware)", DateTime.UtcNow, source: "test");
+        await store.UpdateLlmNameAsync(
+            "fp-counter", "Chrome (privacy-aware)", description: null, DateTime.UtcNow, CancellationToken.None);
 
         store.BannedShapeRejectionsCount.Should().Be(before + 1,
             "every banned-shape write must tick the counter so a meter can read the rate");
@@ -96,22 +98,18 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
         await store.InsertFingerprintAsync(NewFingerprint("fp-clean", dim), primarySignature: "sig-clean");
 
         var before = store.BannedShapeRejectionsCount;
-        await store.UpdateDisplayNameForSignatureAsync(
-            "sig-clean", "Bingbot", DateTime.UtcNow, source: "test");
+        await store.UpdateLlmNameAsync(
+            "fp-clean", "Bingbot", description: null, DateTime.UtcNow, CancellationToken.None);
 
         store.BannedShapeRejectionsCount.Should().Be(before,
             "allowed shapes must NOT tick the counter");
     }
 
-    // ── Extended T24a coverage: every write path must call the gate ────────────
+    // ── T24a coverage extended to the matcher's induced slot writer ────────────
     //
-    // T24 staging discovered banned-shape rows persisted on disk
+    // Pre-split T24 staging discovered banned-shape rows persisted on disk
     // ("Chrome Desktop (missing client hints)", "Chrome Desktop (header drift) (3c2a33b1)").
-    // T5a's gate covered UpdateDisplayNameForSignatureAsync ONLY; the matcher's
-    // direct UpdateDisplayNameAsync call and the row's initial
-    // InsertFingerprintAsync allocation bypassed it. T24a extends the gate to
-    // every path that writes display_name, so the trichotomy contract can no
-    // longer be silently violated by which entry point the caller picked.
+    // Post-split the matcher writes through UpdateInducedNameAsync; same gate must fire.
 
     [Theory]
     [InlineData("Bingbot",                                     true)]
@@ -120,33 +118,34 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
     [InlineData("Chrome Desktop (missing client hints)",       false)]
     [InlineData("Chrome Desktop (header drift) (3c2a33b1)",    false)]
     [InlineData("Mac Chrome 149 w/ uBlock GB",                 false)]
-    public async Task UpdateDisplayNameAsync_rejects_banned_shapes_via_normaliser(string candidate, bool shouldLand)
+    public async Task UpdateInducedNameAsync_rejects_banned_shapes_via_normaliser(string candidate, bool shouldLand)
     {
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
         const string fpId = "abc123def456-update";
         await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySignature: "sig-update");
+        await store.GetFingerprintAsync(fpId); // warm LFU dict
 
-        await store.UpdateDisplayNameAsync(fpId, candidate, DateTime.UtcNow, source: "test");
+        await store.UpdateInducedNameAsync(fpId, candidate, DateTime.UtcNow, CancellationToken.None);
         var fp = await store.GetFingerprintAsync(fpId);
 
         fp.Should().NotBeNull();
         if (shouldLand)
         {
-            fp!.DisplayName.Should().Be(candidate,
-                "allowed shape must land verbatim through the direct id-keyed write");
+            FingerprintNameResolver.Resolve(fp).Should().Be(candidate,
+                "allowed shape must land verbatim through the induced-slot write");
         }
         else
         {
-            fp!.DisplayName.Should().NotBe(candidate,
-                "banned shape via UpdateDisplayNameAsync must be normalised at the store layer");
-            fp.DisplayName.Should().StartWith("Unknown ",
+            FingerprintNameResolver.Resolve(fp).Should().NotBe(candidate,
+                "banned shape via UpdateInducedNameAsync must be normalised at the store layer");
+            FingerprintNameResolver.Resolve(fp).Should().StartWith("Unknown ",
                 "banned shape must be normalised to the priority-4 fallback");
         }
     }
 
     [Fact]
-    public async Task UpdateDisplayNameAsync_banned_shape_writes_increment_the_rejection_counter()
+    public async Task UpdateInducedNameAsync_banned_shape_writes_increment_the_rejection_counter()
     {
         var store = await NewStoreAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
@@ -154,34 +153,11 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
         await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySignature: "sig-update-counter");
 
         var before = store.BannedShapeRejectionsCount;
-        await store.UpdateDisplayNameAsync(
-            fpId, "Chrome (privacy-aware)", DateTime.UtcNow, source: "test");
+        await store.UpdateInducedNameAsync(
+            fpId, "Chrome (privacy-aware)", DateTime.UtcNow, CancellationToken.None);
 
         store.BannedShapeRejectionsCount.Should().Be(before + 1,
-            "every banned-shape write must tick the counter regardless of entry point");
-    }
-
-    [Fact]
-    public async Task UpdateDisplayNameAsync_allows_empty_string_clears()
-    {
-        // The absorption service writes string.Empty to clear a stale name after
-        // an archetype flip (bot -> human and similar). Empty is NOT a banned
-        // shape -- it's an explicit reset -- and must pass through without
-        // incrementing the rejection counter.
-        var store = await NewStoreAsync();
-        var dim = IdentityVectorLayout.DefaultV1().Dimension;
-        const string fpId = "fp-clear";
-        await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySignature: "sig-clear");
-        await store.UpdateDisplayNameAsync(fpId, "Bingbot", DateTime.UtcNow, source: "seed");
-
-        var before = store.BannedShapeRejectionsCount;
-        await store.UpdateDisplayNameAsync(fpId, string.Empty, DateTime.UtcNow, source: "absorption");
-
-        var fp = await store.GetFingerprintAsync(fpId);
-        fp!.DisplayName.Should().Be(string.Empty,
-            "empty string is an explicit clear, not a banned-shape rejection");
-        store.BannedShapeRejectionsCount.Should().Be(before,
-            "empty-string clears must NOT tick the rejection counter");
+            "every banned-shape write must tick the counter regardless of slot");
     }
 
     [Theory]
@@ -190,7 +166,7 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
     [InlineData("Chrome Desktop (header drift) (3c2a33b1)",    false)]
     public async Task InsertFingerprintAsync_rejects_banned_shapes_via_normaliser(string candidate, bool shouldLand)
     {
-        // The matcher seeds display_name on the brand-new fingerprint row
+        // The matcher seeds InducedName on the brand-new fingerprint row
         // (verifiedbot path AND new-allocation path); a banned shape from the
         // composer at allocation time must not land on disk row 1.
         var store = await NewStoreAsync();
@@ -198,21 +174,21 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
         var fpId = $"abcdef0123456-{Guid.NewGuid():N}";
 
         var fp = NewFingerprint(fpId, dim);
-        var seeded = fp with { DisplayName = candidate, DisplayNameUpdatedAt = DateTime.UtcNow };
+        var seeded = fp with { InducedName = candidate, InducedNameUpdatedAt = DateTime.UtcNow };
         await store.InsertFingerprintAsync(seeded, primarySignature: $"sig-{fpId}");
 
         var stored = await store.GetFingerprintAsync(fpId);
         stored.Should().NotBeNull();
         if (shouldLand)
         {
-            stored!.DisplayName.Should().Be(candidate,
+            FingerprintNameResolver.Resolve(stored).Should().Be(candidate,
                 "allowed shape must land verbatim at row allocation");
         }
         else
         {
-            stored!.DisplayName.Should().NotBe(candidate,
+            FingerprintNameResolver.Resolve(stored).Should().NotBe(candidate,
                 "banned shape at insert time must be normalised at the store layer");
-            stored.DisplayName.Should().StartWith("Unknown ",
+            FingerprintNameResolver.Resolve(stored).Should().StartWith("Unknown ",
                 "banned shape must be normalised to the priority-4 fallback");
         }
     }
@@ -227,8 +203,8 @@ public class FingerprintStoreDisplayNameContractTests : IDisposable
         var fp = NewFingerprint(fpId, dim);
         var seeded = fp with
         {
-            DisplayName = "Chrome Desktop (missing client hints)",
-            DisplayNameUpdatedAt = DateTime.UtcNow,
+            InducedName = "Chrome Desktop (missing client hints)",
+            InducedNameUpdatedAt = DateTime.UtcNow,
         };
 
         var before = store.BannedShapeRejectionsCount;
