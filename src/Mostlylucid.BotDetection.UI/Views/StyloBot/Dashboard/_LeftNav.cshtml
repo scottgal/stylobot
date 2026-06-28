@@ -1,7 +1,20 @@
+@using Microsoft.Extensions.Options
 @using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout
+@inject IOptions<DashboardLayoutOptions> DashboardLayout
 @model DashboardShellModel
 @{
+    // F3 dispatch: when V2Enabled and no ?legacy=1 override, render the new
+    // three-group sidebar instead of the legacy one. Defaults to false in F1,
+    // so this path is dormant until M1 flips it on.
+    var v2 = DashboardLayout.Value.V2Enabled && Context.Request.Query["legacy"] != "1";
+    if (v2)
+    {
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_SidebarV2.cshtml", Model)
+        return;
+    }
+
     var bp = Model.BasePath;
     var active = Model.ActiveRow;
     bool isActiveRow(string area, string? sub = null) =>

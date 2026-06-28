@@ -1,0 +1,110 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model DashboardShellModel
+@{
+    var bp = Model.BasePath;
+    var currentPath = Context.Request.Path.Value ?? string.Empty;
+
+    bool IsActivePath(string suffix)
+    {
+        var prefix = bp.TrimEnd('/') + "/" + suffix.TrimStart('/');
+        return currentPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    string rowClass(bool on) => on
+        ? "block px-3 py-1.5 text-xs font-semibold border-l-4 border-primary bg-base-200 text-base-content"
+        : "block px-3 py-1.5 text-xs border-l-4 border-transparent text-base-content/60 hover:text-base-content hover:bg-base-200/50";
+
+    // F3: pack list is HARDCODED here. A future task (P phase) replaces this
+    // with an IPackNavRegistry populated by each pack's DI extension. The
+    // contract matches IDashboardPack so the swap is mechanical.
+    var hardcodedPacks = new (string Id, string Label, string Icon, (string Id, string Label)[] SubRows)[]
+    {
+        ("aspnet-pack", "ASP.NET Pack", "bx bx-server", new (string, string)[]
+        {
+            ("routes",   "Routes"),
+            ("identity", "Identity"),
+            ("auth",     "Auth events"),
+            ("metrics",  "Metrics"),
+            ("log-sink", "Log sink"),
+        }),
+        ("otel-mesh", "OTel Mesh", "bx bx-network-chart", new (string, string)[]
+        {
+            ("timeline",    "Timeline"),
+            ("service-map", "Service map"),
+            ("receivers",   "Receivers"),
+        }),
+    };
+}
+<nav id="sb-left-nav" class="w-56 shrink-0 bg-base-100 border-r border-base-300 sticky top-0 self-start h-screen overflow-y-auto py-3"
+     aria-label="Dashboard navigation">
+
+    @* Aggregate group: Traffic / Visitors / Site *@
+    <div class="mb-3">
+        <a href="@bp/traffic"  class="@rowClass(IsActivePath("traffic"))">Traffic</a>
+        <a href="@bp/visitors" class="@rowClass(IsActivePath("visitors"))">Visitors</a>
+        <a href="@bp/site"     class="@rowClass(IsActivePath("site"))">Site</a>
+    </div>
+
+    @* Packs group: each pack with sub-nav *@
+    <div class="mb-3" x-data="sbPacksNav()">
+        @foreach (var pack in hardcodedPacks)
+        {
+            var packActive = IsActivePath(pack.Id);
+            var firstSub = pack.SubRows.Length > 0 ? pack.SubRows[0].Id : null;
+            var headerHref = firstSub is null ? $"{bp}/{pack.Id}" : $"{bp}/{pack.Id}/{firstSub}";
+            <div class="mb-1">
+                <div class="flex items-center">
+                    <a href="@headerHref" class="@rowClass(packActive) flex-1">
+                        <i class="@pack.Icon mr-1.5"></i>@pack.Label
+                    </a>
+                    <button type="button"
+                            class="px-2 text-base-content/40 hover:text-base-content"
+                            aria-label="Toggle @pack.Label sub-rows"
+                            @@click="toggle('@pack.Id')">
+                        <i class="bx" :class="isOpen('@pack.Id') ? 'bx-chevron-down' : 'bx-chevron-right'"></i>
+                    </button>
+                </div>
+                <div x-show="isOpen('@pack.Id')" x-cloak class="ml-3">
+                    @foreach (var sub in pack.SubRows)
+                    {
+                        <a href="@bp/@pack.Id/@sub.Id" class="@rowClass(IsActivePath($"{pack.Id}/{sub.Id}"))">@sub.Label</a>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Manage group: Policies / Configuration / Compliance *@
+    <div class="mb-3">
+        <a href="@bp/policies"      class="@rowClass(IsActivePath("policies"))">Policies</a>
+        <a href="@bp/configuration" class="@rowClass(IsActivePath("configuration"))">Configuration</a>
+        <a href="@bp/compliance"    class="@rowClass(IsActivePath("compliance"))">Compliance</a>
+    </div>
+</nav>
+<script nonce="@Model.CspNonce">
+    function sbPacksNav() {
+        return {
+            _state: {},
+            init() {
+                try {
+                    var keys = Object.keys(localStorage);
+                    for (var i = 0; i < keys.length; i++) {
+                        if (keys[i].indexOf('sb-pack-collapsed:') === 0) {
+                            this._state[keys[i].substring('sb-pack-collapsed:'.length)] =
+                                localStorage.getItem(keys[i]) !== '1';
+                        }
+                    }
+                } catch (_) { /* localStorage blocked -- all open by default */ }
+            },
+            isOpen(packId) {
+                return this._state[packId] !== false;
+            },
+            toggle(packId) {
+                var newOpen = !this.isOpen(packId);
+                this._state[packId] = newOpen;
+                try { localStorage.setItem('sb-pack-collapsed:' + packId, newOpen ? '0' : '1'); }
+                catch (_) {}
+            },
+        };
+    }
+</script>
