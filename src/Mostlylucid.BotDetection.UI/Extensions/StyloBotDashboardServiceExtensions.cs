@@ -27,6 +27,7 @@ using Mostlylucid.BotDetection.UI.Models.Auth;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.Auth;
+using Mostlylucid.BotDetection.UI.Services.Dashboard;
 using Mostlylucid.BotDetection.UI.Services.Routes;
 using Mostlylucid.Notify.DependencyInjection;
 
@@ -193,6 +194,14 @@ public static class StyloBotDashboardServiceExtensions
 
         // Register lightweight UI services (tag helpers, view components)
         services.AddStyloBotUI();
+
+        // F2 — dashboard IA contribution registry. Packs (ASP.NET Pack, OTel
+        // Mesh, etc.) register IDashboardContribution singletons via
+        // AddDashboardContribution<T>(); the registry composes them by slot
+        // and the aggregate Razor views invoke the named ViewComponent per
+        // contribution. Packs that aren't loaded contribute nothing
+        // (feedback_remote_mode_optional_di).
+        services.AddSingleton<DashboardContributionRegistry>();
 
         services.AddSignalR();
 
