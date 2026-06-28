@@ -24,6 +24,7 @@ using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Auth;
+using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.Auth;
 using Mostlylucid.BotDetection.UI.Services.Routes;
@@ -449,6 +450,13 @@ public static class StyloBotDashboardServiceExtensions
         // (in-memory), not persisted -- the tick.1m subscription below drains
         // records older than RetentionWindow so memory stays bounded without a
         // background polling loop.
+        // Dashboard IA collapse (F1). Bound from Dashboard:Layout. V2Enabled is the
+        // kill-switch for the new Traffic / Visitors / Site IA; defaults to false so
+        // the legacy 10+ tab sidebar continues until M1 flips it on. URL ?legacy=1
+        // forces legacy regardless. Removed in the last migration step.
+        services.AddOptions<DashboardLayoutOptions>()
+            .BindConfiguration("Dashboard:Layout");
+
         services.AddOptions<Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions>()
             .BindConfiguration("BotDetection:Policies:HitAtom");
         // Atom ctor needs TimeProvider; AddStyloBotBotDetection registers it but
