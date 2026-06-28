@@ -1,0 +1,51 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model IReadOnlyList<CachedVisitor>
+@*
+    T3 — Top-visitors breakdown card. The full _VisitorCard primitive is too
+    large for the Traffic-page grid; render a compact one-line row that mirrors
+    its information density (name + country flag + hits + last-seen) and links
+    to the same visitor detail page. The fuller card lives on the Visitors
+    aggregate per spec §4.
+*@
+<div class="card bg-base-100 border border-base-300">
+    <div class="card-body p-3">
+        <div class="text-sm font-semibold mb-2">Top visitors</div>
+        @if (Model.Count == 0)
+        {
+            <div class="text-xs text-base-content/40 py-4 text-center">no data in this window</div>
+        }
+        else
+        {
+            <ul class="text-xs space-y-1">
+                @foreach (var v in Model)
+                {
+                    var name = v.BotName ?? "(unnamed)";
+                    var code = v.CountryCode;
+                    var hasFlag = !string.IsNullOrEmpty(code)
+                                  && code!.Length == 2
+                                  && !code.Equals("XX", StringComparison.OrdinalIgnoreCase);
+                    <li>
+                        <a href="/dashboard/visitors/@Uri.EscapeDataString(v.PrimarySignature)"
+                           class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
+                            @if (hasFlag)
+                            {
+                                <img src="/_content/Mostlylucid.BotDetection.UI/flags/@(code!.ToLowerInvariant()).svg"
+                                     alt="@code"
+                                     class="h-3 w-4 flex-none object-cover rounded-sm"
+                                     loading="lazy"
+                                     onerror="this.style.display='none'" />
+                            }
+                            else
+                            {
+                                <span class="h-3 w-4 flex-none"></span>
+                            }
+                            <span class="truncate flex-1 min-w-0" title="@name">@name</span>
+                            <span class="text-base-content/60 tabular-nums">@v.Hits</span>
+                            <span class="text-base-content/40 tabular-nums w-8 text-right">@v.TimeAgo</span>
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>

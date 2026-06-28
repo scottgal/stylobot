@@ -1,0 +1,53 @@
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@model IReadOnlyList<ThreatRow>
+@*
+    T3 — Threats breakdown card. Surfaces Medium+ ThreatBand visitors in the
+    window. Row click → visitor detail (same drilldown as Top visitors per
+    spec §8). Badge colour follows the canonical semantic mapping:
+    Critical/High → error, Medium → warning, Low → info.
+*@
+<div class="card bg-base-100 border border-base-300">
+    <div class="card-body p-3">
+        <div class="text-sm font-semibold mb-2">Threats</div>
+        @if (Model.Count == 0)
+        {
+            <div class="text-xs text-base-content/40 py-4 text-center">no data in this window</div>
+        }
+        else
+        {
+            <ul class="text-xs space-y-1">
+                @foreach (var t in Model)
+                {
+                    var badgeClass = t.ThreatBand switch
+                    {
+                        "Critical" or "High" => "badge-error",
+                        "Medium" => "badge-warning",
+                        "Low" => "badge-info",
+                        _ => "badge-ghost"
+                    };
+                    var ago = TimeAgo(t.LastSeen);
+                    var name = string.IsNullOrEmpty(t.ResolvedName) ? "(unnamed)" : t.ResolvedName;
+                    <li>
+                        <a href="/dashboard/visitors/@Uri.EscapeDataString(t.PrimarySignature)"
+                           class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
+                            <span class="truncate flex-1 min-w-0" title="@name">@name</span>
+                            <span class="badge badge-xs @badgeClass flex-none">@t.ThreatBand</span>
+                            <span class="text-base-content/40 tabular-nums w-8 text-right">@ago</span>
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+@functions {
+    static string TimeAgo(DateTime ts)
+    {
+        var span = DateTime.UtcNow - ts;
+        if (span.TotalSeconds < 5) return "now";
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h";
+        return $"{(int)span.TotalDays}d";
+    }
+}
