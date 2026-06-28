@@ -389,6 +389,16 @@ public class StyloBotDashboardMiddleware
                 await ServeUaSearchApiAsync(context);
                 break;
 
+            // Se2 -- header type-ahead visitor search. Walks the IFingerprintStore
+            // LFU (in-memory only, never opens a DB connection) and returns up to
+            // DashboardLayoutOptions.SearchMaxResults hits matched on resolved
+            // display name. Empty / missing q -> empty array (not 400) so the
+            // type-ahead can cheaply reset to "no matches" without distinguishing
+            // request shape from result shape on the client.
+            case "search/visitors":
+                await ServeVisitorSearchApiAsync(context);
+                break;
+
             case "api/me":
                 await ServeMeApiAsync(context);
                 break;
@@ -4500,6 +4510,42 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, results, CamelCaseJson);
+    }
+
+    /// <summary>
+    ///     Se2 -- type-ahead visitor search backing the header search box. Resolves
+    ///     <see cref="IFingerprintStore"/> from request services (avoids forcing
+    ///     hosts without a fingerprint store registered to take a hard dep at
+    ///     middleware-construction time) and forwards to
+    ///     <see cref="IFingerprintStore.SearchByResolvedNameAsync"/>. Empty / blank
+    ///     <c>q</c> returns <c>[]</c> with 200 so the type-ahead client can keep a
+    ///     single happy-path branch.
+    /// </summary>
+    private async Task ServeVisitorSearchApiAsync(HttpContext context)
+    {
+        var query = context.Request.Query["q"].FirstOrDefault();
+        context.Response.ContentType = "application/json";
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            await context.Response.WriteAsync("[]");
+            return;
+        }
+
+        var store = context.RequestServices.GetService<IFingerprintStore>();
+        if (store is null)
+        {
+            await context.Response.WriteAsync("[]");
+            return;
+        }
+
+        var layout = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<UI.Models.Dashboard.Layout.DashboardLayoutOptions>>()
+            ?.Value;
+        var max = layout?.SearchMaxResults ?? 10;
+
+        var hits = await store.SearchByResolvedNameAsync(query, max, context.RequestAborted);
+        await JsonSerializer.SerializeAsync(context.Response.Body, hits, CamelCaseJson, context.RequestAborted);
     }
 
     private async Task ServeThreatsPartialAsync(HttpContext context)

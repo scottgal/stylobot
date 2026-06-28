@@ -1,0 +1,20 @@
+@*
+    Se3 -- dashboard header type-ahead. Mounts ONLY on dashboard pages (the
+    parent navbar is shared between marketing + dashboard so we cannot put the
+    input there). The companion sb-header-search.js reads basePath off its
+    own <script> tag (data-base-path) and posts to <base>/search/visitors;
+    the dashboard middleware (StyloBotDashboardMiddleware) handles the route.
+*@
+@{
+    var baseAttr = (string?)ViewBag.HeaderSearchBasePath ?? "/_stylobot";
+}
+<div class="form-control hidden md:block relative">
+    <input id="sb-header-search" type="search"
+           placeholder="Search visitors (Cmd+K)"
+           autocomplete="off"
+           data-base-path="@baseAttr"
+           class="input input-sm input-bordered w-64" />
+    <div id="sb-header-search-results"
+         class="absolute z-50 right-0 top-full mt-1 w-72 bg-base-100 border border-base-300 rounded shadow-lg hidden max-h-80 overflow-y-auto">
+    </div>
+</div>
