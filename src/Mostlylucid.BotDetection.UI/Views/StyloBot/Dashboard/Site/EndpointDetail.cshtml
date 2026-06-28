@@ -1,0 +1,198 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Site
+@using Mostlylucid.BotDetection.UI.Services.Dashboard
+@model SiteEndpointDetailModel
+@inject DashboardContributionRegistry Contributions
+@{
+    ViewData["Title"] = $"{Model.Method} {Model.Path}";
+    var maxHits = Model.Timeseries.Hits.Count == 0 ? 0 : Model.Timeseries.Hits.Max();
+    var totalHits = Model.Timeseries.Hits.Sum();
+    var totalBotHits = Model.Timeseries.BotHits.Sum();
+    var contributions = Contributions.For(DashboardContributionSlot.SiteEndpointDetailSection);
+}
+
+@*
+    Si2 (dashboard IA collapse plan) -- per-endpoint detail page at
+    /dashboard/site/endpoint?path=...&method=.... Composes existing primitives:
+    SignatureAggregateCache for top visitors, IDashboardEventStore for perf,
+    SbPolicyStack (StatusBadge embed) for the policy indicator, and the
+    DashboardContributionRegistry SiteEndpointDetailSection slot for pack-
+    contributed cards. Each section degrades to an empty state when its
+    backing data isn't available (remote-mode hosts, cold-cache rows, etc.).
+*@
+<section class="space-y-4">
+    <header class="flex items-center gap-3 flex-wrap">
+        <a href="/dashboard/site"
+           class="text-xs text-base-content/50 hover:text-base-content/80 underline">
+            &larr; Site
+        </a>
+        <span class="badge badge-ghost font-mono">@Model.Method</span>
+        <h2 class="text-lg font-semibold font-mono truncate" title="@Model.Path">@Model.Path</h2>
+    </header>
+
+    @* Hits-over-time chart. Two-series stacked bar: total hits as base + a
+       bot-hit overlay so the operator can see at a glance how much of the
+       traffic on this endpoint is automated. Same 60-bucket-max cadence as
+       TrafficController.BuildTimeseries so axis density matches when pivoting
+       from the Traffic chart. Inline SVG keeps the view dependency-free. *@
+    <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-3">
+            <div class="flex items-baseline justify-between mb-2">
+                <div class="text-sm font-semibold">Hits over time</div>
+                <div class="text-xs text-base-content/50">
+                    @totalHits hits
+                    @if (totalBotHits > 0)
+                    {
+                        <span class="ml-2 text-warning">@totalBotHits bot</span>
+                    }
+                </div>
+            </div>
+
+            @if (maxHits == 0)
+            {
+                <div class="text-xs text-base-content/40 py-6 text-center">no hits in window</div>
+            }
+            else
+            {
+                <svg viewBox="0 0 600 80" preserveAspectRatio="none" class="w-full h-20 block">
+                    @{
+                        var n = Model.Timeseries.Hits.Count;
+                        var barW = 600.0 / n;
+                    }
+                    @for (var i = 0; i < n; i++)
+                    {
+                        var h = Model.Timeseries.Hits[i];
+                        var bh = Model.Timeseries.BotHits[i];
+                        var hHeight = (h / (double)maxHits) * 78;
+                        var bHeight = (bh / (double)maxHits) * 78;
+                        var x = i * barW;
+                        var hy = 80 - hHeight;
+                        var by = 80 - bHeight;
+                        <rect x="@x.ToString("F2")" y="@hy.ToString("F2")"
+                              width="@((barW - 0.5).ToString("F2"))" height="@hHeight.ToString("F2")"
+                              class="fill-base-content/30"></rect>
+                        @if (bh > 0)
+                        {
+                            <rect x="@x.ToString("F2")" y="@by.ToString("F2")"
+                                  width="@((barW - 0.5).ToString("F2"))" height="@bHeight.ToString("F2")"
+                                  class="fill-warning/70"></rect>
+                        }
+                    }
+                </svg>
+                <div class="text-[10px] text-base-content/40 mt-1">
+                    @Model.Timeseries.Buckets.Count buckets ·
+                    @Model.Timeseries.Buckets[0].ToString("HH:mm") –
+                    @Model.Timeseries.Buckets[^1].ToString("HH:mm") UTC
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        @* Top visitors filtered to rows whose LastPath matches this endpoint.
+           Each row links into the existing visitor detail page so the
+           operator can pivot from "who's hitting this endpoint" into the
+           per-visitor history without re-querying. *@
+        <div class="card bg-base-100 border border-base-300">
+            <div class="card-body p-3">
+                <div class="text-sm font-semibold mb-2">Top visitors</div>
+                @if (Model.TopVisitors.Count == 0)
+                {
+                    <div class="text-xs text-base-content/40 py-4 text-center">no visitors in this window</div>
+                }
+                else
+                {
+                    <ul class="text-xs space-y-1">
+                        @foreach (var v in Model.TopVisitors)
+                        {
+                            <li>
+                                <a href="/dashboard/visitors/@v.PrimarySignature"
+                                   class="hover:bg-base-200 rounded px-1 py-0.5 flex items-center justify-between gap-2">
+                                    <span class="truncate flex items-center gap-2">
+                                        @if (v.IsBot)
+                                        {
+                                            <span class="badge badge-warning badge-xs" title="Classified as bot">bot</span>
+                                        }
+                                        <span class="truncate">@(v.BotName ?? v.PrimarySignature)</span>
+                                    </span>
+                                    <span class="text-base-content/60 tabular-nums">@v.Hits</span>
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+
+        @* Performance card -- p50 (avg proxy) / p95 / sample count, sourced
+           from IDashboardEventStore.GetEndpointStatsAsync. Null Perf renders
+           the empty state instead of zeros, so the operator can tell "no
+           data yet" from "really 0ms". *@
+        <div class="card bg-base-100 border border-base-300">
+            <div class="card-body p-3">
+                <div class="text-sm font-semibold mb-2">Performance</div>
+                @if (Model.Perf is { } perf)
+                {
+                    <div class="text-xs grid grid-cols-3 gap-2">
+                        <div>
+                            <div class="text-base-content/40">p50</div>
+                            <div class="font-mono tabular-nums">@perf.P50Ms.ToString("F1")ms</div>
+                        </div>
+                        <div>
+                            <div class="text-base-content/40">p95</div>
+                            <div class="font-mono tabular-nums">@perf.P95Ms.ToString("F1")ms</div>
+                        </div>
+                        <div>
+                            <div class="text-base-content/40">samples</div>
+                            <div class="tabular-nums">@perf.Samples</div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-xs text-base-content/40 py-4 text-center">no perf data</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Policy stack indicator scoped to this endpoint. Reuses the existing
+       SbPolicyStack view component in StatusBadge embed -- the same shape
+       _EndpointDetail.cshtml already uses. Skipped on hosts with no Request.Host
+       (TestServer with no base address) so the badge doesn't render against a
+       wildcard scope and mislead the operator. *@
+    @if (Model.PolicyScope is not null)
+    {
+        <section class="card bg-base-100 border border-base-300">
+            <div class="card-body p-3">
+                <div class="text-sm font-semibold mb-2">Policy stack effective here</div>
+                @await Component.InvokeAsync("SbPolicyStack", new
+                {
+                    scope = Model.PolicyScope,
+                    embed = Mostlylucid.BotDetection.UI.Models.PolicyStackEmbed.StatusBadge,
+                    aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24),
+                    canEdit = false
+                })
+                <div class="text-[10px] text-base-content/40 mt-2">
+                    Full rule editor: <a href="/dashboard/policies" class="underline">/dashboard/policies</a>
+                </div>
+            </div>
+        </section>
+    }
+
+    @* Pack contribution slot. Packs (ASP.NET pack in particular) register a
+       view component against SiteEndpointDetailSection and receive
+       (method, path) so they can render per-endpoint cards alongside the
+       built-in surface. Slot is rendered once per registered contribution;
+       remote-mode hosts with no packs contribute nothing and the section
+       silently collapses. *@
+    @foreach (var c in contributions)
+    {
+        <section class="card bg-base-100 border border-base-300">
+            <div class="card-body p-3">
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">@c.ContributionName</div>
+                @await Component.InvokeAsync(c.ViewComponentName, new { method = Model.Method, path = Model.Path })
+            </div>
+        </section>
+    }
+</section>
