@@ -732,6 +732,15 @@ public sealed class SessionsListModel
     public int TotalCount { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
     public string? Filter { get; init; }
+
+    /// <summary>
+    ///     V2 of dashboard IA collapse: when the visitor detail page embeds
+    ///     this list as the "Hit history" panel it scopes the timeline to one
+    ///     identity. The Default partial reads this to hide the bot/human pills
+    ///     (a single signature is one or the other already) and could later
+    ///     restyle the heading. Null = unscoped global timeline.
+    /// </summary>
+    public string? PrimarySignature { get; init; }
 }
 
 /// <summary>

@@ -21,7 +21,15 @@ public class SbSessionsListViewComponent(
     public async Task<IViewComponentResult> InvokeAsync(
         string? filter = null,
         int page = 1,
-        int pageSize = 25)
+        int pageSize = 25,
+        // V2 of dashboard IA collapse: when the visitor detail page embeds this
+        // component as the "Hit history" panel it passes the visitor's primary
+        // signature so the timeline is scoped to one identity. Null = unchanged
+        // global timeline (existing call sites: SbWidgetBatchMiddleware,
+        // StyloBotDashboardMiddleware overview render, SbSessionsListTagHelper).
+        // The bot/human filter pills are hidden in scoped mode (a single
+        // signature is one or the other already) but still honoured if passed.
+        string? primarySignature = null)
     {
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
 
@@ -29,7 +37,21 @@ public class SbSessionsListViewComponent(
         // The store has no server-side pagination, so we over-fetch conservatively.
         var fetchCount = Math.Min((page * pageSize) + pageSize, 200);
         var since = DateTime.UtcNow - options.Value.DetectionRetention;
-        var allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
+        List<Mostlylucid.BotDetection.Data.PersistedSession> allSessions;
+        if (!string.IsNullOrEmpty(primarySignature))
+        {
+            // Scoped read uses the per-signature path. ISessionStore.GetSessionsAsync
+            // returns most-recent-first already; the bot/human filter is a post-
+            // filter so the page-size math still applies.
+            var scoped = await sessionStore.GetSessionsAsync(primarySignature, fetchCount);
+            allSessions = isBot.HasValue
+                ? scoped.Where(s => s.IsBot == isBot.Value).ToList()
+                : scoped;
+        }
+        else
+        {
+            allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
+        }
 
         var sigLookup = await eventStore.LoadSignatureLookupAsync();
         var uaLookup  = await eventStore.LoadUserAgentLookupAsync();
@@ -105,7 +127,8 @@ public class SbSessionsListViewComponent(
             Page = page,
             PageSize = pageSize,
             TotalCount = totalCount,
-            Filter = filter
+            Filter = filter,
+            PrimarySignature = primarySignature
         });
     }
 }
