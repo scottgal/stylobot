@@ -204,6 +204,15 @@ public interface IFingerprintStore : IFingerprintReader
     Task<IReadOnlyList<DisplayNameChange>> GetDisplayNameHistoryAsync(
         string fingerprintId, int limit = 50, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Walks the in-memory LFU map for fingerprints whose resolved name
+    ///     (<see cref="FingerprintNameResolver.Resolve"/>) contains the search
+    ///     term (case-insensitive substring). Returns up to maxResults; never
+    ///     opens a DB connection. Sorted by LastSeen descending.
+    /// </summary>
+    Task<IReadOnlyList<FingerprintSearchHit>> SearchByResolvedNameAsync(
+        string term, int maxResults, CancellationToken ct);
+
     // ── Batch read / drift / absorption picker ───────────────────────────────
     Task<IReadOnlyDictionary<string, float[]>> GetCentroidsBySignaturesAsync(
         IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default);
@@ -361,3 +370,15 @@ public sealed record ClusterRootUpdate(
     string ClusterId,
     IReadOnlyCollection<string> MemberSignatures,
     int MemberCount);
+
+/// <summary>
+///     One match from <see cref="IFingerprintStore.SearchByResolvedNameAsync"/>.
+///     <see cref="PrimarySignature"/> is the binding key the dashboard uses to
+///     navigate to the signature detail surface; <see cref="ResolvedName"/> is
+///     the <c>given ?? llm ?? induced</c> projection that matched the term.
+/// </summary>
+public sealed record FingerprintSearchHit(
+    string FingerprintId,
+    string PrimarySignature,
+    string ResolvedName,
+    DateTime LastSeen);

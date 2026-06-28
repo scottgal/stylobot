@@ -2052,6 +2052,58 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
+    ///     Header search hit-list. Walks the in-memory LFU map only -- per
+    ///     <c>feedback_write_behind_lfu_facade</c> the dict is truth, and the
+    ///     header search is a hot UI path that must not pay a DB roundtrip on
+    ///     every keystroke. Returns at most <paramref name="maxResults"/> hits
+    ///     sorted by <c>LastSeen</c> descending; empty term short-circuits to
+    ///     empty (we never return the whole map). The reverse-map walk to
+    ///     recover the primary signature is O(N) over the binding cache; with
+    ///     LFU capped at 10k that's fine for an interactive search but warrants
+    ///     a forward map if the LFU is ever resized up.
+    /// </summary>
+    public Task<IReadOnlyList<FingerprintSearchHit>> SearchByResolvedNameAsync(
+        string term, int maxResults, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(term) || maxResults <= 0)
+            return Task.FromResult<IReadOnlyList<FingerprintSearchHit>>(Array.Empty<FingerprintSearchHit>());
+
+        var hits = new List<FingerprintSearchHit>();
+        foreach (var fp in _fingerprintById.Values)
+        {
+            var name = FingerprintNameResolver.Resolve(fp);
+            if (string.IsNullOrEmpty(name)) continue;
+            if (!name.Contains(term, StringComparison.OrdinalIgnoreCase)) continue;
+
+            // Reverse-map walk: the binding cache is keyed sig -> fpId so we
+            // scan it to recover any primary signature that points at this
+            // fingerprint. First-match wins; the dashboard only needs one to
+            // build the navigation link.
+            string? sig = null;
+            foreach (var kv in _fingerprintIdByPrimarySig)
+            {
+                if (string.Equals(kv.Value, fp.FingerprintId, StringComparison.Ordinal))
+                {
+                    sig = kv.Key;
+                    break;
+                }
+            }
+
+            hits.Add(new FingerprintSearchHit(
+                FingerprintId: fp.FingerprintId,
+                PrimarySignature: sig ?? string.Empty,
+                ResolvedName: name,
+                LastSeen: fp.LastSeen));
+        }
+
+        var sorted = hits
+            .OrderByDescending(h => h.LastSeen)
+            .Take(maxResults)
+            .ToList();
+        return Task.FromResult<IReadOnlyList<FingerprintSearchHit>>(sorted);
+    }
+
+    /// <summary>
     ///     Direct DB read of the fingerprint name change history -- snapshot data,
     ///     not LFU-cached. Returned newest-first; bounded by <paramref name="limit"/>
     ///     to keep the timeline view's payload manageable on chatty fingerprints.

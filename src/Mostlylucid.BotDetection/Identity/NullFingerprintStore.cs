@@ -147,6 +147,10 @@ public class NullFingerprintStore : IFingerprintStore
         string fingerprintId, int limit = 50, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<DisplayNameChange>>(Array.Empty<DisplayNameChange>());
 
+    public Task<IReadOnlyList<FingerprintSearchHit>> SearchByResolvedNameAsync(
+        string term, int maxResults, CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<FingerprintSearchHit>>(Array.Empty<FingerprintSearchHit>());
+
     // ── Batch read / drift / absorption picker ───────────────────────────────
     public Task<IReadOnlyDictionary<string, float[]>> GetCentroidsBySignaturesAsync(
         IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default)
