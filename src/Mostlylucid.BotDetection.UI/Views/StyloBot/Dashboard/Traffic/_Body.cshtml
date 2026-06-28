@@ -1,0 +1,112 @@
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@using Mostlylucid.BotDetection.UI.Services.Dashboard
+@model TrafficPageModel
+@inject DashboardContributionRegistry Contributions
+@*
+    Inner body partial -- rendered standalone when /dashboard/traffic?partial=1
+    is fetched by the SignalR-driven HTMX swap, and inlined by the full Index
+    view for the SSR first paint. Keeping the data sections in one partial
+    means the SSR pass and the live-refresh swap render the same DOM with one
+    source of truth (per feedback_centralised_change_detection).
+*@
+@{
+    string LinkWith(string? country = null, string? botType = null, string? window = null, string? threat = null, string? remove = null)
+    {
+        var qs = new List<string>();
+        var c  = remove == "country"  ? null : (country  ?? Model.Filters.Country);
+        var bt = remove == "bot_type" ? null : (botType  ?? Model.Filters.BotType);
+        var w  = remove == "window"   ? null : (window   ?? Model.Filters.Window);
+        var th = remove == "threat"   ? null : (threat   ?? Model.Filters.Threat);
+        if (!string.IsNullOrEmpty(c))  qs.Add($"country={Uri.EscapeDataString(c)}");
+        if (!string.IsNullOrEmpty(bt)) qs.Add($"bot_type={Uri.EscapeDataString(bt)}");
+        if (!string.IsNullOrEmpty(w) && w != "60m") qs.Add($"window={Uri.EscapeDataString(w)}");
+        if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
+        return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
+    }
+    var windows = new[] { ("15m", "15m"), ("60m", "1h"), ("24h", "24h"), ("7d", "7d") };
+
+    // Refresh URL preserves the active filter set so the SignalR-driven swap
+    // re-renders the same view the operator is looking at, not a default one.
+    var refreshUrl = LinkWith() + (LinkWith().Contains("?") ? "&" : "?") + "partial=1";
+}
+<div id="sb-traffic-body"
+     hx-get="@refreshUrl"
+     hx-trigger="sb:signature-update from:body, sb:summary-update from:body"
+     hx-target="this"
+     hx-swap="outerHTML"
+     class="space-y-4">
+    <header class="flex items-center justify-between flex-wrap gap-2">
+        <div class="flex items-center gap-3">
+            <h2 class="text-lg font-semibold">Traffic</h2>
+            @if (!string.IsNullOrEmpty(Model.Filters.Country))
+            {
+                <a href="@LinkWith(remove: "country")"
+                   class="badge badge-sm gap-1" title="Clear country filter">
+                    Country: @Model.Filters.Country <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Filters.BotType))
+            {
+                <a href="@LinkWith(remove: "bot_type")"
+                   class="badge badge-sm gap-1" title="Clear bot-type filter">
+                    Bot: @Model.Filters.BotType <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Filters.Threat))
+            {
+                <a href="@LinkWith(remove: "threat")"
+                   class="badge badge-sm badge-warning gap-1" title="Clear threat filter">
+                    Threat ≥ @Model.Filters.Threat.TrimEnd('+') <span aria-hidden="true">×</span>
+                </a>
+            }
+        </div>
+        <div class="join">
+            @foreach (var (val, label) in windows)
+            {
+                var active = string.Equals(Model.Filters.Window, val, StringComparison.OrdinalIgnoreCase);
+                <a href="@LinkWith(window: val)"
+                   class="btn btn-xs join-item @(active ? "btn-primary" : "")">@label</a>
+            }
+        </div>
+    </header>
+
+    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
+
+    @{
+        var useBarChart = Model.Filters.Window is "24h" or "7d" or "1d";
+        var chartLabel = useBarChart
+            ? $"Hits per period (last {Model.Filters.Window})"
+            : $"Hits per minute (last {Model.Filters.Window})";
+    }
+    <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-3">
+            <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
+            @if (useBarChart)
+            {
+                @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TimeseriesBars.cshtml", Model)
+            }
+            else
+            {
+                @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TimeseriesChart.cshtml", Model.Timeseries)
+            }
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByCountryCard.cshtml",    Model.Countries)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByBotTypeCard.cshtml",    Model.BotTypes)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopEndpointsCard.cshtml", Model.TopEndpoints)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopVisitorsCard.cshtml",  Model.TopVisitors)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ThreatsCard.cshtml",      Model.Threats)
+
+        @foreach (var c in Contributions.For(DashboardContributionSlot.TrafficCard))
+        {
+            <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-3">
+                    <div class="text-xs text-base-content/40 mb-1">@c.ContributionName</div>
+                    @await Component.InvokeAsync(c.ViewComponentName)
+                </div>
+            </div>
+        }
+    </div>
+</div>

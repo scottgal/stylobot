@@ -1,126 +1,87 @@
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Configuration
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
-@using Mostlylucid.BotDetection.UI.Services.Dashboard
 @model TrafficPageModel
-@inject DashboardContributionRegistry Contributions
+@inject IOptions<StyloBotDashboardOptions> DashboardOpts
 @{
     ViewData["Title"] = "Traffic";
-    var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
+
+    // CSP nonce + hub path mirror how Dashboard/Index.cshtml resolves them on
+    // the legacy view; carrying the nonce + hubPath through here means the
+    // Traffic page wires SignalR with the same contract (per
+    // feedback_ssr_signalr_pattern -- first paint SSR, updates via the
+    // invalidation beacon + HTMX OOB / outerHTML swap).
+    var hubPath = DashboardOpts.Value.HubPath;
+    string cspNonce;
+    if (Context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string existing && existing.Length > 0)
+    {
+        cspNonce = existing;
+    }
+    else
+    {
+        cspNonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        Context.Items["CspNonce"] = cspNonce;
+    }
 }
 
 @*
-    T1 — Traffic landing page shell. The card layout is final; the chart fill is
-    T2, the five breakdown cards are T3, the filter chips are T4. Pack-registered
-    contributions fan out below the core cards via the TrafficCard slot.
+    T1 — Traffic landing page shell. The inner body (header, counters, chart,
+    breakdown cards) lives in _Body.cshtml so the SSR pass and the
+    SignalR-driven HTMX swap render the same DOM from one template (per
+    feedback_centralised_change_detection). The wrapper here only owns the
+    one-time SignalR plumbing.
 *@
-@{
-    string LinkWith(string? country = null, string? botType = null, string? window = null, string? threat = null, string? remove = null)
-    {
-        var qs = new List<string>();
-        var c  = remove == "country"  ? null : (country  ?? Model.Filters.Country);
-        var bt = remove == "bot_type" ? null : (botType  ?? Model.Filters.BotType);
-        var w  = remove == "window"   ? null : (window   ?? Model.Filters.Window);
-        var th = remove == "threat"   ? null : (threat   ?? Model.Filters.Threat);
-        if (!string.IsNullOrEmpty(c))  qs.Add($"country={Uri.EscapeDataString(c)}");
-        if (!string.IsNullOrEmpty(bt)) qs.Add($"bot_type={Uri.EscapeDataString(bt)}");
-        if (!string.IsNullOrEmpty(w) && w != "60m") qs.Add($"window={Uri.EscapeDataString(w)}");
-        if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
-        return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
-    }
-    var windows = new[] { ("15m", "15m"), ("60m", "1h"), ("24h", "24h"), ("7d", "7d") };
-}
 <section class="space-y-4">
-    <header class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-3">
-            <h2 class="text-lg font-semibold">Traffic</h2>
-            @* Active filter chips — removable *@
-            @if (!string.IsNullOrEmpty(Model.Filters.Country))
-            {
-                <a href="@LinkWith(remove: "country")"
-                   class="badge badge-sm gap-1" title="Clear country filter">
-                    Country: @Model.Filters.Country <span aria-hidden="true">×</span>
-                </a>
-            }
-            @if (!string.IsNullOrEmpty(Model.Filters.BotType))
-            {
-                <a href="@LinkWith(remove: "bot_type")"
-                   class="badge badge-sm gap-1" title="Clear bot-type filter">
-                    Bot: @Model.Filters.BotType <span aria-hidden="true">×</span>
-                </a>
-            }
-            @if (!string.IsNullOrEmpty(Model.Filters.Threat))
-            {
-                <a href="@LinkWith(remove: "threat")"
-                   class="badge badge-sm badge-warning gap-1" title="Clear threat filter">
-                    Threat ≥ @Model.Filters.Threat.TrimEnd('+') <span aria-hidden="true">×</span>
-                </a>
-            }
-        </div>
-        <div class="join">
-            @foreach (var (val, label) in windows)
-            {
-                var active = string.Equals(Model.Filters.Window, val, StringComparison.OrdinalIgnoreCase);
-                <a href="@LinkWith(window: val)"
-                   class="btn btn-xs join-item @(active ? "btn-primary" : "")">@label</a>
-            }
-        </div>
-    </header>
-
-    @* Top-line counter strip — absorbs the "where did my traffic go?!" panic
-       when bot blocking lands and the total request count visibly drops; the
-       prior-window delta lets the operator confirm whether the change is real
-       or just a quieter cohort. Renders above the chart so it frames whatever
-       the chart shows below. *@
-    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
-
-    @* Timeseries chart — shape switches with the window. Short windows (15m /
-       1h) read better as continuous flow (the area partial). Daily / weekly
-       windows read better as per-period bars (so a robots.txt change shows up
-       as one column suddenly shrinking instead of a line that smoothly dips),
-       and the bar variant sub-stacks the bot segment by family. *@
-    @{
-        var useBarChart = Model.Filters.Window is "24h" or "7d" or "1d";
-        var chartLabel = useBarChart
-            ? $"Hits per period (last {Model.Filters.Window})"
-            : $"Hits per minute (last {Model.Filters.Window})";
-    }
-    <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-3">
-            <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
-            @if (useBarChart)
-            {
-                @* The bar partial reads the whole TrafficPageModel so it has
-                   access to Model.BotFamilies for the per-bar sub-stack; the
-                   area partial keeps its narrower TrafficTimeseries contract. *@
-                @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TimeseriesBars.cshtml", Model)
-            }
-            else
-            {
-                @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TimeseriesChart.cshtml", Model.Timeseries)
-            }
-        </div>
-    </div>
-
-    @* Breakdown cards — T3 fills the five core cards.
-       Absolute view paths because the dashboard views live under the non-
-       conventional /Views/StyloBot/Dashboard/... root; MVC's default
-       partial-view discovery only walks /Views/Traffic/ + /Views/Shared/
-       and misses the dashboard tree, so a bare "Traffic/_X" lookup 500s. *@
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByCountryCard.cshtml",    Model.Countries)
-        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByBotTypeCard.cshtml",    Model.BotTypes)
-        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopEndpointsCard.cshtml", Model.TopEndpoints)
-        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopVisitorsCard.cshtml",  Model.TopVisitors)
-        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ThreatsCard.cshtml",      Model.Threats)
-
-        @* Pack contribution slots — graceful absence when no packs registered. *@
-        @foreach (var c in Contributions.For(DashboardContributionSlot.TrafficCard))
-        {
-            <div class="card bg-base-100 border border-base-300">
-                <div class="card-body p-3">
-                    <div class="text-xs text-base-content/40 mb-1">@c.ContributionName</div>
-                    @await Component.InvokeAsync(c.ViewComponentName)
-                </div>
-            </div>
-        }
-    </div>
+    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_Body.cshtml", Model)
 </section>
+
+@* SbLiveUpdates emits sb-tooltip-portal.js + sb-live-updates.js. The latter
+   binds the dashboard's SignalR hub and re-broadcasts invalidation beacons
+   onto the DOM as `sb:signature-update` / `sb:summary-update` events that
+   the `hx-trigger` on #sb-traffic-body listens for. show-status="false" keeps
+   the connection chip out of the Traffic header (the dashboard navbar owns
+   the chip). *@
+<sb-live-updates show-status="false" />
+
+@* SignalR client + invalidation -> DOM-event bridge. Same shape the legacy
+   _SignatureDetail.cshtml uses, narrowed to fire HTMX events on the body
+   instead of a hard window.location.reload(). *@
+<script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js" nonce="@cspNonce"></script>
+<script nonce="@cspNonce">
+(function() {
+    if (typeof signalR === 'undefined') return;
+    var hubPath = '@Html.Raw(hubPath)';
+    var conn = new signalR.HubConnectionBuilder()
+        .withUrl(hubPath)
+        .withAutomaticReconnect([0, 2000, 5000, 10000])
+        .build();
+
+    function fireRefresh(eventName) {
+        // HTMX's hx-trigger="X from:body" listens for native CustomEvents on
+        // document.body. The Traffic body container swaps itself via
+        // outerHTML, so re-firing this event after the swap re-binds via
+        // HTMX's standard re-init on the new subtree.
+        try {
+            document.body.dispatchEvent(new CustomEvent(eventName, { bubbles: true }));
+        } catch (e) { console.debug('Traffic live-update dispatch failed:', e); }
+    }
+
+    conn.on('invalidated', function(keys) {
+        if (!keys || !Array.isArray(keys)) return;
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            if (k === 'summary' || k === 'signature' || k === 'signatures') {
+                fireRefresh('sb:summary-update');
+                return;
+            }
+        }
+        // Any other invalidation key (specific signature ids etc.) still
+        // freshens the panel -- the page is window-scoped, not signature-scoped.
+        fireRefresh('sb:signature-update');
+    });
+
+    conn.start().catch(function(err) {
+        console.debug('SignalR connection failed for Traffic page:', err);
+    });
+})();
+</script>

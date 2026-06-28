@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies.Rules;
+using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Site;
@@ -91,7 +92,12 @@ public sealed class SiteController : Controller
         var windowMinutes = opts.DefaultTimeWindowMinutes;
         var resolvedMethod = string.IsNullOrWhiteSpace(method) ? "GET" : method.ToUpperInvariant();
 
-        var visitors = ResolveVisitorsForEndpoint(path);
+        // Read from IDashboardEventStore as the canonical source so the
+        // marketing-site host (no in-process SignatureAggregateCache) still
+        // renders real visitor rows (per feedback_remote_mode_optional_di).
+        // Cache fallback stays available for the rare host that has the LFU
+        // but no event store -- never both as the source of truth.
+        var visitors = await ResolveVisitorsForEndpointAsync(path, windowMinutes, ct);
         var perf = await TryResolvePerfAsync(resolvedMethod, path, ct);
         var scope = TryBuildEndpointScope(resolvedMethod, path);
 
@@ -107,18 +113,43 @@ public sealed class SiteController : Controller
     }
 
     /// <summary>
-    ///     Pull the visitor universe out of the in-process aggregate cache and
-    ///     keep only rows whose last observed path matches <paramref name="path"/>.
-    ///     The cache caps at 500 entries so the full-page snapshot is cheap;
-    ///     the post-filter is O(n) and runs once per render.
-    ///     <para>
-    ///     Returns an empty list when the cache isn't registered (remote-mode
-    ///     hosts) -- the view treats empty as the no-visitor empty-state and
-    ///     never assumes a populated cache.
-    ///     </para>
+    ///     Pull the visitor universe from <see cref="IDashboardEventStore.GetTopBotsAsync"/>
+    ///     over the active window (canonical, shared change-detection source --
+    ///     same path SbVisitorListViewComponent uses) and keep only rows whose
+    ///     last observed path matches <paramref name="path"/>. The cache fallback
+    ///     covers the rare host that has the LFU registered but no event store;
+    ///     remote-mode hosts (marketing site) end up on the event-store path
+    ///     because that's the only one registered. Returns an empty list when
+    ///     neither is available -- the view treats empty as the no-visitor
+    ///     empty-state.
     /// </summary>
-    private IReadOnlyList<CachedVisitor> ResolveVisitorsForEndpoint(string path)
+    private async Task<IReadOnlyList<CachedVisitor>> ResolveVisitorsForEndpointAsync(
+        string path, int windowMinutes, CancellationToken ct)
     {
+        if (_events is not null)
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+                var raw = await _events.GetTopBotsAsync(
+                    count: 500,
+                    startTime: now.AddMinutes(-windowMinutes),
+                    endTime: now,
+                    audienceFilter: "all");
+                var (items, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
+                    raw, filter: "all", sortField: "lastSeen", sortDir: "desc",
+                    page: 1, pageSize: 500);
+                return items
+                    .Where(v => string.Equals(v.LastPath, path, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(v => v.Hits)
+                    .ToList();
+            }
+            catch
+            {
+                // Fall through to the LFU fallback below.
+            }
+        }
+
         if (_cache is null) return Array.Empty<CachedVisitor>();
 
         var (all, _, _, _) = _cache.GetFiltered(

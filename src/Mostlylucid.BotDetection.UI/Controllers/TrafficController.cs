@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
@@ -10,33 +11,51 @@ namespace Mostlylucid.BotDetection.UI.Controllers;
 /// <summary>
 ///     Renders the Traffic landing page (GA-style overview) of the new dashboard
 ///     IA. URL query parameters (?country, ?bot_type, ?window, ?threat) bind into
-///     <see cref="TrafficFilters"/>; the controller reads the in-process
-///     <see cref="SignatureAggregateCache"/> for the visitor universe, applies the
-///     filters, buckets the matching activity into a timeseries, and projects the
-///     five core breakdown cards. The polish pass adds a top-line counter strip
-///     (Total / Humans / Bots / Bot-pressure with prior-window deltas) and a
-///     per-family bot sub-stack that feeds the bar-chart variant on the 24h / 7d
-///     windows so the chart shape switches from "continuous flow" to "per-period
-///     totals" without losing the audience split.
+///     <see cref="TrafficFilters"/>; the controller reads
+///     <see cref="IDashboardEventStore"/> as the canonical source (same pattern
+///     as <c>SbVisitorListViewComponent</c> + the legacy website
+///     <c>DashboardController</c>), so remote-mode hosts -- where the in-process
+///     <see cref="SignatureAggregateCache"/> is empty by design -- still render
+///     real numbers. The top-line counter strip comes from
+///     <see cref="IDashboardEventStore.GetSummaryAsync"/>; the breakdown cards
+///     come from <see cref="IDashboardEventStore.GetCountryStatsAsync"/> /
+///     <see cref="IDashboardEventStore.GetEndpointStatsAsync"/> /
+///     <see cref="IDashboardEventStore.GetTopBotsAsync"/> projected through
+///     <see cref="WidgetRenderHelpers.ProjectAsVisitors"/>. The 24h / 7d bar
+///     variant re-buckets the same data so the chart shape switches without
+///     losing the audience split.
 /// </summary>
 [Route("dashboard/traffic")]
 public sealed class TrafficController : Controller
 {
-    private readonly SignatureAggregateCache _cache;
+    private readonly IDashboardEventStore _eventStore;
     private readonly IOptions<DashboardLayoutOptions> _layout;
+    private readonly SignatureAggregateCache? _cache;
 
-    public TrafficController(SignatureAggregateCache cache, IOptions<DashboardLayoutOptions> layout)
+    public TrafficController(
+        IDashboardEventStore eventStore,
+        IOptions<DashboardLayoutOptions> layout,
+        SignatureAggregateCache? cache = null)
     {
-        _cache = cache;
+        // IDashboardEventStore is the canonical, share-with-the-rest-of-the-dashboard
+        // change-detection mechanism (feedback_centralised_change_detection). The
+        // local SignatureAggregateCache is OPTIONAL per feedback_remote_mode_optional_di:
+        // not registered on the marketing-site host. It is no longer used as a
+        // data source here -- kept as a constructor dep so any future fast-path
+        // can short-circuit through it without a DI rewire.
+        _eventStore = eventStore;
         _layout = layout;
+        _cache = cache;
     }
 
     [HttpGet("")]
-    public IActionResult Index(
+    public async Task<IActionResult> Index(
         [FromQuery] string? country,
         [FromQuery(Name = "bot_type")] string? botType,
         [FromQuery] string? window,
-        [FromQuery] string? threat)
+        [FromQuery] string? threat,
+        [FromQuery] int? partial,
+        CancellationToken ct)
     {
         var opts = _layout.Value;
         var filters = new TrafficFilters(
@@ -47,24 +66,53 @@ public sealed class TrafficController : Controller
 
         var topN = opts.TrafficCardTopN;
         var windowMinutes = ParseWindow(filters.Window);
-        var visitors = ResolveVisitors(filters);
-        var currentVisitors = FilterByWindow(visitors, windowMinutes, offsetMinutes: 0);
-        var priorVisitors = FilterByWindow(visitors, windowMinutes, offsetMinutes: windowMinutes);
+        var now = DateTime.UtcNow;
+        var startTime = now.AddMinutes(-windowMinutes);
 
-        var counters = BuildCounters(currentVisitors, priorVisitors);
-        var timeseries = BuildTimeseries(currentVisitors, windowMinutes);
-        var botFamilies = BuildBotFamilies(currentVisitors, windowMinutes);
+        // 1. Top bots over the current window -- larger than topN so the
+        //    visitor / family breakdowns have enough rows to group on.
+        // 2. The prior comparable window for the counter delta (best-effort:
+        //    the store may return an empty set on short retention windows).
+        var topBotsTask = _eventStore.GetTopBotsAsync(
+            count: 500, startTime: startTime, endTime: now, audienceFilter: "all");
+        var priorBotsTask = _eventStore.GetTopBotsAsync(
+            count: 500, startTime: startTime.AddMinutes(-windowMinutes), endTime: startTime, audienceFilter: "all");
+        var summaryTask = SafeGetSummaryAsync(startTime, now);
+        var priorSummaryTask = SafeGetSummaryAsync(startTime.AddMinutes(-windowMinutes), startTime);
+        var countriesTask = SafeGetCountryStatsAsync(topN, startTime, now);
+        var endpointsTask = SafeGetEndpointStatsAsync(topN, startTime, now);
+
+        await Task.WhenAll(topBotsTask, priorBotsTask, summaryTask, priorSummaryTask, countriesTask, endpointsTask);
+
+        var topBots = topBotsTask.Result;
+        var priorBots = priorBotsTask.Result;
+        var summary = summaryTask.Result;
+        var priorSummary = priorSummaryTask.Result;
+        var countriesData = countriesTask.Result;
+        var endpointsData = endpointsTask.Result;
+
+        // Project top-bots through the canonical helper so audience split,
+        // collapse rules, and threat / country / bot-type post-filters match
+        // the rest of the dashboard exactly.
+        var (visitors, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
+            topBots, filter: "all", sortField: "lastSeen", sortDir: "desc",
+            page: 1, pageSize: 500,
+            country: filters.Country, botType: filters.BotType, threat: filters.Threat);
+
+        var counters = BuildCounters(summary, priorSummary, topBots, priorBots);
+        var timeseries = BuildTimeseries(visitors, windowMinutes);
+        var botFamilies = BuildBotFamilies(visitors, windowMinutes);
 
         var model = new TrafficPageModel(
             Filters: filters,
             Counters: counters,
             Timeseries: timeseries,
             BotFamilies: botFamilies,
-            Countries: TopByCountry(currentVisitors, topN),
-            BotTypes: TopByBotType(currentVisitors, topN),
-            TopEndpoints: TopByEndpoint(currentVisitors, topN),
-            TopVisitors: currentVisitors.Take(topN).ToList(),
-            Threats: currentVisitors
+            Countries: TopByCountry(countriesData, topN),
+            BotTypes: TopByBotType(visitors, topN),
+            TopEndpoints: TopByEndpoint(endpointsData, topN),
+            TopVisitors: visitors.Take(topN).ToList(),
+            Threats: visitors
                 .Where(v => v.ThreatBand is "Medium" or "High" or "Critical")
                 .Take(topN)
                 .Select(v => new ThreatRow(
@@ -77,111 +125,72 @@ public sealed class TrafficController : Controller
         // Views live under the non-conventional /Views/StyloBot/Dashboard/... root
         // alongside the rest of the middleware-rendered dashboard pages, so the
         // explicit path keeps MVC's view engine off the convention-based search.
+        // ?partial=1 returns just the data sections (used by the SignalR-driven
+        // HTMX swap region) without the layout chrome.
+        if (partial == 1)
+            return PartialView("/Views/StyloBot/Dashboard/Traffic/_Body.cshtml", model);
         return View("/Views/StyloBot/Dashboard/Traffic/Index.cshtml", model);
     }
 
-    /// <summary>
-    ///     Snapshot the cache and apply URL filters as a post-filter. The cache's
-    ///     <see cref="SignatureAggregateCache.GetFiltered"/> accepts an audience
-    ///     filter ("all" / "bots" / "humans" / "ai" / "search" / "tools") and
-    ///     paging hooks but does not expose per-country / per-bot-type / per-threat
-    ///     filtering, so the controller pulls the unfiltered set and narrows it
-    ///     here. The LFU cache caps at 500 entries so this stays cheap. The result
-    ///     is *not* yet windowed — callers split it into current vs prior windows
-    ///     via <see cref="FilterByWindow"/>.
-    /// </summary>
-    private IReadOnlyList<CachedVisitor> ResolveVisitors(TrafficFilters f)
+    private async Task<DashboardSummary?> SafeGetSummaryAsync(DateTime start, DateTime end)
     {
-        // pageSize: int.MaxValue equivalent is the full snapshot — the cache caps
-        // its dictionary at MaxEntries (500) so a single page reliably contains
-        // everything in the hot tier.
-        var (all, _, _, _) = _cache.GetFiltered(
-            filter: "all", sortField: "lastSeen", sortDir: "desc",
-            page: 1, pageSize: 10_000);
+        try { return await _eventStore.GetSummaryAsync(startTime: start, endTime: end); }
+        catch { return null; }
+    }
 
-        IEnumerable<CachedVisitor> q = all;
-        if (f.Country is { Length: > 0 } c)
-            q = q.Where(v => string.Equals(v.CountryCode, c, StringComparison.OrdinalIgnoreCase));
-        if (f.BotType is { Length: > 0 } bt)
-            q = q.Where(v => string.Equals(v.BotType, bt, StringComparison.OrdinalIgnoreCase));
-        if (f.Threat is { Length: > 0 } th)
-        {
-            // ?threat=Medium+ means Medium or higher; trailing + is conventional.
-            var min = th.TrimEnd('+');
-            q = q.Where(v => ThreatRank(v.ThreatBand) >= ThreatRank(min));
-        }
-        return q.OrderByDescending(v => v.LastSeen).ToList();
+    private async Task<List<DashboardCountryStats>> SafeGetCountryStatsAsync(int n, DateTime start, DateTime end)
+    {
+        try { return await _eventStore.GetCountryStatsAsync(count: Math.Max(n, 20), startTime: start, endTime: end); }
+        catch { return new List<DashboardCountryStats>(); }
+    }
+
+    private async Task<List<DashboardEndpointStats>> SafeGetEndpointStatsAsync(int n, DateTime start, DateTime end)
+    {
+        try { return await _eventStore.GetEndpointStatsAsync(count: Math.Max(n, 50), startTime: start, endTime: end); }
+        catch { return new List<DashboardEndpointStats>(); }
     }
 
     /// <summary>
-    ///     Time-window slice over a pre-filtered visitor set. The current window
-    ///     uses offsetMinutes: 0; the prior comparable window passes the window
-    ///     length as offsetMinutes so the slice covers
-    ///     [now - 2*window, now - window]. The LFU cache holds only recent hot
-    ///     rows so the prior window may legitimately be empty — the counter
-    ///     partial renders deltas as "—" when that happens.
-    /// </summary>
-    private static IReadOnlyList<CachedVisitor> FilterByWindow(
-        IReadOnlyList<CachedVisitor> rows, int windowMinutes, int offsetMinutes)
-    {
-        var now = DateTime.UtcNow;
-        var upper = now.AddMinutes(-offsetMinutes);
-        var lower = upper.AddMinutes(-windowMinutes);
-        var hits = new List<CachedVisitor>(rows.Count);
-        foreach (var v in rows)
-        {
-            if (v.LastSeen <= upper && v.LastSeen > lower)
-                hits.Add(v);
-        }
-        return hits;
-    }
-
-    private static int ThreatRank(string? band) => band switch
-    {
-        "Critical" => 4,
-        "High" => 3,
-        "Medium" => 2,
-        "Low" => 1,
-        _ => 0,
-    };
-
-    /// <summary>
-    ///     Sum current vs prior visitor sets into headline counters with signed
-    ///     deltas + Inf-safe percent deltas. Bot share is the bot fraction of the
-    ///     current window (zero-safe via Math.Max(1, total)).
+    ///     Counter strip: prefer the event-store's <see cref="DashboardSummary"/>
+    ///     (per-detection-row sums over the time window, the same number the
+    ///     dashboard header shows). Falls back to summing the visitor projection's
+    ///     hit counts only if the summary call failed. Prior-window delta is the
+    ///     same shape against the comparable previous window.
     /// </summary>
     private static TrafficCounters BuildCounters(
-        IReadOnlyList<CachedVisitor> current, IReadOnlyList<CachedVisitor> prior)
+        DashboardSummary? current,
+        DashboardSummary? prior,
+        IReadOnlyList<DashboardTopBotEntry> currentBots,
+        IReadOnlyList<DashboardTopBotEntry> priorBots)
     {
-        var (curTotal, curHumans, curBots) = SumHits(current);
-        var (prTotal, prHumans, prBots) = SumHits(prior);
-        var totalDelta = curTotal - prTotal;
-        var humansDelta = curHumans - prHumans;
-        var botsDelta = curBots - prBots;
+        var (curTotal, curHumans, curBots) = current is null
+            ? SumHits(currentBots)
+            : (current.TotalRequests, current.HumanRequests, current.BotRequests);
+        var (prTotal, prHumans, prBots) = prior is null
+            ? SumHits(priorBots)
+            : (prior.TotalRequests, prior.HumanRequests, prior.BotRequests);
+
         return new TrafficCounters(
             Total: curTotal,
             Humans: curHumans,
             Bots: curBots,
             BotShare: curBots / (double)Math.Max(1, curTotal),
-            TotalDelta: totalDelta,
-            HumansDelta: humansDelta,
-            BotsDelta: botsDelta,
+            TotalDelta: curTotal - prTotal,
+            HumansDelta: curHumans - prHumans,
+            BotsDelta: curBots - prBots,
             TotalDeltaPct: PctDelta(curTotal, prTotal),
             HumansDeltaPct: PctDelta(curHumans, prHumans),
             BotsDeltaPct: PctDelta(curBots, prBots));
     }
 
-    private static (int Total, int Humans, int Bots) SumHits(IReadOnlyList<CachedVisitor> rows)
+    private static (int Total, int Humans, int Bots) SumHits(IReadOnlyList<DashboardTopBotEntry> rows)
     {
-        var total = 0;
-        var humans = 0;
-        var bots = 0;
+        var total = 0; var humans = 0; var bots = 0;
         foreach (var v in rows)
         {
-            total += v.Hits;
-            if (v.BotProbability >= 0.8) bots += v.Hits;
-            else if (v.BotProbability < 0.3) humans += v.Hits;
-            // 0.3-0.8 = suspicious: counted toward total but not human or bot.
+            total += v.HitCount;
+            if (v.BotProbability >= 0.8) bots += v.HitCount;
+            else if (v.BotProbability < 0.3) humans += v.HitCount;
         }
         return (total, humans, bots);
     }
@@ -203,6 +212,11 @@ public sealed class TrafficController : Controller
     ///     audience class derived from <see cref="CachedVisitor.BotProbability"/>
     ///     (&lt; 0.3 human, 0.3-0.8 suspicious, &gt;= 0.8 bot). The bucket count is
     ///     capped at 60 regardless of window so the chart axis stays readable.
+    ///     Limitation: <c>CachedVisitor</c> only carries the LastSeen timestamp,
+    ///     so the visitor's full hit-count lands in the single LastSeen bucket
+    ///     -- a precise per-event histogram is a follow-up that needs the
+    ///     event store's per-bucket time-series endpoint. The headline counters
+    ///     are not affected; they sum the <see cref="DashboardSummary"/> directly.
     /// </summary>
     private static TrafficTimeseries BuildTimeseries(IReadOnlyList<CachedVisitor> rows, int windowMinutes)
     {
@@ -319,15 +333,18 @@ public sealed class TrafficController : Controller
         _ => 60,
     };
 
-    private static IReadOnlyList<CountryRow> TopByCountry(IReadOnlyList<CachedVisitor> rows, int topN) =>
-        rows.Where(v => !string.IsNullOrEmpty(v.CountryCode))
-            .GroupBy(v => v.CountryCode!)
-            .Select(g => new CountryRow(
-                CountryCode: g.Key,
-                Hits: g.Sum(v => v.Hits),
-                BotShare: g.Sum(v => v.IsBot ? v.Hits : 0) / (double)Math.Max(1, g.Sum(v => v.Hits))))
-            .OrderByDescending(r => r.Hits)
+    /// <summary>
+    ///     Project the event-store country stats into the view's
+    ///     <see cref="CountryRow"/> shape, top-N by total hits.
+    /// </summary>
+    private static IReadOnlyList<CountryRow> TopByCountry(IReadOnlyList<DashboardCountryStats> rows, int topN) =>
+        rows.Where(r => !string.IsNullOrEmpty(r.CountryCode))
+            .OrderByDescending(r => r.TotalCount)
             .Take(topN)
+            .Select(r => new CountryRow(
+                CountryCode: r.CountryCode,
+                Hits: r.TotalCount,
+                BotShare: r.TotalCount > 0 ? r.BotCount / (double)r.TotalCount : 0d))
             .ToList();
 
     private static IReadOnlyList<BotTypeRow> TopByBotType(IReadOnlyList<CachedVisitor> rows, int topN) =>
@@ -339,21 +356,19 @@ public sealed class TrafficController : Controller
             .ToList();
 
     /// <summary>
-    ///     Endpoint rollup keyed on <see cref="CachedVisitor.LastPath"/>. The
-    ///     CachedVisitor projection does not carry HTTP method (the cache stores
-    ///     paths only), so the row label defaults to "GET" — reasonable for an
-    ///     overview surface, and the per-endpoint detail page (Si tasks later)
-    ///     joins to the per-request log when an exact method is needed.
+    ///     Endpoint rollup from the event store's per-(method, path)
+    ///     <see cref="DashboardEndpointStats"/> rows. Carries the real HTTP
+    ///     method (R5 fix -- the old projection hardcoded "GET" because the LFU
+    ///     cache dropped method).
     /// </summary>
-    private static IReadOnlyList<EndpointRow> TopByEndpoint(IReadOnlyList<CachedVisitor> rows, int topN) =>
-        rows.Where(v => !string.IsNullOrEmpty(v.LastPath))
-            .GroupBy(v => v.LastPath!)
-            .Select(g => new EndpointRow(
-                Method: "GET",
-                Path: g.Key,
-                Hits: g.Sum(v => v.Hits),
-                BotShare: g.Sum(v => v.IsBot ? v.Hits : 0) / (double)Math.Max(1, g.Sum(v => v.Hits))))
-            .OrderByDescending(r => r.Hits)
+    private static IReadOnlyList<EndpointRow> TopByEndpoint(IReadOnlyList<DashboardEndpointStats> rows, int topN) =>
+        rows.Where(r => !string.IsNullOrEmpty(r.Path))
+            .OrderByDescending(r => r.TotalCount)
             .Take(topN)
+            .Select(r => new EndpointRow(
+                Method: string.IsNullOrEmpty(r.Method) ? string.Empty : r.Method,
+                Path: r.Path,
+                Hits: r.TotalCount,
+                BotShare: r.BotRate))
             .ToList();
 }
