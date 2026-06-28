@@ -274,6 +274,22 @@ public class StyloBotDashboardMiddleware
             case "":
             case "index":
             case "index.html":
+            {
+                // V2 IA landing redirect: when the layout kill-switch is on AND the
+                // request didn't explicitly opt back into legacy with ?legacy=1, send
+                // the operator to /dashboard/traffic (the new default page). Legacy
+                // behaviour is otherwise preserved verbatim.
+                var v2Layout = context.RequestServices
+                    .GetService<Microsoft.Extensions.Options.IOptions<UI.Models.Dashboard.Layout.DashboardLayoutOptions>>()
+                    ?.Value;
+                if (v2Layout is { V2Enabled: true } &&
+                    !string.Equals(context.Request.Query["legacy"].FirstOrDefault(), "1", StringComparison.Ordinal))
+                {
+                    var trafficTarget = _options.BasePath.TrimEnd('/') + "/traffic";
+                    var qs = context.Request.QueryString.Value;
+                    context.Response.Redirect(string.IsNullOrEmpty(qs) ? trafficTarget : trafficTarget + qs);
+                    break;
+                }
                 if (_options.RenderPage)
                 {
                     await ServeDashboardPageAsync(context);
@@ -284,6 +300,18 @@ public class StyloBotDashboardMiddleware
                     // SignalR hub, partials, and static assets under BasePath.
                     await _next(context);
                 }
+                break;
+            }
+
+            // V2 IA Traffic landing page — owned by TrafficController via MVC routing
+            // on the host. The middleware fast-passes the request so the controller
+            // can render the view; without this short-circuit the default case at the
+            // bottom would still pass to _next, but listing it explicitly documents
+            // the v2 surface alongside its sibling pages once they land (visitors,
+            // sites, etc. under V→Si plan letters).
+            case "traffic":
+            case var tp when tp.StartsWith("traffic/", StringComparison.OrdinalIgnoreCase):
+                await _next(context);
                 break;
 
             case "api/detections":

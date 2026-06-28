@@ -1,0 +1,66 @@
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@using Mostlylucid.BotDetection.UI.Services.Dashboard
+@model TrafficPageModel
+@inject DashboardContributionRegistry Contributions
+@{
+    ViewData["Title"] = "Traffic";
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
+}
+
+@*
+    T1 — Traffic landing page shell. The card layout is final; the chart fill is
+    T2, the five breakdown cards are T3, the filter chips are T4. Pack-registered
+    contributions fan out below the core cards via the TrafficCard slot.
+*@
+<section class="space-y-4">
+    <header class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Traffic</h2>
+        @* T4 adds window switcher + active filter chips here *@
+    </header>
+
+    @* Timeseries chart placeholder — T2 fills *@
+    <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-3">
+            <div class="text-sm text-base-content/60 mb-2">Hits per minute (last @Model.Filters.Window)</div>
+            @* T2: <_TimeseriesChart /> partial here *@
+            <div class="h-32 bg-base-200/40 rounded flex items-center justify-center text-base-content/40">
+                @Model.Timeseries.Buckets.Count buckets — chart pending T2
+            </div>
+        </div>
+    </div>
+
+    @* Breakdown cards — T3 fills the five core cards *@
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="card bg-base-100 border border-base-300"><div class="card-body p-3">
+            <div class="text-sm font-semibold mb-2">By country</div>
+            <div class="text-xs text-base-content/40">T3 — @Model.Countries.Count rows</div>
+        </div></div>
+        <div class="card bg-base-100 border border-base-300"><div class="card-body p-3">
+            <div class="text-sm font-semibold mb-2">By bot type</div>
+            <div class="text-xs text-base-content/40">T3 — @Model.BotTypes.Count rows</div>
+        </div></div>
+        <div class="card bg-base-100 border border-base-300"><div class="card-body p-3">
+            <div class="text-sm font-semibold mb-2">Top endpoints</div>
+            <div class="text-xs text-base-content/40">T3 — @Model.TopEndpoints.Count rows</div>
+        </div></div>
+        <div class="card bg-base-100 border border-base-300"><div class="card-body p-3">
+            <div class="text-sm font-semibold mb-2">Top visitors</div>
+            <div class="text-xs text-base-content/40">T3 — @Model.TopVisitors.Count rows</div>
+        </div></div>
+        <div class="card bg-base-100 border border-base-300"><div class="card-body p-3">
+            <div class="text-sm font-semibold mb-2">Threats</div>
+            <div class="text-xs text-base-content/40">T3 — @Model.Threats.Count rows</div>
+        </div></div>
+
+        @* Pack contribution slots — graceful absence when no packs registered. *@
+        @foreach (var c in Contributions.For(DashboardContributionSlot.TrafficCard))
+        {
+            <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-3">
+                    <div class="text-xs text-base-content/40 mb-1">@c.ContributionName</div>
+                    @await Component.InvokeAsync(c.ViewComponentName)
+                </div>
+            </div>
+        }
+    </div>
+</section>
