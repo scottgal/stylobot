@@ -4,11 +4,16 @@ namespace Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
 ///     Root model for the Traffic landing page (GA-style overview). T1 wires the
 ///     URL filter binding, timeseries bucketing, and the five breakdown card
 ///     projections off <see cref="Services.SignatureAggregateCache"/>. T2 fills the
-///     chart partial and T3 fills the per-card partials.
+///     chart partial and T3 fills the per-card partials. The polish pass adds a
+///     top-line <see cref="TrafficCounters"/> strip (with prior-window deltas)
+///     and a <see cref="BotFamilySeries"/> sub-stack feeding the bar variant of
+///     the chart for daily/weekly windows.
 /// </summary>
 public sealed record TrafficPageModel(
     TrafficFilters Filters,
+    TrafficCounters Counters,
     TrafficTimeseries Timeseries,
+    BotFamilySeries BotFamilies,
     IReadOnlyList<CountryRow> Countries,
     IReadOnlyList<BotTypeRow> BotTypes,
     IReadOnlyList<EndpointRow> TopEndpoints,
@@ -37,6 +42,37 @@ public sealed record TrafficTimeseries(
     IReadOnlyList<int> Human,
     IReadOnlyList<int> Suspicious,
     IReadOnlyList<int> Bot);
+
+/// <summary>
+///     Top-line counter strip rendered above the timeseries chart. Counters
+///     absorb the "half our traffic disappeared!!!" panic an operator gets when
+///     bot blocking lands and the total request count visibly drops; the prior-
+///     window deltas show whether the drop is real or just a quieter cohort.
+///     Percent deltas are Inf-safe: a prior of 0 yields 100% when the current
+///     value is positive and 0% when both are zero.
+/// </summary>
+public sealed record TrafficCounters(
+    int Total,
+    int Humans,
+    int Bots,
+    double BotShare,
+    int TotalDelta,
+    int HumansDelta,
+    int BotsDelta,
+    double TotalDeltaPct,
+    double HumansDeltaPct,
+    double BotsDeltaPct);
+
+/// <summary>
+///     Per-family bot sub-stack data feeding the bar chart's bot segment.
+///     <see cref="Families"/> holds top-5 family names plus a trailing "Other
+///     bots" entry when more than five families appear in the window; the
+///     parallel <see cref="PerBucket"/> array is indexed [family][bucket] using
+///     the same bucket axis as <see cref="TrafficTimeseries.Buckets"/>.
+/// </summary>
+public sealed record BotFamilySeries(
+    IReadOnlyList<string> Families,
+    IReadOnlyList<IReadOnlyList<int>> PerBucket);
 
 public sealed record CountryRow(string CountryCode, int Hits, double BotShare);
 public sealed record BotTypeRow(string BotType, int Hits);

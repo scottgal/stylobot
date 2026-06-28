@@ -62,10 +62,29 @@
         var minTh = th.TrimEnd('+');
         q = q.Where(v => ThreatRank(v.ThreatBand) >= ThreatRank(minTh));
     }
-    var visitors = q.OrderByDescending(v => v.LastSeen).ToList();
+    var allVisitorsList = q.OrderByDescending(v => v.LastSeen).ToList();
 
     var minutes = ParseWindow(filters.Window);
     var now = DateTime.UtcNow;
+
+    // Slice into current vs prior comparable window so the polish-pass counter
+    // strip can report deltas. Mirrors TrafficController.FilterByWindow — same
+    // upper-exclusive / lower-exclusive boundary so a bucket can't end up on
+    // both sides of the split.
+    List<CachedVisitor> SliceWindow(int offsetMinutes)
+    {
+        var upper = now.AddMinutes(-offsetMinutes);
+        var lower = upper.AddMinutes(-minutes);
+        var hits = new List<CachedVisitor>(allVisitorsList.Count);
+        foreach (var v in allVisitorsList)
+        {
+            if (v.LastSeen <= upper && v.LastSeen > lower) hits.Add(v);
+        }
+        return hits;
+    }
+    var visitors = SliceWindow(0);
+    var priorVisitors = SliceWindow(minutes);
+
     var bucketCount = Math.Min(60, Math.Max(1, minutes));
     var bucketSizeMin = Math.Max(1, minutes / bucketCount);
     var buckets = new DateTime[bucketCount];
@@ -74,17 +93,97 @@
     var bot = new int[bucketCount];
     for (var i = 0; i < bucketCount; i++)
         buckets[i] = now.AddMinutes(-minutes + i * bucketSizeMin);
+    int BucketIndex(DateTime lastSeen)
+    {
+        var ageMin = (now - lastSeen).TotalMinutes;
+        if (ageMin < 0 || ageMin > minutes) return -1;
+        var idx = bucketCount - 1 - (int)(ageMin / bucketSizeMin);
+        return idx < 0 || idx >= bucketCount ? -1 : idx;
+    }
     foreach (var v in visitors)
     {
-        var ageMin = (now - v.LastSeen).TotalMinutes;
-        if (ageMin < 0 || ageMin > minutes) continue;
-        var idx = bucketCount - 1 - (int)(ageMin / bucketSizeMin);
-        if (idx < 0 || idx >= bucketCount) continue;
+        var idx = BucketIndex(v.LastSeen);
+        if (idx < 0) continue;
         if (v.BotProbability >= 0.8) bot[idx] += v.Hits;
         else if (v.BotProbability >= 0.3) susp[idx] += v.Hits;
         else human[idx] += v.Hits;
     }
     var timeseries = new TrafficTimeseries(buckets, human, susp, bot);
+
+    // Counter strip — Total/Humans/Bots + prior-window deltas. Suspicious
+    // sits in [0.3, 0.8); it counts toward Total but not Human or Bot so the
+    // Bot pressure tile reads as "share of confirmed bots" not "share of
+    // anything-non-human".
+    (int Total, int Humans, int Bots) SumHits(IReadOnlyList<CachedVisitor> rows)
+    {
+        var t = 0; var h = 0; var b = 0;
+        foreach (var v in rows)
+        {
+            t += v.Hits;
+            if (v.BotProbability >= 0.8) b += v.Hits;
+            else if (v.BotProbability < 0.3) h += v.Hits;
+        }
+        return (t, h, b);
+    }
+    double PctDelta(int cur, int prior)
+    {
+        if (prior == 0) return cur == 0 ? 0d : 100d;
+        return (cur - prior) / (double)prior * 100d;
+    }
+    var (curTotal, curHumans, curBots) = SumHits(visitors);
+    var (prTotal, prHumans, prBots) = SumHits(priorVisitors);
+    var counters = new TrafficCounters(
+        Total: curTotal,
+        Humans: curHumans,
+        Bots: curBots,
+        BotShare: curBots / (double)Math.Max(1, curTotal),
+        TotalDelta: curTotal - prTotal,
+        HumansDelta: curHumans - prHumans,
+        BotsDelta: curBots - prBots,
+        TotalDeltaPct: PctDelta(curTotal, prTotal),
+        HumansDeltaPct: PctDelta(curHumans, prHumans),
+        BotsDeltaPct: PctDelta(curBots, prBots));
+
+    // Bot-family series feeding the bar chart's bot sub-stack. Top-5 by hits;
+    // everything else folds into a trailing "Other bots" slot painted neutral
+    // grey so it visually recedes from the named families.
+    var botRows = visitors.Where(v => v.BotProbability >= 0.8).ToList();
+    BotFamilySeries botFamilies;
+    if (botRows.Count == 0)
+    {
+        botFamilies = new BotFamilySeries(Array.Empty<string>(), Array.Empty<IReadOnlyList<int>>());
+    }
+    else
+    {
+        var byFamily = botRows
+            .GroupBy(v => string.IsNullOrWhiteSpace(v.BotType) ? "Unknown bot" : v.BotType!)
+            .Select(g => (Family: g.Key, Hits: g.Sum(v => v.Hits), Members: g.ToList()))
+            .OrderByDescending(g => g.Hits)
+            .ToList();
+        const int famTopN = 5;
+        var topFams = byFamily.Take(famTopN).ToList();
+        var restFams = byFamily.Skip(famTopN).ToList();
+        var famNames = topFams.Select(t => t.Family).ToList();
+        var famSeries = new List<IReadOnlyList<int>>(topFams.Count + (restFams.Count > 0 ? 1 : 0));
+        int[] BucketFamily(IReadOnlyList<CachedVisitor> rows)
+        {
+            var arr = new int[bucketCount];
+            foreach (var v in rows)
+            {
+                var idx = BucketIndex(v.LastSeen);
+                if (idx < 0) continue;
+                arr[idx] += v.Hits;
+            }
+            return arr;
+        }
+        foreach (var (_, _, members) in topFams) famSeries.Add(BucketFamily(members));
+        if (restFams.Count > 0)
+        {
+            famNames.Add("Other bots");
+            famSeries.Add(BucketFamily(restFams.SelectMany(r => r.Members).ToList()));
+        }
+        botFamilies = new BotFamilySeries(famNames, famSeries);
+    }
 
     var topN = opts.TrafficCardTopN;
     var countries = visitors
@@ -128,7 +227,9 @@
 
     var pageModel = new TrafficPageModel(
         Filters: filters,
+        Counters: counters,
         Timeseries: timeseries,
+        BotFamilies: botFamilies,
         Countries: countries,
         BotTypes: botTypes,
         TopEndpoints: endpoints,

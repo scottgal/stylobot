@@ -1,0 +1,221 @@
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@model TrafficPageModel
+@{
+    // Inline-SVG stacked-bar chart that mirrors _TimeseriesChart.cshtml's
+    // viewBox conventions (600x128, currentColor + Tailwind text-* classes for
+    // theme integration). Used for 24h / 7d windows where "per-period totals"
+    // reads better than the continuous area band — the day-over-day flick of a
+    // robots.txt change shows up as a bar that suddenly shrinks instead of a
+    // line that smoothly dips. The Bot segment of each bar sub-stacks by family
+    // (top-5 + Other) using BotFamilies, so an operator can see WHICH bots are
+    // driving the change.
+    var inv = System.Globalization.CultureInfo.InvariantCulture;
+    var ts = Model.Timeseries;
+    var bf = Model.BotFamilies;
+    var buckets = ts.Buckets;
+    var human = ts.Human;
+    var suspicious = ts.Suspicious;
+    var bot = ts.Bot;
+    var n = buckets.Count;
+
+    // Pre-sum totals once (same shape as the area chart partial).
+    var totals = new int[n];
+    long grand = 0;
+    for (var i = 0; i < n; i++)
+    {
+        totals[i] = bot[i] + suspicious[i] + human[i];
+        grand += totals[i];
+    }
+
+    const int vbW = 600;
+    const int vbH = 128;
+
+    // Per-family colour palette. Mirrors the spec brief: top-5 in error /
+    // warning / accent / info shades, "Other bots" in neutral grey. Tailwind's
+    // text-{color}/{opacity} syntax keeps these themeable via currentColor.
+    var familyClasses = new[]
+    {
+        "text-error",      // 0 — strongest signal: the dominant family
+        "text-error/70",   // 1 — secondary bot family, still "red"
+        "text-warning",    // 2 — amber — usually mid-tier scrapers
+        "text-accent",     // 3 — accent — varied tools
+        "text-info",       // 4 — info — usually verified bots / search
+    };
+    string FamilyClass(int idx, int total)
+    {
+        // If a trailing "Other bots" slot exists it is always the LAST family;
+        // paint it neutral so it visually recedes from the named families.
+        if (bf.Families.Count > 5 && idx == total - 1) return "text-base-content/30";
+        return idx < familyClasses.Length ? familyClasses[idx] : "text-base-content/30";
+    }
+}
+
+@if (n == 0 || grand == 0)
+{
+    <div class="h-32 bg-base-200/40 rounded flex items-center justify-center text-base-content/40 text-sm">
+        no traffic in this window
+    </div>
+}
+else
+{
+    var maxTotal = 0;
+    for (var i = 0; i < n; i++)
+    {
+        if (totals[i] > maxTotal) maxTotal = totals[i];
+    }
+    // maxTotal can't be 0 here — the grand==0 guard above already returned.
+    double ScaleH(int v) => maxTotal == 0 ? 0 : (double)v / maxTotal * vbH;
+
+    // Bar width: leave a small gap between bars so adjacent days/hours read as
+    // distinct columns. 70% bar / 30% gap reads cleanly at 60 buckets and at
+    // ~10 buckets without further tuning.
+    var slot = n == 0 ? vbW : (double)vbW / n;
+    var barW = slot * 0.7;
+    var gap = slot * 0.3;
+
+    // Resolve per-bucket family counts up front so the hover tooltip stays a
+    // simple string-builder call without re-reading the BotFamilies array.
+    string FamilyTitle(int bucketIdx)
+    {
+        if (bf.Families.Count == 0) return string.Empty;
+        var sb = new System.Text.StringBuilder();
+        for (var fi = 0; fi < bf.Families.Count; fi++)
+        {
+            var v = bf.PerBucket[fi][bucketIdx];
+            if (v == 0) continue;
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(bf.Families[fi]).Append(": ").Append(v.ToString("N0", inv));
+        }
+        return sb.ToString();
+    }
+
+    <div class="w-full">
+        <svg class="w-full h-32" viewBox="0 0 @vbW @vbH" preserveAspectRatio="none"
+             role="img" aria-label="Hits per period split by audience and bot family">
+            @for (var i = 0; i < n; i++)
+            {
+                var x = i * slot + gap / 2;
+                var botH = ScaleH(bot[i]);
+                var suspH = ScaleH(suspicious[i]);
+                var humH = ScaleH(human[i]);
+                // SVG y-axis grows downward — stack from the bottom by tracking
+                // a running offset from vbH.
+                var yBotTop = vbH - botH;
+                var ySuspTop = yBotTop - suspH;
+                var yHumTop = ySuspTop - humH;
+
+                var tooltip = $"Total: {totals[i]:N0}\nHuman: {human[i]:N0}\nSuspicious: {suspicious[i]:N0}\nBot: {bot[i]:N0}";
+                var familyDetail = FamilyTitle(i);
+                if (!string.IsNullOrEmpty(familyDetail))
+                {
+                    tooltip += "\n— bot families —\n" + familyDetail;
+                }
+
+                <g>
+                    <title>@tooltip</title>
+                    @* Bot segment — sub-stacked by family when family data exists,
+                       otherwise a single solid bar in error red so the chart still
+                       renders correctly when BotFamilies is empty. *@
+                    @if (bot[i] > 0)
+                    {
+                        if (bf.Families.Count > 0)
+                        {
+                            // Family hits in this bucket may sum to slightly less
+                            // than bot[i] when a bot row carries IsBot=true but
+                            // BotProbability<0.8 (cross-product of two thresholds);
+                            // scale by family-sum to keep the visible stack
+                            // matching the underlying segment height.
+                            var familySum = 0;
+                            for (var fi = 0; fi < bf.Families.Count; fi++) familySum += bf.PerBucket[fi][i];
+                            if (familySum > 0)
+                            {
+                                double subOffset = vbH;
+                                for (var fi = 0; fi < bf.Families.Count; fi++)
+                                {
+                                    var fv = bf.PerBucket[fi][i];
+                                    if (fv == 0) continue;
+                                    var fh = botH * fv / (double)familySum;
+                                    var fy = subOffset - fh;
+                                    var cls = FamilyClass(fi, bf.Families.Count);
+                                    <rect class="@cls"
+                                          x="@x.ToString("0.##", inv)"
+                                          y="@fy.ToString("0.##", inv)"
+                                          width="@barW.ToString("0.##", inv)"
+                                          height="@fh.ToString("0.##", inv)"
+                                          fill="currentColor"
+                                          fill-opacity="0.85" />
+                                    subOffset = fy;
+                                }
+                            }
+                            else
+                            {
+                                <rect class="text-error"
+                                      x="@x.ToString("0.##", inv)"
+                                      y="@yBotTop.ToString("0.##", inv)"
+                                      width="@barW.ToString("0.##", inv)"
+                                      height="@botH.ToString("0.##", inv)"
+                                      fill="currentColor"
+                                      fill-opacity="0.75" />
+                            }
+                        }
+                        else
+                        {
+                            <rect class="text-error"
+                                  x="@x.ToString("0.##", inv)"
+                                  y="@yBotTop.ToString("0.##", inv)"
+                                  width="@barW.ToString("0.##", inv)"
+                                  height="@botH.ToString("0.##", inv)"
+                                  fill="currentColor"
+                                  fill-opacity="0.75" />
+                        }
+                    }
+                    @if (suspicious[i] > 0)
+                    {
+                        <rect class="text-warning"
+                              x="@x.ToString("0.##", inv)"
+                              y="@ySuspTop.ToString("0.##", inv)"
+                              width="@barW.ToString("0.##", inv)"
+                              height="@suspH.ToString("0.##", inv)"
+                              fill="currentColor"
+                              fill-opacity="0.75" />
+                    }
+                    @if (human[i] > 0)
+                    {
+                        <rect class="text-success"
+                              x="@x.ToString("0.##", inv)"
+                              y="@yHumTop.ToString("0.##", inv)"
+                              width="@barW.ToString("0.##", inv)"
+                              height="@humH.ToString("0.##", inv)"
+                              fill="currentColor"
+                              fill-opacity="0.75" />
+                    }
+                </g>
+            }
+        </svg>
+        <div class="flex items-center flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-base-content/60">
+            <span class="inline-flex items-center gap-1.5">
+                <span class="inline-block w-2.5 h-2.5 rounded-sm bg-success/70"></span>Human
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+                <span class="inline-block w-2.5 h-2.5 rounded-sm bg-warning/70"></span>Suspicious
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+                <span class="inline-block w-2.5 h-2.5 rounded-sm bg-error/70"></span>Bot
+            </span>
+            <span class="ml-auto">@n bucket@(n == 1 ? "" : "s")</span>
+        </div>
+        @if (bf.Families.Count > 0)
+        {
+            <div class="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-base-content/60">
+                <span class="text-base-content/40 uppercase tracking-wide">Bot families:</span>
+                @for (var fi = 0; fi < bf.Families.Count; fi++)
+                {
+                    var cls = FamilyClass(fi, bf.Families.Count);
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="inline-block w-2.5 h-2.5 rounded-sm @cls" style="background-color: currentColor; opacity: 0.85;"></span>@bf.Families[fi]
+                    </span>
+                }
+            </div>
+        }
+    </div>
+}
