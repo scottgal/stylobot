@@ -12,10 +12,57 @@
     T2, the five breakdown cards are T3, the filter chips are T4. Pack-registered
     contributions fan out below the core cards via the TrafficCard slot.
 *@
+@{
+    string LinkWith(string? country = null, string? botType = null, string? window = null, string? threat = null, string? remove = null)
+    {
+        var qs = new List<string>();
+        var c  = remove == "country"  ? null : (country  ?? Model.Filters.Country);
+        var bt = remove == "bot_type" ? null : (botType  ?? Model.Filters.BotType);
+        var w  = remove == "window"   ? null : (window   ?? Model.Filters.Window);
+        var th = remove == "threat"   ? null : (threat   ?? Model.Filters.Threat);
+        if (!string.IsNullOrEmpty(c))  qs.Add($"country={Uri.EscapeDataString(c)}");
+        if (!string.IsNullOrEmpty(bt)) qs.Add($"bot_type={Uri.EscapeDataString(bt)}");
+        if (!string.IsNullOrEmpty(w) && w != "60m") qs.Add($"window={Uri.EscapeDataString(w)}");
+        if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
+        return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
+    }
+    var windows = new[] { ("15m", "15m"), ("60m", "1h"), ("24h", "24h"), ("7d", "7d") };
+}
 <section class="space-y-4">
-    <header class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold">Traffic</h2>
-        @* T4 adds window switcher + active filter chips here *@
+    <header class="flex items-center justify-between flex-wrap gap-2">
+        <div class="flex items-center gap-3">
+            <h2 class="text-lg font-semibold">Traffic</h2>
+            @* Active filter chips — removable *@
+            @if (!string.IsNullOrEmpty(Model.Filters.Country))
+            {
+                <a href="@LinkWith(remove: "country")"
+                   class="badge badge-sm gap-1" title="Clear country filter">
+                    Country: @Model.Filters.Country <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Filters.BotType))
+            {
+                <a href="@LinkWith(remove: "bot_type")"
+                   class="badge badge-sm gap-1" title="Clear bot-type filter">
+                    Bot: @Model.Filters.BotType <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Filters.Threat))
+            {
+                <a href="@LinkWith(remove: "threat")"
+                   class="badge badge-sm badge-warning gap-1" title="Clear threat filter">
+                    Threat ≥ @Model.Filters.Threat.TrimEnd('+') <span aria-hidden="true">×</span>
+                </a>
+            }
+        </div>
+        <div class="join">
+            @foreach (var (val, label) in windows)
+            {
+                var active = string.Equals(Model.Filters.Window, val, StringComparison.OrdinalIgnoreCase);
+                <a href="@LinkWith(window: val)"
+                   class="btn btn-xs join-item @(active ? "btn-primary" : "")">@label</a>
+            }
+        </div>
     </header>
 
     @* Timeseries chart — stacked area (Human/Suspicious/Bot) off Model.Timeseries. *@
