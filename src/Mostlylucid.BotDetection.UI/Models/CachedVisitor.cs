@@ -156,4 +156,14 @@ public class FilterCounts
     public int Ai { get; set; }
     public int Search { get; set; }
     public int Tools { get; set; }
+
+    /// <summary>
+    ///     V1 (dashboard IA collapse plan): rows that look like local /
+    ///     same-network calls (no geo, low bot probability). Pragmatic v1
+    ///     semantic — null/blank/"ZZ"/"XX" CountryCode AND !IsBot AND
+    ///     BotProbability &lt; 0.3. Refine later when a per-fingerprint
+    ///     IsInternal flag exists. Off by default; opt-in via ?internal=true
+    ///     or the Internal filter pill.
+    /// </summary>
+    public int Internal { get; set; }
 }

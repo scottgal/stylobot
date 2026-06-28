@@ -1,0 +1,27 @@
+@using Mostlylucid.BotDetection.UI.Controllers
+@model VisitorsPageModel
+@{
+    ViewData["Title"] = "Visitors";
+}
+
+@*
+    V1 (dashboard IA collapse plan) — Visitors landing page. The filter pills +
+    visitor table live in SbVisitorList/Default.cshtml; this page binds the URL
+    filter set (?country, ?bot_type, ?threat, ?fingerprint, ?internal) into the
+    view component invocation so the first paint and any subsequent HTMX swap of
+    /dashboard/partials/visitors render in the same shape.
+*@
+<section class="space-y-4">
+    <header class="flex items-center justify-between flex-wrap gap-2">
+        <h2 class="text-lg font-semibold">Visitors</h2>
+    </header>
+
+    @await Component.InvokeAsync("SbVisitorList", new {
+        filter      = Model.Filter,
+        country     = Model.Country,
+        botType     = Model.BotType,
+        threat      = Model.Threat,
+        fingerprintId = Model.FingerprintId,
+        @internal   = Model.Internal
+    })
+</section>

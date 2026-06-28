@@ -314,6 +314,16 @@ public class StyloBotDashboardMiddleware
                 await _next(context);
                 break;
 
+            // V2 IA Visitors landing page (plan V1) — owned by VisitorsController.
+            // Same fast-pass shape as Traffic above. The page renders the existing
+            // SbVisitorList view component with the URL-bound filter set already
+            // applied, so first paint matches what an HTMX swap of the same
+            // partial would produce.
+            case "visitors":
+            case var vp when vp.StartsWith("visitors/", StringComparison.OrdinalIgnoreCase):
+                await _next(context);
+                break;
+
             case "api/detections":
                 await ServeDetectionsApiAsync(context);
                 break;
@@ -3028,11 +3038,20 @@ public class StyloBotDashboardMiddleware
     /// <summary>Render the visitor list partial. Supports filter, sort, pagination via query params.</summary>
     private async Task ServeVisitorListPartialAsync(HttpContext context)
     {
-        var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
-        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "lastSeen";
-        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
-        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 24;
+        var q = context.Request.Query;
+        var filter = q["filter"].FirstOrDefault() ?? "all";
+        var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 24;
+
+        // V1 (dashboard IA collapse plan): URL filter binding. Empty strings
+        // collapse to null so the projector skips the corresponding clause.
+        var country = NullIfEmpty(q["country"].FirstOrDefault());
+        var botType = NullIfEmpty(q["bot_type"].FirstOrDefault());
+        var threat = NullIfEmpty(q["threat"].FirstOrDefault());
+        var fingerprint = NullIfEmpty(q["fingerprint"].FirstOrDefault());
+        var internalOnly = string.Equals(q["internal"].FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase);
 
         // Read through the event store so remote-mode hosts (whose SignatureAggregateCache
         // may be empty -- no DetectionBroadcastMiddleware runs in-process) still get a
@@ -3045,7 +3064,9 @@ public class StyloBotDashboardMiddleware
             endTime: DateTime.UtcNow,
             audienceFilter: "all");
         var (items, totalCount, counts) = WidgetRenderHelpers.ProjectAsVisitors(
-            raw, filter, sortField, sortDir, page, pageSize);
+            raw, filter, sortField, sortDir, page, pageSize,
+            country: country, botType: botType, threat: threat,
+            fingerprintId: fingerprint, internalOnly: internalOnly);
 
         // Plan task 19: enrich the paged visitor slice with the gateway-
         // projected drift badge. Only the visible page pays the lookup
@@ -3063,7 +3084,12 @@ public class StyloBotDashboardMiddleware
             Page = page,
             PageSize = pageSize,
             TotalCount = totalCount,
-            BasePath = _options.BasePath.TrimEnd('/')
+            BasePath = _options.BasePath.TrimEnd('/'),
+            Country = country,
+            BotType = botType,
+            Threat = threat,
+            FingerprintId = fingerprint,
+            Internal = internalOnly,
         };
 
         context.Response.ContentType = "text/html";
@@ -3071,6 +3097,9 @@ public class StyloBotDashboardMiddleware
             "/Views/Shared/Components/SbVisitorList/Default.cshtml", model, context);
         await context.Response.WriteAsync(html);
     }
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 
     // Keeps the event-store fetch bounded; matches the visitor-list page sizes.
     private const int _visitorListMaxEntries = 500;
@@ -5381,6 +5410,16 @@ public class StyloBotDashboardMiddleware
         var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+
+        // V1: same URL filter set the dedicated partial endpoint binds. Forwarding
+        // here keeps the OOB widget swap path symmetric with the HTMX single-widget
+        // path so a SignalR beacon-driven refresh preserves the active filter chips.
+        var country = NullIfEmpty(q["country"].FirstOrDefault());
+        var botType = NullIfEmpty(q["bot_type"].FirstOrDefault());
+        var threat = NullIfEmpty(q["threat"].FirstOrDefault());
+        var fingerprint = NullIfEmpty(q["fingerprint"].FirstOrDefault());
+        var internalOnly = string.Equals(q["internal"].FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase);
+
         // Same event-store read-through pattern as ServeVisitorListPartialAsync. The
         // local visitor cache is no longer the source of truth for the widget render
         // path -- the event store is.
@@ -5390,7 +5429,9 @@ public class StyloBotDashboardMiddleware
             endTime: DateTime.UtcNow,
             audienceFilter: "all");
         var (items, totalCount, counts) = WidgetRenderHelpers.ProjectAsVisitors(
-            raw, filter, sortField, sortDir, page, 24);
+            raw, filter, sortField, sortDir, page, 24,
+            country: country, botType: botType, threat: threat,
+            fingerprintId: fingerprint, internalOnly: internalOnly);
 
         // Plan task 19: same gateway-projected drift badge enrichment the
         // dedicated visitor-list partial path runs. Keeps the multi-widget
@@ -5403,7 +5444,12 @@ public class StyloBotDashboardMiddleware
             Visitors = items, Counts = counts,
             Filter = filter, SortField = sortField, SortDir = sortDir,
             Page = page, PageSize = 24, TotalCount = totalCount,
-            BasePath = _options.BasePath.TrimEnd('/')
+            BasePath = _options.BasePath.TrimEnd('/'),
+            Country = country,
+            BotType = botType,
+            Threat = threat,
+            FingerprintId = fingerprint,
+            Internal = internalOnly,
         };
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbVisitorList/Default.cshtml", model, context);
     }

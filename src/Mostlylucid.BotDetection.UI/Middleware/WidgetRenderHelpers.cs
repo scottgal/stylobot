@@ -346,7 +346,12 @@ public static class WidgetRenderHelpers
         string sortField,
         string sortDir,
         int page,
-        int pageSize)
+        int pageSize,
+        string? country = null,
+        string? botType = null,
+        string? threat = null,
+        string? fingerprintId = null,
+        bool internalOnly = false)
     {
         // Apply the SAME centroid collapse the Top Bots widget uses BEFORE
         // projection. The gateway-local /dashboard/visitors render path used
@@ -379,6 +384,10 @@ public static class WidgetRenderHelpers
             Description = e.Description,
             ProcessingTimeMs = e.ProcessingTimeMs,
             TopReasons = e.TopReasons ?? new List<string>(),
+            // V1: surface the durable entity id on the projection so the
+            // Visitors page ?fingerprint= URL filter can match against it.
+            // Falls back to null when no entity edge exists for the row.
+            FingerprintId = e.EntityId,
         }).ToList();
 
         // Counts are derived from the full unfiltered projection. AI / Search / Tools
@@ -394,17 +403,51 @@ public static class WidgetRenderHelpers
             Ai = snapshot.Count(v => v.IsBot && IsAiBotByType(v.BotType)),
             Search = snapshot.Count(v => v.IsBot && IsSearchBotByType(v.BotType)),
             Tools = snapshot.Count(v => v.IsBot && IsToolBotByType(v.BotType)),
+            // V1: Internal = local / same-network calls. Pragmatic v1 semantic
+            // documented on FilterCounts.Internal — refine when a per-fingerprint
+            // IsInternal flag exists. TODO: replace with a real internal marker
+            // (e.g. RFC1918 source-IP or operator-tagged fingerprint) once we
+            // surface either field on CachedVisitor.
+            Internal = snapshot.Count(IsInternalLikeRow),
         };
 
         IEnumerable<CachedVisitor> items = filter switch
         {
-            "humans" => snapshot.Where(v => !v.IsBot),
-            "bots"   => snapshot.Where(v => v.IsBot),
-            "ai"     => snapshot.Where(v => v.IsBot && IsAiBotByType(v.BotType)),
-            "search" => snapshot.Where(v => v.IsBot && IsSearchBotByType(v.BotType)),
-            "tools"  => snapshot.Where(v => v.IsBot && IsToolBotByType(v.BotType)),
-            _        => snapshot
+            "humans"   => snapshot.Where(v => !v.IsBot),
+            "bots"     => snapshot.Where(v => v.IsBot),
+            "ai"       => snapshot.Where(v => v.IsBot && IsAiBotByType(v.BotType)),
+            "search"   => snapshot.Where(v => v.IsBot && IsSearchBotByType(v.BotType)),
+            "tools"    => snapshot.Where(v => v.IsBot && IsToolBotByType(v.BotType)),
+            "internal" => snapshot.Where(IsInternalLikeRow),
+            _          => snapshot
         };
+
+        // V1 URL filters (Visitors page): post-filter the already-projected
+        // snapshot. Applied AFTER the audience pill so chip + pill compose
+        // naturally (e.g. ?filter=bots&country=US returns US bots).
+        if (!string.IsNullOrEmpty(country))
+            items = items.Where(v => string.Equals(v.CountryCode, country, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(botType))
+            items = items.Where(v => string.Equals(v.BotType, botType, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(threat))
+        {
+            // ?threat=Medium+ means Medium-or-higher; trailing + is conventional.
+            // Mirrors the same shape TrafficController introduced in T1.
+            var minRank = ThreatRank(threat.TrimEnd('+'));
+            items = items.Where(v => ThreatRank(v.ThreatBand) >= minRank);
+        }
+        if (!string.IsNullOrEmpty(fingerprintId))
+        {
+            // Match on either the durable entity id OR the primary signature.
+            // Operators clicking through from a fingerprint detail link expect
+            // either form to work; signature is rotation-fragile but harmless
+            // as a fallback because the rotated row will simply not match.
+            items = items.Where(v =>
+                string.Equals(v.FingerprintId, fingerprintId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(v.PrimarySignature, fingerprintId, StringComparison.OrdinalIgnoreCase));
+        }
+        if (internalOnly)
+            items = items.Where(IsInternalLikeRow);
 
         items = (sortField, sortDir) switch
         {
@@ -438,4 +481,31 @@ public static class WidgetRenderHelpers
     private static bool IsAiBotByType(string? botType)     => botType is "AiBot";
     private static bool IsSearchBotByType(string? botType) => botType is "SearchEngine" or "VerifiedBot" or "GoodBot";
     private static bool IsToolBotByType(string? botType)   => botType is "Scraper" or "MonitoringBot" or "SocialMediaBot" or "Tool";
+
+    // Same shape TrafficController.ThreatRank uses (T1) — kept in sync so the
+    // ?threat=Medium+ semantic is identical on Traffic + Visitors pages.
+    private static int ThreatRank(string? band) => band switch
+    {
+        "Critical" => 4,
+        "High" => 3,
+        "Medium" => 2,
+        "Low" => 1,
+        _ => 0,
+    };
+
+    /// <summary>
+    ///     V1: pragmatic "looks like internal/local traffic" predicate. Returns
+    ///     true when the row has no usable geo AND is not a known bot AND the
+    ///     bot probability is below the human threshold. Catches the typical
+    ///     LAN / loopback / private-VPN call shape on a freshly-deployed gateway
+    ///     until a real per-fingerprint <c>IsInternal</c> marker exists
+    ///     (RFC1918 source-IP latch or operator-tagged fingerprint).
+    /// </summary>
+    private static bool IsInternalLikeRow(CachedVisitor v)
+    {
+        var noGeo = string.IsNullOrEmpty(v.CountryCode)
+                    || string.Equals(v.CountryCode, "ZZ", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(v.CountryCode, "XX", StringComparison.OrdinalIgnoreCase);
+        return noGeo && !v.IsBot && v.BotProbability < 0.3;
+    }
 }

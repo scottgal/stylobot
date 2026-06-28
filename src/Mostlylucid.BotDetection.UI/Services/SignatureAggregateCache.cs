@@ -650,14 +650,27 @@ public sealed class SignatureAggregateCache
     public FilterCounts GetVisitorCounts()
     {
         var all = SnapshotAllAsVisitors();
+        // V1 (dashboard IA collapse plan): Internal = pragmatic "local /
+        // same-network traffic" predicate. Same semantics as
+        // WidgetRenderHelpers.IsInternalLikeRow — keep the two in sync so
+        // every read site (cache fast-path + event-store projection path)
+        // reports the same count to the operator.
+        bool IsInternal(CachedVisitor v)
+        {
+            var noGeo = string.IsNullOrEmpty(v.CountryCode)
+                        || string.Equals(v.CountryCode, "ZZ", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(v.CountryCode, "XX", StringComparison.OrdinalIgnoreCase);
+            return noGeo && !v.IsBot && v.BotProbability < 0.3;
+        }
         return new FilterCounts
         {
-            All    = all.Count,
-            Humans = all.Count(v => !v.IsBot),
-            Bots   = all.Count(v =>  v.IsBot),
-            Ai     = all.Count(v =>  v.IsBot && IsAiBot(v)),
-            Search = all.Count(v =>  v.IsBot && IsSearchBot(v)),
-            Tools  = all.Count(v =>  v.IsBot && IsToolBot(v))
+            All      = all.Count,
+            Humans   = all.Count(v => !v.IsBot),
+            Bots     = all.Count(v =>  v.IsBot),
+            Ai       = all.Count(v =>  v.IsBot && IsAiBot(v)),
+            Search   = all.Count(v =>  v.IsBot && IsSearchBot(v)),
+            Tools    = all.Count(v =>  v.IsBot && IsToolBot(v)),
+            Internal = all.Count(IsInternal),
         };
     }
 

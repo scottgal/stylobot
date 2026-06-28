@@ -21,7 +21,12 @@ public class SbVisitorListViewComponent(
         string sort = "lastSeen",
         string dir = "desc",
         int page = 1,
-        int pageSize = 24)
+        int pageSize = 24,
+        string? country = null,
+        string? botType = null,
+        string? threat = null,
+        string? fingerprintId = null,
+        bool @internal = false)
     {
         // Read through the event store so remote-mode hosts (no in-process
         // DetectionBroadcastMiddleware feeding the local cache) still get fresh
@@ -33,7 +38,9 @@ public class SbVisitorListViewComponent(
             endTime: DateTime.UtcNow,
             audienceFilter: "all");
         var (items, total, counts) = WidgetRenderHelpers.ProjectAsVisitors(
-            raw, filter, sort, dir, page, pageSize);
+            raw, filter, sort, dir, page, pageSize,
+            country: country, botType: botType, threat: threat,
+            fingerprintId: fingerprintId, internalOnly: @internal);
 
         // Plan task 19: same gateway-projected drift badge enrichment the
         // dedicated visitor-list endpoints run. No-ops on a remote-mode host
@@ -53,7 +60,12 @@ public class SbVisitorListViewComponent(
             Page = page,
             PageSize = pageSize,
             TotalCount = total,
-            BasePath = options.Value.BasePath.TrimEnd('/')
+            BasePath = options.Value.BasePath.TrimEnd('/'),
+            Country = country,
+            BotType = botType,
+            Threat = threat,
+            FingerprintId = fingerprintId,
+            Internal = @internal,
         });
     }
 }

@@ -25,6 +25,17 @@ public sealed class VisitorListModel
     public string NavBasePath { get; init; } = "";
     public string ResolvedNavBasePath => string.IsNullOrEmpty(NavBasePath) ? BasePath : NavBasePath;
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
+
+    // V1 (dashboard IA collapse plan): URL-bound filters layered on top of the
+    // existing audience pill (Filter). Null/empty values mean "no filter on this
+    // axis". The Visitors page handler binds these from ?country=, ?bot_type=,
+    // ?threat=, ?fingerprint=, ?internal=true and the view renders matching
+    // removable chips + an Internal pill.
+    public string? Country { get; init; }
+    public string? BotType { get; init; }
+    public string? Threat { get; init; }
+    public string? FingerprintId { get; init; }
+    public bool Internal { get; init; }
 }
 
 /// <summary>

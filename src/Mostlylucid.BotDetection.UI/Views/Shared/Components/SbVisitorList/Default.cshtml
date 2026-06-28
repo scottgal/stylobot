@@ -4,19 +4,53 @@
 @model VisitorListModel
 @{
     var bp = Model.BasePath;
-    string FilterUrl(string filter) => $"{bp}/partials/visitors?filter={filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}";
+
+    // V1 (dashboard IA collapse plan): URL filters propagate through every
+    // filter / sort / pagination link so an HTMX swap preserves the chips +
+    // pill state. Removable chips use ?remove= semantics matching Traffic T4.
+    string FilterQs(string? remove = null)
+    {
+        var qs = new System.Collections.Generic.List<string>();
+        if (!string.IsNullOrEmpty(Model.Country) && remove != "country")
+            qs.Add($"country={Uri.EscapeDataString(Model.Country)}");
+        if (!string.IsNullOrEmpty(Model.BotType) && remove != "bot_type")
+            qs.Add($"bot_type={Uri.EscapeDataString(Model.BotType)}");
+        if (!string.IsNullOrEmpty(Model.Threat) && remove != "threat")
+            qs.Add($"threat={Uri.EscapeDataString(Model.Threat)}");
+        if (!string.IsNullOrEmpty(Model.FingerprintId) && remove != "fingerprint")
+            qs.Add($"fingerprint={Uri.EscapeDataString(Model.FingerprintId)}");
+        if (Model.Internal && remove != "internal")
+            qs.Add("internal=true");
+        return qs.Count == 0 ? "" : "&" + string.Join("&", qs);
+    }
+    var carry = FilterQs();
+
+    string FilterUrl(string filter) => $"{bp}/partials/visitors?filter={filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}{carry}";
+    string InternalToggleUrl()
+    {
+        // Internal acts as a sibling toggle to the audience pills — independent
+        // axis. Clicking it strips the current ?internal carry and sets the
+        // opposite. Audience filter (Filter) is preserved across the toggle.
+        var nextCarry = FilterQs("internal");
+        var nextInternal = Model.Internal ? "" : "&internal=true";
+        return $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}{nextCarry}{nextInternal}";
+    }
+    string ChipRemoveUrl(string remove) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}{FilterQs(remove)}";
     string SortUrl(string field) {
         var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
-        return $"{bp}/partials/visitors?filter={Model.Filter}&sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
+        return $"{bp}/partials/visitors?filter={Model.Filter}&sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}{carry}";
     }
-    string PageUrl(int page) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
-    string PageSizeUrl(int size) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}";
+    string PageUrl(int page) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}{carry}";
+    string PageSizeUrl(int size) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}{carry}";
     string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? "▲" : "▼") : "";
     string SortHeaderClass(string field) => Model.SortField == field
         ? "text-base-content font-semibold cursor-pointer"
         : "text-base-content/40 hover:text-base-content/60 cursor-pointer";
     string FilterBtnClass(string f) => Model.Filter == f
         ? f switch { "bots" => "bg-error/20 text-error shadow-sm", "humans" => "bg-success/20 text-success shadow-sm", _ => "bg-base-100 shadow-sm text-base-content" }
+        : "text-base-content/40 hover:text-base-content/60";
+    string InternalBtnClass() => Model.Internal
+        ? "bg-info/20 text-info shadow-sm"
         : "text-base-content/40 hover:text-base-content/60";
 
     // Parse the major version out of "Chrome/124.0.6367.91 Safari/537.36" or "curl/8.5.0" etc.
@@ -35,7 +69,7 @@
      data-sb-params="page=@Model.Page&filter=@Model.Filter&sort=@Model.SortField&dir=@Model.SortDir&pageSize=@Model.PageSize">
 
     @* Filter chips (counts visible on each) *@
-    <div class="flex items-center justify-between mb-2">
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
         <div class="flex items-center gap-1 bg-base-300/50 rounded-lg p-0.5 flex-wrap">
             <button hx-get="@FilterUrl("all")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
                     class="px-3 py-1 text-xs font-medium rounded-md @FilterBtnClass("all")">
@@ -57,9 +91,67 @@
                     class="px-3 py-1 text-xs font-medium rounded-md @FilterBtnClass("tools")">
                 Tools <span class="text-[10px] opacity-60">@Model.Counts.Tools</span>
             </button>
+            @* V1: Internal pill — toggles ?internal=true on top of the audience
+               filter. Uses info colour (uncertain/neutral) per canonical
+               semantics: internal traffic isn't risk-graded by itself. *@
+            <button hx-get="@InternalToggleUrl()" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    title="Toggle internal / local-network traffic"
+                    class="px-3 py-1 text-xs font-medium rounded-md @InternalBtnClass()">
+                Internal <span class="text-[10px] opacity-60">@Model.Counts.Internal</span>
+            </button>
         </div>
         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "visitors")
     </div>
+
+    @* V1: Active URL-filter chips — removable. Hidden when no URL filter is set.
+       Mirrors the T4 pattern on Traffic so the operator sees what's narrowing
+       the table at a glance, and can drop a single facet without rebuilding
+       the URL. *@
+    @if (!string.IsNullOrEmpty(Model.Country) || !string.IsNullOrEmpty(Model.BotType)
+         || !string.IsNullOrEmpty(Model.Threat) || !string.IsNullOrEmpty(Model.FingerprintId)
+         || Model.Internal)
+    {
+        <div class="flex items-center gap-1 mb-2 flex-wrap">
+            @if (!string.IsNullOrEmpty(Model.Country))
+            {
+                <a hx-get="@ChipRemoveUrl("country")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                   class="badge badge-sm gap-1 cursor-pointer" title="Clear country filter">
+                    Country: @Model.Country <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.BotType))
+            {
+                <a hx-get="@ChipRemoveUrl("bot_type")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                   class="badge badge-sm gap-1 cursor-pointer" title="Clear bot-type filter">
+                    Bot: @Model.BotType <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Threat))
+            {
+                <a hx-get="@ChipRemoveUrl("threat")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                   class="badge badge-sm badge-warning gap-1 cursor-pointer" title="Clear threat filter">
+                    Threat ≥ @Model.Threat.TrimEnd('+') <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.FingerprintId))
+            {
+                var fpLabel = Model.FingerprintId.Length > 12
+                    ? Model.FingerprintId.Substring(0, 12) + "…"
+                    : Model.FingerprintId;
+                <a hx-get="@ChipRemoveUrl("fingerprint")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                   class="badge badge-sm gap-1 cursor-pointer font-mono" title="Clear fingerprint filter: @Model.FingerprintId">
+                    fp: @fpLabel <span aria-hidden="true">×</span>
+                </a>
+            }
+            @if (Model.Internal)
+            {
+                <a hx-get="@ChipRemoveUrl("internal")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                   class="badge badge-sm badge-info gap-1 cursor-pointer" title="Clear Internal filter">
+                    Internal <span aria-hidden="true">×</span>
+                </a>
+            }
+        </div>
+    }
 
     @* Visitors table. Outer .overflow-auto keeps thead frozen above the rolling tbody;
        the tbody itself is the data-region so SignalR-beacon swaps replace just the rows,
