@@ -100,14 +100,12 @@
         </label>
         <main class="max-w-7xl mx-auto px-2 py-4 w-full">
 
-        @* Se3 -- header type-ahead visitor search. Mounts here (not in the shared
-           _StylobotNavbar partial) because the navbar is shared with the marketing
-           site and the search hits a dashboard-only route. Lives in a flex row so
-           it sits flush right above the metric strip. *@
-        @{ ViewBag.HeaderSearchBasePath = bp; }
-        <div class="flex justify-end mb-2">
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HeaderSearch.cshtml")
-        </div>
+        @* M1 -- header type-ahead now lives in _StylobotNavbar (gated on
+           dashboard path) so Traffic / Visitors / Site / endpoint detail all
+           pick it up too. Setting HeaderSearchBasePath here is harmless when
+           the navbar already rendered with the default /_stylobot mount;
+           hosts that mount the dashboard elsewhere can set it before the
+           layout renders the navbar. *@
 
         <!-- Compact metric strip + Your Detection pill (single row, ~48px instead of ~360px).
              The old two-column grid (sb-summary-stats card + license/your-detection card) ate the
@@ -415,11 +413,8 @@
 
     <sb-live-updates show-status="false" />
 
-    @* Se3 -- header type-ahead search coordinator. Self-mounts on DOMContentLoaded
-       against #sb-header-search / #sb-header-search-results emitted by the
-       _HeaderSearch partial at the top of <main>. No-op when those nodes are
-       absent (so it's safe alongside any future legacy-layout opt-out). *@
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-header-search.js" defer nonce="@Model.CspNonce"></script>
+    @* M1 -- header type-ahead script now loaded by _StylobotNavbar (gated on
+       dashboard path) so it ships once across legacy + V2 surfaces. *@
 
     <!-- World Threat Map + Time Series Chart initialization -->
     <script nonce="@Model.CspNonce">

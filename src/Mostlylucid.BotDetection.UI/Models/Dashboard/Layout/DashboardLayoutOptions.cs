@@ -12,10 +12,11 @@ public sealed class DashboardLayoutOptions
     public int SearchMaxResults { get; set; } = 10;
 
     /// <summary>
-    ///     Kill-switch during migration. When true, sidebar + landing-page routing
-    ///     use the new IA (Traffic default, three aggregates + packs + manage). When
-    ///     false, the legacy 10+ tab sidebar continues. URL ?legacy=1 forces legacy
-    ///     even when this is true. Removed in the last migration step.
+    ///     Kill-switch during migration. When true (default after M1), sidebar +
+    ///     landing-page routing use the new IA (Traffic default, three aggregates
+    ///     + packs + manage). When false, the legacy 10+ tab sidebar continues.
+    ///     URL ?legacy=1 forces legacy even when this is true. Removed in M2 after
+    ///     legacy surfaces are deleted.
     /// </summary>
-    public bool V2Enabled { get; set; } = false;
+    public bool V2Enabled { get; set; } = true;   // was false; M1 flips to default-on
 }
