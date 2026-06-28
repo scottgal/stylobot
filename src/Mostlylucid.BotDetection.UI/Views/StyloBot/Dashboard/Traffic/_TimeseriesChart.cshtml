@@ -1,0 +1,120 @@
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@model TrafficTimeseries
+@{
+    // Inline-SVG stacked-area chart matching the SbSparkline pattern: no JS
+    // dependency, everything sized via viewBox so the parent card controls
+    // physical dimensions. InvariantCulture on every numeric -> string so a
+    // de-DE host can't slip a comma into an SVG attribute (commas separate
+    // point pairs in `points="..."`).
+    var inv = System.Globalization.CultureInfo.InvariantCulture;
+    var buckets = Model.Buckets;
+    var human = Model.Human;
+    var suspicious = Model.Suspicious;
+    var bot = Model.Bot;
+    var n = buckets.Count;
+
+    // Pre-sum each slot once: feeds both the empty-state check and the polygon
+    // baselines below. Avoid LINQ Sum() inside the polygon loop -- that would
+    // be O(n^2) for a chart that's already O(n).
+    var totals = new int[n];
+    long grand = 0;
+    for (var i = 0; i < n; i++)
+    {
+        totals[i] = bot[i] + suspicious[i] + human[i];
+        grand += totals[i];
+    }
+
+    // ViewBox is unitless; the SVG scales to the card width via the wrapper's
+    // w-full / aspect class. 600x128 keeps the same physical footprint as the
+    // T1 placeholder (h-32 = 128px) at the typical card width.
+    const int vbW = 600;
+    const int vbH = 128;
+}
+
+@if (n == 0 || grand == 0)
+{
+    @* Empty-state path -- match the muted tone of the T1 placeholder so the
+       page doesn't flash an empty chart frame on a quiet window. *@
+    <div class="h-32 bg-base-200/40 rounded flex items-center justify-center text-base-content/40 text-sm">
+        no traffic in this window
+    </div>
+}
+else
+{
+    // Single-bucket windows have no horizontal spread -- render a flat band
+    // by duplicating the slot so the polygon math below still produces a
+    // visible area instead of a zero-width sliver.
+    var slots = n == 1 ? 2 : n;
+    var maxTotal = 0;
+    for (var i = 0; i < n; i++)
+    {
+        if (totals[i] > maxTotal) maxTotal = totals[i];
+    }
+    // maxTotal can't be 0 here -- the grand==0 guard above already returned.
+    double Scale(int v) => maxTotal == 0 ? vbH : vbH - (double)v / maxTotal * vbH;
+    double X(int i) => slots == 1 ? 0 : (double)i / (slots - 1) * vbW;
+
+    // Build each band as a closed polygon: top edge across all slots, then
+    // bottom edge back across in reverse. Stacking order from bottom up is
+    // Bot -> Suspicious -> Human so the green human band sits on top of the
+    // amber/red threat bands, matching how operators read the chart.
+    string BandPoints(Func<int, int> top, Func<int, int> bottom)
+    {
+        var sb = new System.Text.StringBuilder();
+        // Forward across the top edge.
+        for (var i = 0; i < n; i++)
+        {
+            if (sb.Length > 0) sb.Append(' ');
+            sb.Append(X(i).ToString("0.##", inv))
+              .Append(',')
+              .Append(Scale(top(i)).ToString("0.##", inv));
+        }
+        // Single-bucket: extend to the right edge so the polygon has area.
+        if (n == 1)
+        {
+            sb.Append(' ').Append(((double)vbW).ToString("0.##", inv))
+              .Append(',').Append(Scale(top(0)).ToString("0.##", inv));
+            sb.Append(' ').Append(((double)vbW).ToString("0.##", inv))
+              .Append(',').Append(Scale(bottom(0)).ToString("0.##", inv));
+            sb.Append(' ').Append("0,").Append(Scale(bottom(0)).ToString("0.##", inv));
+            return sb.ToString();
+        }
+        // Reverse across the bottom edge to close the polygon.
+        for (var i = n - 1; i >= 0; i--)
+        {
+            sb.Append(' ')
+              .Append(X(i).ToString("0.##", inv))
+              .Append(',')
+              .Append(Scale(bottom(i)).ToString("0.##", inv));
+        }
+        return sb.ToString();
+    }
+
+    // Bot occupies [0, bot[i]], Suspicious occupies [bot[i], bot+susp[i]],
+    // Human occupies [bot+susp[i], totals[i]] -- the cumulative baselines.
+    var botPoints = BandPoints(i => bot[i], _ => 0);
+    var susPoints = BandPoints(i => bot[i] + suspicious[i], i => bot[i]);
+    var humPoints = BandPoints(i => totals[i], i => bot[i] + suspicious[i]);
+
+    <div class="w-full">
+        <svg class="w-full h-32" viewBox="0 0 @vbW @vbH" preserveAspectRatio="none" role="img" aria-label="Hits per minute split by audience">
+            @* Order matters: bottom (Bot) drawn first so Human paints over its
+               polygon edge along the shared baseline -- avoids a 1px seam. *@
+            <polygon class="text-error" points="@botPoints" fill="currentColor" fill-opacity="0.55" stroke="currentColor" stroke-width="0.5" stroke-opacity="0.75" />
+            <polygon class="text-warning" points="@susPoints" fill="currentColor" fill-opacity="0.55" stroke="currentColor" stroke-width="0.5" stroke-opacity="0.75" />
+            <polygon class="text-success" points="@humPoints" fill="currentColor" fill-opacity="0.55" stroke="currentColor" stroke-width="0.5" stroke-opacity="0.75" />
+        </svg>
+        <div class="flex items-center gap-4 mt-2 text-xs text-base-content/60">
+            <span class="inline-flex items-center gap-1.5">
+                <span class="inline-block w-2.5 h-2.5 rounded-sm bg-success/70"></span>Human
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+                <span class="inline-block w-2.5 h-2.5 rounded-sm bg-warning/70"></span>Suspicious
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+                <span class="inline-block w-2.5 h-2.5 rounded-sm bg-error/70"></span>Bot
+            </span>
+            <span class="ml-auto">@n bucket@(n == 1 ? "" : "s")</span>
+        </div>
+    </div>
+}

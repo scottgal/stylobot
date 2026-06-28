@@ -18,14 +18,11 @@
         @* T4 adds window switcher + active filter chips here *@
     </header>
 
-    @* Timeseries chart placeholder — T2 fills *@
+    @* Timeseries chart — stacked area (Human/Suspicious/Bot) off Model.Timeseries. *@
     <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-3">
             <div class="text-sm text-base-content/60 mb-2">Hits per minute (last @Model.Filters.Window)</div>
-            @* T2: <_TimeseriesChart /> partial here *@
-            <div class="h-32 bg-base-200/40 rounded flex items-center justify-center text-base-content/40">
-                @Model.Timeseries.Buckets.Count buckets — chart pending T2
-            </div>
+            @await Html.PartialAsync("Traffic/_TimeseriesChart", Model.Timeseries)
         </div>
     </div>
 
