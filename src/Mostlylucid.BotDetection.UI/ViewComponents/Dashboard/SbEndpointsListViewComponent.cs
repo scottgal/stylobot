@@ -21,7 +21,15 @@ public class SbEndpointsListViewComponent(
         bool excludeStatic = false,
         bool compact = false,
         string? audience = null,
-        string? range = null)
+        string? range = null,
+        // Si1 (dashboard IA collapse plan): URL-bound filters surfaced by the
+        // new /dashboard/site landing page. Null/empty leaves the unfiltered
+        // result for the legacy `partials/endpoints` and `Activity` callers,
+        // so adding these parameters doesn't perturb the existing surfaces.
+        string? path = null,
+        string? method = null,
+        string? threat = null,
+        string? botPressure = null)
     {
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
@@ -41,6 +49,43 @@ public class SbEndpointsListViewComponent(
         {
             data = data.Where(e => !IsStaticResource(e.Path)).ToList();
         }
+
+        // Si1 filters: path/method/threat/bot_pressure. Applied AFTER the source
+        // pull so the same cache-fed snapshot powers every variant of this VC.
+        if (!string.IsNullOrEmpty(path))
+        {
+            data = data.Where(e => e.Path.Contains(path, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        if (!string.IsNullOrEmpty(method))
+        {
+            data = data.Where(e => string.Equals(e.Method, method, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        if (!string.IsNullOrEmpty(threat))
+        {
+            // "Medium+" -> rank >= Medium. Bare "Medium" treated the same -- the
+            // operator picked a floor, so we don't gate equality vs. floor on a
+            // trailing glyph that's purely cosmetic.
+            var min = threat.TrimEnd('+');
+            var minRank = ThreatBandRank(min);
+            data = data.Where(e => ThreatBandRank(DeriveThreatBand(e.AvgThreatScore)) >= minRank).ToList();
+        }
+        if (!string.IsNullOrEmpty(botPressure))
+        {
+            // Match the visual buckets the _RiskBar primitive paints so the
+            // chip lines up with what the operator already sees in the column.
+            var threshold = botPressure.ToLowerInvariant() switch
+            {
+                "high" => 0.5,
+                "medium" or "med" => 0.2,
+                "low" => 0.0001,
+                _ => 0.0
+            };
+            if (threshold > 0)
+            {
+                data = data.Where(e => e.BotRate >= threshold).ToList();
+            }
+        }
+
         IEnumerable<DashboardEndpointStats> sorted = sort switch
         {
             "bots" => dir == "asc" ? data.OrderBy(x => x.BotCount) : data.OrderByDescending(x => x.BotCount),
@@ -62,8 +107,33 @@ public class SbEndpointsListViewComponent(
             IsCompact = compact,
             AllowEndpointPinning = options.Value.EnableEndpointPinning,
             AudienceFilter = string.IsNullOrEmpty(audience) ? "all" : audience,
+            PathFilter = path ?? string.Empty,
+            MethodFilter = string.IsNullOrEmpty(method) ? null : method,
+            ThreatFilter = string.IsNullOrEmpty(threat) ? null : threat,
+            BotPressureFilter = string.IsNullOrEmpty(botPressure) ? null : botPressure,
         });
     }
+
+    // Same threshold ladder the SbEndpointsList view uses to paint the threat
+    // shield -- centralising it here keeps the filter behaviour in lockstep
+    // with the icon the operator sees.
+    private static string DeriveThreatBand(double avgThreatScore) => avgThreatScore switch
+    {
+        >= 0.80 => "Critical",
+        >= 0.60 => "High",
+        >= 0.40 => "Medium",
+        >= 0.20 => "Low",
+        _ => "None",
+    };
+
+    private static int ThreatBandRank(string? band) => band switch
+    {
+        "Critical" => 4,
+        "High" => 3,
+        "Medium" => 2,
+        "Low" => 1,
+        _ => 0,
+    };
 
     // Same static-extension list used by ServeEndpointsCompactPartialAsync (FOSS UI middleware).
     // Keeping the rule colocated with the view component avoids the lazy-load partial drifting

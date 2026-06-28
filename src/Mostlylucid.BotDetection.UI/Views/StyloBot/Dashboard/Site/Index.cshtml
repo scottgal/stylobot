@@ -1,0 +1,166 @@
+@using Mostlylucid.BotDetection.UI.Controllers
+@model SitePageModel
+@{
+    ViewData["Title"] = "Site";
+    var bp = Model.BasePath;
+    var hasFilter = !string.IsNullOrEmpty(Model.Path)
+                    || !string.IsNullOrEmpty(Model.Method)
+                    || !string.IsNullOrEmpty(Model.Threat)
+                    || !string.IsNullOrEmpty(Model.BotPressure);
+
+    // Build a /dashboard/site URL with one filter axis removed -- used by the
+    // active-filter chips so each chip's "x" drops its own dimension while
+    // preserving the rest of the filter set. Matches the V1 / T4 pattern.
+    string LinkWithout(string axis)
+    {
+        var parts = new List<string>();
+        if (!string.Equals(axis, "path", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(Model.Path))
+            parts.Add($"path={Uri.EscapeDataString(Model.Path!)}");
+        if (!string.Equals(axis, "method", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(Model.Method))
+            parts.Add($"method={Uri.EscapeDataString(Model.Method!)}");
+        if (!string.Equals(axis, "threat", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(Model.Threat))
+            parts.Add($"threat={Uri.EscapeDataString(Model.Threat!)}");
+        if (!string.Equals(axis, "bot_pressure", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(Model.BotPressure))
+            parts.Add($"bot_pressure={Uri.EscapeDataString(Model.BotPressure!)}");
+        return parts.Count == 0 ? $"{bp}/site" : $"{bp}/site?{string.Join("&", parts)}";
+    }
+
+    // Pill toggle: produces a link that flips the corresponding filter on (sets
+    // the supplied value) or off (clears it if it already matches). Lets the
+    // pills below double as both apply + clear without an explicit "clear me"
+    // glyph next to each preset.
+    string LinkWithToggle(string axis, string? current, string value)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(Model.Path))   parts.Add($"path={Uri.EscapeDataString(Model.Path!)}");
+        if (!string.IsNullOrEmpty(Model.Method)) parts.Add($"method={Uri.EscapeDataString(Model.Method!)}");
+        if (!string.IsNullOrEmpty(Model.Threat)) parts.Add($"threat={Uri.EscapeDataString(Model.Threat!)}");
+        if (!string.IsNullOrEmpty(Model.BotPressure)) parts.Add($"bot_pressure={Uri.EscapeDataString(Model.BotPressure!)}");
+        // Strip the axis we're about to (re)set.
+        var key = axis + "=";
+        parts.RemoveAll(p => p.StartsWith(key, StringComparison.OrdinalIgnoreCase));
+        var alreadyOn = string.Equals(current, value, StringComparison.OrdinalIgnoreCase);
+        if (!alreadyOn)
+            parts.Add($"{axis}={Uri.EscapeDataString(value)}");
+        return parts.Count == 0 ? $"{bp}/site" : $"{bp}/site?{string.Join("&", parts)}";
+    }
+
+    string PillClass(bool on) => on
+        ? "btn btn-xs join-item btn-primary"
+        : "btn btn-xs join-item btn-ghost";
+
+    string ChipClass() =>
+        "inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md font-semibold bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors";
+}
+
+@*
+    Si1 (dashboard IA collapse plan) -- Site landing page. The endpoints list
+    + status / honeypot chip strip live in SbEndpointsList/Default.cshtml;
+    this page binds the URL filter set (?path, ?method, ?threat, ?bot_pressure)
+    into the view component invocation so first paint matches what an HTMX
+    swap of /dashboard/partials/endpoints with the same filter set would
+    produce. Filter pills + removable active-filter chips above the list
+    mirror the V1 / T4 pattern (btn-xs join-item for presets, dismissable
+    chips for active values).
+*@
+<section class="space-y-4">
+    <header class="flex items-center justify-between flex-wrap gap-2">
+        <h2 class="text-lg font-semibold">Site</h2>
+    </header>
+
+    @* Filter pills row: method + threat-floor + bot-pressure presets. Each
+       preset toggles its own axis -- click again to clear. The path filter
+       continues to live as the free-text input inside the SbEndpointsList
+       widget (the same HTMX debounce that already powers it), so this row
+       focuses on the three categorical axes. *@
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+        <div class="flex items-center gap-1">
+            <span class="text-base-content/50 mr-1">Method</span>
+            <div class="join">
+                @foreach (var m in new[] { "GET", "POST", "PUT", "DELETE" })
+                {
+                    <a href="@LinkWithToggle("method", Model.Method, m)"
+                       class="@PillClass(string.Equals(Model.Method, m, StringComparison.OrdinalIgnoreCase))">
+                        @m
+                    </a>
+                }
+            </div>
+        </div>
+
+        <div class="flex items-center gap-1">
+            <span class="text-base-content/50 mr-1">Threat ≥</span>
+            <div class="join">
+                @foreach (var t in new[] { "Low", "Medium", "High", "Critical" })
+                {
+                    <a href="@LinkWithToggle("threat", Model.Threat?.TrimEnd('+'), t)"
+                       class="@PillClass(string.Equals(Model.Threat?.TrimEnd('+'), t, StringComparison.OrdinalIgnoreCase))">
+                        @t
+                    </a>
+                }
+            </div>
+        </div>
+
+        <div class="flex items-center gap-1">
+            <span class="text-base-content/50 mr-1">Bot pressure</span>
+            <div class="join">
+                @foreach (var bpv in new[] { "low", "medium", "high" })
+                {
+                    <a href="@LinkWithToggle("bot_pressure", Model.BotPressure, bpv)"
+                       class="@PillClass(string.Equals(Model.BotPressure, bpv, StringComparison.OrdinalIgnoreCase))">
+                        @bpv
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Active filter chips: one removable chip per non-null filter axis. The
+       "x" link drops that axis only and preserves the rest. Mirrors V1's
+       per-axis chip strip so the operator can drop one dimension without
+       losing the others. *@
+    @if (hasFilter)
+    {
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="text-base-content/50">Active:</span>
+            @if (!string.IsNullOrEmpty(Model.Path))
+            {
+                <a href="@LinkWithout("path")" class="@ChipClass()" title="Remove path filter">
+                    path: <span class="font-mono">@Model.Path</span>
+                    <span class="text-primary/70">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Method))
+            {
+                <a href="@LinkWithout("method")" class="@ChipClass()" title="Remove method filter">
+                    method: @Model.Method
+                    <span class="text-primary/70">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Threat))
+            {
+                <a href="@LinkWithout("threat")" class="@ChipClass()" title="Remove threat floor">
+                    threat ≥ @Model.Threat.TrimEnd('+')
+                    <span class="text-primary/70">×</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.BotPressure))
+            {
+                <a href="@LinkWithout("bot_pressure")" class="@ChipClass()" title="Remove bot-pressure floor">
+                    bot pressure: @Model.BotPressure
+                    <span class="text-primary/70">×</span>
+                </a>
+            }
+            <a href="@bp/site"
+               class="text-[10px] text-base-content/50 hover:text-base-content/80 underline ml-1">
+                Clear all
+            </a>
+        </div>
+    }
+
+    @await Component.InvokeAsync("SbEndpointsList", new {
+        path        = Model.Path,
+        method      = Model.Method,
+        threat      = Model.Threat,
+        botPressure = Model.BotPressure
+    })
+</section>

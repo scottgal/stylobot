@@ -198,6 +198,38 @@ public sealed record EndpointsListModel
     /// </summary>
     public string AudienceFilter { get; init; } = "all";
 
+    /// <summary>
+    ///     Si1 (dashboard IA collapse plan): HTTP method filter, URL-bound via
+    ///     <c>?method=</c> on <c>/dashboard/site</c>. Null/empty renders the
+    ///     unfiltered set; otherwise a case-insensitive exact match against
+    ///     <see cref="DashboardEndpointStats.Method"/> (e.g. <c>GET</c>,
+    ///     <c>POST</c>). Surfaces as a removable chip above the list.
+    /// </summary>
+    public string? MethodFilter { get; init; }
+
+    /// <summary>
+    ///     Si1: threat-band floor, URL-bound via <c>?threat=</c> on
+    ///     <c>/dashboard/site</c>. Recognised values are
+    ///     <c>Low</c> / <c>Medium</c> / <c>High</c> / <c>Critical</c>; the
+    ///     trailing <c>+</c> ("Medium+") is conventional and stripped before
+    ///     ranking. The server-side handler keeps rows whose threat band
+    ///     (derived from <see cref="DashboardEndpointStats.AvgThreatScore"/>
+    ///     using the same thresholds as the table renderer) ranks at least as
+    ///     high as the filter.
+    /// </summary>
+    public string? ThreatFilter { get; init; }
+
+    /// <summary>
+    ///     Si1: bot-pressure floor, URL-bound via <c>?bot_pressure=</c> on
+    ///     <c>/dashboard/site</c>. <c>high</c> keeps rows whose
+    ///     <see cref="DashboardEndpointStats.BotRate"/> is at least 0.5;
+    ///     <c>medium</c> 0.2; <c>low</c> &gt; 0. Null/empty renders the
+    ///     unfiltered set. The thresholds mirror the visual buckets the
+    ///     <c>_RiskBar</c> primitive paints so the filter chip lines up with
+    ///     what the operator sees in the column.
+    /// </summary>
+    public string? BotPressureFilter { get; init; }
+
     /// <summary>When true the partial renders a narrow column set that fits inside a
     /// half-width container without horizontal scroll: Method, Path, Req, Bot %. The
     /// wider columns (Sigs, Policy) are dropped entirely rather than gated by Tailwind

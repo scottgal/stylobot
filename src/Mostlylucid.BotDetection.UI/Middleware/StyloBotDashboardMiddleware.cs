@@ -324,6 +324,19 @@ public class StyloBotDashboardMiddleware
                 await _next(context);
                 break;
 
+            // V2 IA Site landing page (plan Si1) — owned by SiteController.
+            // Same fast-pass shape as Traffic + Visitors above. The page renders
+            // the existing SbEndpointsList view component with the URL-bound
+            // filter set (?path, ?method, ?threat, ?bot_pressure) already applied,
+            // so first paint matches what an HTMX swap of
+            // /dashboard/partials/endpoints with the same filters would produce.
+            // Legacy /dashboard/endpoints continues to render via the row
+            // registry below; M2 is what 301-redirects the old URL.
+            case "site":
+            case var sp when sp.StartsWith("site/", StringComparison.OrdinalIgnoreCase):
+                await _next(context);
+                break;
+
             case "api/detections":
                 await ServeDetectionsApiAsync(context);
                 break;
