@@ -7,6 +7,12 @@ namespace Mostlylucid.BotDetection.UI.Dashboard;
 /// </summary>
 public sealed record DashboardRowRef(string Area, string? Sub = null)
 {
-    /// <summary>Default landing row when the operator hits /stylobot bare.</summary>
-    public static DashboardRowRef Default { get; } = new("overview");
+    /// <summary>
+    ///     Default landing row when the operator hits /stylobot bare. M2 collapsed
+    ///     Overview into Traffic, which is now the canonical landing page. The
+    ///     bare /{base} request is 301-redirected to /{base}/traffic inside the
+    ///     middleware, so this default is only consulted by code paths that
+    ///     synthesise a row ref directly (tests, ParseRowRef on an empty path).
+    /// </summary>
+    public static DashboardRowRef Default { get; } = new("traffic");
 }

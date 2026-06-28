@@ -1,0 +1,138 @@
+@using Microsoft.AspNetCore.Mvc.Rendering
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@using Mostlylucid.BotDetection.UI.Services
+@model DashboardShellModel
+@inject IOptions<DashboardLayoutOptions> LayoutOpts
+@inject SignatureAggregateCache Cache
+
+@*
+    M2 Traffic row partial. The row registry hands every row a
+    DashboardShellModel; this partial owns the shell -> TrafficPageModel
+    projection so the Traffic landing view (Traffic/Index.cshtml) keeps its
+    typed @model contract while still rendering inside the dashboard chrome
+    served by ServeDashboardPageAsync. Mirrors TrafficController.Index --
+    same SignatureAggregateCache snapshot, same URL-bound filters, same
+    bucketing constants; that controller stays for direct /dashboard/traffic
+    hits when the gateway is mounted at "/dashboard", the row partial covers
+    every other BasePath where the controller route never matches.
+*@
+@{
+    var query = Context!.Request.Query;
+    string? Nullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+    var opts = LayoutOpts.Value;
+    var filters = new TrafficFilters(
+        Country: Nullable(query["country"].FirstOrDefault()),
+        BotType: Nullable(query["bot_type"].FirstOrDefault()),
+        Window:  string.IsNullOrWhiteSpace(query["window"].FirstOrDefault())
+                 ? $"{opts.DefaultTimeWindowMinutes}m"
+                 : query["window"].FirstOrDefault()!,
+        Threat:  Nullable(query["threat"].FirstOrDefault()));
+
+    int ThreatRank(string? band) => band switch
+    {
+        "Critical" => 4,
+        "High"     => 3,
+        "Medium"   => 2,
+        "Low"      => 1,
+        _          => 0,
+    };
+
+    int ParseWindow(string window) => window switch
+    {
+        "15m"            => 15,
+        "60m" or "1h"    => 60,
+        "24h" or "1d"    => 24 * 60,
+        "7d"             => 7 * 24 * 60,
+        _                => 60,
+    };
+
+    var (allVisitors, _, _, _) = Cache.GetFiltered(
+        filter: "all", sortField: "lastSeen", sortDir: "desc",
+        page: 1, pageSize: 10_000);
+    IEnumerable<CachedVisitor> q = allVisitors;
+    if (filters.Country is { Length: > 0 } c)
+        q = q.Where(v => string.Equals(v.CountryCode, c, StringComparison.OrdinalIgnoreCase));
+    if (filters.BotType is { Length: > 0 } bt)
+        q = q.Where(v => string.Equals(v.BotType, bt, StringComparison.OrdinalIgnoreCase));
+    if (filters.Threat is { Length: > 0 } th)
+    {
+        var minTh = th.TrimEnd('+');
+        q = q.Where(v => ThreatRank(v.ThreatBand) >= ThreatRank(minTh));
+    }
+    var visitors = q.OrderByDescending(v => v.LastSeen).ToList();
+
+    var minutes = ParseWindow(filters.Window);
+    var now = DateTime.UtcNow;
+    var bucketCount = Math.Min(60, Math.Max(1, minutes));
+    var bucketSizeMin = Math.Max(1, minutes / bucketCount);
+    var buckets = new DateTime[bucketCount];
+    var human = new int[bucketCount];
+    var susp = new int[bucketCount];
+    var bot = new int[bucketCount];
+    for (var i = 0; i < bucketCount; i++)
+        buckets[i] = now.AddMinutes(-minutes + i * bucketSizeMin);
+    foreach (var v in visitors)
+    {
+        var ageMin = (now - v.LastSeen).TotalMinutes;
+        if (ageMin < 0 || ageMin > minutes) continue;
+        var idx = bucketCount - 1 - (int)(ageMin / bucketSizeMin);
+        if (idx < 0 || idx >= bucketCount) continue;
+        if (v.BotProbability >= 0.8) bot[idx] += v.Hits;
+        else if (v.BotProbability >= 0.3) susp[idx] += v.Hits;
+        else human[idx] += v.Hits;
+    }
+    var timeseries = new TrafficTimeseries(buckets, human, susp, bot);
+
+    var topN = opts.TrafficCardTopN;
+    var countries = visitors
+        .Where(v => !string.IsNullOrEmpty(v.CountryCode))
+        .GroupBy(v => v.CountryCode!)
+        .Select(g => new CountryRow(
+            CountryCode: g.Key,
+            Hits: g.Sum(v => v.Hits),
+            BotShare: g.Sum(v => v.IsBot ? v.Hits : 0) / (double)Math.Max(1, g.Sum(v => v.Hits))))
+        .OrderByDescending(r => r.Hits)
+        .Take(topN)
+        .ToList();
+    var botTypes = visitors
+        .Where(v => v.IsBot && !string.IsNullOrEmpty(v.BotType))
+        .GroupBy(v => v.BotType!)
+        .Select(g => new BotTypeRow(g.Key, g.Sum(v => v.Hits)))
+        .OrderByDescending(r => r.Hits)
+        .Take(topN)
+        .ToList();
+    var endpoints = visitors
+        .Where(v => !string.IsNullOrEmpty(v.LastPath))
+        .GroupBy(v => v.LastPath!)
+        .Select(g => new EndpointRow(
+            Method: "GET",
+            Path: g.Key,
+            Hits: g.Sum(v => v.Hits),
+            BotShare: g.Sum(v => v.IsBot ? v.Hits : 0) / (double)Math.Max(1, g.Sum(v => v.Hits))))
+        .OrderByDescending(r => r.Hits)
+        .Take(topN)
+        .ToList();
+    var topVisitors = visitors.Take(topN).ToList();
+    var threats = visitors
+        .Where(v => v.ThreatBand is "Medium" or "High" or "Critical")
+        .Take(topN)
+        .Select(v => new ThreatRow(
+            v.PrimarySignature,
+            v.BotName ?? string.Empty,
+            v.ThreatBand ?? "None",
+            v.LastSeen))
+        .ToList();
+
+    var pageModel = new TrafficPageModel(
+        Filters: filters,
+        Timeseries: timeseries,
+        Countries: countries,
+        BotTypes: botTypes,
+        TopEndpoints: endpoints,
+        TopVisitors: topVisitors,
+        Threats: threats);
+}
+@await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/Index.cshtml", pageModel)

@@ -275,6 +275,23 @@ public class StyloBotDashboardMiddleware
             case "index":
             case "index.html":
             {
+                // M2 back-compat: bare /{base}/?tab=X 301-redirects to /{base}/X so
+                // legacy bookmarks and Slack pastes survive the IA collapse. Other
+                // query params ride along (e.g. ?tab=traffic&fp=abc becomes
+                // /traffic?fp=abc). This MUST run before the V2 landing redirect
+                // below: that redirect 302s and would lose the `tab=` parameter
+                // intent (it just blindly forwards the querystring to /traffic,
+                // landing on /traffic?tab=traffic — meaningless).
+                var legacyTabAtRoot = context.Request.Query["tab"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(legacyTabAtRoot))
+                {
+                    var strippedQs = UI.Dashboard.DashboardRoutingHelpers.StripTabParam(
+                        context.Request.QueryString.Value ?? "");
+                    var tabTarget = _options.BasePath.TrimEnd('/') + "/" + legacyTabAtRoot.ToLowerInvariant() + strippedQs;
+                    context.Response.Redirect(tabTarget, permanent: true);
+                    break;
+                }
+
                 // V2 IA landing redirect: when the layout kill-switch is on AND the
                 // request didn't explicitly opt back into legacy with ?legacy=1, send
                 // the operator to /dashboard/traffic (the new default page). Legacy
@@ -303,38 +320,64 @@ public class StyloBotDashboardMiddleware
                 break;
             }
 
-            // V2 IA Traffic landing page — owned by TrafficController via MVC routing
-            // on the host. The middleware fast-passes the request so the controller
-            // can render the view; without this short-circuit the default case at the
-            // bottom would still pass to _next, but listing it explicitly documents
-            // the v2 surface alongside its sibling pages once they land (visitors,
-            // sites, etc. under V→Si plan letters).
+            // V2 IA Traffic / Visitors / Site landing pages — owned by the
+            // dashboard row registry via ServeDashboardPageAsync, NOT by their
+            // separate MVC controllers. The controllers' hardcoded
+            // [Route("dashboard/...")] attributes only fire when BasePath
+            // happens to equal "/dashboard"; under any other mount (Demo uses
+            // "/stylobot", marketing site uses "/_stylobot") the routes would
+            // miss, and even when they hit, the controllers' Views render a
+            // bare partial without the dashboard chrome (left nav, header,
+            // SignalR script). ServeDashboardPageAsync renders the full page
+            // and dispatches the area body via the row registry so chrome +
+            // content stay in sync regardless of BasePath. Listed explicitly
+            // here so the cases survive any future tightening of
+            // IsDashboardRowPath.
             case "traffic":
             case var tp when tp.StartsWith("traffic/", StringComparison.OrdinalIgnoreCase):
-                await _next(context);
-                break;
-
-            // V2 IA Visitors landing page (plan V1) — owned by VisitorsController.
-            // Same fast-pass shape as Traffic above. The page renders the existing
-            // SbVisitorList view component with the URL-bound filter set already
-            // applied, so first paint matches what an HTMX swap of the same
-            // partial would produce.
             case "visitors":
             case var vp when vp.StartsWith("visitors/", StringComparison.OrdinalIgnoreCase):
-                await _next(context);
-                break;
-
-            // V2 IA Site landing page (plan Si1) — owned by SiteController.
-            // Same fast-pass shape as Traffic + Visitors above. The page renders
-            // the existing SbEndpointsList view component with the URL-bound
-            // filter set (?path, ?method, ?threat, ?bot_pressure) already applied,
-            // so first paint matches what an HTMX swap of
-            // /dashboard/partials/endpoints with the same filters would produce.
-            // Legacy /dashboard/endpoints continues to render via the row
-            // registry below; M2 is what 301-redirects the old URL.
             case "site":
             case var sp when sp.StartsWith("site/", StringComparison.OrdinalIgnoreCase):
-                await _next(context);
+                if (_options.RenderPage)
+                {
+                    await ServeDashboardPageAsync(context);
+                }
+                else
+                {
+                    await _next(context);
+                }
+                break;
+
+            // M2 legacy IA -> V2 IA permanent redirects. Plan M1 already
+            // flipped V2Enabled on by default + redirects /{base} to /traffic;
+            // M2 now also redirects each individual legacy tab URL so deep
+            // links from external bookmarks, telemetry traces, and Slack
+            // pastes survive the rip-and-replace. ?legacy=1 deliberately does
+            // NOT bypass these redirects -- the legacy controllers + partials
+            // are physically deleted by this commit, so there is no behind to
+            // resurrect. The escape hatch only affects the sidebar dispatch
+            // in _LeftNav.cshtml and the bare /{base} landing redirect.
+            case "overview":
+                context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/traffic", permanent: true);
+                break;
+            case "activity":
+                context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/traffic", permanent: true);
+                break;
+            case "sessions":
+                context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/visitors", permanent: true);
+                break;
+            case "threats":
+                context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/visitors?threat=Medium%2B", permanent: true);
+                break;
+            case "insights":
+                context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/traffic", permanent: true);
+                break;
+            case "investigate":
+                context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/visitors", permanent: true);
+                break;
+            case "endpoints":
+                context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/site", permanent: true);
                 break;
 
             case "api/detections":
@@ -589,21 +632,12 @@ public class StyloBotDashboardMiddleware
                 await ServeOobUpdateAsync(context);
                 break;
 
-            // NOTE: "investigate" deliberately has NO standalone case here. The full-page
-            // GET /{base}/investigate falls through to the IDashboardRowRegistry catch-all
-            // below so it renders inside Index.cshtml with the same drawer + left-nav + status
-            // strip every other area uses. Investigation data is built lazily inside
-            // ServeDashboardPageAsync when tab=="investigate" and rendered by the area's
-            // partial-path match (Index.cshtml ~line 292). The two sub-routes below stay
-            // because they ARE HTMX partial endpoints (tab content swap, preset reload) and
-            // must NOT be layout-wrapped.
-            case var p when p.StartsWith("investigate/tab/", StringComparison.OrdinalIgnoreCase):
-                await ServeInvestigationTabAsync(context, relativePath["investigate/tab/".Length..]);
-                break;
-
-            case "investigate/load-preset":
-                await ServeLoadPresetAsync(context);
-                break;
+            // M2: the investigate tab + its HTMX sub-routes (tab swap,
+            // preset reload) are gone -- the surface itself was deleted and
+            // its functions absorbed into Visitors. /investigate at the
+            // top-level redirects to /visitors above; the HTMX sub-routes
+            // simply 404 (no external callers, only the deleted partials
+            // hit them).
 
             case var p when p.StartsWith("help/", StringComparison.OrdinalIgnoreCase):
                 await ServeHelpAsync(context, relativePath["help/".Length..]);
@@ -1177,9 +1211,11 @@ public class StyloBotDashboardMiddleware
             if (!string.IsNullOrEmpty(legacyTab))
             {
                 // "metrics" was the hardcoded pack tab before id-driven packs.
+                // Post-M2 fallback is the V2 IA landing page (Traffic), not the
+                // deleted Overview row.
                 if (legacyTab.Equals("metrics", StringComparison.OrdinalIgnoreCase))
                 {
-                    legacyTab = registry.Packs.Count > 0 ? registry.Packs[0].Id : "overview";
+                    legacyTab = registry.Packs.Count > 0 ? registry.Packs[0].Id : "traffic";
                 }
                 var qs = UI.Dashboard.DashboardRoutingHelpers.StripTabParam(
                     context.Request.QueryString.Value ?? "");
@@ -1248,49 +1284,12 @@ public class StyloBotDashboardMiddleware
             ? _aggregateCache.Current.UserAgents
             : await ComputeUserAgentsFallbackAsync();
 
+        // M2: investigate surface deleted. The Investigation view model on the
+        // shell model now always renders as null; readers (Index.cshtml's
+        // partial dispatch + DashboardShellModel consumers) treat null as
+        // "skip the block", which is the legacy behaviour for every non-
+        // investigate tab.
         ShapeInvestigationViewModel? investigationVm = null;
-        if (tab.Equals("investigate", StringComparison.OrdinalIgnoreCase))
-        {
-            var shapeFilter = ParseShapeSearchFilter(context);
-            InvestigationResult invResult;
-            var shapeStore = context.RequestServices.GetService<IShapeSearchStore>();
-            if (shapeFilter.TargetShape is not null && shapeStore is not null)
-            {
-                invResult = await shapeStore.SearchByShapeAsync(shapeFilter);
-            }
-            else
-            {
-                var invFilter = new InvestigationFilter
-                {
-                    EntityType = context.Request.Query["type"].FirstOrDefault() ?? "signature",
-                    EntityValue = context.Request.Query["value"].FirstOrDefault() ?? "",
-                    Start = shapeFilter.Start,
-                    End = shapeFilter.End,
-                    Tab = shapeFilter.Tab,
-                    Offset = shapeFilter.Offset
-                };
-                invResult = await _eventStore.GetInvestigationAsync(invFilter);
-            }
-
-            var invPresets = shapeStore is not null
-                ? await shapeStore.GetPresetsAsync()
-                : Array.Empty<InvestigationPreset>();
-            var invHasCommercial = IsCommercialMode(context);
-            var invTabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "policy", "geo", "signaltrace" };
-            if (invHasCommercial) invTabs.Insert(invTabs.Count - 1, "fingerprints");
-
-            investigationVm = new ShapeInvestigationViewModel
-            {
-                Filter = shapeFilter,
-                Result = invResult,
-                BasePath = _options.BasePath,
-                FilterGroups = ShapeFilterGroups,
-                Presets = invPresets.ToList(),
-                AvailableTabs = invTabs,
-                HasShapeSearch = shapeStore is not null,
-                IsPaid = invHasCommercial
-            };
-        }
 
         var model = new DashboardShellModel
         {
@@ -7333,444 +7332,6 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         _ => "#6b7280"
     };
 
-    public static readonly IReadOnlyList<FilterGroup> ShapeFilterGroups = new List<FilterGroup>
-    {
-        new()
-        {
-            Id = "fingerprint", Label = "Fingerprint Signals",
-            Dimensions = new List<FilterDimension>
-            {
-                new() { Name = "client_fingerprint", Label = "TLS/HTTP Fingerprint", AxisIndex = 7, InputType = "slider" },
-                new() { Name = "ip_reputation", Label = "Datacenter", AxisIndex = 2, InputType = "toggle", Threshold = 0.7 },
-                new() { Name = "inconsistency", Label = "Inconsistency", AxisIndex = 9, InputType = "slider" },
-            }
-        },
-        new()
-        {
-            Id = "traffic", Label = "Traffic Pattern",
-            Dimensions = new List<FilterDimension>
-            {
-                new() { Name = "rate_pattern", Label = "Request Rate", AxisIndex = 14, InputType = "slider" },
-                new() { Name = "advanced_behavioral", Label = "Timing Regularity", AxisIndex = 4, InputType = "slider" },
-                new() { Name = "behavioral", Label = "Navigation Pattern", AxisIndex = 3, InputType = "slider" },
-                new() { Name = "cache_behavior", Label = "Asset Loading", AxisIndex = 5, InputType = "slider" },
-            }
-        },
-        new()
-        {
-            Id = "detection", Label = "Detection Signals",
-            Dimensions = new List<FilterDimension>
-            {
-                new() { Name = "ua_anomaly", Label = "UA Anomaly", AxisIndex = 0, InputType = "slider" },
-                new() { Name = "header_anomaly", Label = "Header Anomaly", AxisIndex = 1, InputType = "slider" },
-                new() { Name = "security_tool", Label = "Security Tool", AxisIndex = 6, InputType = "toggle", Threshold = 0.5 },
-                new() { Name = "ai_classification", Label = "AI Classification", AxisIndex = 11, InputType = "slider" },
-                new() { Name = "cluster_signal", Label = "Cluster Signal", AxisIndex = 12, InputType = "slider" },
-                new() { Name = "reputation_match", Label = "Reputation Match", AxisIndex = 10, InputType = "slider" },
-            }
-        }
-    };
-
-    private async Task ServeInvestigationAsync(HttpContext context)
-    {
-        var shapeFilter = ParseShapeSearchFilter(context);
-
-        InvestigationResult result;
-
-        // If shape dimensions are set and we have pgvector, use HNSW
-        var shapeStore = context.RequestServices.GetService<IShapeSearchStore>();
-        if (shapeFilter.TargetShape is not null && shapeStore is not null)
-        {
-            result = await shapeStore.SearchByShapeAsync(shapeFilter);
-        }
-        else
-        {
-            // Fall back to SQL-based investigation. The shape filter form also carries
-            // free-text inputs (endpoint, user-agent, country, bot, ip) — those have to
-            // be threaded through to the store, otherwise the user types into them and
-            // nothing happens.
-            var qsType = context.Request.Query["type"].FirstOrDefault();
-            var qsValue = context.Request.Query["value"].FirstOrDefault();
-            var hasEntity = !string.IsNullOrWhiteSpace(qsValue);
-
-            var investigationFilter = new InvestigationFilter
-            {
-                EntityType = hasEntity ? (qsType ?? "signature") : "all",
-                EntityValue = qsValue ?? "",
-                Start = shapeFilter.Start,
-                End = shapeFilter.End,
-                Tab = shapeFilter.Tab,
-                Offset = shapeFilter.Offset,
-                EndpointPath = string.IsNullOrWhiteSpace(shapeFilter.EndpointPath) ? null : shapeFilter.EndpointPath,
-                UserAgent = string.IsNullOrWhiteSpace(shapeFilter.UserAgent) ? null : shapeFilter.UserAgent,
-                Country = string.IsNullOrWhiteSpace(shapeFilter.Country) ? null : shapeFilter.Country,
-                BotName = string.IsNullOrWhiteSpace(shapeFilter.BotName) ? null : shapeFilter.BotName,
-                IpHmac = string.IsNullOrWhiteSpace(shapeFilter.IpHmac) ? null : shapeFilter.IpHmac
-            };
-            result = await _eventStore.GetInvestigationAsync(investigationFilter);
-        }
-
-        // Enrich with FOSS ghost centroid matches and FrequencyCentroid.
-        // Ghost shapes in FOSS = L1/L2 HNSW entries (crystallized campaign centroids).
-        // VoidPressure stays 0 for FOSS (requires pgvector radar HNSW in commercial).
-        result = await EnrichWithGhostMatchesAsync(context, result);
-
-        // Load presets
-        var presets = shapeStore is not null
-            ? await shapeStore.GetPresetsAsync()
-            : Array.Empty<InvestigationPreset>();
-
-        var hasCommercial = IsCommercialMode(context);
-        var tabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "policy", "geo", "signaltrace" };
-        if (hasCommercial) tabs.Insert(tabs.Count - 1, "fingerprints");
-
-        var vm = new ShapeInvestigationViewModel
-        {
-            Filter = shapeFilter,
-            Result = result,
-            BasePath = _options.BasePath,
-            FilterGroups = ShapeFilterGroups,
-            Presets = presets.ToList(),
-            AvailableTabs = tabs,
-            HasShapeSearch = shapeStore is not null,
-            IsPaid = hasCommercial
-        };
-
-        var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/_Investigate.cshtml", vm, context);
-        context.Response.ContentType = "text/html; charset=utf-8";
-        await context.Response.WriteAsync(html);
-    }
-
-    private async Task ServeLoadPresetAsync(HttpContext context)
-    {
-        var presetId = context.Request.Query["preset"].FirstOrDefault();
-        if (string.IsNullOrEmpty(presetId) || !Guid.TryParse(presetId, out _))
-        {
-            // No preset selected -- re-render with empty filter
-            await ServeInvestigationAsync(context);
-            return;
-        }
-
-        var shapeStore = context.RequestServices.GetService<IShapeSearchStore>();
-        if (shapeStore is null)
-        {
-            await ServeInvestigationAsync(context);
-            return;
-        }
-
-        var presets = await shapeStore.GetPresetsAsync();
-        var preset = presets.FirstOrDefault(p => p.Id.ToString() == presetId);
-        if (preset is null)
-        {
-            await ServeInvestigationAsync(context);
-            return;
-        }
-
-        // Build query string from preset and redirect back to investigate
-        var qs = new List<string>();
-        for (var i = 0; i < preset.TargetShape.Length; i++)
-        {
-            if (preset.TargetShape[i] > 0.01f)
-                qs.Add($"dim_{i}={preset.TargetShape[i]:F2}");
-        }
-        qs.Add($"fuzz={preset.FuzzThreshold:F2}");
-        var range = context.Request.Query["range"].FirstOrDefault() ?? "24h";
-        qs.Add($"range={range}");
-
-        context.Response.Headers["HX-Redirect"] = $"{_options.BasePath}/investigate?{string.Join("&", qs)}";
-        context.Response.StatusCode = 200;
-    }
-
-    private async Task ServeInvestigationTabAsync(HttpContext context, string tab)
-    {
-        var filter = ParseInvestigationFilter(context) with { Tab = tab };
-        var result = await _eventStore.GetInvestigationAsync(filter);
-        result = await EnrichWithGhostMatchesAsync(context, result);
-        var vm = BuildInvestigationViewModel(filter, result, context);
-
-        var partialName = tab.ToLowerInvariant() switch
-        {
-            "detections" => "_InvestigateDetections",
-            "signatures" => "_InvestigateSignatures",
-            "endpoints" => "_InvestigateEndpoints",
-            "honeypot" => "_InvestigateHoneypot",
-            "policy" => "_InvestigatePolicy",
-            "geo" => "_InvestigateGeo",
-            "fingerprints" => "_InvestigateFingerprints",
-            "signaltrace" => "_InvestigateSignaltrace",
-            _ => "_InvestigateDetections"
-        };
-
-        // Honeypot tab needs the per-path aggregate, not the standard InvestigationResult.
-        // Attach via HttpContext.Items so the Razor partial picks it up without
-        // changing the shared InvestigationViewModel contract.
-        if (string.Equals(tab, "honeypot", StringComparison.OrdinalIgnoreCase))
-        {
-            var honeypotHits = await _eventStore.GetHoneypotHitsAsync(
-                count: 100, startTime: filter.Start, endTime: filter.End,
-                ct: context.RequestAborted);
-            var exemptStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Honeypot.IHoneypotExemptStore>();
-            if (exemptStore is not null)
-            {
-                honeypotHits = honeypotHits.Select(h => new HoneypotHitRow
-                {
-                    Path = h.Path,
-                    Tier = h.Tier,
-                    Category = h.Category,
-                    MatchedPattern = h.MatchedPattern,
-                    HitCount = h.HitCount,
-                    DistinctSignatures = h.DistinctSignatures,
-                    FirstSeen = h.FirstSeen,
-                    LastSeen = h.LastSeen,
-                    SampleBotName = h.SampleBotName,
-                    Why = h.Why,
-                    IsExempt = exemptStore.IsExempt(
-                        Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions.NormalizePath(h.Path))
-                }).ToList();
-            }
-            context.Items["Honeypot.HitRows"] = honeypotHits;
-            context.Items["Honeypot.IsCommercial"] = IsCommercialMode(context);
-            // Resolved site profile for the chip in the tab header. The
-            // resolver caches on HttpContext.Items by its own key so this
-            // doesn't re-match.
-            var profileResolver =
-                context.RequestServices.GetService<Mostlylucid.BotDetection.SiteProfiles.ISiteProfileResolver>();
-            if (profileResolver is not null)
-            {
-                var resolved = profileResolver.Resolve(context);
-                if (resolved is not null)
-                {
-                    context.Items["Honeypot.ActiveProfile"] = resolved;
-                    context.Items["Honeypot.ActiveProfileHost"] = context.Request.Host.Host;
-                }
-            }
-        }
-
-        // Policy tab: surface the live policy snapshot + the BotType -> policy
-        // map so the partial can render per-type chips and per-policy cards
-        // without reaching into DI itself. Phase 5 of the policy-grammar work.
-        if (string.Equals(tab, "policy", StringComparison.OrdinalIgnoreCase))
-        {
-            var stateProvider = context.RequestServices.GetService<Mostlylucid.BotDetection.Actions.IPolicyStateProvider>();
-            var botOptions = context.RequestServices.GetService<Microsoft.Extensions.Options.IOptions<Mostlylucid.BotDetection.Models.BotDetectionOptions>>()?.Value;
-            if (stateProvider is not null && botOptions is not null)
-            {
-                context.Items["Policy.States"] = stateProvider.GetAll();
-                context.Items["Policy.BotTypeMap"] = botOptions.BotTypeActionPolicies;
-                context.Items["Policy.DefaultPolicyName"] = botOptions.DefaultActionPolicyName;
-                context.Items["Policy.ObserveOnly"] = botOptions.ObserveOnly;
-            }
-        }
-
-        var html = await _razorViewRenderer.RenderViewToStringAsync(
-            $"/Views/StyloBot/Dashboard/{partialName}.cshtml", vm, context);
-        context.Response.ContentType = "text/html; charset=utf-8";
-        await context.Response.WriteAsync(html);
-    }
-
-    /// <summary>
-    /// Enrich an InvestigationResult with FOSS ghost centroid matches and per-signature FrequencyCentroid.
-    /// Ghost shapes are L1/L2 HNSW entries already in memory from VectorCompactionService.
-    /// FrequencyCentroid is the mean frequency fingerprint from the signature's compacted sessions.
-    /// VoidPressure is left at 0 for FOSS (requires pgvector radar-HNSW in commercial).
-    /// </summary>
-    private static async Task<InvestigationResult> EnrichWithGhostMatchesAsync(
-        HttpContext context, InvestigationResult result)
-    {
-        // Skip enrichment if the result was already populated by a commercial store
-        if (result.GhostMatches.Count > 0) return result;
-
-        var vectorSearch = context.RequestServices.GetService<ISessionVectorSearch>();
-        if (vectorSearch == null || result.Signatures.Count == 0) return result;
-
-        var sessionStore = context.RequestServices.GetService<ISessionStore>();
-        var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
-        var ghostHits = new List<GhostCampaignHit>();
-        var enrichedSignatures = new List<SignatureSummary>(result.Signatures.Count);
-
-        // Build a per-signature HNSW metadata lookup (L1 entries keyed by signature)
-        var snapshot = vectorSearch.GetAllVectorsSnapshot();
-        var l1BySignature = snapshot
-            .Where(e => e.Metadata.CompressionLevel == 1)
-            .GroupBy(e => e.Metadata.Signature)
-            .ToDictionary(g => g.Key, g => g.First());
-
-        foreach (var sig in result.Signatures.Take(10)) // cap to avoid slow scan
-        {
-            // FrequencyCentroid: prefer HNSW L1 metadata (already in memory, no I/O)
-            float[]? freqCentroid = null;
-            float[]? queryVec = null;
-
-            if (l1BySignature.TryGetValue(sig.PrimarySignature, out var l1Entry))
-            {
-                freqCentroid = l1Entry.Metadata.FrequencyFingerprint;
-                queryVec = l1Entry.Vector;
-            }
-            else if (sessionStore != null)
-            {
-                // Fallback: load most recent session vector from SQLite
-                var sessions = await sessionStore.GetSessionsAsync(sig.PrimarySignature, 1);
-                if (sessions.Count > 0)
-                    queryVec = SqliteSessionStore.DeserializeVector(sessions[0].Vector);
-            }
-
-            enrichedSignatures.Add(sig with { FrequencyCentroid = freqCentroid });
-
-            if (queryVec == null) continue;
-
-            // Ghost matches: find L1/L2 centroids similar to this signature's vector
-            var ghosts = await vectorSearch.FindGhostCentroidsAsync(queryVec, topK: 3, minSimilarity: 0.75f);
-            foreach (var g in ghosts)
-            {
-                // Don't match the signature to itself
-                if (string.Equals(g.FamilyId, sig.PrimarySignature, StringComparison.Ordinal)) continue;
-                // RiskBand for a ghost match must come from the same source every
-                // other dashboard surface uses (SignatureAggregateCache) so a ghost
-                // row can't show a different band to the operator than the matched
-                // family's own Top Bots row. Previously this re-derived a band from
-                // probability via a unique threshold formula (>0.7 -> High, else
-                // Medium), giving the matched family a THIRD independent definition
-                // of "what band is this fingerprint in." Now read from the cache;
-                // fall back to a band derived from probability only when the family
-                // is not in cache (warmup-cold case).
-                string ghostBand;
-                if (signatureCache != null && signatureCache.TryGet(g.FamilyId, out var ghostAgg) && ghostAgg != null && !string.IsNullOrEmpty(ghostAgg.RiskBand))
-                {
-                    ghostBand = ghostAgg.RiskBand;
-                }
-                else
-                {
-                    ghostBand = g.BotProbability switch
-                    {
-                        >= 0.85 => "VeryHigh",
-                        >= 0.65 => "High",
-                        >= 0.50 => "Medium",
-                        >= 0.35 => "Elevated",
-                        >= 0.15 => "Low",
-                        _       => "VeryLow"
-                    };
-                }
-                ghostHits.Add(new GhostCampaignHit
-                {
-                    FamilyId = g.FamilyId,
-                    Label = null,  // FOSS has no analyst labels
-                    Similarity = g.Similarity,
-                    MatchedSignature = sig.PrimarySignature,
-                    RiskBand = ghostBand,
-                    SignatureCount = 1,  // FOSS doesn't track merged count
-                    LastSeen = sig.LastSeen
-                });
-            }
-        }
-
-        // Deduplicate: keep highest-similarity hit per FamilyId
-        var dedupedGhosts = ghostHits
-            .GroupBy(h => h.FamilyId)
-            .Select(g => g.OrderByDescending(h => h.Similarity).First())
-            .OrderByDescending(h => h.Similarity)
-            .ToList();
-
-        return result with
-        {
-            Signatures = enrichedSignatures,
-            GhostMatches = dedupedGhosts
-        };
-    }
-
-    private static DateTime ParseRangeStart(string range)
-    {
-        var now = DateTime.UtcNow;
-        return range switch
-        {
-            "1h" => now.AddHours(-1),
-            "6h" => now.AddHours(-6),
-            "24h" => now.AddHours(-24),
-            "7d" => now.AddDays(-7),
-            "30d" => now.AddDays(-30),
-            _ => now.AddHours(-24)
-        };
-    }
-
-    private InvestigationFilter ParseInvestigationFilter(HttpContext context)
-    {
-        var query = context.Request.Query;
-        var qsType = query["type"].FirstOrDefault();
-        var qsValue = query["value"].FirstOrDefault();
-        var hasEntity = !string.IsNullOrWhiteSpace(qsValue);
-        var tab = query["tab"].FirstOrDefault();
-        var range = query["range"].FirstOrDefault() ?? "24h";
-        var offset = int.TryParse(query["offset"].FirstOrDefault(), out var o) ? o : 0;
-
-        var start = ParseRangeStart(range);
-
-        if (DateTime.TryParse(query["start"].FirstOrDefault(), out var customStart))
-            start = customStart;
-
-        DateTime? end = null;
-        if (DateTime.TryParse(query["end"].FirstOrDefault(), out var customEnd))
-            end = customEnd;
-
-        static string? Trimmed(string? v) => string.IsNullOrWhiteSpace(v) ? null : v;
-
-        return new InvestigationFilter
-        {
-            EntityType = hasEntity ? (qsType ?? "signature") : "all",
-            EntityValue = qsValue ?? "",
-            Start = start,
-            End = end,
-            Tab = tab,
-            Offset = offset,
-            EndpointPath = Trimmed(query["endpointPath"].FirstOrDefault()),
-            UserAgent = Trimmed(query["userAgent"].FirstOrDefault()),
-            Country = Trimmed(query["country"].FirstOrDefault()),
-            BotName = Trimmed(query["botName"].FirstOrDefault()),
-            IpHmac = Trimmed(query["ipHmac"].FirstOrDefault())
-        };
-    }
-
-    private ShapeSearchFilter ParseShapeSearchFilter(HttpContext context)
-    {
-        var query = context.Request.Query;
-        var start = ParseRangeStart(query["range"].FirstOrDefault() ?? "24h");
-
-        // Parse dimension values from dim_0 through dim_15
-        var shape = new float[RadarDimensions.Count];
-        var weights = new float[RadarDimensions.Count];
-        var hasAnyShape = false;
-
-        for (var i = 0; i < RadarDimensions.Count; i++)
-        {
-            if (float.TryParse(query[$"dim_{i}"].FirstOrDefault(), out var dimVal))
-            {
-                shape[i] = Math.Max(0f, Math.Min(1f, dimVal));
-                // Only count this as "user supplied a shape" when the dimension is
-                // above the same threshold the auto-weight derivation uses. The form
-                // serialises every untouched radar slider as dim_i=0, so without this
-                // guard an all-zero vector would be passed to HNSW shape search.
-                if (shape[i] > 0.05f) hasAnyShape = true;
-            }
-            weights[i] = float.TryParse(query[$"weight_{i}"].FirstOrDefault(), out var w) ? w : (shape[i] > 0.05f ? 1f : 0f);
-        }
-
-        var fuzz = double.TryParse(query["fuzz"].FirstOrDefault(), out var f) ? f : 0.2;
-
-        return new ShapeSearchFilter
-        {
-            Start = start,
-            EndpointPath = query["endpointPath"].FirstOrDefault(),
-            HttpMethod = query["httpMethod"].FirstOrDefault(),
-            UserAgent = query["userAgent"].FirstOrDefault(),
-            Country = query["country"].FirstOrDefault(),
-            BotName = query["botName"].FirstOrDefault(),
-            IpHmac = query["ipHmac"].FirstOrDefault(),
-            TargetShape = hasAnyShape ? shape : null,
-            DimensionWeights = weights,
-            FuzzThreshold = fuzz,
-            Tab = query["tab"].FirstOrDefault(),
-            Offset = int.TryParse(query["offset"].FirstOrDefault(), out var o) ? o : 0
-        };
-    }
 
     private async Task ServeEndpointPinsApiAsync(HttpContext context)
     {
@@ -7877,34 +7438,4 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     private static readonly HashSet<string> AllowedPinMethods =
         new(StringComparer.OrdinalIgnoreCase) { "ANY", "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS" };
 
-    private InvestigationViewModel BuildInvestigationViewModel(
-        InvestigationFilter filter, InvestigationResult result, HttpContext? httpContext = null)
-    {
-        var filters = new List<FilterOption>
-        {
-            new() { Value = "signature", Label = "Signature" },
-            new() { Value = "country", Label = "Country" },
-            new() { Value = "path", Label = "Path" },
-            new() { Value = "ua_family", Label = "UA Family" }
-        };
-
-        var tabs = new List<string> { "detections", "signatures", "endpoints", "policy", "geo", "signaltrace" };
-
-        // Commercial features -- gated by license + demo mode toggle
-        if (httpContext is not null ? IsCommercialMode(httpContext) : _options.EnableConfigEditing)
-        {
-            filters.Add(new FilterOption { Value = "ip", Label = "IP Address" });
-            filters.Add(new FilterOption { Value = "fingerprint", Label = "Fingerprint" });
-            tabs.Insert(tabs.Count - 1, "fingerprints");
-        }
-
-        return new InvestigationViewModel
-        {
-            Filter = filter,
-            Result = result,
-            BasePath = _options.BasePath,
-            AvailableFilters = filters,
-            AvailableTabs = tabs
-        };
-    }
 }

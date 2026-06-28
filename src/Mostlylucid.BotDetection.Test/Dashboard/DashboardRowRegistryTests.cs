@@ -8,10 +8,16 @@ public class DashboardRowRegistryTests
     [Fact]
     public void Resolve_returns_match_for_known_foss_row()
     {
+        // M2: Traffic is the V2 landing surface. Its row in FossDashboardGroups
+        // points at _Traffic.cshtml — the DashboardShellModel-typed row wrapper
+        // that projects the cache into a TrafficPageModel and forwards to the
+        // typed Traffic/Index.cshtml landing view. The wrapper exists because
+        // every row partial gets DashboardShellModel from the registry but the
+        // landing view is @model TrafficPageModel.
         var sut = new DashboardRowRegistry(Array.Empty<IDashboardPack>());
-        var match = sut.Resolve("overview", sub: null);
+        var match = sut.Resolve("traffic", sub: null);
         match.Should().NotBeNull();
-        match!.PartialPath.Should().EndWith("_Overview.cshtml");
+        match!.PartialPath.Should().EndWith("_Traffic.cshtml");
         match.ViewComponentName.Should().BeNull();
         match.Pack.Should().BeNull();
     }
@@ -53,9 +59,10 @@ public class DashboardRowRegistryTests
     [Fact]
     public void IsCommercialOnly_flag_propagates_for_system_rows()
     {
+        // M2: investigate is gone; compliance is the only commercial-only FOSS row.
         var sut = new DashboardRowRegistry(Array.Empty<IDashboardPack>());
         sut.Resolve("compliance", null)!.IsCommercialOnly.Should().BeTrue();
-        sut.Resolve("overview",   null)!.IsCommercialOnly.Should().BeFalse();
+        sut.Resolve("traffic",    null)!.IsCommercialOnly.Should().BeFalse();
     }
 
     [Fact]

@@ -69,17 +69,21 @@
     <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-3">
             <div class="text-sm text-base-content/60 mb-2">Hits per minute (last @Model.Filters.Window)</div>
-            @await Html.PartialAsync("Traffic/_TimeseriesChart", Model.Timeseries)
+            @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TimeseriesChart.cshtml", Model.Timeseries)
         </div>
     </div>
 
-    @* Breakdown cards — T3 fills the five core cards *@
+    @* Breakdown cards — T3 fills the five core cards.
+       Absolute view paths because the dashboard views live under the non-
+       conventional /Views/StyloBot/Dashboard/... root; MVC's default
+       partial-view discovery only walks /Views/Traffic/ + /Views/Shared/
+       and misses the dashboard tree, so a bare "Traffic/_X" lookup 500s. *@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        @await Html.PartialAsync("Traffic/_ByCountryCard",    Model.Countries)
-        @await Html.PartialAsync("Traffic/_ByBotTypeCard",    Model.BotTypes)
-        @await Html.PartialAsync("Traffic/_TopEndpointsCard", Model.TopEndpoints)
-        @await Html.PartialAsync("Traffic/_TopVisitorsCard",  Model.TopVisitors)
-        @await Html.PartialAsync("Traffic/_ThreatsCard",      Model.Threats)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByCountryCard.cshtml",    Model.Countries)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByBotTypeCard.cshtml",    Model.BotTypes)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopEndpointsCard.cshtml", Model.TopEndpoints)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopVisitorsCard.cshtml",  Model.TopVisitors)
+        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ThreatsCard.cshtml",      Model.Threats)
 
         @* Pack contribution slots — graceful absence when no packs registered. *@
         @foreach (var c in Contributions.For(DashboardContributionSlot.TrafficCard))

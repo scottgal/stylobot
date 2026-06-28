@@ -8,9 +8,9 @@ public class DashboardRoutingEdgeCasesTests
     // ── ParseRowRef ───────────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("overview",  "overview")]
-    [InlineData("OVERVIEW",  "overview")]
-    [InlineData("Overview",  "overview")]
+    [InlineData("traffic",  "traffic")]
+    [InlineData("TRAFFIC",  "traffic")]
+    [InlineData("Traffic",  "traffic")]
     public void ParseRowRef_normalises_area_to_lowercase(string input, string expected)
     {
         DashboardRoutingHelpers.ParseRowRef(input).Area.Should().Be(expected);
@@ -36,8 +36,9 @@ public class DashboardRoutingEdgeCasesTests
     [Fact]
     public void ParseRowRef_single_slash_returns_default()
     {
+        // M2: the default row is "traffic" (the V2 landing page), not "overview".
         var result = DashboardRoutingHelpers.ParseRowRef("/");
-        result.Area.Should().Be("overview");
+        result.Area.Should().Be("traffic");
         result.Sub.Should().BeNull();
     }
 
@@ -88,9 +89,9 @@ public class DashboardRoutingEdgeCasesTests
 
     /// <summary>tab= comparison must be case-insensitive per the OrdinalIgnoreCase filter.</summary>
     [Theory]
-    [InlineData("?TAB=overview")]
-    [InlineData("?Tab=activity")]
-    [InlineData("?tAb=visitors")]
+    [InlineData("?TAB=traffic")]
+    [InlineData("?Tab=visitors")]
+    [InlineData("?tAb=site")]
     public void StripTabParam_is_case_insensitive_on_tab_key(string qs)
     {
         DashboardRoutingHelpers.StripTabParam(qs).Should().Be("");
@@ -109,7 +110,7 @@ public class DashboardRoutingEdgeCasesTests
     [Fact]
     public void StripTabParam_handles_input_without_leading_question_mark()
     {
-        DashboardRoutingHelpers.StripTabParam("tab=overview&fp=abc").Should().Be("?fp=abc");
+        DashboardRoutingHelpers.StripTabParam("tab=traffic&fp=abc").Should().Be("?fp=abc");
     }
 
     /// <summary>Multiple tab= occurrences (malformed query) -- both stripped.</summary>
@@ -123,10 +124,11 @@ public class DashboardRoutingEdgeCasesTests
 
     /// <summary>Registry lookup uses OrdinalIgnoreCase for known FOSS rows.</summary>
     [Theory]
-    [InlineData("OVERVIEW")]
-    [InlineData("Overview")]
-    [InlineData("ACTIVITY")]
+    [InlineData("TRAFFIC")]
+    [InlineData("Traffic")]
+    [InlineData("VISITORS")]
     [InlineData("Visitors")]
+    [InlineData("Site")]
     public void Registry_lookup_is_case_insensitive_for_known_foss_rows(string area)
     {
         var sut = new DashboardRowRegistry(Array.Empty<IDashboardPack>());
@@ -167,16 +169,16 @@ public class DashboardRoutingEdgeCasesTests
     [Fact]
     public void Registry_pack_subrow_id_collision_with_foss_row_resolves_correctly()
     {
-        // "overview" exists as a FOSS row; using it as a sub-row id under a pack
+        // "traffic" exists as a FOSS row; using it as a sub-row id under a pack
         // must not overwrite the FOSS entry or fail to resolve.
-        var pack = new SingleSubPack("my-pack", "overview");
+        var pack = new SingleSubPack("my-pack", "traffic");
         var sut  = new DashboardRowRegistry(new[] { pack });
 
-        // FOSS row still resolves under bare key
-        sut.Resolve("overview", null)!.PartialPath.Should().EndWith("_Overview.cshtml");
+        // FOSS row still resolves under bare key (V2 Traffic landing page wrapper).
+        sut.Resolve("traffic", null)!.PartialPath.Should().EndWith("_Traffic.cshtml");
 
         // Pack sub-row resolves under composite key
-        sut.Resolve("my-pack", "overview")!.Pack!.Id.Should().Be("my-pack");
+        sut.Resolve("my-pack", "traffic")!.Pack!.Id.Should().Be("my-pack");
     }
 
     /// <summary>

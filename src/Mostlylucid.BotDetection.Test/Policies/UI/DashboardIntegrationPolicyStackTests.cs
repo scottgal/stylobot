@@ -156,19 +156,10 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         Assert.Contains("PolicyStackEmbed.StatusBadge", source);
     }
 
-    [Fact]
-    public void InvestigatePolicy_partial_source_uses_status_badge_embed()
-    {
-        // The investigate-policy tab uses the compact StatusBadge embed --
-        // the full rule editor lives on /dashboard/policies (see commit
-        // 3d3cdc91); the investigation surface only needs the one-line
-        // "N rules effective here" indicator.
-        var source = File.ReadAllText(LocatePartial("_InvestigatePolicy.cshtml"));
-        Assert.Contains("PolicyStackEmbed.StatusBadge", source);
-        Assert.Contains("SbPolicyStack", source);
-        // Bespoke legacy rendering is gone -- no more per-BotType policy cards.
-        Assert.DoesNotContain("BotType &rarr; policy", source);
-    }
+    // M2 deleted the _InvestigatePolicy.cshtml partial along with the rest of
+    // the Investigate surface; the per-tab StatusBadge embed test that used to
+    // live here lost its subject. The endpoint-level + visitor-level scopes
+    // still have their own assertions below.
 
     [Fact]
     public void Policies_partial_source_uses_full_embed_at_decoded_scope()

@@ -11,17 +11,26 @@ public static class FossDashboardGroups
 {
     public static IReadOnlyList<DashboardGroup> All { get; } =
     [
+        // M2: Overview / Activity collapsed into Traffic; Sessions / Threats
+        // collapsed into Visitors. Investigate deleted entirely. Insights
+        // collapsed into Traffic. Endpoints renamed to Site. The seven
+        // legacy URLs 301 inside StyloBotDashboardMiddleware -- the row
+        // entries themselves are gone so they no longer appear in the
+        // sidebar or resolve through the registry.
         new DashboardGroup("live", "Live",
         [
-            new DashboardRow("overview", "Overview", "~/Views/StyloBot/Dashboard/_Overview.cshtml"),
-            new DashboardRow("activity", "Activity", "~/Views/StyloBot/Dashboard/_Activity.cshtml"),
+            // _Traffic.cshtml is the DashboardShellModel-typed row wrapper that
+            // projects the cache into a TrafficPageModel and forwards to the
+            // typed Traffic/Index.cshtml landing view. The row registry hands
+            // every partial DashboardShellModel; this indirection keeps the
+            // landing view's @model TrafficPageModel contract intact across
+            // every mount (BasePath = "/dashboard", "/stylobot", "/_stylobot").
+            new DashboardRow("traffic",  "Traffic",  "~/Views/StyloBot/Dashboard/_Traffic.cshtml"),
             new DashboardRow("visitors", "Visitors", "~/Views/StyloBot/Dashboard/_Visitors.cshtml"),
         ]),
         new DashboardGroup("investigation", "Investigation",
         [
-            new DashboardRow("endpoints", "Endpoints", "~/Views/StyloBot/Dashboard/_Endpoints.cshtml"),
-            new DashboardRow("sessions",  "Sessions",  "~/Views/StyloBot/Dashboard/_Sessions.cshtml"),
-            new DashboardRow("threats",   "Threats",   "~/Views/StyloBot/Dashboard/_Threats.cshtml"),
+            new DashboardRow("site", "Site", "~/Views/StyloBot/Dashboard/_Endpoints.cshtml"),
         ]),
         new DashboardGroup("policy", "Policy",
         [
@@ -30,19 +39,11 @@ public static class FossDashboardGroups
         new DashboardGroup("system", "System",
         [
             new DashboardRow("configuration", "Configuration", "~/Views/StyloBot/Dashboard/_ConfigurationEditor.cshtml"),
-            // B1: global meter inventory (mini-grafana index). Lives in System
-            // because it's an observability surface, not a Live/Investigation
-            // pivot. Sub-rows under /dashboard/insights/{meter-name} are
-            // reserved for B2+; the row dispatches the top-level page only.
-            new DashboardRow("insights",      "Insights",      "~/Views/StyloBot/Dashboard/_Insights.cshtml"),
-            // B2: per-pack hub page for the FOSS AspNetPack. One-glance summary
-            // of the pack's inventory + meter ingest; drills into the global
-            // insights page filtered to the aspnet namespace. Lives here next
-            // to Insights because the OtelMesh hub and the commercial-overlay
-            // enrichments will follow the same shape (B3+).
+            // Per-pack hub page for the FOSS AspNetPack. One-glance summary
+            // of the pack's inventory + meter ingest. Sits next to the
+            // commercial OtelMesh hub and the future per-pack hubs (P3+).
             new DashboardRow("aspnet-hub",    "ASP.NET Pack",  "~/Views/StyloBot/Dashboard/_AspNetPackHub.cshtml"),
             new DashboardRow("compliance",    "Compliance",    "~/Views/StyloBot/Dashboard/_ComplianceTab.cshtml",    IsCommercialOnly: true),
-            new DashboardRow("investigate",   "Investigate",   "~/Views/StyloBot/Dashboard/_Investigate.cshtml",      IsCommercialOnly: true),
         ]),
     ];
 

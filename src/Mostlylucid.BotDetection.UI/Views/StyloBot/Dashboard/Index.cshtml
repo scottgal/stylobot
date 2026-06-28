@@ -1,9 +1,6 @@
 @using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
-@using Mostlylucid.BotDetection.UI.Services
-@using System.Text.Json
 @using Microsoft.Extensions.DependencyInjection
-@inject IDashboardEventStore EventStore
 @model DashboardShellModel
 @{
     // No Layout = null. Host's _ViewStart picks the layout (the website's _Layout
@@ -14,35 +11,12 @@
     var bp = Model.BasePath;
     var rowRef = Model.ActiveRow;
 
-    // SSR-seed the Traffic Over Time chart with the default 1h window so the first
-    // paint shows real data instead of empty axes (the chart's refreshChart() still
-    // runs on load + every 15s to refresh, but the empty-axes flicker the user
-    // perceived as 'broken graphs' is gone).
-    List<DashboardTimeSeriesPoint>? __trafficSeed = null;
-    if (rowRef.Area == "overview")
-    {
-        try
-        {
-            var __end = DateTime.UtcNow;
-            var __start = __end.AddHours(-1);
-            __trafficSeed = await EventStore.GetTimeSeriesAsync(__start, __end, TimeSpan.FromMinutes(1));
-        }
-        catch
-        {
-            __trafficSeed = null;
-        }
-    }
-    var __trafficSeedJson = __trafficSeed is { Count: > 0 }
-        ? JsonSerializer.Serialize(__trafficSeed.Select(p => new {
-            t = new DateTimeOffset(DateTime.SpecifyKind(p.Timestamp, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
-            h = p.HumanCount,
-            b = p.BotCount
-        }))
-        : "[]";
-    // Surface the seed JSON to the _Overview partial via ViewBag (PartialAsync
-    // inherits the parent's ViewData/ViewBag, so the partial picks this up
-    // without an explicit model change).
-    ViewBag.TrafficSeedJson = __trafficSeedJson;
+    // M2: the SSR Traffic chart seed used to live here and was scoped to the
+    // deleted Overview row. The V2 IA Traffic page (Controllers/TrafficController +
+    // Views/StyloBot/Dashboard/Traffic/Index.cshtml) renders through MVC, not the
+    // middleware's IDashboardRowRegistry path, so its first-paint chart seed is
+    // owned by the controller. Index.cshtml now only renders fallback / legacy
+    // dispatched rows.
 }
 <script nonce="@Model.CspNonce">
     (function() {
@@ -286,7 +260,7 @@
         {
             <div class="rounded-xl border p-6 text-sm text-base-content/60"
                  style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                Unknown dashboard section. <a href="@bp/overview" class="sb-link">Back to Overview</a>.
+                Unknown dashboard section. <a href="@bp/traffic" class="sb-link">Back to Traffic</a>.
             </div>
         }
         else if (match.IsCommercialOnly && !Model.IsCommercial)
@@ -317,10 +291,6 @@
             else if (rowRef.Area == "compliance" && Model.Compliance is not null)
             {
                 @await Html.PartialAsync(match.PartialPath, Model.Compliance)
-            }
-            else if (rowRef.Area == "investigate" && Model.Investigation is not null)
-            {
-                @await Html.PartialAsync(match.PartialPath, Model.Investigation)
             }
             else if (rowRef.Area == "clusters")
             {
