@@ -21,7 +21,8 @@ public enum PredicateOp
     Matches,
     Contains,
     AnyIn,
-    AllIn
+    AllIn,
+    InCidr
 }
 
 /// <summary>
@@ -352,6 +353,7 @@ public sealed class PredicatePolymorphicConverter : JsonConverter<Predicate>
         PredicateOp.Contains => "contains",
         PredicateOp.AnyIn => "anyIn",
         PredicateOp.AllIn => "allIn",
+        PredicateOp.InCidr => "in_cidr",
         _ => op.ToString().ToLowerInvariant()
     };
 
@@ -370,6 +372,7 @@ public sealed class PredicatePolymorphicConverter : JsonConverter<Predicate>
         "contains" => PredicateOp.Contains,
         "anyIn" => PredicateOp.AnyIn,
         "allIn" => PredicateOp.AllIn,
+        "in_cidr" => PredicateOp.InCidr,
         _ => Enum.TryParse<PredicateOp>(s, true, out var v) ? v : PredicateOp.Eq
     };
 }
