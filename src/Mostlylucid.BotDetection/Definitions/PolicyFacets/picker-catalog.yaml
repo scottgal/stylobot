@@ -273,3 +273,11 @@ facets:
     help: "True when the operator has toggled the org-wide lockdown switch."
     category: org
     icon: building-office
+
+  - label: "Client IP"
+    facet: "ip.address"
+    type: cidr
+    ops: [in_cidr, eq, in]
+    help: "Source IP of the request. Use in_cidr with a CIDR block (e.g. 192.168.0.0/16) or list of blocks to allow LAN, ACME, or fleet ranges without baking exclusions into detection code."
+    category: geo
+    icon: map-pin

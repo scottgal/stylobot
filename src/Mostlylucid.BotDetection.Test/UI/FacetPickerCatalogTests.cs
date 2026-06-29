@@ -21,7 +21,7 @@ public class FacetPickerCatalogTests
         {
             entry.Label.Should().NotBeNullOrWhiteSpace();
             entry.Facet.Should().NotBeNullOrWhiteSpace();
-            entry.Type.Should().BeOneOf("enum", "number", "bool", "string", "glob");
+            entry.Type.Should().BeOneOf("enum", "number", "bool", "string", "glob", "cidr");
             entry.Ops.Should().NotBeEmpty();
             entry.Help.Should().NotBeNullOrWhiteSpace();
         }
@@ -52,5 +52,24 @@ public class FacetPickerCatalogTests
         {
             enumEntry.Values.Should().NotBeNull();
         }
+    }
+
+    [Fact]
+    public void Ip_address_facet_present_with_in_cidr_op_and_cidr_type()
+    {
+        // A3 of the bundles + config editor plan: the new in_cidr predicate
+        // op (PredicateOp.InCidr, wire-form "in_cidr") needs a webmaster-
+        // facing surface. The ip.address facet matches the canonical
+        // SignalKeys.ClientIp ("ip.address") used by the evaluator + the
+        // PredicateOpRoundTripTests fixture.
+        var catalog = new FacetPickerCatalog();
+        var entry = catalog.FindByFacet("ip.address");
+        entry.Should().NotBeNull("picker must surface ip.address so webmasters can author in_cidr rules");
+        entry!.Type.Should().Be("cidr");
+        entry.Ops.Should().Contain("in_cidr");
+        entry.Ops.Should().Contain("eq");
+        entry.Ops.Should().Contain("in");
+        entry.Category.Should().Be("geo");
+        entry.Help.Should().NotBeNullOrWhiteSpace();
     }
 }
