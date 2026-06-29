@@ -466,6 +466,15 @@ public static class StyloBotDashboardServiceExtensions
         services.AddOptions<DashboardLayoutOptions>()
             .BindConfiguration("Dashboard:Layout");
 
+        // Threats card (Traffic page) inclusion thresholds. The card was
+        // hiding 11k+ classified-bot rows behind a strict "ThreatBand >=
+        // Medium" filter that, post-#178, only matched Internal pings. The
+        // widened filter adds a BotProbability floor as an OR clause; this
+        // section makes the floor + top-N tunable per
+        // feedback_all_settings_configurable.
+        services.AddOptions<ThreatsOptions>()
+            .BindConfiguration(ThreatsOptions.SectionName);
+
         services.AddOptions<Mostlylucid.BotDetection.UI.Options.PolicyStackHitAtomOptions>()
             .BindConfiguration("BotDetection:Policies:HitAtom");
         // Atom ctor needs TimeProvider; AddStyloBotBotDetection registers it but

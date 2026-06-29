@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
@@ -30,11 +31,13 @@ public sealed class TrafficController : Controller
 {
     private readonly IDashboardEventStore _eventStore;
     private readonly IOptions<DashboardLayoutOptions> _layout;
+    private readonly IOptions<ThreatsOptions> _threatsOpts;
     private readonly SignatureAggregateCache? _cache;
 
     public TrafficController(
         IDashboardEventStore eventStore,
         IOptions<DashboardLayoutOptions> layout,
+        IOptions<ThreatsOptions> threatsOpts,
         SignatureAggregateCache? cache = null)
     {
         // IDashboardEventStore is the canonical, share-with-the-rest-of-the-dashboard
@@ -45,6 +48,7 @@ public sealed class TrafficController : Controller
         // can short-circuit through it without a DI rewire.
         _eventStore = eventStore;
         _layout = layout;
+        _threatsOpts = threatsOpts;
         _cache = cache;
     }
 
@@ -112,9 +116,13 @@ public sealed class TrafficController : Controller
             BotTypes: TopByBotType(visitors, topN),
             TopEndpoints: TopByEndpoint(endpointsData, topN),
             TopVisitors: visitors.Take(topN).ToList(),
-            Threats: visitors
-                .Where(v => v.ThreatBand is "Medium" or "High" or "Critical")
-                .Take(topN)
+            // Delegated to ThreatsFilter so the partial (rendered by
+            // _Traffic.cshtml) and this HTMX-swap controller path stay in
+            // lockstep — without the shared filter, the SignalR-driven refresh
+            // would silently fall back to the pre-A4 strict-band cliff and
+            // empty the card on every swap (feedback_no_duplication).
+            Threats: ThreatsFilter
+                .Apply(visitors, _threatsOpts.Value ?? new ThreatsOptions())
                 .Select(v => new ThreatRow(
                     v.PrimarySignature,
                     v.BotName ?? string.Empty,

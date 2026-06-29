@@ -1,5 +1,6 @@
 @using Microsoft.AspNetCore.Mvc.Rendering
 @using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Middleware
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout
@@ -7,6 +8,7 @@
 @using Mostlylucid.BotDetection.UI.Services
 @model DashboardShellModel
 @inject IOptions<DashboardLayoutOptions> LayoutOpts
+@inject IOptions<ThreatsOptions> ThreatsOpts
 @inject IDashboardEventStore EventStore
 
 @*
@@ -233,9 +235,15 @@
             BotShare: r.BotRate))
         .ToList();
     var topVisitors = visitors.Take(topN).ToList();
-    var threats = visitors
-        .Where(v => v.ThreatBand is "Medium" or "High" or "Critical")
-        .Take(topN)
+    // Threats panel inclusion is delegated to ThreatsFilter so the test in
+    // Mostlylucid.BotDetection.Test/Dashboard/ThreatsFilterTests can pin the
+    // band-priority + probability-floor semantics. Before Task A4 this LINQ
+    // filtered to ThreatBand in {Medium, High, Critical} only, which after
+    // #178 ripped the parasitic header source matched only Internal pings —
+    // 11k+ classified-bot rows (Scraper / Tool / Unknown / "None" band)
+    // never surfaced. ThreatsFilter now ORs in BotProbability >= floor.
+    var threats = ThreatsFilter
+        .Apply(visitors, ThreatsOpts.Value ?? new ThreatsOptions())
         .Select(v => new ThreatRow(
             v.PrimarySignature,
             v.BotName ?? string.Empty,
