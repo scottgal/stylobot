@@ -1,0 +1,66 @@
+/* sb-chartlet — shared visual envelope for every dashboard chart.
+   Uses the same custom-property tokens the rest of the dashboard exposes from
+   sb-components.css (`--sb-surface`, `--sb-surface-alt`, `--sb-border`,
+   `--sb-border-radius`, `--sb-text`) so legend + canvas chrome inherit theme
+   and dark-mode toggles for free. */
+
+.sb-chartlet {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    color: var(--sb-text);
+}
+
+.sb-chartlet-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.sb-chartlet-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--sb-border-radius, 0.375rem);
+    background: var(--sb-surface);
+    border: 1px solid var(--sb-border);
+    color: inherit;
+    cursor: pointer;
+    transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.sb-chartlet-legend-item:hover {
+    background: var(--sb-surface-alt);
+}
+
+.sb-chartlet-legend-item--off {
+    opacity: 0.35;
+}
+
+.sb-chartlet-legend-item:focus-visible {
+    outline: 2px solid var(--sb-color-risk-verified, #3b82f6);
+    outline-offset: 1px;
+}
+
+.sb-chartlet-swatch {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 0.125rem;
+    display: inline-block;
+    flex: 0 0 auto;
+}
+
+.sb-chartlet-canvas-wrap {
+    position: relative;
+    height: 280px;
+}
+
+.sb-chartlet-canvas-wrap canvas {
+    width: 100% !important;
+    height: 100% !important;
+}

@@ -1,0 +1,39 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@model ChartletViewModel
+@{
+    // Serialise the model and (optional) drill config to camelCase JSON so the
+    // client primitive can read the same shape it sees on /api/* endpoints.
+    // ChartletKind is forced to a string so the JS switch can match on names
+    // rather than ordinals.
+    var jsonOpts = new JsonSerializerOptions
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+    jsonOpts.Converters.Add(new JsonStringEnumConverter());
+    var modelJson = JsonSerializer.Serialize(Model, jsonOpts);
+    var drillJson = Model.Drill is null ? "null" : JsonSerializer.Serialize(Model.Drill, jsonOpts);
+}
+<div x-data='sbChartlet({ id: "@Model.Id", kind: "@Model.Kind", drill: @Html.Raw(drillJson) })'
+     x-init="init()"
+     class="sb-chartlet"
+     data-chartlet-id="@Model.Id">
+    <div class="sb-chartlet-legend" role="group" aria-label="@Model.Axes.YLabel by series">
+        @foreach (var s in Model.Series)
+        {
+            <button type="button"
+                    class="sb-chartlet-legend-item"
+                    data-series-key="@s.Key"
+                    x-on:click="toggle('@s.Key')"
+                    x-bind:aria-pressed="hidden['@s.Key'] ? 'false' : 'true'"
+                    x-bind:class="hidden['@s.Key'] ? 'sb-chartlet-legend-item--off' : ''">
+                <span class="sb-chartlet-swatch" style="background: var(@s.ColorToken)" aria-hidden="true"></span>
+                <span>@s.Label</span>
+            </button>
+        }
+    </div>
+    <div class="sb-chartlet-canvas-wrap">
+        <canvas id="@Model.Id" data-chartlet='@Html.Raw(modelJson)'></canvas>
+    </div>
+</div>
