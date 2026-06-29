@@ -365,24 +365,46 @@ public static class PrometheusPackServiceCollectionExtensions
 
     /// <summary>
     ///     Registers <see cref="Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator" />
-    ///     as the canonical tick source if no <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator" />
-    ///     is already in DI. Mirrors the registration block inside
-    ///     <c>AddBotDetection</c> in the core assembly. Idempotent under
-    ///     repeated calls and respects callers that registered their own
-    ///     coordinator earlier.
+    ///     as the canonical tick source unless a "real" coordinator is already
+    ///     registered. Mirrors the registration block inside <c>AddBotDetection</c>.
     /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Previously this guard skipped when ANY <see cref="Mostlylucid.Common.Scheduling.IScheduleCoordinator"/>
+    ///         was registered. That let
+    ///         <see cref="Mostlylucid.Common.Scheduling.NullScheduleCoordinator"/>
+    ///         (registered as a defensive default by older versions of
+    ///         <c>AddStyloBotDashboard</c>) shadow the real coordinator silently:
+    ///         <c>RemoteMeterStream.Subscribe(...)</c> would attach to a no-op
+    ///         <c>Subscribe</c>, Tick10s never fired, and the AspNet pack metrics
+    ///         tile rendered "0 meters" on every viewer host even though the
+    ///         gateway's <c>/metrics</c> was serving <c>aspnet_pack_*</c> families.
+    ///     </para>
+    ///     <para>
+    ///         The new guard:
+    ///         <list type="bullet">
+    ///             <item><description>Nothing registered -> register real coordinator + IHostedService.</description></item>
+    ///             <item><description><see cref="Mostlylucid.Common.Scheduling.NullScheduleCoordinator"/> registered -> remove sentinel, register real.</description></item>
+    ///             <item><description>Real <see cref="Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator"/> or a non-sentinel custom impl registered -> no-op (caller wins).</description></item>
+    ///         </list>
+    ///     </para>
+    /// </remarks>
     private static void EnsureScheduleCoordinatorRegistered(IServiceCollection services)
     {
-        // Sentinel: any pre-existing IScheduleCoordinator wins (caller is
-        // responsible for the registration shape). This covers both
-        // AddBotDetection (which registers concrete + interface + hosted
-        // service atomically) and test rigs that register a single recording
-        // implementation as IScheduleCoordinator only. Without this check,
-        // our additional AddSingleton<IScheduleCoordinator>(factory) would
-        // override the test's recording coordinator -- the last AddSingleton
-        // wins on resolve.
-        if (services.Any(d => d.ServiceType == typeof(Mostlylucid.Common.Scheduling.IScheduleCoordinator)))
-            return;
+        var existing = services.FirstOrDefault(
+            d => d.ServiceType == typeof(Mostlylucid.Common.Scheduling.IScheduleCoordinator));
+
+        if (existing is not null)
+        {
+            // Real coordinator already registered (or a custom impl) -> caller wins.
+            var isNullSentinel =
+                ReferenceEquals(existing.ImplementationInstance, Mostlylucid.Common.Scheduling.NullScheduleCoordinator.Instance)
+                || existing.ImplementationType == typeof(Mostlylucid.Common.Scheduling.NullScheduleCoordinator);
+            if (!isNullSentinel) return;
+
+            // Null sentinel shadowing the real coordinator -- remove it.
+            services.Remove(existing);
+        }
 
         services.AddOptions<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions>()
             .BindConfiguration(Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions.SectionName);

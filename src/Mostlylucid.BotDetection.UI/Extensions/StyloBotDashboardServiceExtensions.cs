@@ -478,12 +478,25 @@ public static class StyloBotDashboardServiceExtensions
         // /dashboard/policies 500s on PostureViewComponent activation.
         services.TryAddSingleton<Mostlylucid.BotDetection.Policies.Rules.PolicyIntentClassifier>();
         services.TryAddSingleton<PolicyStackHitAtom>();
-        // Same reasoning for IScheduleCoordinator: dashboard-only hosts need a
-        // no-op so PolicyStackHitAtomTickHook's ctor injection doesn't tear down
-        // the whole host on startup. TryAdd lets a real coordinator win when one
-        // is wired upstream.
+        // Real ScheduleCoordinator + IHostedService triplet. Historically this
+        // block registered NullScheduleCoordinator.Instance as a defensive
+        // default so PolicyStackHitAtomTickHook's ctor injection wouldn't tear
+        // down dashboard-only hosts that hadn't called AddBotDetection. The
+        // problem: AddPrometheusPack.EnsureScheduleCoordinatorRegistered then
+        // saw "something already there, skip", and the null sentinel silently
+        // shadowed the real one -- RemoteMeterStream's Subscribe(...) calls
+        // landed on a no-op coordinator, Tick10s never fired, and the AspNet
+        // pack metrics tile rendered "0 meters" on every viewer host. TryAdd
+        // here lets AddBotDetection's earlier registration win when it's
+        // present (it registers the same triplet); when it isn't, we still
+        // get a real coordinator running.
+        services.AddOptions<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions>()
+            .BindConfiguration(Mostlylucid.BotDetection.Scheduling.ScheduleCoordinatorOptions.SectionName);
+        services.TryAddSingleton<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>();
         services.TryAddSingleton<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(
-            Mostlylucid.Common.Scheduling.NullScheduleCoordinator.Instance);
+            sp => sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>());
+        services.AddHostedService(
+            sp => sp.GetRequiredService<Mostlylucid.BotDetection.Scheduling.ScheduleCoordinator>());
         services.AddHostedService<PolicyStackHitAtomTickHook>();
 
         // Replace the FOSS NullPolicyHitRecorder (registered by AddPolicyDispatcher)
