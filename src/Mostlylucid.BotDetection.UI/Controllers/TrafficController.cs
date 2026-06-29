@@ -133,10 +133,22 @@ public sealed class TrafficController : Controller
         // Views live under the non-conventional /Views/StyloBot/Dashboard/... root
         // alongside the rest of the middleware-rendered dashboard pages, so the
         // explicit path keeps MVC's view engine off the convention-based search.
-        // ?partial=1 returns just the data sections (used by the SignalR-driven
-        // HTMX swap region) without the layout chrome.
+        // Two narrow swap paths:
+        //   ?partial=1 -- legacy SignalR-driven full _Body swap (header,
+        //       counters, chart, all five panels). Used by the SignalR
+        //       invalidation beacon so a single hx-trigger replaces the entire
+        //       data region with one refreshed render.
+        //   HX-Request -- chartlet drill swap (C1). The hits-per-period bar
+        //       chartlet's Drill emits a GET back here with bot_type=<family>;
+        //       sb-chartlet.js wraps that call with HX-Request: true so the
+        //       controller short-circuits to just the five side panels
+        //       (_TrafficPanels). Chart + counters + filter chrome stay put;
+        //       only the panels swap, matching feedback_ssr_signalr_pattern's
+        //       "SSR + targeted HTMX OOB" rule.
         if (partial == 1)
             return PartialView("/Views/StyloBot/Dashboard/Traffic/_Body.cshtml", model);
+        if (Request.Headers.ContainsKey("HX-Request"))
+            return PartialView("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", model);
         return View("/Views/StyloBot/Dashboard/Traffic/Index.cshtml", model);
     }
 
