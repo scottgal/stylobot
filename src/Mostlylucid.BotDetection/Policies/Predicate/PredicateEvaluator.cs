@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Mostlylucid.BotDetection.Helpers;
 
 namespace Mostlylucid.BotDetection.Policies.Predicate;
 
@@ -123,8 +124,39 @@ public static class PredicateEvaluator
             PredicateOp.Between => Between(facetValue, term.Value),
             PredicateOp.Matches => Matches(facetValue, term.Value),
             PredicateOp.Contains => Contains(facetValue, term.Value),
+            PredicateOp.InCidr => InCidr(facetValue, term.Value),
             _ => false
         };
+    }
+
+    // -------- CIDR --------
+
+    /// <summary>
+    ///     <c>facet in_cidr "10.0.0.0/8"</c> (single) or
+    ///     <c>facet in_cidr ["10.0.0.0/8", "192.168.0.0/16"]</c> (any-match).
+    ///     The facet must be a string IP -- IPv4 or IPv6. Malformed IP,
+    ///     malformed CIDR, missing signal, or non-string CIDR value all
+    ///     resolve to <c>false</c> in keeping with the evaluator's silent-miss
+    ///     convention. Delegates to <see cref="CidrHelper.IsInSubnet(string, string)"/>
+    ///     which owns the parse + mask arithmetic.
+    /// </summary>
+    private static bool InCidr(object? facet, object value)
+    {
+        if (facet is not string ipStr || string.IsNullOrWhiteSpace(ipStr))
+            return false;
+
+        switch (value)
+        {
+            case string single:
+                return CidrHelper.IsInSubnet(ipStr, single);
+            case string[] many:
+                foreach (var cidr in many)
+                    if (CidrHelper.IsInSubnet(ipStr, cidr))
+                        return true;
+                return false;
+            default:
+                return false;
+        }
     }
 
     // -------- Scalar comparison --------
