@@ -855,3 +855,33 @@
         init(evt.target || document);
     });
 })();
+
+/*
+ * sbValidateCidr -- client-side CIDR shape validator used by
+ * _CidrInput.cshtml (Components/SbPolicyStack/_CidrInput).
+ *
+ * Accepts a single CIDR or a comma-separated list. Returns an empty
+ * string on success, or a human-readable error string identifying the
+ * first malformed entry. Pattern is shape-only (no host-bit / range
+ * arithmetic): the server-side evaluator in CidrHelper.IsInSubnet is
+ * the authoritative parser. This is a "stop typos before submit" hint,
+ * matching the same pattern globs and number ranges use in
+ * _FacetPicker.cshtml.
+ *
+ * Exposed on `window` so Alpine `x-init` / `x-on:input` expressions in
+ * the partial can reference it without ESM plumbing.
+ */
+window.sbValidateCidr = function (value) {
+    if (value === null || value === undefined) return '';
+    var trimmed = String(value).trim();
+    if (!trimmed) return '';
+    var cidrs = trimmed.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (cidrs.length === 0) return '';
+    var v4 = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+    var v6 = /^[0-9a-fA-F:]+\/\d{1,3}$/;
+    for (var i = 0; i < cidrs.length; i++) {
+        var c = cidrs[i];
+        if (!v4.test(c) && !v6.test(c)) return 'invalid CIDR: ' + c;
+    }
+    return '';
+};

@@ -429,6 +429,36 @@
     color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
     white-space: nowrap;
 }
+/* CIDR input -- one text field + help line + inline error span. Same
+   row layout as the glob input so the cidr branch reuses the value
+   cell's flex gap without reflowing the picker grid. */
+.sb-facet-picker-cidr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.sb-facet-picker-cidr-input {
+    flex: 1 1 auto;
+    font-family: ui-monospace, monospace;
+}
+.sb-facet-picker-cidr-input[aria-invalid="true"] {
+    border-color: var(--color-error);
+    outline-color: var(--color-error);
+}
+.sb-facet-picker-cidr-hint {
+    font-size: 0.6875rem;
+    color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
+    white-space: nowrap;
+}
+.sb-facet-picker-cidr-error {
+    font-size: 0.6875rem;
+    color: var(--color-error);
+    white-space: nowrap;
+    flex-basis: 100%;
+}
 .sb-facet-picker-help {
     grid-column: 1 / -1;
     margin: 0.125rem 0 0 0;

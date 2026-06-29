@@ -1,0 +1,53 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model CidrInputViewModel
+@*
+    CIDR input control for the curated facet picker.
+
+    Rendered by _FacetPicker.cshtml when a catalog entry has
+    type: cidr (picker-catalog.yaml -- the ip.address facet uses this).
+
+    Pure presentation:
+      - one text input collecting a single CIDR or a comma-separated list
+      - Alpine x-data tracks the value + emits a client-side error when the
+        input does not match an IPv4 or IPv6 CIDR pattern (the validator
+        lives in policy-stack-edit.js as window.sbValidateCidr so it stays
+        a single source of truth shared with any future apply path)
+      - one help line stating the accepted shapes
+
+    The partial does NOT submit anywhere. The parent form (curated picker
+    + raw-DSL textarea inside _RuleCardExpand.cshtml) owns submission; the
+    apply pipeline that consumes the rendered value is commercial-only and
+    out of scope for the FOSS UI library.
+
+    Naming matches the sibling input controls in _FacetPicker.cshtml so the
+    rest of the picker JS (policy-stack-edit.js) treats this input as a
+    plain picker_value_{i} field.
+*@
+@{
+    var inputName = $"picker_value_{Model.RowIndex}";
+}
+
+<div class="sb-facet-picker-cidr"
+     x-data="{ value: @Html.Raw(Json.Serialize(Model.Value)), error: '' }"
+     x-init="error = (window.sbValidateCidr ? window.sbValidateCidr(value) : '')">
+    <input type="text"
+           name="@inputName"
+           x-model="value"
+           x-on:input.debounce.150ms="error = (window.sbValidateCidr ? window.sbValidateCidr(value) : '')"
+           value="@Model.Value"
+           placeholder="@Model.Placeholder"
+           class="sb-facet-picker-value-input sb-facet-picker-cidr-input"
+           autocomplete="off"
+           spellcheck="false"
+           :aria-invalid="error ? 'true' : 'false'"
+           aria-describedby="sb-facet-picker-cidr-help-@Model.RowIndex">
+    <span id="sb-facet-picker-cidr-help-@Model.RowIndex"
+          class="sb-facet-picker-cidr-hint">
+        Single CIDR or list. IPv4 and IPv6 supported.
+    </span>
+    <span class="sb-facet-picker-cidr-error"
+          role="alert"
+          x-show="!!error"
+          x-text="error"
+          style="display:none;"></span>
+</div>

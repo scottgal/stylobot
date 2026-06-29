@@ -152,6 +152,11 @@
                                class="sb-facet-picker-value-input sb-facet-picker-glob-input">
                         <span class="sb-facet-picker-glob-hint">* = one segment, ** = any depth</span>
                     }
+                    else if (entry?.Type == "cidr")
+                    {
+                        @await Html.PartialAsync("Components/SbPolicyStack/_CidrInput",
+                            new CidrInputViewModel(i, row.Value))
+                    }
                     else if (!string.IsNullOrEmpty(entry?.DatalistKey))
                     {
                         var listId = $"sb-facet-datalist-{entry.DatalistKey}";
@@ -234,6 +239,11 @@
                     <input type="number" name="picker_value_0" value="0"
                            class="sb-facet-picker-value-input"
                            min="@defaultEntry.Range.Min" max="@defaultEntry.Range.Max" step="@defaultEntry.Range.Step">
+                }
+                else if (defaultEntry?.Type == "cidr")
+                {
+                    @await Html.PartialAsync("Components/SbPolicyStack/_CidrInput",
+                        new CidrInputViewModel(0, string.Empty))
                 }
                 else
                 {
