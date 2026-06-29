@@ -69,6 +69,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     // --- adaptive thresholds (ratio + counter form, so absolute scale is irrelevant) ---
     private readonly double _highRatio;
     private readonly double _criticalRatio;
+    private readonly double _maxRecordedDeviationRatio;
     private readonly int _highStarvedTicks;
     private readonly int _criticalStarvedTicks;
     private readonly double _highGen2PerSec;
@@ -97,10 +98,16 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     private int _latencyBaselineSamples;
 
     // Upstream-deviation tracking (EMA of ratio; implicit baseline 1.0).
-    private long _rttAccumUs;
-    private int _rttSampleCount;
-    private double _rttEmaUs;
-    private int _rttBaselineSamples;
+    // _upstreamDeviationAccumScaled is the per-tick sum of (ratio * 1_000_000)
+    // so the accumulator can stay in long range; recovered to a dimensionless
+    // mean ratio inside Tick(). _upstreamDeviationRatioEma is the EMA of those
+    // per-tick mean ratios (NOT microseconds; renamed from the pre-2026-06-25
+    // _rttEmaUs to remove the confusing unit-suffix that produced multiple
+    // wrong root-cause diagnoses against this file).
+    private long _upstreamDeviationAccumScaled;
+    private int _upstreamDeviationSampleCount;
+    private double _upstreamDeviationRatioEma;
+    private int _upstreamDeviationTicksWithSamples;
 
     // ThreadPool starvation.
     private int _consecutiveStarvedTicks;
@@ -125,7 +132,8 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             highStarvedTicks: 3, criticalStarvedTicks: 6,
             highGen2PerSec: 1.0, criticalGen2PerSec: 2.0,
             baselineWindowSamples: 120, baselinePercentile: 0.10,
-            baselineUpwardDriftPerTick: 0.001)
+            baselineUpwardDriftPerTick: 0.001,
+            maxRecordedDeviationRatio: 10.0)
     { }
 
     /// <summary>
@@ -145,17 +153,22 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
         double criticalGen2PerSec,
         int baselineWindowSamples = 120,
         double baselinePercentile = 0.10,
-        double baselineUpwardDriftPerTick = 0.001)
+        double baselineUpwardDriftPerTick = 0.001,
+        double maxRecordedDeviationRatio = 10.0)
     {
-        _normalRps             = normalRps;
-        _highRps               = highRps;
-        _criticalRps           = criticalRps;
-        _highRatio             = highRatio;
-        _criticalRatio         = criticalRatio;
-        _highStarvedTicks      = highStarvedTicks;
-        _criticalStarvedTicks  = criticalStarvedTicks;
-        _highGen2PerSec        = highGen2PerSec;
-        _criticalGen2PerSec    = criticalGen2PerSec;
+        _normalRps                  = normalRps;
+        _highRps                    = highRps;
+        _criticalRps                = criticalRps;
+        _highRatio                  = highRatio;
+        _criticalRatio              = criticalRatio;
+        _highStarvedTicks           = highStarvedTicks;
+        _criticalStarvedTicks       = criticalStarvedTicks;
+        _highGen2PerSec             = highGen2PerSec;
+        _criticalGen2PerSec         = criticalGen2PerSec;
+        // Guard: a max-recorded clamp below the Critical ratio would cap the
+        // EMA below Critical and the sensor could never trip Critical from the
+        // deviation axis at all. Force it >= criticalRatio.
+        _maxRecordedDeviationRatio  = Math.Max(maxRecordedDeviationRatio, criticalRatio);
 
         _baselineWindowSize          = Math.Max(8, baselineWindowSamples);
         _baselinePercentile          = Math.Clamp(baselinePercentile, 0.0, 0.5);
@@ -189,7 +202,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     ///     first sample. Band escalates when this value crosses the
     ///     configured High / Critical ratios.
     /// </summary>
-    public double UpstreamDeviationEma => Volatile.Read(ref _rttEmaUs);
+    public double UpstreamDeviationEma => Volatile.Read(ref _upstreamDeviationRatioEma);
 
     /// <summary>
     ///     Consecutive 1-second ticks at which ThreadPool.PendingWorkItemCount
@@ -213,7 +226,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
             // collected to trust the baseline. Fall back to the RPS bands; the
             // adaptive layer only takes over once baselines stabilise.
             var latencyReady = Volatile.Read(ref _latencyBaselineSamples) >= BaselineWarmupTicks;
-            var rttReady     = Volatile.Read(ref _rttBaselineSamples) >= BaselineWarmupTicks;
+            var rttReady     = Volatile.Read(ref _upstreamDeviationTicksWithSamples) >= BaselineWarmupTicks;
             if (!latencyReady && !rttReady)
             {
                 var rps = Volatile.Read(ref _smoothedRps);
@@ -239,7 +252,11 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
 
             if (rttReady)
             {
-                var ratio = Volatile.Read(ref _rttEmaUs);
+                // _upstreamDeviationRatioEma holds the EMA of per-tick mean
+                // deviation ratios (dimensionless; pre-2026-06-25 this field was
+                // microseconds — the rename eliminates the unit confusion that
+                // produced repeated wrong root-cause diagnoses).
+                var ratio = Volatile.Read(ref _upstreamDeviationRatioEma);
                 if (ratio >= _criticalRatio) return LoadBand.Critical;
                 if (ratio >= _highRatio)     band = Worse(band, LoadBand.High);
                 else if (ratio >= NormalRatio) band = Worse(band, LoadBand.Normal);
@@ -307,8 +324,19 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     public void RecordUpstreamDeviation(double ratio)
     {
         if (ratio <= 0 || double.IsNaN(ratio) || double.IsInfinity(ratio)) return;
-        Interlocked.Add(ref _rttAccumUs, (long)(ratio * 1_000_000.0));  // scaled so the EMA accumulator stays in long range
-        Interlocked.Increment(ref _rttSampleCount);
+        // Hard-clamp each recorded sample so a single outlier ratio (e.g. 50ms
+        // upstream against a sub-ms endpoint baseline = ratio 100) cannot peg
+        // the EMA above CriticalRatio for tens of ticks. The clamp doesn't
+        // suppress real sustained pressure (every sample still contributes,
+        // and a sustained burst above _maxRecordedDeviationRatio still drives
+        // the EMA toward the clamp and trips Critical) — it just stops one
+        // bad sample from holding the band in Critical long after the burst
+        // ends. Without this clamp an idle gateway whose dashboard reads
+        // briefly spiked stays wedged in Critical and sheds 100% of inbound
+        // traffic via LoadShedDecision.ShouldShed.
+        if (ratio > _maxRecordedDeviationRatio) ratio = _maxRecordedDeviationRatio;
+        Interlocked.Add(ref _upstreamDeviationAccumScaled, (long)(ratio * 1_000_000.0));  // scaled so the accumulator stays in long range
+        Interlocked.Increment(ref _upstreamDeviationSampleCount);
     }
 
     /// <summary>
@@ -379,23 +407,26 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
         }
 
         // ---- Upstream deviation EMA (replaces the old rolling-baseline path) ----
-        // _rttAccumUs / _rttSampleCount produces the mean ratio for the tick;
-        // the EMA smooths it; band selection (below) compares EMA ratio
-        // directly to HighRatio / CriticalRatio. Baseline is implicitly 1.0
-        // because the input is already normalised by the per-endpoint p95
-        // from IEndpointPerfBaseline at the call site.
-        var rttAccum = Interlocked.Exchange(ref _rttAccumUs, 0);
-        var rttCount = Interlocked.Exchange(ref _rttSampleCount, 0);
+        // _upstreamDeviationAccumScaled / _upstreamDeviationSampleCount produces
+        // the mean ratio for the tick; the EMA smooths it; band selection (above)
+        // compares the EMA ratio directly to HighRatio / CriticalRatio. Baseline
+        // is implicitly 1.0 because the input is already normalised by the
+        // per-endpoint p95 from IEndpointPerfBaseline at the call site, and
+        // individual samples are clamped at _maxRecordedDeviationRatio so a
+        // single outlier cannot peg the EMA.
+        var rttAccum = Interlocked.Exchange(ref _upstreamDeviationAccumScaled, 0);
+        var rttCount = Interlocked.Exchange(ref _upstreamDeviationSampleCount, 0);
         if (rttCount > 0)
         {
             // Recover the ratio from the scaled accumulator (see RecordUpstreamDeviation).
             var meanRatio = (rttAccum / 1_000_000.0) / rttCount;
-            var prevEma = Volatile.Read(ref _rttEmaUs);
-            // Re-use _rttEmaUs to hold the EMA of ratios (scaled by 1.0 here
-            // since the input is already dimensionless).
-            Interlocked.Exchange(ref _rttEmaUs, Ewma.Update(prevEma, meanRatio, Alpha));
-            // Mark the axis as having data so the band selector engages.
-            Interlocked.Increment(ref _rttBaselineSamples);
+            var prevEma = Volatile.Read(ref _upstreamDeviationRatioEma);
+            Interlocked.Exchange(ref _upstreamDeviationRatioEma, Ewma.Update(prevEma, meanRatio, Alpha));
+            // Count ticks that contained any sample so the band selector knows
+            // when the axis has enough history to engage. Renamed from
+            // _rttBaselineSamples (which misleadingly suggested baseline tracking;
+            // this axis has no rolling baseline — its baseline is the implicit 1.0).
+            Interlocked.Increment(ref _upstreamDeviationTicksWithSamples);
         }
 
         // ---- ThreadPool starvation counter ----

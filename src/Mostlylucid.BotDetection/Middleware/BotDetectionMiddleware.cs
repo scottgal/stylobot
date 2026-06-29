@@ -187,7 +187,16 @@ public class BotDetectionMiddleware(
                         var expected = _endpointPerfBaseline?.GetExpectedMs(
                             context.Request.Method,
                             PathNormalizer.Normalize(requestPath)) ?? 0.0;
-                        if (expected > 0) ratio = upstreamMs / expected;
+                        // Floor the expected baseline before dividing: a sub-ms
+                        // p95 (e.g. 0.4ms for cached static responses) turns any
+                        // normal-jitter upstreamMs into a 50x-200x outlier ratio
+                        // that briefly spikes the EMA above CriticalRatio. Below
+                        // the floor we treat the endpoint as having no baseline
+                        // and contribute a neutral 1.0, matching the
+                        // expected==0 path. Floor lives on PipelineLoadSensorOptions
+                        // so operators can tune it (default 5.0ms).
+                        var minExpectedMs = _options.PipelineLoadSensor.MinExpectedMsForRatio;
+                        if (expected >= minExpectedMs) ratio = upstreamMs / expected;
                     }
                     catch
                     {

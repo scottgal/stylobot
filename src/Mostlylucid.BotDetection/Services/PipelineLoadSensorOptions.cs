@@ -41,6 +41,30 @@ public sealed class PipelineLoadSensorOptions
     /// <summary>Detection-latency / upstream-RTT ratio that trips Critical. Default 5.0.</summary>
     public double CriticalRatio { get; set; } = 5.0;
 
+    /// <summary>
+    ///     Hard upper bound on the per-request deviation ratio recorded into the
+    ///     upstream-deviation EMA. Without this clamp a single outlier ratio
+    ///     (e.g. a 50ms request against a sub-ms endpoint baseline = ratio 100)
+    ///     pushes the EMA above <see cref="CriticalRatio"/> and pegs the band in
+    ///     Critical for tens of ticks while the EMA decays. The clamp does not
+    ///     suppress real sustained pressure — every sample still contributes —
+    ///     it only caps single-sample magnitude so the EMA remains a smoothed
+    ///     average rather than a spike chaser. Default 10.0 (= 2x CriticalRatio
+    ///     so a clamped sample still trips Critical when sustained but recovers
+    ///     within one EMA half-life when the burst ends).
+    /// </summary>
+    public double MaxRecordedDeviationRatio { get; set; } = 10.0;
+
+    /// <summary>
+    ///     Minimum endpoint p95 (milliseconds) considered "trusted enough" to
+    ///     produce a deviation ratio. Endpoints with p95 below this floor (e.g.
+    ///     0.4ms cached static responses) are treated as having no baseline by
+    ///     the middleware and contribute a neutral ratio 1.0, because dividing
+    ///     by sub-millisecond values turns normal-jitter requests into 50x-200x
+    ///     ratio outliers. Default 5.0ms.
+    /// </summary>
+    public double MinExpectedMsForRatio { get; set; } = 5.0;
+
     // --- ThreadPool starvation axis ---
 
     /// <summary>Consecutive 1-second ticks with pending ThreadPool work before High. Default 3.</summary>
