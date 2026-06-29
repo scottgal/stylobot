@@ -166,6 +166,7 @@ public static class PredicateFormatter
         PredicateOp.Contains => "contains",
         PredicateOp.AnyIn => "any in",
         PredicateOp.AllIn => "all in",
+        PredicateOp.InCidr => "in_cidr",
         _ => op.ToString().ToLowerInvariant()
     };
 }

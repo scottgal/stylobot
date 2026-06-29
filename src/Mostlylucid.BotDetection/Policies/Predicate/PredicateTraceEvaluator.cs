@@ -271,6 +271,16 @@ public static class PredicateTraceEvaluator
                     failureReason = ok ? string.Empty : $"actual = {Render(facetValue)} does not contain {Render(term.Value)}";
                     return ok;
                 }
+            case PredicateOp.InCidr:
+                {
+                    var ok = InCidr(facetValue, term.Value);
+                    failureReason = ok
+                        ? string.Empty
+                        : term.Value is string[]
+                            ? $"actual = {Render(facetValue)} is not in any of {RenderList(term.Value)}"
+                            : $"actual = {Render(facetValue)} is not in {Render(term.Value)}";
+                    return ok;
+                }
             default:
                 failureReason = "unknown operator";
                 return false;
@@ -413,6 +423,28 @@ public static class PredicateTraceEvaluator
     {
         if (facet is null) return false;
         return ScalarToString(facet).Contains(ScalarToString(value), StringComparison.Ordinal);
+    }
+
+    // Mirrors PredicateEvaluator.InCidr exactly -- silent-miss on every
+    // malformed-input arm, single + list value shapes, delegates to the same
+    // CidrHelper.IsInSubnet that owns the parse + mask arithmetic.
+    private static bool InCidr(object? facet, object value)
+    {
+        if (facet is not string ipStr || string.IsNullOrWhiteSpace(ipStr))
+            return false;
+
+        switch (value)
+        {
+            case string single:
+                return Helpers.CidrHelper.IsInSubnet(ipStr, single);
+            case string[] many:
+                foreach (var cidr in many)
+                    if (Helpers.CidrHelper.IsInSubnet(ipStr, cidr))
+                        return true;
+                return false;
+            default:
+                return false;
+        }
     }
 
     // -------- Failure-reason rendering helpers --------
