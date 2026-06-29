@@ -76,6 +76,31 @@ public record PatternReputation
     public string? Notes { get; init; }
 
     /// <summary>
+    ///     Dominant <c>BotType</c> string observed in the evidence stream backing this pattern.
+    ///     Tracks the catalog classification each <c>ApplyEvidence</c> call carried so the
+    ///     promotion gate can refuse to elevate a Tool-family centroid past <see cref="ReputationState.Suspect"/>.
+    ///
+    ///     Per the centroid-learning feedback-loop concern: once stylobot enforces, observed
+    ///     samples are policy-shaped and a Tool centroid (curl, wget, python-requests) can
+    ///     accumulate ConfirmedBad on raw repeat-count alone — that's how the staging
+    ///     incident produced <c>VerifiedBadBot</c> for plain curl. The catalog ceiling for
+    ///     a Tool centroid is Suspect; ConfirmedBad must come from genuinely hostile
+    ///     behaviour (security-tool, honeypot, attack-severity) carried via the contributor
+    ///     pipeline, not from this contemporaneous-signal field.
+    ///
+    ///     Counts are kept in <see cref="BotTypeWeights"/>; the dominant string is the one with
+    ///     the highest weight. Null when no evidence so far has carried a botType tag (the
+    ///     legacy ApplyEvidence overload), which keeps backward behaviour.
+    /// </summary>
+    public string? DominantBotType { get; init; }
+
+    /// <summary>
+    ///     Per-botType weighted counts feeding <see cref="DominantBotType"/>. Stored on the
+    ///     record so the dominant type survives across calls.
+    /// </summary>
+    public IReadOnlyDictionary<string, double>? BotTypeWeights { get; init; }
+
+    /// <summary>
     ///     Confidence in the current BotScore based on support.
     ///     Higher support = higher confidence.
     /// </summary>
@@ -293,6 +318,14 @@ public class PatternReputationUpdater
     /// <param name="pattern">Pattern value</param>
     /// <param name="label">New evidence: 1.0 = bot, 0.0 = human</param>
     /// <param name="evidenceWeight">Weight of this evidence (default 1.0)</param>
+    /// <param name="botType">
+    ///     Optional contemporaneous UA-catalog <c>BotType</c> string carried by this
+    ///     evidence (e.g. <c>"Tool"</c> for curl/wget, <c>"Scraper"</c> for an unknown UA,
+    ///     <c>null</c> for the legacy overload). When supplied, the per-pattern weighted
+    ///     counts are updated and the promotion gate consults the dominant type — a
+    ///     Tool-dominant centroid is capped at Suspect so raw repeat-count alone can't
+    ///     promote it to ConfirmedBad. See <c>project_centroid_learning_feedback_loop</c>.
+    /// </param>
     /// <returns>Updated reputation</returns>
     public PatternReputation ApplyEvidence(
         PatternReputation? current,
@@ -300,13 +333,15 @@ public class PatternReputationUpdater
         string patternType,
         string pattern,
         double label,
-        double evidenceWeight = 1.0)
+        double evidenceWeight = 1.0,
+        string? botType = null)
     {
         var now = DateTimeOffset.UtcNow;
 
         if (current == null)
         {
             // New pattern - start with the evidence
+            var initialWeights = AddBotTypeWeight(null, botType, evidenceWeight);
             var initial = new PatternReputation
             {
                 PatternId = patternId,
@@ -317,7 +352,9 @@ public class PatternReputationUpdater
                 State = ReputationState.Neutral,
                 FirstSeen = now,
                 LastSeen = now,
-                StateChangedAt = now
+                StateChangedAt = now,
+                BotTypeWeights = initialWeights,
+                DominantBotType = ComputeDominant(initialWeights)
             };
 
             return EvaluateStateChange(initial);
@@ -337,14 +374,62 @@ public class PatternReputationUpdater
         // Increment support (capped)
         var newSupport = Math.Min(decayed.Support + evidenceWeight, _options.MaxSupport);
 
+        var newWeights = AddBotTypeWeight(decayed.BotTypeWeights, botType, evidenceWeight);
         var updated = decayed with
         {
             BotScore = Math.Clamp(newScore, 0, 1),
             Support = newSupport,
-            LastSeen = now
+            LastSeen = now,
+            BotTypeWeights = newWeights,
+            DominantBotType = ComputeDominant(newWeights)
         };
 
         return EvaluateStateChange(updated);
+    }
+
+    /// <summary>
+    ///     Add an evidence call's botType tag to the per-pattern weight map. Returns null
+    ///     when neither the existing map nor the new tag carries any information, so the
+    ///     legacy ApplyEvidence overload leaves <see cref="PatternReputation.BotTypeWeights"/>
+    ///     null and the catalog-ceiling gate is inert (backward-compatible).
+    /// </summary>
+    private static IReadOnlyDictionary<string, double>? AddBotTypeWeight(
+        IReadOnlyDictionary<string, double>? existing,
+        string? botType,
+        double weight)
+    {
+        if (string.IsNullOrEmpty(botType) && existing is null)
+            return null;
+        var next = existing is null
+            ? new Dictionary<string, double>(StringComparer.Ordinal)
+            : new Dictionary<string, double>(existing, StringComparer.Ordinal);
+        if (!string.IsNullOrEmpty(botType))
+        {
+            next.TryGetValue(botType, out var cur);
+            next[botType] = cur + weight;
+        }
+        return next;
+    }
+
+    private static string? ComputeDominant(IReadOnlyDictionary<string, double>? weights)
+    {
+        if (weights is null || weights.Count == 0) return null;
+        string? winner = null;
+        var max = double.MinValue;
+        foreach (var kv in weights)
+            if (kv.Value > max) { max = kv.Value; winner = kv.Key; }
+        return winner;
+    }
+
+    /// <summary>
+    ///     True when the pattern's evidence stream is dominated by Tool-family UA
+    ///     classifications. Returns false when no botType evidence has been recorded
+    ///     (the legacy ApplyEvidence overload path); the gate is purely additive.
+    /// </summary>
+    private static bool IsToolDominant(PatternReputation reputation)
+    {
+        if (string.IsNullOrEmpty(reputation.DominantBotType)) return false;
+        return string.Equals(reputation.DominantBotType, nameof(Models.BotType.Tool), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -419,8 +504,17 @@ public class PatternReputationUpdater
                 break;
 
             case ReputationState.Suspect:
-                // Can promote to ConfirmedBad or demote to Neutral
-                if (score >= _options.PromoteToBadScore && support >= _options.PromoteToBadSupport)
+                // Can promote to ConfirmedBad or demote to Neutral.
+                // Tool-family catalog ceiling: if the evidence stream backing this
+                // pattern is dominated by UA-catalog "Tool" classifications (curl,
+                // wget, python-requests), the pattern caps at Suspect. Promotion to
+                // ConfirmedBad on a tool centroid would require behavioural evidence
+                // (SecurityTool, Honeypot, AttackSeverity) carried through the
+                // contributor pipeline, not raw repeat-count from a Tool UA.
+                // See project_centroid_learning_feedback_loop.
+                if (score >= _options.PromoteToBadScore
+                    && support >= _options.PromoteToBadSupport
+                    && !IsToolDominant(reputation))
                     newState = ReputationState.ConfirmedBad;
                 else if (score <= _options.DemoteToNeutralScore || support < _options.PromoteToSuspectSupport)
                     newState = ReputationState.Neutral;

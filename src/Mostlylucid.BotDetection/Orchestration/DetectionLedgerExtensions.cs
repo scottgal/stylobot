@@ -427,6 +427,8 @@ public static class DetectionLedgerExtensions
         {
             var friendlyContrib = FindFriendlyBotContribution(ledger);
             var isConfirmedBadEarly = IsConfirmedBad(earlySignals);
+            var hostileSignalsPresent = HasHostileSignals(earlySignals, earlyThreatScore);
+
             if (friendlyContrib != null && !isConfirmedBadEarly && earlyThreatScore < 0.55)
             {
                 var friendlyType = ParseBotType(friendlyContrib.BotType);
@@ -446,6 +448,43 @@ public static class DetectionLedgerExtensions
                         primaryBotName = friendlyName;
                 }
             }
+            // Tool-family demotion arm. Parallel to the friendly-bot override: when the
+            // early-exit verdict says VerifiedBadBot AND the resolved name catalogs as
+            // BotType.Tool (curl, wget, python-requests, etc.) AND no hostile evidence
+            // is present (SecurityToolDetected, honeypot hit, attack-severity, or a
+            // real high threat score), demote to BotType.Tool / RiskBand.Elevated --
+            // a ConfirmedBad IP-pattern accumulated from raw repeat-count alone is not
+            // the same evidence as SecurityToolContributor's verdict. Real hostile-
+            // tool detection (sqlmap, nikto) flows through SecurityToolContributor and
+            // its verdict survives this arm via HasHostileSignals. See the staging
+            // incident pinned in LanCurlClampTests.
+            else if (IsToolCatalog(primaryBotName, earlySignals)
+                     && !isConfirmedBadEarly
+                     && !hostileSignalsPresent)
+            {
+                earlyRiskBand = RiskBand.Elevated;
+                earlyRiskJustification = "Developer tool UA (no hostile signals; reputation-cache override)";
+                primaryBotType = BotType.Tool;
+            }
+        }
+
+        // Network-position-Internal clamp on the early-exit path. Symmetry fix:
+        // the non-early-exit composer already clamps to BotType.Internal /
+        // RiskBand.VeryLow when SignalKeys.IpIsLocal == true, but the early-exit
+        // path did not -- so a stale IP-rep latch survived as VerifiedBadBot
+        // for LAN traffic. The clamp runs LAST so it overrides every other arm:
+        // operator-owned traffic never reads as VerifiedBadBot regardless of UA
+        // classification or reputation history. Honeypot / SecurityToolContributor
+        // contributions on a LAN client get demoted by network position; if the
+        // LAN itself is compromised the operator has bigger problems than the
+        // throttle policy. (See feedback_signals_atoms_pattern + the dashboard
+        // Internal-clamp pin in InternalRiskBandClampTests.)
+        if (earlySignals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalEarly)
+            && ipLocalEarly is true)
+        {
+            primaryBotType = BotType.Internal;
+            earlyRiskBand = RiskBand.VeryLow;
+            earlyRiskJustification = "Internal network traffic (network-trusted; early-exit path)";
         }
 
         if (!string.IsNullOrEmpty(earlyRiskJustification))
@@ -851,5 +890,60 @@ public static class DetectionLedgerExtensions
             return result;
 
         return null;
+    }
+
+    /// <summary>
+    ///     True when the resolved name (or the contemporaneous UA-catalog signal)
+    ///     maps to <see cref="BotType.Tool"/>. Used by the early-exit demotion arm to
+    ///     refuse a VerifiedBadBot verdict for developer tools (curl, wget,
+    ///     python-requests) whose only evidence is a ConfirmedBad IP-rep latch.
+    ///     Honours catalog identity: <c>signals[UserAgentBotType]</c> first, then a
+    ///     BotPatternLoader lookup of the resolved name (catches the case where the
+    ///     type signal hasn't been attached but the name was composed from the UA).
+    /// </summary>
+    private static bool IsToolCatalog(string? resolvedName, IDictionary<string, object> signals)
+    {
+        if (signals.TryGetValue(SignalKeys.UserAgentBotType, out var bt)
+            && bt is string s
+            && string.Equals(s, nameof(BotType.Tool), StringComparison.Ordinal))
+            return true;
+        if (string.IsNullOrEmpty(resolvedName)) return false;
+        var catalogType = BotPatternLoader.Default.FindBotTypeByName(resolvedName);
+        return string.Equals(catalogType, nameof(BotType.Tool), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    ///     True when the request carries hostile evidence beyond the raw IP-rep
+    ///     repeat-count: SecurityToolContributor, Honeypot, AttackSeverity, or a
+    ///     threat score over the friendly-pin gate. The Tool-family demotion arm
+    ///     refuses to fire when this returns true so the SecurityToolContributor
+    ///     verdict path is left intact for genuinely hostile tools (sqlmap, nikto).
+    /// </summary>
+    private static bool HasHostileSignals(IDictionary<string, object> signals, double threatScore)
+    {
+        if (threatScore >= 0.55) return true;
+        if (signals.TryGetValue(SignalKeys.SecurityToolDetected, out var st) && st is true)
+            return true;
+        if (signals.TryGetValue(SignalKeys.HoneypotThreatScore, out var hp))
+        {
+            var hpVal = hp switch
+            {
+                double d => d,
+                float f  => f,
+                int i    => (double)i,
+                long l   => (double)l,
+                _        => 0.0
+            };
+            // Honeypot writes 0-100 in the production emitters and 0-1 in some legacy
+            // paths; treat anything >0 as hostile because a honeypot hit is binary
+            // by definition (the bot followed a no-follow trap).
+            if (hpVal > 0) return true;
+        }
+        if (signals.TryGetValue(SignalKeys.AttackSeverity, out var sev) && sev is string severity)
+        {
+            var sevLower = severity.ToLowerInvariant();
+            if (sevLower is "critical" or "high" or "medium") return true;
+        }
+        return false;
     }
 }

@@ -203,10 +203,27 @@ public class FastPathReputationContributor : ConfiguredContributorBase, IFoundat
             new($"reputation.fastpath.{mtLower}.support", matchedPattern.Support)
         ]);
 
+        // Tool-family carve-out: when the contemporaneous UA-catalog says Tool
+        // (curl, wget, python-requests, etc.) the early-exit VerifiedBot
+        // verdict is wrong by definition — those UAs MIGHT be hostile, but a
+        // ConfirmedBad IP-pattern accumulated from raw repeat-count alone is
+        // not the same kind of evidence as a SecurityToolContributor /
+        // honeypot / attack-severity signal. Demote to the mild-bias path so
+        // the full detection pipeline still runs and a real hostile signal
+        // (honeypot hit, injection payload) can still escalate the verdict.
+        // LAN traffic likewise never trips the early-exit — operator-owned
+        // traffic from inside the network is by-definition trusted at the
+        // verdict layer (the non-early-exit path clamps to BotType.Internal
+        // via SignalKeys.IpIsLocal; this is the matching arm). See the
+        // staging incident in CLAUDE.md / the linked memory note.
+        var ipIsLocal = state.GetSignal<bool>(SignalKeys.IpIsLocal);
+        var isToolFamily = IsToolFamily(state);
+
         // IP patterns: specific identifiers → VerifiedBot early exit is appropriate
         // BUT if browser attestation is present, downgrade - a real browser on a bad IP
-        // should still get full detection rather than instant abort.
-        if (matchType == "IP" && !hasBrowserAttestation)
+        // should still get full detection rather than instant abort. Tool-family UAs
+        // and LAN clients fall through to the mild-bias arm below.
+        if (matchType == "IP" && !hasBrowserAttestation && !isToolFamily && !ipIsLocal)
         {
             // Do NOT propagate matchedPattern.PatternId ("ip:2a02:c7c:d293::/4")
             // as the botName -- it's an internal reputation key, not a visible
@@ -263,6 +280,32 @@ public class FastPathReputationContributor : ConfiguredContributorBase, IFoundat
 
     private static string CreateIpPatternId(string ip)
         => PatternNormalization.CreateIpPatternId(ip);
+
+    /// <summary>
+    ///     True when the contemporaneous UA classification resolves to
+    ///     <see cref="BotType.Tool"/>. Reads <c>signals[UserAgentBotType]</c> first
+    ///     (set by UserAgentContributor in the standard pipeline); falls back to
+    ///     <c>BotPatternLoader.Default.FindBotTypeByName(signals[UserAgentBotName])</c>
+    ///     so the gate still fires when the type signal hasn't been attached yet
+    ///     but the name has (a partial-pipeline case for early-running Wave 0
+    ///     detectors). No new state introduced — both signals are already written
+    ///     by the existing UA contributor.
+    /// </summary>
+    private static bool IsToolFamily(BlackboardState state)
+    {
+        var typeSignal = state.Signals.TryGetValue(SignalKeys.UserAgentBotType, out var bt)
+            ? bt as string
+            : null;
+        if (string.Equals(typeSignal, nameof(BotType.Tool), StringComparison.Ordinal))
+            return true;
+
+        var nameSignal = state.Signals.TryGetValue(SignalKeys.UserAgentBotName, out var bn)
+            ? bn as string
+            : null;
+        if (string.IsNullOrEmpty(nameSignal)) return false;
+        var catalogType = Definitions.BotPatterns.BotPatternLoader.Default.FindBotTypeByName(nameSignal);
+        return string.Equals(catalogType, nameof(BotType.Tool), StringComparison.Ordinal);
+    }
 
     private static bool IsRfc1918_172(string ip)
     {
