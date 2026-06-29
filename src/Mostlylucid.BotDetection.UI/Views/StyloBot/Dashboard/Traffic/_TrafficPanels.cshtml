@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @using Mostlylucid.BotDetection.UI.Services.Dashboard
 @model TrafficPageModel
@@ -14,11 +15,45 @@
     The wrapper id "traffic-panels" matches HitsPerPeriodChartletBuilder's
     ChartletDrill.PanelTarget; sb-chartlet.js targets it via hx-target on the
     bar click.
+
+    C4 + C5: By-country and By-bot-type cards switched to sb-chartlet
+    HorizontalBar variants (one bar per country / bot type). The bar click
+    drills via the controller's country / bot_type filters -- same swap
+    target as the headline stacked bar, so the side-panel set re-renders in
+    place when the user picks a slice.
 *@
+@{
+    var countryChart = CountryChartletBuilder.Build(Model.Countries);
+    var botTypeChart = BotTypeChartletBuilder.Build(Model.BotTypes);
+}
 <div id="traffic-panels"
      class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByCountryCard.cshtml",    Model.Countries)
-    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ByBotTypeCard.cshtml",    Model.BotTypes)
+    <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-3">
+            <div class="text-sm font-semibold mb-2">By country</div>
+            @if (Model.Countries.Count == 0)
+            {
+                <div class="text-xs text-base-content/40 py-4 text-center">no data in this window</div>
+            }
+            else
+            {
+                <vc:sb-chartlet model="countryChart" />
+            }
+        </div>
+    </div>
+    <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-3">
+            <div class="text-sm font-semibold mb-2">By bot type</div>
+            @if (Model.BotTypes.Count == 0)
+            {
+                <div class="text-xs text-base-content/40 py-4 text-center">no data in this window</div>
+            }
+            else
+            {
+                <vc:sb-chartlet model="botTypeChart" />
+            }
+        </div>
+    </div>
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopEndpointsCard.cshtml", Model.TopEndpoints)
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopVisitorsCard.cshtml",  Model.TopVisitors)
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_ThreatsCard.cshtml",      Model.Threats)

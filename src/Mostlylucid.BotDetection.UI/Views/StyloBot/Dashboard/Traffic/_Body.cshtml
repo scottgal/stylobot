@@ -84,11 +84,24 @@
         var chartLabel = Model.Filters.Window is "24h" or "7d" or "1d"
             ? $"Hits per period (last {Model.Filters.Window})"
             : $"Hits per minute (last {Model.Filters.Window})";
+
+        // D3: bot-families donut over the same visitor projection. Shares the
+        // family→colour mapping with the headline stacked bar so the two
+        // visuals stay in lock-step; slice click drills through bot_type.
+        var familiesDonut = BotFamiliesDonutBuilder.Build(Model.TopVisitors);
     }
-    <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-3">
-            <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
-            <vc:sb-chartlet model="hitsChart" />
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="card bg-base-100 border border-base-300 lg:col-span-2">
+            <div class="card-body p-3">
+                <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
+                <vc:sb-chartlet model="hitsChart" />
+            </div>
+        </div>
+        <div class="card bg-base-100 border border-base-300">
+            <div class="card-body p-3">
+                <div class="text-sm font-semibold mb-2">Bot families</div>
+                <vc:sb-chartlet model="familiesDonut" />
+            </div>
         </div>
     </div>
 
