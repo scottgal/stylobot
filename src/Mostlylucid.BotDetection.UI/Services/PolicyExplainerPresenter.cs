@@ -334,6 +334,7 @@ public sealed class PolicyExplainerPresenter
         PredicateOp.Contains => "contains",
         PredicateOp.AnyIn => "any in",
         PredicateOp.AllIn => "all in",
+        PredicateOp.InCidr => "in CIDR",
         _ => op.ToString().ToLowerInvariant()
     };
 

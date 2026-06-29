@@ -314,6 +314,7 @@ public sealed class PolicyEditPresenter
         PredicateOp.Contains => "contains",
         PredicateOp.AnyIn => "any_in",
         PredicateOp.AllIn => "all_in",
+        PredicateOp.InCidr => "in_cidr",
         _ => op.ToString().ToLowerInvariant()
     };
 
