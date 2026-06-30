@@ -79,6 +79,10 @@ public static class RemoteDashboardServiceExtensions
         // writes -- naming is config-driven on the gateway. This wins over the dashboard's
         // SqliteRouteNameStore (TryAdd) so the viewer never creates dashboard.db.
         services.AddSingleton<Services.Routes.IRouteNameStore, RemoteRouteNameStore>();
+        // U3 -- site-health history (Traffic page chartlet) reads the
+        // gateway's bounded ring via /api/v1/site-health/history. AddSingleton
+        // wins over the AddStyloBotDashboard TryAdd of the local impl.
+        services.AddSingleton<ISiteHealthQuery, RemoteSiteHealthQuery>();
 
         return services;
     }

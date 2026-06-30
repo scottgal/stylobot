@@ -105,5 +105,11 @@
         </div>
     </div>
 
+    @* U3: Site-health widget rendered next to the existing chartlets. Its
+       own card (NOT overlaid on the hits chart) because ms + percent have
+       different units; a dual-axis overlay would mislead. Sourced from the
+       gateway-local DegradationHistoryAtom via ISiteHealthQuery. *@
+    <vc:sb-site-health window="@Model.Filters.Window" />
+
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", Model)
 </div>

@@ -68,6 +68,11 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<SessionAtomizerService>();
         _services.GetService<VectorCompactionService>();
         _services.GetService<FingerprintDriftService>();
+        // DegradationHistorySampler subscribes to Tick10s and writes
+        // DegradationAtom snapshots into the bounded DegradationHistoryAtom
+        // ring (Traffic page's site-health chartlet -- U3). Eager-resolve so
+        // the subscription wires up at boot.
+        _services.GetService<RateLimit.DegradationHistorySampler>();
         _services.GetService<PopulationMarkovService>();
         _services.GetService<IdentityGlobalWeightsCache>();
         _services.GetService<IdentityWeightCalibrationService>();

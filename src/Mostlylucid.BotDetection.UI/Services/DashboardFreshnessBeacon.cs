@@ -148,5 +148,15 @@ public sealed class DashboardFreshnessBeacon
 
         /// <summary>Threat-intel tab on the dashboard.</summary>
         public const string ThreatIntel = "threat-intel";
+
+        /// <summary>
+        ///     Traffic page's site-health widget (U3). Producer:
+        ///     <see cref="DashboardFreshnessBridge"/>'s Tick10s arm, which
+        ///     fires whenever the gateway's <c>DegradationHistorySampler</c>
+        ///     could have appended a new <c>DegradationSnapshot</c>. Consumers:
+        ///     the <c>SbSiteHealthViewComponent</c>-rendered card carrying
+        ///     <c>data-sb-depends="site-health"</c>.
+        /// </summary>
+        public const string SiteHealth = "site-health";
     }
 }

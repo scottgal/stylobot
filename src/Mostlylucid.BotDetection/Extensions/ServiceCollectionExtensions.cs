@@ -1659,6 +1659,18 @@ public static class ServiceCollectionExtensions
             .BindConfiguration("BotDetection:UpstreamHealth");
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate>();
 
+        // Site-health history (U3): bounded ring of DegradationAtom snapshots
+        // sampled at Tick10s. Feeds the Traffic page's site-health chartlet
+        // via /api/v1/site-health/history. Ring is gateway-local per
+        // [[project_gateway_data_locality]] + [[feedback_no_inmemory_stores]]'s
+        // transient-state carve-out; dashboard host is a thin REST client.
+        // Eager-resolved in BotDetectionHostedSingletonsBootstrap so the
+        // Tick10s subscription wires up before the first sample window.
+        services.AddOptions<Mostlylucid.BotDetection.RateLimit.SiteHealthHistoryOptions>()
+            .BindConfiguration("BotDetection:SiteHealthHistory");
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.DegradationHistoryAtom>();
+        services.AddSingleton<Mostlylucid.BotDetection.RateLimit.DegradationHistorySampler>();
+
         // Register action policy registry (holds named action policies)
         services.TryAddSingleton<IActionPolicyRegistry, ActionPolicyRegistry>();
         // Read model for the dashboard policy tab (phase 1 of the policy-

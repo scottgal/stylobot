@@ -1,0 +1,38 @@
+@using Mostlylucid.BotDetection.UI.ViewComponents
+@model SiteHealthViewModel
+@*
+    Site-health widget: latency + error-rate chartlets rendered side-by-side
+    on the Traffic page next to hits-per-period (U3). Subscribes to the
+    centralised dashboard freshness beacon (data-sb-depends="site-health")
+    so the SignalR-driven HTMX OOB swap refreshes the widget when the
+    DegradationHistorySampler ticks. No timed polling per
+    [[feedback_ssr_signalr_pattern]].
+*@
+<div class="card bg-base-100 border border-base-300"
+     data-sb-depends="site-health">
+    <div class="card-body p-3 space-y-2">
+        <div class="flex items-center justify-between gap-2">
+            <div class="text-sm font-semibold">Site health</div>
+            <div class="text-xs text-base-content/60">last @Model.Window</div>
+        </div>
+        @if (Model.IsHealthyEmpty || Model.LatencyChart is null || Model.ErrorsChart is null)
+        {
+            <div class="text-sm text-base-content/70 py-6 text-center">
+                Upstream healthy — no incidents recorded in window.
+            </div>
+        }
+        else
+        {
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <div class="text-xs text-base-content/60 mb-1">Upstream latency</div>
+                    <vc:sb-chartlet model="Model.LatencyChart" />
+                </div>
+                <div>
+                    <div class="text-xs text-base-content/60 mb-1">Error rate</div>
+                    <vc:sb-chartlet model="Model.ErrorsChart" />
+                </div>
+            </div>
+        }
+    </div>
+</div>

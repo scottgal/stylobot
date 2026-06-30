@@ -79,6 +79,7 @@ public static class StyloBotApiExtensions
         endpoints.MapConfigEndpoints();
         endpoints.MapIdentityEndpoints();
         endpoints.MapEntityEndpoints();
+        endpoints.MapSiteHealthHistoryEndpoint();
 
         if (options.EnableOpenApi)
         {

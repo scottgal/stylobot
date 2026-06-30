@@ -68,6 +68,13 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
     private IDisposable? _tickSubscription;
     private int _lastObservedCatalogSize = -1;
 
+    // Site-health arm (U3): broadcasts on every Tick10s so the Traffic
+    // page's site-health widget OOB-swap-refreshes in lock-step with the
+    // gateway-side DegradationHistorySampler. Subscription is independent
+    // of the meter-stream arm so a host that only opted into one half
+    // still gets the other.
+    private IDisposable? _siteHealthTickSubscription;
+
     public DashboardFreshnessBridge(
         DashboardFreshnessBeacon beacon,
         IPolicyRuleStore? ruleStore = null,
@@ -92,6 +99,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
     {
         AttachRuleStoreHandler();
         AttachTickSubscription();
+        AttachSiteHealthSubscription();
         return Task.CompletedTask;
     }
 
@@ -100,6 +108,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
     {
         DetachRuleStoreHandler();
         DetachTickSubscription();
+        DetachSiteHealthSubscription();
         return Task.CompletedTask;
     }
 
@@ -108,6 +117,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
     {
         DetachRuleStoreHandler();
         DetachTickSubscription();
+        DetachSiteHealthSubscription();
     }
 
     // -------------------- Policy stack arm -------------------------------
@@ -177,6 +187,50 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
             // Coordinator may have been torn down already; nothing to do.
         }
         _tickSubscription = null;
+    }
+
+    // -------------------- Site-health arm (U3) ---------------------------
+
+    private void AttachSiteHealthSubscription()
+    {
+        // Self-disables when the host has no schedule coordinator (viewer-
+        // mode hosts that never opted into the FOSS tick fabric). The
+        // beacon is the only producer; consumers don't need a sampler in
+        // this process — the gateway owns the sample loop.
+        if (_coordinator is null) return;
+
+        try
+        {
+            _siteHealthTickSubscription = _coordinator.Subscribe(
+                TickCadence.Tick10s,
+                nameof(DashboardFreshnessBridge) + ".SiteHealth",
+                CostHint.Low,
+                (_, _) =>
+                {
+                    try
+                    {
+                        _beacon.BroadcastStale(DashboardFreshnessBeacon.Surfaces.SiteHealth);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex,
+                            "DashboardFreshnessBridge: failed to publish site-health stale beacon.");
+                    }
+                    return Task.CompletedTask;
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex,
+                "DashboardFreshnessBridge: failed to subscribe to Tick10s for site-health.");
+        }
+    }
+
+    private void DetachSiteHealthSubscription()
+    {
+        try { _siteHealthTickSubscription?.Dispose(); }
+        catch { /* coordinator already torn down */ }
+        _siteHealthTickSubscription = null;
     }
 
     private async Task CheckMeterCatalogAsync(DateTimeOffset _, CancellationToken ct)
