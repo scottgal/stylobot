@@ -77,32 +77,91 @@ try
     var ppTrusted = ParseProxyProtocolTrustedCidrs(
         builder.Configuration["Network:ProxyProtocol:TrustedProxies"]);
 
+    if (ppEnabled)
+    {
+        // We bind endpoints explicitly below so PP precedes TLS. Clear the
+        // URL/Kestrel-config auto-bind sources so they don't double-bind the
+        // same ports ("address already in use").
+        builder.WebHost.UseSetting(Microsoft.AspNetCore.Hosting.WebHostDefaults.ServerUrlsKey, string.Empty);
+        builder.WebHost.UseSetting("Kestrel:Endpoints:Https:Url", string.Empty);
+        builder.WebHost.UseSetting("Kestrel:Endpoints:Http:Url", string.Empty);
+    }
+
     // Configure Kestrel: accept H1 and H2C (cleartext HTTP/2).
     // H2C is required when cloudflared has http2Origin: true - cloudflared speaks H2C to the origin.
     // Without this, cloudflared falls back to H1 and loses multiplexing benefits.
+    //
+    // PROXY protocol ORDERING: the PP middleware MUST run before TLS on the
+    // connection, so it reads + strips the PROXY header before the TLS handshake
+    // bytes. ConfigureEndpointDefaults().Use() does NOT reliably land before a
+    // config-bound HTTPS endpoint's TLS middleware (verified: TLS then chokes on
+    // the PP bytes with SSL_ERROR_SYSCALL). So when PP is enabled we bind the
+    // endpoints EXPLICITLY in code with deterministic ordering — PP middleware
+    // first, then UseHttps. When PP is disabled the existing config/URL-driven
+    // binding is left untouched (compose / staging unaffected).
+    Action<Microsoft.AspNetCore.Server.Kestrel.Core.ListenOptions> applyConnectionDefaults = listenOptions =>
+    {
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+        if (ppEnabled)
+        {
+            listenOptions.Use(next =>
+            {
+                var mw = new Stylobot.Gateway.Middleware.ProxyProtocolConnectionMiddleware(
+                    next, ppTrusted, ppTrustAll,
+                    msg => Log.Debug("{Msg}", msg));
+                return mw.OnConnectionAsync;
+            });
+        }
+    };
+
     builder.WebHost.ConfigureKestrel(options =>
     {
         options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(5);
-        options.ConfigureEndpointDefaults(listenOptions =>
-        {
-            listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+        options.ConfigureEndpointDefaults(applyConnectionDefaults);
 
-            if (ppEnabled)
+        if (ppEnabled)
+        {
+            // Explicit code-bound endpoints so PP (added in applyConnectionDefaults)
+            // is guaranteed to precede UseHttps. Ports + cert come from the same
+            // config keys the ConfigMap already sets.
+            var httpPort = builder.Configuration.GetValue("Gateway:HttpPort",
+                builder.Configuration.GetValue("GATEWAY_HTTP_PORT", 8080));
+            var httpsPort = builder.Configuration.GetValue("Gateway:HttpsPort", 8443);
+            var certPath = builder.Configuration["Kestrel:Endpoints:Https:Certificate:Path"];
+            var keyPath = builder.Configuration["Kestrel:Endpoints:Https:Certificate:KeyPath"];
+
+            options.Listen(System.Net.IPAddress.Any, httpPort, applyConnectionDefaults);
+
+            if (!string.IsNullOrEmpty(certPath) && !string.IsNullOrEmpty(keyPath) && File.Exists(certPath))
             {
-                listenOptions.Use(next =>
+                var pemCert = System.Security.Cryptography.X509Certificates.X509Certificate2
+                    .CreateFromPemFile(certPath, keyPath);
+                // Round-trip through PKCS#12 so the private key is in a form Kestrel's
+                // TLS handshake can use on the Linux container runtime (the ephemeral
+                // key from CreateFromPemFile isn't always usable directly). Modern
+                // loader API (X509Certificate2(byte[]) is obsolete in net10).
+                var cert = System.Security.Cryptography.X509Certificates.X509CertificateLoader
+                    .LoadPkcs12(
+                        pemCert.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pkcs12),
+                        password: null);
+
+                options.Listen(System.Net.IPAddress.Any, httpsPort, listenOptions =>
                 {
-                    var mw = new Stylobot.Gateway.Middleware.ProxyProtocolConnectionMiddleware(
-                        next, ppTrusted, ppTrustAll,
-                        msg => Log.Debug("{Msg}", msg));
-                    return mw.OnConnectionAsync;
+                    applyConnectionDefaults(listenOptions);  // PP FIRST
+                    listenOptions.UseHttps(cert);            // TLS AFTER
                 });
+                Log.Information(
+                    "PROXY protocol ENABLED — code-bound endpoints http:{HttpPort} https:{HttpsPort} (trustAll={TrustAll}, trustedCidrs={Count})",
+                    httpPort, httpsPort, ppTrustAll, ppTrusted.Count);
             }
-        });
+            else
+            {
+                Log.Warning(
+                    "PROXY protocol enabled but HTTPS cert not found at '{CertPath}' — only HTTP:{HttpPort} bound with PP",
+                    certPath, httpPort);
+            }
+        }
     });
-    if (ppEnabled)
-        Log.Information(
-            "PROXY protocol ENABLED (trustAll={TrustAll}, trustedCidrs={Count})",
-            ppTrustAll, ppTrusted.Count);
     builder.Host.ConfigureHostOptions(options =>
     {
         options.ShutdownTimeout = TimeSpan.FromSeconds(30);
