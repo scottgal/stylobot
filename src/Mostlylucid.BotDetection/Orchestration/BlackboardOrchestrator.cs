@@ -13,6 +13,7 @@ using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Markov;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
@@ -395,6 +396,21 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             // so existing detector behaviour is unchanged.
             var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
             signals[SignalKeys.UpstreamHealthy] = upstreamHealthy;
+
+            // Mirror the per-request response.from_upstream flag into the
+            // signals dict so detector arms (ResponseStatusBoost, scan +
+            // auth-struggle, reputation, heuristic 404 features, Markov
+            // classifier, session vector) can read one canonical source.
+            // The flag is stamped onto HttpContext.Items by stylobot's own
+            // status-setting middlewares (load-shed 503, policy block 403,
+            // throttle 429, honeypot 404). Absent → upstream (back-compat
+            // default), so existing FOSS hosts that don't yet stamp keep
+            // their pre-fix behaviour. Persisted on every detection event /
+            // centroid sample so post-hoc analyses segment enforcement
+            // shape out of the natural prior (per
+            // feedback_centroid_learning_feedback_loop).
+            var responseFromUpstream = httpContext.IsResponseFromUpstream();
+            signals[SignalKeys.ResponseFromUpstream] = responseFromUpstream;
 
             // Stamp the gateway-wide warmup verdict so persisted detection
             // events / centroid samples segment cold-start shape out of the

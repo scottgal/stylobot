@@ -254,6 +254,7 @@ public class BotDetectionMiddleware(
                         new ApiKeyRejection(ApiKeyRejectionReason.Disabled,
                             "Full detector bypass is disabled");
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    context.MarkResponseFromStyloBot();
                     _logger.LogWarning(
                         "API key '{KeyName}' requested full detector bypass but AllowFullDetectorBypassApiKeys is false",
                         apiKeyContext.KeyName);
@@ -297,6 +298,7 @@ public class BotDetectionMiddleware(
                 // Key was genuinely rejected (expired, rate limited, path denied)
                 var statusCode = rejection.Reason == ApiKeyRejectionReason.RateLimitExceeded ? 429 : 403;
                 context.Response.StatusCode = statusCode;
+                context.MarkResponseFromStyloBot();
                 _logger.LogWarning("API key rejected: {Reason} ({Detail}) for {Path}",
                     rejection.Reason, rejection.Detail, context.Request.Path);
                 return;
@@ -754,6 +756,9 @@ public class BotDetectionMiddleware(
                     // Refuse: don't forward, don't allocate detection state.
                     context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                     context.Response.Headers["Retry-After"] = "5";
+                    // Mark so the visitor's NEXT request doesn't get bot-boosted
+                    // by stylobot's own 503 (closed-loop feedback).
+                    context.MarkResponseFromStyloBot();
                     return;
                 }
 
@@ -1523,6 +1528,23 @@ public class BotDetectionMiddleware(
     /// <summary>PolicyAction?: action taken by policy (if any)</summary>
     public const string PolicyActionKey = "BotDetection.PolicyAction";
 
+    /// <summary>
+    ///     Boolean: when present and <c>false</c>, the response status code on
+    ///     this request was set by STYLOBOT itself (load-shed 503, policy
+    ///     block 403, throttle 429, honeypot 404, API-key rejection 403/429,
+    ///     etc.) rather than by upstream. Detector arms that derive bot
+    ///     evidence from the response status code MUST check this and stand
+    ///     down when it's <c>false</c> -- otherwise stylobot's own
+    ///     enforcement response feeds back as additional bot evidence on the
+    ///     next request and locks the visitor at 100% bot from a single
+    ///     enforcement action. Absent (no key written) means upstream
+    ///     (back-compat default). Mirrors <see cref="SignalKeys.ResponseFromUpstream"/>
+    ///     so detectors that read from the blackboard see the same flag.
+    ///     Stylobot middlewares should set this via
+    ///     <see cref="StyloBotResponseSignalExtensions.MarkResponseFromStyloBot"/>.
+    /// </summary>
+    public const string ResponseFromUpstreamKey = "BotDetection.ResponseFromUpstream";
+
     #endregion
 
     #region Policy Resolution
@@ -1989,6 +2011,7 @@ public class BotDetectionMiddleware(
             case BotBlockAction.Default:
                 var statusCode = policyAttr?.BlockStatusCode ?? 403;
                 context.Response.StatusCode = statusCode;
+                context.MarkResponseFromStyloBot();
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(new BlockedResponse(
                     "Access denied",
@@ -2001,10 +2024,12 @@ public class BotDetectionMiddleware(
             case BotBlockAction.Redirect:
                 var redirectUrl = policyAttr?.BlockRedirectUrl ?? _options.Throttling.BlockRedirectUrl ?? "/blocked";
                 context.Response.Redirect(redirectUrl);
+                context.MarkResponseFromStyloBot();
                 break;
 
             case BotBlockAction.Challenge:
                 context.Response.StatusCode = 403;
+                context.MarkResponseFromStyloBot();
                 context.Response.Headers["X-Bot-Challenge"] = "required";
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(new ChallengeResponse(
@@ -2053,6 +2078,7 @@ public class BotDetectionMiddleware(
         delay = Math.Min(delay, throttleConfig.MaxDelaySeconds);
 
         context.Response.StatusCode = 429;
+        context.MarkResponseFromStyloBot();
         context.Response.Headers["Retry-After"] = delay.ToString();
 
         // Add jitter indication header (helps with debugging, doesn't reveal exact algorithm)
@@ -3109,6 +3135,17 @@ public class BotDetectionMiddleware(
         var statusCode = context.Response.StatusCode;
         var isAuthenticated = context.User?.Identity?.IsAuthenticated == true;
 
+        // Closed-loop feedback gate: when STYLOBOT itself set the response
+        // status code (load-shed 503, policy block 403, throttle 429,
+        // honeypot 404, API-key rejection), the status-derived bot arms
+        // would otherwise read our own enforcement action back as bot
+        // evidence on the NEXT request and lock the visitor at 100% bot
+        // from a single shed/block. Skip the negative-delta status arms
+        // entirely; the authenticated-clear arm stays because successful
+        // authenticated traffic remains meaningful regardless of who
+        // wrote the response.
+        var fromUpstream = context.IsResponseFromUpstream();
+
         // Upstream-health gate: when origin is cold-starting or down, the
         // gateway returns 4xx/5xx via YARP. Treating those as bot probing
         // falsely elevates legitimate visitors during the outage window.
@@ -3117,20 +3154,25 @@ public class BotDetectionMiddleware(
         // still meaningful evidence.
         var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
 
+        // Compose the gate: status-derived arms only fire when the response
+        // came from upstream AND upstream looks healthy. Either condition
+        // false → status arms stand down.
+        var statusArmsActive = fromUpstream && upstreamHealthy;
+
         // Compute delta based on response status code (all values from config)
         var (delta, reason) = statusCode switch
         {
-            404 when upstreamHealthy => (boostOpts.NotFoundDelta,
+            404 when statusArmsActive => (boostOpts.NotFoundDelta,
                 $"Response 404 Not Found on {context.Request.Path}"),
-            401 when !isAuthenticated && upstreamHealthy => (boostOpts.UnauthorizedDelta,
+            401 when !isAuthenticated && statusArmsActive => (boostOpts.UnauthorizedDelta,
                 "Response 401 Unauthorized - unauthenticated probe"),
-            403 when !isAuthenticated && upstreamHealthy => (boostOpts.ForbiddenDelta,
+            403 when !isAuthenticated && statusArmsActive => (boostOpts.ForbiddenDelta,
                 "Response 403 Forbidden - access denied"),
-            >= 500 and < 600 when upstreamHealthy => (boostOpts.ServerErrorDelta,
+            >= 500 and < 600 when statusArmsActive => (boostOpts.ServerErrorDelta,
                 $"Response {statusCode} Server Error triggered"),
-            410 when upstreamHealthy => (boostOpts.GoneDelta,
+            410 when statusArmsActive => (boostOpts.GoneDelta,
                 "Response 410 Gone - probing removed resource"),
-            405 when upstreamHealthy => (boostOpts.MethodNotAllowedDelta,
+            405 when statusArmsActive => (boostOpts.MethodNotAllowedDelta,
                 $"Response 405 Method Not Allowed on {context.Request.Path}"),
             // Authenticated successful response: clear suspicion for MARGINAL cases only.
             // High-confidence bots (> MaxProbability) are not cleared even if authenticated,
@@ -3329,6 +3371,7 @@ public class BotDetectionMiddleware(
             {
                 case FailureMode.FailClosed:
                     ctx.Response.StatusCode = 503;
+                    ctx.MarkResponseFromStyloBot();
                     return new DetectionFailureResult(ContinuePipeline: false);
                 case FailureMode.LogOnly:
                 case FailureMode.FailOpen:

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
@@ -65,6 +66,10 @@ public sealed class EndpointPolicyMiddleware
             && string.Equals(match.ActionPolicyName, "block", StringComparison.OrdinalIgnoreCase))
         {
             context.Response.StatusCode = match.StatusCode.Value;
+            // Closed-loop feedback gate: mark so the visitor's NEXT request
+            // doesn't get bot-boosted by stylobot's own endpoint-policy
+            // status code.
+            context.MarkResponseFromStyloBot();
             context.Response.Headers.TryAdd("X-StyloBot-EndpointPolicy", match.Reason ?? "block");
             _logger.LogInformation(
                 "EndpointPolicy match: {Method} {Path} -> block {Status} ({Reason})",

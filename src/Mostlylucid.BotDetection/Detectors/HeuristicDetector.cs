@@ -323,7 +323,16 @@ public class HeuristicDetector : IDetector, IDisposable
             var sessionRequestCount = ReadSessionRequestCount(evidence);
             var gatewayWarming = _gatewayWarmup is not null
                                  && !_gatewayWarmup.IsWarmedUp(sessionRequestCount);
-            var (isBot, probability) = RunInference(features, upstreamHealthy, gatewayWarming);
+            // Per-request response.from_upstream gate: when stylobot itself
+            // synthesised the current response (block / shed / honeypot /
+            // throttle), 404-shaped response features must NOT contribute
+            // to the bot probability or stylobot's enforcement action feeds
+            // back as additional bot evidence (closed-loop). Compose with
+            // the global upstream-health gate by AND -- either "cold"
+            // suppresses the status arms.
+            var fromUpstream = context.IsResponseFromUpstream();
+            var statusArmsActive = upstreamHealthy && fromUpstream;
+            var (isBot, probability) = RunInference(features, statusArmsActive, gatewayWarming);
 
             if (isBot)
             {

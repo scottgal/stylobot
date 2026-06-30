@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Middleware;
 
 namespace Mostlylucid.BotDetection.RateLimiting;
 
@@ -84,6 +85,8 @@ public sealed class RateLimitEnforcer
                 if (fallback is null)
                 {
                     context.Response.StatusCode = 429;
+                    // Closed-loop feedback gate: stylobot-synthesised response.
+                    context.MarkResponseFromStyloBot();
                     context.Response.Headers.TryAdd("Retry-After", "60");
                     return RateLimitOutcome.Blocked($"rate-limit:{rule.OverLimitAction}:not-registered");
                 }

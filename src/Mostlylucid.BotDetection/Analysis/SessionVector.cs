@@ -25,12 +25,19 @@ public enum RequestState
 
 /// <summary>
 ///     A single observed request within a session, capturing state and timing.
+///     <paramref name="FromUpstream"/> distinguishes upstream-derived status
+///     codes from stylobot-synthesised ones (load-shed 503, policy block 403,
+///     honeypot 404, throttle 429) so the session-vector 4xx error-ratio arm
+///     can suppress stylobot's own enforcement responses (closed-loop
+///     feedback). Defaults to <c>true</c> when the producer doesn't yet
+///     stamp the flag (back-compat).
 /// </summary>
 public readonly record struct SessionRequest(
     RequestState State,
     DateTimeOffset Timestamp,
     string PathTemplate,
-    int StatusCode);
+    int StatusCode,
+    bool FromUpstream = true);
 
 /// <summary>
 ///     A compressed behavioral snapshot of a session.
@@ -529,8 +536,15 @@ public static class SessionVectorizer
         var rate = durationMinutes > 0 ? requests.Count / durationMinutes : requests.Count;
         vector[offset + 4] = Math.Min(1f, (float)(rate / 60.0)); // 60 rpm = 1.0
 
-        // [5] 4xx error ratio
-        var errorCount = requests.Count(r => r.StatusCode >= 400 && r.StatusCode < 500);
+        // [5] 4xx error ratio -- only count upstream-derived 4xx. When
+        // STYLOBOT synthesised the status (block 403, honeypot 404,
+        // throttle 429, etc.) the response code reflects our own
+        // enforcement choice, not visitor probing. Including those would
+        // feed back as session-shape evidence and lock the visitor's
+        // session vector toward "scanner" after a single enforcement
+        // action (closed-loop feedback). Per "ONLY upstream status codes
+        // should be factored in".
+        var errorCount = requests.Count(r => r.FromUpstream && r.StatusCode >= 400 && r.StatusCode < 500);
         vector[offset + 5] = (float)errorCount / requests.Count;
 
         // [6] Unique path ratio (diversity)

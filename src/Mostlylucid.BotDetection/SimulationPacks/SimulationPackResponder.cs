@@ -2,6 +2,7 @@ using System.IO.Enumeration;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.SimulationPacks;
@@ -76,6 +77,8 @@ public class SimulationPackResponder : IActionPolicy
 
         // Write the response
         context.Response.StatusCode = template.StatusCode;
+        // Closed-loop feedback gate: stylobot-synthesised simulation response.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = template.ContentType;
 
         // Add template headers

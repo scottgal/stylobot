@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.RateLimit;
@@ -128,6 +129,8 @@ public sealed class RateLimitActionPolicy : IActionPolicy
                 "RateLimit '{Policy}': OverLimitAction '{Over}' is not registered, falling back to 429",
                 Name, _options.OverLimitAction);
             context.Response.StatusCode = 429;
+            // Closed-loop feedback gate: stylobot-synthesised response.
+            context.MarkResponseFromStyloBot();
             context.Response.Headers.TryAdd("Retry-After", "60");
             return ActionResult.Blocked(429,
                 $"rate-limit:{Name}:over-limit (no fallback '{_options.OverLimitAction}')");

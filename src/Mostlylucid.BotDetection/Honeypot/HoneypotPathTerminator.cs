@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Middleware;
 
 namespace Mostlylucid.BotDetection.Honeypot;
 
@@ -74,6 +75,15 @@ public sealed class HoneypotPathTerminator
             // a "this app exists" confirmation.
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             context.Response.ContentLength = 0;
+            // Closed-loop feedback gate: mark so the next request's
+            // ResponseStatusBoost / scan-pattern / heuristic 404 / Markov
+            // NotFound arms don't read stylobot's own honeypot 404 as bot
+            // evidence. Honeypot path detection still flags this request
+            // via the dedicated honeypot signal pathway (HoneypotPathTagger
+            // → ResponseHoneypotHits in HeuristicDetector + dashboard +
+            // ReputationLane.Honeypot indicator); only the status-code-
+            // derived contribution is suppressed.
+            context.MarkResponseFromStyloBot();
             return Task.CompletedTask;
         }
 

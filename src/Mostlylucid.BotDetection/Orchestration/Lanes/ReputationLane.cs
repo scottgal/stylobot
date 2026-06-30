@@ -126,9 +126,27 @@ internal sealed class ReputationLane : AnalysisLaneBase
     /// <summary>
     ///     Tracks cumulative bad behavior indicators.
     ///     High-risk requests, 404s, blocked responses indicate bots.
-    ///     <paramref name="upstreamHealthy"/> suppresses the 404 / 403 arms
-    ///     during outage windows; 429 and honeypot stay live because they
-    ///     are STYLOBOT enforcement signals, not origin-shape signals.
+    ///     Two gates compose per status-code arm:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <paramref name="upstreamHealthy"/> suppresses the 404 /
+    ///             403 / 429 arms across the WHOLE window during outage
+    ///             windows -- we can't tell scanner shape from "everything
+    ///             is 4xx" upstream-down shape.
+    ///         </item>
+    ///         <item>
+    ///             <see cref="OperationCompleteSignal.FromUpstream"/>
+    ///             suppresses the per-request status-derived arms when
+    ///             STYLOBOT itself set the status (honeypot path 404,
+    ///             policy block 403, etc.) so our own enforcement
+    ///             responses don't feed back as bot evidence on the next
+    ///             request (closed-loop feedback). Per "ONLY upstream
+    ///             status codes should be factored in".
+    ///         </item>
+    ///     </list>
+    ///     Honeypot hits remain meaningful in all states because they
+    ///     score via the dedicated <see cref="OperationCompleteSignal.Honeypot"/>
+    ///     pathway, not the status-code pathway.
     /// </summary>
     internal static double ComputeCumulativeBadBehavior(
         IReadOnlyList<OperationCompleteSignal> window,
@@ -143,17 +161,27 @@ internal sealed class ReputationLane : AnalysisLaneBase
             // High risk request
             if (op.RequestRisk > 0.7) badIndicators++;
 
-            if (upstreamHealthy)
+            // Per-request status arms gate on BOTH upstream health AND
+            // whether this specific response came from upstream. If
+            // stylobot synthesised the status (block / shed / honeypot
+            // 404), the status code carries no information about the
+            // visitor's intent -- only about our own enforcement choice.
+            var statusArmsActive = upstreamHealthy && op.FromUpstream;
+            if (statusArmsActive)
             {
                 // 404 responses (probing)
                 if (op.StatusCode == 404) badIndicators++;
 
                 // 403 responses (blocked/forbidden)
                 if (op.StatusCode == 403) badIndicators++;
-            }
 
-            // 429 responses (rate limited) - meaningful regardless of upstream health
-            if (op.StatusCode == 429) badIndicators += 2;
+                // 429 responses (rate limited) -- when from upstream, this
+                // is a peer service rate-limiting our visitor and counts
+                // as bad-behaviour evidence. When stylobot itself sent
+                // the 429 (policy throttle), suppress to avoid the
+                // closed-loop feedback.
+                if (op.StatusCode == 429) badIndicators += 2;
+            }
 
             // Honeypot hit - STYLOBOT's own trap, always meaningful
             if (op.Honeypot) badIndicators += 3;

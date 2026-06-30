@@ -289,20 +289,34 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             new(SignalKeys.ResponseUnique404Paths, behavior.UniqueNotFoundPaths)
         ]);
 
-        // Upstream-health gate: when origin is cold-starting or down the
-        // gateway hands back 404/5xx via YARP. We cannot tell scanner-shaped
-        // 404s from "everything is 404" outage shape, so the 404-derived
-        // scan verdicts stand down. Honeypot hits remain elsewhere in this
-        // contributor because honeypots are STYLOBOT's own traps -- they
-        // are meaningful regardless of upstream health.
+        // Two gates compose:
+        // (1) Upstream-health: when origin is cold-starting or down the
+        //     gateway hands back 404/5xx via YARP. We cannot tell scanner-
+        //     shaped 404s from "everything is 404" outage shape, so the
+        //     404-derived scan verdicts stand down.
+        // (2) Response-from-upstream (per-request): the same scan-pattern
+        //     read on stylobot's OWN honeypot 404 / block 403 / shed 503
+        //     would feed our enforcement responses back as bot evidence
+        //     and lock the visitor at 100% bot. Per "ONLY upstream status
+        //     codes should be factored in" -- the visitor's response
+        //     history is composed of mixed upstream + stylobot responses,
+        //     but BuildResponseSignal already filters out block / challenge
+        //     / throttle from the history; the per-request gate here covers
+        //     edge cases (honeypot path 404 in history) and matches the
+        //     orchestrator-side signal.
+        // Honeypot hits remain elsewhere in this contributor because
+        // honeypots are STYLOBOT's own traps via the dedicated
+        // ResponseHoneypotHits pathway, not the 404-status pathway.
         var upstreamHealthy = state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true;
+        var fromUpstream = state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true;
+        var statusArmsActive = upstreamHealthy && fromUpstream;
 
         // Fail2ban-style escalation: apply progressively harsher action policies as
         // 404 count grows within the sliding window. The window gives automatic
         // decay - offenders who stop get their ban downgraded/removed as old 404s
         // age out. Only escalate when we have real scanning evidence (multiple
         // unique paths), not a single stale bookmark.
-        if (Fail2BanEnabled && upstreamHealthy && behavior.UniqueNotFoundPaths >= 2)
+        if (Fail2BanEnabled && statusArmsActive && behavior.UniqueNotFoundPaths >= 2)
         {
             string? policy = null;
             string reason = "";
@@ -339,7 +353,7 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
         // "everything is 404" is exactly what we'd see from a broken upstream.
         var fourOhFourRatio = behavior.TotalResponses > 0
             ? (double)behavior.Count404 / behavior.TotalResponses : 0;
-        if (upstreamHealthy && behavior.Count404 >= Exclusive404MinCount && fourOhFourRatio >= Exclusive404Ratio)
+        if (statusArmsActive && behavior.Count404 >= Exclusive404MinCount && fourOhFourRatio >= Exclusive404Ratio)
         {
             state.WriteSignals([
                 new(SignalKeys.ResponseScanPatternDetected, true),
@@ -356,9 +370,11 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
 
         // Real humans almost never hit multiple unique 404 paths.
         // A single 404 from a stale bookmark is normal; 3+ unique 404 paths is scanning.
-        // Skip the entire 404-derived scan-tier ladder under outage; we cannot
-        // distinguish scanner shape from "everything is 404" upstream shape.
-        if (!upstreamHealthy)
+        // Skip the entire 404-derived scan-tier ladder under outage OR when
+        // the current response is stylobot-synthesised; we cannot
+        // distinguish scanner shape from "everything is 404" upstream shape
+        // OR from stylobot's own honeypot-trap pattern.
+        if (!statusArmsActive)
             return;
 
         // HEAVY: Systematic vulnerability scanning - many unique 404 paths
@@ -404,7 +420,18 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
     }
 
     /// <summary>
-    ///     Analyze authentication failures - credential brute-forcing
+    ///     Analyze authentication failures - credential brute-forcing.
+    ///     Two gates compose:
+    ///     (1) Upstream-health: 401/403 from a misconfigured / cold-starting
+    ///         upstream is not auth-attempt evidence either.
+    ///     (2) Response-from-upstream (per-request): when stylobot's own
+    ///         policy block returns 403 we must not feed that back as a
+    ///         brute-force signal (closed-loop feedback). Per "ONLY
+    ///         upstream status codes should be factored in", auth-failure
+    ///         counters that descend from stylobot's own 403s are
+    ///         enforcement-shaped, not visitor-shaped. The auth-failure
+    ///         signal is still written for visibility; only the scoring
+    ///         contribution suppresses.
     /// </summary>
     private void AnalyzeAuthStruggle(
         BlackboardState state,
@@ -412,6 +439,11 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
         List<DetectionContribution> contributions)
     {
         state.WriteSignal(SignalKeys.ResponseAuthFailures, behavior.AuthFailures);
+
+        var upstreamHealthy = state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true;
+        var fromUpstream = state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true;
+        if (!upstreamHealthy || !fromUpstream)
+            return;
 
         if (behavior.AuthFailures > AuthSevereThreshold)
         {

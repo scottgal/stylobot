@@ -116,12 +116,18 @@ public class SessionVectorContributor : ConfiguredContributorBase
             var requestState = RequestMarkovClassifier.Classify(state);
             var statusCode = state.HttpContext.Response.StatusCode;
             var path = TemplatizePath(state.HttpContext.Request.Path.Value ?? "/");
+            // Carry the per-request from_upstream flag so the
+            // session-vector 4xx error-ratio arm can suppress stylobot-
+            // synthesised statuses (closed-loop feedback). Default true
+            // when the orchestrator hasn't stamped.
+            var fromUpstream = state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true;
 
             var sessionRequest = new SessionRequest(
                 requestState,
                 DateTimeOffset.UtcNow,
                 path,
-                statusCode > 0 ? statusCode : 200);
+                statusCode > 0 ? statusCode : 200,
+                FromUpstream: fromUpstream);
 
             // Build fingerprint context from blackboard signals - these are per-session
             // constants that become dimensions in the unified vector. Fingerprint mutation

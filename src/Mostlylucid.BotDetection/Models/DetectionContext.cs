@@ -1100,6 +1100,27 @@ public static class SignalKeys
     /// <summary>Double: Aggregated response behavior score from ResponseCoordinator (0.0-1.0)</summary>
     public const string ResponseHistoricalScore = "response.historical_score";
 
+    /// <summary>
+    ///     Boolean: <c>true</c> when the response status code on the current
+    ///     request came from the upstream origin, <c>false</c> when STYLOBOT
+    ///     itself set the status (load-shed 503, policy block 403, throttle
+    ///     429, honeypot 404, API-key rejection). Default semantics:
+    ///     <c>absent</c> means upstream (back-compat with FOSS hosts that
+    ///     don't yet stamp). Status-derived detector arms must read this with
+    ///     <c>state.GetSignal&lt;bool?&gt;(ResponseFromUpstream) ?? true</c>
+    ///     and stand down when it's <c>false</c> -- otherwise stylobot's own
+    ///     enforcement response feeds back as additional bot evidence on the
+    ///     next request, locking visitors at 100% bot from a single shed/block.
+    ///     Persisted on every detection event / centroid sample so post-hoc
+    ///     analyses can segment enforcement-shaped responses out of the
+    ///     natural prior (per <c>feedback_centroid_learning_feedback_loop</c>).
+    ///     Honeypot path detection still scores via its dedicated
+    ///     <see cref="ResponseHoneypotHits"/> signal -- this gate only
+    ///     suppresses the response-CODE-derived contribution, not the
+    ///     honeypot-PATH-derived one.
+    /// </summary>
+    public const string ResponseFromUpstream = "response.from_upstream";
+
     /// <summary>Int: Number of honeypot path hits (accessing trap paths that should never be accessed)</summary>
     public const string ResponseHoneypotHits = "response.honeypot_hits";
 

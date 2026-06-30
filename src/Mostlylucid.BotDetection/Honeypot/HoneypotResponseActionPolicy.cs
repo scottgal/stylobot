@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.SimulationPacks;
 
@@ -69,6 +70,12 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
                 rate.MaxHitsPerFingerprintPerHour))
         {
             context.Response.StatusCode = 403;
+            // Closed-loop feedback gate: mark so the visitor's NEXT request
+            // doesn't get bot-boosted by stylobot's own honeypot rate-limit
+            // 403. Honeypot detection still flags via the dedicated honeypot
+            // signal pathway, so suppressing the status-code-derived
+            // contribution does not weaken the verdict.
+            context.MarkResponseFromStyloBot();
             context.Response.Headers.TryAdd("X-StyloBot-Honeypot", "ratelimited");
             _logger.LogInformation(
                 "Honeypot rate-limit exceeded for {Key} on {Path}; immediate 403",
@@ -133,6 +140,11 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
     private static async Task WriteGenericFakeResponseAsync(HttpContext context, string path, CancellationToken ct)
     {
         context.Response.StatusCode = 404;
+        // Closed-loop feedback gate: mark so the visitor's NEXT request
+        // doesn't get bot-boosted by stylobot's own honeypot fake 404.
+        // Honeypot detection still flags via the dedicated honeypot signal
+        // pathway.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = "text/html; charset=utf-8";
         context.Response.Headers.TryAdd("X-StyloBot-Honeypot", "true");
         context.Response.Headers.TryAdd("Cache-Control", "no-store");

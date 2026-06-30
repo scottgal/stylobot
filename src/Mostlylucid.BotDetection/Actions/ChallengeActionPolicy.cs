@@ -253,6 +253,8 @@ public class ChallengeActionPolicy : IActionPolicy
         CancellationToken cancellationToken)
     {
         context.Response.StatusCode = _options.ChallengeStatusCode;
+        // Closed-loop feedback gate: stylobot-synthesised response.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = "text/html";
 
         var html = GenerateChallengeHtml(context, evidence);
@@ -267,6 +269,8 @@ public class ChallengeActionPolicy : IActionPolicy
         CancellationToken cancellationToken)
     {
         context.Response.StatusCode = _options.ChallengeStatusCode;
+        // Closed-loop feedback gate: stylobot-synthesised response.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = "text/html";
 
         var encodedScript = WebUtility.HtmlEncode(_options.ChallengeScript);
@@ -305,6 +309,8 @@ public class ChallengeActionPolicy : IActionPolicy
         CancellationToken cancellationToken)
     {
         context.Response.StatusCode = _options.ChallengeStatusCode;
+        // Closed-loop feedback gate: stylobot-synthesised response.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = "text/html";
 
         var returnUrl = context.Request.Path + context.Request.QueryString;
@@ -366,6 +372,8 @@ public class ChallengeActionPolicy : IActionPolicy
         var challenge = store.CreateChallenge(signature, puzzleCount, requiredZeros, expiry);
 
         context.Response.StatusCode = _options.ChallengeStatusCode;
+        // Closed-loop feedback gate: stylobot-synthesised response.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = "text/html";
 
         var returnUrl = context.Request.Path + context.Request.QueryString;
@@ -391,6 +399,8 @@ public class ChallengeActionPolicy : IActionPolicy
         var challenge = store.CreateChallenge(signature, puzzleCount, requiredZeros, expiry);
 
         context.Response.StatusCode = 429;
+        // Closed-loop feedback gate: stylobot-synthesised challenge response.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = "application/json";
         context.Response.Headers["Retry-After"] = _options.ChallengeExpirySeconds.ToString();
 

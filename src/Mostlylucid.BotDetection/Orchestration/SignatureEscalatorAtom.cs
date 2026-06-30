@@ -252,6 +252,13 @@ public sealed class SignatureEscalatorAtom : IAsyncDisposable
             ResponseScore = GetSignal<double>("response.score"),
             StatusCode = GetSignal<int>("response.status"),
             ResponseBytes = GetSignal<long>("response.bytes"),
+            // Closed-loop feedback gate: persist whether the response code
+            // came from upstream so historical reputation analysis can
+            // segment stylobot's own enforcement codes (shed / block /
+            // honeypot / throttle) out of the visitor's behaviour shape
+            // (per feedback_centroid_learning_feedback_loop). Default true
+            // when the orchestrator hasn't stamped (back-compat).
+            FromUpstream = GetSignal<bool>(Models.SignalKeys.ResponseFromUpstream, true),
 
             // Combined
             CombinedScore = decision.Priority / 100.0,

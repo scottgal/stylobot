@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Policies.Rules;
 
 namespace Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
@@ -43,6 +44,9 @@ public sealed class ChallengeActionHandler : IPolicyActionHandler
         var kind = string.IsNullOrWhiteSpace(challenge?.Kind) ? "challenge" : challenge!.Kind;
 
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        // Closed-loop feedback gate: mark so the visitor's NEXT request
+        // doesn't get bot-boosted by stylobot's own 403 challenge response.
+        context.MarkResponseFromStyloBot();
         context.Response.Headers[ChallengeHeader] = "required";
         context.Response.Headers[BlockActionHandler.PolicyHeader] = $"rule-challenge ({rule.Id})";
         context.Response.ContentType = "application/json";

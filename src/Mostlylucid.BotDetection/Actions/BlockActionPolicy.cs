@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Actions;
@@ -78,6 +79,9 @@ public class BlockActionPolicy : IActionPolicy
             context.Request.Path, Name, evidence.BotProbability, _options.StatusCode);
 
         context.Response.StatusCode = _options.StatusCode;
+        // Closed-loop feedback gate: mark so the visitor's NEXT request
+        // doesn't get bot-boosted by stylobot's own block response.
+        context.MarkResponseFromStyloBot();
         context.Response.ContentType = _options.ContentType;
 
         // Add custom headers

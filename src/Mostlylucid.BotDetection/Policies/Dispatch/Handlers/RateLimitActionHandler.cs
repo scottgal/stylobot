@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.RateLimit;
 
@@ -81,6 +82,9 @@ public sealed class RateLimitActionHandler : IPolicyActionHandler
 
         // Bucket exhausted -- shape a 429.
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        // Closed-loop feedback gate: mark so the visitor's NEXT request
+        // doesn't get bot-boosted by stylobot's own 429 rate-limit response.
+        context.MarkResponseFromStyloBot();
         context.Response.Headers["Retry-After"] = "1";
         context.Response.Headers[BlockActionHandler.PolicyHeader] = $"rule-rate-limit ({rule.Id})";
         context.Response.ContentType = "application/json";

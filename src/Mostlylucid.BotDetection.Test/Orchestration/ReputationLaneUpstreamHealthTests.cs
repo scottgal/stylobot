@@ -91,10 +91,15 @@ public class ReputationLaneUpstreamHealthTests
     }
 
     [Fact]
-    public void Rate_limited_429_responses_count_regardless_of_upstream_health()
+    public void Rate_limited_429_responses_count_only_when_from_upstream_and_healthy()
     {
-        // 429s are STYLOBOT-enforced rate limits, not origin shape. They
-        // must remain meaningful in outage windows.
+        // Updated semantics per closed-loop feedback fix:
+        // 429s count as bad-behaviour ONLY when they came from upstream
+        // (a peer service rate-limiting our visitor). When stylobot's own
+        // policy throttle synthesised the 429, suppressing it prevents
+        // the closed-loop feedback ("ONLY upstream status codes should be
+        // factored in"). Upstream-down windows also suppress: we can't
+        // tell visitor-shape from origin-shape during outage.
         var window = new List<OperationCompleteSignal>
         {
             Op(429), Op(429), Op(429), Op(200), Op(200),
@@ -103,7 +108,8 @@ public class ReputationLaneUpstreamHealthTests
         var healthy = ReputationLane.ComputeCumulativeBadBehavior(window, upstreamHealthy: true);
         var unhealthy = ReputationLane.ComputeCumulativeBadBehavior(window, upstreamHealthy: false);
 
-        Assert.Equal(healthy, unhealthy);
-        Assert.True(healthy > 0);
+        Assert.True(healthy > 0,
+            "upstream-derived 429s on a healthy gateway should remain meaningful bot-evidence");
+        Assert.Equal(0.0, unhealthy);
     }
 }

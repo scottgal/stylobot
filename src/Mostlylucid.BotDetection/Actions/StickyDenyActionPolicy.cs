@@ -1,7 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging; using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 
@@ -144,6 +144,9 @@ public sealed class StickyDenyActionPolicy : IActionPolicy
     private ActionResult WriteBlockedResponse(HttpContext context)
     {
         context.Response.StatusCode = _options.BlockStatusCode;
+        // Closed-loop feedback gate: mark so the visitor's NEXT request
+        // doesn't get bot-boosted by stylobot's own sticky-deny response.
+        context.MarkResponseFromStyloBot();
         if (_options.SetCookie)
         {
             // Opaque marker cookie. The value is a random session-scoped

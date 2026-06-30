@@ -32,7 +32,7 @@ public static class RequestMarkovClassifier
             return RequestState.ServerSentEvent;
 
         // Response-based classification.
-        // Two cold-start gates compose by OR here:
+        // Three gates compose by OR here:
         //   * Upstream-health: when origin is cold-starting or down, the
         //     gateway returns 4xx for everything via YARP. Treating those
         //     status codes as Markov-state evidence would bake "scanner" /
@@ -42,13 +42,20 @@ public static class RequestMarkovClassifier
         //     downstream of this state assignment can't yet score reliably;
         //     keep observed shape as PageView so we don't lock in noisy
         //     cold-start centroid samples.
-        // Either gate "cold" → demote to PageView so persisted centroids
-        // don't bake outage/cold-start shape (per
+        //   * Response-from-upstream (per-request): when STYLOBOT itself
+        //     set the status (block 403, honeypot 404, throttle 429), the
+        //     Markov state must not classify as AuthAttempt / NotFound or
+        //     we feed our own enforcement response back into the session
+        //     vector as scanner / brute-force shape -- locking the visitor
+        //     at 100% bot from a single enforcement action.
+        // Any gate "cold" → demote to PageView so persisted centroids
+        // don't bake outage / cold-start / enforcement shape (per
         // feedback_centroid_learning_feedback_loop).
         var statusCode = context.Response.StatusCode;
         var upstreamHealthy = state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true;
         var gatewayWarming = state.GetSignal<bool?>(SignalKeys.GatewayWarmup) ?? false;
-        if (upstreamHealthy && !gatewayWarming)
+        var fromUpstream = state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true;
+        if (upstreamHealthy && !gatewayWarming && fromUpstream)
         {
             if (statusCode == 401 || statusCode == 403)
                 return RequestState.AuthAttempt;
