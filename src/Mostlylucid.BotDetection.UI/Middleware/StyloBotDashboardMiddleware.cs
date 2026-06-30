@@ -1388,40 +1388,53 @@ public class StyloBotDashboardMiddleware
                 sigs = sigService.GenerateSignatures(context);
             if (sigs is null)
                 return "null";
+
+            // SINGLE SOURCE OF TRUTH: the headline score is the fingerprint's
+            // persisted verdict (CachedBotProbability) via IFingerprintReader —
+            // the SAME value the Your-Detection card + signature-detail page read.
+            // The SignatureAggregateCache is used only for display enrichment
+            // (narrative / name / reasons), NEVER the headline number — it's a
+            // cross-mode average that disagreed with the fingerprint.
+            var fpVerdict = await ResolveFingerprintVerdictAsync(context);
             var visitor = signatureCache?.GetVisitor(sigs.PrimarySignature);
 
-            if (visitor != null)
+            if (fpVerdict is not null || visitor != null)
             {
+                var headlineProb = fpVerdict?.Probability ?? visitor!.BotProbability;
+                var headlineRisk = fpVerdict?.RiskBand ?? visitor?.RiskBand;
+                var headlineConf = visitor?.Confidence ?? fpVerdict?.Confidence ?? 0.0;
+
                 var narrativeEvent = new DashboardDetectionEvent
                 {
                     RequestId = "self",
-                    Timestamp = visitor.LastSeen,
-                    IsBot = visitor.IsBot,
-                    BotProbability = visitor.BotProbability,
-                    Confidence = visitor.Confidence,
-                    RiskBand = visitor.RiskBand,
-                    BotType = visitor.BotType,
-                    BotName = visitor.BotName,
-                    Action = visitor.Action,
+                    Timestamp = visitor?.LastSeen ?? fpVerdict?.UpdatedAt ?? DateTime.UtcNow,
+                    IsBot = headlineProb >= 0.5,
+                    BotProbability = headlineProb,
+                    Confidence = headlineConf,
+                    RiskBand = headlineRisk ?? "Unknown",
+                    BotType = visitor?.BotType,
+                    BotName = visitor?.BotName ?? fpVerdict?.Name,
+                    Action = visitor?.Action,
                     Method = "GET",
-                    Path = visitor.LastPath ?? "/",
-                    TopReasons = visitor.TopReasons
+                    Path = visitor?.LastPath ?? "/",
+                    TopReasons = visitor?.TopReasons ?? new List<string>()
                 };
                 var narrative = DetectionNarrativeBuilder.Build(narrativeEvent);
 
                 var yourDetection = new
                 {
-                    isBot = visitor.IsBot,
-                    botProbability = Math.Round(visitor.BotProbability, 4),
-                    confidence = Math.Round(visitor.Confidence, 4),
-                    riskBand = visitor.RiskBand,
-                    processingTimeMs = visitor.ProcessingTimeMs,
-                    detectorCount = visitor.TopReasons.Count,
-                    narrative = visitor.Narrative ?? narrative,
-                    topReasons = visitor.TopReasons,
+                    isBot = headlineProb >= 0.5,
+                    botProbability = Math.Round(headlineProb, 4),
+                    confidence = Math.Round(headlineConf, 4),
+                    riskBand = headlineRisk,
+                    processingTimeMs = visitor?.ProcessingTimeMs ?? 0.0,
+                    detectorCount = visitor?.TopReasons.Count ?? 0,
+                    narrative = visitor?.Narrative ?? narrative,
+                    topReasons = visitor?.TopReasons ?? new List<string>(),
                     signature = sigs.PrimarySignature,
-                    threatScore = visitor.ThreatScore.HasValue ? Math.Round(visitor.ThreatScore.Value, 3) : (double?)null,
-                    threatBand = visitor.ThreatBand
+                    scoreUpdatedAt = fpVerdict?.UpdatedAt,
+                    threatScore = visitor?.ThreatScore.HasValue == true ? Math.Round(visitor.ThreatScore.Value, 3) : (double?)null,
+                    threatBand = visitor?.ThreatBand
                 };
 
                 return JsonSerializer.Serialize(yourDetection, CamelCaseJson);
@@ -5846,6 +5859,19 @@ public class StyloBotDashboardMiddleware
         // remote-mode hosts without an IFingerprintReader / sigs not yet bound
         // come back null and the heading skips the pencil silently.
         string? headingFingerprintId = null;
+        // SINGLE SOURCE OF TRUTH: the headline probability + risk band come from
+        // the fingerprint's persisted verdict (CachedBotProbability), the SAME
+        // value the Your-Detection pill reads. The previous design sourced the
+        // headline from the latest detection row, which disagreed with both the
+        // YOU pill (signature-cache average) and the fingerprint — three numbers
+        // for one identity, the exact "list says X, detail says Y" divergence the
+        // user called out. Per-request rows stay in the RecentDetections table;
+        // the HEADLINE is the fingerprint verdict. UpdatedAt lets the page show
+        // when the score last changed.
+        double headlineProb = latest.BotProbability;
+        string? headlineRisk = latest.RiskBand;
+        double headlineConf = latest.Confidence;
+        DateTime? headlineScoreUpdatedAt = null;
         try
         {
             var fpReader = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
@@ -5853,12 +5879,23 @@ public class StyloBotDashboardMiddleware
             {
                 headingFingerprintId = await fpReader.LookupFingerprintIdAsync(
                     decodedSignature, context.RequestAborted);
+                if (!string.IsNullOrEmpty(headingFingerprintId))
+                {
+                    var fp = await fpReader.GetFingerprintAsync(headingFingerprintId, context.RequestAborted);
+                    if (fp is not null)
+                    {
+                        headlineProb = fp.CachedBotProbability;
+                        headlineRisk = fp.CachedRiskBand ?? latest.RiskBand;
+                        headlineConf = fp.InferredTypeConfidence;
+                        headlineScoreUpdatedAt = fp.CachedScoreUpdatedAt;
+                    }
+                }
             }
         }
         catch (Exception fpEx)
         {
             _logger.LogDebug(fpEx,
-                "FingerprintId lookup failed for {Signature}; signature heading renders without pencil",
+                "Fingerprint verdict lookup failed for {Signature}; headline falls back to latest detection",
                 decodedSignature);
         }
 
@@ -5872,18 +5909,18 @@ public class StyloBotDashboardMiddleware
             Found = true,
             BotName = canonicalDetailName,
             BotType = latest.BotType,
-            RiskBand = latest.RiskBand,
-            BotProbability = latest.BotProbability,
-            Confidence = latest.Confidence,
+            RiskBand = headlineRisk,
+            BotProbability = headlineProb,
+            Confidence = headlineConf,
             HitCount = hitCount,
             Action = latest.Action,
             CountryCode = latest.CountryCode,
             ProcessingTimeMs = latest.ProcessingTimeMs,
             TopReasons = latest.TopReasons?.ToList() ?? [],
-            LastSeen = latest.Timestamp,
+            LastSeen = headlineScoreUpdatedAt ?? latest.Timestamp,
             Narrative = latest.Narrative,
             Description = latest.Description,
-            IsBot = latest.IsBot,
+            IsBot = headlineProb >= 0.5,
             ThreatScore = latest.ThreatScore,
             ThreatBand = latest.ThreatBand,
             RiskJustification = latest.RiskJustification,
@@ -6752,6 +6789,47 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 
     // ─── Shared model builders ───────────────────────────────────────────
 
+    /// <summary>
+    ///     The headline verdict for "this fingerprint", read from the SINGLE
+    ///     source of truth: the fingerprint's persisted verdict via
+    ///     <see cref="BotDetection.Identity.IFingerprintReader"/> (network-local
+    ///     to the gateway that owns the fingerprint LFU). Both the "Your
+    ///     Detection" pill and the signature-detail headline resolve through
+    ///     here, so they show EXACTLY the same number. <c>UpdatedAt</c> is the
+    ///     cache timestamp so a surface can show when the score last changed.
+    /// </summary>
+    private sealed record FingerprintVerdict(
+        double Probability, string? RiskBand, double Confidence, string? Name, DateTime? UpdatedAt);
+
+    private async Task<FingerprintVerdict?> ResolveFingerprintVerdictAsync(HttpContext context)
+    {
+        var fpId = context.Items.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpIdObj)
+            ? fpIdObj as string
+            : null;
+        if (string.IsNullOrEmpty(fpId)) return null;
+
+        var reader = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
+        if (reader is null) return null;
+
+        try
+        {
+            var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
+            if (fp is null) return null;
+            return new FingerprintVerdict(
+                Probability: fp.CachedBotProbability,
+                RiskBand: fp.CachedRiskBand,
+                Confidence: fp.InferredTypeConfidence,
+                Name: fp.InducedName ?? fp.LlmName,
+                UpdatedAt: fp.CachedScoreUpdatedAt);
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ResolveFingerprintVerdict failed for the current request");
+            return null;
+        }
+    }
+
     private async Task<YourDetectionModel> BuildYourDetectionPartialModel(HttpContext context)
     {
         try
@@ -6804,35 +6882,55 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 {
                     HasData = false, BasePath = _options.BasePath.TrimEnd('/')
                 };
+
+            // ── SINGLE SOURCE OF TRUTH for the headline score ──
+            // ONE fingerprint, ONE bot score. The headline BotProbability +
+            // RiskBand come from the fingerprint's persisted verdict
+            // (CachedBotProbability) via IFingerprintReader — which is
+            // network-local to the gateway that owns the fingerprint LFU. This
+            // is the SAME value the signature-detail page reads, so the two can
+            // never disagree.
+            //
+            // We deliberately do NOT use SignatureAggregateCache.GetVisitor()
+            // .BotProbability for the headline: that's a cross-request/cross-mode
+            // AVERAGE (nav 0.16 + sub-resource 0.58 + websocket 0.90 -> ~0.6),
+            // which disagreed with both the fingerprint verdict and the latest
+            // detection. The cache is used ONLY for display enrichment (radar
+            // shape, narrative, name) below — never the number.
+            var fpVerdict = await ResolveFingerprintVerdictAsync(context);
             var visitor = signatureCache?.GetVisitor(sigs.PrimarySignature);
 
-            if (visitor != null)
+            if (fpVerdict is not null || visitor != null)
             {
-                // 12-axis clock for the Your Detection mini-radar -- single source via
-                // ClockAxesResolver so the marketing-site card and this dashboard
-                // surface render the same vector for the same visitor.
-                var clockAxes = Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromRadarShape(visitor.RadarShape);
+                // Enrichment from the cache (radar / name / UA) when present; the
+                // SCORE always comes from the fingerprint verdict when we have it.
+                var clockAxes = visitor != null
+                    ? Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromRadarShape(visitor.RadarShape)
+                    : null;
+
+                var headlineProb = fpVerdict?.Probability ?? visitor!.BotProbability;
+                var headlineRisk = fpVerdict?.RiskBand ?? visitor?.RiskBand ?? "Unknown";
 
                 return new YourDetectionModel
                 {
                     HasData = true,
-                    IsBot = visitor.IsBot,
-                    BotProbability = visitor.BotProbability,
-                    Confidence = visitor.Confidence,
-                    RiskBand = visitor.RiskBand,
-                    ProcessingTimeMs = visitor.ProcessingTimeMs,
-                    DetectorCount = visitor.TopReasons.Count,
-                    Narrative = visitor.Narrative,
-                    TopReasons = visitor.TopReasons,
+                    IsBot = headlineProb >= 0.5,
+                    BotProbability = headlineProb,
+                    Confidence = visitor?.Confidence ?? fpVerdict?.Confidence ?? 0.0,
+                    RiskBand = headlineRisk,
+                    ProcessingTimeMs = visitor?.ProcessingTimeMs ?? 0.0,
+                    DetectorCount = visitor?.TopReasons.Count ?? 0,
+                    Narrative = visitor?.Narrative,
+                    TopReasons = visitor?.TopReasons ?? new List<string>(),
                     Signature = sigs.PrimarySignature,
-                    ThreatScore = visitor.ThreatScore,
-                    ThreatBand = visitor.ThreatBand,
+                    ThreatScore = visitor?.ThreatScore,
+                    ThreatBand = visitor?.ThreatBand,
                     BasePath = _options.BasePath.TrimEnd('/'),
-                    CountryCode = visitor.CountryCode,
-                    UaFamily = visitor.UaFamily,
-                    UserAgent = visitor.UserAgent,
-                    BotName = visitor.BotName,
-                    BotType = visitor.BotType,
+                    CountryCode = visitor?.CountryCode,
+                    UaFamily = visitor?.UaFamily,
+                    UserAgent = visitor?.UserAgent,
+                    BotName = visitor?.BotName ?? fpVerdict?.Name,
+                    BotType = visitor?.BotType,
                     ClockAxes = clockAxes
                 };
             }
