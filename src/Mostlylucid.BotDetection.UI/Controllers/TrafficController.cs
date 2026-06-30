@@ -114,7 +114,7 @@ public sealed class TrafficController : Controller
             BotFamilies: botFamilies,
             Countries: TopByCountry(countriesData, topN),
             BotTypes: TopByBotType(visitors, topN),
-            TopEndpoints: TopByEndpoint(endpointsData, topN),
+            TopEndpoints: TopByEndpoint(endpointsData, topN, opts.TopEndpointsMinSamplesForPerf),
             TopVisitors: visitors.Take(topN).ToList(),
             // Delegated to ThreatsFilter so the partial (rendered by
             // _Traffic.cshtml) and this HTMX-swap controller path stay in
@@ -381,14 +381,37 @@ public sealed class TrafficController : Controller
     ///     method (R5 fix -- the old projection hardcoded "GET" because the LFU
     ///     cache dropped method).
     /// </summary>
-    private static IReadOnlyList<EndpointRow> TopByEndpoint(IReadOnlyList<DashboardEndpointStats> rows, int topN) =>
+    /// <summary>
+    ///     Project the store's <see cref="DashboardEndpointStats"/> rows into the
+    ///     widget's <see cref="EndpointRow"/> view-model, carrying through the
+    ///     per-endpoint p95 + error rate the store already aggregates. U4: no
+    ///     parallel EndpointPerfAtom needed -- the store IS the per-endpoint
+    ///     truth source (and on remote-mode hosts that means the gateway's
+    ///     <c>GET /api/v1/dashboard/endpoint-stats</c> via
+    ///     <c>RemoteDashboardEventStore</c>). Endpoints with fewer than
+    ///     <paramref name="minSamplesForPerf"/> hits get
+    ///     <see cref="EndpointRow.HasPerf"/> = false so the view paints a dash
+    ///     instead of misleading numbers on cold-start / brand-new paths.
+    /// </summary>
+    private static IReadOnlyList<EndpointRow> TopByEndpoint(
+        IReadOnlyList<DashboardEndpointStats> rows, int topN, int minSamplesForPerf) =>
         rows.Where(r => !string.IsNullOrEmpty(r.Path))
             .OrderByDescending(r => r.TotalCount)
             .Take(topN)
-            .Select(r => new EndpointRow(
-                Method: string.IsNullOrEmpty(r.Method) ? string.Empty : r.Method,
-                Path: r.Path,
-                Hits: r.TotalCount,
-                BotShare: r.BotRate))
+            .Select(r =>
+            {
+                var hasPerf = r.TotalCount >= Math.Max(1, minSamplesForPerf);
+                var errorRate = r.TotalCount > 0
+                    ? (r.Status4xx + r.Status5xx) / (double)r.TotalCount
+                    : 0.0;
+                return new EndpointRow(
+                    Method: string.IsNullOrEmpty(r.Method) ? string.Empty : r.Method,
+                    Path: r.Path,
+                    Hits: r.TotalCount,
+                    BotShare: r.BotRate,
+                    P95Ms: r.P95ProcessingTimeMs,
+                    ErrorRate: errorRate,
+                    HasPerf: hasPerf);
+            })
             .ToList();
 }

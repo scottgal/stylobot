@@ -5,7 +5,22 @@
     detail view (spec §8). Method badge is badge-ghost across the board today
     — everything is GET per T1's controller note — but the slot is here so
     POST/PUT/DELETE can colour-code later without re-shaping the partial.
+
+    U4: each row now carries an inline perf summary — p95 latency (ms) and a
+    combined 4xx + 5xx error percentage — sourced from the same
+    DashboardEndpointStats projection the load-shed baseline reads. Rows whose
+    hit count is below DashboardLayoutOptions.TopEndpointsMinSamplesForPerf
+    render a dash placeholder so brand-new paths / cold-start windows do not
+    show misleading numbers. Error % colours follow the canonical risk-band
+    semantics (>= 5% = high / risk-veryhigh, 1–5% = elevated / risk-elevated,
+    < 1% = neutral) per project_dashboard_color_semantics.
 *@
+@{
+    string ErrColour(double rate) =>
+        rate >= 0.05 ? "var(--sb-color-risk-veryhigh)"
+        : rate >= 0.01 ? "var(--sb-color-risk-elevated)"
+        : "";
+}
 <div class="card bg-base-100 border border-base-300">
     <div class="card-body p-3">
         <div class="text-sm font-semibold mb-2">Top endpoints</div>
@@ -18,13 +33,26 @@
             <ul class="text-xs space-y-1">
                 @foreach (var row in Model)
                 {
+                    var p95Display = row.HasPerf && row.P95Ms > 0
+                        ? $"{Math.Round(row.P95Ms)}ms"
+                        : "—";
+                    var errDisplay = row.HasPerf
+                        ? $"{Math.Round(row.ErrorRate * 100)}%"
+                        : "—";
+                    var errStyle = row.HasPerf ? ErrColour(row.ErrorRate) : "";
                     <li>
                         <a href="/dashboard/site/endpoint?path=@Uri.EscapeDataString(row.Path)&method=@Uri.EscapeDataString(row.Method)"
                            class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
                             <span class="badge badge-ghost badge-xs flex-none">@row.Method</span>
                             <span class="truncate flex-1 min-w-0 font-mono text-[11px]" title="@row.Path">@row.Path</span>
-                            <span class="text-base-content/60 tabular-nums">@row.Hits</span>
-                            <span class="text-base-content/40 tabular-nums w-10 text-right">@(((int)(row.BotShare * 100)))%</span>
+                            <span class="text-base-content/60 tabular-nums w-10 text-right" title="hits">@row.Hits</span>
+                            <span class="tabular-nums w-12 text-right text-base-content/70"
+                                  title="95th-percentile processing time">@p95Display</span>
+                            <span class="tabular-nums w-10 text-right"
+                                  style="@(string.IsNullOrEmpty(errStyle) ? "" : $"color: {errStyle};")"
+                                  title="4xx + 5xx error rate">@errDisplay</span>
+                            <span class="text-base-content/40 tabular-nums w-10 text-right"
+                                  title="bot share">@(((int)(row.BotShare * 100)))%</span>
                         </a>
                     </li>
                 }

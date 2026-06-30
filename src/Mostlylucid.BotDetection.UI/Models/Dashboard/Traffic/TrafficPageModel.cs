@@ -76,5 +76,36 @@ public sealed record BotFamilySeries(
 
 public sealed record CountryRow(string CountryCode, int Hits, double BotShare);
 public sealed record BotTypeRow(string BotType, int Hits);
-public sealed record EndpointRow(string Method, string Path, int Hits, double BotShare);
+/// <summary>
+///     One row on the Top Endpoints widget. <see cref="P95Ms"/> + <see cref="ErrorRate"/>
+///     come from the same <c>DashboardEndpointStats</c> projection that the
+///     load-shed baseline already reads, so there is no parallel atom +
+///     no parallel REST endpoint -- this is pure projection on top of the
+///     existing IDashboardEventStore surface.
+///     <para>
+///         <see cref="HasPerf"/> is <c>false</c> when this endpoint's
+///         <c>TotalCount</c> is below
+///         <see cref="Mostlylucid.BotDetection.UI.Models.Dashboard.Layout.DashboardLayoutOptions.TopEndpointsMinSamplesForPerf"/>;
+///         the view renders a dash placeholder in that case so brand-new paths
+///         or cold-start windows do not show misleading numbers.
+///     </para>
+/// </summary>
+/// <param name="Method">HTTP method (e.g. <c>GET</c>).</param>
+/// <param name="Path">Raw request path (the existing widget links by this).</param>
+/// <param name="Hits">Total request count for the window.</param>
+/// <param name="BotShare">Bot fraction (0..1) for the window.</param>
+/// <param name="P95Ms">95th-percentile processing time in milliseconds.</param>
+/// <param name="ErrorRate">Combined 4xx + 5xx fraction (0..1).</param>
+/// <param name="HasPerf">
+///     <c>true</c> when <see cref="Hits"/> meets
+///     <see cref="Mostlylucid.BotDetection.UI.Models.Dashboard.Layout.DashboardLayoutOptions.TopEndpointsMinSamplesForPerf"/>.
+/// </param>
+public sealed record EndpointRow(
+    string Method,
+    string Path,
+    int Hits,
+    double BotShare,
+    double P95Ms = 0.0,
+    double ErrorRate = 0.0,
+    bool HasPerf = false);
 public sealed record ThreatRow(string PrimarySignature, string ResolvedName, string ThreatBand, DateTime LastSeen);

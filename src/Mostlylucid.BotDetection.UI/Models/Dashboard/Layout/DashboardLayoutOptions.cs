@@ -12,6 +12,14 @@ public sealed class DashboardLayoutOptions
     public int SearchMaxResults { get; set; } = 10;
 
     /// <summary>
+    ///     Minimum total request count for an endpoint to surface its p95 latency +
+    ///     error % on the Top Endpoints widget. Endpoints below the threshold render
+    ///     a dash placeholder so cold-start / brand-new paths do not show misleading
+    ///     numbers. Default 3 mirrors the DegradationAtom min-sample convention.
+    /// </summary>
+    public int TopEndpointsMinSamplesForPerf { get; set; } = 3;
+
+    /// <summary>
     ///     Kill-switch during migration. When true (default after M1), sidebar +
     ///     landing-page routing use the new IA (Traffic default, three aggregates
     ///     + packs + manage). When false, the legacy 10+ tab sidebar continues.
