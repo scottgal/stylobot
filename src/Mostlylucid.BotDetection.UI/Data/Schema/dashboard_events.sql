@@ -87,3 +87,24 @@ CREATE TABLE IF NOT EXISTS metric_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_ms_lookup
     ON metric_snapshots(bucket_time, pack_id, instrument);
+
+-- Site-health degradation snapshots -- one row per ScheduleCoordinator Tick10s,
+-- written by DegradationStoreSampler. Replaces the deleted in-memory
+-- DegradationHistoryAtom ring per [[feedback_no_inmemory_stores]]: the ring
+-- lost the entire window on restart; this table persists across reboot so the
+-- Traffic page's site-health chartlet keeps reading real values after a
+-- gateway restart. Append-only; pruned alongside detections by the retention
+-- sweep. Numeric columns mirror DegradationSnapshot 1:1 so the read path is a
+-- direct projection without per-call shape translation.
+CREATE TABLE IF NOT EXISTS degradation_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp       TEXT    NOT NULL,
+    latency_p50_ms  REAL    NOT NULL DEFAULT 0,
+    latency_p95_ms  REAL    NOT NULL DEFAULT 0,
+    rate_5xx        REAL    NOT NULL DEFAULT 0,
+    rate_4xx        REAL    NOT NULL DEFAULT 0,
+    rate_429        REAL    NOT NULL DEFAULT 0,
+    rate_404        REAL    NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_degradation_timestamp
+    ON degradation_history(timestamp DESC);

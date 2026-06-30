@@ -14,8 +14,22 @@
     jsonOpts.Converters.Add(new JsonStringEnumConverter());
     var modelJson = JsonSerializer.Serialize(Model, jsonOpts);
     var drillJson = Model.Drill is null ? "null" : JsonSerializer.Serialize(Model.Drill, jsonOpts);
+
+    // UX2: pre-populate the Alpine `hidden[key]` map for any series the
+    // builder marked Hidden=true so the legend pill paints the "off" state
+    // on first render -- matches the Chart.js dataset.hidden flag the JS
+    // honours at construction. Without this the JS would draw the bar as
+    // hidden but the Razor legend would render as on, then snap to off on
+    // the next click. The serialised JSON is sb-chartlet's source of
+    // truth for Hidden -- this is just the matching client-side mirror.
+    var initialHidden = new Dictionary<string, bool>(StringComparer.Ordinal);
+    foreach (var s in Model.Series)
+    {
+        if (s.Hidden) initialHidden[s.Key] = true;
+    }
+    var initialHiddenJson = JsonSerializer.Serialize(initialHidden, jsonOpts);
 }
-<div x-data='sbChartlet({ id: "@Model.Id", kind: "@Model.Kind", drill: @Html.Raw(drillJson) })'
+<div x-data='sbChartlet({ id: "@Model.Id", kind: "@Model.Kind", drill: @Html.Raw(drillJson), initialHidden: @Html.Raw(initialHiddenJson) })'
      x-init="init()"
      class="sb-chartlet"
      data-chartlet-id="@Model.Id">

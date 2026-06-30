@@ -152,8 +152,8 @@ public sealed class DashboardFreshnessBeacon
         /// <summary>
         ///     Traffic page's site-health widget (U3). Producer:
         ///     <see cref="DashboardFreshnessBridge"/>'s Tick10s arm, which
-        ///     fires whenever the gateway's <c>DegradationHistorySampler</c>
-        ///     could have appended a new <c>DegradationSnapshot</c>. Consumers:
+        ///     fires whenever the gateway's <c>DegradationStoreSampler</c>
+        ///     could have persisted a new <c>DegradationSnapshot</c>. Consumers:
         ///     the <c>SbSiteHealthViewComponent</c>-rendered card carrying
         ///     <c>data-sb-depends="site-health"</c>.
         /// </summary>

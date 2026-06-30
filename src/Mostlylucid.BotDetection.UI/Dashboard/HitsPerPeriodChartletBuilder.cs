@@ -6,17 +6,32 @@ namespace Mostlylucid.BotDetection.UI.Dashboard;
 ///     Projects the same <see cref="CachedVisitor"/> rows that feed the Traffic
 ///     page's side panels into a <see cref="ChartletViewModel"/> ready for the
 ///     shared <c>SbChartlet</c> view component. One series per known bot family
-///     (plus Human / Suspicious / Unknown bucket), stacked on a one-minute or
-///     one-hour bucket axis depending on the requested window, with click-to-drill
-///     wired to the controller's bot_type filter so the bar click swaps just the
-///     five side panels via HTMX (the drill target is <c>#traffic-panels</c>).
+///     (plus Human / Suspicious / Unknown bucket), stacked on the period
+///     selector's bucket axis, with click-to-drill wired to the controller's
+///     bot_type filter so the bar click swaps just the five side panels via
+///     HTMX (the drill target is <c>#traffic-panels</c>).
 ///     <para>
-///     No new data path: the rows come from the existing event-store-driven
-///     projection in <c>TrafficController.Index</c>. Each visitor's full hit
-///     count lands in its <see cref="CachedVisitor.LastSeen"/> bucket -- the
-///     same single-bucket limitation the SVG timeseries chart already lives
-///     with (precise per-event histograms need a dedicated event-store endpoint
-///     and are out of scope for this task).
+///         UX1: the period selector is <c>6h</c> / <c>12h</c> / <c>24h</c> --
+///         the earlier <c>15m</c> / <c>1h</c> options were too short to show
+///         meaningful traffic shape. The Y-axis is logarithmic so a 96%-bot
+///         column doesn't crush the 4% human slice into one pixel
+///         (Chart.js v4 stacked + logarithmic combine correctly; we floor at
+///         <c>min: 1</c> in the JS to keep empty buckets at the baseline).
+///     </para>
+///     <para>
+///         UX2: the Internal series is <see cref="ChartletSeries.Hidden"/> by
+///         default. StyloBot's own internal probes dominate by volume because
+///         the gateway monitors itself; default-hidden lets the operator see
+///         actual customer traffic on first paint, then click the legend pill
+///         to opt back into Internal.
+///     </para>
+///     <para>
+///         No new data path: the rows come from the existing
+///         event-store-driven projection in <c>TrafficController.Index</c>.
+///         Each visitor's full hit count lands in its
+///         <see cref="CachedVisitor.LastSeen"/> bucket -- the same
+///         single-bucket limitation the SVG timeseries chart already lives
+///         with.
 ///     </para>
 /// </summary>
 public static class HitsPerPeriodChartletBuilder
@@ -45,30 +60,39 @@ public static class HitsPerPeriodChartletBuilder
     /// <summary>
     ///     Build a stacked-bar chartlet from the visitor projection. The
     ///     <paramref name="window"/> string matches the URL filter on the
-    ///     Traffic page (15m / 1h / 60m / 24h / 7d).
+    ///     Traffic page (6h / 12h / 24h). Older tokens (15m / 1h / 60m / 7d)
+    ///     are still accepted so bookmarked URLs keep rendering; bucket
+    ///     density adapts so the X-axis stays readable in every case.
     /// </summary>
     public static ChartletViewModel Build(IReadOnlyList<CachedVisitor> rows, string window)
     {
+        // UX1: 6h / 12h / 24h target a constant 72-bucket density at
+        // 5-min / 10-min / 20-min granularity. Legacy tokens still work
+        // so bookmarked dashboard URLs don't break.
         var bucketCount = window switch
         {
-            "15m" => 15,
-            "1h" or "60m" => 60,
-            "24h" or "1d" => 24,
-            "7d" => 168,
-            _ => 60,
+            "15m"          => 15,
+            "1h" or "60m"  => 60,
+            "6h"           => 72,
+            "12h"          => 72,
+            "24h" or "1d"  => 72,
+            "7d"           => 168,
+            _              => 72,
         };
         var bucketSpan = window switch
         {
-            "15m" => TimeSpan.FromMinutes(1),
-            "1h" or "60m" => TimeSpan.FromMinutes(1),
-            "24h" or "1d" => TimeSpan.FromHours(1),
-            "7d" => TimeSpan.FromHours(1),
-            _ => TimeSpan.FromMinutes(1),
+            "15m"          => TimeSpan.FromMinutes(1),
+            "1h" or "60m"  => TimeSpan.FromMinutes(1),
+            "6h"           => TimeSpan.FromMinutes(5),
+            "12h"          => TimeSpan.FromMinutes(10),
+            "24h" or "1d"  => TimeSpan.FromMinutes(20),
+            "7d"           => TimeSpan.FromHours(1),
+            _              => TimeSpan.FromMinutes(5),
         };
         var labelFormat = window switch
         {
             "7d" => "MM-dd HH:mm",
-            _ => "HH:mm",
+            _    => "HH:mm",
         };
 
         var end = DateTime.UtcNow;
@@ -110,7 +134,11 @@ public static class HitsPerPeriodChartletBuilder
                 Key: f.Key,
                 Label: f.Label,
                 ColorToken: f.Token,
-                Buckets: seriesBuckets[f.Key]))
+                Buckets: seriesBuckets[f.Key],
+                // UX2: Internal starts hidden; gateway self-probes
+                // dominate by volume so default-hiding lets the
+                // operator see customer traffic before opting in.
+                Hidden: string.Equals(f.Key, "Internal", StringComparison.Ordinal)))
             .ToList();
 
         return new ChartletViewModel(
@@ -118,7 +146,12 @@ public static class HitsPerPeriodChartletBuilder
             Kind: ChartletKind.StackedBar,
             BucketLabels: labels,
             Series: series,
-            Axes: new ChartletAxes(YLabel: "hits", YFormat: "number", XLabel: "time", GridLines: true),
+            // UX1: logarithmic Y so a 96%-bot column doesn't squash the
+            // 4% human slice to one pixel. JS floors min at 1 because
+            // Chart.js log axis rejects 0.
+            Axes: new ChartletAxes(
+                YLabel: "hits", YFormat: "number", XLabel: "time",
+                GridLines: true, YScale: "logarithmic"),
             Drill: new ChartletDrill(
                 Url: "/dashboard/traffic",
                 ParamKey: "bot_type",

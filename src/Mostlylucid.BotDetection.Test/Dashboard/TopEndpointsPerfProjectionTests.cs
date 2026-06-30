@@ -189,5 +189,13 @@ public sealed class TopEndpointsPerfProjectionTests
         public Task<List<HoneypotHitRow>> GetHoneypotHitsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, CancellationToken ct = default) => Task.FromResult(new List<HoneypotHitRow>());
         public Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default) => Task.FromResult(0);
+        public Task RecordDegradationSnapshotAsync(
+            Mostlylucid.BotDetection.RateLimit.DegradationSnapshot snapshot,
+            CancellationToken ct = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>>
+            GetDegradationHistoryAsync(DateTime startTime, DateTime endTime,
+                CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>>(
+                Array.Empty<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>());
     }
 }

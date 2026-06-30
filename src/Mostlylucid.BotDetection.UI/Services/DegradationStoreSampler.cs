@@ -1,49 +1,49 @@
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.Common.Scheduling;
 
-namespace Mostlylucid.BotDetection.RateLimit;
+namespace Mostlylucid.BotDetection.UI.Services;
 
 /// <summary>
 ///     Subscribes to <see cref="TickCadence.Tick10s"/> on the
-///     <see cref="IScheduleCoordinator"/> and snapshots
-///     <see cref="DegradationAtom"/>'s current EWMA arms into the bounded
-///     <see cref="DegradationHistoryAtom"/> ring.
+///     <see cref="IScheduleCoordinator"/> and persists a
+///     <see cref="DegradationSnapshot"/> of <see cref="DegradationAtom"/>'s
+///     current EWMA arms via <see cref="IDashboardEventStore.RecordDegradationSnapshotAsync"/>.
+///     <para>
+///         Replaces the deleted <c>DegradationHistorySampler</c> +
+///         <c>DegradationHistoryAtom</c> pair. The atom ring lost the
+///         whole window on restart -- the user could not see what they
+///         called "all the data" because nothing was actually persisted.
+///         Per <c>feedback_no_inmemory_stores</c> the only acceptable
+///         backing for a dashboard history surface is SQLite / Postgres
+///         via <see cref="IDashboardEventStore"/>.
+///     </para>
 ///     <para>
 ///         Per <c>feedback_no_background_services</c>: NOT a
-///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/>. The
-///         coordinator owns the only cadence loop in the project; this
-///         service just subscribes a handler.
-///     </para>
-///     <para>
-///         <c>Tick10s</c> is the same cadence as
-///         <see cref="DegradationAtom"/>'s internal 5-second decay timer
-///         doubled — so the sample arm cannot read a wholly-unstirred decay
-///         value yet still keeps the ring small enough (360 entries =
-///         ~1 hour at 10 s). Atom reads are EMA fetches off two
-///         <c>ConcurrentDictionary</c>s; no race with
-///         <see cref="DegradationAtom.RecordResponse"/> writers because the
-///         AddOrUpdate write commutes with a snapshot Get.
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/>.
+///         The coordinator owns the only cadence loop in the project;
+///         this service just subscribes a handler.
 ///     </para>
 /// </summary>
-public sealed class DegradationHistorySampler : IDisposable
+public sealed class DegradationStoreSampler : IDisposable
 {
     private readonly DegradationAtom _atom;
-    private readonly DegradationHistoryAtom _history;
-    private readonly ILogger<DegradationHistorySampler> _logger;
+    private readonly IDashboardEventStore _store;
+    private readonly ILogger<DegradationStoreSampler> _logger;
     private readonly IDisposable? _subscription;
     private int _disposed;
 
-    public DegradationHistorySampler(
+    public DegradationStoreSampler(
         DegradationAtom atom,
-        DegradationHistoryAtom history,
-        ILogger<DegradationHistorySampler> logger,
+        IDashboardEventStore store,
+        ILogger<DegradationStoreSampler> logger,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
         ArgumentNullException.ThrowIfNull(atom);
-        ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(store);
         _atom = atom;
-        _history = history;
+        _store = store;
         _logger = logger;
 
         // Optional so existing direct-construction tests keep working --
@@ -52,7 +52,7 @@ public sealed class DegradationHistorySampler : IDisposable
         {
             _subscription = scheduleCoordinator.Subscribe(
                 TickCadence.Tick10s,
-                "DegradationHistorySampler",
+                "DegradationStoreSampler",
                 CostHint.Low,
                 OnTickAsync);
         }
@@ -63,9 +63,9 @@ public sealed class DegradationHistorySampler : IDisposable
     ///     a single beat deterministically without spinning up the
     ///     coordinator.
     /// </summary>
-    public Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
+    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
-        if (_disposed != 0) return Task.CompletedTask;
+        if (_disposed != 0) return;
 
         try
         {
@@ -81,14 +81,12 @@ public sealed class DegradationHistorySampler : IDisposable
                 LatencyP50Ms: latency,
                 LatencyP95Ms: latency,
                 NotFoundRate: _atom.GetSignalValue(DegradationAtom.NotFoundRate));
-            _history.Append(snap);
+            await _store.RecordDegradationSnapshotAsync(snap, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "DegradationHistorySampler: tick failed");
+            _logger.LogWarning(ex, "DegradationStoreSampler: tick failed");
         }
-
-        return Task.CompletedTask;
     }
 
     public void Dispose()

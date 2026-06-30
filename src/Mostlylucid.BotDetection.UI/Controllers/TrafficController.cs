@@ -65,7 +65,11 @@ public sealed class TrafficController : Controller
         var filters = new TrafficFilters(
             Country: string.IsNullOrWhiteSpace(country) ? null : country,
             BotType: string.IsNullOrWhiteSpace(botType) ? null : botType,
-            Window: string.IsNullOrWhiteSpace(window) ? $"{opts.DefaultTimeWindowMinutes}m" : window,
+            // UX1: Window default uses the canonical period-selector
+            // tokens (6h / 12h / 24h) rather than a raw "{n}m" string.
+            // ParseWindow recognises both forms so legacy hosts that set
+            // DefaultTimeWindowMinutes still resolve.
+            Window: string.IsNullOrWhiteSpace(window) ? FormatDefaultWindow(opts.DefaultTimeWindowMinutes) : window,
             Threat: string.IsNullOrWhiteSpace(threat) ? null : threat);
 
         var topN = opts.TrafficCardTopN;
@@ -344,13 +348,37 @@ public sealed class TrafficController : Controller
         return idx < 0 || idx >= bucketCount ? -1 : idx;
     }
 
+    /// <summary>
+    ///     Window token -> minutes. UX1: the supported tokens are
+    ///     <c>6h</c> / <c>12h</c> / <c>24h</c>; the older <c>15m</c> /
+    ///     <c>1h</c> / <c>7d</c> tokens still resolve so bookmarked URLs
+    ///     keep working. Default is 6h to match the new selector default.
+    /// </summary>
     private static int ParseWindow(string window) => window switch
     {
-        "15m" => 15,
-        "60m" or "1h" => 60,
-        "24h" or "1d" => 24 * 60,
-        "7d" => 7 * 24 * 60,
-        _ => 60,
+        "15m"           => 15,
+        "60m" or "1h"   => 60,
+        "6h"            => 6 * 60,
+        "12h"           => 12 * 60,
+        "24h" or "1d"   => 24 * 60,
+        "7d"            => 7 * 24 * 60,
+        _               => 6 * 60,
+    };
+
+    /// <summary>
+    ///     Map <see cref="DashboardLayoutOptions.DefaultTimeWindowMinutes"/>
+    ///     onto the canonical period-selector token so URLs and SQL queries
+    ///     speak the same language as the pill widget on _Body.cshtml.
+    /// </summary>
+    private static string FormatDefaultWindow(int minutes) => minutes switch
+    {
+        15            => "15m",
+        60            => "1h",
+        360           => "6h",
+        720           => "12h",
+        1440          => "24h",
+        7 * 24 * 60   => "7d",
+        _             => "6h",
     };
 
     /// <summary>

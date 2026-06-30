@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Privacy;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -156,6 +157,18 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 DateTime.UtcNow.Subtract(_detectionRetention).ToString("O"));
             var pruned = await pruneCmd.ExecuteNonQueryAsync(ct);
             if (pruned > 0) _logger.LogDebug("Pruned {Count} old dashboard detections", pruned);
+
+            // Same retention sweep for the degradation_history table -- the
+            // Traffic page never asks for samples older than its widest
+            // window (24h today) so anything past the detection retention
+            // is dead weight.
+            await using var pruneDegradationCmd = conn.CreateCommand();
+            pruneDegradationCmd.CommandText = "DELETE FROM degradation_history WHERE timestamp < @cutoff";
+            pruneDegradationCmd.Parameters.AddWithValue("@cutoff",
+                DateTime.UtcNow.Subtract(_detectionRetention).ToString("O"));
+            var prunedDegradation = await pruneDegradationCmd.ExecuteNonQueryAsync(ct);
+            if (prunedDegradation > 0) _logger.LogDebug(
+                "Pruned {Count} old degradation snapshots", prunedDegradation);
 
             _initialized = true;
             _logger.LogInformation("SQLite dashboard event store initialized at {Path}", _connectionString);
@@ -2018,6 +2031,78 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             _writeLock.Release();
         }
+    }
+
+    public async Task RecordDegradationSnapshotAsync(
+        DegradationSnapshot snapshot, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO degradation_history
+                    (timestamp, latency_p50_ms, latency_p95_ms, rate_5xx, rate_4xx, rate_429, rate_404)
+                VALUES (@ts, @p50, @p95, @r5xx, @r4xx, @r429, @r404)
+                """;
+            cmd.Parameters.AddWithValue("@ts", snapshot.TimestampUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("@p50", snapshot.LatencyP50Ms);
+            cmd.Parameters.AddWithValue("@p95", snapshot.LatencyP95Ms);
+            cmd.Parameters.AddWithValue("@r5xx", snapshot.Latency5xxRate);
+            cmd.Parameters.AddWithValue("@r4xx", snapshot.Latency4xxRate);
+            cmd.Parameters.AddWithValue("@r429", snapshot.Latency429Rate);
+            cmd.Parameters.AddWithValue("@r404", snapshot.NotFoundRate);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<DegradationSnapshot>> GetDegradationHistoryAsync(
+        DateTime startTime, DateTime endTime, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT timestamp, latency_p50_ms, latency_p95_ms, rate_5xx, rate_4xx, rate_429, rate_404
+              FROM degradation_history
+             WHERE timestamp >= @start AND timestamp <= @end
+             ORDER BY timestamp ASC
+            """;
+        cmd.Parameters.AddWithValue("@start", startTime.ToString("O"));
+        cmd.Parameters.AddWithValue("@end", endTime.ToString("O"));
+
+        var results = new List<DegradationSnapshot>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!DateTime.TryParse(
+                    reader.GetString(0),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var ts))
+            {
+                continue;
+            }
+            results.Add(new DegradationSnapshot(
+                TimestampUtc: ts,
+                Latency5xxRate: reader.IsDBNull(3) ? 0 : reader.GetDouble(3),
+                Latency4xxRate: reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
+                Latency429Rate: reader.IsDBNull(5) ? 0 : reader.GetDouble(5),
+                LatencyP50Ms:   reader.IsDBNull(1) ? 0 : reader.GetDouble(1),
+                LatencyP95Ms:   reader.IsDBNull(2) ? 0 : reader.GetDouble(2),
+                NotFoundRate:   reader.IsDBNull(6) ? 0 : reader.GetDouble(6)));
+        }
+        return results;
     }
 
     public ValueTask DisposeAsync()

@@ -407,15 +407,17 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHubTileCache>();
 
-        // U3 -- site-health widget: local impl reads the gateway-local
-        // DegradationHistoryAtom directly. Remote dashboard hosts override
-        // via AddStyloBotDashboardRemote (RemoteSiteHealthQuery). TryAdd so
-        // the remote registration wins when it runs first. The view
-        // component (SbSiteHealthViewComponent) treats this as optional per
-        // [[feedback_remote_mode_optional_di]] so hosts that never opt into
-        // the degradation atoms still render an empty state cleanly.
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.ISiteHealthQuery,
-            Mostlylucid.BotDetection.UI.Services.LocalSiteHealthQuery>();
+        // Site-health widget: sampler subscribes to Tick10s and persists
+        // DegradationAtom snapshots via IDashboardEventStore. The view
+        // component reads the same store directly (no parallel
+        // ISiteHealthQuery indirection any more). Per
+        // [[feedback_no_inmemory_stores]] this replaces the deleted
+        // DegradationHistoryAtom ring that lost the window on every
+        // restart. DegradationAtom may be absent on hosts that pared the
+        // rate-limit feature out entirely; the sampler ctor null-checks
+        // via DI optional-resolve below.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DegradationStoreSampler>();
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DegradationStoreSamplerBootstrap>();
         // Bridge: subscribes IPolicyRuleStore.Changed -> beacon, and
         // IScheduleCoordinator Tick10s -> beacon (when the meter catalog
         // size changes). Each upstream is optional per

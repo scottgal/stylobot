@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Caching.Memory;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -269,6 +270,36 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return result ?? new InvestigationResult { Summary = new InvestigationSummary() };
     }
 
+    /// <summary>
+    ///     Site-health history -- the dashboard host reads the gateway's
+    ///     persisted <c>degradation_history</c> rows over the existing
+    ///     <c>GET /api/v1/site-health/history</c> endpoint. The endpoint
+    ///     accepts a window token (15m / 1h / 24h / 6h / 12h) and returns
+    ///     the slice oldest-first; we translate the caller's
+    ///     <c>(startTime, endTime)</c> into the nearest canonical window so
+    ///     the gateway-side parser stays unchanged.
+    /// </summary>
+    public async Task<IReadOnlyList<DegradationSnapshot>> GetDegradationHistoryAsync(
+        DateTime startTime, DateTime endTime, CancellationToken ct = default)
+    {
+        var span = endTime - startTime;
+        var window = span.TotalHours switch
+        {
+            <= 0.5 => "15m",
+            <= 1.5 => "1h",
+            <= 8.0 => "6h",
+            <= 16.0 => "12h",
+            _ => "24h",
+        };
+        var path = $"/api/v1/site-health/history?window={Uri.EscapeDataString(window)}";
+        var list = await GetOrFetchAsync(path, async () =>
+        {
+            var l = await _api.GetEnvelopeListAsync<DegradationSnapshot>(path, ct);
+            return l ?? new List<DegradationSnapshot>();
+        }).ConfigureAwait(false);
+        return list;
+    }
+
     // === Write surface: not supported on the remote viewer ===
 
     public Task AddDetectionAsync(DashboardDetectionEvent detection)
@@ -282,6 +313,9 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
 
     public Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default)
         => throw new NotSupportedException("Retention pruning is owned by the gateway.");
+
+    public Task RecordDegradationSnapshotAsync(DegradationSnapshot snapshot, CancellationToken ct = default)
+        => throw new NotSupportedException("Degradation snapshots are owned by the gateway.");
 
     // === Helpers ===
 

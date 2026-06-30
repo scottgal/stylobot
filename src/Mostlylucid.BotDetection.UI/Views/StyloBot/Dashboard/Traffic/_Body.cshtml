@@ -20,11 +20,16 @@
         var th = remove == "threat"   ? null : (threat   ?? Model.Filters.Threat);
         if (!string.IsNullOrEmpty(c))  qs.Add($"country={Uri.EscapeDataString(c)}");
         if (!string.IsNullOrEmpty(bt)) qs.Add($"bot_type={Uri.EscapeDataString(bt)}");
-        if (!string.IsNullOrEmpty(w) && w != "60m") qs.Add($"window={Uri.EscapeDataString(w)}");
+        // UX1: default window is 6h now; omit the query-string param
+        // when w matches the default so the URL stays clean.
+        if (!string.IsNullOrEmpty(w) && w != "6h") qs.Add($"window={Uri.EscapeDataString(w)}");
         if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
         return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
     }
-    var windows = new[] { ("15m", "15m"), ("60m", "1h"), ("24h", "24h"), ("7d", "7d") };
+    // UX1: 6h / 12h / 24h replaces 15m / 1h / 24h / 7d. The shorter
+    // windows didn't show meaningful traffic shape; 7d would have been
+    // misleading at the rolled-up bucket density.
+    var windows = new[] { ("6h", "6h"), ("12h", "12h"), ("24h", "24h") };
 
     // Refresh URL preserves the active filter set so the SignalR-driven swap
     // re-renders the same view the operator is looking at, not a default one.
@@ -80,35 +85,26 @@
         // handler that swaps just #traffic-panels via HTMX (no full-page
         // reload). Per project_dashboard_color_semantics the family→colour
         // mapping is owned by HitsPerPeriodChartletBuilder, not view code.
+        // UX1: log-scale Y-axis; UX2: Internal series starts hidden.
         var hitsChart = HitsPerPeriodChartletBuilder.Build(Model.TopVisitors, Model.Filters.Window);
-        var chartLabel = Model.Filters.Window is "24h" or "7d" or "1d"
-            ? $"Hits per period (last {Model.Filters.Window})"
-            : $"Hits per minute (last {Model.Filters.Window})";
-
-        // D3: bot-families donut over the same visitor projection. Shares the
-        // family→colour mapping with the headline stacked bar so the two
-        // visuals stay in lock-step; slice click drills through bot_type.
-        var familiesDonut = BotFamiliesDonutBuilder.Build(Model.TopVisitors);
+        var chartLabel = $"Hits per period (last {Model.Filters.Window})";
     }
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div class="card bg-base-100 border border-base-300 lg:col-span-2">
-            <div class="card-body p-3">
-                <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
-                <vc:sb-chartlet model="hitsChart" />
-            </div>
-        </div>
-        <div class="card bg-base-100 border border-base-300">
-            <div class="card-body p-3">
-                <div class="text-sm font-semibold mb-2">Bot families</div>
-                <vc:sb-chartlet model="familiesDonut" />
-            </div>
+
+    @* UX3: bot-families donut removed. Same family axis already lives in
+       the hits-per-period legend; the donut took half the row and added
+       no drill behaviour the stacked bar didn't already provide. *@
+    <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-3">
+            <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
+            <vc:sb-chartlet model="hitsChart" />
         </div>
     </div>
 
-    @* U3: Site-health widget rendered next to the existing chartlets. Its
-       own card (NOT overlaid on the hits chart) because ms + percent have
-       different units; a dual-axis overlay would mislead. Sourced from the
-       gateway-local DegradationHistoryAtom via ISiteHealthQuery. *@
+    @* Site-health widget rendered next to the hits chart. Its own card
+       (NOT overlaid on the hits chart) because ms + percent have different
+       units; a dual-axis overlay would mislead. Backed by persisted
+       DegradationSnapshot rows via IDashboardEventStore -- the prior
+       in-memory ring lost the window on restart. *@
     <vc:sb-site-health window="@Model.Filters.Window" />
 
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", Model)

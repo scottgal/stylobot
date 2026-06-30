@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -140,4 +141,25 @@ public interface IDashboardEventStore
 
     /// <summary>Deletes detection records older than the specified cutoff. Returns count pruned.</summary>
     Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Append a single <see cref="DegradationSnapshot"/> sampled from
+    ///     <see cref="DegradationAtom"/> at <c>ScheduleCoordinator.Tick10s</c>.
+    ///     Persists across restart per <c>feedback_no_inmemory_stores</c> --
+    ///     the prior <c>DegradationHistoryAtom</c> ring lost the entire window
+    ///     on every reboot. Backs the Traffic page's site-health chartlet.
+    /// </summary>
+    /// <remarks>
+    ///     Append-only; rows older than the configured retention are pruned by
+    ///     the same retention sweep that prunes detections.
+    /// </remarks>
+    Task RecordDegradationSnapshotAsync(DegradationSnapshot snapshot, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Return persisted <see cref="DegradationSnapshot"/> rows whose
+    ///     timestamp falls in <c>[startTime, endTime]</c>, ordered oldest-first.
+    ///     Empty list when no samples landed in the window.
+    /// </summary>
+    Task<IReadOnlyList<DegradationSnapshot>> GetDegradationHistoryAsync(
+        DateTime startTime, DateTime endTime, CancellationToken ct = default);
 }

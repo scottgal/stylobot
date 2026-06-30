@@ -94,6 +94,12 @@ public sealed class DashboardEventStoreBackedEndpointPerfBaselineTests
             CancellationToken ct = default) => throw new System.NotSupportedException();
         public Task<int> PruneOldDetectionsAsync(System.DateTime cutoff, CancellationToken ct = default)
             => throw new System.NotSupportedException();
+        public Task RecordDegradationSnapshotAsync(
+            Mostlylucid.BotDetection.RateLimit.DegradationSnapshot snapshot,
+            CancellationToken ct = default) => throw new System.NotSupportedException();
+        public Task<IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>>
+            GetDegradationHistoryAsync(System.DateTime startTime, System.DateTime endTime,
+                CancellationToken ct = default) => throw new System.NotSupportedException();
     }
 
     private static DashboardEventStoreBackedEndpointPerfBaseline NewBaseline(

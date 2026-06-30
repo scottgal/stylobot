@@ -2,14 +2,16 @@ namespace Mostlylucid.BotDetection.RateLimit;
 
 /// <summary>
 ///     Point-in-time snapshot of <see cref="DegradationAtom"/>'s rolling EWMA
-///     arms, captured by <see cref="DegradationHistorySampler"/> on every
-///     Tick10s. One record per sample; the dashboard's site-health widget
-///     reads a contiguous slice of these to render time-series chartlets.
+///     arms, captured by the dashboard-side store sampler on every
+///     <c>Tick10s</c> and persisted via <c>IDashboardEventStore</c>. One row
+///     per sample; the dashboard's site-health widget reads a contiguous
+///     slice of these to render time-series chartlets.
 ///     <para>
-///         The atom itself is process-local truth-at-instant; the history ring
-///         lives in <see cref="DegradationHistoryAtom"/> on the gateway. The
-///         dashboard host is a thin REST client per
-///         <c>project_gateway_data_locality</c> and never caches.
+///         The atom itself is process-local truth-at-instant; the persisted
+///         rows live in the dashboard event store (SQLite by default,
+///         Postgres on commercial). Restart no longer drops the history
+///         window -- the prior in-memory ring violated
+///         <c>feedback_no_inmemory_stores</c>.
 ///     </para>
 ///     <para>
 ///         <see cref="LatencyP50Ms"/> and <see cref="LatencyP95Ms"/> both come

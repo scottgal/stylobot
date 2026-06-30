@@ -144,29 +144,38 @@ public static class SiteHealthChartletBuilder
         return true;
     }
 
-    /// <summary>Shared bucket shape for both the latency + error chartlets so they line up.</summary>
+    /// <summary>
+    ///     Shared bucket shape for both the latency + error chartlets so they
+    ///     line up. UX1: 6h / 12h / 24h match the hits-per-period builder's
+    ///     72-bucket density so the two chartlet rows share an X axis when
+    ///     they're stacked.
+    /// </summary>
     private static (int BucketCount, TimeSpan BucketSpan, string LabelFormat) ResolveBucketShape(string window)
     {
         var bucketCount = window switch
         {
-            "15m" => 15,
-            "1h" or "60m" => 60,
-            "24h" or "1d" => 24,
-            "7d" => 168,
-            _ => 60,
+            "15m"          => 15,
+            "1h" or "60m"  => 60,
+            "6h"           => 72,
+            "12h"          => 72,
+            "24h" or "1d"  => 72,
+            "7d"           => 168,
+            _              => 72,
         };
         var bucketSpan = window switch
         {
-            "15m" => TimeSpan.FromMinutes(1),
-            "1h" or "60m" => TimeSpan.FromMinutes(1),
-            "24h" or "1d" => TimeSpan.FromHours(1),
-            "7d" => TimeSpan.FromHours(1),
-            _ => TimeSpan.FromMinutes(1),
+            "15m"          => TimeSpan.FromMinutes(1),
+            "1h" or "60m"  => TimeSpan.FromMinutes(1),
+            "6h"           => TimeSpan.FromMinutes(5),
+            "12h"          => TimeSpan.FromMinutes(10),
+            "24h" or "1d"  => TimeSpan.FromMinutes(20),
+            "7d"           => TimeSpan.FromHours(1),
+            _              => TimeSpan.FromMinutes(5),
         };
         var labelFormat = window switch
         {
             "7d" => "MM-dd HH:mm",
-            _ => "HH:mm",
+            _    => "HH:mm",
         };
         return (bucketCount, bucketSpan, labelFormat);
     }

@@ -5,8 +5,13 @@ public sealed class DashboardLayoutOptions
     /// <summary>How many rows each breakdown card shows on Traffic.</summary>
     public int TrafficCardTopN { get; set; } = 8;
 
-    /// <summary>Default chart window on Traffic in minutes; URL ?window= overrides.</summary>
-    public int DefaultTimeWindowMinutes { get; set; } = 60;
+    /// <summary>
+    ///     Default chart window on Traffic in minutes; URL <c>?window=</c>
+    ///     overrides. UX1: defaults to 6h (360min) so the chartlet has
+    ///     enough buckets to show meaningful traffic shape; the 1h
+    ///     default rolled up too few data points on a quiet console.
+    /// </summary>
+    public int DefaultTimeWindowMinutes { get; set; } = 360;
 
     /// <summary>Header search type-ahead result cap.</summary>
     public int SearchMaxResults { get; set; } = 10;

@@ -7,30 +7,36 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents;
 /// <summary>
 ///     Renders two <c>sb-chartlet</c> instances side-by-side on the Traffic
 ///     page: upstream latency (Line) and error-rate stack (StackedArea), both
-///     sourced from <see cref="ISiteHealthQuery"/>. Per
-///     <c>feedback_remote_mode_optional_di</c> the view component early-returns
-///     a graceful empty state when the query isn't registered (hosts that
-///     never opted into the rate-limit / degradation atoms).
+///     sourced from <see cref="IDashboardEventStore.GetDegradationHistoryAsync"/>.
+///     Per <c>feedback_remote_mode_optional_di</c> the view component
+///     early-returns a graceful empty state when the store isn't registered
+///     (hosts that pared the dashboard out entirely).
+///     <para>
+///         Previously read through an <c>ISiteHealthQuery</c> indirection that
+///         wrapped an in-memory <c>DegradationHistoryAtom</c> ring. The ring
+///         violated <c>feedback_no_inmemory_stores</c> (restart lost the whole
+///         window) and is gone. Reading the dashboard event store directly
+///         removes a parallel data path that previously diverged on remote-mode
+///         hosts.
+///     </para>
 /// </summary>
 public sealed class SbSiteHealthViewComponent : ViewComponent
 {
-    private readonly ISiteHealthQuery? _query;
+    private readonly IDashboardEventStore? _store;
 
     /// <summary>
-    ///     <paramref name="query"/> is optional so the view component degrades
-    ///     to an empty state on hosts that never opted into the gateway-local
-    ///     ring (e.g. test fixtures, hosts that turned the rate-limit feature
-    ///     off entirely).
+    ///     <paramref name="store"/> is optional so the view component degrades
+    ///     to an empty state on hosts that never opted into the dashboard.
     /// </summary>
-    public SbSiteHealthViewComponent(ISiteHealthQuery? query = null)
+    public SbSiteHealthViewComponent(IDashboardEventStore? store = null)
     {
-        _query = query;
+        _store = store;
     }
 
     public async Task<IViewComponentResult> InvokeAsync(string? window = null)
     {
-        var win = string.IsNullOrWhiteSpace(window) ? "60m" : window;
-        if (_query is null)
+        var win = string.IsNullOrWhiteSpace(window) ? "6h" : window;
+        if (_store is null)
         {
             return View("Default", new SiteHealthViewModel(
                 Window: win,
@@ -39,7 +45,10 @@ public sealed class SbSiteHealthViewComponent : ViewComponent
                 IsHealthyEmpty: true));
         }
 
-        var history = await _query.GetHistoryAsync(win, HttpContext.RequestAborted);
+        var span = ParseWindow(win);
+        var now = DateTime.UtcNow;
+        var history = await _store.GetDegradationHistoryAsync(
+            now - span, now, HttpContext.RequestAborted);
         if (history.Count == 0 || SiteHealthChartletBuilder.IsAllHealthy(history))
         {
             return View("Default", new SiteHealthViewModel(
@@ -57,6 +66,24 @@ public sealed class SbSiteHealthViewComponent : ViewComponent
             ErrorsChart: errors,
             IsHealthyEmpty: false));
     }
+
+    /// <summary>
+    ///     Maps the dashboard's canonical window tokens onto a
+    ///     <see cref="TimeSpan"/>. Mirrors
+    ///     <c>SiteHealthHistoryEndpoint.ParseWindow</c> so the local
+    ///     resolution and the gateway endpoint interpret the token the same
+    ///     way (UX1: 6h / 12h / 24h are the new defaults).
+    /// </summary>
+    private static TimeSpan ParseWindow(string window) => window switch
+    {
+        "15m"            => TimeSpan.FromMinutes(15),
+        "1h" or "60m"    => TimeSpan.FromHours(1),
+        "6h"             => TimeSpan.FromHours(6),
+        "12h"            => TimeSpan.FromHours(12),
+        "24h" or "1d"    => TimeSpan.FromHours(24),
+        "7d"             => TimeSpan.FromDays(7),
+        _                => TimeSpan.FromHours(6),
+    };
 }
 
 /// <summary>

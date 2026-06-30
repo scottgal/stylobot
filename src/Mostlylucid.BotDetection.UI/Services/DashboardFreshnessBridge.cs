@@ -70,7 +70,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
 
     // Site-health arm (U3): broadcasts on every Tick10s so the Traffic
     // page's site-health widget OOB-swap-refreshes in lock-step with the
-    // gateway-side DegradationHistorySampler. Subscription is independent
+    // gateway-side DegradationStoreSampler. Subscription is independent
     // of the meter-stream arm so a host that only opted into one half
     // still gets the other.
     private IDisposable? _siteHealthTickSubscription;

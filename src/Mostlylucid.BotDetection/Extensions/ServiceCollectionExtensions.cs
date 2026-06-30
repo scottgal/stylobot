@@ -1673,17 +1673,13 @@ public static class ServiceCollectionExtensions
             .BindConfiguration("BotDetection:GatewayWarmup");
         services.TryAddSingleton<Mostlylucid.BotDetection.Lifecycle.GatewayWarmupGate>();
 
-        // Site-health history (U3): bounded ring of DegradationAtom snapshots
-        // sampled at Tick10s. Feeds the Traffic page's site-health chartlet
-        // via /api/v1/site-health/history. Ring is gateway-local per
-        // [[project_gateway_data_locality]] + [[feedback_no_inmemory_stores]]'s
-        // transient-state carve-out; dashboard host is a thin REST client.
-        // Eager-resolved in BotDetectionHostedSingletonsBootstrap so the
-        // Tick10s subscription wires up before the first sample window.
-        services.AddOptions<Mostlylucid.BotDetection.RateLimit.SiteHealthHistoryOptions>()
-            .BindConfiguration("BotDetection:SiteHealthHistory");
-        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.DegradationHistoryAtom>();
-        services.AddSingleton<Mostlylucid.BotDetection.RateLimit.DegradationHistorySampler>();
+        // Site-health history: DegradationStoreSampler subscribes to Tick10s
+        // and persists DegradationAtom snapshots via IDashboardEventStore
+        // (SQLite default, Postgres on commercial). The earlier
+        // in-memory DegradationHistoryAtom ring lost the whole window on
+        // restart and violated [[feedback_no_inmemory_stores]]; the
+        // sampler is now registered in AddStyloBotDashboard so it lives
+        // next to its storage dependency.
 
         // Register action policy registry (holds named action policies)
         services.TryAddSingleton<IActionPolicyRegistry, ActionPolicyRegistry>();

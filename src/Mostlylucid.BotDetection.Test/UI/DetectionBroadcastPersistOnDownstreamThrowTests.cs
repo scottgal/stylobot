@@ -210,6 +210,12 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
             => throw new NotImplementedException();
         public Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default)
             => throw new NotImplementedException();
+        public Task RecordDegradationSnapshotAsync(
+            Mostlylucid.BotDetection.RateLimit.DegradationSnapshot snapshot,
+            CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>>
+            GetDegradationHistoryAsync(DateTime startTime, DateTime endTime,
+                CancellationToken ct = default) => throw new NotImplementedException();
     }
 
     private static Task InvokeAsync(

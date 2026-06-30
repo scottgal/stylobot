@@ -18,6 +18,11 @@
         borderColor: colorFor(s.colorToken),
         borderWidth: 0,
         stack: 'series',
+        // UX2: honour the server-side `hidden` flag on initial paint so
+        // default-hidden series (Internal on Hits-per-period) start
+        // unselected without the operator clicking once first. Chart.js
+        // reads `dataset.hidden` exactly once at construction.
+        hidden: !!s.hidden,
         // Stash the series key on the dataset so the onClick handler can
         // route a bar click back to its filter without re-walking the model.
         _seriesKey: s.key
@@ -45,6 +50,26 @@
 
   function buildOptions(model, onBarClick) {
     const stacked = model.kind === 'StackedBar' || model.kind === 'StackedArea';
+    const isLog = model.axes && model.axes.yScale === 'logarithmic';
+    const yScale = {
+      stacked: stacked,
+      title: { display: !!model.axes.yLabel, text: model.axes.yLabel },
+      grid: {
+        display: !!model.axes.gridLines,
+        color: 'rgba(127,127,127,0.15)'
+      },
+      ticks: { callback: function (v) { return formatY(v, model.axes.yFormat); } }
+    };
+    if (isLog) {
+      // Chart.js v4 logarithmic axis rejects 0 (log(0) = -Infinity). Force the
+      // floor to 1 so empty buckets still render at the baseline instead of
+      // throwing the whole stack off. `beginAtZero` is meaningless on a log
+      // scale and would conflict with `min`, so we omit it.
+      yScale.type = 'logarithmic';
+      yScale.min = 1;
+    } else {
+      yScale.beginAtZero = true;
+    }
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -72,16 +97,7 @@
           ticks: { maxRotation: 0, autoSkip: true, autoSkipPadding: 12 },
           grid: { display: false }
         },
-        y: {
-          stacked: stacked,
-          beginAtZero: true,
-          title: { display: !!model.axes.yLabel, text: model.axes.yLabel },
-          grid: {
-            display: !!model.axes.gridLines,
-            color: 'rgba(127,127,127,0.15)'
-          },
-          ticks: { callback: function (v) { return formatY(v, model.axes.yFormat); } }
-        }
+        y: yScale
       },
       onClick: function (evt, items) {
         if (!items.length || !onBarClick) return;
@@ -95,8 +111,13 @@
   // via x-data; `init()` runs on x-init (so it also re-runs when HTMX swaps a
   // fresh node into the DOM — no manual rebind needed for OOB-swap freshness).
   window.sbChartlet = function (opts) {
+    // UX2: seed the legend's hidden-state map from the server-emitted
+    // initialHidden dictionary so a series the builder marked Hidden=true
+    // renders with the legend pill already in the "off" state. Shallow
+    // copy so subsequent toggle() calls don't mutate the shared object.
+    var seed = (opts && opts.initialHidden) ? Object.assign({}, opts.initialHidden) : {};
     return {
-      hidden: {},
+      hidden: seed,
       chart: null,
       init: function () {
         const canvas = document.getElementById(opts.id);

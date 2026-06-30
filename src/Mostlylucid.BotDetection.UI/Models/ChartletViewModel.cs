@@ -24,11 +24,20 @@ public enum ChartletKind
 /// <param name="YFormat">Formatter token consumed by sb-chartlet.js.</param>
 /// <param name="XLabel">Plain-text X axis label (e.g. "time", "endpoint").</param>
 /// <param name="GridLines">Whether to render the value-axis grid lines.</param>
+/// <param name="YScale">
+///     Y-axis scale type. <c>"linear"</c> (default) preserves the historical
+///     stacked-bar behaviour; <c>"logarithmic"</c> tells <c>sb-chartlet.js</c>
+///     to set <c>scales.y.type = 'logarithmic'</c> so a small-but-meaningful
+///     series (e.g. the 4% human slice in a 96% bot stack) isn't visually
+///     crushed to one pixel. Chart.js log axis rejects 0, so the JS adds a
+///     <c>min: 1</c> fallback when this is set.
+/// </param>
 public sealed record ChartletAxes(
     string YLabel,
     string YFormat,
     string XLabel,
-    bool GridLines);
+    bool GridLines,
+    string YScale = "linear");
 
 /// <summary>
 ///     One series in a chartlet -- a labelled bucket array. Every series in a
@@ -45,11 +54,21 @@ public sealed record ChartletAxes(
 ///     Bucket values, oldest-first. Must align with the parent
 ///     <see cref="ChartletViewModel.BucketLabels"/> by index.
 /// </param>
+/// <param name="Hidden">
+///     When <c>true</c>, the series is unselected on first paint -- the
+///     legend button shows the "off" state and the Chart.js dataset's
+///     <c>hidden</c> flag is set on initial construction. Operator click
+///     still toggles it on. Used by Hits-per-period to default-hide the
+///     Internal series (gateway self-probes dominate by volume so the
+///     human/customer slices need to be visible before the operator opts
+///     into Internal).
+/// </param>
 public sealed record ChartletSeries(
     string Key,
     string Label,
     string ColorToken,
-    IReadOnlyList<long> Buckets);
+    IReadOnlyList<long> Buckets,
+    bool Hidden = false);
 
 /// <summary>
 ///     Drill-down target for a chartlet. When non-null, the chartlet binds a

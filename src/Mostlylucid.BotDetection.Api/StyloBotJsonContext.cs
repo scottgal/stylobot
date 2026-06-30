@@ -55,8 +55,8 @@ namespace Mostlylucid.BotDetection.Api;
 [JsonSerializable(typeof(MetricSnapshotDto))]
 [JsonSerializable(typeof(MetricSnapshotDto[]))]
 
-// Site-health history surface (U3): chartlet on the Traffic page reads
-// DegradationHistoryAtom via /api/v1/site-health/history.
+// Site-health history surface: chartlet on the Traffic page reads
+// persisted snapshots from IDashboardEventStore via /api/v1/site-health/history.
 [JsonSerializable(typeof(Mostlylucid.BotDetection.RateLimit.DegradationSnapshot))]
 [JsonSerializable(typeof(PaginatedResponse<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>))]
 
