@@ -60,6 +60,23 @@ try
         optional: true,
         reloadOnChange: true);
 
+    // PROXY protocol: when stylobot sits behind an L4 TCP proxy / SNI router /
+    // tunnel (which can't add X-Forwarded-For because it never sees plaintext
+    // HTTP), the gateway otherwise reads the proxy's IP as the client. That
+    // collapses every visitor onto one source — poisoning IP reputation and
+    // geo. Enabling PROXY protocol lets the L4 edge prepend the real client
+    // address as an L4 header that the gateway parses BEFORE TLS, so JA3 stays
+    // intact AND the real client IP is recovered.
+    //   Network:ProxyProtocol:Enabled        (bool, default false)
+    //   Network:ProxyProtocol:TrustedProxies (CSV of CIDRs that may send headers)
+    //   Network:ProxyProtocol:TrustAll       (bool — accept from any peer; only
+    //                                          safe when the listener is not
+    //                                          publicly reachable)
+    var ppEnabled = builder.Configuration.GetValue("Network:ProxyProtocol:Enabled", false);
+    var ppTrustAll = builder.Configuration.GetValue("Network:ProxyProtocol:TrustAll", false);
+    var ppTrusted = ParseProxyProtocolTrustedCidrs(
+        builder.Configuration["Network:ProxyProtocol:TrustedProxies"]);
+
     // Configure Kestrel: accept H1 and H2C (cleartext HTTP/2).
     // H2C is required when cloudflared has http2Origin: true - cloudflared speaks H2C to the origin.
     // Without this, cloudflared falls back to H1 and loses multiplexing benefits.
@@ -69,8 +86,23 @@ try
         options.ConfigureEndpointDefaults(listenOptions =>
         {
             listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+
+            if (ppEnabled)
+            {
+                listenOptions.Use(next =>
+                {
+                    var mw = new Stylobot.Gateway.Middleware.ProxyProtocolConnectionMiddleware(
+                        next, ppTrusted, ppTrustAll,
+                        msg => Log.Debug("{Msg}", msg));
+                    return mw.OnConnectionAsync;
+                });
+            }
         });
     });
+    if (ppEnabled)
+        Log.Information(
+            "PROXY protocol ENABLED (trustAll={TrustAll}, trustedCidrs={Count})",
+            ppTrustAll, ppTrusted.Count);
     builder.Host.ConfigureHostOptions(options =>
     {
         options.ShutdownTimeout = TimeSpan.FromSeconds(30);
@@ -455,4 +487,32 @@ static void ConfigureDemoMode(IConfiguration configuration, IServiceCollection s
 
         Log.Information("Demo mode active - using 'demo' policy with ALL detectors enabled");
     });
+}
+
+// Parse the PROXY-protocol TrustedProxies CSV ("10.0.0.0/8, 192.168.0.0/16")
+// into IPNetwork CIDRs. Only peers inside these ranges may send a PROXY header;
+// everything else is treated as a direct (potentially hostile) client whose
+// socket RemoteEndPoint is authoritative.
+static IReadOnlyList<System.Net.IPNetwork> ParseProxyProtocolTrustedCidrs(string? csv)
+{
+    var nets = new List<System.Net.IPNetwork>();
+    if (string.IsNullOrWhiteSpace(csv)) return nets;
+
+    foreach (var entry in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var parts = entry.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 2
+            && IPAddress.TryParse(parts[0], out var prefix)
+            && int.TryParse(parts[1], out var len))
+        {
+            try { nets.Add(new System.Net.IPNetwork(prefix, len)); }
+            catch { /* skip malformed CIDR */ }
+        }
+        else if (parts.Length == 1 && IPAddress.TryParse(parts[0], out var single))
+        {
+            var hostBits = single.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
+            nets.Add(new System.Net.IPNetwork(single, hostBits));
+        }
+    }
+    return nets;
 }
