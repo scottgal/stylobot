@@ -122,12 +122,29 @@ public class SessionVectorContributor : ConfiguredContributorBase
             // when the orchestrator hasn't stamped.
             var fromUpstream = state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true;
 
+            // Closed-loop envelope (audit #8). Stamp the enforcement shape +
+            // active policy revision onto SessionRequest so the session
+            // store can (follow-up) segment "natural" sessions out of the
+            // HNSW prior. Defaults: enforcement_mode="natural" (the
+            // orchestrator wrote it at entry; absent here means a producer
+            // didn't stamp -- treat as natural so legacy SessionRequests
+            // round-trip with the back-compat shape). Shed is read both
+            // from the dedicated signal AND HttpContext.Items so commercial
+            // packs that use the legacy items key still flag correctly.
+            var enforcementMode = state.GetSignal<string?>(SignalKeys.EnforcementMode);
+            var policyRevision = state.GetSignal<string?>(SignalKeys.PolicyRevision);
+            var shed = state.GetSignal<bool?>(SignalKeys.Shed)
+                ?? (state.HttpContext?.Items.ContainsKey(Middleware.BotDetectionMiddleware.BotDetectionShedKey) ?? false);
+
             var sessionRequest = new SessionRequest(
                 requestState,
                 DateTimeOffset.UtcNow,
                 path,
                 statusCode > 0 ? statusCode : 200,
-                FromUpstream: fromUpstream);
+                FromUpstream: fromUpstream,
+                Shed: shed,
+                EnforcementMode: enforcementMode,
+                PolicyRevision: policyRevision);
 
             // Build fingerprint context from blackboard signals - these are per-session
             // constants that become dimensions in the unified vector. Fingerprint mutation

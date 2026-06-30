@@ -7,6 +7,7 @@ using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.Ephemeral;
@@ -1042,6 +1043,11 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         if (!honeypotGateOpen && !fcrDnsGateOpen) return;
 
         var signature = _piiHasher.ComputeSignature(clientIp, userAgent);
+        // Closed-loop envelope (audit #1+#3). Thread fromUpstream through so
+        // background enrichment writes don't fold stylobot's own response
+        // shape back into reputation. EphemeralDetectionOrchestrator runs
+        // without a GatewayWarmupGate dependency today; default warmup=false
+        // preserves pre-fix behaviour (no spurious short-circuit).
         _enrichmentService.TryEnqueue(new Services.EnrichmentRequest
         {
             ClientIp = clientIp,
@@ -1049,7 +1055,8 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             BotProbability = result.BotProbability,
             Confidence = result.Confidence,
             RequestId = httpContext.TraceIdentifier,
-            UserAgent = userAgent
+            UserAgent = userAgent,
+            FromUpstream = httpContext.IsResponseFromUpstream()
         });
     }
 

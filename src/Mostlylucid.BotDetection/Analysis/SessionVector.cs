@@ -25,19 +25,41 @@ public enum RequestState
 
 /// <summary>
 ///     A single observed request within a session, capturing state and timing.
+///     <para>
 ///     <paramref name="FromUpstream"/> distinguishes upstream-derived status
 ///     codes from stylobot-synthesised ones (load-shed 503, policy block 403,
 ///     honeypot 404, throttle 429) so the session-vector 4xx error-ratio arm
 ///     can suppress stylobot's own enforcement responses (closed-loop
 ///     feedback). Defaults to <c>true</c> when the producer doesn't yet
 ///     stamp the flag (back-compat).
+///     </para>
+///     <para>
+///     <paramref name="Shed"/>, <paramref name="EnforcementMode"/> and
+///     <paramref name="PolicyRevision"/> are the closed-loop envelope per
+///     audit #8 + <c>project_centroid_learning_feedback_loop</c>. They tag
+///     which (if any) stylobot enforcement shaped this request so the
+///     centroid rollup / SessionStore filtering (follow-up) can segment
+///     enforcement-shaped sessions out of the "natural prior" used by HNSW
+///     similarity. <c>EnforcementMode</c> takes one of
+///     <c>"natural" | "shed" | "throttle" | "block" | "challenge"</c>;
+///     <c>"natural"</c> is the explicit value the BlackboardOrchestrator
+///     stamps for a request that ran through detection without an
+///     enforcement action firing. <c>PolicyRevision</c> is the
+///     active-policy version string (opaque to this record) so post-hoc
+///     analyses can correlate behavioural shift to policy changes. All
+///     default to neutral values for back-compat with callers that don't
+///     yet stamp.
+///     </para>
 /// </summary>
 public readonly record struct SessionRequest(
     RequestState State,
     DateTimeOffset Timestamp,
     string PathTemplate,
     int StatusCode,
-    bool FromUpstream = true);
+    bool FromUpstream = true,
+    bool Shed = false,
+    string? EnforcementMode = null,
+    string? PolicyRevision = null);
 
 /// <summary>
 ///     A compressed behavioral snapshot of a session.

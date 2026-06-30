@@ -1,6 +1,9 @@
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Lifecycle;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
@@ -31,6 +34,16 @@ public sealed class ClaimedIdentityContributor : ConfiguredContributorBase
 {
     private readonly ILogger<ClaimedIdentityContributor> _logger;
     private readonly UaProfileStore _profileStore;
+    // Closed-loop feedback gates. Centroid drift updates must refuse to learn
+    // from requests where stylobot's own enforcement (load-shed, block,
+    // throttle, honeypot) shaped the response, where upstream is unhealthy
+    // (5xx storm distorts the per-UA centroid), or where the gateway is
+    // still in cold-start warmup (under-sampled behavioural signals would
+    // poison the slow-decaying per-UA centroid for days). Optional so FOSS
+    // hosts that don't wire UpstreamHealthGate / GatewayWarmupGate keep the
+    // pre-fix behaviour.
+    private readonly UpstreamHealthGate? _upstreamHealth;
+    private readonly GatewayWarmupGate? _gatewayWarmup;
 
     private double ConsistencyThreshold => GetParam("consistency_threshold", 0.55);
     private double BotSignalConfidence => GetParam("bot_signal_confidence", 0.35);
@@ -39,10 +52,14 @@ public sealed class ClaimedIdentityContributor : ConfiguredContributorBase
     public ClaimedIdentityContributor(
         ILogger<ClaimedIdentityContributor> logger,
         IDetectorConfigProvider configProvider,
-        UaProfileStore profileStore) : base(configProvider)
+        UaProfileStore profileStore,
+        UpstreamHealthGate? upstreamHealth = null,
+        GatewayWarmupGate? gatewayWarmup = null) : base(configProvider)
     {
         _logger = logger;
         _profileStore = profileStore;
+        _upstreamHealth = upstreamHealth;
+        _gatewayWarmup = gatewayWarmup;
     }
 
     public override string Name => "ClaimedIdentity";
@@ -175,7 +192,10 @@ public sealed class ClaimedIdentityContributor : ConfiguredContributorBase
         return totalWeight > 0 ? totalScore / totalWeight : 0.5;
     }
 
-    private static bool ShouldUpdateCentroid(LiveCentroid centroid, double consistencyScore, BlackboardState state)
+    // Exposed as `internal` so the closed-loop feedback gate tests
+    // (BlackboardState-driven, no need to spin up the full ContributeAsync
+    // pipeline) can pin the four-axis refuse rule directly.
+    internal bool ShouldUpdateCentroid(LiveCentroid centroid, double consistencyScore, BlackboardState state)
     {
         // Only update if request looks like genuine traffic from this UA family.
         // Prevents bots from poisoning the centroid.
@@ -187,6 +207,42 @@ public sealed class ClaimedIdentityContributor : ConfiguredContributorBase
             var isDc = state.GetSignal<bool>(SignalKeys.IpIsDatacenter);
             if (isDc) return false;
         }
+
+        // Closed-loop feedback gates (per audit #6 +
+        // project_centroid_learning_feedback_loop). UA centroids are
+        // slow-decaying (EWM alpha=0.99, ~100 samples to drift 50%) so a
+        // single hour of shed/throttle/block traffic biases the prior for
+        // days. Refuse to update when ANY axis of "this is enforcement-
+        // shaped or under-sampled traffic" trips:
+        //
+        //   * response.from_upstream == false  -- stylobot synthesised this
+        //     response (load-shed 503, policy block 403, throttle 429,
+        //     honeypot 404, API-key reject). The observed dimensions are
+        //     shaped by the request being short-circuited; not a fair
+        //     sample of the UA's genuine behaviour.
+        //   * UpstreamHealthGate.IsUpstreamHealthy() == false -- origin is
+        //     down / cold-starting. Response-derived behavioural arms are
+        //     unreliable; persisting them moves the prior toward outage
+        //     shape.
+        //   * GatewayWarmupGate.IsWarmedUp() == false -- gateway is still
+        //     in cold-start warmup. Behavioural classifiers haven't
+        //     accumulated enough samples to be reliable yet.
+        //   * HttpContext.Items[BotDetectionShedKey] present -- this request
+        //     was load-shed. Defence in depth -- normally the orchestrator
+        //     short-circuits before contributors run for shed requests, so
+        //     this is belt-and-braces against future codepaths that might
+        //     reach here in a shed window.
+        var fromUpstream = state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true;
+        if (!fromUpstream) return false;
+
+        if (_upstreamHealth is not null && !_upstreamHealth.IsUpstreamHealthy())
+            return false;
+
+        if (_gatewayWarmup is not null && !_gatewayWarmup.IsWarmedUp())
+            return false;
+
+        if (state.HttpContext?.Items.ContainsKey(BotDetectionMiddleware.BotDetectionShedKey) == true)
+            return false;
 
         return true;
     }

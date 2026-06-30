@@ -157,11 +157,28 @@ public sealed class SessionEscalationService : IDisposable
 
         if (primaryReq.SignatureVectors != null)
         {
+            // Closed-loop envelope (audit #1+#3). SessionEscalation fires
+            // post-boundary on the finalized session: there's no single
+            // request HttpContext to read the upstream flag from. We can,
+            // however, infer "this session was at least partially
+            // enforcement-shaped" by scanning the cohort's HeuristicProbability
+            // / SnapshotMetadata. For now we leave fromUpstream=true (the
+            // back-compat default) so the existing behaviour is preserved and
+            // the gate is purely additive at this call site; future work
+            // (project_centroid_learning_feedback_loop session axis) will
+            // compute a cohort-level envelope and pass it through here.
             foreach (var (vectorType, vectorValue) in primaryReq.SignatureVectors)
             {
                 var patternId = $"{vectorType}:{vectorValue}";
                 var existing = _reputationCache.Get(patternId);
-                var updated = _updater.ApplyEvidence(existing, patternId, vectorType, vectorValue, enrichedScore, evidenceWeight);
+                var updated = _updater.ApplyEvidence(
+                    existing,
+                    patternId,
+                    vectorType,
+                    vectorValue,
+                    enrichedScore,
+                    evidenceWeight,
+                    source: "session_escalation");
                 _reputationCache.Update(updated);
             }
         }

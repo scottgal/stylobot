@@ -2178,6 +2178,36 @@ public static class SignalKeys
     ///     the per-second RPS time series.
     /// </summary>
     public const string LoadShedActive = "load.shed_active";
+
+    /// <summary>
+    ///     String: enforcement-mode tag for the request, one of
+    ///     <c>"natural" | "shed" | "throttle" | "block" | "challenge"</c>.
+    ///     Closed-loop envelope (audit #8 +
+    ///     <c>project_centroid_learning_feedback_loop</c>): persisted on
+    ///     SessionRequest + detection events so centroid rollups can filter
+    ///     to <c>"natural"</c> when computing the per-UA / per-archetype
+    ///     prior. Stamped by the orchestrator at entry (default
+    ///     <c>"natural"</c>) and overwritten by the action dispatcher when an
+    ///     enforcement action fires.
+    /// </summary>
+    public const string EnforcementMode = "enforcement.mode";
+
+    /// <summary>
+    ///     String: active policy revision identifier (opaque). Closed-loop
+    ///     envelope (audit #8): persisted alongside <see cref="EnforcementMode"/>
+    ///     so behavioural shift can be correlated to policy edits. Producer is
+    ///     the policy registry / dispatcher; null when no revision is
+    ///     available (e.g. default policy).
+    /// </summary>
+    public const string PolicyRevision = "policy.revision";
+
+    /// <summary>
+    ///     Bool: <c>true</c> when this request was load-shed (mirror of
+    ///     <see cref="LoadShedActive"/> exposed through the same signal
+    ///     channel so SessionRequest's <c>Shed</c> field can be populated
+    ///     from one consistent source).
+    /// </summary>
+    public const string Shed = "enforcement.shed";
 }
 
 /// <summary>Values written to <see cref="SignalKeys.TransportProtocolClass"/> by TransportProtocolContributor.</summary>

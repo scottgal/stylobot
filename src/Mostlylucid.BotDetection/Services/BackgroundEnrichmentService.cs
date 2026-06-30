@@ -29,6 +29,29 @@ public record EnrichmentRequest
     ///     us bypass the FCrDNS step when absent rather than no-op silently.
     /// </summary>
     public string? UserAgent { get; init; }
+
+    /// <summary>
+    ///     Closed-loop envelope (audit #1+#3). <c>true</c> when the
+    ///     originating request's response came from upstream;
+    ///     <c>false</c> when stylobot synthesised it (load-shed,
+    ///     block, throttle, honeypot, API-key reject). Threaded to
+    ///     <c>PatternReputationUpdater.ApplyEvidence(fromUpstream:)</c>
+    ///     so background enrichment writes don't fold stylobot's
+    ///     own enforcement decisions back into the prior. Default
+    ///     <c>true</c> preserves pre-fix behaviour for callers that
+    ///     don't yet thread the flag.
+    /// </summary>
+    public bool FromUpstream { get; init; } = true;
+
+    /// <summary>
+    ///     Closed-loop envelope (audit #1+#3). <c>true</c> when the
+    ///     gateway was in cold-start warmup at the time the originating
+    ///     request was enqueued for enrichment (per
+    ///     <c>GatewayWarmupGate.IsWarmedUp()</c>). Reputation writes
+    ///     refuse during warmup so under-sampled cold-start signal
+    ///     doesn't pollute the prior. Default <c>false</c>.
+    /// </summary>
+    public bool Warmup { get; init; }
 }
 
 /// <summary>
@@ -247,7 +270,10 @@ public sealed class BackgroundEnrichmentService : IDisposable
                     "IP",
                     request.ClientIp,
                     label,
-                    evidenceWeight);
+                    evidenceWeight,
+                    fromUpstream: request.FromUpstream,
+                    warmup: request.Warmup,
+                    source: "honeypot");
                 _reputationCache.Update(updated);
 
                 _logger.LogDebug(
@@ -273,7 +299,10 @@ public sealed class BackgroundEnrichmentService : IDisposable
                         "IP",
                         request.ClientIp,
                         0.3, // Slight human lean
-                        0.3); // Low evidence weight
+                        0.3, // Low evidence weight
+                        fromUpstream: request.FromUpstream,
+                        warmup: request.Warmup,
+                        source: "honeypot");
                     _reputationCache.Update(updated);
                 }
 
@@ -369,7 +398,10 @@ public sealed class BackgroundEnrichmentService : IDisposable
                 "IP",
                 request.ClientIp,
                 label: 0.05,
-                evidenceWeight: 1.0);
+                evidenceWeight: 1.0,
+                fromUpstream: request.FromUpstream,
+                warmup: request.Warmup,
+                source: "fcrdns");
             _reputationCache.Update(updated);
             _logger.LogInformation(
                 "FCrDNS verified {BotName} at {Ip} for request {RequestId}; reputation -> {Score:F2}",
@@ -389,7 +421,10 @@ public sealed class BackgroundEnrichmentService : IDisposable
             "IP",
             request.ClientIp,
             label: 0.95,
-            evidenceWeight: 1.0);
+            evidenceWeight: 1.0,
+            fromUpstream: request.FromUpstream,
+            warmup: request.Warmup,
+            source: "fcrdns");
         _reputationCache.Update(spoofUpdated);
         _logger.LogWarning(
             "FCrDNS spoof: {Ip} claims {BotName} but reverse/forward DNS does not confirm; reputation -> {Score:F2}",
@@ -474,7 +509,10 @@ public sealed class BackgroundEnrichmentService : IDisposable
                 "IP",
                 request.ClientIp,
                 label: 0.30,
-                evidenceWeight: 0.7);
+                evidenceWeight: 0.7,
+                fromUpstream: request.FromUpstream,
+                warmup: request.Warmup,
+                source: "honest_bot_rdns");
             _reputationCache.Update(updated);
             _logger.LogInformation(
                 "Honest bot verified at {Ip}: UA claims {Domain} and rDNS confirmed ({Hostname}); reputation -> {Score:F2}",
@@ -496,7 +534,10 @@ public sealed class BackgroundEnrichmentService : IDisposable
             "IP",
             request.ClientIp,
             label: 0.55,
-            evidenceWeight: 0.4);
+            evidenceWeight: 0.4,
+            fromUpstream: request.FromUpstream,
+            warmup: request.Warmup,
+            source: "honest_bot_rdns");
         _reputationCache.Update(mismatchUpdated);
         _logger.LogDebug(
             "Honest-bot rDNS mismatch at {Ip}: UA claims {Domain} but rDNS is {Hostname}; reputation -> {Score:F2}",

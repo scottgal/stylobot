@@ -101,6 +101,18 @@ public record PatternReputation
     public IReadOnlyDictionary<string, double>? BotTypeWeights { get; init; }
 
     /// <summary>
+    ///     Provenance tag of the most recent evidence write that updated this
+    ///     reputation. Optional. Used by downstream consumers to differentiate
+    ///     LLM-sourced evidence (where the model can drift / hallucinate and
+    ///     stale evidence should age out faster) from FCrDNS / honeypot /
+    ///     contributor-pipeline evidence (deterministic and trustworthy). Null
+    ///     when the most recent caller didn't supply a tag (back-compat with
+    ///     callers that don't pass <c>source</c>). See audit #1 +
+    ///     <c>project_centroid_learning_feedback_loop</c>.
+    /// </summary>
+    public string? Source { get; init; }
+
+    /// <summary>
     ///     Confidence in the current BotScore based on support.
     ///     Higher support = higher confidence.
     /// </summary>
@@ -326,6 +338,34 @@ public class PatternReputationUpdater
     ///     Tool-dominant centroid is capped at Suspect so raw repeat-count alone can't
     ///     promote it to ConfirmedBad. See <c>project_centroid_learning_feedback_loop</c>.
     /// </param>
+    /// <param name="fromUpstream">
+    ///     Closed-loop feedback gate (audit #1+#3). <c>true</c> when the request
+    ///     this evidence came from saw an upstream-derived response;
+    ///     <c>false</c> when stylobot itself shaped the response (load-shed
+    ///     503, policy block 403, throttle 429, honeypot 404). Reputation
+    ///     writes from enforcement-shaped requests fold stylobot's own
+    ///     decisions back into the prior, locking visitors at 100% bot after
+    ///     a single block. Default <c>true</c> for back-compat with callers
+    ///     that don't yet thread the gate. When <c>false</c> this method
+    ///     short-circuits: no update, the supplied <c>current</c> (or a new
+    ///     neutral seed) is returned unchanged.
+    /// </param>
+    /// <param name="warmup">
+    ///     Closed-loop feedback gate (audit #1+#3). <c>true</c> when the
+    ///     gateway is still in cold-start warmup (per
+    ///     <c>GatewayWarmupGate.IsWarmedUp()</c>). Under-sampled behavioural
+    ///     classifiers produce noisy verdicts; persisting those into
+    ///     reputation pollutes the prior. Default <c>false</c> so existing
+    ///     callers behave as before. When <c>true</c> this method
+    ///     short-circuits in the same way as <paramref name="fromUpstream"/>=false.
+    /// </param>
+    /// <param name="source">
+    ///     Optional provenance tag of this evidence write (e.g. <c>"llm"</c>,
+    ///     <c>"fcrdns"</c>, <c>"honeypot"</c>). Persisted on
+    ///     <see cref="PatternReputation.Source"/> so downstream consumers can
+    ///     differentiate sources for age-out / weight policies. Just stored
+    ///     for now; the LLM-aware weight downgrade is a follow-up.
+    /// </param>
     /// <returns>Updated reputation</returns>
     public PatternReputation ApplyEvidence(
         PatternReputation? current,
@@ -334,9 +374,42 @@ public class PatternReputationUpdater
         string pattern,
         double label,
         double evidenceWeight = 1.0,
-        string? botType = null)
+        string? botType = null,
+        bool fromUpstream = true,
+        bool warmup = false,
+        string? source = null)
     {
         var now = DateTimeOffset.UtcNow;
+
+        // Closed-loop feedback short-circuit (audit #1+#3). When the request
+        // that fed this evidence was stylobot-shaped (fromUpstream=false) or
+        // landed during gateway warmup, refuse to write -- otherwise our own
+        // enforcement / under-sampled cold-start signal walks the BotScore
+        // toward "bot" on the very visitors we're trying to learn about. For
+        // an existing reputation we touch LastSeen so the decay sweep still
+        // sees activity but the BotScore / Support / DominantBotType are
+        // preserved; for a brand-new reputation we mint a Neutral seed with
+        // zero support so the caller's Update() call is a no-op-shaped write
+        // (still callable, but downstream readers see no evidence).
+        if (!fromUpstream || warmup)
+        {
+            if (current is not null)
+                return current with { LastSeen = now };
+
+            return new PatternReputation
+            {
+                PatternId = patternId,
+                PatternType = patternType,
+                Pattern = pattern,
+                BotScore = _options.Prior,
+                Support = 0,
+                State = ReputationState.Neutral,
+                FirstSeen = now,
+                LastSeen = now,
+                StateChangedAt = now,
+                Source = source
+            };
+        }
 
         if (current == null)
         {
@@ -354,7 +427,8 @@ public class PatternReputationUpdater
                 LastSeen = now,
                 StateChangedAt = now,
                 BotTypeWeights = initialWeights,
-                DominantBotType = ComputeDominant(initialWeights)
+                DominantBotType = ComputeDominant(initialWeights),
+                Source = source
             };
 
             return EvaluateStateChange(initial);
@@ -381,7 +455,13 @@ public class PatternReputationUpdater
             Support = newSupport,
             LastSeen = now,
             BotTypeWeights = newWeights,
-            DominantBotType = ComputeDominant(newWeights)
+            DominantBotType = ComputeDominant(newWeights),
+            // Persist the most-recent source tag. Null source means "caller
+            // didn't tag this write" -- preserve the existing tag rather
+            // than overwriting with null (an LLM-tagged reputation stays
+            // LLM-flagged after a subsequent untagged honeypot enrichment
+            // touch unless the new caller explicitly tags otherwise).
+            Source = source ?? decayed.Source
         };
 
         return EvaluateStateChange(updated);

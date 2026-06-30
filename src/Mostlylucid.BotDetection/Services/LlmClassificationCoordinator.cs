@@ -240,6 +240,17 @@ public class LlmClassificationCoordinator : IDisposable
         var llmLabel = llmIsBot ? 1.0 : 0.0;
         const double llmEvidenceWeight = 2.0;
 
+        // Closed-loop envelope (audit #1+#3). The request snapshot carries
+        // the signals dict computed at orchestrator entry, which already
+        // mirrors `response.from_upstream` and `gateway.warmup`. Read them
+        // here so the LLM verdict refuses to land on stylobot-shaped
+        // requests or cold-start traffic. LLM writes also carry source="llm"
+        // so downstream consumers (reputation maintenance / decay sweep)
+        // can age out LLM-tagged evidence faster than deterministic
+        // honeypot / FCrDNS writes (follow-up).
+        var fromUpstream = ReadSignalBool(request.Signals, Models.SignalKeys.ResponseFromUpstream, defaultValue: true);
+        var warmup = ReadSignalBool(request.Signals, Models.SignalKeys.GatewayWarmup, defaultValue: false);
+
         var previousScore = 0.0;
         if (request.SignatureVectors is { Count: > 0 })
         {
@@ -249,7 +260,16 @@ public class LlmClassificationCoordinator : IDisposable
                 var existing = _reputationCache.Get(patternId);
                 if ((vectorType == "primary" || vectorType == "ua") && existing != null)
                     previousScore = existing.BotScore;
-                var updated = _updater.ApplyEvidence(existing, patternId, vectorType, vectorHash, llmLabel, llmEvidenceWeight);
+                var updated = _updater.ApplyEvidence(
+                    existing,
+                    patternId,
+                    vectorType,
+                    vectorHash,
+                    llmLabel,
+                    llmEvidenceWeight,
+                    fromUpstream: fromUpstream,
+                    warmup: warmup,
+                    source: "llm");
                 _reputationCache.Update(updated);
             }
         }
@@ -258,7 +278,16 @@ public class LlmClassificationCoordinator : IDisposable
             var patternId = $"ua:{request.PrimarySignature}";
             var existing = _reputationCache.Get(patternId);
             if (existing != null) previousScore = existing.BotScore;
-            var updated = _updater.ApplyEvidence(existing, patternId, "UserAgent", request.PrimarySignature, llmLabel, llmEvidenceWeight);
+            var updated = _updater.ApplyEvidence(
+                existing,
+                patternId,
+                "UserAgent",
+                request.PrimarySignature,
+                llmLabel,
+                llmEvidenceWeight,
+                fromUpstream: fromUpstream,
+                warmup: warmup,
+                source: "llm");
             _reputationCache.Update(updated);
         }
 
@@ -394,6 +423,27 @@ public class LlmClassificationCoordinator : IDisposable
         {
             _logger.LogDebug(ex, "Fallback failed for {RequestId}", request.RequestId);
         }
+    }
+
+    /// <summary>
+    ///     Reads a boolean signal from the LlmClassificationRequest snapshot.
+    ///     The orchestrator stamps booleans straight into the signals dict but
+    ///     they round-trip as <c>object</c>; this helper unboxes safely with
+    ///     a configurable default so callers don't repeat the dance.
+    /// </summary>
+    private static bool ReadSignalBool(
+        IReadOnlyDictionary<string, object>? signals,
+        string key,
+        bool defaultValue)
+    {
+        if (signals is null) return defaultValue;
+        if (!signals.TryGetValue(key, out var raw) || raw is null) return defaultValue;
+        return raw switch
+        {
+            bool b => b,
+            string s when bool.TryParse(s, out var parsed) => parsed,
+            _ => defaultValue
+        };
     }
 
     private static Dictionary<string, double> ExtractNumericSignalFeatures(IReadOnlyDictionary<string, object> signals)

@@ -425,6 +425,21 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             var gatewayWarming = _gatewayWarmup is not null && !_gatewayWarmup.IsWarmedUp();
             signals[SignalKeys.GatewayWarmup] = gatewayWarming;
 
+            // Closed-loop envelope baseline (audit #8). Default every request
+            // to "natural" enforcement mode at orchestrator entry; the
+            // dispatcher / action handlers overwrite this with "shed",
+            // "block", "throttle", "challenge" when they fire. SessionRequest
+            // / persisted detection events carry the final value so centroid
+            // rollups can filter to enforcement_mode=natural for the prior
+            // (per feedback_centroid_learning_feedback_loop). Shed defaults
+            // to false here -- the load-shed path stamps true on
+            // HttpContext.Items[BotDetectionShedKey] BEFORE the orchestrator
+            // would normally run, so a "shed" request never reaches this
+            // line; the explicit signal write protects against future
+            // codepaths that might.
+            signals[SignalKeys.EnforcementMode] = "natural";
+            signals[SignalKeys.Shed] = false;
+
             // Wire up zero-allocation key set wrappers for BuildState
             var completedKeys = pooledState.CompletedDetectorKeys;
             completedKeys.SetSource(completedDetectors);
@@ -1380,6 +1395,16 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
 
         var signature = _piiHasher.ComputeSignature(clientIp, userAgent);
 
+        // Thread the closed-loop envelope through to background enrichment
+        // (audit #1+#3). The request that fed this enrichment may have been
+        // stylobot-shaped (load-shed 503 / policy block 403 / etc.) or have
+        // landed during gateway warmup; reputation writes off such requests
+        // would fold our own enforcement back into the prior. The flags are
+        // resolved against the same signal/gate sources the synchronous
+        // detector arms read so behaviour stays consistent.
+        var enrichmentFromUpstream = httpContext.IsResponseFromUpstream();
+        var enrichmentWarmup = _gatewayWarmup is not null && !_gatewayWarmup.IsWarmedUp();
+
         _enrichmentService.TryEnqueue(new EnrichmentRequest
         {
             ClientIp = clientIp,
@@ -1387,7 +1412,9 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             BotProbability = result.BotProbability,
             Confidence = result.Confidence,
             RequestId = httpContext.TraceIdentifier,
-            UserAgent = userAgent
+            UserAgent = userAgent,
+            FromUpstream = enrichmentFromUpstream,
+            Warmup = enrichmentWarmup
         });
     }
 

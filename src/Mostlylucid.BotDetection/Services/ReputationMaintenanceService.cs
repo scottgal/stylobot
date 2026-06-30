@@ -168,6 +168,14 @@ public class ReputationMaintenanceService : BackgroundService, ILearningEventHan
 
     private void HandleDetectionEvent(LearningEvent evt)
     {
+        // Closed-loop envelope (audit #1+#3). Detection-event LearningEvents
+        // can carry response.from_upstream / gateway.warmup tags on Metadata
+        // (the publishers stamp them where they have access). We read both
+        // here and let ApplyEvidence short-circuit when the originating
+        // request was stylobot-shaped or landed during warmup. Defaults
+        // preserve pre-fix behaviour when the publisher hasn't tagged.
+        var (fromUpstream, warmup) = ReadEnvelopeFromMetadata(evt.Metadata);
+
         // Extract patterns from the detection event
         var patterns = ExtractPatternsFromEvent(evt);
 
@@ -177,7 +185,16 @@ public class ReputationMaintenanceService : BackgroundService, ILearningEventHan
             var label = evt.Label == true ? 1.0 : 0.0;
             var weight = evt.Confidence ?? 0.5;
 
-            var updated = _updater.ApplyEvidence(current, patternId, patternType, pattern, label, weight);
+            var updated = _updater.ApplyEvidence(
+                current,
+                patternId,
+                patternType,
+                pattern,
+                label,
+                weight,
+                fromUpstream: fromUpstream,
+                warmup: warmup,
+                source: "detection_event");
             _cache.Update(updated);
         }
     }
@@ -198,11 +215,21 @@ public class ReputationMaintenanceService : BackgroundService, ILearningEventHan
             ? st?.ToString()
             : "Unknown";
 
+        var (fromUpstream, warmup) = ReadEnvelopeFromMetadata(evt.Metadata);
+
         var current = _cache.GetOrCreate(patternId, signatureType ?? "Unknown", evt.Pattern);
 
         // Signature feedback is typically high-confidence bot evidence
-        var updated = _updater.ApplyEvidence(current, patternId, signatureType ?? "Unknown", evt.Pattern, 1.0,
-            evt.Confidence ?? 0.9);
+        var updated = _updater.ApplyEvidence(
+            current,
+            patternId,
+            signatureType ?? "Unknown",
+            evt.Pattern,
+            1.0,
+            evt.Confidence ?? 0.9,
+            fromUpstream: fromUpstream,
+            warmup: warmup,
+            source: "signature_feedback");
         _cache.Update(updated);
 
         _logger.LogDebug(
@@ -212,7 +239,9 @@ public class ReputationMaintenanceService : BackgroundService, ILearningEventHan
 
     private void HandleUserFeedback(LearningEvent evt)
     {
-        // User feedback is authoritative - apply with high weight
+        // User feedback is authoritative -- apply with high weight. We do NOT
+        // gate user feedback on fromUpstream / warmup: the operator deliberately
+        // wrote a verdict, that intent must land regardless of upstream state.
         var patterns = ExtractPatternsFromEvent(evt);
         var label = evt.Label == true ? 1.0 : 0.0;
 
@@ -221,13 +250,49 @@ public class ReputationMaintenanceService : BackgroundService, ILearningEventHan
             var current = _cache.GetOrCreate(patternId, patternType, pattern);
 
             // User feedback has high weight
-            var updated = _updater.ApplyEvidence(current, patternId, patternType, pattern, label, 2.0);
+            var updated = _updater.ApplyEvidence(
+                current,
+                patternId,
+                patternType,
+                pattern,
+                label,
+                2.0,
+                source: "user_feedback");
             _cache.Update(updated);
 
             _logger.LogInformation(
                 "User feedback applied to {PatternId}: label={Label}, new score={Score:F2}",
                 patternId, label, updated.BotScore);
         }
+    }
+
+    /// <summary>
+    ///     Reads the closed-loop envelope tags off a LearningEvent's metadata.
+    ///     Publishers stamp <c>response.from_upstream</c> and <c>gateway.warmup</c>
+    ///     when they have those signals available (orchestrator path). Missing
+    ///     keys default to <c>fromUpstream=true, warmup=false</c> so untagged
+    ///     events behave as before this gate landed.
+    /// </summary>
+    private static (bool FromUpstream, bool Warmup) ReadEnvelopeFromMetadata(
+        IReadOnlyDictionary<string, object>? metadata)
+    {
+        if (metadata is null) return (true, false);
+
+        bool ReadBool(string key, bool fallback)
+        {
+            if (!metadata.TryGetValue(key, out var raw) || raw is null) return fallback;
+            return raw switch
+            {
+                bool b => b,
+                string s when bool.TryParse(s, out var parsed) => parsed,
+                _ => fallback
+            };
+        }
+
+        return (
+            ReadBool(Models.SignalKeys.ResponseFromUpstream, true),
+            ReadBool(Models.SignalKeys.GatewayWarmup, false)
+        );
     }
 
     private List<(string patternId, string patternType, string pattern)> ExtractPatternsFromEvent(LearningEvent evt)

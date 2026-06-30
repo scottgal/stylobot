@@ -30,7 +30,7 @@ public class DegradationStoreSamplerTests
 
         var store = new CapturingStore();
         var sampler = new DegradationStoreSampler(
-            atom, store, NullLogger<DegradationStoreSampler>.Instance);
+            store, NullLogger<DegradationStoreSampler>.Instance, atom, null);
 
         await sampler.OnTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
 
@@ -48,7 +48,7 @@ public class DegradationStoreSamplerTests
         var atom = new DegradationAtom();
         var store = new CapturingStore();
         var sampler = new DegradationStoreSampler(
-            atom, store, NullLogger<DegradationStoreSampler>.Instance);
+            store, NullLogger<DegradationStoreSampler>.Instance, atom, null);
 
         var t0 = DateTimeOffset.UtcNow;
         await sampler.OnTickAsync(t0, CancellationToken.None);
@@ -64,7 +64,7 @@ public class DegradationStoreSamplerTests
         var atom = new DegradationAtom();
         var store = new CapturingStore();
         var sampler = new DegradationStoreSampler(
-            atom, store, NullLogger<DegradationStoreSampler>.Instance);
+            store, NullLogger<DegradationStoreSampler>.Instance, atom, null);
 
         await sampler.OnTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
         sampler.Dispose();
@@ -83,7 +83,7 @@ public class DegradationStoreSamplerTests
         var atom = new DegradationAtom();
         var store = new CapturingStore();
         var sampler = new DegradationStoreSampler(
-            atom, store, NullLogger<DegradationStoreSampler>.Instance);
+            store, NullLogger<DegradationStoreSampler>.Instance, atom, null);
 
         var t0 = DateTime.UtcNow.AddMinutes(-5);
         await sampler.OnTickAsync(new DateTimeOffset(t0, TimeSpan.Zero), CancellationToken.None);

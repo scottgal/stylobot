@@ -163,7 +163,20 @@ public class BotDetectionMiddleware(
         context.Response.OnCompleted(() =>
         {
             var latencyMs = Environment.TickCount64 - startTicks;
-            degradationAtom?.RecordResponse(context.Response.StatusCode, latencyMs, requestPath);
+            // Closed-loop feedback gate: only record responses that came from
+            // upstream. Stylobot's own 429 (throttle) / 503 (load-shed / fail-
+            // closed) / 403 (block / API-key reject) / honeypot-404 responses
+            // would otherwise feed straight into DegradationAtom's Rate429 +
+            // 5xx + 4xx EMAs, flip UpstreamHealthGate.IsUpstreamHealthy() to
+            // false, and stand down ApplyResponseStatusBoost during attacks
+            // (stylobot self-disarming). The stamp comes from
+            // context.MarkResponseFromStyloBot() in every status-setting
+            // middleware (load-shed, policy block / challenge / throttle,
+            // honeypot, API-key rejection). Absent → upstream (back-compat
+            // default), so existing FOSS hosts that haven't stamped keep their
+            // pre-fix behaviour.
+            if (context.IsResponseFromUpstream())
+                degradationAtom?.RecordResponse(context.Response.StatusCode, latencyMs, requestPath);
 
             // Feed PipelineLoadSensor — but ONLY for requests that actually
             // ran through detection + upstream. Shed-503 requests complete
