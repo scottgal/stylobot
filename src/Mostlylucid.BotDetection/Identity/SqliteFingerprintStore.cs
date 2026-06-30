@@ -1455,11 +1455,25 @@ public class SqliteFingerprintStore : IFingerprintStore
             ? botProbability
             : existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
 
+        // CONSISTENCY: the stored band MUST agree with the stored probability.
+        // The probability is EWMA-blended (smoothed across requests), but the
+        // incoming per-request `riskBand` reflects a SINGLE request — a
+        // cold-start request that scored VeryHigh would stamp the band VeryHigh
+        // while the blended probability settles to e.g. 0.26, leaving the row
+        // "prob 0.26 / band VeryHigh". Derive the band from the blended
+        // probability here (the gateway is the single compute site; the
+        // dashboard only reads). The per-request band still appears per-row in
+        // the detections history; the IDENTITY band is a function of the
+        // identity probability.
+        var consistentBand = Risk.SignatureRiskVerdictComposer
+            .BucketRisk(blended, existing.InferredTypeConfidence)
+            .ToString();
+
         var now = DateTime.UtcNow;
         var updated = existing with
         {
             CachedBotProbability = blended,
-            CachedRiskBand       = riskBand ?? existing.CachedRiskBand,
+            CachedRiskBand       = consistentBand,
             CachedScoreUpdatedAt = now
         };
 
