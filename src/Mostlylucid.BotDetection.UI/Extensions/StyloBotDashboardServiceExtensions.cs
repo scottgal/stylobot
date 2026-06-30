@@ -602,7 +602,24 @@ public static class StyloBotDashboardServiceExtensions
         // Warm the SignatureAggregateCache from DB on startup so Top Bots / Live Activity /
         // visitor list aren't empty after restart. Cache is in-memory read-through;
         // persistence is the source of truth in IDashboardEventStore.
-        services.AddHostedService<SignatureAggregateCacheWarmupService>();
+        //
+        // Gateway-only per project_gateway_data_locality. On remote-mode hosts
+        // (marketing site, stylobot-ui) the warmup would issue DB queries against
+        // a store that doesn't belong to this process AND freeze the cache at a
+        // stale startup snapshot — DetectionBroadcastMiddleware runs only on the
+        // gateway, so nothing refreshes the cache afterwards. That produces the
+        // classic "home YOU card shows 100% / signature detail shows 7% for the
+        // same sig" divergence: home reads cache (stale), detail reads event
+        // store (current). Skip the warmup when AddStyloBotDashboardRemote has
+        // already registered DashboardSourceOptions; the cache stays registered
+        // (satisfies DI for middleware / view-components) but stays empty, so
+        // all read paths cleanly fall through to IDashboardEventStore — which
+        // on remote-mode hosts is RemoteDashboardEventStore (REST → gateway).
+        // One source of truth.
+        if (!services.Any(s => s.ServiceType == typeof(Mostlylucid.BotDetection.UI.Adapters.Remote.DashboardSourceOptions)))
+        {
+            services.AddHostedService<SignatureAggregateCacheWarmupService>();
+        }
 
         // Route catalog: discovery + manual names + OpenAPI cross-reference. FOSS feature,
         // shared by the dashboard Routes tab and (future) auto-honeypot generation.
@@ -1020,7 +1037,24 @@ public static class StyloBotDashboardServiceExtensions
         // Warm the SignatureAggregateCache from DB on startup so Top Bots / Live Activity /
         // visitor list aren't empty after restart. Cache is in-memory read-through;
         // persistence is the source of truth in IDashboardEventStore.
-        services.AddHostedService<SignatureAggregateCacheWarmupService>();
+        //
+        // Gateway-only per project_gateway_data_locality. On remote-mode hosts
+        // (marketing site, stylobot-ui) the warmup would issue DB queries against
+        // a store that doesn't belong to this process AND freeze the cache at a
+        // stale startup snapshot — DetectionBroadcastMiddleware runs only on the
+        // gateway, so nothing refreshes the cache afterwards. That produces the
+        // classic "home YOU card shows 100% / signature detail shows 7% for the
+        // same sig" divergence: home reads cache (stale), detail reads event
+        // store (current). Skip the warmup when AddStyloBotDashboardRemote has
+        // already registered DashboardSourceOptions; the cache stays registered
+        // (satisfies DI for middleware / view-components) but stays empty, so
+        // all read paths cleanly fall through to IDashboardEventStore — which
+        // on remote-mode hosts is RemoteDashboardEventStore (REST → gateway).
+        // One source of truth.
+        if (!services.Any(s => s.ServiceType == typeof(Mostlylucid.BotDetection.UI.Adapters.Remote.DashboardSourceOptions)))
+        {
+            services.AddHostedService<SignatureAggregateCacheWarmupService>();
+        }
 
         // LLM result callback (needed if LLM classification is enabled)
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
