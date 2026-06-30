@@ -43,11 +43,19 @@ public static class ProxyProtocolKestrelExtensions
         var trustAll = cfg.GetValue("Network:ProxyProtocol:TrustAll", false);
         var trusted = ParseTrustedCidrs(cfg["Network:ProxyProtocol:TrustedProxies"]);
 
-        // We bind endpoints explicitly below; clear the URL/Kestrel-config
-        // auto-bind sources so they don't double-bind the same ports.
+        // We bind endpoints explicitly below. Clear ONLY the URL list so it
+        // doesn't double-bind. We must NOT touch Kestrel:Endpoints:* — defining
+        // a named endpoint there (even with an empty Url) makes Kestrel demand a
+        // Url and crash ("endpoint Http is missing the required 'Url'"). So when
+        // PP is enabled the host config MUST NOT set any Kestrel:Endpoints:* keys;
+        // the TLS cert is read from the dedicated Gateway:Tls:* keys instead.
         builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
-        builder.WebHost.UseSetting("Kestrel:Endpoints:Https:Url", string.Empty);
-        builder.WebHost.UseSetting("Kestrel:Endpoints:Http:Url", string.Empty);
+        // .NET base images default ASPNETCORE_HTTP_PORTS=8080 (config key
+        // HTTP_PORTS after the ASPNETCORE_ prefix is stripped). Left set, Kestrel
+        // would add a default :8080 endpoint that double-binds against our
+        // explicit Listen below. Clear both ports settings.
+        builder.WebHost.UseSetting("HTTP_PORTS", string.Empty);
+        builder.WebHost.UseSetting("HTTPS_PORTS", string.Empty);
 
         void ApplyDefaults(ListenOptions lo)
         {
@@ -64,8 +72,9 @@ public static class ProxyProtocolKestrelExtensions
         {
             var httpPort = cfg.GetValue("Gateway:HttpPort", cfg.GetValue("GATEWAY_HTTP_PORT", 8080));
             var httpsPort = cfg.GetValue("Gateway:HttpsPort", 8443);
-            var certPath = cfg["Kestrel:Endpoints:Https:Certificate:Path"];
-            var keyPath = cfg["Kestrel:Endpoints:Https:Certificate:KeyPath"];
+            // Dedicated keys (NOT under Kestrel:Endpoints — see note above).
+            var certPath = cfg["Gateway:Tls:CertPath"];
+            var keyPath = cfg["Gateway:Tls:KeyPath"];
 
             options.Listen(IPAddress.Any, httpPort, ApplyDefaults);
 
