@@ -489,6 +489,18 @@ public class BotDetectionOptions
     public Services.PipelineLoadSensorOptions PipelineLoadSensor { get; set; } = new();
 
     /// <summary>
+    ///     Master switch for adaptive load-shedding (the High/Critical-band
+    ///     request dropping driven by <see cref="Services.PipelineLoadSensor"/> +
+    ///     per-policy <c>LoadShed</c> fractions). DEFAULT FALSE — shedding is OFF
+    ///     until it has had a full review. It was firing 503s on real visitors
+    ///     during normal cold-start latency (the sensor read Critical on a fresh
+    ///     pod and shed 50% of traffic). The sensor still observes when off, so
+    ///     the review has data; only the drop/503 decision is gated.
+    ///     Set <c>BotDetection:LoadShedEnabled = true</c> to re-enable.
+    /// </summary>
+    public bool LoadShedEnabled { get; set; } = false;
+
+    /// <summary>
     ///     Configuration for the cross-request signature coordinator.
     ///     Tracks signatures across multiple requests to detect aberrant behavior patterns.
     /// </summary>

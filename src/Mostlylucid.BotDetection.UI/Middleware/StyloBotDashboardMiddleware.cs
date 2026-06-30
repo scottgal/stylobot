@@ -6815,6 +6815,11 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         {
             var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
             if (fp is null) return null;
+            // Read the gateway's STORED verdict as-is. The dashboard never
+            // recomputes (that would be a second compute site / parasite). If the
+            // stored probability and band disagree, that is an UPSTREAM bug in
+            // how the gateway writes the fingerprint verdict — fix it there so
+            // every reader sees one consistent object — not by re-deriving here.
             return new FingerprintVerdict(
                 Probability: fp.CachedBotProbability,
                 RiskBand: fp.CachedRiskBand,

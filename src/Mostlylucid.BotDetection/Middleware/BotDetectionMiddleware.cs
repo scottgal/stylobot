@@ -755,7 +755,11 @@ public class BotDetectionMiddleware(
         //     pressure because each proxied request still consumes connection
         //     state + response buffers; the in-flight set is what blows up RSS.
         //     503 with Retry-After is the canonical "back off and retry" signal.
-        if (_loadShedDecision is not null && _loadSensor is not null)
+        // DISABLED BY DEFAULT (BotDetection:LoadShedEnabled = false). Adaptive
+        // shedding was 503-ing real visitors on normal cold-start latency; it
+        // stays off until a full review. The sensor above still observes so the
+        // review has data — only this drop/503 decision is gated.
+        if (_options.LoadShedEnabled && _loadShedDecision is not null && _loadSensor is not null)
         {
             var loadShedSeed = context.Connection?.Id?.GetHashCode()
                 ?? context.Request.Path.Value?.GetHashCode()
