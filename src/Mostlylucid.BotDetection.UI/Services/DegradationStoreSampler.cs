@@ -28,26 +28,31 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// </summary>
 public sealed class DegradationStoreSampler : IDisposable
 {
-    private readonly DegradationAtom _atom;
+    private readonly DegradationAtom? _atom;
     private readonly IDashboardEventStore _store;
     private readonly ILogger<DegradationStoreSampler> _logger;
     private readonly IDisposable? _subscription;
     private int _disposed;
 
     public DegradationStoreSampler(
-        DegradationAtom atom,
         IDashboardEventStore store,
         ILogger<DegradationStoreSampler> logger,
+        DegradationAtom? atom = null,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
-        ArgumentNullException.ThrowIfNull(atom);
         ArgumentNullException.ThrowIfNull(store);
         _atom = atom;
         _store = store;
         _logger = logger;
 
-        // Optional so existing direct-construction tests keep working --
-        // tests drive OnTickAsync directly.
+        // atom is optional per feedback_remote_mode_optional_di: marketing-site host
+        // does not register DegradationAtom (the gateway owns the response-recording
+        // hot path). With no atom, this sampler is inert; gateway's instance does the
+        // work and persists the history that the website's dashboard reads via REST.
+        if (_atom is null) return;
+
+        // scheduleCoordinator is optional so existing direct-construction tests
+        // keep working — tests drive OnTickAsync directly.
         if (scheduleCoordinator is not null)
         {
             _subscription = scheduleCoordinator.Subscribe(
@@ -66,6 +71,7 @@ public sealed class DegradationStoreSampler : IDisposable
     public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
     {
         if (_disposed != 0) return;
+        if (_atom is null) return; // remote-mode host without DegradationAtom
 
         try
         {
