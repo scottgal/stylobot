@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Orchestration.Lanes;
 using Mostlylucid.BotDetection.Orchestration.Signals;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Orchestration;
@@ -35,7 +36,11 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
     /// </summary>
     internal double GetRiskScore() => Volatile.Read(ref _maxRiskSeen);
 
-    public SignatureResponseCoordinator(string signature, ILogger logger, SignalSink sharedSink)
+    public SignatureResponseCoordinator(
+        string signature,
+        ILogger logger,
+        SignalSink sharedSink,
+        UpstreamHealthGate? upstreamHealth = null)
     {
         _signature = signature;
         _logger = logger;
@@ -52,7 +57,9 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
 
         _behavioralLane = new BehavioralLane(_sink, coordinatorKey);
         _spectralLane = new SpectralLane(_sink, coordinatorKey);
-        _reputationLane = new ReputationLane(_sink, coordinatorKey);
+        // ReputationLane stands down its 404/403 indicators when the
+        // upstream-health gate reports outage; honeypot + 429 remain.
+        _reputationLane = new ReputationLane(_sink, coordinatorKey, upstreamHealth);
         _lanes = [_behavioralLane, _spectralLane, _reputationLane];
 
         _logger.LogDebug("SignatureResponseCoordinator created for {Signature} with {LaneCount} lanes",

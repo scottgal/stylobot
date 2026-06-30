@@ -307,8 +307,14 @@ public static class BotDetectionPackExtensions
         // Register the hydrator atom
         services.AddSingleton<IDetectorAtom, RequestHydratorAtom>();
 
-        // Register signature coordinator cache (singleton for cross-request coordination)
-        services.AddSingleton<SignatureResponseCoordinatorCache>();
+        // Register signature coordinator cache (singleton for cross-request coordination).
+        // The factory pulls the upstream-health gate from DI (optional - hosts
+        // without the rate-limit module get null and the ReputationLane treats
+        // upstream as healthy, preserving today's behaviour).
+        services.AddSingleton<SignatureResponseCoordinatorCache>(sp =>
+            new SignatureResponseCoordinatorCache(
+                sp.GetRequiredService<ILogger<SignatureResponseCoordinatorCache>>(),
+                upstreamHealth: sp.GetService<Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate>()));
 
         // Register escalator config (with defaults, can be overridden via configuration)
         services.AddOptions<EscalatorConfig>()

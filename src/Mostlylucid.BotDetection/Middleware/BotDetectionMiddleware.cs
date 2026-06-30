@@ -62,7 +62,8 @@ public class BotDetectionMiddleware(
     Services.SignatureVerdictGate? verdictGate = null,
     Services.VarianceWatchdog? watchdog = null,
     PolicyActionDispatcher? policyDispatcher = null,
-    Services.IEndpointPerfBaseline? endpointPerfBaseline = null)
+    Services.IEndpointPerfBaseline? endpointPerfBaseline = null,
+    RateLimit.UpstreamHealthGate? upstreamHealth = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -126,6 +127,10 @@ public class BotDetectionMiddleware(
     // Nullable: hosts without IDashboardEventStore get NullEndpointPerfBaseline
     // via DI (returns 0), and the OnCompleted hook falls back to ratio 1.0.
     private readonly Services.IEndpointPerfBaseline? _endpointPerfBaseline = endpointPerfBaseline;
+    // Upstream-health gate: when 4xx/5xx EMAs cross threshold, ApplyResponseStatusBoost
+    // skips its positive deltas so origin-down / cold-start windows don't
+    // falsely flag legitimate visitors as bots. Null = treat as healthy.
+    private readonly RateLimit.UpstreamHealthGate? _upstreamHealth = upstreamHealth;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -3104,20 +3109,28 @@ public class BotDetectionMiddleware(
         var statusCode = context.Response.StatusCode;
         var isAuthenticated = context.User?.Identity?.IsAuthenticated == true;
 
+        // Upstream-health gate: when origin is cold-starting or down, the
+        // gateway returns 4xx/5xx via YARP. Treating those as bot probing
+        // falsely elevates legitimate visitors during the outage window.
+        // The auth-clear arm is the only negative-delta path here; it stays
+        // active regardless because successful authenticated traffic is
+        // still meaningful evidence.
+        var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
+
         // Compute delta based on response status code (all values from config)
         var (delta, reason) = statusCode switch
         {
-            404 => (boostOpts.NotFoundDelta,
+            404 when upstreamHealthy => (boostOpts.NotFoundDelta,
                 $"Response 404 Not Found on {context.Request.Path}"),
-            401 when !isAuthenticated => (boostOpts.UnauthorizedDelta,
+            401 when !isAuthenticated && upstreamHealthy => (boostOpts.UnauthorizedDelta,
                 "Response 401 Unauthorized - unauthenticated probe"),
-            403 when !isAuthenticated => (boostOpts.ForbiddenDelta,
+            403 when !isAuthenticated && upstreamHealthy => (boostOpts.ForbiddenDelta,
                 "Response 403 Forbidden - access denied"),
-            >= 500 and < 600 => (boostOpts.ServerErrorDelta,
+            >= 500 and < 600 when upstreamHealthy => (boostOpts.ServerErrorDelta,
                 $"Response {statusCode} Server Error triggered"),
-            410 => (boostOpts.GoneDelta,
+            410 when upstreamHealthy => (boostOpts.GoneDelta,
                 "Response 410 Gone - probing removed resource"),
-            405 => (boostOpts.MethodNotAllowedDelta,
+            405 when upstreamHealthy => (boostOpts.MethodNotAllowedDelta,
                 $"Response 405 Method Not Allowed on {context.Request.Path}"),
             // Authenticated successful response: clear suspicion for MARGINAL cases only.
             // High-confidence bots (> MaxProbability) are not cleared even if authenticated,

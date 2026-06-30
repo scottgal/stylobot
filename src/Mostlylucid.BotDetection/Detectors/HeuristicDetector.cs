@@ -192,6 +192,18 @@ public class HeuristicDetector : IDetector, IDisposable
     private readonly BotDetectionMetrics? _metrics;
     private readonly BotDetectionOptions _options;
     private readonly IWeightStore? _weightStore;
+    private readonly Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate? _upstreamHealth;
+
+    // Feature names whose weights point to 404-derived response patterns;
+    // these arms zero out when upstream is unhealthy so origin-down
+    // windows don't drag the model toward "bot" via response shape we
+    // cannot tell apart from a broken upstream.
+    private static readonly HashSet<string> StatusGatedFeatures = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sig:response_scan_pattern_detected",
+        "sig:response_count_404",
+        "sig:response_unique_404_paths",
+    };
     private float _bias;
     private bool _disposed;
     private bool _initialized;
@@ -203,12 +215,14 @@ public class HeuristicDetector : IDetector, IDisposable
         ILogger<HeuristicDetector> logger,
         IOptions<BotDetectionOptions> options,
         IWeightStore? weightStore = null,
-        BotDetectionMetrics? metrics = null)
+        BotDetectionMetrics? metrics = null,
+        Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate? upstreamHealth = null)
     {
         _logger = logger;
         _options = options.Value;
         _weightStore = weightStore;
         _metrics = metrics;
+        _upstreamHealth = upstreamHealth;
     }
 
     // Use the canonical signature type from SignatureTypes
@@ -258,8 +272,12 @@ public class HeuristicDetector : IDetector, IDisposable
                 mode = "early";
             }
 
-            // Run heuristic inference
-            var (isBot, probability) = RunInference(features);
+            // Run heuristic inference. Upstream-health gate zeroes out
+            // 404-shaped feature weights when origin is cold-starting or down;
+            // those response patterns are indistinguishable from outage shape,
+            // and feeding them in would falsely elevate legitimate visitors.
+            var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
+            var (isBot, probability) = RunInference(features, upstreamHealthy);
 
             if (isBot)
             {
@@ -372,14 +390,25 @@ public class HeuristicDetector : IDetector, IDisposable
 
     /// <summary>
     ///     Runs the heuristic linear model inference with dynamic features.
+    ///     When <paramref name="upstreamHealthy"/> is false, 404-shaped
+    ///     response-history features are skipped because their weights
+    ///     point to scanner shape which is indistinguishable from
+    ///     "everything is 404" outage shape. Honeypot + auth-struggle
+    ///     features remain in -- those are STYLOBOT-side evidence,
+    ///     meaningful regardless of upstream health.
     /// </summary>
-    private (bool IsBot, double Probability) RunInference(Dictionary<string, float> features)
+    internal (bool IsBot, double Probability) RunInference(
+        Dictionary<string, float> features,
+        bool upstreamHealthy = true)
     {
         // Calculate weighted sum: score = bias + Σ(feature[name] * weight[name])
         var score = _bias;
 
         foreach (var (featureName, featureValue) in features)
         {
+            if (!upstreamHealthy && StatusGatedFeatures.Contains(featureName))
+                continue;
+
             // Get weight for this feature (use default if not found)
             var weight = _weights.TryGetValue(featureName, out var w) ? w : DefaultNewFeatureWeight;
             score += featureValue * weight;

@@ -31,12 +31,23 @@ public static class RequestMarkovClassifier
         if (acceptHeader.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase))
             return RequestState.ServerSentEvent;
 
-        // Response-based classification
+        // Response-based classification.
+        // Upstream-health gate: when origin is cold-starting or down, the
+        // gateway returns 4xx for everything via YARP. Treating those status
+        // codes as Markov-state evidence would bake "scanner" / "auth-attempt"
+        // shape into the session vector and feed false-positive priors into
+        // the persisted centroid (per feedback_centroid_learning_feedback_loop).
+        // Demote to PageView during outage so the session vector reflects the
+        // request intent (page view) not the upstream-shaped response.
         var statusCode = context.Response.StatusCode;
-        if (statusCode == 401 || statusCode == 403)
-            return RequestState.AuthAttempt;
-        if (statusCode == 404)
-            return RequestState.NotFound;
+        var upstreamHealthy = state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true;
+        if (upstreamHealthy)
+        {
+            if (statusCode == 401 || statusCode == 403)
+                return RequestState.AuthAttempt;
+            if (statusCode == 404)
+                return RequestState.NotFound;
+        }
 
         // Content-type classification from transport signal
         var protocolClass = state.GetSignal<string>(SignalKeys.TransportProtocolClass);

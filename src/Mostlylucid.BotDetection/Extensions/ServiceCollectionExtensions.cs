@@ -1649,6 +1649,16 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker,
             Mostlylucid.BotDetection.RateLimit.AdaptiveScalingTracker>();
 
+        // Upstream-health gate: when 4xx/5xx EMAs cross threshold (after a
+        // min sample count), status-derived bot signals (response-status
+        // boost, 404 scan patterns, reputation lane error indicators,
+        // heuristic 404 weights, Markov NotFound transitions) stand down so
+        // cold-start / origin-down windows don't falsely flag legitimate
+        // visitors and poison persisted centroid samples with outage shape.
+        services.AddOptions<Mostlylucid.BotDetection.RateLimit.UpstreamHealthOptions>()
+            .BindConfiguration("BotDetection:UpstreamHealth");
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate>();
+
         // Register action policy registry (holds named action policies)
         services.TryAddSingleton<IActionPolicyRegistry, ActionPolicyRegistry>();
         // Read model for the dashboard policy tab (phase 1 of the policy-

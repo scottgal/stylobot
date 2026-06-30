@@ -195,4 +195,39 @@ public class RequestMarkovClassifierTests
         ctx.Request.Headers["Sec-Fetch-Dest"] = "document";
         Assert.False(RequestMarkovClassifier.IsPrefetchRequest(ctx.Request));
     }
+
+    [Fact]
+    public void NotFound_status_demotes_to_PageView_when_upstream_unhealthy()
+    {
+        // Upstream-health gate: a 404 from a cold-starting / down origin is
+        // not session-vector evidence of scanning. Demote to PageView so the
+        // persisted centroid doesn't bake outage shape.
+        var state = BuildState(
+            ctx => ctx.Response.StatusCode = 404,
+            signals: new() { [SignalKeys.UpstreamHealthy] = (bool?)false });
+        Assert.Equal(RequestState.PageView, RequestMarkovClassifier.Classify(state));
+    }
+
+    [Fact]
+    public void Auth_status_demotes_to_PageView_when_upstream_unhealthy()
+    {
+        // 401/403 from a misconfigured / origin-down upstream is not
+        // auth-attempt evidence either.
+        var state = BuildState(
+            ctx => ctx.Response.StatusCode = 401,
+            signals: new() { [SignalKeys.UpstreamHealthy] = (bool?)false });
+        Assert.Equal(RequestState.PageView, RequestMarkovClassifier.Classify(state));
+    }
+
+    [Fact]
+    public void NotFound_status_returns_NotFound_when_upstream_healthy_flag_explicit()
+    {
+        // Regression guard: when the gate explicitly says healthy, 404 still
+        // classifies as NotFound. The existing default-healthy test covers
+        // the "no signal stamped" path; this pins the explicit healthy flag.
+        var state = BuildState(
+            ctx => ctx.Response.StatusCode = 404,
+            signals: new() { [SignalKeys.UpstreamHealthy] = (bool?)true });
+        Assert.Equal(RequestState.NotFound, RequestMarkovClassifier.Classify(state));
+    }
 }

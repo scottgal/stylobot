@@ -261,6 +261,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     private readonly RequestPersistenceService? _requestPersistence;
     private readonly Identity.IFingerprintStore? _fingerprintStore;
     private readonly Services.PipelineLoadSensor? _loadSensor;
+    private readonly RateLimit.UpstreamHealthGate? _upstreamHealth;
 
     // Global signal sink for cross-host observability subscribers.
     private readonly SignalSink _globalSignals;
@@ -284,7 +285,8 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         ISessionStore? sessionStore = null,
         RequestPersistenceService? requestPersistence = null,
         Identity.IFingerprintStore? fingerprintStore = null,
-        Services.PipelineLoadSensor? loadSensor = null)
+        Services.PipelineLoadSensor? loadSensor = null,
+        RateLimit.UpstreamHealthGate? upstreamHealth = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -304,6 +306,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         _requestPersistence = requestPersistence;
         _fingerprintStore = fingerprintStore;
         _loadSensor = loadSensor;
+        _upstreamHealth = upstreamHealth;
 
         _globalSignals = new SignalSink(
             _options.SignalSinkMaxCapacity,
@@ -378,6 +381,17 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             var ranDetectors = pooledState.RanDetectors;
             DetectionPolicyAction? finalAction = null;
             string? triggeredActionPolicyName = null;
+
+            // Stamp upstream-health verdict on the signals dict at orchestrator
+            // entry. Status-derived contributions read this and stand down on
+            // outage windows; every persisted detection event / BDF sample also
+            // carries this flag so post-hoc centroid analyses can segment
+            // outage shape out of the natural prior (per
+            // feedback_centroid_learning_feedback_loop). When no gate is
+            // registered (FOSS host without rate-limit module), default healthy
+            // so existing detector behaviour is unchanged.
+            var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
+            signals[SignalKeys.UpstreamHealthy] = upstreamHealthy;
 
             // Wire up zero-allocation key set wrappers for BuildState
             var completedKeys = pooledState.CompletedDetectorKeys;

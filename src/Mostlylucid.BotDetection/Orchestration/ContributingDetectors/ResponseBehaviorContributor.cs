@@ -289,12 +289,20 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             new(SignalKeys.ResponseUnique404Paths, behavior.UniqueNotFoundPaths)
         ]);
 
+        // Upstream-health gate: when origin is cold-starting or down the
+        // gateway hands back 404/5xx via YARP. We cannot tell scanner-shaped
+        // 404s from "everything is 404" outage shape, so the 404-derived
+        // scan verdicts stand down. Honeypot hits remain elsewhere in this
+        // contributor because honeypots are STYLOBOT's own traps -- they
+        // are meaningful regardless of upstream health.
+        var upstreamHealthy = state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true;
+
         // Fail2ban-style escalation: apply progressively harsher action policies as
         // 404 count grows within the sliding window. The window gives automatic
         // decay - offenders who stop get their ban downgraded/removed as old 404s
         // age out. Only escalate when we have real scanning evidence (multiple
         // unique paths), not a single stale bookmark.
-        if (Fail2BanEnabled && behavior.UniqueNotFoundPaths >= 2)
+        if (Fail2BanEnabled && upstreamHealthy && behavior.UniqueNotFoundPaths >= 2)
         {
             string? policy = null;
             string reason = "";
@@ -326,11 +334,12 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             }
         }
 
-        // EXCLUSIVE 404: ALL (or nearly all) responses are 404 - never legitimate.
-        // Catches single-path hammering that existing multi-path tiers miss.
+        // EXCLUSIVE 404: ALL (or nearly all) responses are 404 - never legitimate
+        // when upstream is healthy. Suppressed under outage because
+        // "everything is 404" is exactly what we'd see from a broken upstream.
         var fourOhFourRatio = behavior.TotalResponses > 0
             ? (double)behavior.Count404 / behavior.TotalResponses : 0;
-        if (behavior.Count404 >= Exclusive404MinCount && fourOhFourRatio >= Exclusive404Ratio)
+        if (upstreamHealthy && behavior.Count404 >= Exclusive404MinCount && fourOhFourRatio >= Exclusive404Ratio)
         {
             state.WriteSignals([
                 new(SignalKeys.ResponseScanPatternDetected, true),
@@ -347,6 +356,10 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
 
         // Real humans almost never hit multiple unique 404 paths.
         // A single 404 from a stale bookmark is normal; 3+ unique 404 paths is scanning.
+        // Skip the entire 404-derived scan-tier ladder under outage; we cannot
+        // distinguish scanner shape from "everything is 404" upstream shape.
+        if (!upstreamHealthy)
+            return;
 
         // HEAVY: Systematic vulnerability scanning - many unique 404 paths
         if (behavior.Count404 > ScanHeavyCount404 && behavior.UniqueNotFoundPaths > ScanHeavyUniquePaths)

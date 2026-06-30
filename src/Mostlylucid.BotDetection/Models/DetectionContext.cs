@@ -1115,6 +1115,16 @@ public static class SignalKeys
     /// <summary>Boolean: true if nearly all responses are 404 (exclusive 404 pattern)</summary>
     public const string ResponseExclusive404 = "response.exclusive_404";
 
+    /// <summary>
+    ///     Boolean: <c>true</c> when upstream looks healthy (5xx + 4xx EWMAs
+    ///     within thresholds, after the min-sample-count floor), <c>false</c>
+    ///     during cold-start / origin-down windows. Stamped at orchestrator
+    ///     entry so persisted detection events and centroid samples carry
+    ///     the flag and post-hoc analyses can segment outage shape out of
+    ///     the natural prior.
+    /// </summary>
+    public const string UpstreamHealthy = "upstream.healthy";
+
     /// <summary>Int: Number of authentication failures (401/403 responses)</summary>
     public const string ResponseAuthFailures = "response.auth_failures";
 

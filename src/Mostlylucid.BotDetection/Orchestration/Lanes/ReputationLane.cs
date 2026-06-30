@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Orchestration.Signals;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Orchestration.Lanes;
@@ -9,9 +10,12 @@ namespace Mostlylucid.BotDetection.Orchestration.Lanes;
 internal sealed class ReputationLane : AnalysisLaneBase
 {
     private const double DecayFactor = 0.95; // Per-request decay
+    private readonly UpstreamHealthGate? _upstreamHealth;
 
-    public ReputationLane(SignalSink sink, string coordinatorKey) : base(sink, coordinatorKey)
+    public ReputationLane(SignalSink sink, string coordinatorKey, UpstreamHealthGate? upstreamHealth = null)
+        : base(sink, coordinatorKey)
     {
+        _upstreamHealth = upstreamHealth;
     }
 
     public override string Name => "reputation";
@@ -25,10 +29,15 @@ internal sealed class ReputationLane : AnalysisLaneBase
             return Task.CompletedTask;
         }
 
-        // Compute reputation indicators
+        // Compute reputation indicators. Upstream-health-aware bad-behaviour
+        // counter stands down 404/403 indicators when origin is cold-starting
+        // or down (the gateway hands back 4xx via YARP and we cannot tell
+        // scanner shape from outage shape). Honeypot hits + 429s remain
+        // meaningful regardless.
+        var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
         var decayedScore = ComputeDecayedHistoricalScore(window);
         var trendScore = ComputeTrendScore(window);
-        var badBehaviorScore = ComputeCumulativeBadBehavior(window);
+        var badBehaviorScore = ComputeCumulativeBadBehavior(window, upstreamHealthy);
         var consistencyScore = ComputeConsistencyScore(window);
 
         // Weighted combination (higher = more bot-like)
@@ -96,8 +105,13 @@ internal sealed class ReputationLane : AnalysisLaneBase
     /// <summary>
     ///     Tracks cumulative bad behavior indicators.
     ///     High-risk requests, 404s, blocked responses indicate bots.
+    ///     <paramref name="upstreamHealthy"/> suppresses the 404 / 403 arms
+    ///     during outage windows; 429 and honeypot stay live because they
+    ///     are STYLOBOT enforcement signals, not origin-shape signals.
     /// </summary>
-    private static double ComputeCumulativeBadBehavior(IReadOnlyList<OperationCompleteSignal> window)
+    internal static double ComputeCumulativeBadBehavior(
+        IReadOnlyList<OperationCompleteSignal> window,
+        bool upstreamHealthy)
     {
         if (window.Count == 0) return 0.0;
 
@@ -108,16 +122,19 @@ internal sealed class ReputationLane : AnalysisLaneBase
             // High risk request
             if (op.RequestRisk > 0.7) badIndicators++;
 
-            // 404 responses (probing)
-            if (op.StatusCode == 404) badIndicators++;
+            if (upstreamHealthy)
+            {
+                // 404 responses (probing)
+                if (op.StatusCode == 404) badIndicators++;
 
-            // 403 responses (blocked/forbidden)
-            if (op.StatusCode == 403) badIndicators++;
+                // 403 responses (blocked/forbidden)
+                if (op.StatusCode == 403) badIndicators++;
+            }
 
-            // 429 responses (rate limited)
+            // 429 responses (rate limited) - meaningful regardless of upstream health
             if (op.StatusCode == 429) badIndicators += 2;
 
-            // Honeypot hit
+            // Honeypot hit - STYLOBOT's own trap, always meaningful
             if (op.Honeypot) badIndicators += 3;
         }
 
