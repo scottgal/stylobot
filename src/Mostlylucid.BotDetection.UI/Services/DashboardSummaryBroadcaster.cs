@@ -176,9 +176,14 @@ public sealed class DashboardSummaryBroadcaster : IDisposable
     {
         _lastComputeUtc = nowUtc;
 
-        // Seed SignatureAggregateCache from DB on first iteration.
-        // Retry if sessions table isn't created yet (fresh install race condition).
-        if (!_seeded)
+        // Seed SignatureAggregateCache from DB on first iteration. Gateway-only
+        // path per project_gateway_data_locality: on remote-mode hosts the
+        // SignatureAggregateCache is a non-functional shim (kept registered to
+        // satisfy DI but never populated). Seeding it here would issue a
+        // RemoteDashboardEventStore.GetTopBotsAsync over REST, cache the
+        // snapshot in-process, and then never refresh — exactly the stale-cache
+        // dual-source bug that drove home-card vs detail-page divergence. Skip.
+        if (!_seeded && !_isRemoteMode)
         {
             try
             {
