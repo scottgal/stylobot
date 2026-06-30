@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Scheduling;
@@ -34,14 +35,24 @@ public sealed class DegradationStoreSampler : IDisposable
     private readonly IDisposable? _subscription;
     private int _disposed;
 
+    /// <summary>
+    ///     DI-friendly constructor: resolves DegradationAtom and
+    ///     IScheduleCoordinator from IServiceProvider via GetService (not
+    ///     GetRequiredService) so they really ARE optional. The earlier
+    ///     `DegradationAtom? atom = null` parameter relied on a default
+    ///     value that Microsoft.Extensions.DependencyInjection does NOT
+    ///     honour — DI sees a nullable parameter and still tries to
+    ///     resolve it, throwing if not registered. That broke marketing
+    ///     (remote-mode host) on boot per feedback_remote_mode_optional_di.
+    /// </summary>
     public DegradationStoreSampler(
+        IServiceProvider services,
         IDashboardEventStore store,
-        ILogger<DegradationStoreSampler> logger,
-        DegradationAtom? atom = null,
-        IScheduleCoordinator? scheduleCoordinator = null)
+        ILogger<DegradationStoreSampler> logger)
     {
         ArgumentNullException.ThrowIfNull(store);
-        _atom = atom;
+        ArgumentNullException.ThrowIfNull(services);
+        _atom = services.GetService<DegradationAtom>();
         _store = store;
         _logger = logger;
 
@@ -53,6 +64,33 @@ public sealed class DegradationStoreSampler : IDisposable
 
         // scheduleCoordinator is optional so existing direct-construction tests
         // keep working — tests drive OnTickAsync directly.
+        var scheduleCoordinator = services.GetService<IScheduleCoordinator>();
+        if (scheduleCoordinator is not null)
+        {
+            _subscription = scheduleCoordinator.Subscribe(
+                TickCadence.Tick10s,
+                "DegradationStoreSampler",
+                CostHint.Low,
+                OnTickAsync);
+        }
+    }
+
+    /// <summary>
+    ///     Direct-construction overload preserved for tests.
+    /// </summary>
+    public DegradationStoreSampler(
+        IDashboardEventStore store,
+        ILogger<DegradationStoreSampler> logger,
+        DegradationAtom? atom,
+        IScheduleCoordinator? scheduleCoordinator)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        _atom = atom;
+        _store = store;
+        _logger = logger;
+
+        if (_atom is null) return;
+
         if (scheduleCoordinator is not null)
         {
             _subscription = scheduleCoordinator.Subscribe(
