@@ -1125,6 +1125,27 @@ public static class SignalKeys
     /// </summary>
     public const string UpstreamHealthy = "upstream.healthy";
 
+    /// <summary>
+    ///     Boolean: <c>true</c> while the gateway is still in cold-start
+    ///     warmup (process uptime under <c>GatewayWarmup:WarmupDuration</c>
+    ///     OR total observed requests under <c>MinGatewaySamples</c>);
+    ///     <c>false</c> once both floors are crossed. Sibling of
+    ///     <see cref="UpstreamHealthy"/>: upstream-down protects
+    ///     status-derived signals when the protected site is cold; warmup
+    ///     protects BEHAVIOURAL signals when stylobot itself just booted
+    ///     and behavioural classifiers haven't accumulated enough samples
+    ///     to score reliably. Stamped at orchestrator entry on the
+    ///     gateway-wide dimension only -- detectors that know their
+    ///     per-signature observation count call
+    ///     <c>GatewayWarmupGate.IsWarmedUp(count)</c> for the finer-grained
+    ///     decision and skip behavioural contributions when it returns
+    ///     <c>false</c>. Persisted on every detection event so post-hoc
+    ///     centroid analyses can segment cold-start shape out of the
+    ///     natural prior (per
+    ///     <c>feedback_centroid_learning_feedback_loop</c>).
+    /// </summary>
+    public const string GatewayWarmup = "gateway.warmup";
+
     /// <summary>Int: Number of authentication failures (401/403 responses)</summary>
     public const string ResponseAuthFailures = "response.auth_failures";
 

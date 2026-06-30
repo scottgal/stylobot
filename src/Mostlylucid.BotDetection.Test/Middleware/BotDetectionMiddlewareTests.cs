@@ -64,7 +64,7 @@ public class BotDetectionMiddlewareTests
 
     private static Mock<BlackboardOrchestrator> CreateMockOrchestrator(AggregatedEvidence? result = null)
     {
-        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?, clusterService?, enrichmentService?, markovTracker?, sessionStore?, requestPersistence?, fingerprintStore?, loadSensor?, upstreamHealth?
+        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?, clusterService?, enrichmentService?, markovTracker?, sessionStore?, requestPersistence?, fingerprintStore?, loadSensor?, upstreamHealth?, gatewayWarmup?
         var mock = new Mock<BlackboardOrchestrator>(
             Mock.Of<ILogger<BlackboardOrchestrator>>(),
             Options.Create(new BotDetectionOptions()),
@@ -83,7 +83,8 @@ public class BotDetectionMiddlewareTests
             null, // requestPersistence
             null, // fingerprintStore
             null, // loadSensor
-            null  // upstreamHealth
+            null, // upstreamHealth
+            null  // gatewayWarmup
         );
 
         var evidence = result ?? CreateEvidence();
@@ -807,7 +808,8 @@ public class BotDetectionMiddlewareTests
             null, // requestPersistence
             null, // fingerprintStore
             null, // loadSensor
-            null  // upstreamHealth
+            null, // upstreamHealth
+            null  // gatewayWarmup
         );
 
         mockOrchestrator.Setup(o => o.DetectWithPolicyAsync(

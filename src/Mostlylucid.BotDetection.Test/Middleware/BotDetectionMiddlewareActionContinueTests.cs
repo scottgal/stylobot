@@ -148,7 +148,7 @@ public class BotDetectionMiddlewareActionContinueTests
             Options.Create(new BotDetectionOptions()),
             Enumerable.Empty<IContributingDetector>(),
             new PiiHasher(new byte[32]),
-            null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         m.Setup(o => o.DetectWithPolicyAsync(
                 It.IsAny<HttpContext>(),
                 It.IsAny<DetectionPolicy>(),

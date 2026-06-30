@@ -32,16 +32,23 @@ public static class RequestMarkovClassifier
             return RequestState.ServerSentEvent;
 
         // Response-based classification.
-        // Upstream-health gate: when origin is cold-starting or down, the
-        // gateway returns 4xx for everything via YARP. Treating those status
-        // codes as Markov-state evidence would bake "scanner" / "auth-attempt"
-        // shape into the session vector and feed false-positive priors into
-        // the persisted centroid (per feedback_centroid_learning_feedback_loop).
-        // Demote to PageView during outage so the session vector reflects the
-        // request intent (page view) not the upstream-shaped response.
+        // Two cold-start gates compose by OR here:
+        //   * Upstream-health: when origin is cold-starting or down, the
+        //     gateway returns 4xx for everything via YARP. Treating those
+        //     status codes as Markov-state evidence would bake "scanner" /
+        //     "auth-attempt" shape into the session vector.
+        //   * Gateway-warmup: when stylobot itself just booted (process
+        //     uptime / total samples under floor), behavioural classifiers
+        //     downstream of this state assignment can't yet score reliably;
+        //     keep observed shape as PageView so we don't lock in noisy
+        //     cold-start centroid samples.
+        // Either gate "cold" → demote to PageView so persisted centroids
+        // don't bake outage/cold-start shape (per
+        // feedback_centroid_learning_feedback_loop).
         var statusCode = context.Response.StatusCode;
         var upstreamHealthy = state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true;
-        if (upstreamHealthy)
+        var gatewayWarming = state.GetSignal<bool?>(SignalKeys.GatewayWarmup) ?? false;
+        if (upstreamHealthy && !gatewayWarming)
         {
             if (statusCode == 401 || statusCode == 403)
                 return RequestState.AuthAttempt;

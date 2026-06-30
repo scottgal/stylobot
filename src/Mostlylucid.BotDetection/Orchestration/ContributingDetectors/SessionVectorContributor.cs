@@ -163,6 +163,28 @@ public class SessionVectorContributor : ConfiguredContributorBase
                     signature, completedSession.RequestCount, completedSession.Maturity);
             }
 
+            // Gateway-warmup gate: while the gateway is in cold-start warmup
+            // (process uptime / total samples under floor) the behavioural
+            // analyses below all source from under-sampled aggregates and
+            // would push noisy cold-start contributions into the model + the
+            // persisted centroid prior. Session recording above still runs
+            // so the session vector continues to accumulate; only the
+            // contribution-emitting branches stand down.
+            //
+            // Detector also OR-composes with UpstreamHealthy at the
+            // RequestMarkovClassifier level: if EITHER gate says cold, the
+            // Markov state assignment demotes status-derived transitions to
+            // PageView so partial-chain / current-session / velocity
+            // analyses don't bake outage shape either.
+            var gatewayWarming = state.GetSignal<bool?>(SignalKeys.GatewayWarmup) ?? false;
+            if (gatewayWarming)
+            {
+                if (contributions.Count == 0)
+                    contributions.Add(NeutralContribution(
+                        $"Gateway warmup active; session tracking accumulating ({currentSession?.Count ?? 0} requests, {sessionHistory.Count} prior sessions)"));
+                return contributions;
+            }
+
             // === Partial chain early detection (before full maturity) ===
             if (currentSession != null &&
                 currentSession.Count >= PartialChainMinRequests &&

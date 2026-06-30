@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Lifecycle;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.SlidingCache;
@@ -16,6 +17,7 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
     private readonly ILogger<SignatureResponseCoordinatorCache> _logger;
     private readonly SignalSink _sharedSink;
     private readonly UpstreamHealthGate? _upstreamHealth;
+    private readonly GatewayWarmupGate? _gatewayWarmup;
 
     public SignatureResponseCoordinatorCache(
         ILogger<SignatureResponseCoordinatorCache> logger,
@@ -23,10 +25,12 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
         TimeSpan? ttl = null,
         SignalSink? sharedSink = null,
         TimeSpan? cleanupInterval = null,
-        UpstreamHealthGate? upstreamHealth = null)
+        UpstreamHealthGate? upstreamHealth = null,
+        GatewayWarmupGate? gatewayWarmup = null)
     {
         _logger = logger;
         _upstreamHealth = upstreamHealth;
+        _gatewayWarmup = gatewayWarmup;
 
         _sharedSink = sharedSink ?? new SignalSink(
             Math.Min(maxSignatures * 20, 50_000),
@@ -37,7 +41,7 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
             {
                 _logger.LogDebug("Creating SignatureResponseCoordinator for {Signature}", signature);
 
-                return new SignatureResponseCoordinator(signature, logger, _sharedSink, _upstreamHealth);
+                return new SignatureResponseCoordinator(signature, logger, _sharedSink, _upstreamHealth, _gatewayWarmup);
             },
             ttl ?? TimeSpan.FromMinutes(30),
             (ttl ?? TimeSpan.FromMinutes(30)) * 2,

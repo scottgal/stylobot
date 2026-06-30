@@ -193,6 +193,7 @@ public class HeuristicDetector : IDetector, IDisposable
     private readonly BotDetectionOptions _options;
     private readonly IWeightStore? _weightStore;
     private readonly Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate? _upstreamHealth;
+    private readonly Mostlylucid.BotDetection.Lifecycle.GatewayWarmupGate? _gatewayWarmup;
 
     // Feature names whose weights point to 404-derived response patterns;
     // these arms zero out when upstream is unhealthy so origin-down
@@ -203,6 +204,38 @@ public class HeuristicDetector : IDetector, IDisposable
         "sig:response_scan_pattern_detected",
         "sig:response_count_404",
         "sig:response_unique_404_paths",
+    };
+
+    // Feature names sourced from per-signature behavioural aggregates
+    // (session vector maturity, velocity, cluster scores, intent /
+    // response history) or pipeline-result feedback. These arms zero out
+    // when the gateway is in cold-start warmup or the per-signature
+    // observation count is below the floor, because the underlying
+    // aggregates are computed from too few samples to score reliably.
+    // Identity / UA / header / honeypot features stay live because they
+    // score from the first observation.
+    private static readonly HashSet<string> BehaviouralGatedFeatures = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sigv:session_self_similarity",
+        "sigv:session_velocity_magnitude",
+        "sigv:session_vector_maturity",
+        "sigv:session_request_count",
+        "sigv:session_history_count",
+        "sigv:cluster_avg_similarity",
+        "sigv:response_historical_score",
+        "sigv:intent_threat_score",
+        "sigv:waveform_timing_regularity",
+        "sigv:waveform_path_diversity",
+        "sigv:ato_drift_score",
+        "sigv:geo_change_drift",
+        "stat:detector_max",
+        "stat:detector_avg",
+        "stat:detector_flagged",
+        "stat:category_max",
+        "stat:category_avg",
+        "result:bot_probability",
+        "result:confidence",
+        "result:risk_band",
     };
     private float _bias;
     private bool _disposed;
@@ -216,13 +249,15 @@ public class HeuristicDetector : IDetector, IDisposable
         IOptions<BotDetectionOptions> options,
         IWeightStore? weightStore = null,
         BotDetectionMetrics? metrics = null,
-        Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate? upstreamHealth = null)
+        Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate? upstreamHealth = null,
+        Mostlylucid.BotDetection.Lifecycle.GatewayWarmupGate? gatewayWarmup = null)
     {
         _logger = logger;
         _options = options.Value;
         _weightStore = weightStore;
         _metrics = metrics;
         _upstreamHealth = upstreamHealth;
+        _gatewayWarmup = gatewayWarmup;
     }
 
     // Use the canonical signature type from SignatureTypes
@@ -272,12 +307,23 @@ public class HeuristicDetector : IDetector, IDisposable
                 mode = "early";
             }
 
-            // Run heuristic inference. Upstream-health gate zeroes out
-            // 404-shaped feature weights when origin is cold-starting or down;
-            // those response patterns are indistinguishable from outage shape,
-            // and feeding them in would falsely elevate legitimate visitors.
+            // Run heuristic inference. Two cold-start gates compose:
+            //   * Upstream-health: 404-shaped feature weights stand down when
+            //     origin is cold-starting or down (response patterns are
+            //     indistinguishable from outage shape).
+            //   * Gateway-warmup: behavioural / aggregate feature weights
+            //     (sigv:* session+cluster+intent+history, stat:* detector
+            //     summaries, result:* pipeline feedback) stand down while
+            //     the gateway is in cold-start warmup or the per-signature
+            //     observation count is below the floor -- the underlying
+            //     aggregates are sampled from too few requests to score
+            //     reliably and would otherwise drag the model with
+            //     under-sampled prior.
             var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
-            var (isBot, probability) = RunInference(features, upstreamHealthy);
+            var sessionRequestCount = ReadSessionRequestCount(evidence);
+            var gatewayWarming = _gatewayWarmup is not null
+                                 && !_gatewayWarmup.IsWarmedUp(sessionRequestCount);
+            var (isBot, probability) = RunInference(features, upstreamHealthy, gatewayWarming);
 
             if (isBot)
             {
@@ -390,16 +436,31 @@ public class HeuristicDetector : IDetector, IDisposable
 
     /// <summary>
     ///     Runs the heuristic linear model inference with dynamic features.
-    ///     When <paramref name="upstreamHealthy"/> is false, 404-shaped
-    ///     response-history features are skipped because their weights
-    ///     point to scanner shape which is indistinguishable from
-    ///     "everything is 404" outage shape. Honeypot + auth-struggle
-    ///     features remain in -- those are STYLOBOT-side evidence,
-    ///     meaningful regardless of upstream health.
+    ///     Two cold-start gates compose:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             When <paramref name="upstreamHealthy"/> is false, 404-shaped
+    ///             response-history features are skipped because their weights
+    ///             point to scanner shape which is indistinguishable from
+    ///             "everything is 404" outage shape.
+    ///         </item>
+    ///         <item>
+    ///             When <paramref name="gatewayWarming"/> is true, behavioural
+    ///             aggregate features (sigv:* session+cluster+intent+history,
+    ///             stat:* detector summaries, result:* pipeline feedback) are
+    ///             skipped because the underlying aggregates are sampled from
+    ///             too few requests to score reliably during the gateway's
+    ///             cold-start window.
+    ///         </item>
+    ///     </list>
+    ///     Honeypot + auth-struggle + identity / UA / header features remain
+    ///     in under both gates -- those are STYLOBOT-side evidence sourced
+    ///     from the current request, not from multi-request aggregates.
     /// </summary>
     internal (bool IsBot, double Probability) RunInference(
         Dictionary<string, float> features,
-        bool upstreamHealthy = true)
+        bool upstreamHealthy = true,
+        bool gatewayWarming = false)
     {
         // Calculate weighted sum: score = bias + Σ(feature[name] * weight[name])
         var score = _bias;
@@ -407,6 +468,8 @@ public class HeuristicDetector : IDetector, IDisposable
         foreach (var (featureName, featureValue) in features)
         {
             if (!upstreamHealthy && StatusGatedFeatures.Contains(featureName))
+                continue;
+            if (gatewayWarming && BehaviouralGatedFeatures.Contains(featureName))
                 continue;
 
             // Get weight for this feature (use default if not found)
@@ -418,6 +481,26 @@ public class HeuristicDetector : IDetector, IDisposable
         var probability = 1.0 / (1.0 + Math.Exp(-score));
 
         return (probability > 0.5, probability);
+    }
+
+    /// <summary>
+    ///     Pulls the per-signature observation count from the aggregated
+    ///     evidence's session signals. Used to feed the gateway-warmup
+    ///     gate's per-signature dimension. Returns 0 when the session
+    ///     signal isn't present (early mode, or signature too new to have
+    ///     a session yet -- both correctly read as "below warmup floor").
+    /// </summary>
+    private static long ReadSessionRequestCount(AggregatedEvidence? evidence)
+    {
+        if (evidence is null) return 0;
+        if (!evidence.Signals.TryGetValue(SignalKeys.SessionRequestCount, out var raw)) return 0;
+        return raw switch
+        {
+            int i => i,
+            long l => l,
+            double d => (long)d,
+            _ => 0
+        };
     }
 
     /// <summary>

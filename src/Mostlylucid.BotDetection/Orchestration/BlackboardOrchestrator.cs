@@ -262,6 +262,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
     private readonly Identity.IFingerprintStore? _fingerprintStore;
     private readonly Services.PipelineLoadSensor? _loadSensor;
     private readonly RateLimit.UpstreamHealthGate? _upstreamHealth;
+    private readonly Lifecycle.GatewayWarmupGate? _gatewayWarmup;
 
     // Global signal sink for cross-host observability subscribers.
     private readonly SignalSink _globalSignals;
@@ -286,7 +287,8 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         RequestPersistenceService? requestPersistence = null,
         Identity.IFingerprintStore? fingerprintStore = null,
         Services.PipelineLoadSensor? loadSensor = null,
-        RateLimit.UpstreamHealthGate? upstreamHealth = null)
+        RateLimit.UpstreamHealthGate? upstreamHealth = null,
+        Lifecycle.GatewayWarmupGate? gatewayWarmup = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -307,6 +309,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
         _fingerprintStore = fingerprintStore;
         _loadSensor = loadSensor;
         _upstreamHealth = upstreamHealth;
+        _gatewayWarmup = gatewayWarmup;
 
         _globalSignals = new SignalSink(
             _options.SignalSinkMaxCapacity,
@@ -392,6 +395,19 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             // so existing detector behaviour is unchanged.
             var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
             signals[SignalKeys.UpstreamHealthy] = upstreamHealthy;
+
+            // Stamp the gateway-wide warmup verdict so persisted detection
+            // events / centroid samples segment cold-start shape out of the
+            // natural prior (per feedback_centroid_learning_feedback_loop).
+            // Behavioural detectors that know their per-signature observation
+            // count call _gatewayWarmup.IsWarmedUp(count) directly for the
+            // finer-grained per-signature decision; this stamp only covers
+            // the gateway-wide dimension. When no gate is registered (FOSS
+            // host without the warmup module), default warm=false (i.e.
+            // gateway.warmup signal = false → not in warmup → existing
+            // behaviour unchanged).
+            var gatewayWarming = _gatewayWarmup is not null && !_gatewayWarmup.IsWarmedUp();
+            signals[SignalKeys.GatewayWarmup] = gatewayWarming;
 
             // Wire up zero-allocation key set wrappers for BuildState
             var completedKeys = pooledState.CompletedDetectorKeys;

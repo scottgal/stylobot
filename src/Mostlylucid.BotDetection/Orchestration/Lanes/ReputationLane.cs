@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Lifecycle;
 using Mostlylucid.BotDetection.Orchestration.Signals;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.Ephemeral;
@@ -11,11 +12,17 @@ internal sealed class ReputationLane : AnalysisLaneBase
 {
     private const double DecayFactor = 0.95; // Per-request decay
     private readonly UpstreamHealthGate? _upstreamHealth;
+    private readonly GatewayWarmupGate? _gatewayWarmup;
 
-    public ReputationLane(SignalSink sink, string coordinatorKey, UpstreamHealthGate? upstreamHealth = null)
+    public ReputationLane(
+        SignalSink sink,
+        string coordinatorKey,
+        UpstreamHealthGate? upstreamHealth = null,
+        GatewayWarmupGate? gatewayWarmup = null)
         : base(sink, coordinatorKey)
     {
         _upstreamHealth = upstreamHealth;
+        _gatewayWarmup = gatewayWarmup;
     }
 
     public override string Name => "reputation";
@@ -29,11 +36,25 @@ internal sealed class ReputationLane : AnalysisLaneBase
             return Task.CompletedTask;
         }
 
-        // Compute reputation indicators. Upstream-health-aware bad-behaviour
-        // counter stands down 404/403 indicators when origin is cold-starting
-        // or down (the gateway hands back 4xx via YARP and we cannot tell
-        // scanner shape from outage shape). Honeypot hits + 429s remain
-        // meaningful regardless.
+        // Compute reputation indicators. Two cold-start gates compose by OR:
+        //   * Upstream-health stands down 404 / 403 bad-behaviour indicators
+        //     when origin is cold-starting or down (gateway hands back 4xx
+        //     via YARP; we cannot tell scanner shape from outage shape).
+        //   * Gateway-warmup stands down the trend / consistency arms
+        //     (which compare across a window of recent requests) when
+        //     stylobot itself is in cold-start warmup -- those arms produce
+        //     spurious "bot-like consistency" verdicts off the first
+        //     dozen requests where every signature looks similar by
+        //     chance. Reputation lane emits 0.0 entirely while warming so
+        //     the upstream scorer doesn't compound cold-start noise.
+        // Honeypot hits + 429s remain meaningful regardless of either gate.
+        if (_gatewayWarmup is not null && !_gatewayWarmup.IsWarmedUp())
+        {
+            EmitMetric("warmup_skipped", "1");
+            EmitScore(0.0);
+            return Task.CompletedTask;
+        }
+
         var upstreamHealthy = _upstreamHealth?.IsUpstreamHealthy() ?? true;
         var decayedScore = ComputeDecayedHistoricalScore(window);
         var trendScore = ComputeTrendScore(window);

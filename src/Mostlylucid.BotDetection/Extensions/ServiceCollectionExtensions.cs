@@ -1659,6 +1659,20 @@ public static class ServiceCollectionExtensions
             .BindConfiguration("BotDetection:UpstreamHealth");
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate>();
 
+        // Gateway-warmup gate: behavioural sibling of UpstreamHealthGate.
+        // Upstream-health protects status-derived signals when the protected
+        // site is cold-starting or down; this gate protects BEHAVIOURAL
+        // signals (session-vector contributions, Markov downstream consumers,
+        // sigv:* heuristic features, per-signature drift) when stylobot
+        // itself just booted and behavioural classifiers haven't accumulated
+        // enough samples to score reliably. Rules still fire; identity / UA /
+        // header / honeypot detection still runs. Stamps gateway.warmup on
+        // every detection event so persisted centroids segment cold-start
+        // shape out of the natural prior.
+        services.AddOptions<Mostlylucid.BotDetection.Lifecycle.GatewayWarmupOptions>()
+            .BindConfiguration("BotDetection:GatewayWarmup");
+        services.TryAddSingleton<Mostlylucid.BotDetection.Lifecycle.GatewayWarmupGate>();
+
         // Site-health history (U3): bounded ring of DegradationAtom snapshots
         // sampled at Tick10s. Feeds the Traffic page's site-health chartlet
         // via /api/v1/site-health/history. Ring is gateway-local per
