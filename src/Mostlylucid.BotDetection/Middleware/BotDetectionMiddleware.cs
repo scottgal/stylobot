@@ -570,7 +570,7 @@ public class BotDetectionMiddleware(
                         v.ThreatScore,
                         Risk.SignatureRiskVerdictComposer.ThreatBandFloor(cachedThreatBand));
 
-                    // When the live UA matcher stamps a real bot type (Tool, Scraper,
+                    // When the live UA matcher stamps a real BOT type (Tool, Scraper,
                     // SearchEngine, etc.) the row IS a bot regardless of what the
                     // cached BotProbability says. The cached probability comes from
                     // an earlier full-pipeline run that may have landed at 0 via an
@@ -581,8 +581,19 @@ public class BotDetectionMiddleware(
                     // exact "Tool but Human" disconnect Bug U/V verification
                     // surfaced on staging. Mirrors the CreateEarlyExitResult fix
                     // for the same display-coherence reason.
+                    //
+                    // BotType.Internal is intentionally EXCLUDED: it means "operator-
+                    // owned traffic from a private network position" — that's a
+                    // semantic flag for filtering/action policy, NOT a UA-pattern
+                    // bot. Forcing Internal-classified rows to 1.0 was the cause of
+                    // real-browser visitors on the marketing site (where gateway sees
+                    // Traefik Pod IP as the connection source = RFC1918 = Internal)
+                    // rendering "Closest to Chrome Desktop" + "100% bot probability"
+                    // simultaneously on the YOU widget — a logically impossible
+                    // verdict that broke operator trust in the dashboard.
                     var hasMeaningfulBotType = cachedPrimaryBotType is not null
-                                               and not BotType.Unknown;
+                                               and not BotType.Unknown
+                                               and not BotType.Internal;
                     var cachedBotProbability = hasMeaningfulBotType ? 1.0 : v.BotProbability;
                     // Mirror the trusted-and-aligned clamp from the MISS path
                     // (DetectionLedgerExtensions ▸ SignatureRiskVerdictComposer):

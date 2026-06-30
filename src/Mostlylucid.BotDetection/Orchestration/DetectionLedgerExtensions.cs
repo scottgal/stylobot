@@ -370,7 +370,15 @@ public static class DetectionLedgerExtensions
         // bots by definition; Whitelisted / Blacklisted defer to the UA
         // classification; everything else stays human.
         var exitBotType = ParseBotType(exitContrib.BotType);
-        var hasMeaningfulBotType = exitBotType is not null and not BotType.Unknown;
+        // BotType.Internal excluded: it's an operator-owned semantic flag, not a
+        // UA-pattern bot. Without this exclusion an early-exit Whitelisted /
+        // Blacklisted verdict on an Internal-classified row (e.g. RFC1918 source
+        // visitor) was getting persisted as is_bot=true with probability=1.0,
+        // surfacing real browsers as "100% bot" on the dashboard YOU widget.
+        // Mirrors the Skip-path fix in BotDetectionMiddleware:594.
+        var hasMeaningfulBotType = exitBotType is not null
+                                   and not BotType.Unknown
+                                   and not BotType.Internal;
         var isBot = verdict switch
         {
             EarlyExitVerdict.VerifiedGoodBot => true,
