@@ -110,14 +110,14 @@ public sealed class StyloBotDashboardOptions
     public int MaxEventsInMemory { get; set; } = 1000;
 
     /// <summary>
-    ///     How long detections stay in the SQLite dashboard store before
-    ///     <see cref="Services.SqliteDashboardEventStore.EnsureInitializedAsync"/>
-    ///     prunes them on startup. Default: 7 days. Increase for longer history
-    ///     (more disk), decrease for noisier short-window dashboards. Tests
-    ///     that seed historical timestamps want this larger than their
+    ///     How long detections stay in the dashboard store before pruning on
+    ///     startup. Default: 30 days so the dashboard can serve up-to-30-day
+    ///     analytics windows (a normal analytics package). Increase for longer
+    ///     history (more disk), decrease for noisier short-window dashboards.
+    ///     Tests that seed historical timestamps want this larger than their
     ///     fixture's clock skew.
     /// </summary>
-    public TimeSpan DetectionRetention { get; set; } = TimeSpan.FromDays(7);
+    public TimeSpan DetectionRetention { get; set; } = TimeSpan.FromDays(30);
 
     /// <summary>
     ///     How often to broadcast summary statistics (in seconds).

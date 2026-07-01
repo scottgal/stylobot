@@ -61,7 +61,14 @@ public sealed record TrafficCounters(
     int BotsDelta,
     double TotalDeltaPct,
     double HumansDeltaPct,
-    double BotsDeltaPct);
+    double BotsDeltaPct,
+    // Distinct-actor counts over the SAME window. Total/Humans/Bots above count
+    // REQUESTS ("how much traffic"); these count distinct fingerprints ("how many
+    // actors") — one human browsing generates many requests, so the headline
+    // number is fingerprints and requests are the secondary line.
+    int TotalFingerprints = 0,
+    int HumanFingerprints = 0,
+    int BotFingerprints = 0);
 
 /// <summary>
 ///     Per-family bot sub-stack data feeding the bar chart's bot segment.

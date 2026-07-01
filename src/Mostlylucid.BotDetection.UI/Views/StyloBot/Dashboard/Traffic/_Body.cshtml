@@ -26,10 +26,10 @@
         if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
         return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
     }
-    // UX1: 6h / 12h / 24h replaces 15m / 1h / 24h / 7d. The shorter
-    // windows didn't show meaningful traffic shape; 7d would have been
-    // misleading at the rolled-up bucket density.
-    var windows = new[] { ("6h", "6h"), ("12h", "12h"), ("24h", "24h") };
+    // Analytics-package window set: short shape (6h/24h) through 7d/30d history.
+    // The timeseries bucketer adapts bucket width to the window so the longer
+    // ranges roll up rather than render thousands of thin buckets.
+    var windows = new[] { ("6h", "6h"), ("24h", "24h"), ("7d", "7d"), ("30d", "30d") };
 
     // Refresh URL preserves the active filter set so the SignalR-driven swap
     // re-renders the same view the operator is looking at, not a default one.

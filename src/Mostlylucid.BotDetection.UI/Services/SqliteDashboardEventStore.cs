@@ -562,8 +562,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.CommandText = """
                 SELECT
                     COUNT(*) AS sigs,
-                    SUM(CASE WHEN bot_probability >= 0.5 THEN 1 ELSE 0 END) AS bot_sigs,
-                    SUM(CASE WHEN bot_probability < 0.5 THEN 1 ELSE 0 END) AS human_sigs,
+                    SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bot_sigs,
+                    SUM(CASE WHEN bot_probability < @botFloor THEN 1 ELSE 0 END) AS human_sigs,
                     SUM(CASE WHEN risk_band IN ('High','VeryHigh') THEN 1 ELSE 0 END) AS high_sigs
                 FROM signatures
                 WHERE last_seen >= @since

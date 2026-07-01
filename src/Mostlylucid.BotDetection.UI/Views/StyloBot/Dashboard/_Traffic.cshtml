@@ -45,8 +45,11 @@
     {
         "15m"            => 15,
         "60m" or "1h"    => 60,
+        "6h"             => 6 * 60,
+        "12h"            => 12 * 60,
         "24h" or "1d"    => 24 * 60,
         "7d"             => 7 * 24 * 60,
+        "30d"            => 30 * 24 * 60,
         _                => 60,
     };
 
@@ -161,7 +164,14 @@
         BotsDelta: curBots - prBots,
         TotalDeltaPct: PctDelta(curTotal, prTotal),
         HumansDeltaPct: PctDelta(curHumans, prHumans),
-        BotsDeltaPct: PctDelta(curBots, prBots));
+        BotsDeltaPct: PctDelta(curBots, prBots),
+        // Distinct-fingerprint counts (period-scoped) for the headline "how many
+        // actors" number; requests above remain the "how much traffic" secondary.
+        // Fall back to request counts when no summary (topBots-only path) so the
+        // headline degrades to the old behaviour rather than showing 0.
+        TotalFingerprints: summary?.UniqueSignatures ?? curTotal,
+        HumanFingerprints: summary?.HumanFingerprints ?? curHumans,
+        BotFingerprints: summary?.BotFingerprints ?? curBots);
 
     // Bot-family series feeding the bar chart's bot sub-stack. Top-5 by hits;
     // everything else folds into a trailing "Other bots" slot painted neutral

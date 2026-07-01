@@ -27,37 +27,42 @@
     a glance — that's the question that drives the "where did my traffic go"
     panic when StyloBot starts blocking.
 *@
+@*
+    Headline number is DISTINCT FINGERPRINTS ("how many actors") — one human
+    browsing generates many request rows, so counting rows massively overstates
+    "humans". Requests ("how much traffic") are the secondary line. Both shown,
+    analytics-package style.
+*@
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
     <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-3">
-            <div class="text-xs text-base-content/50 uppercase tracking-wide">Total</div>
-            <div class="text-2xl font-bold">@Model.Total.ToString("N0")</div>
-            <div class="text-xs text-base-content/50">@DeltaText(Model.TotalDelta, Model.TotalDeltaPct)</div>
+            <div class="text-xs text-base-content/50 uppercase tracking-wide">Visitors</div>
+            <div class="text-2xl font-bold">@Model.TotalFingerprints.ToString("N0")</div>
+            <div class="text-xs text-base-content/50">@Model.Total.ToString("N0") requests</div>
+            <div class="text-xs text-base-content/40">@DeltaText(Model.TotalDelta, Model.TotalDeltaPct)</div>
         </div>
     </div>
     <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-3">
             <div class="text-xs text-success uppercase tracking-wide">Humans</div>
-            <div class="text-2xl font-bold">@Model.Humans.ToString("N0")</div>
-            <div class="text-xs text-base-content/50">
-                @humanShare.ToString("P0") of total &middot; @DeltaText(Model.HumansDelta, Model.HumansDeltaPct)
-            </div>
+            <div class="text-2xl font-bold">@Model.HumanFingerprints.ToString("N0")</div>
+            <div class="text-xs text-base-content/50">@Model.Humans.ToString("N0") requests &middot; @humanShare.ToString("P0")</div>
+            <div class="text-xs text-base-content/40">@DeltaText(Model.HumansDelta, Model.HumansDeltaPct)</div>
         </div>
     </div>
     <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-3">
             <div class="text-xs text-error uppercase tracking-wide">Bots</div>
-            <div class="text-2xl font-bold">@Model.Bots.ToString("N0")</div>
-            <div class="text-xs text-base-content/50">
-                @Model.BotShare.ToString("P0") of total &middot; @DeltaText(Model.BotsDelta, Model.BotsDeltaPct)
-            </div>
+            <div class="text-2xl font-bold">@Model.BotFingerprints.ToString("N0")</div>
+            <div class="text-xs text-base-content/50">@Model.Bots.ToString("N0") requests &middot; @Model.BotShare.ToString("P0")</div>
+            <div class="text-xs text-base-content/40">@DeltaText(Model.BotsDelta, Model.BotsDeltaPct)</div>
         </div>
     </div>
     <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-3">
             <div class="text-xs text-base-content/50 uppercase tracking-wide">Bot pressure</div>
             <div class="text-2xl font-bold">@Model.BotShare.ToString("P0")</div>
-            <div class="text-xs text-base-content/50">share of current window</div>
+            <div class="text-xs text-base-content/50">of requests this window</div>
         </div>
     </div>
 </div>
