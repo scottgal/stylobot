@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -80,7 +81,8 @@ public class BotDetectionMiddlewarePiiMaskingTests
             next,
             Mock.Of<ILogger<BotDetectionMiddleware>>(),
             Options.Create(options),
-            new FossLicenseState());
+            new FossLicenseState(),
+            new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
         {
@@ -150,7 +152,8 @@ public class BotDetectionMiddlewarePiiMaskingTests
                     Enabled = true
                 }
             }),
-            new FossLicenseState());
+            new FossLicenseState(),
+            new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
         {
@@ -220,7 +223,8 @@ public class BotDetectionMiddlewarePiiMaskingTests
                     Enabled = true
                 }
             }),
-            new FossLicenseState());
+            new FossLicenseState(),
+            new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
         {
@@ -288,7 +292,8 @@ public class BotDetectionMiddlewarePiiMaskingTests
                     Enabled = true
                 }
             }),
-            new FossLicenseState());
+            new FossLicenseState(),
+            new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
         {
@@ -357,7 +362,8 @@ public class BotDetectionMiddlewarePiiMaskingTests
             next,
             Mock.Of<ILogger<BotDetectionMiddleware>>(),
             Options.Create(new BotDetectionOptions { BotThreshold = 0.7 }),
-            new FossLicenseState());
+            new FossLicenseState(),
+            new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
         {

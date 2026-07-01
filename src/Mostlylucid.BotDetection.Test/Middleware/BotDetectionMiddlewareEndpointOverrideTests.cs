@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
@@ -116,7 +117,8 @@ public class BotDetectionMiddlewareEndpointOverrideTests
             next,
             NullLogger<BotDetectionMiddleware>.Instance,
             Options.Create(new BotDetectionOptions()),
-            new FossLicenseState());
+            new FossLicenseState(),
+            new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
     }
 
     private static HttpContext NewContext(object? metadata)

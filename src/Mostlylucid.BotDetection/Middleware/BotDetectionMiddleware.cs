@@ -9,6 +9,7 @@ using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Definitions.WellKnownBots;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Filters;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
@@ -50,6 +51,7 @@ public class BotDetectionMiddleware(
     ILogger<BotDetectionMiddleware> logger,
     IOptions<BotDetectionOptions> options,
     ILicenseState licenseState,
+    DomainNormalizer domainNormalizer,
     CountryReputationTracker? countryTracker = null,
     BotClusterService? clusterService = null,
     ReactiveSignalTracker? reactiveTracker = null,
@@ -109,6 +111,7 @@ public class BotDetectionMiddleware(
     private readonly ILogger<BotDetectionMiddleware> _logger = logger;
     private readonly RequestDelegate _next = next;
     private readonly BotDetectionOptions _options = options.Value;
+    private readonly DomainNormalizer _domainNormalizer = domainNormalizer;
     private readonly ReactiveSignalTracker? _reactiveTracker = reactiveTracker;
     private readonly Orchestration.ContributingDetectors.BehavioralWaveformContributor? _waveformContributor = waveformContributor;
     private readonly MultiFactorSignatureService? _signatureService = signatureService;
@@ -145,6 +148,8 @@ public class BotDetectionMiddleware(
         BotDetection.Telemetry.BotDetectionInstrumentation? telemetryInstrumentation = null,
         AuditProcessorDispatcher? auditProcessorDispatcher = null)
     {
+        _domainNormalizer.Resolve(context);
+
         _loadSensor?.RecordRequest();
 
         // Phase 4: hook OnCompleted once so DegradationAtom records every

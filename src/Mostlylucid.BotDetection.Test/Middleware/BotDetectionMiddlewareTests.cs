@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
@@ -36,7 +37,8 @@ public class BotDetectionMiddlewareTests
             next,
             _logger,
             Options.Create(options ?? new BotDetectionOptions()),
-            new FossLicenseState());
+            new FossLicenseState(),
+            new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
     }
 
     private static AggregatedEvidence CreateEvidence(
