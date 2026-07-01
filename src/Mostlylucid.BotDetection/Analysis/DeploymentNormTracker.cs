@@ -20,6 +20,13 @@ public sealed class DeploymentNormTracker
         public const string Http2 = "http2";
         public const string AcceptHeader = "accept_header";
         public const string AcceptLanguage = "accept_language";
+
+        // Transport-fingerprint features. Behind a TLS-terminating proxy / tunnel
+        // (Cloudflare, k8s ingress) these never reach the origin, so the norm
+        // learns they are absent-for-everyone here and stops penalising their
+        // absence — the Signal Assay principle. See docs/architecture/signal-assay.md.
+        public const string TcpConnectionHeader = "tcp_connection_header";
+        public const string Http2StreamPriority = "http2_stream_priority";
     }
 
     private readonly record struct BucketState(int Total, int WithFeature)

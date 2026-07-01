@@ -303,7 +303,9 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
             // request, penalising it for a header we deliberately ignored).
             if (trustHeaders)
             {
-                if (req.Headers.TryGetValue("X-HTTP2-Stream-Priority", out var priority))
+                var priorityUaFamily = state.GetSignal<string>(SignalKeys.UserAgentFamily) ?? "unknown";
+                var hasPriority = req.Headers.TryGetValue("X-HTTP2-Stream-Priority", out var priority);
+                if (hasPriority)
                 {
                     state.WriteSignal("h2.stream_priority", priority.ToString());
                     state.WriteSignal("h2.uses_priority", true);
@@ -311,13 +313,26 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                 else
                 {
                     state.WriteSignal("h2.uses_priority", false);
-                    // Lack of priority is slightly suspicious - browsers use it
+                }
+
+                // Signal Assay: the X-HTTP2-Stream-Priority header is edge-injected, so a
+                // proxy/tunnel that never forwards it makes the signal structurally absent
+                // for every client here. Calibrate against the deployment norm — only
+                // penalise absence where this deployment normally sees priority. During
+                // warm-up (or where priority is rare) emit nothing rather than bot-leaning.
+                var priorityEval = _norms.Evaluate(
+                    DeploymentNormTracker.Features.Http2StreamPriority, priorityUaFamily, present: hasPriority,
+                    _populationMinSamples, _populationRateThreshold,
+                    out _, out var prioritySamples);
+
+                if (!hasPriority && priorityEval == NormEvaluation.AboveNorm)
                     contributions.Add(BotContribution(
                         "HTTP/2",
                         "No HTTP/2 stream priority (browsers typically use this)",
-                        confidenceOverride: _noPriorityConfidence,
+                        confidenceOverride: prioritySamples < _populationMinSamples
+                            ? _noPriorityConfidence * 0.5
+                            : _noPriorityConfidence,
                         weightMultiplier: 0.6));
-                }
             }
 
             // Check for WINDOW_UPDATE behavior patterns. Gated by trust.

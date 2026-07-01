@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Proxy;
@@ -115,15 +116,22 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
 
     private readonly ILogger<TcpIpFingerprintContributor> _logger;
     private readonly ITransportHeaderTrust? _transportTrust;
+    private readonly DeploymentNormTracker? _norms;
+    private readonly int _populationMinSamples;
+    private readonly double _populationRateThreshold;
 
     public TcpIpFingerprintContributor(
         ILogger<TcpIpFingerprintContributor> logger,
         IDetectorConfigProvider configProvider,
-        ITransportHeaderTrust? transportTrust = null)
+        ITransportHeaderTrust? transportTrust = null,
+        DeploymentNormTracker? norms = null)
         : base(configProvider)
     {
         _logger = logger;
         _transportTrust = transportTrust;
+        _norms = norms;
+        _populationMinSamples = GetParam("population_min_samples", 20);
+        _populationRateThreshold = GetParam("population_rate_threshold", 0.7);
     }
 
     public override string Name => "TcpIpFingerprint";
@@ -251,19 +259,39 @@ public class TcpIpFingerprintContributor : ConfiguredContributorBase
                 else if (ipIdPattern == "random") state.WriteSignal(SignalKeys.TcpOsHint, "Linux/BSD");
             }
 
-            // Analyze connection reuse patterns (Connection is a real HTTP header, not edge-injected - not gated)
+            // Analyze connection reuse patterns. The Connection header is a real HTTP
+            // header, but it is structurally absent under HTTP/2 (which forbids it) and
+            // may be dropped/rewritten by a proxy or tunnel that terminates keep-alive.
+            // Calibrate its absence against the deployment norm (Signal Assay) instead of
+            // penalising unconditionally — otherwise every real browser behind a tunnel
+            // is scored as a bot. See docs/architecture/signal-assay.md.
             var connectionHeader = req.Headers.Connection.ToString();
             state.WriteSignal(SignalKeys.TcpConnectionHeader, connectionHeader);
 
-            if (string.IsNullOrEmpty(connectionHeader))
-                contributions.Add(new DetectionContribution
-                {
-                    DetectorName = Name,
-                    Category = "TCP/IP",
-                    ConfidenceDelta = ConnectionMissingConfidence,
-                    Weight = ConnectionMissingWeight,
-                    Reason = "Missing connection reuse header (unusual for real browsers)"
-                });
+            var hasConnectionHeader = !string.IsNullOrEmpty(connectionHeader);
+            var connectionEval = NormEvaluation.BelowNorm;
+            if (_norms is not null)
+            {
+                var connUaFamily = state.GetSignal<string>(SignalKeys.UserAgentFamily) ?? "unknown";
+                connectionEval = _norms.Evaluate(
+                    DeploymentNormTracker.Features.TcpConnectionHeader, connUaFamily, present: hasConnectionHeader,
+                    _populationMinSamples, _populationRateThreshold,
+                    out _, out _);
+            }
+
+            if (!hasConnectionHeader)
+            {
+                // Only suspicious where this deployment normally sees the header.
+                if (connectionEval == NormEvaluation.AboveNorm)
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "TCP/IP",
+                        ConfidenceDelta = ConnectionMissingConfidence,
+                        Weight = ConnectionMissingWeight,
+                        Reason = "Missing connection reuse header (unusual for real browsers)"
+                    });
+            }
             else if (connectionHeader.Equals("close", StringComparison.OrdinalIgnoreCase))
                 // Bots often use Connection: close to avoid keep-alive
                 contributions.Add(new DetectionContribution
