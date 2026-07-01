@@ -1,5 +1,9 @@
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @model IReadOnlyList<EndpointRow>
+@{
+    // Configurable mount point — never hardcode /dashboard.
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+}
 @*
     T3 — Top-endpoints breakdown card. Row click drills into the per-endpoint
     detail view (spec §8). Method badge is badge-ghost across the board today
@@ -41,7 +45,7 @@
                         : "—";
                     var errStyle = row.HasPerf ? ErrColour(row.ErrorRate) : "";
                     <li>
-                        <a href="/dashboard/site/endpoint?path=@Uri.EscapeDataString(row.Path)&method=@Uri.EscapeDataString(row.Method)"
+                        <a href="@basePath/endpoints?selected=@Uri.EscapeDataString(row.Method + "|" + row.Path)"
                            class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
                             <span class="badge badge-ghost badge-xs flex-none">@row.Method</span>
                             <span class="truncate flex-1 min-w-0 font-mono text-[11px]" title="@row.Path">@row.Path</span>

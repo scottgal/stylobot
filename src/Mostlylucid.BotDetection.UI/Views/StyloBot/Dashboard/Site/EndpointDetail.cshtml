@@ -5,6 +5,8 @@
 @inject DashboardContributionRegistry Contributions
 @{
     ViewData["Title"] = $"{Model.Method} {Model.Path}";
+    // Configurable mount point — never hardcode /dashboard.
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
     var maxHits = Model.Timeseries.Hits.Count == 0 ? 0 : Model.Timeseries.Hits.Max();
     var totalHits = Model.Timeseries.Hits.Sum();
     var totalBotHits = Model.Timeseries.BotHits.Sum();
@@ -22,7 +24,7 @@
 *@
 <section class="space-y-4">
     <header class="flex items-center gap-3 flex-wrap">
-        <a href="/dashboard/site"
+        <a href="@basePath/site"
            class="text-xs text-base-content/50 hover:text-base-content/80 underline">
             &larr; Site
         </a>
@@ -106,7 +108,7 @@
                         @foreach (var v in Model.TopVisitors)
                         {
                             <li>
-                                <a href="/dashboard/visitors/@v.PrimarySignature"
+                                <a href="@basePath/signature/@v.PrimarySignature"
                                    class="hover:bg-base-200 rounded px-1 py-0.5 flex items-center justify-between gap-2">
                                     <span class="truncate flex items-center gap-2">
                                         @if (v.IsBot)
@@ -174,7 +176,7 @@
                     canEdit = false
                 })
                 <div class="text-[10px] text-base-content/40 mt-2">
-                    Full rule editor: <a href="/dashboard/policies" class="underline">/dashboard/policies</a>
+                    Full rule editor: <a href="@basePath/policies" class="underline">@basePath/policies</a>
                 </div>
             </div>
         </section>

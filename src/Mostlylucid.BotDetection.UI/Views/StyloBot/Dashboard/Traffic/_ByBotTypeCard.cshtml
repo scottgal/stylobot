@@ -1,5 +1,9 @@
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @model IReadOnlyList<BotTypeRow>
+@{
+    // Configurable mount point — never hardcode /dashboard.
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+}
 @*
     T3 — By-bot-type breakdown card. Row click filters Visitors by bot type
     (spec §8). Mini bar gives a rough relative-volume cue against the card's
@@ -23,7 +27,7 @@
                 {
                     var pct = (int)Math.Round(row.Hits * 100.0 / max);
                     <li>
-                        <a href="/dashboard/visitors?bot_type=@Uri.EscapeDataString(row.BotType)"
+                        <a href="@basePath/visitors?bot_type=@Uri.EscapeDataString(row.BotType)"
                            class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
                             <span class="truncate flex-1 min-w-0">@row.BotType</span>
                             <span class="relative h-1.5 w-16 bg-base-300 rounded flex-none overflow-hidden">

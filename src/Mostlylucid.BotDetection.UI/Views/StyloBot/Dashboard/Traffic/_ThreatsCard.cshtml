@@ -1,5 +1,10 @@
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @model IReadOnlyList<ThreatRow>
+@{
+    // Dashboard mount point is configurable (e.g. /_stylobot embedded, /dashboard on the
+    // public site) — never hardcode it. Same ViewData source as _VisitorCard.
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+}
 @*
     T3 — Threats breakdown card. Surfaces Medium+ ThreatBand visitors in the
     window. Row click → visitor detail (same drilldown as Top visitors per
@@ -28,7 +33,7 @@
                     var ago = TimeAgo(t.LastSeen);
                     var name = string.IsNullOrEmpty(t.ResolvedName) ? "(unnamed)" : t.ResolvedName;
                     <li>
-                        <a href="/dashboard/visitors/@Uri.EscapeDataString(t.PrimarySignature)"
+                        <a href="@basePath/signature/@Uri.EscapeDataString(t.PrimarySignature)"
                            class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
                             <span class="truncate flex-1 min-w-0" title="@name">@name</span>
                             <span class="badge badge-xs @badgeClass flex-none">@t.ThreatBand</span>

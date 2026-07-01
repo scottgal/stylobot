@@ -1,5 +1,9 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model IReadOnlyList<CachedVisitor>
+@{
+    // Configurable mount point — never hardcode /dashboard. Same source as _VisitorCard.
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+}
 @*
     T3 — Top-visitors breakdown card. The full _VisitorCard primitive is too
     large for the Traffic-page grid; render a compact one-line row that mirrors
@@ -25,7 +29,7 @@
                                   && code!.Length == 2
                                   && !code.Equals("XX", StringComparison.OrdinalIgnoreCase);
                     <li>
-                        <a href="/dashboard/visitors/@Uri.EscapeDataString(v.PrimarySignature)"
+                        <a href="@basePath/signature/@Uri.EscapeDataString(v.PrimarySignature)"
                            class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
                             @if (hasFlag)
                             {

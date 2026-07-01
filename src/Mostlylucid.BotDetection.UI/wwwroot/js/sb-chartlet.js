@@ -116,9 +116,17 @@
     // renders with the legend pill already in the "off" state. Shallow
     // copy so subsequent toggle() calls don't mutate the shared object.
     var seed = (opts && opts.initialHidden) ? Object.assign({}, opts.initialHidden) : {};
+    // The Chart.js instance is held in a per-factory closure variable, NOT on the
+    // returned x-data object. If it lived on the reactive object, Alpine would wrap
+    // it in a reactive Proxy; then toggle()'s `chart.update()` — running inside an
+    // Alpine click effect — reads Chart.js internals THROUGH the proxy, Alpine tracks
+    // those reads as dependencies, and the `hidden` mutation re-runs the effect →
+    // update() again → infinite recursion ("Maximum call stack size exceeded" on
+    // every series-toggle / bar click). The `hidden` legend map stays reactive (the
+    // Razor legend pills bind to it); only the chart instance must be non-reactive.
+    var chart = null;
     return {
       hidden: seed,
-      chart: null,
       init: function () {
         const canvas = document.getElementById(opts.id);
         if (!canvas) return;
@@ -167,14 +175,14 @@
           config.options.scales.y.stacked = false;
         }
         if (!window.Chart) return;
-        self.chart = new window.Chart(canvas, config);
+        chart = new window.Chart(canvas, config);
       },
       toggle: function (key) {
         this.hidden[key] = !this.hidden[key];
-        if (!this.chart) return;
-        const ds = this.chart.data.datasets.find(function (d) { return d._seriesKey === key; });
+        if (!chart) return;
+        const ds = chart.data.datasets.find(function (d) { return d._seriesKey === key; });
         if (ds) ds.hidden = this.hidden[key];
-        this.chart.update();
+        chart.update();
       }
     };
   };
