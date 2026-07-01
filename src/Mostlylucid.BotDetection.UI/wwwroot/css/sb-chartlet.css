@@ -4,6 +4,22 @@
    `--sb-border-radius`, `--sb-text`) so legend + canvas chrome inherit theme
    and dark-mode toggles for free. */
 
+/* Categorical bar palette — used by single-series horizontal bars where each
+   bar is a distinct category (by-country, by-bot-type). Deliberately NON-
+   semantic (these are categories, not risk levels), just a spread of distinct
+   theme hues so adjacent bars never share a colour. Resolved per-bar by
+   sb-chartlet.js (--sb-chart-cat-N). Override per tier/brand as needed. */
+:root {
+    --sb-chart-cat-1: #f2c744; /* amber (brand) */
+    --sb-chart-cat-2: #38bdf8; /* sky */
+    --sb-chart-cat-3: #a78bfa; /* violet */
+    --sb-chart-cat-4: #34d399; /* emerald */
+    --sb-chart-cat-5: #fb7185; /* rose */
+    --sb-chart-cat-6: #f97316; /* orange */
+    --sb-chart-cat-7: #22d3ee; /* cyan */
+    --sb-chart-cat-8: #e879f9; /* fuchsia */
+}
+
 .sb-chartlet {
     display: flex;
     flex-direction: column;

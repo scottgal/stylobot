@@ -9,13 +9,35 @@
     return v || '#888';
   }
 
+  // Categorical palette for single-series charts where each BAR is its own
+  // category (by-country, by-bot-type). These are NOT risk-semantic colours —
+  // they only make adjacent bars distinct. Theme-owned as CSS custom properties
+  // (--sb-chart-cat-N in sb-chartlet.css) so they follow light/dark + tier.
+  var CATEGORICAL_TOKENS = [
+    '--sb-chart-cat-1', '--sb-chart-cat-2', '--sb-chart-cat-3', '--sb-chart-cat-4',
+    '--sb-chart-cat-5', '--sb-chart-cat-6', '--sb-chart-cat-7', '--sb-chart-cat-8'
+  ];
+  function categoricalColor(i) {
+    return colorFor(CATEGORICAL_TOKENS[i % CATEGORICAL_TOKENS.length]);
+  }
+
+  // A single-series horizontal bar is categorical: each bar is a distinct
+  // bucket, so every bar gets its own colour instead of one flat series colour.
+  function isCategorical(model) {
+    return model.kind === 'HorizontalBar' && model.series.length === 1;
+  }
+
   function buildDatasets(model) {
+    var categorical = isCategorical(model);
     return model.series.map(function (s) {
+      var bg = categorical
+        ? s.buckets.map(function (_, i) { return categoricalColor(i); })
+        : colorFor(s.colorToken);
       return {
         label: s.label,
         data: s.buckets,
-        backgroundColor: colorFor(s.colorToken),
-        borderColor: colorFor(s.colorToken),
+        backgroundColor: bg,
+        borderColor: bg,
         borderWidth: 0,
         stack: 'series',
         // UX2: honour the server-side `hidden` flag on initial paint so
@@ -173,6 +195,19 @@
           config.options.indexAxis = 'y';
           config.options.scales.x.stacked = false;
           config.options.scales.y.stacked = false;
+          // With the index axis flipped, Y is the CATEGORY axis and X is the
+          // VALUE axis. buildOptions put the value-formatter on Y, which would
+          // format the bar INDEX as a number (0, 1, 2...) instead of showing
+          // the bucket label. Move the formatter to X and let Y render labels.
+          config.options.scales.x.ticks = {
+            callback: function (v) { return formatY(v, model.axes.yFormat); },
+            maxRotation: 0, autoSkip: true, autoSkipPadding: 12
+          };
+          config.options.scales.x.beginAtZero = true;
+          config.options.scales.y.ticks = { autoSkip: false };
+          // The value grid belongs on the value (X) axis now, not the category axis.
+          config.options.scales.x.grid = { display: !!model.axes.gridLines, color: 'rgba(127,127,127,0.15)' };
+          config.options.scales.y.grid = { display: false };
         }
         if (!window.Chart) return;
         chart = new window.Chart(canvas, config);
