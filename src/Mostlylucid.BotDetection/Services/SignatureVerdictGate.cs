@@ -172,11 +172,14 @@ public sealed class SignatureVerdictGate
     private static SignatureVerdict SynthesiseFromIdentity(string signatureId, IdentityCachedVerdict id)
     {
         var confidence = Math.Min(1.0, id.ObservationCount / 10.0);
-        // cached_risk_band is only written by IdentityAiOpinionService (slow-path L2). For
-        // the >90% of fingerprints that never trigger L2 the column is NULL, which used to
-        // fall through to RiskBand.Unknown and consume the whole risk-band histogram on
-        // the dashboard. Derive the band from the cached bot_probability instead -- a
-        // 10+-observation fingerprint at prob=0 is structurally VeryLow, not Unknown.
+        // cached_risk_band is written on every detection by the store's verdict write
+        // path (RecordVerdictAsync / UpdateCachedVerdictAsync), always derived from the
+        // cached bot_probability so band and probability never disagree. So for any
+        // fingerprint that has been through one detection the stored band is present and
+        // authoritative -- use it as-is. The fallback below only fires for a brand-new,
+        // pre-first-verdict row (column NULL) or a legacy pre-fix row that stored
+        // "Unknown"; deriving from bot_probability keeps those out of the dashboard's
+        // Unknown bucket (a 10+-observation fingerprint at prob=0 is structurally VeryLow).
         RiskBand band;
         if (Enum.TryParse<RiskBand>(id.RiskBand, ignoreCase: true, out var parsed) && parsed != RiskBand.Unknown)
         {

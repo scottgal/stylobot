@@ -1460,8 +1460,10 @@ public class SqliteFingerprintStore : IFingerprintStore
         await cmd.ExecuteNonQueryAsync(ct);
 
         // LFU façade invalidation: drop the fingerprint row so the next read reloads
-        // the row we just rewrote. Manual-operator AI button "force re-read" semantics.
-        _fingerprintById.TryRemove(fingerprintId, out _);
+        // the row we just rewrote, and bump the epoch so a concurrent GetFingerprintAsync
+        // that read the pre-write DB snapshot cannot repopulate the dict with the stale
+        // band after this removal. Matches the Postgres store (InvalidateFingerprintCache).
+        InvalidateFingerprintCache(fingerprintId);
     }
 
     /// <summary>
