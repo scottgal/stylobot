@@ -422,7 +422,15 @@ public class SqliteFingerprintStore : IFingerprintStore
             cmd.Parameters.AddWithValue("@inferred_conf", fp.InferredTypeConfidence);
             cmd.Parameters.AddWithValue("@inferred_changed", fp.InferredTypeChangedAt.ToString("O"));
             cmd.Parameters.AddWithValue("@cached_prob", fp.CachedBotProbability);
-            cmd.Parameters.AddWithValue("@cached_band", (object?)fp.CachedRiskBand ?? DBNull.Value);
+            // Never persist the matcher's supplied band verbatim (it may be a
+            // hardcoded band from a contributor). When a verdict exists (score
+            // timestamp set) derive the band from THIS row's probability so the
+            // allocation is born consistent; otherwise leave it null (no verdict
+            // yet). Single source of truth — see DeriveConsistentBand.
+            cmd.Parameters.AddWithValue("@cached_band",
+                fp.CachedScoreUpdatedAt is null
+                    ? DBNull.Value
+                    : DeriveConsistentBand(fp.CachedBotProbability, fp.InferredTypeConfidence));
             cmd.Parameters.AddWithValue("@cached_updated",
                 (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@ambiguity", fp.AmbiguityPersistence);
@@ -1392,14 +1400,48 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
+    ///     SINGLE SOURCE OF TRUTH for the stored risk band. The band is a pure
+    ///     function of the stored probability and the fingerprint's inferred-type
+    ///     confidence (<see cref="Risk.SignatureRiskVerdictComposer.BucketRisk"/>).
+    ///     No caller-supplied band is EVER persisted verbatim — that is what let a
+    ///     cold-start request (RecordVerdictAsync), an AI opinion whose free-text
+    ///     label disagreed with its own probability (UpdateCachedVerdictAsync), or a
+    ///     matcher's hardcoded band (the insert path) stamp a band that contradicted
+    ///     the probability the dashboard shows (e.g. "prob 0.545 / band VeryHigh").
+    ///     Deriving here guarantees the stored (probability, band) pair is always
+    ///     internally consistent; the dashboard reads both as-is without recomputing.
+    /// </summary>
+    private static string DeriveConsistentBand(double probability, double confidence) =>
+        Risk.SignatureRiskVerdictComposer
+            .BucketRisk(probability, confidence)
+            .ToString();
+
+    /// <summary>
     ///     Writes a new cached verdict to the fingerprint row. Used by the manual AI opinion
     ///     path so an operator-triggered classifier verdict updates the row live without
     ///     waiting for the next drift tick. Touches <c>cached_bot_probability</c>,
     ///     <c>cached_risk_band</c>, and <c>cached_score_updated_at</c> in one transaction.
+    ///     The caller's free-text band label is IGNORED for the stored band — it is
+    ///     derived from the probability being written (see <see cref="DeriveConsistentBand"/>)
+    ///     so the AI path cannot introduce a prob/band disagreement.
     /// </summary>
     public async Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default)
     {
+        // Confidence for the band derivation comes from the existing fingerprint
+        // (dict first, then DB). Absent (brand-new / unknown) → 0.0, the neutral
+        // low-confidence case BucketRisk already handles.
+        double confidence = 0.0;
+        if (_fingerprintById.TryGetValue(fingerprintId, out var existing))
+            confidence = existing.InferredTypeConfidence;
+        else
+        {
+            var loaded = await GetFingerprintAsync(fingerprintId, ct);
+            if (loaded is not null) confidence = loaded.InferredTypeConfidence;
+        }
+
+        var consistentBand = DeriveConsistentBand(botProbability, confidence);
+
         await EnsureInitialisedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -1412,7 +1454,7 @@ public class SqliteFingerprintStore : IFingerprintStore
              WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@prob", botProbability);
-        cmd.Parameters.AddWithValue("@band", (object?)riskBand ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@band", consistentBand);
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
@@ -1465,9 +1507,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         // dashboard only reads). The per-request band still appears per-row in
         // the detections history; the IDENTITY band is a function of the
         // identity probability.
-        var consistentBand = Risk.SignatureRiskVerdictComposer
-            .BucketRisk(blended, existing.InferredTypeConfidence)
-            .ToString();
+        var consistentBand = DeriveConsistentBand(blended, existing.InferredTypeConfidence);
 
         var now = DateTime.UtcNow;
         var updated = existing with
