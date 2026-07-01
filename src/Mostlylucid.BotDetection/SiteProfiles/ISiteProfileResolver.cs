@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 
 namespace Mostlylucid.BotDetection.SiteProfiles;
 
@@ -29,6 +30,7 @@ internal sealed class SiteProfileResolver : ISiteProfileResolver
 
     private readonly ISiteProfileCatalog _catalog;
     private readonly ILogger<SiteProfileResolver> _logger;
+    private readonly DomainNormalizer _domainNormalizer;
     private readonly FrozenDictionary<string, SiteProfile?> _exact;
     private readonly (string[] Segments, bool LeadingWildcard, SiteProfile? Profile)[] _wildcards;
     private readonly SiteProfile? _defaultProfile;
@@ -36,10 +38,12 @@ internal sealed class SiteProfileResolver : ISiteProfileResolver
     public SiteProfileResolver(
         ISiteProfileCatalog catalog,
         IOptions<SiteMapOptions> map,
+        DomainNormalizer domainNormalizer,
         ILogger<SiteProfileResolver> logger)
     {
         _catalog = catalog;
         _logger = logger;
+        _domainNormalizer = domainNormalizer;
 
         var opts = map.Value;
         _defaultProfile = string.IsNullOrEmpty(opts.DefaultProfile)
@@ -84,7 +88,7 @@ internal sealed class SiteProfileResolver : ISiteProfileResolver
         if (context.Items.TryGetValue(CacheKey, out var cached))
             return cached as SiteProfile;
 
-        var host = NormaliseHost(context.Request.Host.Host);
+        var host = _domainNormalizer.NormalizeHost(context.Request.Host.Host);
         var profile = ResolveByHost(host);
         context.Items[CacheKey] = profile;
         return profile;
@@ -92,7 +96,7 @@ internal sealed class SiteProfileResolver : ISiteProfileResolver
 
     public SiteProfile? ResolveByHost(string host)
     {
-        host = NormaliseHost(host);
+        host = _domainNormalizer.NormalizeHost(host);
         if (string.IsNullOrEmpty(host)) return _defaultProfile;
 
         // Exact match wins.
@@ -137,11 +141,4 @@ internal sealed class SiteProfileResolver : ISiteProfileResolver
         return true;
     }
 
-    private static string NormaliseHost(string? host)
-    {
-        if (string.IsNullOrEmpty(host)) return "";
-        var colon = host.IndexOf(':');
-        var stripped = colon >= 0 ? host[..colon] : host;
-        return stripped.ToLowerInvariant().TrimEnd('.');
-    }
 }

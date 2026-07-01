@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.SiteProfiles;
 
 namespace Mostlylucid.BotDetection.Test.SiteProfiles;
@@ -15,9 +16,13 @@ public class SiteProfileResolverTests
             DefaultProfile = "generic",
             Domains = rules.Select(r => new SiteMapRule { Host = r.host, Profile = r.profile }).ToList()
         };
+        var normalizer = new DomainNormalizer(
+            Options.Create(new DomainNormalizerOptions()),
+            PublicSuffixList.LoadEmbedded());
         return new SiteProfileResolver(
             catalog,
             Options.Create(map),
+            normalizer,
             NullLogger<SiteProfileResolver>.Instance);
     }
 
