@@ -199,6 +199,15 @@
         <EmbeddedResource Include="Policies\Decisions\Schema\*.sql" />
     </ItemGroup>
 
+    <!-- Embed the Public Suffix List (publicsuffix.org). DomainNormalizer reads
+         this at startup to derive eTLD+1 for cross-subdomain grouping so that
+         request-scope Domain values match across www./api./m. hosts. Refresh
+         by re-downloading Domains/PublicSuffixList.dat from
+         https://publicsuffix.org/list/public_suffix_list.dat . -->
+    <ItemGroup>
+        <EmbeddedResource Include="Domains\PublicSuffixList.dat" />
+    </ItemGroup>
+
     <!-- Include README in NuGet package (icon comes from Directory.Build.props shared root) -->
     <ItemGroup>
         <None Include=".\README.md" Pack="true" PackagePath="">
