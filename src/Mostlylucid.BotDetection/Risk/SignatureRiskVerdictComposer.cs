@@ -22,6 +22,16 @@ namespace Mostlylucid.BotDetection.Risk;
 ///     branches inside <see cref="Compose"/>, not new gating sites.
 ///     </para>
 /// </summary>
+public enum TrafficClass
+{
+    /// <summary><c>bot_probability &lt; HumanCeiling</c>.</summary>
+    Human,
+    /// <summary>Between the two thresholds — not confidently either.</summary>
+    Uncertain,
+    /// <summary><c>bot_probability &gt;= BotFloor</c>. The binary "is a bot" case.</summary>
+    Bot
+}
+
 public static class SignatureRiskVerdictComposer
 {
     /// <summary>
@@ -323,6 +333,27 @@ public static class SignatureRiskVerdictComposer
         if (scaled < 0.80) return RiskBand.High;
         return RiskBand.VeryHigh;
     }
+
+    /// <summary>
+    ///     The single, canonical bot/human/uncertain classification. It is a PURE function of
+    ///     <c>bot_probability</c> and the configured thresholds — NOTHING else (not BotType, not
+    ///     reputation, not a honeypot hit). Those signals must express themselves by moving the
+    ///     probability, never by overriding this decision. Every dashboard surface, aggregation,
+    ///     and the stored <c>is_bot</c> boolean derive from this so they can never disagree.
+    ///     See docs/architecture/bot-human-classification-rationalisation.md.
+    /// </summary>
+    public static TrafficClass Classify(double botProbability, Models.ClassificationOptions thresholds)
+        => botProbability >= thresholds.BotFloor     ? TrafficClass.Bot
+         : botProbability <  thresholds.HumanCeiling ? TrafficClass.Human
+         :                                            TrafficClass.Uncertain;
+
+    /// <summary>
+    ///     Binary "is this a bot?" — the single cut used for every bot/human count, rate, and
+    ///     filter. Equivalent to <c>Classify(...) == TrafficClass.Bot</c>. In SQL the identical
+    ///     rule is <c>bot_probability &gt;= @botFloor</c> (thresholds.BotFloor).
+    /// </summary>
+    public static bool IsBot(double botProbability, Models.ClassificationOptions thresholds)
+        => botProbability >= thresholds.BotFloor;
 
     /// <summary>
     ///     Full neutral-path risk-band computation. Migrated from the legacy

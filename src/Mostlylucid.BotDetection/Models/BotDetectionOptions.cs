@@ -32,6 +32,14 @@ public class BotDetectionOptions
     public double BotThreshold { get; set; } = 0.7;
 
     /// <summary>
+    ///     The ONE set of priors for turning <c>bot_probability</c> into a bot/human/uncertain
+    ///     classification. Every dashboard surface and aggregation derives its bot/human answer
+    ///     from these thresholds via <see cref="Risk.SignatureRiskVerdictComposer.Classify"/> —
+    ///     nothing computes its own. See docs/architecture/bot-human-classification-rationalisation.md.
+    /// </summary>
+    public ClassificationOptions Classification { get; set; } = new();
+
+    /// <summary>
     ///     Enable test mode (allows ml-bot-test-mode header to override detection)
     ///     WARNING: Only enable in development/testing environments!
     ///     In production, this header is completely ignored for security.
@@ -1519,6 +1527,27 @@ public class BotDetectionOptions
 ///     - Signals emitted on update completion for coordination
 ///     - Supports durable task pattern for long-running updates
 /// </remarks>
+/// <summary>
+///     The single set of thresholds ("priors") that turn <c>bot_probability</c> into a
+///     bot / human / uncertain classification. This is the ONLY place these numbers live;
+///     every dashboard surface, aggregation, and the stored <c>is_bot</c> boolean derive
+///     from them via <see cref="Risk.SignatureRiskVerdictComposer.Classify"/> /
+///     <see cref="Risk.SignatureRiskVerdictComposer.IsBot"/>. No surface computes its own.
+///     See docs/architecture/bot-human-classification-rationalisation.md.
+/// </summary>
+public sealed class ClassificationOptions
+{
+    /// <summary><c>bot_probability &lt; HumanCeiling</c> ⇒ Human. Default 0.30.</summary>
+    public double HumanCeiling { get; set; } = 0.30;
+
+    /// <summary>
+    ///     <c>bot_probability &gt;= BotFloor</c> ⇒ Bot; this is also the binary "is a bot" cut.
+    ///     Default 0.70 — deliberately aligned with the action block threshold so "counted as a
+    ///     bot" and "acted on as a bot" never disagree.
+    /// </summary>
+    public double BotFloor { get; set; } = 0.70;
+}
+
 public class ListUpdateScheduleOptions
 {
     /// <summary>
