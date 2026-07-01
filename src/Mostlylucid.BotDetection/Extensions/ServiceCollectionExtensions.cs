@@ -13,6 +13,7 @@ using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Identity;
 // LlmDetector removed - now in Mostlylucid.BotDetection.Llm.Ollama/LlamaSharp packages
@@ -410,6 +411,17 @@ public static class ServiceCollectionExtensions
     /// </summary>
     private static void RegisterCoreServices(IServiceCollection services)
     {
+        // Domain normalization -- canonical (Host, ETldPlusOne) resolution for the
+        // multi-domain storage layer. PublicSuffixList is loaded once from the
+        // embedded IANA data; DomainNormalizer is stateless and cheap to share.
+        // Options bind from BotDetection:DomainNormalizer (CustomPublicSuffixes /
+        // TreatWwwAsCanonical). Kept as TryAdd so a host embedding a custom PSL or
+        // normalizer (e.g. an internal-domain-only fixture) can Replace() first.
+        services.AddOptions<DomainNormalizerOptions>()
+            .BindConfiguration(DomainNormalizerOptions.SectionName);
+        services.TryAddSingleton(_ => PublicSuffixList.LoadEmbedded());
+        services.TryAddSingleton<DomainNormalizer>();
+
         // Rate-limiting primitives -- in-memory token bucket + leaky-bucket data
         // stream. Commercial replaces IRateLimitStateStore with a Redis-backed
         // implementation via TryAdd so a multi-gateway cluster shares budgets.
