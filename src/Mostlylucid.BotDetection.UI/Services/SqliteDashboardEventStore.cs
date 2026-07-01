@@ -22,6 +22,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     private readonly string _connectionString;
     private readonly ILogger<SqliteDashboardEventStore> _logger;
     private readonly TimeSpan _detectionRetention;
+    private readonly double _botFloor;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _initialized;
@@ -33,6 +34,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     {
         _logger = logger;
         _connectionString = DashboardDbPath.GetConnectionString(options.Value);
+        // The ONE bot/human cut. Every aggregation below derives is_bot from
+        // bot_probability >= @botFloor, never the stored is_bot boolean, so the
+        // dashboard can't disagree with the probability. See
+        // docs/architecture/bot-human-classification-rationalisation.md.
+        _botFloor = options.Value.Classification.BotFloor;
         // dashboardOptions is optional because some callers (notably the
         // detection-only gateway path) don't bind StyloBotDashboardOptions.
         // Default to the historical 7-day retention when absent.
@@ -502,8 +508,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // Audience predicate for the detection-level sub-query only.
         var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
         {
-            "bots"   => " AND is_bot = 1",
-            "humans" => " AND is_bot = 0",
+            "bots"   => " AND bot_probability >= @botFloor",
+            "humans" => " AND bot_probability < @botFloor",
             _        => string.Empty
         };
 
@@ -519,7 +525,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.CommandText = $"""
                 SELECT
                     COUNT(*) AS total,
-                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
+                    SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bots,
                     COALESCE(SUM(response_bytes), 0) AS bytes_out,
                     AVG(processing_time_ms) AS avg_ms,
                     MAX(processing_time_ms) AS max_ms
@@ -527,6 +533,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 WHERE timestamp >= @since{untilClause}{audiencePredicate}
                 """;
             cmd.Parameters.AddWithValue("@since", sinceStr);
+            cmd.Parameters.AddWithValue("@botFloor", _botFloor);
             if (hasUntil) cmd.Parameters.AddWithValue("@until", untilStr);
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
@@ -562,6 +569,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 WHERE last_seen >= @since
                 """;
             cmd.Parameters.AddWithValue("@since", sinceStr);
+            cmd.Parameters.AddWithValue("@botFloor", _botFloor);
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
@@ -582,6 +590,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 GROUP BY band
                 """;
             cmd.Parameters.AddWithValue("@since", sinceStr);
+            cmd.Parameters.AddWithValue("@botFloor", _botFloor);
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
@@ -630,8 +639,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // Audience predicate restricts each bucket to the matching audience.
         var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
         {
-            "bots"   => " AND is_bot = 1",
-            "humans" => " AND is_bot = 0",
+            "bots"   => " AND bot_probability >= @botFloor",
+            "humans" => " AND bot_probability < @botFloor",
             _        => string.Empty
         };
 
@@ -644,8 +653,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 strftime('%Y-%m-%dT%H:%M:%SZ',
                          (CAST(strftime('%s', timestamp) AS INTEGER) / @bucket) * @bucket,
                          'unixepoch') AS bucket,
-                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
-                SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) AS humans,
+                SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bots,
+                SUM(CASE WHEN bot_probability < @botFloor THEN 1 ELSE 0 END) AS humans,
                 COUNT(*) AS total,
                 COALESCE(SUM(response_bytes), 0) AS bytes_out,
                 AVG(processing_time_ms) AS avg_ms,
@@ -656,6 +665,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             ORDER BY bucket
             """;
         cmd.Parameters.AddWithValue("@start", startTime.ToString("O"));
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         cmd.Parameters.AddWithValue("@end", endTime.ToString("O"));
         cmd.Parameters.AddWithValue("@bucket", bucketSeconds);
 
@@ -730,8 +740,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var isBotPredicate = audienceFilter?.ToLowerInvariant() switch
         {
             "all"    => string.Empty,
-            "humans" => "WHERE s.is_bot = 0",
-            _        => "WHERE s.is_bot = 1"
+            "humans" => "WHERE s.bot_probability < @botFloor",
+            _        => "WHERE s.bot_probability >= @botFloor"
         };
 
         // When a time window is specified, aggregate directly from detections so the
@@ -755,13 +765,14 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     ORDER BY ses.ended_at DESC
                     LIMIT 1) AS last_path,
                    COALESCE((SELECT SUM(d.response_bytes) FROM detections d WHERE d.signature = s.signature), 0) AS bytes_out,
-                   s.is_bot AS is_bot
+                   (s.bot_probability >= @botFloor) AS is_bot
             FROM signatures s
             {isBotPredicate}
             ORDER BY s.hit_count DESC
             LIMIT @count
             """;
         cmd.Parameters.AddWithValue("@count", count);
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
 
         var results = new List<DashboardTopBotEntry>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -813,8 +824,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
         {
             "all"    => string.Empty,
-            "humans" => " AND is_bot = 0",
-            _        => " AND is_bot = 1"
+            "humans" => " AND bot_probability < @botFloor",
+            _        => " AND bot_probability >= @botFloor"
         };
 
         var timeWhere = new System.Text.StringBuilder();
@@ -856,6 +867,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             """;
 
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end",   endTime.Value.ToString("O"));
         cmd.Parameters.AddWithValue("@count", count);
 
@@ -904,15 +916,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
         switch (audienceFilter?.ToLowerInvariant())
         {
-            case "humans": where.Append(" AND is_bot = 0"); break;
-            case "bots":   where.Append(" AND is_bot = 1"); break;
+            case "humans": where.Append(" AND bot_probability < @botFloor"); break;
+            case "bots":   where.Append(" AND bot_probability >= @botFloor"); break;
         }
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
             SELECT country_code,
                    COUNT(*) as total,
-                   SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
+                   SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) as bots,
                    AVG(processing_time_ms) AS avg_ms,
                    MAX(processing_time_ms) AS max_ms,
                    COALESCE(SUM(response_bytes), 0) as bytes_out
@@ -924,6 +936,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             """;
         cmd.Parameters.AddWithValue("@count", count);
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         var results = new List<DashboardCountryStats>();
@@ -966,12 +979,13 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.CommandText = $"""
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots
+                SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bots
             FROM detections
             WHERE country_code = @cc{timeFilter}
             """;
         cmd.Parameters.AddWithValue("@cc", countryCode);
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -1013,8 +1027,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
         switch (audienceFilter?.ToLowerInvariant())
         {
-            case "humans": where.Append(" AND is_bot = 0"); break;
-            case "bots":   where.Append(" AND is_bot = 1"); break;
+            case "humans": where.Append(" AND bot_probability < @botFloor"); break;
+            case "bots":   where.Append(" AND bot_probability >= @botFloor"); break;
             // "honeypot" filters in-memory after classification; no additional SQL predicate.
             // null / "all" / anything else: no additional predicate
         }
@@ -1028,7 +1042,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.CommandText = $"""
             SELECT method, path,
                    COUNT(*) as total,
-                   SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
+                   SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) as bots,
                    COUNT(DISTINCT signature) as sigs,
                    AVG(processing_time_ms) as avg_ms,
                    MIN(processing_time_ms) as min_ms,
@@ -1048,6 +1062,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             """;
         cmd.Parameters.AddWithValue("@count", count);
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         var results = new List<DashboardEndpointStats>();
@@ -1127,7 +1142,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 COUNT(*)                                                                    AS hits,
                 AVG(processing_time_ms)                                                     AS avg_ms,
                 MAX(processing_time_ms)                                                     AS max_ms,
-                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*)                AS bot_rate,
+                SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) * 1.0 / COUNT(*)                AS bot_rate,
                 AVG(COALESCE(threat_score, 0))                                              AS avg_threat,
                 MAX(timestamp)                                                              AS last_seen,
                 SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END)            AS s2xx,
@@ -1200,7 +1215,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.CommandText = $"""
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
+                SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bots,
                 COUNT(DISTINCT signature) AS sigs,
                 AVG(processing_time_ms) AS avg_ms,
                 AVG(threat_score) AS avg_threat
@@ -1210,6 +1225,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.Parameters.AddWithValue("@method", method);
         cmd.Parameters.AddWithValue("@path", path);
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -1628,6 +1644,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         void BindFilters(SqliteCommand cmd)
         {
             cmd.Parameters.AddWithValue("@Value", paramValue);
+            cmd.Parameters.AddWithValue("@botFloor", _botFloor);
             if (filter.Start.HasValue) cmd.Parameters.AddWithValue("@Start", filter.Start.Value.ToString("o"));
             if (filter.End.HasValue)   cmd.Parameters.AddWithValue("@End",   filter.End.Value.ToString("o"));
             if (!string.IsNullOrWhiteSpace(filter.EndpointPath)) cmd.Parameters.AddWithValue("@EndpointPath", $"%{filter.EndpointPath.Trim()}%");
@@ -1730,7 +1747,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         sigCmd.CommandText = $"""
             SELECT
                 s.signature, s.hit_count, s.bot_name, s.bot_type,
-                s.risk_band, s.is_bot, s.last_seen
+                s.risk_band, (s.bot_probability >= @botFloor) AS is_bot, s.last_seen
             FROM signatures s
             WHERE s.signature IN (SELECT DISTINCT d.signature {baseSql})
             ORDER BY s.hit_count DESC
@@ -1791,7 +1808,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             SELECT
                 d.country_code,
                 COUNT(*) AS Count,
-                SUM(CASE WHEN d.is_bot = 1 THEN 1 ELSE 0 END) AS BotCount
+                SUM(CASE WHEN d.bot_probability >= @botFloor THEN 1 ELSE 0 END) AS BotCount
             {baseSql} AND d.country_code IS NOT NULL
             GROUP BY d.country_code
             ORDER BY Count DESC
@@ -2079,6 +2096,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
              ORDER BY timestamp ASC
             """;
         cmd.Parameters.AddWithValue("@start", startTime.ToString("O"));
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         cmd.Parameters.AddWithValue("@end", endTime.ToString("O"));
 
         var results = new List<DegradationSnapshot>();
