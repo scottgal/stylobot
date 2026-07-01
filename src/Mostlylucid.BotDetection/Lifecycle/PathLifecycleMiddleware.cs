@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Middleware;
 
 namespace Mostlylucid.BotDetection.Lifecycle;
 
@@ -52,6 +53,16 @@ public sealed class PathLifecycleMiddleware
         var path = context.Request.Path.Value;
         if (string.IsNullOrEmpty(path)) return;
         if (IsStaticAsset(path)) return;
+
+        // Only record what the UPSTREAM app actually served. A status code
+        // StyloBot synthesised itself (policy block / challenge / throttle /
+        // honeypot / load-shed) says nothing about whether the endpoint exists.
+        // Recording our own 403 as a "4xx flip" marks a live path formerly-real
+        // and feeds EndpointHistory a threat boost on EVERY subsequent visitor,
+        // including real browsers — a self-reinforcing block loop. This is the
+        // same status-origin gate the five other status-derived detector arms
+        // use; see StyloBotResponseSignalExtensions.
+        if (!context.IsResponseFromUpstream()) return;
 
         var statusCode = context.Response.StatusCode;
 
