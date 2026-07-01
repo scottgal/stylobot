@@ -258,6 +258,10 @@ public sealed class FastPathReputationContributorTests
     public void FixtureD_Mirror_NonToolEvidence_PromotesToConfirmedBad()
     {
         var options = new BotDetectionOptions();
+        // This fixture asserts that non-tool evidence promotes an IP pattern to
+        // ConfirmedBad. IP patterns cap at Suspect by default (block-eligibility gate);
+        // opt IP in so this mechanics fixture still exercises promotion.
+        options.Reputation.LearnedBlockEligiblePatternTypes.Add("IP");
         var updater = new PatternReputationUpdater(
             NullLogger<PatternReputationUpdater>.Instance, Options.Create(options));
 

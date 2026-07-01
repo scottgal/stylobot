@@ -13,6 +13,14 @@ public class PatternReputationUpdaterTests
     public PatternReputationUpdaterTests()
     {
         _options = new BotDetectionOptions();
+        // These tests exercise the score/support promotion + hysteresis mechanics for
+        // coarse UA/IP patterns. By default those types now cap at Suspect (the
+        // block-eligibility gate that stops a shared browser UA being learned as a
+        // ConfirmedBad block). Opt UserAgent/IP in here so the mechanics are tested
+        // independently of the gate; the gate itself is covered by the dedicated
+        // block-eligibility tests below.
+        _options.Reputation.LearnedBlockEligiblePatternTypes.Add("UserAgent");
+        _options.Reputation.LearnedBlockEligiblePatternTypes.Add("IP");
         var optionsWrapper = Options.Create(_options);
         _updater = new PatternReputationUpdater(
             NullLogger<PatternReputationUpdater>.Instance,
@@ -213,6 +221,65 @@ public class PatternReputationUpdaterTests
 
         // Assert - should promote to ConfirmedBad (score ~0.9, support = 50)
         Assert.Equal(ReputationState.ConfirmedBad, result.State);
+    }
+
+    // ── Block-eligibility gate: coarse UA/IP patterns must not be learned as a block ──
+    // Regression tests for the reputation feedback loop where a shared browser UA
+    // (e.g. Chrome 149 macOS) got promoted to ConfirmedBad and fast-aborted every real
+    // visitor sharing it. By default no learned type is block-eligible, so coarse
+    // patterns cap at Suspect (bias only).
+
+    private static PatternReputationUpdater DefaultUpdater()
+        => new(NullLogger<PatternReputationUpdater>.Instance,
+               Options.Create(new BotDetectionOptions())); // empty LearnedBlockEligiblePatternTypes
+
+    [Fact]
+    public void ApplyEvidence_CoarseUserAgent_NotBlockEligible_CapsAtSuspect()
+    {
+        var updater = DefaultUpdater();
+        var current = new PatternReputation
+        {
+            PatternId = "ua:coarse",
+            PatternType = "UserAgent",
+            Pattern = "Mozilla/5.0 (Macintosh) Chrome/149.0.0.0",
+            BotScore = 0.89,
+            Support = 49,
+            State = ReputationState.Suspect,
+            FirstSeen = DateTimeOffset.UtcNow.AddDays(-7),
+            LastSeen = DateTimeOffset.UtcNow.AddMinutes(-5)
+        };
+
+        // Push well over the promotion score/support thresholds.
+        var result = current;
+        for (var i = 0; i < 5; i++)
+            result = updater.ApplyEvidence(result, result.PatternId, result.PatternType, result.Pattern, 1.0);
+
+        // A coarse (shared) UA key must NOT become a learned block — it caps at Suspect.
+        Assert.NotEqual(ReputationState.ConfirmedBad, result.State);
+        Assert.Equal(ReputationState.Suspect, result.State);
+    }
+
+    [Fact]
+    public void EvaluateStateChange_CoarseConfirmedBad_NotBlockEligible_DemotesToSuspect()
+    {
+        var updater = DefaultUpdater();
+        // Simulates historical poison / a pre-fix persisted "Full" row reloaded as ConfirmedBad.
+        var poisoned = new PatternReputation
+        {
+            PatternId = "ua:poison",
+            PatternType = "UserAgent",
+            Pattern = "Mozilla/5.0 (Macintosh) Chrome/149.0.0.0",
+            BotScore = 0.9999,
+            Support = 200,
+            State = ReputationState.ConfirmedBad,
+            FirstSeen = DateTimeOffset.UtcNow.AddDays(-2),
+            LastSeen = DateTimeOffset.UtcNow
+        };
+
+        var healed = updater.EvaluateStateChange(poisoned);
+
+        // Self-heal: a coarse ConfirmedBad that is not block-eligible demotes to Suspect.
+        Assert.Equal(ReputationState.Suspect, healed.State);
     }
 
     [Fact]

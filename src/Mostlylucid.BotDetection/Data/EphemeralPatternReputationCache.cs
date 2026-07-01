@@ -270,7 +270,13 @@ public sealed class EphemeralPatternReputationCache : IPatternReputationCache, I
                 // Cap them at Suspect so they bias scoring but never fast-path block.
                 var state = signature.Action switch
                 {
-                    LearnedPatternAction.Full when signature.Confidence >= 0.9 => ReputationState.ConfirmedBad,
+                    // Block-eligibility gate (mirrors PatternReputationUpdater.EvaluateStateChange):
+                    // a persisted "Full" row only reloads as ConfirmedBad when its pattern type is
+                    // block-eligible. Coarse shared keys (UserAgent / IP) — including historical
+                    // poison learned before this gate existed — reload as Suspect (bias only), so
+                    // the fast-path can never abort on them again.
+                    LearnedPatternAction.Full when signature.Confidence >= 0.9
+                        && _updater.CanLearnBlock(signature.SignatureType) => ReputationState.ConfirmedBad,
                     LearnedPatternAction.Full => ReputationState.Suspect,
                     LearnedPatternAction.ScoreOnly when signature.Confidence >= 0.6 => ReputationState.Suspect,
                     LearnedPatternAction.LogOnly when signature.Confidence >= 0.6 => ReputationState.Suspect,

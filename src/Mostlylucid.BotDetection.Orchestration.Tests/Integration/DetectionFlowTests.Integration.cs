@@ -17,6 +17,13 @@ public class DetectionFlowTests
     public DetectionFlowTests()
     {
         _options = new BotDetectionOptions();
+        // These integration tests exercise the learning FLOW (promote / rehabilitate /
+        // decay / hysteresis) using coarse UA/IP patterns, which by default now cap at
+        // Suspect (the block-eligibility gate that prevents a shared browser UA from being
+        // learned as a ConfirmedBad block). Opt those types in so the flow mechanics are
+        // tested independently of the gate.
+        _options.Reputation.LearnedBlockEligiblePatternTypes.Add("UserAgent");
+        _options.Reputation.LearnedBlockEligiblePatternTypes.Add("IP");
         var optionsWrapper = Options.Create(_options);
 
         _updater = new PatternReputationUpdater(

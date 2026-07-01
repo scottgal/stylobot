@@ -235,6 +235,37 @@ public class ReputationOptions
     public double PromoteToBadSupport { get; set; } = 50;
 
     /// <summary>
+    ///     Pattern types that may be *learned* all the way up to the blocking / fast-aborting
+    ///     ConfirmedBad state from accumulated evidence. This is a PRIOR, not a rule: it seeds
+    ///     which identity keys are specific enough to justify a learned block.
+    ///
+    ///     Coarse identity keys are deliberately excluded by default:
+    ///       - <c>UserAgent</c> — a bare UA string is shared by millions of real users
+    ///         (every Chrome 149 on macOS hashes to one key), so one mis-classification
+    ///         (e.g. during a topology fault where the client IP collapses and everything
+    ///         scores 100% bot) poisons the key and then blocks EVERY real visitor that
+    ///         shares it — a self-reinforcing "human scored as bot" feedback loop.
+    ///       - <c>IP</c> — shared via NAT / CGNAT / our own tunnel edge.
+    ///     Such coarse patterns cap at <see cref="ReputationState.Suspect"/> (mild bias only);
+    ///     the full detector stack still scores real bots correctly, and an operator can still
+    ///     explicitly <see cref="ReputationState.ManuallyBlocked"/> a pattern (operator intent
+    ///     bypasses this gate entirely).
+    ///
+    ///     Only a multi-factor identity (TLS + H2 + UA + behavioural, e.g. a future
+    ///     <c>PrimarySignature</c> type) is specific enough for a learned block. Default: empty
+    ///     — NO learned type auto-blocks; operators opt specific types in. Case-insensitive.
+    /// </summary>
+    public HashSet<string> LearnedBlockEligiblePatternTypes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     True when a pattern of the given type may be *learned* up to the blocking
+    ///     ConfirmedBad state (see <see cref="LearnedBlockEligiblePatternTypes"/>). Coarse
+    ///     shared keys (UserAgent / IP) return false by default and cap at Suspect.
+    /// </summary>
+    public bool CanLearnBlock(string? patternType) =>
+        !string.IsNullOrEmpty(patternType) && LearnedBlockEligiblePatternTypes.Contains(patternType);
+
+    /// <summary>
     ///     BotScore threshold to demote from ConfirmedBad to Suspect.
     ///     Must be lower than PromoteToBadScore for hysteresis.
     ///     The gap between promote (0.9) and demote determines oscillation resistance:
@@ -319,6 +350,16 @@ public class PatternReputationUpdater
         _logger = logger;
         _options = options.Value.Reputation;
     }
+
+    /// <summary>
+    ///     Whether a pattern of the given type may be *learned* up to the blocking
+    ///     ConfirmedBad state (config prior — see
+    ///     <see cref="ReputationOptions.LearnedBlockEligiblePatternTypes"/>). Coarse
+    ///     shared keys (UserAgent / IP) return false by default and cap at Suspect.
+    ///     Exposed so the reputation cache's DB-load mapping applies the same gate
+    ///     (a persisted coarse "Full" row must load as Suspect, not ConfirmedBad).
+    /// </summary>
+    public bool CanLearnBlock(string? patternType) => _options.CanLearnBlock(patternType);
 
     /// <summary>
     ///     Apply new evidence to a pattern's reputation.
@@ -592,20 +633,32 @@ public class PatternReputationUpdater
                 // (SecurityTool, Honeypot, AttackSeverity) carried through the
                 // contributor pipeline, not raw repeat-count from a Tool UA.
                 // See project_centroid_learning_feedback_loop.
+                // Block-eligibility gate: only pattern types specific enough to justify a
+                // learned block (see LearnedBlockEligiblePatternTypes) may reach ConfirmedBad.
+                // Coarse shared keys (UserAgent / IP) cap at Suspect — one mis-classification
+                // must not turn a shared browser UA into a learned block that fast-aborts
+                // every real visitor sharing it (the "human scored as bot" feedback loop).
                 if (score >= _options.PromoteToBadScore
                     && support >= _options.PromoteToBadSupport
-                    && !IsToolDominant(reputation))
+                    && !IsToolDominant(reputation)
+                    && _options.CanLearnBlock(reputation.PatternType))
                     newState = ReputationState.ConfirmedBad;
                 else if (score <= _options.DemoteToNeutralScore || support < _options.PromoteToSuspectSupport)
                     newState = ReputationState.Neutral;
                 break;
 
             case ReputationState.ConfirmedBad:
+                // Self-heal: a coarse pattern type that is no longer (or never was)
+                // block-eligible must not stay ConfirmedBad. This demotes historical poison
+                // (e.g. a browser UA promoted before this gate existed, or reloaded from a
+                // pre-fix persisted row) down to Suspect on its next evaluation.
+                if (!_options.CanLearnBlock(reputation.PatternType))
+                    newState = ReputationState.Suspect;
                 // Demote to Suspect when score drops (via new human evidence or time decay).
                 // Two paths: (1) enough support to credibly downgrade (high evidence), or
                 // (2) support has decayed below the original promotion threshold - the
                 // "confirmed" status is no longer supported by sufficient observations.
-                if (score <= _options.DemoteFromBadScore &&
+                else if (score <= _options.DemoteFromBadScore &&
                     (support >= _options.DemoteFromBadSupport || support < _options.PromoteToBadSupport))
                     newState = ReputationState.Suspect;
                 break;

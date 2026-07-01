@@ -86,7 +86,10 @@ public class LearningSystemTests
             {
                 LearningRate = 0.2,
                 PromoteToBadScore = 0.9,
-                PromoteToBadSupport = 50
+                PromoteToBadSupport = 50,
+                // Opt UserAgent into learned-block eligibility so this test exercises the
+                // promotion mechanics; by default coarse UA/IP patterns cap at Suspect.
+                LearnedBlockEligiblePatternTypes = new(StringComparer.OrdinalIgnoreCase) { "UserAgent" }
             }
         });
         var updater = new PatternReputationUpdater(logger, options);
@@ -367,7 +370,11 @@ public class LearningSystemTests
             {
                 LearningRate = 0.1,
                 DemoteFromBadScore = 0.7,
-                DemoteFromBadSupport = 100
+                DemoteFromBadSupport = 100,
+                // Opt UserAgent into learned-block eligibility so the pattern can reach
+                // ConfirmedBad and this test can then exercise rehabilitation/demotion;
+                // by default coarse UA/IP patterns cap at Suspect.
+                LearnedBlockEligiblePatternTypes = new(StringComparer.OrdinalIgnoreCase) { "UserAgent" }
             }
         });
         var updater = new PatternReputationUpdater(logger, options);
