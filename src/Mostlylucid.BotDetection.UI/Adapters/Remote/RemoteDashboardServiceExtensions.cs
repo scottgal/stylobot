@@ -80,6 +80,10 @@ public static class RemoteDashboardServiceExtensions
         // local compliance store, no Postgres connection on the site
         // (feedback_upstream_owns_no_stylobot_state). Wins over any InMemory default.
         services.AddSingleton<BotDetection.Compliance.ICompliancePackProvider, RemoteCompliancePackProvider>();
+        // Same instance also satisfies IComplianceStatusReader so the compliance tab
+        // shows the gateway's live guardian count instead of "Not configured".
+        services.AddSingleton<BotDetection.Compliance.IComplianceStatusReader>(sp =>
+            (RemoteCompliancePackProvider)sp.GetRequiredService<BotDetection.Compliance.ICompliancePackProvider>());
         // Route names: read-only over the gateway catalog. No local SQLite store, no live
         // writes -- naming is config-driven on the gateway. This wins over the dashboard's
         // SqliteRouteNameStore (TryAdd) so the viewer never creates dashboard.db.

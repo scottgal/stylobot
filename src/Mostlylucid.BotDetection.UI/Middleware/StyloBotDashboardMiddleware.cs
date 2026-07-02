@@ -4007,6 +4007,11 @@ public class StyloBotDashboardMiddleware
                 Position = pack.Position,
                 IsCommercial = IsCommercialMode(context),
                 BasePath = _options.BasePath.TrimEnd('/'),
+                // Guardians run on the enforcement component; on a remote host the
+                // count comes from the gateway's compliance status endpoint via
+                // IComplianceStatusReader (absent -> 0 on hosts with no compliance).
+                GuardianCount = context.RequestServices
+                    .GetService<Mostlylucid.BotDetection.Compliance.IComplianceStatusReader>()?.GuardianCount ?? 0,
                 AvailablePacks = packProvider.AvailablePacks
                     .Select(p => new CompliancePackSummary(p.Id, p.Name, p.Jurisdiction))
                     .ToList()

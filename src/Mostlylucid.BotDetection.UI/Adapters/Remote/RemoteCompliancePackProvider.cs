@@ -17,7 +17,7 @@ namespace Mostlylucid.BotDetection.UI.Adapters.Remote;
 ///     read, not owned state. The gateway stays the authority.
 ///     </para>
 /// </summary>
-internal sealed class RemoteCompliancePackProvider : ICompliancePackProvider
+internal sealed class RemoteCompliancePackProvider : ICompliancePackProvider, IComplianceStatusReader
 {
     private const long RefreshTtlMs = 30_000;
 
@@ -25,6 +25,7 @@ internal sealed class RemoteCompliancePackProvider : ICompliancePackProvider
     private readonly ILogger<RemoteCompliancePackProvider> _logger;
     private readonly IReadOnlyList<CompliancePack> _packs;
     private volatile CompliancePack _active;
+    private int _guardianCount;
     private long _lastFetchTicks = long.MinValue;
     private int _refreshing;
 
@@ -51,6 +52,16 @@ internal sealed class RemoteCompliancePackProvider : ICompliancePackProvider
 
     public IReadOnlyList<CompliancePack> AvailablePacks => _packs;
 
+    public int GuardianCount
+    {
+        get
+        {
+            if (Environment.TickCount64 - Interlocked.Read(ref _lastFetchTicks) > RefreshTtlMs)
+                _ = RefreshAsync();
+            return Volatile.Read(ref _guardianCount);
+        }
+    }
+
     public void SetActivePack(string packId)
     {
         // The upstream site is a VIEWER. Changing the active compliance pack is an
@@ -69,10 +80,14 @@ internal sealed class RemoteCompliancePackProvider : ICompliancePackProvider
         {
             var status = await _api.GetEnvelopeAsync<ComplianceStatusDto>("/api/v1/compliance/status");
             Interlocked.Exchange(ref _lastFetchTicks, Environment.TickCount64);
-            if (!string.IsNullOrEmpty(status?.ActivePackId))
+            if (status is not null)
             {
-                var pack = _packs.FirstOrDefault(p => p.Id == status!.ActivePackId);
-                if (pack is not null) _active = pack;
+                if (!string.IsNullOrEmpty(status.ActivePackId))
+                {
+                    var pack = _packs.FirstOrDefault(p => p.Id == status.ActivePackId);
+                    if (pack is not null) _active = pack;
+                }
+                Volatile.Write(ref _guardianCount, status.GuardianCount);
             }
         }
         catch (Exception ex)
