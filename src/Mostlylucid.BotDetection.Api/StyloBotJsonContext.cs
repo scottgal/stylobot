@@ -81,6 +81,8 @@ namespace Mostlylucid.BotDetection.Api;
 // every detection that carried non-string signal values, which the website's REST-mode
 // dashboard then rendered as empty "No detection signals recorded" / "No analysis
 // available yet" panels.
+[JsonSerializable(typeof(DetectionFeedbackRecord))]
+[JsonSerializable(typeof(SingleResponse<bool>))]
 [JsonSerializable(typeof(DashboardSignatureEvent))]
 [JsonSerializable(typeof(DashboardDetectionEvent))]
 [JsonSerializable(typeof(DashboardDetectorContribution))]

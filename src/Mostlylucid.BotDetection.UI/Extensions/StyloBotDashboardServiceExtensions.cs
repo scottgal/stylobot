@@ -1025,6 +1025,11 @@ public static class StyloBotDashboardServiceExtensions
         // (in-memory by default; production wires a SQLite or PostgreSQL implementation).
         services.TryAddSingleton<ISignatureLabelStore, SqliteSignatureLabelStore>();
 
+        // Visitor "flag as wrong" feedback store. Owned by the enforcement component
+        // (this host runs detection); the upstream site POSTs to /api/v1/feedback
+        // rather than writing it directly. PostgreSQL pack overrides via RemoveAll.
+        services.TryAddSingleton<IDetectionFeedbackStore, SqliteDetectionFeedbackStore>();
+
         // Aggregate cache - populated by beacon, read by API endpoints
         services.TryAddSingleton<DashboardAggregateCache>();
 
