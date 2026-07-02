@@ -134,6 +134,7 @@
         <EmbeddedResource Include="Definitions\VendorHomeHosts\*.yaml" />
         <EmbeddedResource Include="Definitions\TlsReference\*.yaml" />
         <EmbeddedResource Include="Definitions\PolicyFacets\*.yaml" />
+        <EmbeddedResource Include="Definitions\WellKnownBots\*.json" />
         <EmbeddedResource Include="Data\UserAgents\*.yaml" />
         <EmbeddedResource Include="Data\Schema\*.sql">
             <LogicalName>Mostlylucid.BotDetection.Data.Schema.%(Filename)%(Extension)</LogicalName>

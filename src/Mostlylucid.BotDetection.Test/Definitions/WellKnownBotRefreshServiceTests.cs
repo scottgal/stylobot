@@ -126,11 +126,36 @@ public sealed class WellKnownBotRefreshServiceTests
             NullLogger<WellKnownBotRefreshService>.Instance,
             coordinator);
 
+        // The constructor seeds the bundled baseline, so the index is already
+        // populated; an empty-Url tick must download nothing and leave it intact.
+        var seededCount = index.Count;
+        seededCount.Should().BeGreaterThan(0, "the constructor seeds the bundled baseline");
+
         var captured = Assert.Single(coordinator.Subscriptions);
         await captured.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
 
-        index.Count.Should().Be(0);
+        index.Count.Should().Be(seededCount, "empty Url -> OnTickAsync is a no-op, baseline untouched");
         captured.Disposed.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Constructor_seeds_index_from_bundled_baseline()
+    {
+        // The bundled baseline makes UA naming/classification work before (and
+        // even without) a successful download: air-gapped, blocked, or failed fetch.
+        var index = new WellKnownBotIndex();
+        index.Count.Should().Be(0);
+
+        using var sut = new WellKnownBotRefreshService(
+            EmptyUrlOptions(),
+            index,
+            new FailingHttpClientFactory(),
+            NullLogger<WellKnownBotRefreshService>.Instance,
+            new RecordingScheduleCoordinator());
+
+        index.Count.Should().BeGreaterThan(0, "the bundled baseline seeds the index at construction");
+        index.TryMatch("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+            .Should().NotBeNull("a well-known bot from the baseline resolves immediately");
     }
 
     [Fact]
