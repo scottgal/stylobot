@@ -600,19 +600,19 @@ public class BotDetectionMiddleware(
                                                and not BotType.Unknown
                                                and not BotType.Internal;
                     var cachedBotProbability = hasMeaningfulBotType ? 1.0 : v.BotProbability;
-                    // Mirror the trusted-and-aligned clamp from the MISS path
-                    // (DetectionLedgerExtensions ▸ SignatureRiskVerdictComposer):
-                    // when the cached classification is Internal -- skipIsLocalIp
-                    // confirmed network position above -- the RiskBand must be Low
-                    // regardless of what the cached verdict snapshot recorded. Without
-                    // this, the FIRST request hits MISS and the composer's clamp
-                    // produces Low; every SUBSEQUENT request hits Skip and reads
-                    // v.RiskBand which was captured before the clamp shipped
-                    // (or from a pre-routing-fix observation), so 90+% of internal
-                    // dashboard traffic stays VeryHigh on the dashboard.
+                    // The Skip path must DERIVE the band from the probability it is
+                    // about to display, never replay the snapshot's v.RiskBand. A
+                    // fingerprint's cached band is captured at one moment; its
+                    // probability drifts -- a formerly bot-like fingerprint that is now
+                    // browsing as a human sits at ~0.06, yet v.RiskBand still reads the
+                    // VeryHigh it was captured at. That produced the "6% bot probability
+                    // / VeryHigh" YOU-widget split -- the exact dual source this
+                    // rationalisation kills. BucketRisk(prob, conf) is the same one
+                    // truth the MISS path composes. Internal stays clamped to Low
+                    // (skipIsLocalIp confirmed network position above).
                     var cachedRiskBand = cachedPrimaryBotType == BotType.Internal
                         ? RiskBand.Low
-                        : v.RiskBand;
+                        : Risk.SignatureRiskVerdictComposer.BucketRisk(cachedBotProbability, v.Confidence);
 
                     // Build a ledger that carries the cached contributions through to
                     // AggregatedEvidence.Contributions -- without this, the
