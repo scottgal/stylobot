@@ -57,47 +57,33 @@ public partial class DetectionBroadcastMiddleware
     // helper handles the rate cap.
 
     /// <summary>
-    ///     Signal key prefixes allowed through to dashboard (non-PII).
-    ///     Stored as a FrozenSet for O(1) prefix lookup: extract everything up to and
-    ///     including the first '.' from the signal key, then test set membership.
-    ///     This replaces the O(n×m) Any(StartsWith) scan on every detection event.
+    ///     Signal-key prefixes that carry PII / secrets and must NEVER reach the
+    ///     dashboard. Signal forwarding is a BLOCKLIST, not an allowlist: everything
+    ///     non-PII is surfaced.
+    ///     <para>
+    ///     An allowlist silently drops every signal category nobody remembered to
+    ///     whitelist — that is exactly why arcjet, ja3/ja4, headless, ai-scraper,
+    ///     datacenter and others were captured by detection yet invisible on the
+    ///     dashboard, and why "Real browser (confirmed)" detail panels showed "No
+    ///     detection signals recorded" (feedback_no_word_lists). Detection signals
+    ///     are non-PII by construction (hashes, scores, bands, booleans, category
+    ///     labels); the handful of PII-carrying keys are blocked explicitly below.
+    ///     </para>
     /// </summary>
-    private static readonly System.Collections.Frozen.FrozenSet<string> AllowedSignalPrefixSet =
+    private static readonly System.Collections.Frozen.FrozenSet<string> BlockedSignalPrefixSet =
         System.Collections.Frozen.FrozenSet.ToFrozenSet(
         [
-            "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
-            "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
-            "cluster.", "reputation.", "honeypot.", "similarity.",
-            "attack.", "ato.", "intent.", "heuristic.", "referrer.",
-            "privacy.",
-            // Risk dimension -- carries risk.justification (human-readable band
-            // reason) and risk.friendly_pin_trace (fired/skipped/not-applicable
-            // diagnostic for the friendly-bot pin). Both are classifier outputs
-            // with no PII, but neither was reaching dashboard_detections.important_signals
-            // because the prefix wasn't whitelisted -- audit rows had empty
-            // justification + null trace so operators couldn't see why a
-            // known-friendly UA was banded VeryHigh.
-            "risk.",
-            // Friendly-bot vendor IP verification signals (true / false / absent).
-            "friendly.",
-            // Verified-bot identity signals -- verifiedbot.checked / .confirmed /
-            // .spoofed / .name / .method, written by VerifiedBotContributor after
-            // IP-range or FCrDNS verification. Without this prefix the signals
-            // were getting stripped before reaching dashboard_detections.important_signals,
-            // so the signature detail panel never showed the verification status
-            // category, and the regression test for "did the contributor actually
-            // run on this detection" had no observable signal to assert against.
-            "verifiedbot."
+            "pii.", "raw.", "secret.", "cookie.", "auth.", "credential."
         ], StringComparer.OrdinalIgnoreCase);
 
     private static bool IsAllowedSignal(string key)
     {
+        if (BlockedSignalKeys.Contains(key)) return false;
         var dot = key.IndexOf('.');
-        if (dot < 0) return false;
-        return AllowedSignalPrefixSet.Contains(key[..(dot + 1)]);
+        return dot < 0 || !BlockedSignalPrefixSet.Contains(key[..(dot + 1)]);
     }
 
-    /// <summary>Signal keys that must never reach the dashboard.</summary>
+    /// <summary>Individual signal keys that must never reach the dashboard (PII/secret).</summary>
     private static readonly HashSet<string> BlockedSignalKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "ua.raw", "ip.address", "client_ip", "ip_address",
