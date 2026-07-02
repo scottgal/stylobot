@@ -305,9 +305,30 @@ else
             var consistencyDetector = FindDetector("Consistency", "HttpHeader", "Header", "Inconsistency");
             var uaDetector = FindDetector("UserAgent", "UA");
 
-            var tlsVersion = Signal("tls", "version") ?? Signal("tls", "Version") ?? Signal("ja3", "version") ?? "-";
-            var httpProtocol = Model.Protocol ?? Signal("http", "protocol") ?? Signal("http", "version") ?? "-";
-            var protocolClient = Signal("tls", "client") ?? Signal("ja3", "hash") ?? (fingerprintDetector != null ? "Detected" : "-");
+            // Read the REAL captured signal keys. HTTP protocol lives under
+            // "request.protocol" (EnrichProtocol), TLS under "tls.version"/"tls.cipher"
+            // (Kestrel handshake), JA3/JA4 under "ja3.hash"/"ja4.hash" (raw ClientHello
+            // capture). A null value means "not captured in this deployment", rendered
+            // honestly as "Unavailable" rather than a bare "-".
+            var tlsVersion     = Signal("tls", "version") ?? Signal("tls", "Version");
+            var tlsCipher      = Signal("tls", "cipher");
+            var httpProtocol   = Model.Protocol ?? Signal("request", "protocol")
+                                 ?? Signal("http", "protocol") ?? Signal("h2", "protocol") ?? Signal("h3", "protocol");
+            var ja3Fingerprint = Signal("ja3", "hash") ?? Signal("ja4", "hash") ?? Signal("tls", "client");
+            var tcpOsHint      = Signal("tcp", "os_hint") ?? Signal("tcp", "os");
+            var uaConsistency  = Signal("ua", "consistency");
+
+            const string Unavail = "Unavailable";
+            string Show(string? v) => string.IsNullOrWhiteSpace(v) ? Unavail : v!;
+            string AvailColor(string? v) => string.IsNullOrWhiteSpace(v) ? "text-base-content/40" : "text-info";
+            // Qualitative consistency from a detector -- never the raw contribution
+            // number (that was the old mis-map). High deviation = Flagged.
+            string Qual(SignatureDetectorEntry? det) => det == null ? Unavail :
+                Math.Abs(det.Contribution) >= 0.3 ? "Flagged" :
+                Math.Abs(det.Contribution) >= 0.1 ? "Suspect" : "Consistent";
+            string QualColor(SignatureDetectorEntry? det) => det == null ? "text-base-content/40" :
+                Math.Abs(det.Contribution) >= 0.3 ? "text-error" :
+                Math.Abs(det.Contribution) >= 0.1 ? "text-warning" : "text-success";
 
             string? FpValue(SignatureDetectorEntry? det) => det == null ? null :
                 Math.Abs(det.Contribution) >= 0.1 ? $"{(det.Contribution >= 0 ? "+" : "")}{det.Contribution:F2}" : "Low";
@@ -322,12 +343,12 @@ else
             // SbTooltipTagHelper resolves the key against DashboardTooltipRegistry
             // at render time and only emits markup when EnableTooltips is true.
             var fpItems = new (string Label, string Icon, string Value, string Color, string TooltipKey)[] {
-                ("TLS Version", "bx-lock-alt", tlsVersion, tlsVersion == "-" ? "text-base-content/40" : "text-info", "fp.tls_version"),
-                ("HTTP Protocol", "bx-globe", httpProtocol, httpProtocol == "-" ? "text-base-content/40" : "text-info", "fp.http_protocol"),
-                ("Protocol Client", "bx-transfer", protocolClient, protocolClient == "-" ? "text-base-content/40" : (fingerprintDetector != null ? FpColor(fingerprintDetector) : "text-info"), "fp.protocol_client"),
-                ("TCP OS Hint", "bx-chip", consistencyDetector != null ? (FpValue(consistencyDetector) ?? "Flagged") : "-", FpColor(consistencyDetector), "fp.tcp_os_hint"),
-                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? (FpValue(fingerprintDetector) ?? "Checked") : "-", FpColor(fingerprintDetector), "fp.fingerprint_integrity"),
-                ("UA Consistency", "bx-badge-check", uaDetector != null ? (FpValue(uaDetector) ?? "Checked") : "-", FpColor(uaDetector), "fp.ua_consistency"),
+                ("TLS Version", "bx-lock-alt", Show(tlsVersion), AvailColor(tlsVersion), "fp.tls_version"),
+                ("HTTP Protocol", "bx-globe", Show(httpProtocol), AvailColor(httpProtocol), "fp.http_protocol"),
+                ("Protocol Client", "bx-transfer", Show(ja3Fingerprint ?? tlsCipher), AvailColor(ja3Fingerprint ?? tlsCipher), "fp.protocol_client"),
+                ("TCP OS Hint", "bx-chip", Show(tcpOsHint), AvailColor(tcpOsHint), "fp.tcp_os_hint"),
+                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? Qual(fingerprintDetector) : (tlsVersion != null ? "Consistent" : Unavail), QualColor(fingerprintDetector), "fp.fingerprint_integrity"),
+                ("UA Consistency", "bx-badge-check", uaConsistency ?? Qual(uaDetector), uaConsistency != null ? "text-info" : QualColor(uaDetector), "fp.ua_consistency"),
                 ("Headless Indicator", "bx-bot", headlessDetector != null ? (FpValue(headlessDetector) ?? "Detected") : "Clean", headlessDetector != null ? FpColor(headlessDetector) : "text-success", "fp.headless_indicator"),
                 ("Datacenter IP", "bx-server", datacenterDetector != null ? (FpValue(datacenterDetector) ?? "Detected") : "Clean", datacenterDetector != null ? FpColor(datacenterDetector) : "text-success", "fp.datacenter_ip")
             };

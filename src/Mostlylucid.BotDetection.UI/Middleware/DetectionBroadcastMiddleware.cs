@@ -877,6 +877,17 @@ public partial class DetectionBroadcastMiddleware
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 
+#pragma warning disable SYSLIB0039
+    private static string MapSslProtocol(System.Security.Authentication.SslProtocols protocol) => protocol switch
+    {
+        System.Security.Authentication.SslProtocols.Tls   => "TLSv1.0",
+        System.Security.Authentication.SslProtocols.Tls11 => "TLSv1.1",
+        System.Security.Authentication.SslProtocols.Tls12 => "TLSv1.2",
+        System.Security.Authentication.SslProtocols.Tls13 => "TLSv1.3",
+        _                                                 => protocol.ToString()
+    };
+#pragma warning restore SYSLIB0039
+
     private static void EnrichProtocol(HttpContext context, Dictionary<string, object> signals)
     {
         // Prefer forwarded client protocol from the edge proxy. Behind a CF tunnel /
@@ -905,6 +916,26 @@ public partial class DetectionBroadcastMiddleware
         {
             signals.TryAdd("tls.version", tlsVersion);
             signals.TryAdd("tls.Version", tlsVersion); // signature card reads either case
+        }
+
+        // Direct TLS termination (prod edge with no upstream X-Client-TLS-* header):
+        // read the negotiated handshake straight off Kestrel's ITlsHandshakeFeature.
+        // This is what makes tls.version / tls.cipher populate when stylobot IS the
+        // TLS-terminating edge (direct-from-VPS) rather than sitting behind a CF /
+        // nginx proxy that forwards the header. JA3/JA4 still need the raw ClientHello
+        // (handled by the connection-level capture); this covers version + cipher.
+        if (!signals.ContainsKey("tls.version"))
+        {
+            var tlsFeature = context.Features.Get<Microsoft.AspNetCore.Connections.Features.ITlsHandshakeFeature>();
+            if (tlsFeature is not null
+                && tlsFeature.Protocol != System.Security.Authentication.SslProtocols.None)
+            {
+                var ver = MapSslProtocol(tlsFeature.Protocol);
+                signals.TryAdd("tls.version", ver);
+                signals.TryAdd("tls.Version", ver);
+                if (tlsFeature.NegotiatedCipherSuite != default)
+                    signals.TryAdd("tls.cipher", tlsFeature.NegotiatedCipherSuite.ToString());
+            }
         }
         var tlsCipher = context.Request.Headers["X-Client-TLS-Cipher"].FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(tlsCipher))
