@@ -66,9 +66,10 @@ public class WellKnownBotIndexBenchmarks
         _index.Replace(_entries);
     }
 
-    // Clears scan cache before each COLD iteration so every call is a true miss.
-    [IterationSetup(Targets = [nameof(ColdMiss), nameof(ColdHit), nameof(RegexScan)])]
-    public void ResetCache() => _index.Replace(_entries);
+    // No IterationSetup: the Cold*/RegexScan UAs carry a unique per-call suffix
+    // (_coldCounter) so every invocation is a fresh cache miss on its own. That
+    // lets BenchmarkDotNet use a high InvocationCount for stable ns/op instead of
+    // the single-shot InvocationCount=1 that a per-iteration Replace would force.
 
     // ── L1 pre-filter exit: human Chrome UA, no bot keyword → returns null immediately ──
 
