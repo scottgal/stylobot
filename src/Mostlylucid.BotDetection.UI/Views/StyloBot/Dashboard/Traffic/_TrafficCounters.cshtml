@@ -7,14 +7,22 @@
     // Top bots BY NAME, from the same visitor set (no new store / aggregator):
     // group the bot visitors by their resolved name, rank by hits. This is the
     // high-value info that used to sit below the fold in the panels.
-    var topBots = Model.TopVisitors
+    var groupedBots = Model.TopVisitors
         .Where(v => v.IsBot)
         .GroupBy(v => !string.IsNullOrWhiteSpace(v.BotName) ? v.BotName!
                     : (!string.IsNullOrWhiteSpace(v.BotType) ? v.BotType! : "Unknown bot"))
-        .Select(g => new { Name = g.Key, Hits = g.Sum(v => v.Hits), Fps = g.Count() })
+        .Select(g => new {
+            Name = g.Key,
+            Hits = g.Sum(v => v.Hits),
+            Fps = g.Count(),
+            IsInternal = g.All(v => string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
+        })
         .OrderByDescending(g => g.Hits)
-        .Take(6)
         .ToList();
+    // Internal (our own traffic) is HIDDEN BY DEFAULT but never removed from the
+    // DOM — the operator toggles it on. No traffic is ever hard-excluded.
+    var externalBots = groupedBots.Where(b => !b.IsInternal).Take(6).ToList();
+    var internalBots = groupedBots.Where(b => b.IsInternal).ToList();
 
     string DeltaText(int delta, double pct)
     {
@@ -63,23 +71,47 @@
         </div>
     </div>
 
-    @* Block 2 — top bots by name (lifted above the fold) *@
-    <div class="card bg-base-100 border border-base-300">
+    @* Block 2 — top bots by name. Internal is in the DOM but hidden by default;
+       the operator toggles it on (never hard-excluded — security). *@
+    <div class="card bg-base-100 border border-base-300" x-data="{ showInternal: false }">
         <div class="card-body p-3">
-            <div class="text-xs text-base-content/50 uppercase tracking-wide mb-2">Top bots</div>
-            @if (topBots.Count == 0)
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs text-base-content/50 uppercase tracking-wide">Top bots</span>
+                @if (internalBots.Count > 0)
+                {
+                    <button type="button"
+                            class="text-[10px] uppercase tracking-wide text-base-content/40 hover:text-base-content/70"
+                            x-on:click="showInternal = !showInternal"
+                            x-text="showInternal ? 'hide internal' : 'show internal (@internalBots.Count)'">show internal (@internalBots.Count)</button>
+                }
+            </div>
+            @if (externalBots.Count == 0 && internalBots.Count == 0)
             {
                 <div class="text-sm text-base-content/40">No bots in this window.</div>
             }
             else
             {
                 <ul class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                    @foreach (var b in topBots)
+                    @foreach (var b in externalBots)
                     {
                         <li class="flex items-center justify-between text-sm gap-2 min-w-0">
                             <span class="truncate" title="@b.Name (@b.Fps.ToString("N0") fingerprints)">@b.Name</span>
                             <span class="text-base-content/60 tabular-nums shrink-0">@b.Hits.ToString("N0")</span>
                         </li>
+                    }
+                    @foreach (var b in internalBots)
+                    {
+                        <li class="flex items-center justify-between text-sm gap-2 min-w-0 text-base-content/50"
+                            x-show="showInternal" x-cloak>
+                            <span class="truncate" title="@b.Name (internal · @b.Fps.ToString("N0") fingerprints)">
+                                @b.Name <span class="text-[9px] uppercase opacity-60">internal</span>
+                            </span>
+                            <span class="tabular-nums shrink-0">@b.Hits.ToString("N0")</span>
+                        </li>
+                    }
+                    @if (externalBots.Count == 0)
+                    {
+                        <li class="text-sm text-base-content/40 sm:col-span-2" x-show="!showInternal">Only internal traffic this window — toggle to view.</li>
                     }
                 </ul>
             }

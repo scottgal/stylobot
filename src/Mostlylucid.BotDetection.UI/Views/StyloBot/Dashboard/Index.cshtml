@@ -149,26 +149,9 @@
             </span>
         </div>
 
-        @* B9a: Status badge -- "Defending you with N rules" for the current
-           request's host. Defensive scope resolution: anything missing falls
-           back to null and the aside hides. The StatusBadge embed is the
-           tightest of the three; it surfaces the rule count + last-edit
-           freshness without any aggregate-read fan-out. *@
-        @{
-            var statusHost = Context?.Request?.Host.Host ?? string.Empty;
-            PolicyScope? youScope = string.IsNullOrEmpty(statusHost) ? null : PolicyScope.Domain(statusHost);
-        }
-        @if (youScope is not null)
-        {
-            <aside class="dashboard-status-policy mb-3">
-                @await Component.InvokeAsync("SbPolicyStack", new
-                {
-                    scope = youScope,
-                    embed = PolicyStackEmbed.StatusBadge,
-                    aggregateWindow = (TimeSpan?)TimeSpan.FromHours(24)
-                })
-            </aside>
-        }
+        @* B9a: the "N rules effective · last edit" status badge was removed —
+           it burned prime top-of-dashboard space for a value the operator
+           reads on the Policies tab. The rule stack lives there in full. *@
 
         @if (Model.License.Status != LicenseStatusKind.Unconfigured)
         {
