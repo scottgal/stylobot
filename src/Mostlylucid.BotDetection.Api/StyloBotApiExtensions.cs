@@ -77,6 +77,7 @@ public static class StyloBotApiExtensions
         endpoints.MapInvestigationEndpoints();
         endpoints.MapBdfEndpoints();
         endpoints.MapFeedbackEndpoints();
+        endpoints.MapComplianceEndpoints();
         endpoints.MapConfigEndpoints();
         endpoints.MapIdentityEndpoints();
         endpoints.MapEntityEndpoints();

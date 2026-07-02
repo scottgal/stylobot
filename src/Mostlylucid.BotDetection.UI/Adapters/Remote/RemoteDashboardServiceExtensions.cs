@@ -75,6 +75,11 @@ public static class RemoteDashboardServiceExtensions
         services.AddSingleton<IEntityReader, RemoteEntityReader>();
         services.AddSingleton<IConfigEditorService, RemoteConfigEditorService>();
         services.AddSingleton<IBotClusterReader, RemoteBotClusterReader>();
+        // Compliance: the gateway OWNS the pack selection + guardians; the site reads
+        // status over REST and loads the (static, embedded) pack catalogue locally. No
+        // local compliance store, no Postgres connection on the site
+        // (feedback_upstream_owns_no_stylobot_state). Wins over any InMemory default.
+        services.AddSingleton<BotDetection.Compliance.ICompliancePackProvider, RemoteCompliancePackProvider>();
         // Route names: read-only over the gateway catalog. No local SQLite store, no live
         // writes -- naming is config-driven on the gateway. This wins over the dashboard's
         // SqliteRouteNameStore (TryAdd) so the viewer never creates dashboard.db.

@@ -83,6 +83,8 @@ namespace Mostlylucid.BotDetection.Api;
 // available yet" panels.
 [JsonSerializable(typeof(DetectionFeedbackRecord))]
 [JsonSerializable(typeof(SingleResponse<bool>))]
+[JsonSerializable(typeof(ComplianceStatusDto))]
+[JsonSerializable(typeof(SingleResponse<ComplianceStatusDto>))]
 [JsonSerializable(typeof(DashboardSignatureEvent))]
 [JsonSerializable(typeof(DashboardDetectionEvent))]
 [JsonSerializable(typeof(DashboardDetectorContribution))]
