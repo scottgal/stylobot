@@ -148,13 +148,13 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         Assert.Contains("PolicyStackEmbed.StatusBadge", source);
     }
 
-    [Fact]
-    public void Overview_index_source_invokes_status_badge_embed()
-    {
-        var source = File.ReadAllText(LocatePartial("Index.cshtml"));
-        Assert.Contains("dashboard-status-policy", source);
-        Assert.Contains("PolicyStackEmbed.StatusBadge", source);
-    }
+    // ae09884b ("drop rules-effective badge") deliberately removed the
+    // <aside class="dashboard-status-policy"> / PolicyStackEmbed.StatusBadge block
+    // from the Dashboard Index (Overview), and fcc9b16d deleted the legacy Overview
+    // surface. The Overview_index_source_invokes_status_badge_embed test that used to
+    // assert that block lost its subject and is retired here. The signature-detail,
+    // endpoint-level, and visitor-level scopes still carry their own StatusBadge
+    // assertions above/below.
 
     // M2 deleted the _InvestigatePolicy.cshtml partial along with the rest of
     // the Investigate surface; the per-tab StatusBadge embed test that used to

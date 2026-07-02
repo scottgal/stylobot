@@ -277,4 +277,41 @@ public sealed class WellKnownBotIndexTests
         sut.Count.Should().Be(1);
         sut.TryMatch("ValidBot/1.0").Should().NotBeNull();
     }
+
+    // ── Required-core pre-check (scan optimization) ──────────────────────────
+    // The per-regex required-core pre-check skips a regex when its leading required
+    // literal is absent from the UA. These lock in that it never changes a match:
+    // a matching UA still matches, a non-matching UA still misses.
+
+    [Fact]
+    public void RequiredCore_present_regex_still_matches()
+    {
+        // Core "DataMinerBot" (before the '\/' metachar) IS present -> regex runs -> match.
+        var sut = new WellKnownBotIndex();
+        sut.Replace([MakeEntry("dataminer", ["tool"], ["DataMinerBot\\/[0-9]"])]);
+
+        sut.TryMatch("DataMinerBot/3.1 (crawler)").Should().NotBeNull();
+    }
+
+    [Fact]
+    public void RequiredCore_absent_still_misses()
+    {
+        // Core "DataMinerBot" absent -> pre-check skips the regex -> no match (unchanged).
+        var sut = new WellKnownBotIndex();
+        sut.Replace([MakeEntry("dataminer", ["tool"], ["DataMinerBot\\/[0-9]"])]);
+
+        sut.TryMatch("Mozilla/5.0 (compatible; SomethingElse/1.0)").Should().BeNull();
+    }
+
+    [Fact]
+    public void RequiredCore_grouped_alternation_matches_all_branches()
+    {
+        // A grouped alternation "(foo|bar)crawler" opens with '(' -> null core -> the
+        // regex always runs, so BOTH branches match (no false negative on either).
+        var sut = new WellKnownBotIndex();
+        sut.Replace([MakeEntry("multi", ["tool"], ["(alpha|bravo)crawler"])]);
+
+        sut.TryMatch("alphacrawler/1.0").Should().NotBeNull();
+        sut.TryMatch("bravocrawler/1.0").Should().NotBeNull();
+    }
 }
