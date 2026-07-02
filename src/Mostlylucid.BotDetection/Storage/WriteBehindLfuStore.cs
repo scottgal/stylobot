@@ -44,6 +44,11 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly ILogger _logger;
     private readonly int _maxEntries;
+    // Optional memory-pressure governor. When set, the drainer refreshes
+    // _effectiveMax from it each cycle so the hot-path Record stays a cheap
+    // volatile read rather than a per-write GC probe. Null → fixed _maxEntries.
+    private readonly Func<int>? _maxEntriesProvider;
+    private volatile int _effectiveMax;
     private readonly int _batchMaxSize;
     private readonly TimeSpan _drainInterval;
     private long _writes;
@@ -60,15 +65,22 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     ///     batch. Smaller = lower persistence latency, more DB round-trips.</param>
     /// <param name="logger">Logger used to surface batch flush failures and shed events.</param>
     /// <param name="keyComparer">Optional comparer for the hot-tier dictionary keys.</param>
+    /// <param name="maxEntriesProvider">Optional adaptive cap. When supplied, the
+    ///     drainer refreshes the effective eviction threshold from it each cycle
+    ///     (e.g. a <see cref="MemoryAdaptiveCap"/> that shrinks under memory
+    ///     pressure). Null keeps the fixed <paramref name="maxEntries"/>.</param>
     protected WriteBehindLfuStore(
         int maxEntries,
         int writeQueueCapacity,
         int batchMaxSize,
         TimeSpan drainInterval,
         ILogger logger,
-        IEqualityComparer<TKey>? keyComparer = null)
+        IEqualityComparer<TKey>? keyComparer = null,
+        Func<int>? maxEntriesProvider = null)
     {
         _maxEntries = maxEntries;
+        _maxEntriesProvider = maxEntriesProvider;
+        _effectiveMax = maxEntries;
         _batchMaxSize = batchMaxSize;
         _drainInterval = drainInterval;
         _logger = logger;
@@ -130,8 +142,8 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
             (_, prev) => MergeIntoExisting(key, prev, op));
 
         // Bounded LFU eviction. EvictColdest is O(n) so amortise by only
-        // firing when 10% over capacity.
-        if (_entries.Count > _maxEntries + _maxEntries / 10)
+        // firing when 10% over the (possibly memory-adapted) effective cap.
+        if (_entries.Count > _effectiveMax + _effectiveMax / 10)
             EvictColdest();
 
         // Non-blocking enqueue. DropOldest mode discards the oldest if full,
@@ -171,7 +183,7 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
 
     private void EvictColdest()
     {
-        var target = _maxEntries - _maxEntries / 10;
+        var target = _effectiveMax - _effectiveMax / 10;
         var overflow = _entries.Count - target;
         if (overflow <= 0) return;
 
@@ -202,6 +214,15 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
                 if (!await reader.WaitToReadAsync(ct)) break;
             }
             catch (OperationCanceledException) { break; }
+
+            // Refresh the effective cap from the adaptive provider (if any) on
+            // the drainer's cadence, then shed promptly if memory pressure just
+            // shrank it — the hot-path Record only reads the cached volatile.
+            if (_maxEntriesProvider is not null)
+            {
+                _effectiveMax = Math.Max(1, _maxEntriesProvider());
+                EvictColdest();
+            }
 
             batch.Clear();
             // Drain everything queued up to the batch cap.
