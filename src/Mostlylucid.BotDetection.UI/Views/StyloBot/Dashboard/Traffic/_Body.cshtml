@@ -20,9 +20,9 @@
         var th = remove == "threat"   ? null : (threat   ?? Model.Filters.Threat);
         if (!string.IsNullOrEmpty(c))  qs.Add($"country={Uri.EscapeDataString(c)}");
         if (!string.IsNullOrEmpty(bt)) qs.Add($"bot_type={Uri.EscapeDataString(bt)}");
-        // UX1: default window is 6h now; omit the query-string param
-        // when w matches the default so the URL stays clean.
-        if (!string.IsNullOrEmpty(w) && w != "6h") qs.Add($"window={Uri.EscapeDataString(w)}");
+        // Default window is 24h; omit the query-string param when w matches
+        // the default so the URL stays clean.
+        if (!string.IsNullOrEmpty(w) && w != "24h") qs.Add($"window={Uri.EscapeDataString(w)}");
         if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
         return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
     }

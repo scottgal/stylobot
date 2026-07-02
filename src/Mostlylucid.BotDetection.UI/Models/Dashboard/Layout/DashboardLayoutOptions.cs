@@ -7,11 +7,11 @@ public sealed class DashboardLayoutOptions
 
     /// <summary>
     ///     Default chart window on Traffic in minutes; URL <c>?window=</c>
-    ///     overrides. UX1: defaults to 6h (360min) so the chartlet has
-    ///     enough buckets to show meaningful traffic shape; the 1h
-    ///     default rolled up too few data points on a quiet console.
+    ///     overrides. Defaults to 24h (1440min): a full day at 20-minute
+    ///     buckets (72 bars) reads as a normal analytics view, where the
+    ///     shorter 6h window on a quiet console collapsed to a single block.
     /// </summary>
-    public int DefaultTimeWindowMinutes { get; set; } = 360;
+    public int DefaultTimeWindowMinutes { get; set; } = 1440;
 
     /// <summary>Header search type-ahead result cap.</summary>
     public int SearchMaxResults { get; set; } = 10;

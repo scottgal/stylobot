@@ -37,7 +37,7 @@
         Country: Nullable(query["country"].FirstOrDefault()),
         BotType: Nullable(query["bot_type"].FirstOrDefault()),
         Window:  string.IsNullOrWhiteSpace(query["window"].FirstOrDefault())
-                 ? $"{opts.DefaultTimeWindowMinutes}m"
+                 ? FormatWindow(opts.DefaultTimeWindowMinutes)
                  : query["window"].FirstOrDefault()!,
         Threat:  Nullable(query["threat"].FirstOrDefault()));
 
@@ -51,6 +51,20 @@
         "7d"             => 7 * 24 * 60,
         "30d"            => 30 * 24 * 60,
         _                => 60,
+    };
+
+    // Canonical window token from configured default minutes, so the label +
+    // bucket sizer see "24h" (not a raw "1440m" that falls back to wide buckets).
+    string FormatWindow(int minutes) => minutes switch
+    {
+        15            => "15m",
+        60            => "1h",
+        360           => "6h",
+        720           => "12h",
+        1440          => "24h",
+        7 * 24 * 60   => "7d",
+        30 * 24 * 60  => "30d",
+        _             => "24h",
     };
 
     var minutes = ParseWindow(filters.Window);
