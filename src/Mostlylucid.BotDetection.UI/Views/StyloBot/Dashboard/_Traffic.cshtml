@@ -80,6 +80,15 @@
         try { return await EventStore.GetEndpointStatsAsync(count: Math.Max(n, 50), startTime: s, endTime: e); }
         catch { return new List<DashboardEndpointStats>(); }
     }
+    async Task<List<DashboardTimeSeriesPoint>> SafeTimeSeriesAsync(DateTime s, DateTime e, TimeSpan bucket)
+    {
+        try { return await EventStore.GetTimeSeriesAsync(s, e, bucket); }
+        catch { return new List<DashboardTimeSeriesPoint>(); }
+    }
+
+    // Real hits-per-period bucket width, scaled to the window (shared with the
+    // MVC TrafficController path so the two never drift).
+    var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(filters.Window);
 
     var summaryTask  = SafeSummaryAsync(startTime, now);
     var priorSummaryTask = SafeSummaryAsync(startTime.AddMinutes(-minutes), startTime);
@@ -87,7 +96,11 @@
     var priorBotsTask = SafeTopBotsAsync(startTime.AddMinutes(-minutes), startTime);
     var countriesTask = SafeCountryStatsAsync(topN, startTime, now);
     var endpointsTask = SafeEndpointStatsAsync(topN, startTime, now);
-    await Task.WhenAll(summaryTask, priorSummaryTask, topBotsTask, priorBotsTask, countriesTask, endpointsTask);
+    // The hits-per-period chart is a REAL durable time series from the event
+    // store (Postgres on the gateway, REST-forwarded here), not a re-projection
+    // of the visitor snapshot — survives restart, spans the retention window.
+    var hitsSeriesTask = SafeTimeSeriesAsync(startTime, now, bucketSize);
+    await Task.WhenAll(summaryTask, priorSummaryTask, topBotsTask, priorBotsTask, countriesTask, endpointsTask, hitsSeriesTask);
 
     var summary = summaryTask.Result;
     var priorSummary = priorSummaryTask.Result;
@@ -104,30 +117,22 @@
         page: 1, pageSize: 500,
         country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 
-    var bucketCount = Math.Min(60, Math.Max(1, minutes));
-    var bucketSizeMin = Math.Max(1, minutes / bucketCount);
-    var buckets = new DateTime[bucketCount];
-    var human = new int[bucketCount];
-    var susp = new int[bucketCount];
-    var bot = new int[bucketCount];
-    for (var i = 0; i < bucketCount; i++)
-        buckets[i] = now.AddMinutes(-minutes + i * bucketSizeMin);
+    // Real hits-per-period series: floor each durable store point onto the
+    // window's bucket grid (gap-filled), rather than dumping each visitor's
+    // whole hit count into its LastSeen bucket. Shared with TrafficController.
+    var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(hitsSeriesTask.Result, startTime, now, bucketSize);
+
+    // BotFamilies sub-stack (feeds the currently-unrendered _TimeseriesBars)
+    // stays keyed to the SAME real bucket axis so its arrays align with the
+    // chart's length; it buckets by visitor LastSeen for the family split.
+    var bucketCount = timeseries.Buckets.Count;
+    var gridStart = bucketCount > 0 ? timeseries.Buckets[0] : startTime;
     int BucketIndex(DateTime lastSeen)
     {
-        var ageMin = (now - lastSeen).TotalMinutes;
-        if (ageMin < 0 || ageMin > minutes) return -1;
-        var idx = bucketCount - 1 - (int)(ageMin / bucketSizeMin);
+        if (bucketCount == 0) return -1;
+        var idx = (int)((lastSeen.Ticks - gridStart.Ticks) / bucketSize.Ticks);
         return idx < 0 || idx >= bucketCount ? -1 : idx;
     }
-    foreach (var v in visitors)
-    {
-        var idx = BucketIndex(v.LastSeen);
-        if (idx < 0) continue;
-        if (v.BotProbability >= 0.8) bot[idx] += v.Hits;
-        else if (v.BotProbability >= 0.3) susp[idx] += v.Hits;
-        else human[idx] += v.Hits;
-    }
-    var timeseries = new TrafficTimeseries(buckets, human, susp, bot);
 
     // Counter strip: prefer DashboardSummary (per-detection-row sums over the
     // window — same number the page header shows). Falls back to summing the

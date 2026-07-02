@@ -79,14 +79,15 @@
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model)
 
     @{
-        // The shared sb-chartlet view component replaces both legacy chart
-        // partials (_TimeseriesBars / _TimeseriesChart). It renders a Chart.js
-        // stacked bar with real axes, a click-to-toggle legend, and a drill
-        // handler that swaps just #traffic-panels via HTMX (no full-page
-        // reload). Per project_dashboard_color_semantics the family→colour
-        // mapping is owned by HitsPerPeriodChartletBuilder, not view code.
-        // UX1: log-scale Y-axis; UX2: Internal series starts hidden.
-        var hitsChart = HitsPerPeriodChartletBuilder.Build(Model.TopVisitors, Model.Filters.Window);
+        // The shared sb-chartlet view component renders a Chart.js stacked bar
+        // (Human vs Bot) with real axes and a click-to-toggle legend. The data
+        // is the REAL durable time series (Model.Timeseries, read from the event
+        // store — Postgres on the gateway, forwarded over REST on remote hosts),
+        // NOT a re-projection of the visitor snapshot: it survives a restart and
+        // spans the full retention window (feedback_cache_lives_where_data_lives).
+        // Per project_dashboard_color_semantics the audience→colour mapping lives
+        // in HitsPerPeriodChartletBuilder, not view code. UX1: log-scale Y-axis.
+        var hitsChart = HitsPerPeriodChartletBuilder.BuildFromSeries(Model.Timeseries, Model.Filters.Window);
         var chartLabel = $"Hits per period (last {Model.Filters.Window})";
     }
 

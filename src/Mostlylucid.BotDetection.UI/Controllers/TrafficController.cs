@@ -76,6 +76,9 @@ public sealed class TrafficController : Controller
         var windowMinutes = ParseWindow(filters.Window);
         var now = DateTime.UtcNow;
         var startTime = now.AddMinutes(-windowMinutes);
+        // Bucket width for the hits-per-period chart, scaled to the window so a
+        // 30-day view rolls up rather than rendering thousands of thin bars.
+        var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(filters.Window);
 
         // 1. Top bots over the current window -- larger than topN so the
         //    visitor / family breakdowns have enough rows to group on.
@@ -89,8 +92,15 @@ public sealed class TrafficController : Controller
         var priorSummaryTask = SafeGetSummaryAsync(startTime.AddMinutes(-windowMinutes), startTime);
         var countriesTask = SafeGetCountryStatsAsync(topN, startTime, now);
         var endpointsTask = SafeGetEndpointStatsAsync(topN, startTime, now);
+        // The hits-per-period chart is a REAL time series read from the durable
+        // event store (Postgres on the gateway, forwarded over REST on remote
+        // hosts) -- NOT re-projected from the visitor snapshot. Each detection
+        // already carries its own timestamp, so the store buckets by real time;
+        // it survives a gateway restart and spans the full retention window
+        // (feedback_cache_lives_where_data_lives / feedback_no_caches_freshness_over_locality).
+        var hitsSeriesTask = SafeGetTimeSeriesAsync(startTime, now, bucketSize);
 
-        await Task.WhenAll(topBotsTask, priorBotsTask, summaryTask, priorSummaryTask, countriesTask, endpointsTask);
+        await Task.WhenAll(topBotsTask, priorBotsTask, summaryTask, priorSummaryTask, countriesTask, endpointsTask, hitsSeriesTask);
 
         var topBots = topBotsTask.Result;
         var priorBots = priorBotsTask.Result;
@@ -108,7 +118,7 @@ public sealed class TrafficController : Controller
             country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 
         var counters = BuildCounters(summary, priorSummary, topBots, priorBots);
-        var timeseries = BuildTimeseries(visitors, windowMinutes);
+        var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(hitsSeriesTask.Result, startTime, now, bucketSize);
         var botFamilies = BuildBotFamilies(visitors, windowMinutes);
 
         var model = new TrafficPageModel(
@@ -172,6 +182,12 @@ public sealed class TrafficController : Controller
     {
         try { return await _eventStore.GetEndpointStatsAsync(count: Math.Max(n, 50), startTime: start, endTime: end); }
         catch { return new List<DashboardEndpointStats>(); }
+    }
+
+    private async Task<List<DashboardTimeSeriesPoint>> SafeGetTimeSeriesAsync(DateTime start, DateTime end, TimeSpan bucketSize)
+    {
+        try { return await _eventStore.GetTimeSeriesAsync(start, end, bucketSize); }
+        catch { return new List<DashboardTimeSeriesPoint>(); }
     }
 
     /// <summary>
@@ -242,30 +258,14 @@ public sealed class TrafficController : Controller
     ///     event store's per-bucket time-series endpoint. The headline counters
     ///     are not affected; they sum the <see cref="DashboardSummary"/> directly.
     /// </summary>
-    private static TrafficTimeseries BuildTimeseries(IReadOnlyList<CachedVisitor> rows, int windowMinutes)
-    {
-        var (buckets, bucketSizeMin, _) = BuildBucketAxis(windowMinutes);
-        var bucketCount = buckets.Length;
-        var human = new int[bucketCount];
-        var susp = new int[bucketCount];
-        var bot = new int[bucketCount];
-        var now = DateTime.UtcNow;
-        foreach (var v in rows)
-        {
-            var idx = ResolveBucketIndex(v.LastSeen, now, windowMinutes, bucketSizeMin, bucketCount);
-            if (idx < 0) continue;
-            if (v.BotProbability >= 0.8) bot[idx] += v.Hits;
-            else if (v.BotProbability >= 0.3) susp[idx] += v.Hits;
-            else human[idx] += v.Hits;
-        }
-        return new TrafficTimeseries(buckets, human, susp, bot);
-    }
 
     /// <summary>
     ///     Pick the top-5 bot families by hit count over the current window and
-    ///     fold everything else into a trailing "Other bots" slot. Buckets use
-    ///     the same axis as <see cref="BuildTimeseries"/> so the bar partial can
-    ///     align the family sub-stack with the headline bot column. Treats
+    ///     fold everything else into a trailing "Other bots" slot. Buckets use a
+    ///     LastSeen axis (this sub-stack feeds the currently-unrendered bar
+    ///     partial; the headline hits-per-period chart now reads the durable
+    ///     time series via <see cref="HitsPerPeriodChartletBuilder.BuildSeries"/>).
+    ///     Treats
     ///     null/blank BotType as "Unknown bot" so unclassified bots still show up
     ///     in the sub-stack instead of vanishing.
     /// </summary>
@@ -362,6 +362,7 @@ public sealed class TrafficController : Controller
         "12h"           => 12 * 60,
         "24h" or "1d"   => 24 * 60,
         "7d"            => 7 * 24 * 60,
+        "30d"           => 30 * 24 * 60,
         _               => 6 * 60,
     };
 

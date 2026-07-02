@@ -1,4 +1,6 @@
+using System.Globalization;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
 
 namespace Mostlylucid.BotDetection.UI.Dashboard;
 
@@ -156,6 +158,115 @@ public static class HitsPerPeriodChartletBuilder
                 Url: "/dashboard/traffic",
                 ParamKey: "bot_type",
                 PanelTarget: "#traffic-panels"));
+    }
+
+    /// <summary>
+    ///     Build the hits-per-period chartlet from the REAL durable time series
+    ///     (<see cref="TrafficTimeseries"/>, populated from the event store in
+    ///     <c>TrafficController</c>) rather than the visitor snapshot. Each bucket
+    ///     is real traffic in a real time slot, gap-filled across the window, so
+    ///     the chart survives a gateway restart and never renders "empty except
+    ///     the point you just visited". Two stacked series — Human and Bot —
+    ///     coloured by the dashboard risk semantics (verified=human,
+    ///     veryhigh=bot). Read-only: the audience split is not a bot_type the
+    ///     side panels filter on, so there is no drill.
+    /// </summary>
+    /// <summary>
+    ///     Bucket width for the hits-per-period chart, scaled so every window
+    ///     lands in the ~72-90 bucket range: fine intraday, coarser for the
+    ///     multi-week views. The event store buckets on its own grain; the
+    ///     controller re-aggregates the returned points into these slots (see
+    ///     <see cref="BuildSeries"/>), so the rendered chart width is independent
+    ///     of the store's internal bucketing. Shared by both render paths
+    ///     (TrafficController + the _Traffic middleware partial) so the two never
+    ///     drift (feedback_no_duplication).
+    /// </summary>
+    public static TimeSpan BucketSizeForWindow(string window) => window switch
+    {
+        "15m"          => TimeSpan.FromMinutes(1),
+        "60m" or "1h"  => TimeSpan.FromMinutes(1),
+        "6h"           => TimeSpan.FromMinutes(5),
+        "12h"          => TimeSpan.FromMinutes(10),
+        "24h" or "1d"  => TimeSpan.FromMinutes(20),
+        "7d"           => TimeSpan.FromHours(2),
+        "30d"          => TimeSpan.FromHours(8),
+        _              => TimeSpan.FromMinutes(20),
+    };
+
+    /// <summary>
+    ///     Project the durable event-store time series into the page's
+    ///     <see cref="TrafficTimeseries"/>. This is REAL traffic over real time:
+    ///     each <see cref="DashboardTimeSeriesPoint"/> already carries its own
+    ///     bucket timestamp and per-audience counts, so we floor each point onto
+    ///     a fixed <paramref name="bucketSize"/> grid and sum. The grid is
+    ///     gap-filled across the whole window, so an empty period renders as a
+    ///     zero bar rather than a hole — and a gateway restart no longer empties
+    ///     the chart, because the numbers come from the persisted store, not an
+    ///     in-memory snapshot (feedback_cache_lives_where_data_lives). The store
+    ///     splits audience at the bot-probability floor (bot vs human), so the
+    ///     "suspicious" band stays zero and the chart shows Human vs Bot.
+    /// </summary>
+    public static TrafficTimeseries BuildSeries(
+        IReadOnlyList<DashboardTimeSeriesPoint> points,
+        DateTime start,
+        DateTime end,
+        TimeSpan bucketSize)
+    {
+        var bucketTicks = Math.Max(bucketSize.Ticks, TimeSpan.TicksPerMinute);
+        // Align the window start DOWN to a bucket boundary so bucket labels are
+        // stable across refreshes and point-flooring lands on the same grid.
+        var alignedStartTicks = start.Ticks - (start.Ticks % bucketTicks);
+        var bucketCount = (int)Math.Ceiling((end.Ticks - alignedStartTicks) / (double)bucketTicks);
+        bucketCount = Math.Clamp(bucketCount, 1, 2000);
+
+        var buckets = new DateTime[bucketCount];
+        for (var i = 0; i < bucketCount; i++)
+        {
+            buckets[i] = new DateTime(alignedStartTicks + i * bucketTicks, DateTimeKind.Utc);
+        }
+
+        var human = new int[bucketCount];
+        var susp = new int[bucketCount];
+        var bot = new int[bucketCount];
+        foreach (var p in points)
+        {
+            var idx = (int)((p.Timestamp.Ticks - alignedStartTicks) / bucketTicks);
+            if (idx < 0 || idx >= bucketCount) continue;
+            human[idx] += p.HumanCount;
+            bot[idx] += p.BotCount;
+        }
+        return new TrafficTimeseries(buckets, human, susp, bot);
+    }
+
+    public static ChartletViewModel BuildFromSeries(TrafficTimeseries ts, string window)
+    {
+        // Multi-day windows need the date in the label; intraday just the clock.
+        var multiDay = window is "7d" or "30d";
+        var labelFormat = multiDay ? "MM-dd HH:mm" : "HH:mm";
+        var labels = ts.Buckets
+            .Select(b => b.ToString(labelFormat, CultureInfo.InvariantCulture))
+            .ToArray();
+
+        var humanBuckets = ts.Human.Select(x => (long)x).ToArray();
+        var botBuckets = ts.Bot.Select(x => (long)x).ToArray();
+
+        var series = new List<ChartletSeries>
+        {
+            new("Human", "Human", "--sb-color-risk-verified", humanBuckets),
+            new("Bot", "Bot", "--sb-color-risk-veryhigh", botBuckets),
+        };
+
+        return new ChartletViewModel(
+            Id: "hits-per-period",
+            Kind: ChartletKind.StackedBar,
+            BucketLabels: labels,
+            Series: series,
+            // UX1: logarithmic Y so a bot-heavy column doesn't squash the human
+            // slice to one pixel; JS floors min at 1 (log axis rejects 0).
+            Axes: new ChartletAxes(
+                YLabel: "hits", YFormat: "number", XLabel: "time",
+                GridLines: true, YScale: "logarithmic"),
+            Drill: null);
     }
 
     /// <summary>
