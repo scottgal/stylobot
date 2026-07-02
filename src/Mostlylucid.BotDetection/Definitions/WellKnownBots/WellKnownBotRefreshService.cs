@@ -94,7 +94,10 @@ public sealed class WellKnownBotRefreshService : IDisposable
         {
             var client = _httpClientFactory.CreateClient(HttpClientName);
             client.MaxResponseContentBufferSize = opts.MaxResponseBytes;
-            entries = await client.GetFromJsonAsync<List<WellKnownBotEntry>>(url, ct);
+            // Source-generated JsonTypeInfo (not the reflection overload): reflection-based
+            // JSON is disabled under PublishAot, so the reflection path throws on the AOT
+            // console/sidecar and the catalog never loads. See WellKnownBotsJsonContext.
+            entries = await client.GetFromJsonAsync(url, WellKnownBotsJsonContext.Default.ListWellKnownBotEntry, ct);
         }
         catch (Exception ex)
         {

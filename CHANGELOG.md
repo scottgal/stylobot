@@ -5,7 +5,29 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [7.6.0] - 2026-06-22
+## [8.0.0] - 2026-07-01
+
+v8 is the classification-rationalisation and dashboard-V2 release. The 7.x series proved out the metastable-fingerprint identity layer; v8 makes the whole system speak with **one voice** about a visitor - one fingerprint, one probability, one bot/human verdict, one display name - and calibrates the transport-fingerprint signals against each deployment's own norms so proxy/tunnel topologies stop producing false positives.
+
+### Headline
+
+- **Single canonical bot/human classifier (rationalisation phase 1).** Every surface derives `is_bot` from `bot_probability >= Classification.BotFloor`, never a separately-stored boolean. `SqliteDashboardEventStore` (and the commercial PostgreSQL store) rewrote every aggregation - summary, timeseries, top-bots, country, endpoint - onto the `@botFloor` cut, so the dashboard can no longer disagree with the score it displays. Design: `docs/architecture/bot-human-classification-rationalisation.md`.
+- **Signal Assay - deployment-norm calibration (`DeploymentNormTracker`).** Behind a Cloudflare tunnel or any TLS-terminating proxy the transport tier never reaches the origin, so absent JA3 / HTTP/2 stream-priority / TCP Connection-header signals were being scored as bot evidence (a real Chrome hit 0.79 and got a 403, taking staging down). Absence is now calibrated against the per-deployment, per-UA-family norm: `AboveNorm` penalises, `BelowNorm` (absent-for-everyone) does not, and during cold-start warm-up penalties fail open. Gated signals: `TcpConnectionHeader`, `Http2StreamPriority` (both added this release), plus the pre-existing HTTP/1-vs-HTTP/2 signal.
+- **Dashboard V2 information architecture (default-on).** Legacy Overview/Activity/Sessions/Threats/Insights/Investigate surfaces deleted and 301-redirected to the new three-group IA: **Traffic** (landing) / **Visitors** / **Site** / **Policies** / **Configuration**. Header search + ⌘K. Charts render through a locally-vendored **Chart.js** `sb-chartlet` primitive (no CDN).
+- **Policy-stack editor.** Owned + effective rule rollup, curated facet-picker catalog (YAML), templates gallery, predicate composer (AND/OR/Sustain, `InCidr`), intent classifier, and 4-level posture. Per-endpoint policy stacks surface on the Site detail page.
+- **Adaptive, human-first load-shedding.** `VisitorClass`-aware shed decision with per-class gates; per-endpoint performance baseline from the dashboard store; multi-signal `PipelineLoadSensor`; sheds at Critical return 503 rather than forwarding upstream. Off by default; humans are never shed by default (contract-pinned).
+- **Three-slot fingerprint naming.** `Fingerprint.DisplayName` split into `induced` / `llm` / `given` slots resolved by `FingerprintNameResolver` (given ?? llm ?? induced). Per-fingerprint LLM namer via `EphemeralLlmCoordinator` replaces the per-signature picker; name history with `name_kind` + `operator_id`; drift `was: X` signifier.
+- **`BotType.Internal`.** LAN / loopback traffic is classified, listed, and filterable but never throttled; RiskBand clamped to Low.
+- **PROXY protocol v1/v2** support in the gateway to recover the real client IP behind an L4 edge.
+- **StyloExtract integration pack** (`Mostlylucid.BotDetection.StyloExtract`) - AI-scraper-aware content negotiation wired to action policies.
+- **Mode centroid classifier**, drift badges, and the FOSS **OTLP log-sink** stack in the ASP.NET monitoring pack.
+
+### Fixes (v8 stabilisation)
+
+- **`DegradationStoreSampler` ambiguous-constructor crash.** The site-health sampler grew a second public constructor (`IServiceProvider`-based, for optional-DI hosts) alongside the test-only 4-arg one; the built-in DI container only considers public constructors and aborted boot with "constructors are ambiguous" under `ValidateOnBuild` (on in Development). This took down the Demo app and every Demo-hosted integration test. The test-only constructor is now `internal` (exposed via `InternalsVisibleTo`), leaving a single public DI candidate.
+- **Test-suite assay.** Removed obsolete hollow test stubs (commented-out bodies, no assertions, inaccurate "removed in blackboard architecture" skip reasons for types that still exist) from `SignatureResponseCoordinatorTests`; re-enabled `ResponseSignal_RequiredPropertiesCanBeSet` (skip reason was false). Added proper Signal-Assay warm-up coverage (AboveNorm / WarmingUp / BelowNorm) for the Http2 stream-priority and TCP Connection-header penalties, which the previous tests did not cover.
+
+
 
 The 7.6 release closes the metastable-fingerprint loop. The 7.0 - 7.5 series put the storage, matcher, and scoring pieces in place; 7.6 wires them into an adaptive learning loop that visibly self-corrects under traffic. Calibration now fires on observation pressure instead of a fixed wall clock, drift metrics expose per-archetype per-UA leakage on a new observability endpoint, umbrella shrinkage tightens over-broad archetype catchments automatically, auto-regrowth lets them recover from transient leakage, neighbour repulsion stops smaller archetypes being eaten by larger ones, and convergence detection flags pairs that have been near merging for several cycles. The honeypot dashboard surface is also fixed: detection was working all along, but the badge was reading an unpopulated field.
 

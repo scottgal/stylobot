@@ -230,7 +230,7 @@ public class ClientResponseTrackingAtomCompactionTests
 /// </summary>
 public class ResponseSignalTests
 {
-    [Fact(Skip = "Obsolete: ResponseSignal removed in blackboard architecture")]
+    [Fact]
     public void ResponseSignal_RequiredPropertiesCanBeSet()
     {
         // Arrange & Act

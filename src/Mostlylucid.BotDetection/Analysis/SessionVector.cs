@@ -726,7 +726,29 @@ public sealed class SessionStore
     private readonly TimeSpan _sessionGapThreshold;
     private readonly int _maxSnapshotsPerSignature;
     private readonly int _maxRequestsPerSession;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
+    // Striped lock pool: a FIXED number of locks, chosen by hashing the signature.
+    // Previously this was `ConcurrentDictionary<string, SemaphoreSlim>` with a
+    // GetOrAdd per signature and no removal — one SemaphoreSlim per unique
+    // signature, kept for the process lifetime. Under high-cardinality traffic
+    // (rotating UAs/IPs) that grew without bound (memory + lazily-materialised
+    // wait handles). A fixed stripe count bounds it to a constant; distinct
+    // signatures may share a stripe (harmless: the lock only serialises the
+    // per-signature session mutation, and cross-signature collisions are rare
+    // and merely add brief contention). Static so all SessionStore instances
+    // in a process share the (bounded) pool.
+    private const int LockStripeCount = 512;
+
+    private static readonly SemaphoreSlim[] _lockStripes = CreateLockStripes(LockStripeCount);
+
+    private static SemaphoreSlim[] CreateLockStripes(int count)
+    {
+        var stripes = new SemaphoreSlim[count];
+        for (var i = 0; i < count; i++) stripes[i] = new SemaphoreSlim(1, 1);
+        return stripes;
+    }
+
+    private static SemaphoreSlim LockFor(string signature)
+        => _lockStripes[(int)((uint)signature.GetHashCode() % LockStripeCount)];
 
     // Tracks signatures that have an active in-memory session, enabling flush-on-shutdown.
     // Value is the most recent FingerprintContext for vector encoding on shutdown.
@@ -762,7 +784,7 @@ public sealed class SessionStore
         SessionRequest request,
         FingerprintContext? fingerprint = null)
     {
-        var sessionLock = _locks.GetOrAdd(signature, _ => new SemaphoreSlim(1, 1));
+        var sessionLock = LockFor(signature);
         await sessionLock.WaitAsync();
 
         try
@@ -825,7 +847,7 @@ public sealed class SessionStore
 
         foreach (var signature in signatures)
         {
-            var sessionLock = _locks.GetOrAdd(signature, _ => new SemaphoreSlim(1, 1));
+            var sessionLock = LockFor(signature);
             await sessionLock.WaitAsync();
             try
             {

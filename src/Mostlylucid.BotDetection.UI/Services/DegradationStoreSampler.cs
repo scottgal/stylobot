@@ -76,9 +76,15 @@ public sealed class DegradationStoreSampler : IDisposable
     }
 
     /// <summary>
-    ///     Direct-construction overload preserved for tests.
+    ///     Direct-construction overload preserved for tests. Deliberately
+    ///     <c>internal</c> (exposed via <c>InternalsVisibleTo</c>): the
+    ///     built-in DI container only considers <c>public</c> constructors and
+    ///     throws "ambiguous constructors" when it finds two it can satisfy.
+    ///     Keeping this one non-public leaves the single public
+    ///     <see cref="IServiceProvider"/> constructor as the only DI candidate,
+    ///     so <c>ValidateOnBuild</c> (on in Development) no longer aborts boot.
     /// </summary>
-    public DegradationStoreSampler(
+    internal DegradationStoreSampler(
         IDashboardEventStore store,
         ILogger<DegradationStoreSampler> logger,
         DegradationAtom? atom,

@@ -212,6 +212,69 @@ public class TransportHeaderTrustGateTests
                ConfigMock.Object,
                transportTrust: trust);
 
+    private static TcpIpFingerprintContributor BuildTcp(ITransportHeaderTrust trust, DeploymentNormTracker norms)
+        => new(NullLogger<TcpIpFingerprintContributor>.Instance,
+               ConfigMock.Object,
+               transportTrust: trust,
+               norms: norms);
+
+    // 60 identical observations push the tracker past its 50-request warm-up and pin
+    // the bucket rate to 1 (present) or 0 (absent), so Evaluate returns AboveNorm or
+    // BelowNorm rather than WarmingUp for the "unknown" UA family the test state uses.
+    private static DeploymentNormTracker ConnectionNorm(bool present)
+    {
+        var norms = new DeploymentNormTracker();
+        for (var i = 0; i < 60; i++)
+            norms.Record(DeploymentNormTracker.Features.TcpConnectionHeader, "unknown", present: present);
+        return norms;
+    }
+
+    // ------------------------------------------------------------------
+    // Connection-header absence is norm-gated (Signal Assay, f0a25b63): the
+    // "missing connection reuse header" penalty only fires where the deployment
+    // normally sees the header. Pins the AboveNorm / WarmingUp / BelowNorm branches
+    // so the tunnel-Chrome false positive can't regress on the TCP path.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task Tcp_missing_connection_header_when_norm_present_flags_bot()
+    {
+        // AboveNorm: this deployment normally sees the Connection header, so a request
+        // that omits it (no header on the default request) is genuine bot evidence.
+        var (state, _) = StateFor("127.0.0.1", _ => { });
+        var sut = BuildTcp(Trust(TransportTrustMode.Auto), ConnectionNorm(present: true));
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.Contains(contributions, c => c.Reason?.Contains("connection reuse") == true);
+    }
+
+    [Fact]
+    public async Task Tcp_missing_connection_header_during_warmup_does_not_flag()
+    {
+        // WarmingUp: a cold deployment has too little data to call the header a norm,
+        // so absence must fail open (no penalty).
+        var (state, _) = StateFor("127.0.0.1", _ => { });
+        var sut = BuildTcp(Trust(TransportTrustMode.Auto), new DeploymentNormTracker());
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c => c.Reason?.Contains("connection reuse") == true);
+    }
+
+    [Fact]
+    public async Task Tcp_missing_connection_header_when_norm_absent_does_not_flag()
+    {
+        // BelowNorm: behind a TLS-terminating proxy/tunnel the Connection header is
+        // absent for everyone here, so its absence is the norm, not evidence.
+        var (state, _) = StateFor("127.0.0.1", _ => { });
+        var sut = BuildTcp(Trust(TransportTrustMode.Auto), ConnectionNorm(present: false));
+
+        var contributions = await sut.ContributeAsync(state);
+
+        Assert.DoesNotContain(contributions, c => c.Reason?.Contains("connection reuse") == true);
+    }
+
     [Fact]
     public async Task Tcp_spoofed_os_from_public_peer_flags_spoof()
     {

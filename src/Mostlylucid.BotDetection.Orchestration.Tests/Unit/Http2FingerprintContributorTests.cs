@@ -49,6 +49,25 @@ public class Http2FingerprintContributorTests
         return new Http2FingerprintContributor(_loggerMock.Object, _configProviderMock.Object, norms);
     }
 
+    /// <summary>
+    ///     Builds a contributor whose deployment-norm tracker has already learned an
+    ///     established Http2StreamPriority norm for the "unknown" UA family. 60 identical
+    ///     observations push the tracker past its 50-request warm-up and set the bucket
+    ///     rate to 0 or 1, so <see cref="DeploymentNormTracker.Evaluate"/> returns
+    ///     AboveNorm (priorityPresent: true) or BelowNorm (priorityPresent: false) rather
+    ///     than WarmingUp. Lets the Signal-Assay tests assert the gated behaviour
+    ///     deterministically instead of depending on cold-start state.
+    /// </summary>
+    private Http2FingerprintContributor CreateContributorWithPriorityNorm(bool priorityPresent)
+    {
+        var norms = new Mostlylucid.BotDetection.Analysis.DeploymentNormTracker();
+        for (var i = 0; i < 60; i++)
+            norms.Record(
+                Mostlylucid.BotDetection.Analysis.DeploymentNormTracker.Features.Http2StreamPriority,
+                "unknown", present: priorityPresent);
+        return new Http2FingerprintContributor(_loggerMock.Object, _configProviderMock.Object, norms);
+    }
+
     private BlackboardState CreateState(string protocol, Dictionary<string, string>? headers = null)
     {
         var httpContext = new DefaultHttpContext();
@@ -315,10 +334,19 @@ public class Http2FingerprintContributorTests
             c.Reason?.Contains("stream priority") == true);
     }
 
+    // ------------------------------------------------------------------
+    // Stream-priority absence is norm-gated (Signal Assay, f0a25b63): the
+    // "no priority" penalty only fires where the deployment normally sees
+    // priority. These three tests pin the AboveNorm / WarmingUp / BelowNorm
+    // branches so the tunnel-Chrome false positive can't regress.
+    // ------------------------------------------------------------------
+
     [Fact]
-    public async Task ContributeAsync_NoPriority_ProducesBotSignal()
+    public async Task ContributeAsync_NoPriority_WhenPriorityIsDeploymentNorm_ProducesBotSignal()
     {
-        var contributor = CreateContributor();
+        // AboveNorm: this deployment normally sees X-HTTP2-Stream-Priority, so a
+        // request that omits it is genuine bot evidence and gets the full penalty.
+        var contributor = CreateContributorWithPriorityNorm(priorityPresent: true);
         var state = CreateState("HTTP/2");
 
         var contributions = await contributor.ContributeAsync(state);
@@ -328,6 +356,36 @@ public class Http2FingerprintContributorTests
             c.Reason?.Contains("priority") == true);
         Assert.NotNull(prioContrib);
         Assert.True(prioContrib!.ConfidenceDelta > 0);
+    }
+
+    [Fact]
+    public async Task ContributeAsync_NoPriority_DuringWarmup_ProducesNoPenalty()
+    {
+        // WarmingUp: on a cold deployment the tracker has too little data to call
+        // priority a norm, so absence must fail open (no bot signal). Regression
+        // guard for the tunnel-Chrome outage f0a25b63 fixed.
+        var contributor = CreateContributor(); // fresh, cold norm tracker
+        var state = CreateState("HTTP/2");
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.False((bool)state.Signals["h2.uses_priority"]);
+        Assert.DoesNotContain(contributions, c => c.Reason?.Contains("priority") == true);
+    }
+
+    [Fact]
+    public async Task ContributeAsync_NoPriority_WhenPriorityRareOnDeployment_ProducesNoPenalty()
+    {
+        // BelowNorm: behind a TLS-terminating proxy/tunnel the edge-injected priority
+        // header never reaches the origin, so it is absent for everyone here. Absence
+        // is the norm, not evidence — no penalty.
+        var contributor = CreateContributorWithPriorityNorm(priorityPresent: false);
+        var state = CreateState("HTTP/2");
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        Assert.False((bool)state.Signals["h2.uses_priority"]);
+        Assert.DoesNotContain(contributions, c => c.Reason?.Contains("priority") == true);
     }
 
     // ==========================================
