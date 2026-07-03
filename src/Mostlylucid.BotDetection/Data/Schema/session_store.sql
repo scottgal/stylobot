@@ -49,6 +49,13 @@ CREATE INDEX IF NOT EXISTS idx_sessions_signature ON sessions(signature, ended_a
 CREATE INDEX IF NOT EXISTS idx_sessions_ended ON sessions(ended_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_is_bot ON sessions(is_bot, ended_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_country ON sessions(country_code);
+-- Multi-domain composite indexes. On fresh installs the sessions.domain/host
+-- columns don't exist until MigrateAddColumnAsync in SqliteSessionStore runs
+-- first (see the C# init path). SQLite CREATE INDEX will fail with
+-- "no such column" if the columns are missing, so these are re-issued in C#
+-- (via CREATE INDEX IF NOT EXISTS) AFTER the ADD COLUMN migrations. They live
+-- here too so the schema file remains the single source of truth for the
+-- target shape; the C# path is the runtime idempotent applicator.
 
 CREATE TABLE IF NOT EXISTS signatures (
     signature_id TEXT PRIMARY KEY,

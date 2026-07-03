@@ -92,6 +92,30 @@ internal static class IdentitySchema
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprint_mode_observations ADD COLUMN host TEXT", ct);
 
+        // Multi-domain composite indexes on the observation tables. CREATE INDEX
+        // IF NOT EXISTS is idempotent; safe to re-run every startup. Placed AFTER
+        // the ADD COLUMN calls above so legacy databases (columns don't exist yet)
+        // don't trip the index create with "no such column: domain/host".
+        // Rationale mirrors the fingerprint_observations / mode_observations read
+        // paths: dashboard multi-domain filters need (domain|host, fingerprint_id)
+        // to narrow the partition before joining, and (domain, observed_at) covers
+        // per-site time-window scans.
+        await TryExecuteAsync(conn,
+            "CREATE INDEX IF NOT EXISTS ix_fp_obs_domain_fp_id " +
+            "ON fingerprint_observations(domain, fingerprint_id)", ct);
+        await TryExecuteAsync(conn,
+            "CREATE INDEX IF NOT EXISTS ix_fp_obs_host_fp_id " +
+            "ON fingerprint_observations(host, fingerprint_id)", ct);
+        await TryExecuteAsync(conn,
+            "CREATE INDEX IF NOT EXISTS ix_fp_obs_domain_observed_at " +
+            "ON fingerprint_observations(domain, observed_at DESC)", ct);
+        await TryExecuteAsync(conn,
+            "CREATE INDEX IF NOT EXISTS ix_fp_mode_obs_domain_fp_mode " +
+            "ON fingerprint_mode_observations(domain, fingerprint_id, mode_id)", ct);
+        await TryExecuteAsync(conn,
+            "CREATE INDEX IF NOT EXISTS ix_fp_mode_obs_host_fp_mode " +
+            "ON fingerprint_mode_observations(host, fingerprint_id, mode_id)", ct);
+
         // Phase 3 umbrella-shrinkage (2026-06-21). VarianceMultiplier on each
         // archetype is the calibration-tuned per-archetype tightening factor
         // applied to the matcher's per-dim variance. 1.0 = no narrowing

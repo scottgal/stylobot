@@ -25,3 +25,14 @@ CREATE INDEX IF NOT EXISTS idx_path_lifecycle_last_seen
 
 CREATE INDEX IF NOT EXISTS idx_path_lifecycle_domain
     ON path_lifecycle(domain);
+
+-- Multi-domain composite indexes: dashboard multi-domain filters need
+-- (domain|host, path) to narrow the partition before path lookups. The
+-- host_path index is somewhat redundant with the (host, path) PK's implicit
+-- index, but SQLite's PK-implicit index isn't guaranteed to be picked for a
+-- WHERE host = ? ORDER BY path query when the covering columns list doesn't
+-- match, so an explicit index makes the plan deterministic.
+CREATE INDEX IF NOT EXISTS ix_path_lifecycle_domain_path
+    ON path_lifecycle(domain, path);
+CREATE INDEX IF NOT EXISTS ix_path_lifecycle_host_path
+    ON path_lifecycle(host, path);

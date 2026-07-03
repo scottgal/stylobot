@@ -68,6 +68,29 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         await MigrateAddColumnAsync(conn, "requests", "host", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "signature_centroids", "access_count", "INTEGER NOT NULL DEFAULT 0", ct);
 
+        // Multi-domain composite indexes. Filter-by-domain / filter-by-host dashboard
+        // reads scan (domain|host, <time-or-key>) so the leading column narrows the
+        // partition before the secondary axis sorts. CREATE INDEX IF NOT EXISTS is
+        // idempotent; safe to re-run every startup.
+        await using (var idxCmd = conn.CreateCommand())
+        {
+            idxCmd.CommandText = """
+                CREATE INDEX IF NOT EXISTS ix_sessions_domain_session_start
+                    ON sessions(domain, started_at DESC);
+                CREATE INDEX IF NOT EXISTS ix_sessions_host_session_start
+                    ON sessions(host, started_at DESC);
+                CREATE INDEX IF NOT EXISTS ix_signatures_domain_last_seen
+                    ON signatures(domain, last_seen DESC);
+                CREATE INDEX IF NOT EXISTS ix_signatures_host_last_seen
+                    ON signatures(host, last_seen DESC);
+                CREATE INDEX IF NOT EXISTS ix_requests_domain_request_time
+                    ON requests(domain, timestamp DESC);
+                CREATE INDEX IF NOT EXISTS ix_requests_host_request_time
+                    ON requests(host, timestamp DESC);
+                """;
+            await idxCmd.ExecuteNonQueryAsync(ct);
+        }
+
         _logger.LogInformation("SQLite session store initialized at {ConnectionString}", _connectionString);
     }
 
