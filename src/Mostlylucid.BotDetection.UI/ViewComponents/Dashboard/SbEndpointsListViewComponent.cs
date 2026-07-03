@@ -57,10 +57,11 @@ public class SbEndpointsListViewComponent(
         var basePath = options.Value.BasePath.TrimEnd('/');
         if (contentOnly)
         {
-            // Upstream + non-API + non-static in one pass. Supersedes excludeStatic
-            // (which only strips assets) — "content pages" also excludes API
-            // endpoints and StyloBot's own paths.
-            data = data.Where(e => EndpointClassifier.IsUpstreamContent(e.Path, basePath)).ToList();
+            // "Content pages" = human page views: GET/HEAD, upstream-served, not
+            // API/versioned/gRPC, not static assets, not StyloBot's own paths.
+            // Supersedes excludeStatic (which only strips assets) — this also drops
+            // API endpoints, POST telemetry ingest (OTLP /v1/logs), and dashboard rows.
+            data = data.Where(e => EndpointClassifier.IsContentPageRequest(e.Method, e.Path, basePath)).ToList();
         }
         else if (excludeStatic)
         {

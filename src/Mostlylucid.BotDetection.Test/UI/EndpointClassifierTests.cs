@@ -31,10 +31,25 @@ public class EndpointClassifierTests
     [InlineData("/api/v1/status", true)]
     [InlineData("/api", true)]
     [InlineData("/foo/api/bar", true)]
+    [InlineData("/v1/logs", true)]            // OTLP ingest — versioned API prefix
+    [InlineData("/v2/traces", true)]
+    [InlineData("/opentelemetry.proto.collector.logs.v1.LogsService/Export", true)] // gRPC dotted service
+    [InlineData("/verify", false)]            // 'v' word, not a version segment
     [InlineData("/pricing", false)]
     [InlineData("/", false)]
-    public void IsApiPath_matches_api_segments(string path, bool expected)
+    public void IsApiPath_matches_api_versioned_and_grpc(string path, bool expected)
         => EndpointClassifier.IsApiPath(path).Should().Be(expected);
+
+    [Theory]
+    [InlineData("GET", "/pricing", true)]      // human page view
+    [InlineData("HEAD", "/", true)]            // head is still a page probe
+    [InlineData("POST", "/pricing", false)]    // form submit, not a page
+    [InlineData("POST", "/v1/logs", false)]    // OTLP ingest
+    [InlineData("GET", "/v1/logs", false)]     // versioned API even via GET
+    [InlineData("GET", "/dashboard/traffic", false)] // StyloBot's own UI
+    [InlineData("GET", "/app.js", false)]      // static asset
+    public void IsContentPageRequest_is_get_upstream_page(string method, string path, bool expected)
+        => EndpointClassifier.IsContentPageRequest(method, path, BasePath).Should().Be(expected);
 
     [Theory]
     [InlineData("/site.js", true)]

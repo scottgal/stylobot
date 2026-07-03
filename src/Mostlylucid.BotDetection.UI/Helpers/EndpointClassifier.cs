@@ -51,14 +51,44 @@ public static class EndpointClassifier
         return false;
     }
 
-    /// <summary>True when the path looks like an API endpoint (an <c>/api/</c> segment).</summary>
+    /// <summary>
+    ///     True when the path looks like an API / machine endpoint rather than a
+    ///     human-facing page: an <c>/api/</c> segment, a version-prefixed route
+    ///     (<c>/v1/…</c>, <c>/v2/…</c> — e.g. OTLP <c>/v1/logs</c>), or a gRPC /
+    ///     protobuf service path (a dotted service segment like
+    ///     <c>/opentelemetry.proto.collector…</c>).
+    /// </summary>
     public static bool IsApiPath(string? path)
     {
         if (string.IsNullOrEmpty(path)) return false;
         return path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
                || path.Contains("/api/", StringComparison.OrdinalIgnoreCase)
                || path.Equals("/api", StringComparison.OrdinalIgnoreCase)
-               || path.EndsWith("/api", StringComparison.OrdinalIgnoreCase);
+               || path.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+               || IsVersionApiPrefix(path)
+               || IsGrpcServicePath(path);
+    }
+
+    // First path segment is a version tag: /v1/, /v2/, ... Catches OTLP ingest
+    // (/v1/logs, /v1/traces) and versioned REST without matching words like
+    // "/verify" (the segment must be 'v' followed only by digits).
+    private static bool IsVersionApiPrefix(string path)
+    {
+        if (path.Length < 4 || path[0] != '/' || (path[1] != 'v' && path[1] != 'V')) return false;
+        var i = 2;
+        while (i < path.Length && char.IsDigit(path[i])) i++;
+        return i > 2 && i < path.Length && path[i] == '/';
+    }
+
+    // A dotted service segment, e.g. gRPC/protobuf "/opentelemetry.proto.collector.
+    // logs.v1.LogsService/Export" — the first segment contains dots, which a
+    // human-facing page path never does.
+    private static bool IsGrpcServicePath(string path)
+    {
+        if (path.Length < 2 || path[0] != '/') return false;
+        var end = path.IndexOf('/', 1);
+        var firstSegment = end < 0 ? path[1..] : path[1..end];
+        return firstSegment.Contains('.');
     }
 
     /// <summary>
@@ -96,4 +126,16 @@ public static class EndpointClassifier
            && Classify(path, basePath) == EndpointOwner.Upstream
            && !IsApiPath(path)
            && !IsStaticResource(path);
+
+    /// <summary>
+    ///     True for a "content page" ROW on the traffic overview: a human page
+    ///     view. Adds the method gate on top of <see cref="IsUpstreamContent"/> —
+    ///     a page view is a <c>GET</c> (or <c>HEAD</c>); <c>POST</c>/<c>PUT</c>/…
+    ///     are form submits, API calls, or telemetry ingest (e.g. OTLP
+    ///     <c>POST /v1/logs</c>), which are not "pages".
+    /// </summary>
+    public static bool IsContentPageRequest(string? method, string? path, string? basePath)
+        => (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
+           && IsUpstreamContent(path, basePath);
 }
