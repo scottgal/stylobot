@@ -78,22 +78,43 @@ public static class ProxyProtocolKestrelExtensions
 
             options.Listen(IPAddress.Any, httpPort, ApplyDefaults);
 
-            if (!string.IsNullOrEmpty(certPath) && !string.IsNullOrEmpty(keyPath) && File.Exists(certPath))
+            var primary = LoadPemCert(certPath, keyPath);
+            if (primary is not null)
             {
-                var pem = X509Certificate2.CreateFromPemFile(certPath, keyPath);
-                // PEM → PKCS#12 round-trip so the private key is usable for the
-                // TLS handshake on the Linux container runtime.
-                var cert = X509CertificateLoader.LoadPkcs12(
-                    pem.Export(X509ContentType.Pkcs12), password: null);
+                // Additional SNI certs. The gateway is the TLS edge for more than
+                // one domain family, and those families can live on different DNS
+                // providers, so they can't share a single issued cert (e.g.
+                // *.stylo.bot via Namecheap DNS-01 + *.stylobot.net via Cloudflare
+                // DNS-01). Load each extra cert and pick per connection by SNI
+                // hostname matched against the cert's SANs; fall back to primary.
+                //   Gateway:Tls:AdditionalCerts:0:CertPath / :KeyPath, :1:…
+                var extra = new List<X509Certificate2>();
+                foreach (var c in cfg.GetSection("Gateway:Tls:AdditionalCerts").GetChildren())
+                {
+                    var loaded = LoadPemCert(c["CertPath"], c["KeyPath"]);
+                    if (loaded is not null) extra.Add(loaded);
+                }
 
                 options.Listen(IPAddress.Any, httpsPort, lo =>
                 {
                     ApplyDefaults(lo);   // PROXY parser FIRST
-                    lo.UseHttps(cert);   // TLS AFTER
+                    if (extra.Count == 0)
+                    {
+                        lo.UseHttps(primary);   // single-cert fast path (unchanged)
+                    }
+                    else
+                    {
+                        var all = new List<X509Certificate2>(extra.Count + 1) { primary };
+                        all.AddRange(extra);
+                        // TLS AFTER, selecting the cert by SNI so *.stylo.bot and
+                        // *.stylobot.net each get their own valid chain.
+                        lo.UseHttps(https =>
+                            https.ServerCertificateSelector = (_, sni) => SelectCertBySni(sni, all, primary));
+                    }
                 });
                 Log.Information(
-                    "PROXY protocol ENABLED — code-bound endpoints http:{HttpPort} https:{HttpsPort} (trustAll={TrustAll}, trustedCidrs={Count})",
-                    httpPort, httpsPort, trustAll, trusted.Count);
+                    "PROXY protocol ENABLED — code-bound endpoints http:{HttpPort} https:{HttpsPort} (trustAll={TrustAll}, trustedCidrs={Count}, tlsCerts={Certs})",
+                    httpPort, httpsPort, trustAll, trusted.Count, extra.Count + 1);
             }
             else
             {
@@ -104,6 +125,55 @@ public static class ProxyProtocolKestrelExtensions
         });
 
         return builder;
+    }
+
+    // Load a PEM cert+key pair, round-tripping through PKCS#12 so the private key
+    // is usable for the TLS handshake on the Linux container runtime. Returns null
+    // when the path is unset or the file is missing (caller logs / falls back).
+    private static X509Certificate2? LoadPemCert(string? certPath, string? keyPath)
+    {
+        if (string.IsNullOrEmpty(certPath) || string.IsNullOrEmpty(keyPath) || !File.Exists(certPath))
+            return null;
+        using var pem = X509Certificate2.CreateFromPemFile(certPath, keyPath);
+        return X509CertificateLoader.LoadPkcs12(pem.Export(X509ContentType.Pkcs12), password: null);
+    }
+
+    // Pick the cert whose SANs cover the requested SNI host; fall back to primary
+    // (also covers the no-SNI case, e.g. an IP-address or bare-hostname handshake).
+    private static X509Certificate2 SelectCertBySni(string? sni, List<X509Certificate2> certs, X509Certificate2 fallback)
+    {
+        if (string.IsNullOrEmpty(sni)) return fallback;
+        foreach (var cert in certs)
+            if (CertCoversHost(cert, sni)) return cert;
+        return fallback;
+    }
+
+    private static bool CertCoversHost(X509Certificate2 cert, string host)
+    {
+        foreach (var ext in cert.Extensions)
+        {
+            if (ext.Oid?.Value != "2.5.29.17") continue; // subjectAltName
+            X509SubjectAlternativeNameExtension san;
+            try { san = new X509SubjectAlternativeNameExtension(ext.RawData); }
+            catch { continue; }
+            foreach (var dns in san.EnumerateDnsNames())
+            {
+                if (dns.StartsWith("*.", StringComparison.Ordinal))
+                {
+                    // Wildcard matches exactly one label: *.stylobot.net covers
+                    // a.stylobot.net but not b.a.stylobot.net nor the apex.
+                    var suffix = dns.AsSpan(1); // ".stylobot.net"
+                    var dot = host.IndexOf('.');
+                    if (dot > 0 && host.AsSpan(dot).Equals(suffix, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                else if (dns.Equals(host, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static IReadOnlyList<IPNetwork> ParseTrustedCidrs(string? csv)
