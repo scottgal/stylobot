@@ -2,7 +2,7 @@
 @model IReadOnlyList<CountryRow>
 @{
     // Configurable mount point — never hardcode /dashboard.
-    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
 }
 @*
     T3 — By-country breakdown card. Each row is a hit-count + bot-share % link

@@ -2,7 +2,7 @@
 @model IReadOnlyList<BotTypeRow>
 @{
     // Configurable mount point — never hardcode /dashboard.
-    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
 }
 @*
     T3 — By-bot-type breakdown card. Row click filters Visitors by bot type

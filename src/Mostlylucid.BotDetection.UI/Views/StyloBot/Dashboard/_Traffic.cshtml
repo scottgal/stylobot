@@ -127,7 +127,7 @@
     // uses, so all post-filter semantics (country / bot_type / threat) match
     // exactly. Applied AFTER the audience pill so chip + pill compose.
     var (visitors, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
-        topBots, filter: "all", sortField: "lastSeen", sortDir: "desc",
+        topBots, filter: "all", sortField: "hits", sortDir: "desc",
         page: 1, pageSize: 500,
         country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 

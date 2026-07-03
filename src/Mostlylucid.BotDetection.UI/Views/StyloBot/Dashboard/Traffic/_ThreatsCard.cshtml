@@ -3,7 +3,7 @@
 @{
     // Dashboard mount point is configurable (e.g. /_stylobot embedded, /dashboard on the
     // public site) — never hardcode it. Same ViewData source as _VisitorCard.
-    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
 }
 @*
     T3 — Threats breakdown card. Surfaces Medium+ ThreatBand visitors in the

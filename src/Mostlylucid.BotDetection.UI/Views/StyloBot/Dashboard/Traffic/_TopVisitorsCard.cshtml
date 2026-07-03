@@ -2,7 +2,7 @@
 @model IReadOnlyList<CachedVisitor>
 @{
     // Configurable mount point — never hardcode /dashboard. Same source as _VisitorCard.
-    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
 }
 @*
     T3 — Top-visitors breakdown card. The full _VisitorCard primitive is too

@@ -2,7 +2,7 @@
 @model IReadOnlyList<EndpointRow>
 @{
     // Configurable mount point — never hardcode /dashboard.
-    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
 }
 @*
     T3 — Top-endpoints breakdown card. Row click drills into the per-endpoint
@@ -45,7 +45,7 @@
                         : "—";
                     var errStyle = row.HasPerf ? ErrColour(row.ErrorRate) : "";
                     <li>
-                        <a href="@basePath/endpoints?selected=@Uri.EscapeDataString(row.Method + "|" + row.Path)"
+                        <a href="@basePath/site/endpoint?path=@Uri.EscapeDataString(row.Path)&method=@Uri.EscapeDataString(row.Method)"
                            class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
                             <span class="badge badge-ghost badge-xs flex-none">@row.Method</span>
                             <span class="truncate flex-1 min-w-0 font-mono text-[11px]" title="@row.Path">@row.Path</span>

@@ -112,8 +112,12 @@ public sealed class TrafficController : Controller
         // Project top-bots through the canonical helper so audience split,
         // collapse rules, and threat / country / bot-type post-filters match
         // the rest of the dashboard exactly.
+        // Sort by hits DESC, not lastSeen: the overview's Top-bots strip groups the
+        // top-N of this list and re-sums by hits, so a lastSeen sort truncated the
+        // input to the most-recent (usually 1-hit) visitors before grouping — the
+        // strip then showed random low-volume entries instead of Googlebot/Bingbot.
         var (visitors, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
-            topBots, filter: "all", sortField: "lastSeen", sortDir: "desc",
+            topBots, filter: "all", sortField: "hits", sortDir: "desc",
             page: 1, pageSize: 500,
             country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 

@@ -94,10 +94,43 @@
     @* UX3: bot-families donut removed. Same family axis already lives in
        the hits-per-period legend; the donut took half the row and added
        no drill behaviour the stacked bar didn't already provide. *@
-    <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-3">
-            <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
-            <vc:sb-chartlet model="hitsChart" />
+    @* Chart is no longer full-width: it shares the row with the top content
+       pages over the period, so the highest-traffic paths sit next to the
+       volume shape instead of below the fold. *@
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div class="card bg-base-100 border border-base-300 lg:col-span-2">
+            <div class="card-body p-3">
+                <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
+                <vc:sb-chartlet model="hitsChart" />
+            </div>
+        </div>
+        <div class="card bg-base-100 border border-base-300">
+            <div class="card-body p-3">
+                <div class="text-sm text-base-content/60 mb-2">Top content pages (last @Model.Filters.Window)</div>
+                @{
+                    var navBpPages = ViewData["BasePath"]?.ToString() ?? "/dashboard";
+                    var contentPages = Model.TopEndpoints
+                        .Where(e => !string.IsNullOrEmpty(e.Path))
+                        .Take(8).ToList();
+                }
+                @if (contentPages.Count == 0)
+                {
+                    <div class="text-sm text-base-content/40">No content pages in this window.</div>
+                }
+                else
+                {
+                    <ul class="space-y-1">
+                        @foreach (var e in contentPages)
+                        {
+                            <li class="flex items-center justify-between gap-2 min-w-0 text-sm">
+                                <a href="@navBpPages/site/endpoint?path=@Uri.EscapeDataString(e.Path)&method=@Uri.EscapeDataString(e.Method)"
+                                   class="truncate font-mono text-[11px] hover:underline" title="@e.Method @e.Path">@e.Path</a>
+                                <span class="text-base-content/60 tabular-nums shrink-0">@e.Hits.ToString("N0")</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
         </div>
     </div>
 
