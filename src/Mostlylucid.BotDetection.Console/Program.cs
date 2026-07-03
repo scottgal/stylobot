@@ -570,6 +570,19 @@ try
     var signatureLogger = new SignatureLogger();
     builder.Services.AddSingleton(signatureLogger);
 
+    // Data guardian: bound the signature JSONL footprint. SignatureLogger appends
+    // per-day signatures-{date}.jsonl and never prunes; without this a soak grows
+    // the on-disk set without limit and stalls boot when the loader scans it. The
+    // core GuardianService (registered by AddBotDetection) walks this on its interval.
+    // Policy is config-driven (SignatureLogging:Retention:*).
+    builder.Services.AddSingleton<Mostlylucid.BotDetection.Guardians.IGuardian>(sp =>
+        new SignatureJsonlRetentionGuardian(
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SignatureJsonlRetentionGuardian>>(),
+            directory: ".",
+            retentionDays: builder.Configuration.GetValue("SignatureLogging:Retention:Days", 14),
+            maxTotalBytes: builder.Configuration.GetValue("SignatureLogging:Retention:MaxTotalMB", 512) * 1024L * 1024L,
+            interval: TimeSpan.FromHours(builder.Configuration.GetValue("SignatureLogging:Retention:IntervalHours", 6.0))));
+
     // Create YARP transforms
     var requestTransform = new BotDetectionRequestTransform(mode, sigLoggingConfig, signatureLogger);
     var responseTransform = new BotDetectionResponseTransform();
