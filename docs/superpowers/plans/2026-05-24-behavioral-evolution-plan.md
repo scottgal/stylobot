@@ -1135,7 +1135,7 @@ git commit -m "feat(ui): swap three behavioral panels for _BehavioralEvolution p
 Per repo memory: UI tasks are not complete until a real click / keypress has been driven in chrome-devtools (or playwright) and the resulting state observed. DOM-existence checks and API-direct-fetch checks DO NOT count. Verify against **prod (`stylo.bot`) only** - staging lacks the session history needed to read the panel.
 
 First confirm the change reaches prod. The repo memory has the canonical deploy flow:
-- Maxo (`.15`) builds via `C:\build\build-gateway.ps1` → registry `192.168.0.89:5000` → staging on `.15` (`stylobot-test` compose, `staging.stylo.bot`) → WAIT FOR APPROVAL → prod on `.89` (`stylobot` compose, `stylo.bot`).
+- Maxo (`.15`) builds via `C:\build\build-gateway.ps1` → registry `192.168.0.89:5000` → staging on `.15` (`stylobot-test` compose, `staging.stylobot.net`) → WAIT FOR APPROVAL → prod on `.89` (`stylobot` compose, `stylo.bot`).
 - Never rsync. Never skip staging. `git branch --show-current` before every commit.
 
 This task only fires *after* the build has been promoted to prod via that flow.

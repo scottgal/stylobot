@@ -152,7 +152,7 @@ so any consumer of the stored boolean is also correct.
 2. Reroute readers (§6), both stores.
 3. Add guards (§8).
 4. Strategy (A): no data migration. Strategy (B): backfill `is_bot`.
-5. Deploy to **staging.stylo.bot** first (prod cluster is being rebuilt), verify the
+5. Deploy to **staging.stylobot.net** first (prod cluster is being rebuilt), verify the
    `/stylobot/hub` panel reads human, then promote.
 
 ## 10. Non-goals (explicit — not silently cut)

@@ -13,7 +13,7 @@ very different absences:
 
 and scores both as bot evidence. Concrete regression (staging, 2026-07-01): a
 correctly-identified **Chrome 126 on Windows 10** was scored `risk=0.790
-VeryHigh / threat Critical` and served a **403**, taking `staging.stylo.bot`
+VeryHigh / threat Critical` and served a **403**, taking `staging.stylobot.net`
 down. It regressed the moment the k8s PROXY-protocol / source-IP-preservation
 work (task #31) shipped in the gateway image — that work made the transport tier
 load-bearing, which is correct for direct-to-origin k8s but wrong for the
