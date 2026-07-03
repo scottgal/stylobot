@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -438,9 +439,15 @@ public partial class DetectionBroadcastMiddleware
 
         var importantSignals = BuildImportantSignals(context, evidence.Signals, ref countryCode);
 
-        // Analytics capture: Domain is the multi-domain partition key; always populated.
+        // Analytics capture: (Domain, Host) form the multi-domain partition key;
+        // always populated. Domain = eTLD+1 (e.g. "stylo.bot"); Host = full request
+        // Host header (e.g. "auth.stylo.bot"). Sourced from the RequestScope cached
+        // by BotDetectionMiddleware in HttpContext.Items; falls back to the
+        // RequestScope.Unknown sentinel ("unknown"/"unknown") when the middleware
+        // wasn't reached (e.g. static-asset short-circuit before scope resolution).
         // Referer/ReferrerHost/UaDeviceClass require the corresponding DetectionRecordOptions
         // hooks to be set (wired by the commercial analytics capture plugin at startup).
+        var scope = (context.Items[HttpContextItemKeys.RequestScope] as RequestScope?) ?? RequestScope.Unknown;
         var rawReferer = context.Request.Headers.Referer.ToString();
         var captureReferer = recordOptions?.IncludeReferer == true && !string.IsNullOrEmpty(rawReferer);
         var derivedReferrerHost = (captureReferer && recordOptions?.DeriveReferrerHost is not null)
@@ -497,7 +504,8 @@ public partial class DetectionBroadcastMiddleware
                 ? evidence.ThreatBand.ToString() : null,
             RiskJustification = evidence.RiskJustification,
             IsVerifiedBot = ReadVerifiedBotConfirmed(evidence.Signals),
-            Domain = context.Request.Host.Host?.ToLowerInvariant(),
+            Domain = scope.Domain,
+            Host = scope.Host,
             Referer = captureReferer ? rawReferer : null,
             ReferrerHost = derivedReferrerHost,
             UaDeviceClass = derivedUaDeviceClass,
@@ -595,6 +603,12 @@ public partial class DetectionBroadcastMiddleware
         if (dashboardOptions?.EnrichHumanSignals == true)
             EnrichFromRequest(context, importantSignals, ref upstreamCountry);
 
+        // (Domain, Host) sourced from the RequestScope cached by BotDetectionMiddleware
+        // (see BuildDetectionFromEvidence for the semantic split). Upstream-trusted
+        // path re-reads the same context.Items entry so the two write branches carry
+        // identical partition-key semantics.
+        var scope = (context.Items[HttpContextItemKeys.RequestScope] as RequestScope?) ?? RequestScope.Unknown;
+
         var detection = new DashboardDetectionEvent
         {
             RequestId = context.TraceIdentifier,
@@ -642,8 +656,10 @@ public partial class DetectionBroadcastMiddleware
                 : (importantSignals.TryGetValue("intent.threat_band", out var tbObj)
                     ? tbObj?.ToString() : null),
             IsVerifiedBot = ReadVerifiedBotConfirmed(importantSignals),
-            // Domain is unconditional for the upstream path too (multi-domain partition key)
-            Domain = context.Request.Host.Host?.ToLowerInvariant(),
+            // (Domain, Host) unconditional for the upstream path too -- multi-domain
+            // partition key. Sourced from RequestScope (eTLD+1 + full host).
+            Domain = scope.Domain,
+            Host = scope.Host,
             ResponseBytes = context.Response.ContentLength,
         };
 

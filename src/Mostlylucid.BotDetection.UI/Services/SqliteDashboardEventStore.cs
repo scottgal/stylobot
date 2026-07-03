@@ -77,6 +77,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ("signatures", "risk_justification", "TEXT"),
                 ("signatures", "top_reasons_json", "TEXT"),
                 ("detections", "domain", "TEXT"),
+                // host mirrors domain as the second half of the multi-domain
+                // partition key: domain = eTLD+1, host = full lowercased Host
+                // header (Task 9 of the multi-domain storage plan). Additive
+                // TEXT column so pre-migration rows just render NULL.
+                ("detections", "host", "TEXT"),
                 ("detections", "referrer_host", "TEXT"),
                 ("detections", "ua_device_class", "TEXT"),
                 ("detections", "is_verified_bot", "INTEGER DEFAULT 0")
@@ -198,10 +203,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.CommandText = """
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
-                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class, response_bytes,
+                    status_code, user_agent_raw, risk_justification, domain, host, referrer_host, ua_device_class, response_bytes,
                     is_verified_bot)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
-                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass, @responseBytes,
+                    @threat, @band, @status, @uaRaw, @justification, @domain, @host, @refHost, @deviceClass, @responseBytes,
                     @verifiedBot)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
@@ -224,6 +229,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@uaRaw", string.IsNullOrEmpty(strippedUa) ? (object)DBNull.Value : strippedUa);
             cmd.Parameters.AddWithValue("@justification", (object?)detection.RiskJustification ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@domain", (object?)detection.Domain ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@host", (object?)detection.Host ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@refHost", (object?)detection.ReferrerHost ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@deviceClass", (object?)detection.UaDeviceClass ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@responseBytes", (object?)detection.ResponseBytes ?? DBNull.Value);

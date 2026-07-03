@@ -84,12 +84,24 @@ public sealed record DashboardDetectionEvent
     public string? UserAgentRaw { get; init; }
 
     /// <summary>
-    ///     Lowercased Host header value (no port) for the request that produced
-    ///     this detection. Sole key for the multi-domain partition on every
-    ///     analytics aggregate. Always populated at write time when the
-    ///     analytics capture path is active.
+    ///     eTLD+1 (registrable domain) resolved from the request Host header via
+    ///     <c>DomainNormalizer</c> and cached in <c>HttpContext.Items</c> under
+    ///     <c>HttpContextItemKeys.RequestScope</c>. Multi-domain partition key on
+    ///     every analytics aggregate. Sourced from <c>RequestScope.Domain</c> at
+    ///     write time; falls back to the <c>"unknown"</c> sentinel on the
+    ///     <c>RequestScope.Unknown</c> path.
     /// </summary>
     public string? Domain { get; init; }
+
+    /// <summary>
+    ///     Full lowercased request Host header (with subdomain, no port). Sourced
+    ///     from <c>RequestScope.Host</c> at write time; a single <c>Domain</c>
+    ///     may fan out across many <c>Host</c> values (e.g. <c>auth.stylo.bot</c>
+    ///     + <c>www.stylo.bot</c> both roll up to <c>Domain=stylo.bot</c>).
+    ///     Falls back to the <c>"unknown"</c> sentinel on the
+    ///     <c>RequestScope.Unknown</c> path.
+    /// </summary>
+    public string? Host { get; init; }
 
     /// <summary>
     ///     Raw Referer header value when the capture flag
