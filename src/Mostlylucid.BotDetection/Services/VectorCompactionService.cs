@@ -79,6 +79,14 @@ public sealed class VectorCompactionService : IGuardian
         // The canonical bot/human boundary (v8 rationalisation). DecisionNecessity
         // peaks its uncertainty term here, so a signature sitting right on the
         // decision line is the most valuable to keep and the last to be evicted.
+        //
+        // INTENTIONAL: this uses the global BotDetectionOptions.Classification.BotFloor,
+        // not the per-request EffectiveThresholds. Compaction is a background
+        // guardian; it walks the whole store across all domains and has no
+        // per-request HttpContext to consult. Compaction ranking against a single
+        // global boundary is the right default -- per-domain compaction would
+        // require store-partitioning by domain, which is a separate architectural
+        // change.
         _botThreshold = options.Value.Classification.BotFloor;
         _signatureCap = _retention.MaxSignatures > 0
             ? new MemoryAdaptiveCap(_retention.MaxSignatures, floor: _retention.MinSignatures)

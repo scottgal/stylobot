@@ -137,6 +137,20 @@ public class BotDetectionMiddleware(
     private readonly RateLimit.UpstreamHealthGate? _upstreamHealth = upstreamHealth;
 
     /// <summary>
+    ///     Resolves the effective bot-classification threshold for the current request.
+    ///     Reads the per-request <see cref="EffectiveThresholds"/> stamped on
+    ///     <see cref="HttpContext.Items"/> by
+    ///     <see cref="SiteProfiles.IEffectivePolicyResolver.ResolveThresholds"/>; falls back
+    ///     to the global <see cref="BotDetectionOptions"/> when the item isn't set
+    ///     (hosts that skip the resolver wiring, or test contexts that never stamp it).
+    /// </summary>
+#pragma warning disable CS0618 // BotDetectionOptions.BotThreshold is the compatibility fallback source; deprecation is orthogonal to the per-domain overlay.
+    private double EffectiveBotThreshold(HttpContext context)
+        => (context.Items[HttpContextItemKeys.EffectiveThresholds] as EffectiveThresholds?)?.BotThreshold
+           ?? _options.BotThreshold;
+#pragma warning restore CS0618
+
+    /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
     ///     Uses the BlackboardOrchestrator for full pipeline detection with policy support.
     /// </summary>
@@ -1060,11 +1074,9 @@ public class BotDetectionMiddleware(
         // (Ephemeral vs Blackboard) populated the evidence; the BlackboardOrchestrator
         // also pre-populates TriggeredActionPolicyName from BotTypeActionPolicies, but
         // EphemeralDetectionOrchestrator doesn't, so we must consult the map here too.
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
-            && aggregatedResult.BotProbability >= _options.BotThreshold
+            && aggregatedResult.BotProbability >= EffectiveBotThreshold(context)
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
-#pragma warning restore CS0618
         {
             // Step 1: try the per-BotType map (internal-network bucket wins
             // first when ip.is_local AND a valid API key are both present).
@@ -1459,9 +1471,7 @@ public class BotDetectionMiddleware(
 
         var riskScore = aggregated.BotProbability;
         var riskBand = aggregated.RiskBand;
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
-        var isLikelyBot = riskScore >= _options.BotThreshold;
-#pragma warning restore CS0618
+        var isLikelyBot = riskScore >= EffectiveBotThreshold(context);
 
         // For low-risk (likely human) requests, only log if LogAllRequests is true
         if (!isLikelyBot && !_options.LogAllRequests) return;
@@ -2461,11 +2471,9 @@ public class BotDetectionMiddleware(
 
         // Fallback: per-bot-type action policy, then DefaultActionPolicyName.
         // When this fires, it replaces the hard block - the policy IS the response.
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
-            && aggregatedResult.BotProbability >= _options.BotThreshold
+            && aggregatedResult.BotProbability >= EffectiveBotThreshold(context)
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
-#pragma warning restore CS0618
         {
             // Try bot-type-specific policy first (internal-network bucket
             // wins when both ip.is_local AND a valid API key are present).
@@ -2889,9 +2897,7 @@ public class BotDetectionMiddleware(
 
         // Map to legacy keys for compatibility
         // Use configurable BotThreshold for consistency with blocking logic
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
-        var isBot = result.BotProbability >= _options.BotThreshold;
-#pragma warning restore CS0618
+        var isBot = result.BotProbability >= EffectiveBotThreshold(context);
         context.Items[IsBotKey] = isBot;
         context.Items[BotConfidenceKey] = result.BotProbability; // Legacy: holds probability for backward compat
         context.Items[BotProbabilityKey] = result.BotProbability;
@@ -3283,9 +3289,7 @@ public class BotDetectionMiddleware(
         context.Items[AggregatedEvidenceKey] = updatedEvidence;
         context.Items[BotProbabilityKey] = newProbability;
         context.Items[BotConfidenceKey] = newProbability;
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
-        context.Items[IsBotKey] = newProbability >= _options.BotThreshold;
-#pragma warning restore CS0618
+        context.Items[IsBotKey] = newProbability >= EffectiveBotThreshold(context);
 
         _logger.LogInformation(
             "[RESPONSE-BOOST] {Path} status={Status} delta={Delta:+0.00;-0.00} " +

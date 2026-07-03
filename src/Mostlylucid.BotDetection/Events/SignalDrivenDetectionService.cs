@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Detectors;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.SiteProfiles;
 
 namespace Mostlylucid.BotDetection.Events;
 
@@ -351,9 +353,15 @@ public class SignalDrivenDetectionService
         var agreementBoost = suspiciousCount > 1 ? (suspiciousCount - 1) * 0.1 : 0.0;
 
         result.ConfidenceScore = Math.Min(maxConfidence + agreementBoost, 1.0);
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
-        result.IsBot = result.ConfidenceScore >= _options.BotThreshold;
+        // Per-domain overlay: read effective BotThreshold off HttpContext when stamped;
+        // fall back to the global BotDetectionOptions otherwise. Same request scope
+        // as the middleware/orchestrator sites.
+#pragma warning disable CS0618 // BotDetectionOptions.BotThreshold is the compatibility fallback source; deprecation is orthogonal to the per-domain overlay.
+        var effectiveBotThreshold =
+            (context.HttpContext.Items[HttpContextItemKeys.EffectiveThresholds] as EffectiveThresholds?)?.BotThreshold
+            ?? _options.BotThreshold;
 #pragma warning restore CS0618
+        result.IsBot = result.ConfidenceScore >= effectiveBotThreshold;
 
         // Determine bot type
         var botTypes = detectorResults

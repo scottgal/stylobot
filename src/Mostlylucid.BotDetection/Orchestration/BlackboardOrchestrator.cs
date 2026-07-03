@@ -18,6 +18,7 @@ using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.SiteProfiles;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
@@ -753,10 +754,20 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             // BotType.SearchEngine routes through rate-limit-search (60/min cap) instead
             // of the hard-coded throttle-status. Falls through to friendly-bot or
             // DefaultActionPolicyName when this map has no entry for the detected type.
+            //
+            // Per-domain overlay: the effective BotThreshold is stamped on
+            // HttpContext.Items[HttpContextItemKeys.EffectiveThresholds] by
+            // EffectivePolicyResolver. Falls back to the global BotDetectionOptions
+            // when the item isn't set (hosts without the resolver, test contexts, etc.).
 #pragma warning disable CS0618 // BotThreshold acts as the cross-policy "solidly a bot" routing floor here; migration to per-policy thresholds is tracked separately.
+            var effectiveBotThreshold =
+                (httpContext.Items[HttpContextItemKeys.EffectiveThresholds] as EffectiveThresholds?)?.BotThreshold
+                ?? _fullOptions.BotThreshold;
+#pragma warning restore CS0618
+
             if (string.IsNullOrEmpty(triggeredActionPolicyName)
                 && result.PrimaryBotType is not null and not BotType.Unknown
-                && result.BotProbability >= _fullOptions.BotThreshold
+                && result.BotProbability >= effectiveBotThreshold
                 && _fullOptions.BotTypeActionPolicies.Count > 0)
             {
                 var botTypeName = result.PrimaryBotType.Value.ToString();
@@ -778,7 +789,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             // which is what we actually want from legitimate previewers.
             if (string.IsNullOrEmpty(triggeredActionPolicyName)
                 && BotTypeClassification.IsFriendly(result.PrimaryBotType)
-                && result.BotProbability >= _fullOptions.BotThreshold
+                && result.BotProbability >= effectiveBotThreshold
                 && result.ThreatScore < BotTypeClassification.FriendlyThreatGate)
             {
                 triggeredActionPolicyName = "throttle-status";
@@ -786,7 +797,6 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                     "Friendly bot type {BotType} over threshold ({Prob:F2}) - routing through throttle-status for {RequestId}",
                     result.PrimaryBotType, result.BotProbability, requestId);
             }
-#pragma warning restore CS0618
 
             if (finalAction.HasValue || !string.IsNullOrEmpty(triggeredActionPolicyName))
                 result = result with
