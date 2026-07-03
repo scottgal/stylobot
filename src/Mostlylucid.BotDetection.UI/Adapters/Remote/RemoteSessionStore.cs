@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 
 namespace Mostlylucid.BotDetection.UI.Adapters.Remote;
 
@@ -31,19 +32,19 @@ internal sealed class RemoteSessionStore : ISessionStore
 
     // === Write surface: not supported on the remote viewer ===
 
-    public Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default)
+    public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
         => throw new NotSupportedException("Session writes are owned by the gateway, not the remote viewer.");
 
-    public Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default)
+    public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
         => throw new NotSupportedException("Signature writes are owned by the gateway.");
 
     public Task IncrementBucketAsync(DateTime bucketTime, bool isBot, double processingTimeMs, CancellationToken ct = default)
         => throw new NotSupportedException("Bucket counters are owned by the gateway.");
 
-    public Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default)
+    public Task AddRequestAsync(RequestScope scope, PersistedRequest request, CancellationToken ct = default)
         => throw new NotSupportedException("Request persistence is owned by the gateway.");
 
-    public Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
+    public Task AddRequestBatchAsync(RequestScope scope, IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
         => throw new NotSupportedException("Request batches are owned by the gateway.");
 
     public Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(int limit = 5000, CancellationToken ct = default)

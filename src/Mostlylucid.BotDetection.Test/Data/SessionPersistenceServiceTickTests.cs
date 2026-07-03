@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 using Mostlylucid.Common.Scheduling;
@@ -169,13 +170,13 @@ public sealed class SessionPersistenceServiceTickTests
 
         public string? PersistenceConnectionString => null;
 
-        public Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default)
+        public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
         {
             AddedSessions.Add(session);
             return Task.FromResult((long)AddedSessions.Count);
         }
 
-        public Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default)
+        public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
         {
             UpsertedSignatures.Add(signature);
             return Task.CompletedTask;
@@ -192,8 +193,8 @@ public sealed class SessionPersistenceServiceTickTests
         // No-op stubs for the rest of the interface -- the migrated service
         // touches only the three methods above on the hot tick-drain path.
         public Task IncrementBucketAsync(DateTime bucketTime, bool isBot, double processingTimeMs, CancellationToken ct = default) => Task.CompletedTask;
-        public Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default) => Task.CompletedTask;
-        public Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default) => Task.CompletedTask;
+        public Task AddRequestAsync(RequestScope scope, PersistedRequest request, CancellationToken ct = default) => Task.CompletedTask;
+        public Task AddRequestBatchAsync(RequestScope scope, IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default) => Task.CompletedTask;
         public Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(int limit = 5000, CancellationToken ct = default) => Task.FromResult(new List<PersistedRequest>());
         public Task<List<PersistedRequest>> GetRecentRequestsAsync(int limit = 5000, DateTime? sinceUtc = null, CancellationToken ct = default) => Task.FromResult(new List<PersistedRequest>());
         public Task LinkRequestsToSessionAsync(long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default) => Task.CompletedTask;

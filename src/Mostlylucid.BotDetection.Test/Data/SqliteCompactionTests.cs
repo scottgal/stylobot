@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Test.Data;
@@ -209,7 +210,7 @@ public class SqliteCompactionTests : IAsyncLifetime
 
     private async Task SeedSignatureAsync(string sig)
     {
-        await _store.UpsertSignatureAsync(new PersistedSignature
+        await _store.UpsertSignatureAsync(RequestScope.Unknown, new PersistedSignature
         {
             SignatureId = sig,
             SessionCount = 1,
@@ -234,7 +235,7 @@ public class SqliteCompactionTests : IAsyncLifetime
         float[]? fp = fingerprint ?? (hasFp ? new float[8] { 0.5f, 0.1f, 0f, 0f, 0f, 0f, 0f, 0f } : null);
         byte[]? fpBytes = fp != null ? SqliteSessionStore.SerializeVector(fp) : null;
 
-        await _store.AddSessionAsync(new PersistedSession
+        await _store.AddSessionAsync(RequestScope.Unknown, new PersistedSession
         {
             Signature = sig,
             StartedAt = DateTime.UtcNow.AddMinutes(-60 + seq),

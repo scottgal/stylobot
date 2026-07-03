@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Analysis;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.Common.Scheduling;
 
@@ -178,7 +179,12 @@ public sealed class SessionPersistenceService : IDisposable
                 ? SqliteSessionStore.SerializeVector(snapshot.DriftVector) : null
         };
 
-        _ = await _store.AddSessionAsync(persisted, ct);
+        // Background persister runs off the request pipeline; the SessionSnapshot
+        // was built at request time but the scope wasn't captured on it. Pass
+        // RequestScope.Unknown -- the pathfinder tasks (T14+) that persist
+        // scope-owned rows extend SessionSnapshot with a scope carrier so this
+        // caller can eventually thread the real (domain, host) through.
+        _ = await _store.AddSessionAsync(RequestScope.Unknown, persisted, ct);
 
         // Upsert signature
         var sig = new PersistedSignature
@@ -196,7 +202,7 @@ public sealed class SessionPersistenceService : IDisposable
             RootVectorMaturity = snapshot.Maturity
         };
 
-        await _store.UpsertSignatureAsync(sig, ct);
+        await _store.UpsertSignatureAsync(RequestScope.Unknown, sig, ct);
 
         // Resolve entity - creates one if new, returns existing if known.
         // This is async/background so it doesn't block the request pipeline.

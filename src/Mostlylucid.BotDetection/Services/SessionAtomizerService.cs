@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
@@ -146,8 +147,19 @@ public sealed class SessionAtomizerService : IDisposable
                 // Collect distinct templatized paths
                 var paths = sessionRequests.Select(r => r.PathTemplate).Distinct().ToList();
 
+                // Derive scope from the most recent request in the group -- background
+                // atomizer runs off the request pipeline so there's no HttpContext to
+                // read RequestScope from. The per-request Domain/Host stamped at
+                // AddRequestBatchAsync time is the authoritative source.
+                var latest = group[^1];
+                var groupScope = new RequestScope(
+                    latest.Domain ?? RequestScope.Unknown.Domain,
+                    latest.Host ?? RequestScope.Unknown.Host);
+
                 var session = new PersistedSession
                 {
+                    Domain               = latest.Domain,
+                    Host                 = latest.Host,
                     Signature            = sigGroup.Key,
                     StartedAt            = group.Min(r => r.Timestamp),
                     EndedAt              = group.Max(r => r.Timestamp),
@@ -166,7 +178,7 @@ public sealed class SessionAtomizerService : IDisposable
                     PathsJson            = JsonSerializer.Serialize(paths, Data.BotDetectionJsonSerializerContext.Default.ListString),
                 };
 
-                var sessionId = await _store.AddSessionAsync(session, ct);
+                var sessionId = await _store.AddSessionAsync(groupScope, session, ct);
                 await _store.LinkRequestsToSessionAsync(sessionId, group.Select(r => r.Id).ToList(), ct);
                 sessionized++;
             }

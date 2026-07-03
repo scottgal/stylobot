@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 
@@ -20,19 +21,19 @@ public sealed class NullSessionStore : ISessionStore
     public string? PersistenceConnectionString => null;
 
     // === Write path ===
-    public Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default)
+    public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
         => Task.FromResult(0L);
 
-    public Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default)
+    public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
         => Task.CompletedTask;
 
     public Task IncrementBucketAsync(DateTime bucketTime, bool isBot, double processingTimeMs, CancellationToken ct = default)
         => Task.CompletedTask;
 
-    public Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default)
+    public Task AddRequestAsync(RequestScope scope, PersistedRequest request, CancellationToken ct = default)
         => Task.CompletedTask;
 
-    public Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
+    public Task AddRequestBatchAsync(RequestScope scope, IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
         => Task.CompletedTask;
 
     public Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(int limit = 5000, CancellationToken ct = default)

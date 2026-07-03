@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Test.Data;
@@ -119,7 +120,7 @@ public class SqliteSignatureEvictionTests : IAsyncLifetime
         bool isBot = false,
         DateTime? lastSeen = null)
     {
-        await _store.UpsertSignatureAsync(new PersistedSignature
+        await _store.UpsertSignatureAsync(RequestScope.Unknown, new PersistedSignature
         {
             SignatureId = sig,
             SessionCount = 1,
@@ -141,7 +142,7 @@ public class SqliteSignatureEvictionTests : IAsyncLifetime
         var vec = new float[VecDims];
         vec[0] = 1.0f;
 
-        await _store.AddSessionAsync(new PersistedSession
+        await _store.AddSessionAsync(RequestScope.Unknown, new PersistedSession
         {
             Signature = sig,
             StartedAt = DateTime.UtcNow.AddMinutes(-60 + seq),

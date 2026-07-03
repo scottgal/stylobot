@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Services;
 using Moq;
 
@@ -14,7 +15,7 @@ public class RequestPersistenceTests
     public async Task BotRequest_AlwaysEnqueued()
     {
         var store = new Mock<ISessionStore>();
-        store.Setup(s => s.AddRequestBatchAsync(It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
+        store.Setup(s => s.AddRequestBatchAsync(It.IsAny<RequestScope>(), It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
              .Returns(Task.CompletedTask);
 
         var svc = CreateService(store);
@@ -24,6 +25,7 @@ public class RequestPersistenceTests
 
         await svc.DisposeAsync(); // drain all pending writes before asserting
         store.Verify(s => s.AddRequestBatchAsync(
+            It.IsAny<RequestScope>(),
             It.Is<IReadOnlyList<PersistedRequest>>(list => list.Any(r => r.BotProbability == 0.95)),
             It.IsAny<CancellationToken>()), Times.AtLeast(1));
     }
@@ -33,8 +35,8 @@ public class RequestPersistenceTests
     {
         var writtenCount = 0;
         var store = new Mock<ISessionStore>();
-        store.Setup(s => s.AddRequestBatchAsync(It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
-             .Callback<IReadOnlyList<PersistedRequest>, CancellationToken>((b, _) => writtenCount += b.Count)
+        store.Setup(s => s.AddRequestBatchAsync(It.IsAny<RequestScope>(), It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
+             .Callback<RequestScope, IReadOnlyList<PersistedRequest>, CancellationToken>((_, b, _) => writtenCount += b.Count)
              .Returns(Task.CompletedTask);
 
         var svc = CreateService(store);

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -56,8 +57,15 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         await MigrateAddColumnAsync(conn, "sessions", "frequency_fingerprint", "BLOB", ct);
         await MigrateAddColumnAsync(conn, "sessions", "drift_vector", "BLOB", ct);
         await MigrateAddColumnAsync(conn, "sessions", "user_agent_raw", "TEXT", ct);
+        // Multi-domain: (domain, host) owner of the row. Nullable — pre-migration rows have no scope.
+        await MigrateAddColumnAsync(conn, "sessions", "domain", "TEXT", ct);
+        await MigrateAddColumnAsync(conn, "sessions", "host", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "signatures", "frequency_centroid", "BLOB", ct);
         await MigrateAddColumnAsync(conn, "signatures", "last_updated_utc", "TEXT", ct);
+        await MigrateAddColumnAsync(conn, "signatures", "domain", "TEXT", ct);
+        await MigrateAddColumnAsync(conn, "signatures", "host", "TEXT", ct);
+        await MigrateAddColumnAsync(conn, "requests", "domain", "TEXT", ct);
+        await MigrateAddColumnAsync(conn, "requests", "host", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "signature_centroids", "access_count", "INTEGER NOT NULL DEFAULT 0", ct);
 
         _logger.LogInformation("SQLite session store initialized at {ConnectionString}", _connectionString);
@@ -112,7 +120,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     // === Write path ===
 
-    public async Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default)
+    public async Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await _writeLock.WaitAsync(ct);
@@ -123,6 +131,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO sessions (
+                    domain, host,
                     signature, started_at, ended_at, request_count, vector, maturity,
                     dominant_state, is_bot, avg_bot_probability, avg_confidence, risk_band,
                     action, bot_name, bot_type, country_code, top_reasons_json,
@@ -131,6 +140,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     header_hashes_json, user_agent_raw,
                     frequency_fingerprint, drift_vector
                 ) VALUES (
+                    @domain, @host,
                     @sig, @started, @ended, @reqCount, @vector, @maturity,
                     @domState, @isBot, @avgProb, @avgConf, @risk,
                     @action, @botName, @botType, @country, @reasons,
@@ -140,6 +150,12 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     @freqFp, @driftVec
                 )
             """;
+            // Per-row values on the payload win over the scope fallback so a
+            // background caller that pre-stamped the payload still lands its
+            // own (domain, host); scope only fills the gap when the payload
+            // has null values.
+            cmd.Parameters.AddWithValue("@domain", (object?)(session.Domain ?? scope.Domain) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@host", (object?)(session.Host ?? scope.Host) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@sig", session.Signature);
             cmd.Parameters.AddWithValue("@started", session.StartedAt.ToString("O"));
             cmd.Parameters.AddWithValue("@ended", session.EndedAt.ToString("O"));
@@ -192,7 +208,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                 session.FrequencyFingerprintBlob, session.DriftVectorBlob);
     }
 
-    public async Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default)
+    public async Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await _writeLock.WaitAsync(ct);
@@ -203,12 +219,14 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO signatures (
+                    domain, host,
                     signature_id, session_count, total_request_count, first_seen, last_seen,
                     is_bot, bot_probability, confidence, risk_band,
                     bot_name, bot_type, action, country_code,
                     root_vector, root_vector_maturity, narrative, top_reasons_json,
                     last_updated_utc
                 ) VALUES (
+                    @domain, @host,
                     @id, @sessions, @requests, @first, @last,
                     @isBot, @prob, @conf, @risk,
                     @botName, @botType, @action, @country,
@@ -216,6 +234,11 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     @lastUpdatedUtc
                 )
                 ON CONFLICT(signature_id) DO UPDATE SET
+                    -- Refresh scope on merge: same-signature writes from a new host
+                    -- pick up the current owner. COALESCE keeps the last known scope
+                    -- when the current write has no scope information.
+                    domain = COALESCE(@domain, domain),
+                    host = COALESCE(@host, host),
                     session_count = session_count + @sessions,
                     total_request_count = total_request_count + @requests,
                     last_seen = @last,
@@ -239,6 +262,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     top_reasons_json = COALESCE(@reasons, top_reasons_json),
                     last_updated_utc = @lastUpdatedUtc
             """;
+            cmd.Parameters.AddWithValue("@domain", (object?)(signature.Domain ?? scope.Domain) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@host", (object?)(signature.Host ?? scope.Host) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@id", signature.SignatureId);
             cmd.Parameters.AddWithValue("@sessions", signature.SessionCount);
             cmd.Parameters.AddWithValue("@requests", signature.TotalRequestCount);
@@ -265,7 +290,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         finally { _writeLock.Release(); }
     }
 
-    public async Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default)
+    public async Task AddRequestAsync(RequestScope scope, PersistedRequest request, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await _writeLock.WaitAsync(ct);
@@ -276,12 +301,14 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO requests
-                    (signature, timestamp, path, markov_state, status_code,
+                    (domain, host, signature, timestamp, path, markov_state, status_code,
                      bot_probability, confidence, risk_band, processing_ms)
                 VALUES
-                    (@sig, @ts, @path, @state, @sc,
+                    (@domain, @host, @sig, @ts, @path, @state, @sc,
                      @prob, @conf, @risk, @ms)
                 """;
+            cmd.Parameters.AddWithValue("@domain", (object?)(request.Domain ?? scope.Domain) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@host",   (object?)(request.Host ?? scope.Host) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@sig",   request.Signature);
             cmd.Parameters.AddWithValue("@ts",    request.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@path",  request.Path);
@@ -296,7 +323,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         finally { _writeLock.Release(); }
     }
 
-    public async Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
+    public async Task AddRequestBatchAsync(RequestScope scope, IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
     {
         if (requests.Count == 0) return;
         await EnsureInitializedAsync(ct);
@@ -310,12 +337,14 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO requests
-                    (signature, timestamp, path, markov_state, status_code,
+                    (domain, host, signature, timestamp, path, markov_state, status_code,
                      bot_probability, confidence, risk_band, processing_ms)
                 VALUES
-                    (@sig, @ts, @path, @state, @sc,
+                    (@domain, @host, @sig, @ts, @path, @state, @sc,
                      @prob, @conf, @risk, @ms)
                 """;
+            var pDomain = cmd.Parameters.Add("@domain", SqliteType.Text);
+            var pHost   = cmd.Parameters.Add("@host",   SqliteType.Text);
             var pSig  = cmd.Parameters.Add("@sig",   SqliteType.Text);
             var pTs   = cmd.Parameters.Add("@ts",    SqliteType.Text);
             var pPath = cmd.Parameters.Add("@path",  SqliteType.Text);
@@ -328,6 +357,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
             foreach (var r in requests)
             {
+                pDomain.Value = (object?)(r.Domain ?? scope.Domain) ?? DBNull.Value;
+                pHost.Value   = (object?)(r.Host ?? scope.Host) ?? DBNull.Value;
                 pSig.Value  = r.Signature;
                 pTs.Value   = r.Timestamp.ToString("O");
                 pPath.Value = r.Path;
@@ -382,7 +413,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, signature, timestamp, path, markov_state,
+            SELECT id, domain, host, signature, timestamp, path, markov_state,
                    status_code, bot_probability, confidence, risk_band, processing_ms
             FROM requests
             WHERE session_id IS NULL
@@ -397,16 +428,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             results.Add(new PersistedRequest
             {
                 Id             = reader.GetInt64(0),
-                Signature      = reader.GetString(1),
-                Timestamp      = DateTime.Parse(reader.GetString(2), null,
+                Domain         = reader.IsDBNull(1) ? null : reader.GetString(1),
+                Host           = reader.IsDBNull(2) ? null : reader.GetString(2),
+                Signature      = reader.GetString(3),
+                Timestamp      = DateTime.Parse(reader.GetString(4), null,
                                      System.Globalization.DateTimeStyles.RoundtripKind),
-                Path           = reader.GetString(3),
-                MarkovState    = reader.GetString(4),
-                StatusCode     = reader.GetInt32(5),
-                BotProbability = reader.GetDouble(6),
-                Confidence     = reader.GetDouble(7),
-                RiskBand       = reader.GetString(8),
-                ProcessingMs   = reader.GetDouble(9),
+                Path           = reader.GetString(5),
+                MarkovState    = reader.GetString(6),
+                StatusCode     = reader.GetInt32(7),
+                BotProbability = reader.GetDouble(8),
+                Confidence     = reader.GetDouble(9),
+                RiskBand       = reader.GetString(10),
+                ProcessingMs   = reader.GetDouble(11),
             });
         }
         return results;
@@ -422,10 +455,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, signature, timestamp, path, markov_state,
+            SELECT id, domain, host, signature, timestamp, path, markov_state,
                    status_code, bot_probability, confidence, risk_band, processing_ms, session_id
             FROM (
-                SELECT id, signature, timestamp, path, markov_state,
+                SELECT id, domain, host, signature, timestamp, path, markov_state,
                        status_code, bot_probability, confidence, risk_band, processing_ms, session_id
                 FROM requests
                 WHERE (@since IS NULL OR timestamp >= @since)
@@ -444,17 +477,19 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             results.Add(new PersistedRequest
             {
                 Id             = reader.GetInt64(0),
-                Signature      = reader.GetString(1),
-                Timestamp      = DateTime.Parse(reader.GetString(2), null,
+                Domain         = reader.IsDBNull(1) ? null : reader.GetString(1),
+                Host           = reader.IsDBNull(2) ? null : reader.GetString(2),
+                Signature      = reader.GetString(3),
+                Timestamp      = DateTime.Parse(reader.GetString(4), null,
                                      System.Globalization.DateTimeStyles.RoundtripKind),
-                Path           = reader.GetString(3),
-                MarkovState    = reader.GetString(4),
-                StatusCode     = reader.GetInt32(5),
-                BotProbability = reader.GetDouble(6),
-                Confidence     = reader.GetDouble(7),
-                RiskBand       = reader.GetString(8),
-                ProcessingMs   = reader.GetDouble(9),
-                SessionId      = reader.IsDBNull(10) ? null : reader.GetInt64(10)
+                Path           = reader.GetString(5),
+                MarkovState    = reader.GetString(6),
+                StatusCode     = reader.GetInt32(7),
+                BotProbability = reader.GetDouble(8),
+                Confidence     = reader.GetDouble(9),
+                RiskBand       = reader.GetString(10),
+                ProcessingMs   = reader.GetDouble(11),
+                SessionId      = reader.IsDBNull(12) ? null : reader.GetInt64(12)
             });
         }
 
@@ -1593,6 +1628,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
     private static PersistedSession ReadSession(SqliteDataReader reader) => new()
     {
         Id = reader.GetInt64(reader.GetOrdinal("id")),
+        Domain = SafeGetString(reader, "domain"),
+        Host = SafeGetString(reader, "host"),
         Signature = reader.GetString(reader.GetOrdinal("signature")),
         StartedAt = DateTime.Parse(reader.GetString(reader.GetOrdinal("started_at")),
             System.Globalization.CultureInfo.InvariantCulture,
@@ -1654,6 +1691,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     private static PersistedSignature ReadSignature(SqliteDataReader reader) => new()
     {
+        Domain = SafeGetString(reader, "domain"),
+        Host = SafeGetString(reader, "host"),
         SignatureId = reader.GetString(reader.GetOrdinal("signature_id")),
         SessionCount = reader.GetInt32(reader.GetOrdinal("session_count")),
         TotalRequestCount = reader.GetInt32(reader.GetOrdinal("total_request_count")),

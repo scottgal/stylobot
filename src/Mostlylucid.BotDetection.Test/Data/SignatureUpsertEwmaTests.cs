@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Test.Data;
@@ -61,7 +62,7 @@ public class SignatureUpsertEwmaTests : IAsyncLifetime
     [Fact]
     public async Task UpsertSignature_FirstObservation_StoresLiteralValue()
     {
-        await _store.UpsertSignatureAsync(MakeSignature("sig-A", botProbability: 0.8));
+        await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-A", botProbability: 0.8));
 
         var stored = await _store.GetSignatureAsync("sig-A");
         Assert.NotNull(stored);
@@ -73,9 +74,9 @@ public class SignatureUpsertEwmaTests : IAsyncLifetime
     {
         // EWMA must replace MAX. A 0.95 prior followed by ten 0.05 observations
         // must NOT remain at 0.95.
-        await _store.UpsertSignatureAsync(MakeSignature("sig-B", botProbability: 0.95));
+        await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-B", botProbability: 0.95));
         for (var i = 0; i < 10; i++)
-            await _store.UpsertSignatureAsync(MakeSignature("sig-B", botProbability: 0.05));
+            await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-B", botProbability: 0.05));
 
         var stored = await _store.GetSignatureAsync("sig-B");
         Assert.NotNull(stored);
@@ -87,7 +88,7 @@ public class SignatureUpsertEwmaTests : IAsyncLifetime
     public async Task UpsertSignature_RecordsLastUpdatedUtc()
     {
         var before = DateTime.UtcNow.AddSeconds(-1);
-        await _store.UpsertSignatureAsync(MakeSignature("sig-C", botProbability: 0.5));
+        await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-C", botProbability: 0.5));
         var after = DateTime.UtcNow.AddSeconds(1);
 
         var stored = await _store.GetSignatureAsync("sig-C");

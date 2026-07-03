@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.Ephemeral.Atoms.Batching;
 
 namespace Mostlylucid.BotDetection.Data;
@@ -66,6 +67,12 @@ public sealed class RequestPersistenceService : IAsyncDisposable
     ///     - in-flight batches &lt; 5  : always write
     ///     - in-flight batches 5-19  : write 1-in-3 low-risk requests
     ///     - in-flight batches 20+   : write 1-in-10 low-risk requests
+    ///     <para>
+    ///         <paramref name="scope"/> stamps the request row with the (domain,
+    ///         host) that owned the request. Default <see cref="RequestScope.Unknown"/>
+    ///         keeps legacy callers working; new callers should thread the scope
+    ///         from <c>HttpContext.Items[HttpContextItemKeys.RequestScope]</c>.
+    ///     </para>
     /// </summary>
     public Task EnqueueAsync(
         string signature,
@@ -76,13 +83,22 @@ public sealed class RequestPersistenceService : IAsyncDisposable
         double confidence,
         string riskBand,
         double processingMs,
-        DateTime timestamp)
+        DateTime timestamp,
+        RequestScope scope = default)
     {
         if (!ShouldWrite(signature, botProbability))
             return Task.CompletedTask;
 
+        // default(RequestScope) is (null, null); RequestScope.Unknown is ("unknown","unknown").
+        // Normalise so an omitted scope produces a real (Domain, Host) pair.
+        var effective = string.IsNullOrEmpty(scope.Domain) && string.IsNullOrEmpty(scope.Host)
+            ? RequestScope.Unknown
+            : scope;
+
         _batcher.Enqueue(new PersistedRequest
         {
+            Domain         = effective.Domain,
+            Host           = effective.Host,
             Signature      = signature,
             Path           = path,
             MarkovState    = markovState,
@@ -109,7 +125,11 @@ public sealed class RequestPersistenceService : IAsyncDisposable
         Interlocked.Increment(ref _pendingBatches);
         try
         {
-            await _store.AddRequestBatchAsync(batch, ct).ConfigureAwait(false);
+            // Each PersistedRequest in the batch already carries its own
+            // (Domain, Host); the batch-level scope is a fallback for callers
+            // that haven't threaded scope through yet. Pass Unknown here so
+            // the store falls back only when the per-row values are null.
+            await _store.AddRequestBatchAsync(RequestScope.Unknown, batch, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

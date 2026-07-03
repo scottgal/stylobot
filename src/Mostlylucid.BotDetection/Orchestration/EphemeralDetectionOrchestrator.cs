@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
@@ -846,6 +847,11 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             ? stateObj?.ToString() ?? "Unknown"
             : "Unknown";
 
+        var scope = httpContext.Items.TryGetValue(HttpContextItemKeys.RequestScope, out var cached)
+                    && cached is RequestScope existing
+            ? existing
+            : RequestScope.Unknown;
+
         _ = _requestPersistence.EnqueueAsync(
             signature,
             httpContext.Request.Path.ToString(),
@@ -855,7 +861,8 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             result.Confidence,
             result.RiskBand.ToString(),
             result.TotalProcessingTimeMs,
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            scope);
     }
 
     #region Learning Events

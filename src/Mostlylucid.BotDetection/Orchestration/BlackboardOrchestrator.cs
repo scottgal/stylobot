@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Markov;
@@ -1235,6 +1236,11 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 : "Unknown";
             if (statusCode == 0) statusCode = httpContext.Response.StatusCode;
 
+            var scope = httpContext.Items.TryGetValue(HttpContextItemKeys.RequestScope, out var cached)
+                        && cached is RequestScope existing
+                ? existing
+                : RequestScope.Unknown;
+
             _ = _requestPersistence.EnqueueAsync(
                 signature,
                 path,
@@ -1244,7 +1250,8 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 result.Confidence,
                 result.RiskBand.ToString(),
                 result.TotalProcessingTimeMs,
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                scope);
         }
         catch (Exception ex)
         {

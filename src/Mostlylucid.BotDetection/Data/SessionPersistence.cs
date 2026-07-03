@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Analysis;
+using Mostlylucid.BotDetection.Domains;
 
 namespace Mostlylucid.BotDetection.Data;
 
@@ -13,6 +14,21 @@ public sealed record PersistedSession
 {
     /// <summary>Auto-increment row ID</summary>
     public long Id { get; init; }
+
+    /// <summary>
+    ///     Owner eTLD+1 of the request that produced this session. Populated at the
+    ///     storage boundary from <see cref="RequestScope.Domain"/>. Null on rows
+    ///     written before multi-domain support landed.
+    /// </summary>
+    public string? Domain { get; init; }
+
+    /// <summary>
+    ///     Full lowercased port-stripped Host header of the request that produced
+    ///     this session. Populated at the storage boundary from
+    ///     <see cref="RequestScope.Host"/>. Null on rows written before multi-domain
+    ///     support landed.
+    /// </summary>
+    public string? Host { get; init; }
 
     /// <summary>Client signature (hashed IP:UA - zero PII)</summary>
     public required string Signature { get; init; }
@@ -119,6 +135,20 @@ public sealed record PersistedSession
 /// </summary>
 public sealed record PersistedSignature
 {
+    /// <summary>
+    ///     Owner eTLD+1 of the most recent observation. Populated at the storage
+    ///     boundary from <see cref="RequestScope.Domain"/>. Null on rows written
+    ///     before multi-domain support landed.
+    /// </summary>
+    public string? Domain { get; init; }
+
+    /// <summary>
+    ///     Full lowercased port-stripped Host header of the most recent observation.
+    ///     Populated at the storage boundary from <see cref="RequestScope.Host"/>.
+    ///     Null on rows written before multi-domain support landed.
+    /// </summary>
+    public string? Host { get; init; }
+
     /// <summary>Signature ID (hashed, zero PII)</summary>
     public required string SignatureId { get; init; }
 
@@ -220,20 +250,52 @@ public interface ISessionStore
 {
     // === Write path ===
 
-    /// <summary>Persist a completed session snapshot. Returns the new row ID.</summary>
-    Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default);
+    /// <summary>
+    ///     Persist a completed session snapshot. Returns the new row ID.
+    ///     <para>
+    ///         <paramref name="scope"/> stamps the row with the (domain, host)
+    ///         that owned the request; pass <see cref="RequestScope.Unknown"/>
+    ///         when the write originates outside the HTTP pipeline (background
+    ///         atomizer, tests).
+    ///     </para>
+    /// </summary>
+    Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default);
 
-    /// <summary>Upsert a signature (create or update hit counts/stats).</summary>
-    Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default);
+    /// <summary>
+    ///     Upsert a signature (create or update hit counts/stats).
+    ///     <para>
+    ///         <paramref name="scope"/> refreshes the last-seen (domain, host)
+    ///         columns on the row; pass <see cref="RequestScope.Unknown"/> when
+    ///         the write originates outside the HTTP pipeline.
+    ///     </para>
+    /// </summary>
+    Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default);
 
     /// <summary>Increment aggregated counters for a time bucket.</summary>
     Task IncrementBucketAsync(DateTime bucketTime, bool isBot, double processingTimeMs, CancellationToken ct = default);
 
-    /// <summary>Persist a single request record immediately after detection.</summary>
-    Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default);
+    /// <summary>
+    ///     Persist a single request record immediately after detection.
+    ///     <para>
+    ///         <paramref name="scope"/> stamps the row with the (domain, host)
+    ///         that owned the request; pass <see cref="RequestScope.Unknown"/>
+    ///         when the write originates outside the HTTP pipeline.
+    ///     </para>
+    /// </summary>
+    Task AddRequestAsync(RequestScope scope, PersistedRequest request, CancellationToken ct = default);
 
-    /// <summary>Batch insert for coordinator write path.</summary>
-    Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default);
+    /// <summary>
+    ///     Batch insert for coordinator write path.
+    ///     <para>
+    ///         <paramref name="scope"/> is the fallback (domain, host) for any
+    ///         request in the batch whose own <see cref="PersistedRequest.Domain"/>/
+    ///         <see cref="PersistedRequest.Host"/> is null. Per-row values on the
+    ///         payload win over <paramref name="scope"/>. Pass
+    ///         <see cref="RequestScope.Unknown"/> when the batch originates
+    ///         outside the HTTP pipeline.
+    ///     </para>
+    /// </summary>
+    Task AddRequestBatchAsync(RequestScope scope, IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default);
 
     /// <summary>Get all requests not yet assigned to a session, up to limit rows, oldest-first per signature.</summary>
     Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(int limit = 5000, CancellationToken ct = default);

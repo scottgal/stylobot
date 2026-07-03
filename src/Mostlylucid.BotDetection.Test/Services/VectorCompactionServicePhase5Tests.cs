@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 
@@ -105,7 +106,7 @@ public sealed class VectorCompactionServicePhase5Tests : IAsyncLifetime
     private async Task SeedSignatureAsync(
         string sig, double botProb = 0.1, string riskBand = "Low", bool isBot = false, DateTime? lastSeen = null)
     {
-        await _store.UpsertSignatureAsync(new PersistedSignature
+        await _store.UpsertSignatureAsync(RequestScope.Unknown, new PersistedSignature
         {
             SignatureId = sig,
             SessionCount = 1,
