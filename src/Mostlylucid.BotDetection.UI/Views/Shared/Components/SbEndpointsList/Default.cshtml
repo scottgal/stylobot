@@ -244,7 +244,7 @@
                                content-only mode where every row is upstream anyway. *@
                             @if (!Model.ContentOnly)
                             {
-                                var owner = EndpointClassifier.Classify(endpoint.Path, Model.BasePath);
+                                var owner = EndpointClassifier.Classify(endpoint.Path, Model.BasePath, Model.NavBasePath);
                                 if (owner == EndpointOwner.Stylobot)
                                 {
                                     <span class="badge badge-xs badge-ghost mr-1 font-normal align-middle"

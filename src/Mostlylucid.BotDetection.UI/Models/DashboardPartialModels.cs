@@ -166,6 +166,9 @@ public sealed record EndpointsListModel
 {
     public required IReadOnlyList<DashboardEndpointStats> Endpoints { get; init; }
     public required string BasePath { get; init; }
+    /// <summary>Nav mount, when it differs from <see cref="BasePath"/>. Used by the
+    /// owner badge to classify page routes served under the nav prefix.</summary>
+    public string? NavBasePath { get; init; }
     public string SortField { get; init; } = "total";
     public string SortDir { get; init; } = "desc";
     public int Page { get; init; } = 1;

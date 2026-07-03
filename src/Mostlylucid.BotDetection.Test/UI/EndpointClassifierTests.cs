@@ -20,10 +20,15 @@ public class EndpointClassifierTests
     [InlineData("/dashboard/site/endpoint", EndpointOwner.Stylobot)]
     [InlineData("/_content/Mostlylucid.BotDetection.UI/x.js", EndpointOwner.Stylobot)]
     [InlineData("/_blazor", EndpointOwner.Stylobot)]
+    [InlineData("/_stylobot/endpoints", EndpointOwner.Stylobot)]  // /_ framework convention
+    [InlineData("/_stylobot/signature/abc", EndpointOwner.Stylobot)]
+    [InlineData("/stylobot/hub", EndpointOwner.Stylobot)]         // always-on package mount + SignalR hub
+    [InlineData("/stylobot/traffic", EndpointOwner.Stylobot)]
     [InlineData("/", EndpointOwner.Upstream)]
     [InlineData("/pricing", EndpointOwner.Upstream)]
     [InlineData("/docs/getting-started", EndpointOwner.Upstream)]
     [InlineData("/dashboardish", EndpointOwner.Upstream)]      // prefix but not a segment boundary
+    [InlineData("/stylobotics", EndpointOwner.Upstream)]       // not the /stylobot mount (boundary)
     public void Classify_assigns_owner_by_basepath_and_framework_roots(string path, EndpointOwner expected)
         => EndpointClassifier.Classify(path, BasePath).Should().Be(expected);
 
@@ -46,7 +51,9 @@ public class EndpointClassifierTests
     [InlineData("POST", "/pricing", false)]    // form submit, not a page
     [InlineData("POST", "/v1/logs", false)]    // OTLP ingest
     [InlineData("GET", "/v1/logs", false)]     // versioned API even via GET
-    [InlineData("GET", "/dashboard/traffic", false)] // StyloBot's own UI
+    [InlineData("GET", "/dashboard/traffic", false)] // StyloBot's own UI (configured mount)
+    [InlineData("GET", "/stylobot/hub", false)] // StyloBot SignalR hub (always-on mount)
+    [InlineData("GET", "/_stylobot/endpoints", false)] // StyloBot partial (/_ convention)
     [InlineData("GET", "/app.js", false)]      // static asset
     public void IsContentPageRequest_is_get_upstream_page(string method, string path, bool expected)
         => EndpointClassifier.IsContentPageRequest(method, path, BasePath).Should().Be(expected);

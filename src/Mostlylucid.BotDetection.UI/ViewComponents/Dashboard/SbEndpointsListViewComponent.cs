@@ -55,13 +55,15 @@ public class SbEndpointsListViewComponent(
             data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
         }
         var basePath = options.Value.BasePath.TrimEnd('/');
+        var navBasePath = string.IsNullOrEmpty(options.Value.NavBasePath)
+            ? null
+            : options.Value.NavBasePath.TrimEnd('/');
         if (contentOnly)
         {
             // "Content pages" = human page views: GET/HEAD, upstream-served, not
-            // API/versioned/gRPC, not static assets, not StyloBot's own paths.
-            // Supersedes excludeStatic (which only strips assets) — this also drops
-            // API endpoints, POST telemetry ingest (OTLP /v1/logs), and dashboard rows.
-            data = data.Where(e => EndpointClassifier.IsContentPageRequest(e.Method, e.Path, basePath)).ToList();
+            // API/versioned/gRPC, not static assets, not StyloBot's own paths (the
+            // /dashboard + /stylobot + /_stylobot mounts). Supersedes excludeStatic.
+            data = data.Where(e => EndpointClassifier.IsContentPageRequest(e.Method, e.Path, basePath, navBasePath)).ToList();
         }
         else if (excludeStatic)
         {
@@ -122,6 +124,7 @@ public class SbEndpointsListViewComponent(
             PageSize = pageSize,
             TotalCount = data.Count,
             BasePath = basePath,
+            NavBasePath = navBasePath,
             Heading = heading,
             ContentOnly = contentOnly,
             IsCompact = compact,

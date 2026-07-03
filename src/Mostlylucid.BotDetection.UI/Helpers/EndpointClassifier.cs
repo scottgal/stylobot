@@ -31,11 +31,13 @@ public enum EndpointOwner
 /// </summary>
 public static class EndpointClassifier
 {
-    // Framework / Razor-class-library static-asset + Blazor SignalR roots the
-    // StyloBot UI package mounts at the HOST root (outside BasePath). These are
-    // ASP.NET framework conventions, not a curated page list.
-    private static readonly string[] StylobotRootPrefixes =
-        ["/_content/", "/_blazor", "/_framework/"];
+    // The dashboard UI package always mounts at "/stylobot" regardless of the
+    // configured BasePath (see FossDashboardGroups: "every mount — /dashboard,
+    // /stylobot, /_stylobot"), and the SignalR hub defaults to /stylobot/hub.
+    // The "/_"-prefixed roots (/_stylobot, /_content, /_blazor, /_framework) are
+    // caught by the framework-convention rule in Classify, so only "/stylobot"
+    // needs listing here.
+    private static readonly string[] StylobotMountPrefixes = ["/stylobot"];
 
     // Same extension set the endpoints view component used before this helper
     // centralised it — kept here so "is a static asset" has one owner.
@@ -96,24 +98,34 @@ public static class EndpointClassifier
     ///     <paramref name="basePath"/> (the dashboard mount) and the framework
     ///     asset roots; everything else is upstream.
     /// </summary>
-    public static EndpointOwner Classify(string? path, string? basePath)
+    public static EndpointOwner Classify(string? path, string? basePath, string? navBasePath = null)
     {
         if (string.IsNullOrEmpty(path)) return EndpointOwner.Upstream;
 
-        if (!string.IsNullOrEmpty(basePath))
-        {
-            var bp = "/" + basePath.Trim('/');
-            if (bp.Length > 1 &&
-                (path.Equals(bp, StringComparison.OrdinalIgnoreCase) ||
-                 path.StartsWith(bp + "/", StringComparison.OrdinalIgnoreCase)))
-                return EndpointOwner.Stylobot;
-        }
+        // ASP.NET framework / RCL convention: a first path segment beginning with
+        // '_' is framework-reserved (/_stylobot partials, /_content RCL assets,
+        // /_blazor, /_framework). A human content page never starts with "/_".
+        if (path.StartsWith("/_", StringComparison.Ordinal)) return EndpointOwner.Stylobot;
 
-        foreach (var pre in StylobotRootPrefixes)
-            if (path.StartsWith(pre, StringComparison.OrdinalIgnoreCase))
-                return EndpointOwner.Stylobot;
+        // Configured dashboard mount(s) — page routes + nav.
+        if (IsUnder(path, basePath) || IsUnder(path, navBasePath)) return EndpointOwner.Stylobot;
+
+        // Always-on package mounts (/stylobot + the /stylobot/hub SignalR endpoint),
+        // present regardless of the configured BasePath.
+        foreach (var pre in StylobotMountPrefixes)
+            if (IsUnder(path, pre)) return EndpointOwner.Stylobot;
 
         return EndpointOwner.Upstream;
+    }
+
+    // Segment-boundary prefix match: "/x" matches "/x" and "/x/…" but not "/xyz".
+    private static bool IsUnder(string? path, string? prefix)
+    {
+        if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(prefix)) return false;
+        var bp = "/" + prefix.Trim('/');
+        if (bp.Length <= 1) return false;
+        return path.Equals(bp, StringComparison.OrdinalIgnoreCase)
+               || path.StartsWith(bp + "/", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -121,9 +133,9 @@ public static class EndpointClassifier
     ///     endpoint, and not a static asset. This is the set the traffic
     ///     overview's "Top content pages" widget shows.
     /// </summary>
-    public static bool IsUpstreamContent(string? path, string? basePath)
+    public static bool IsUpstreamContent(string? path, string? basePath, string? navBasePath = null)
         => !string.IsNullOrEmpty(path)
-           && Classify(path, basePath) == EndpointOwner.Upstream
+           && Classify(path, basePath, navBasePath) == EndpointOwner.Upstream
            && !IsApiPath(path)
            && !IsStaticResource(path);
 
@@ -134,8 +146,8 @@ public static class EndpointClassifier
     ///     are form submits, API calls, or telemetry ingest (e.g. OTLP
     ///     <c>POST /v1/logs</c>), which are not "pages".
     /// </summary>
-    public static bool IsContentPageRequest(string? method, string? path, string? basePath)
+    public static bool IsContentPageRequest(string? method, string? path, string? basePath, string? navBasePath = null)
         => (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
             || string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
-           && IsUpstreamContent(path, basePath);
+           && IsUpstreamContent(path, basePath, navBasePath);
 }
