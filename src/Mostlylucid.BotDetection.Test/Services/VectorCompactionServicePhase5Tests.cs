@@ -88,7 +88,8 @@ public sealed class VectorCompactionServicePhase5Tests : IAsyncLifetime
 
     private VectorCompactionService NewService(int maxSignatures, double botThreshold)
     {
-        var opts = new BotDetectionOptions { BotThreshold = botThreshold };
+        var opts = new BotDetectionOptions();
+        opts.Classification.BotFloor = botThreshold; // canonical bot/human boundary
         opts.Retention.MaxSignatures = maxSignatures;
         opts.Retention.MinSignatures = 1;
 

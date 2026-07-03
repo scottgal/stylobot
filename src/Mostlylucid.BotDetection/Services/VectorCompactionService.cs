@@ -76,7 +76,10 @@ public sealed class VectorCompactionService : IGuardian
         _sessionCentroidStore = sessionCentroidStore;
         _intentCentroidStore = intentCentroidStore;
         _logger = logger;
-        _botThreshold = options.Value.BotThreshold;
+        // The canonical bot/human boundary (v8 rationalisation). DecisionNecessity
+        // peaks its uncertainty term here, so a signature sitting right on the
+        // decision line is the most valuable to keep and the last to be evicted.
+        _botThreshold = options.Value.Classification.BotFloor;
         _signatureCap = _retention.MaxSignatures > 0
             ? new MemoryAdaptiveCap(_retention.MaxSignatures, floor: _retention.MinSignatures)
             : null;
