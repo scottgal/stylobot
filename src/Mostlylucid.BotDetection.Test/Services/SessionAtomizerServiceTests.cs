@@ -2,7 +2,9 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
@@ -87,5 +89,65 @@ public sealed class SessionAtomizerServiceTests
 
         // Double-dispose is safe.
         sut.Dispose();
+    }
+
+    /// <summary>
+    ///     Guardrail for the canonical IsBot semantics on the session write path.
+    ///     Five requests at avgBot=0.6 would have produced IsBot=true under the bespoke
+    ///     <c>avgBot &gt; 0.5</c> rule; canonical
+    ///     <see cref="Risk.SignatureRiskVerdictComposer.IsBot"/>
+    ///     requires <c>avgBot &gt;= ClassificationOptions.BotFloor</c> (default 0.70),
+    ///     so IsBot must be false. Prevents regression to divergent classification
+    ///     thresholds in the session tier.
+    /// </summary>
+    [Fact]
+    public async Task SessionWrite_UsesCanonicalIsBot_BelowBotFloor()
+    {
+        var coordinator = new RecordingScheduleCoordinator();
+        var store       = new Mock<ISessionStore>(MockBehavior.Loose);
+
+        // Five requests, all avgBot=0.6, well older than the SessionGraceAge (35 min
+        // default) so the group is force-flushed at atomize time.
+        var oldTs = DateTime.UtcNow - TimeSpan.FromHours(1);
+        var requests = Enumerable.Range(0, 5).Select(i => new PersistedRequest
+        {
+            Id             = i + 1,
+            Signature      = "test_sig",
+            Timestamp      = oldTs.AddSeconds(i),
+            Path           = "/",
+            MarkovState    = nameof(RequestState.PageView),
+            StatusCode     = 200,
+            BotProbability = 0.6,
+            Confidence     = 0.8,
+            RiskBand       = "Medium",
+            ProcessingMs   = 1.0,
+        }).ToList();
+
+        store.Setup(s => s.GetUnatomizedRequestsAsync(
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(requests);
+
+        PersistedSession? captured = null;
+        store.Setup(s => s.AddSessionAsync(
+                It.IsAny<RequestScope>(),
+                It.IsAny<PersistedSession>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<RequestScope, PersistedSession, CancellationToken>((_, s, _) => captured = s)
+            .ReturnsAsync(42L);
+
+        using var sut = new SessionAtomizerService(
+            store.Object,
+            NullLogger<SessionAtomizerService>.Instance,
+            new TestOptionsMonitor<BotDetectionOptions>(new BotDetectionOptions()),
+            coordinator);
+
+        var sub = Assert.Single(coordinator.Subscriptions);
+        await sub.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
+
+        captured.Should().NotBeNull("the atomizer should write a session for the group");
+        captured!.AvgBotProbability.Should().BeApproximately(0.6, 1e-9);
+        captured.IsBot.Should().BeFalse(
+            "canonical IsBot requires avgBot >= BotFloor (default 0.70); 0.6 must NOT count as bot");
     }
 }
