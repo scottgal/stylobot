@@ -97,7 +97,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     public Task<DashboardSummary> GetSummaryAsync(
         DateTime? startTime = null,
         DateTime? endTime = null,
-        string? audienceFilter = null)
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
     {
         var query = "/api/v1/summary";
         var sep = '?';
@@ -112,13 +113,36 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
             sep = '&';
         }
         if (!string.IsNullOrEmpty(audienceFilter))
+        {
             query += $"{sep}audience={Uri.EscapeDataString(audienceFilter)}";
+            sep = '&';
+        }
+        query += AppendDomainQuery(domains, ref sep);
 
         return GetOrFetchAsync(query, async () =>
         {
             var summary = await _api.GetEnvelopeAsync<DashboardSummary>(query);
             return summary ?? EmptySummary();
         });
+    }
+
+    /// <summary>
+    ///     Emit <c>?domain=X&amp;domain=Y</c> repeated params for the multi-select
+    ///     domain filter. The gateway-side handler (or the traffic-page controller
+    ///     when the ring flips) reads <c>Query["domain"]</c> as a StringValues
+    ///     list, matching the FOSS convention (see <c>TrafficController</c>).
+    /// </summary>
+    private static string AppendDomainQuery(IReadOnlyList<string>? domains, ref char sep)
+    {
+        if (domains is null || domains.Count == 0) return string.Empty;
+        var sb = new System.Text.StringBuilder();
+        foreach (var d in domains)
+        {
+            if (string.IsNullOrWhiteSpace(d)) continue;
+            sb.Append(sep).Append("domain=").Append(Uri.EscapeDataString(d));
+            sep = '&';
+        }
+        return sb.ToString();
     }
 
     private static DashboardSummary EmptySummary() => new()
@@ -138,7 +162,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         DateTime startTime,
         DateTime endTime,
         TimeSpan bucketSize,
-        string? audienceFilter = null)
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
     {
         var interval = bucketSize.TotalMinutes switch
         {
@@ -152,6 +177,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
             + $"&until={Uri.EscapeDataString(endTime.ToString("o"))}";
         if (!string.IsNullOrEmpty(audienceFilter))
             query += $"&audience={Uri.EscapeDataString(audienceFilter)}";
+        var sep = '&';
+        query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardTimeSeriesPoint>>(query);
@@ -159,11 +186,13 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         });
     }
 
-    public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
     {
         var query = BuildRangedQuery("/api/v1/topbots", count, startTime, endTime);
         if (!string.IsNullOrEmpty(audienceFilter))
             query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
+        var sep = query.Contains('?') ? '&' : '?';
+        query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardTopBotEntry>>(query);
@@ -171,11 +200,13 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         });
     }
 
-    public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
     {
         var query = BuildRangedQuery("/api/v1/countries", count, startTime, endTime);
         if (!string.IsNullOrEmpty(audienceFilter))
             query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
+        var sep = query.Contains('?') ? '&' : '?';
+        query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardCountryStats>>(query);
@@ -190,17 +221,33 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return GetOrFetchAsync(query, () => _api.GetEnvelopeAsync<DashboardCountryDetail>(query)!);
     }
 
-    public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
     {
         var query = BuildRangedQuery("/api/v1/endpoints", count, startTime, endTime);
         if (!string.IsNullOrEmpty(audienceFilter))
             query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
+        var sep = query.Contains('?') ? '&' : '?';
+        query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);
             return list ?? new List<DashboardEndpointStats>();
         });
     }
+
+    /// <summary>
+    ///     Remote stub for the multi-select domain picker. The gateway does not
+    ///     yet expose <c>/api/v1/domains</c>; a remote-mode dashboard sees no
+    ///     options (dropdown collapses to empty), which is the same fail-open
+    ///     posture the other unimplemented remote endpoints take. Wiring the
+    ///     gateway route is a follow-up per feedback_remote_mode_optional_di.
+    /// </summary>
+    public Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
+        int lookbackDays = 30,
+        int limit = 100,
+        CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>>(
+            Array.Empty<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>());
 
     /// <summary>
     ///     Remote stub. The gateway's <c>/api/v1</c> surface does not yet expose

@@ -14,7 +14,15 @@
     source of truth (per feedback_centralised_change_detection).
 *@
 @{
-    string LinkWith(string? country = null, string? botType = null, string? window = null, string? threat = null, string? remove = null)
+    string LinkWith(
+        string? country = null,
+        string? botType = null,
+        string? window = null,
+        string? threat = null,
+        string? remove = null,
+        IEnumerable<string>? domains = null,
+        string? removeDomain = null,
+        string? toggleDomain = null)
     {
         var qs = new List<string>();
         var c  = remove == "country"  ? null : (country  ?? Model.Filters.Country);
@@ -27,7 +35,50 @@
         // the default so the URL stays clean.
         if (!string.IsNullOrEmpty(w) && w != "24h") qs.Add($"window={Uri.EscapeDataString(w)}");
         if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
+
+        // Effective domain set. Caller may pass an explicit override list,
+        // ask to remove one entry (chip dismiss), or ask to toggle one
+        // entry (checkbox click). removeDomain wins over toggleDomain
+        // wins over an explicit domains override; none = use the current
+        // filter state.
+        IEnumerable<string> effectiveDomains;
+        if (remove == "domain")
+        {
+            effectiveDomains = Array.Empty<string>();
+        }
+        else if (!string.IsNullOrEmpty(removeDomain))
+        {
+            effectiveDomains = Model.Filters.Domains.Where(d => !string.Equals(d, removeDomain, StringComparison.Ordinal));
+        }
+        else if (!string.IsNullOrEmpty(toggleDomain))
+        {
+            var current = Model.Filters.Domains;
+            effectiveDomains = current.Contains(toggleDomain, StringComparer.Ordinal)
+                ? current.Where(d => !string.Equals(d, toggleDomain, StringComparison.Ordinal))
+                : current.Concat(new[] { toggleDomain });
+        }
+        else
+        {
+            effectiveDomains = domains ?? Model.Filters.Domains;
+        }
+        foreach (var d in effectiveDomains)
+        {
+            if (string.IsNullOrWhiteSpace(d)) continue;
+            qs.Add($"domain={Uri.EscapeDataString(d)}");
+        }
         return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
+    }
+
+    string DomainDisplayLabel(string rawDomain)
+    {
+        if (string.IsNullOrEmpty(rawDomain)) return rawDomain;
+        var match = Model.DomainOptions.FirstOrDefault(o => string.Equals(o.Value, rawDomain, StringComparison.Ordinal));
+        if (match is not null) return match.DisplayLabel;
+        // Fall-back UI transform when the option list is remote-empty but the
+        // URL carries an in-cluster host directly. Mirrors the store-side
+        // FormatDomainLabel so the chip reads sanely in both modes.
+        if (rawDomain.StartsWith("stylobot-gateway.", StringComparison.OrdinalIgnoreCase)) return "internal";
+        return rawDomain;
     }
     // Analytics-package window set: short shape (6h/24h) through 7d/30d history.
     // The timeseries bucketer adapts bucket width to the window so the longer
@@ -82,15 +133,100 @@
                 </a>
             }
         </div>
-        <div class="join">
-            @foreach (var (val, label) in windows)
-            {
-                var active = string.Equals(Model.Filters.Window, val, StringComparison.OrdinalIgnoreCase);
-                <a href="@LinkWith(window: val)"
-                   class="btn btn-xs join-item @(active ? "btn-primary" : "")">@label</a>
+        <div class="flex items-center gap-2 flex-wrap">
+            @{
+                var domainCount = Model.Filters.Domains.Count;
+                var domainButtonLabel = domainCount > 0 ? $"Domain ({domainCount})" : "Domain";
+                var domainDisabled = Model.DomainOptions.Count == 0 && domainCount == 0;
             }
+            @if (!domainDisabled)
+            {
+                @* Zero-JS <details>/<summary> multi-select. Matches the surrounding
+                   "no bundler, no vanilla-JS click handler" convention on the
+                   Traffic page. Each checkbox click submits a GET that toggles
+                   that single domain in the URL. *@
+                <details class="sb-domain-filter dropdown dropdown-end">
+                    <summary class="btn btn-xs gap-1" aria-haspopup="listbox" aria-expanded="false"
+                             title="Filter by request Host / domain">
+                        @domainButtonLabel
+                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"
+                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </summary>
+                    <div class="sb-domain-filter-panel dropdown-content menu bg-base-100 border border-base-300 rounded-box shadow p-2 mt-1"
+                         role="listbox" style="min-width: 18rem; max-width: 24rem; z-index: 20;">
+                        <label class="sb-domain-filter-search input input-xs input-bordered flex items-center gap-1 mb-2"
+                               aria-label="Filter domain list">
+                            <input type="text"
+                                   class="grow"
+                                   placeholder="Filter…"
+                                   oninput="const q=this.value.trim().toLowerCase();this.closest('.sb-domain-filter-panel').querySelectorAll('[data-domain-row]').forEach(r=>{r.style.display=(!q||r.dataset.domain.toLowerCase().includes(q)||r.dataset.label.toLowerCase().includes(q))?'':'none';});"
+                                   autocomplete="off" />
+                        </label>
+                        <div class="sb-domain-filter-list max-h-64 overflow-y-auto">
+                            @foreach (var opt in Model.DomainOptions)
+                            {
+                                var selected = Model.Filters.Domains.Contains(opt.Value, StringComparer.Ordinal);
+                                <a class="sb-domain-filter-row flex items-center justify-between gap-2 py-1 px-1 rounded hover:bg-base-200 text-xs"
+                                   href="@LinkWith(toggleDomain: opt.Value)"
+                                   data-domain-row="true"
+                                   data-domain="@opt.Value"
+                                   data-label="@opt.DisplayLabel"
+                                   role="option"
+                                   aria-selected="@(selected ? "true" : "false")">
+                                    <span class="flex items-center gap-2 min-w-0">
+                                        <input type="checkbox" class="checkbox checkbox-xs pointer-events-none"
+                                               @(selected ? "checked" : "")
+                                               tabindex="-1"
+                                               aria-hidden="true" />
+                                        <span class="truncate" title="@opt.Value">@opt.DisplayLabel</span>
+                                    </span>
+                                    <span class="text-base-content/50 tabular-nums">@opt.Count.ToString("N0")</span>
+                                </a>
+                            }
+                            @if (Model.DomainOptions.Count == 0)
+                            {
+                                <div class="text-xs text-base-content/60 px-1 py-2">No domains recorded in the last 30 days.</div>
+                            }
+                        </div>
+                        @if (domainCount > 0)
+                        {
+                            <div class="mt-2 pt-2 border-t border-base-300">
+                                <a href="@LinkWith(remove: "domain")" class="btn btn-ghost btn-xs w-full">Clear all</a>
+                            </div>
+                        }
+                    </div>
+                </details>
+            }
+            <div class="join">
+                @foreach (var (val, label) in windows)
+                {
+                    var active = string.Equals(Model.Filters.Window, val, StringComparison.OrdinalIgnoreCase);
+                    <a href="@LinkWith(window: val)"
+                       class="btn btn-xs join-item @(active ? "btn-primary" : "")">@label</a>
+                }
+            </div>
         </div>
     </header>
+
+    @if (Model.Filters.Domains.Count > 0)
+    {
+        @* Chip row: dismissable per-domain badges under the filter header.
+           Uses the same badge / sb-*-filter-chip look as SbPolicyStack's chips
+           (feedback pattern -- no new CSS family). *@
+        <div class="flex items-center flex-wrap gap-1" data-active-filters="true">
+            @foreach (var dom in Model.Filters.Domains)
+            {
+                <a href="@LinkWith(removeDomain: dom)"
+                   class="badge badge-sm sb-domain-filter-chip gap-1"
+                   title="@("Remove " + dom)">
+                    @DomainDisplayLabel(dom) <span aria-hidden="true">×</span>
+                </a>
+            }
+        </div>
+    }
 
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model)
 

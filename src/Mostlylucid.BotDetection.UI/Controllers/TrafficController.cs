@@ -62,6 +62,17 @@ public sealed class TrafficController : Controller
         CancellationToken ct)
     {
         var opts = _layout.Value;
+        // Bind repeated ?domain=X&domain=Y URL parameters into a distinct,
+        // whitespace-trimmed list. Empty list = no domain filter (matches
+        // the store-side "domains == null || Count == 0 → skip predicate"
+        // fail-open convention on both SQLite and Postgres).
+        var rawDomains = Request.Query["domain"];
+        var domains = rawDomains
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
         var filters = new TrafficFilters(
             Country: string.IsNullOrWhiteSpace(country) ? null : country,
             BotType: string.IsNullOrWhiteSpace(botType) ? null : botType,
@@ -70,7 +81,15 @@ public sealed class TrafficController : Controller
             // ParseWindow recognises both forms so legacy hosts that set
             // DefaultTimeWindowMinutes still resolve.
             Window: string.IsNullOrWhiteSpace(window) ? FormatDefaultWindow(opts.DefaultTimeWindowMinutes) : window,
-            Threat: string.IsNullOrWhiteSpace(threat) ? null : threat);
+            Threat: string.IsNullOrWhiteSpace(threat) ? null : threat) with
+        {
+            Domains = domains,
+        };
+        // Load + cache the domain picker options on HttpContext.Items so any
+        // partial that re-renders during this request reuses the same list
+        // (per-request cache, NOT a store spanning requests -- see
+        // feedback_centralised_change_detection + task constraint).
+        var domainOptions = await LoadDomainOptionsAsync(ct);
 
         var topN = opts.TrafficCardTopN;
         var windowMinutes = ParseWindow(filters.Window);
@@ -84,21 +103,25 @@ public sealed class TrafficController : Controller
         //    visitor / family breakdowns have enough rows to group on.
         // 2. The prior comparable window for the counter delta (best-effort:
         //    the store may return an empty set on short retention windows).
+        // Domain filter is passed at the store layer so every WHERE clause on
+        // dashboard_detections is scoped to the selected subset. null / empty =
+        // no filter (fail open, matches the task-spec convention).
+        var domainsForQuery = filters.Domains.Count > 0 ? (IReadOnlyList<string>)filters.Domains : null;
         var topBotsTask = _eventStore.GetTopBotsAsync(
-            count: 500, startTime: startTime, endTime: now, audienceFilter: "all");
+            count: 500, startTime: startTime, endTime: now, audienceFilter: "all", domains: domainsForQuery);
         var priorBotsTask = _eventStore.GetTopBotsAsync(
-            count: 500, startTime: startTime.AddMinutes(-windowMinutes), endTime: startTime, audienceFilter: "all");
-        var summaryTask = SafeGetSummaryAsync(startTime, now);
-        var priorSummaryTask = SafeGetSummaryAsync(startTime.AddMinutes(-windowMinutes), startTime);
-        var countriesTask = SafeGetCountryStatsAsync(topN, startTime, now);
-        var endpointsTask = SafeGetEndpointStatsAsync(topN, startTime, now);
+            count: 500, startTime: startTime.AddMinutes(-windowMinutes), endTime: startTime, audienceFilter: "all", domains: domainsForQuery);
+        var summaryTask = SafeGetSummaryAsync(startTime, now, domainsForQuery);
+        var priorSummaryTask = SafeGetSummaryAsync(startTime.AddMinutes(-windowMinutes), startTime, domainsForQuery);
+        var countriesTask = SafeGetCountryStatsAsync(topN, startTime, now, domainsForQuery);
+        var endpointsTask = SafeGetEndpointStatsAsync(topN, startTime, now, domainsForQuery);
         // The hits-per-period chart is a REAL time series read from the durable
         // event store (Postgres on the gateway, forwarded over REST on remote
         // hosts) -- NOT re-projected from the visitor snapshot. Each detection
         // already carries its own timestamp, so the store buckets by real time;
         // it survives a gateway restart and spans the full retention window
         // (feedback_cache_lives_where_data_lives / feedback_no_caches_freshness_over_locality).
-        var hitsSeriesTask = SafeGetTimeSeriesAsync(startTime, now, bucketSize);
+        var hitsSeriesTask = SafeGetTimeSeriesAsync(startTime, now, bucketSize, domainsForQuery);
 
         await Task.WhenAll(topBotsTask, priorBotsTask, summaryTask, priorSummaryTask, countriesTask, endpointsTask, hitsSeriesTask);
 
@@ -146,7 +169,7 @@ public sealed class TrafficController : Controller
                     v.BotName ?? string.Empty,
                     v.ThreatBand ?? "None",
                     v.LastSeen))
-                .ToList());
+                .ToList()) with { DomainOptions = domainOptions };
 
         // Views live under the non-conventional /Views/StyloBot/Dashboard/... root
         // alongside the rest of the middleware-rendered dashboard pages, so the
@@ -170,28 +193,48 @@ public sealed class TrafficController : Controller
         return View("/Views/StyloBot/Dashboard/Traffic/Index.cshtml", model);
     }
 
-    private async Task<DashboardSummary?> SafeGetSummaryAsync(DateTime start, DateTime end)
+    private async Task<DashboardSummary?> SafeGetSummaryAsync(DateTime start, DateTime end, IReadOnlyList<string>? domains = null)
     {
-        try { return await _eventStore.GetSummaryAsync(startTime: start, endTime: end); }
+        try { return await _eventStore.GetSummaryAsync(startTime: start, endTime: end, domains: domains); }
         catch { return null; }
     }
 
-    private async Task<List<DashboardCountryStats>> SafeGetCountryStatsAsync(int n, DateTime start, DateTime end)
+    private async Task<List<DashboardCountryStats>> SafeGetCountryStatsAsync(int n, DateTime start, DateTime end, IReadOnlyList<string>? domains = null)
     {
-        try { return await _eventStore.GetCountryStatsAsync(count: Math.Max(n, 20), startTime: start, endTime: end); }
+        try { return await _eventStore.GetCountryStatsAsync(count: Math.Max(n, 20), startTime: start, endTime: end, domains: domains); }
         catch { return new List<DashboardCountryStats>(); }
     }
 
-    private async Task<List<DashboardEndpointStats>> SafeGetEndpointStatsAsync(int n, DateTime start, DateTime end)
+    private async Task<List<DashboardEndpointStats>> SafeGetEndpointStatsAsync(int n, DateTime start, DateTime end, IReadOnlyList<string>? domains = null)
     {
-        try { return await _eventStore.GetEndpointStatsAsync(count: Math.Max(n, 50), startTime: start, endTime: end); }
+        try { return await _eventStore.GetEndpointStatsAsync(count: Math.Max(n, 50), startTime: start, endTime: end, domains: domains); }
         catch { return new List<DashboardEndpointStats>(); }
     }
 
-    private async Task<List<DashboardTimeSeriesPoint>> SafeGetTimeSeriesAsync(DateTime start, DateTime end, TimeSpan bucketSize)
+    private async Task<List<DashboardTimeSeriesPoint>> SafeGetTimeSeriesAsync(DateTime start, DateTime end, TimeSpan bucketSize, IReadOnlyList<string>? domains = null)
     {
-        try { return await _eventStore.GetTimeSeriesAsync(start, end, bucketSize); }
+        try { return await _eventStore.GetTimeSeriesAsync(start, end, bucketSize, domains: domains); }
         catch { return new List<DashboardTimeSeriesPoint>(); }
+    }
+
+    /// <summary>
+    ///     Load the multi-select domain picker options, caching them on
+    ///     <see cref="HttpContext.Items"/> so the widget partial + any
+    ///     down-stream re-render see the same list within one request. The
+    ///     store call is a 30-day distinct-domain scan; not cached across
+    ///     requests (per feedback_no_inmemory_stores + task constraint).
+    /// </summary>
+    private async Task<IReadOnlyList<DomainOption>> LoadDomainOptionsAsync(CancellationToken ct)
+    {
+        const string cacheKey = "sb.dashboard.traffic.domain-options";
+        if (HttpContext.Items.TryGetValue(cacheKey, out var cached)
+            && cached is IReadOnlyList<DomainOption> cachedList)
+            return cachedList;
+        IReadOnlyList<DomainOption> options;
+        try { options = await _eventStore.GetDomainOptionsAsync(lookbackDays: 30, limit: 100, ct: ct); }
+        catch { options = Array.Empty<DomainOption>(); }
+        HttpContext.Items[cacheKey] = options;
+        return options;
     }
 
     /// <summary>

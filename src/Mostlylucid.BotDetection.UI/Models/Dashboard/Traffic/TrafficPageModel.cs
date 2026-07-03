@@ -18,18 +18,54 @@ public sealed record TrafficPageModel(
     IReadOnlyList<BotTypeRow> BotTypes,
     IReadOnlyList<EndpointRow> TopEndpoints,
     IReadOnlyList<CachedVisitor> TopVisitors,
-    IReadOnlyList<ThreatRow> Threats);
+    IReadOnlyList<ThreatRow> Threats)
+{
+    /// <summary>
+    ///     Options for the multi-select domain picker rendered next to the
+    ///     window pills on <c>_Body.cshtml</c>. Hydrated by the controller
+    ///     from the event-store's 30-day distinct-domain scan (empty on
+    ///     remote-mode hosts that don't yet expose the endpoint). Empty
+    ///     list = widget collapses to a disabled pill.
+    /// </summary>
+    public IReadOnlyList<DomainOption> DomainOptions { get; init; } = Array.Empty<DomainOption>();
+}
 
 /// <summary>
 ///     URL-bound filter set. Empty / null values mean "no filter on this axis".
 ///     <see cref="Window"/> falls back to the configured DefaultTimeWindowMinutes
 ///     when the URL omits it.
+///     <para>
+///         <see cref="Domains"/> is a multi-select subset of the site's active
+///         <c>dashboard_detections.domain</c> values. Empty list means "no filter"
+///         (all domains). The URL round-trips repeated <c>?domain=X&amp;domain=Y</c>
+///         parameters via <c>TrafficPageFilters.LinkWith</c>.
+///     </para>
 /// </summary>
 public sealed record TrafficFilters(
     string? Country = null,
     string? BotType = null,
     string Window = "60m",
-    string? Threat = null);
+    string? Threat = null)
+{
+    /// <summary>
+    ///     Multi-select domain filter. Empty (default) means all domains.
+    ///     Values are the raw <c>dashboard_detections.domain</c> strings; the
+    ///     display transformation (e.g. <c>stylobot-gateway.*</c> renders as
+    ///     "internal") is applied at render time, not persisted here.
+    /// </summary>
+    public IReadOnlyList<string> Domains { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>
+///     One entry in the /dashboard/traffic domain-picker dropdown. Sourced from
+///     <c>DomainOptionsProvider</c> (30-day distinct-domain scan on the event
+///     store, cached on <see cref="HttpContext.Items"/> per request).
+/// </summary>
+/// <param name="Value">Raw domain string as stored in <c>dashboard_detections.domain</c>.</param>
+/// <param name="DisplayLabel">Operator-friendly label (e.g. "internal" for the in-cluster gateway).</param>
+/// <param name="Count">Detection count over the 30-day scan window.</param>
+/// <param name="IsInternal">True when the domain is the in-cluster gateway service.</param>
+public sealed record DomainOption(string Value, string DisplayLabel, long Count, bool IsInternal);
 
 /// <summary>
 ///     Three parallel int[] series sharing one DateTime[] bucket axis. The

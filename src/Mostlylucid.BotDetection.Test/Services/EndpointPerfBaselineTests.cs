@@ -44,7 +44,7 @@ public sealed class DashboardEventStoreBackedEndpointPerfBaselineTests
 
         public virtual Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
             int count = 50, System.DateTime? startTime = null, System.DateTime? endTime = null,
-            string? audienceFilter = null)
+            string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(Stats);
 
         // --- Everything else throws. Bulk stubs to keep the file compilable. ---
@@ -60,17 +60,20 @@ public sealed class DashboardEventStoreBackedEndpointPerfBaselineTests
         public Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0,
             bool? isBot = null) => throw new System.NotSupportedException();
         public Task<DashboardSummary> GetSummaryAsync(System.DateTime? startTime = null,
-            System.DateTime? endTime = null, string? audienceFilter = null)
+            System.DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => throw new System.NotSupportedException();
         public Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(System.DateTime startTime,
-            System.DateTime endTime, System.TimeSpan bucketSize, string? audienceFilter = null)
+            System.DateTime endTime, System.TimeSpan bucketSize, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => throw new System.NotSupportedException();
         public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10,
             System.DateTime? startTime = null, System.DateTime? endTime = null,
-            string? audienceFilter = null) => throw new System.NotSupportedException();
+            string? audienceFilter = null, IReadOnlyList<string>? domains = null) => throw new System.NotSupportedException();
         public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20,
             System.DateTime? startTime = null, System.DateTime? endTime = null,
-            string? audienceFilter = null) => throw new System.NotSupportedException();
+            string? audienceFilter = null, IReadOnlyList<string>? domains = null) => throw new System.NotSupportedException();
+        public Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
+            int lookbackDays = 30, int limit = 100, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>>(Array.Empty<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>());
         public Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode,
             System.DateTime? startTime = null, System.DateTime? endTime = null)
             => throw new System.NotSupportedException();
@@ -218,7 +221,7 @@ public sealed class DashboardEventStoreBackedEndpointPerfBaselineTests
     {
         public override Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
             int count = 50, System.DateTime? startTime = null, System.DateTime? endTime = null,
-            string? audienceFilter = null)
+            string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => throw new System.InvalidOperationException("store offline");
     }
 }

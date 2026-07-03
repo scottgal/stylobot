@@ -49,30 +49,38 @@ public interface IDashboardEventStore
     Task<DashboardSummary> GetSummaryAsync(
         DateTime? startTime = null,
         DateTime? endTime = null,
-        string? audienceFilter = null);
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null);
 
     /// <summary>
     ///     Get time-series data for charts.
     ///     <paramref name="audienceFilter"/> ("bots" | "humans" | null) restricts each bucket to the
     ///     matching audience.
+    ///     <paramref name="domains"/> restricts to detections whose <c>domain</c> column matches one
+    ///     of the given values (null / empty = no filter).
     /// </summary>
     Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
         DateTime startTime,
         DateTime endTime,
         TimeSpan bucketSize,
-        string? audienceFilter = null);
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null);
 
     /// <summary>
     ///     Get top bot signatures ordered by hit count descending.
     ///     When startTime/endTime are provided, only detections within that range are considered.
+    ///     <paramref name="domains"/> restricts to detections whose <c>domain</c> column matches one
+    ///     of the given values (null / empty = no filter).
     /// </summary>
-    Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
+    Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null);
 
     /// <summary>
     ///     Get country-level statistics (total requests, bot count, bot rate).
     ///     When startTime/endTime are provided, only detections within that range are considered.
+    ///     <paramref name="domains"/> restricts to detections whose <c>domain</c> column matches one
+    ///     of the given values (null / empty = no filter).
     /// </summary>
-    Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
+    Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null);
 
     /// <summary>
     ///     Get detailed statistics for a single country, including bot type and signature breakdowns.
@@ -82,7 +90,18 @@ public interface IDashboardEventStore
     /// <summary>
     ///     Get endpoint-level statistics aggregated by method + path.
     /// </summary>
-    Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
+    Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null);
+
+    /// <summary>
+    ///     Distinct <c>dashboard_detections.domain</c> values seen in the last
+    ///     <paramref name="lookbackDays"/> days, ordered by detection count DESC.
+    ///     Backs the multi-select domain picker on the Traffic page. Returns
+    ///     raw values (no display transformation); caller renders the label.
+    /// </summary>
+    Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
+        int lookbackDays = 30,
+        int limit = 100,
+        CancellationToken ct = default);
 
     /// <summary>
     ///     Per-endpoint stats restricted to a single signature, grouped by

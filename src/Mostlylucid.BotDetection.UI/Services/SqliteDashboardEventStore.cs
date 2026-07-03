@@ -500,7 +500,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     public async Task<DashboardSummary> GetSummaryAsync(
         DateTime? startTime = null,
         DateTime? endTime = null,
-        string? audienceFilter = null)
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -518,6 +519,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             "humans" => " AND bot_probability < @botFloor",
             _        => string.Empty
         };
+        var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         // Request-level counts (one detection row per request — drives traffic charts).
         // Also aggregates bytes_out, avg/max processing time for the KPI strip.
@@ -536,11 +538,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     AVG(processing_time_ms) AS avg_ms,
                     MAX(processing_time_ms) AS max_ms
                 FROM detections
-                WHERE timestamp >= @since{untilClause}{audiencePredicate}
+                WHERE timestamp >= @since{untilClause}{audiencePredicate}{domainPredicate}
                 """;
             cmd.Parameters.AddWithValue("@since", sinceStr);
             cmd.Parameters.AddWithValue("@botFloor", _botFloor);
             if (hasUntil) cmd.Parameters.AddWithValue("@until", untilStr);
+            foreach (var (name, value) in domainParams) cmd.Parameters.AddWithValue(name, value);
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
@@ -631,7 +634,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         DateTime startTime,
         DateTime endTime,
         TimeSpan bucketSize,
-        string? audienceFilter = null)
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
     {
         await EnsureInitializedAsync();
 
@@ -649,6 +653,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             "humans" => " AND bot_probability < @botFloor",
             _        => string.Empty
         };
+        var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
@@ -666,7 +671,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 AVG(processing_time_ms) AS avg_ms,
                 MAX(processing_time_ms) AS max_ms
             FROM detections
-            WHERE timestamp >= @start AND timestamp < @end{audiencePredicate}
+            WHERE timestamp >= @start AND timestamp < @end{audiencePredicate}{domainPredicate}
             GROUP BY bucket
             ORDER BY bucket
             """;
@@ -674,6 +679,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         cmd.Parameters.AddWithValue("@end", endTime.ToString("O"));
         cmd.Parameters.AddWithValue("@bucket", bucketSeconds);
+        foreach (var (name, value) in domainParams) cmd.Parameters.AddWithValue(name, value);
 
         var dbPoints = new Dictionary<string, DashboardTimeSeriesPoint>(StringComparer.Ordinal);
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -735,7 +741,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     // Column order (0-based): signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
     //   last_seen(5), threat_score(6), threat_band(7), action(8), narrative(9), top_reasons_json(10),
     //   country_code(11), last_path(12), bytes_out(13)
-    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
     {
         // Audience semantics:
         //   null / "bots" -- bots only (back-compat: this was the original hardcoded behaviour
@@ -750,10 +756,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             _        => "WHERE s.bot_probability >= @botFloor"
         };
 
-        // When a time window is specified, aggregate directly from detections so the
-        // hit counts honour the window boundary instead of returning all-time totals.
-        if (startTime.HasValue || endTime.HasValue)
-            return await GetTopBotsWindowedAsync(count, startTime, endTime, audienceFilter);
+        // When a time window is specified, or a domain filter is applied, aggregate
+        // directly from detections so the hit counts honour the window boundary and
+        // the domain scope instead of returning all-time / all-domain totals.
+        var hasDomainFilter = domains is { Count: > 0 };
+        if (startTime.HasValue || endTime.HasValue || hasDomainFilter)
+            return await GetTopBotsWindowedAsync(count, startTime, endTime, audienceFilter, domains);
 
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -819,7 +827,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     ///     is set. The all-time (no-window) path continues to use the signatures table.
     /// </summary>
     private async Task<List<DashboardTopBotEntry>> GetTopBotsWindowedAsync(
-        int count, DateTime? startTime, DateTime? endTime, string? audienceFilter = null)
+        int count, DateTime? startTime, DateTime? endTime, string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -833,6 +842,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             "humans" => " AND bot_probability < @botFloor",
             _        => " AND bot_probability >= @botFloor"
         };
+        var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         var timeWhere = new System.Text.StringBuilder();
         if (startTime.HasValue) timeWhere.Append(" AND timestamp >= @start");
@@ -866,7 +876,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    is_bot,
                    user_agent_raw
             FROM detections
-            WHERE 1=1{audiencePredicate}{timeWhere}
+            WHERE 1=1{audiencePredicate}{timeWhere}{domainPredicate}
             GROUP BY signature
             ORDER BY hit_count DESC
             LIMIT @count
@@ -876,6 +886,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end",   endTime.Value.ToString("O"));
         cmd.Parameters.AddWithValue("@count", count);
+        foreach (var (name, value) in domainParams) cmd.Parameters.AddWithValue(name, value);
 
         var results = new List<DashboardTopBotEntry>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -910,7 +921,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     // Crude but consistent with the GetEndpointStatsAsync convention; the Postgres backend
     // returns true p95 via PERCENTILE_CONT (Task 10).
     // Column order (0-based): country_code(0), total(1), bots(2), avg_ms(3), max_ms(4), bytes_out(5)
-    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -925,6 +936,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             case "humans": where.Append(" AND bot_probability < @botFloor"); break;
             case "bots":   where.Append(" AND bot_probability >= @botFloor"); break;
         }
+        var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
+        if (domainPredicate.Length > 0) where.Append(domainPredicate);
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
@@ -944,6 +957,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
         cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+        foreach (var (name, value) in domainParams) cmd.Parameters.AddWithValue(name, value);
 
         var results = new List<DashboardCountryStats>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -1016,7 +1030,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         int count = 50,
         DateTime? startTime = null,
         DateTime? endTime = null,
-        string? audienceFilter = null)
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -1038,6 +1053,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             // "honeypot" filters in-memory after classification; no additional SQL predicate.
             // null / "all" / anything else: no additional predicate
         }
+        var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
+        if (domainPredicate.Length > 0) where.Append(domainPredicate);
 
         await using var cmd = conn.CreateCommand();
         // SQLite lacks PERCENTILE_CONT, so p95 is approximated using avg + 90% of (max - avg).
@@ -1070,6 +1087,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
         cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+        foreach (var (name, value) in domainParams) cmd.Parameters.AddWithValue(name, value);
 
         var results = new List<DashboardEndpointStats>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -2127,6 +2145,90 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 NotFoundRate:   reader.IsDBNull(6) ? 0 : reader.GetDouble(6)));
         }
         return results;
+    }
+
+    /// <summary>
+    ///     Build a SQL fragment of the form
+    ///     <c> AND {alias}domain IN (@d0, @d1, ...)</c> and the matching
+    ///     <c>(name, value)</c> parameter list. Returns an empty predicate + no
+    ///     params when <paramref name="domains"/> is null or empty, so the caller
+    ///     can append unconditionally without a null check.
+    ///     <para>
+    ///         SQLite has no <c>= ANY(array)</c> operator (Postgres does), so the
+    ///         filter is emitted as an <c>IN (...)</c> list with one placeholder
+    ///         per value. Empty list = no filter, matching the Postgres
+    ///         <c>@domains::text[] IS NULL OR ...</c> convention from the task
+    ///         spec at the call sites.
+    ///     </para>
+    /// </summary>
+    private static (string Predicate, IReadOnlyList<(string Name, string Value)> Params) BuildDomainPredicate(
+        IReadOnlyList<string>? domains, string columnAlias)
+    {
+        if (domains is null || domains.Count == 0)
+            return (string.Empty, Array.Empty<(string, string)>());
+        var prefix = string.IsNullOrEmpty(columnAlias) ? string.Empty : columnAlias + ".";
+        var placeholders = new List<string>(domains.Count);
+        var parameters = new List<(string, string)>(domains.Count);
+        for (var i = 0; i < domains.Count; i++)
+        {
+            var name = $"@sbDomain{i}";
+            placeholders.Add(name);
+            parameters.Add((name, domains[i]));
+        }
+        return ($" AND {prefix}domain IN ({string.Join(", ", placeholders)})", parameters);
+    }
+
+    /// <summary>
+    ///     Distinct <c>dashboard_detections.domain</c> values seen in the last
+    ///     <paramref name="lookbackDays"/> days, ordered by detection count DESC.
+    ///     Backs the multi-select domain picker on the Traffic page.
+    /// </summary>
+    public async Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
+        int lookbackDays = 30,
+        int limit = 100,
+        CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT domain, COUNT(*) AS n
+            FROM detections
+            WHERE domain IS NOT NULL AND domain != ''
+              AND timestamp >= @since
+            GROUP BY domain
+            ORDER BY n DESC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@since", DateTime.UtcNow.AddDays(-Math.Max(1, lookbackDays)).ToString("O"));
+        cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+
+        var results = new List<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>(limit);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var value = reader.GetString(0);
+            var count = reader.IsDBNull(1) ? 0L : Convert.ToInt64(reader.GetValue(1));
+            var (label, isInternal) = FormatDomainLabel(value);
+            results.Add(new Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption(
+                Value: value, DisplayLabel: label, Count: count, IsInternal: isInternal));
+        }
+        return results;
+    }
+
+    /// <summary>
+    ///     UI-only label transform: hosts under the internal cluster gateway
+    ///     render as "internal" so operators aren't staring at
+    ///     <c>stylobot-gateway.stylobot-system.svc.cluster.local</c>. The raw
+    ///     value stays intact for URL + SQL round-trip.
+    /// </summary>
+    private static (string Label, bool IsInternal) FormatDomainLabel(string value)
+    {
+        if (value.StartsWith("stylobot-gateway.", StringComparison.OrdinalIgnoreCase))
+            return ("internal", true);
+        return (value, false);
     }
 
     public ValueTask DisposeAsync()
