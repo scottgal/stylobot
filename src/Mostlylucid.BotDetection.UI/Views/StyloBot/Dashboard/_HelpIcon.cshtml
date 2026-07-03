@@ -1,10 +1,20 @@
 @* Usage: @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "section-id") *@
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Configuration
+@inject IOptions<StyloBotDashboardOptions> DashOpts
 @model string
 @{
-    var basePath = ViewData["BasePath"]?.ToString() ?? "/stylobot";
+    // The help route is served under the NAV mount (e.g. /dashboard/help/<topic>),
+    // not the internal /stylobot BasePath. Inside ViewComponents ViewData["BasePath"]
+    // is unset, so the old "/stylobot" fallback made every help icon 404. Resolve
+    // from options: NavBasePath when set, else BasePath.
+    var opts = DashOpts.Value;
+    var navBase = ViewData["BasePath"]?.ToString()
+                  ?? (string.IsNullOrEmpty(opts.NavBasePath) ? opts.BasePath : opts.NavBasePath);
+    navBase = "/" + (navBase ?? "/stylobot").Trim('/');
 }
 <button class="btn btn-ghost btn-xs btn-circle opacity-40 hover:opacity-100"
-        hx-get="@basePath/help/@Model"
+        hx-get="@navBase/help/@Model"
         hx-target="body"
         hx-swap="beforeend"
         title="Help: @Model"

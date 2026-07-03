@@ -150,7 +150,10 @@
        Site-health carries its own card (ms + percent, different units; a dual-axis
        overlay on the chart would mislead), backed by persisted DegradationSnapshot
        rows via IDashboardEventStore. *@
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+    @* items-start: don't stretch the two cards to equal height — the content
+       list and (when healthy) the thin site-health strip sit at their natural
+       height, top-aligned, instead of padding out to match. *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
         <div class="card bg-base-100 border border-base-300">
             <div class="card-body p-3">
                 <sb-endpoints-list compact="true" content-only="true"

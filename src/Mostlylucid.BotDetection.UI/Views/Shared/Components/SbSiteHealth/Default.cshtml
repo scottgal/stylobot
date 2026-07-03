@@ -7,22 +7,30 @@
     so the SignalR-driven HTMX OOB swap refreshes the widget when the
     DegradationStoreSampler ticks. No timed polling per
     [[feedback_ssr_signalr_pattern]].
+
+    When healthy (no incidents in window) it collapses to a THIN status strip
+    rather than a full-height card — an "all clear" doesn't need half a row of
+    dead space; it only expands to the two chartlets when there's an incident.
 *@
-<div class="card bg-base-100 border border-base-300"
-     data-sb-depends="site-health">
-    <div class="card-body p-3 space-y-2">
-        <div class="flex items-center justify-between gap-2">
-            <div class="text-sm font-semibold">Site health</div>
-            <div class="text-xs text-base-content/60">last @Model.Window</div>
+<div class="card bg-base-100 border border-base-300" data-sb-depends="site-health">
+    @if (Model.IsHealthyEmpty || Model.LatencyChart is null || Model.ErrorsChart is null)
+    {
+        <div class="card-body py-2 px-3 flex-row items-center justify-between gap-2">
+            <span class="flex items-center gap-2 text-sm min-w-0">
+                <span class="inline-block w-2 h-2 rounded-full bg-success shrink-0"></span>
+                <span class="font-semibold shrink-0">Site health</span>
+                <span class="text-base-content/60 truncate">Upstream healthy — no incidents</span>
+            </span>
+            <span class="text-xs text-base-content/50 shrink-0">last @Model.Window</span>
         </div>
-        @if (Model.IsHealthyEmpty || Model.LatencyChart is null || Model.ErrorsChart is null)
-        {
-            <div class="text-sm text-base-content/70 py-6 text-center">
-                Upstream healthy — no incidents recorded in window.
+    }
+    else
+    {
+        <div class="card-body p-3 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-semibold">Site health</div>
+                <div class="text-xs text-base-content/60">last @Model.Window</div>
             </div>
-        }
-        else
-        {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <div class="text-xs text-base-content/60 mb-1">Upstream latency</div>
@@ -33,6 +41,6 @@
                     <vc:sb-chartlet model="Model.ErrorsChart" />
                 </div>
             </div>
-        }
-    </div>
+        </div>
+    }
 </div>

@@ -165,7 +165,12 @@
                    then latency, sigs, policy, and the human/bot split bar.
                    Mirrors the Top Bots row vocabulary so an operator switching
                    between the two tables doesn't relearn columns. *@
-                <tr class="text-[10px] uppercase tracking-wider">
+                @* Compact/glance mode (traffic-overview content-pages widget): the sort
+                   header links target /partials/endpoints — the FULL, non-content-only
+                   list — so a click there would swap the unfiltered list into a top-N
+                   widget. Make the header row inert in compact; a glance doesn't sort
+                   in place. Full mode keeps the interactive sort. *@
+                <tr class="text-[10px] uppercase tracking-wider @(compact ? "pointer-events-none" : "")">
                     <th class="py-1 @ThClass("method") cursor-pointer" hx-get="@SortUrl("method")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Method@(Html.Raw(SortIcon("method")))</th>
                     <th class="py-1 @ThClass("path") cursor-pointer" hx-get="@SortUrl("path")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Path@(Html.Raw(SortIcon("path")))</th>
                     <th class="py-1 text-center @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Bot pressure: bot hits as a fraction of total in the trailing window">Bot Pressure@(Html.Raw(SortIcon("botrate")))</th>
