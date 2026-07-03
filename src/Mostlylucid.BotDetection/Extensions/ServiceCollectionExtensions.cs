@@ -438,9 +438,11 @@ public static class ServiceCollectionExtensions
         // which is the correct behaviour (no label store, no labels to match).
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.RateLimitSubjectResolver>();
 
-        // Scope-tree resolver -- reads RateLimitOptions and walks the
-        // FOSS-scope chain (global / endpoint / method). Commercial overrides
-        // ScopedRateLimitResolver to also walk domain/subdomain.
+        // Scope-tree resolver -- reads RateLimitOptions and walks the full
+        // scope chain (global / domain / subdomain / endpoint / method).
+        // Detection is symmetric across FOSS and commercial; commercial may
+        // still override for extended concerns (e.g. tenant-scoped dynamic
+        // reload) but the default walk here handles the full tree.
         services.AddOptions<Mostlylucid.BotDetection.RateLimiting.RateLimitOptions>()
             .BindConfiguration(Mostlylucid.BotDetection.RateLimiting.RateLimitOptions.SectionName);
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.ScopedRateLimitResolver>();

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 
 namespace Mostlylucid.BotDetection.RateLimiting;
 
@@ -13,19 +14,23 @@ namespace Mostlylucid.BotDetection.RateLimiting;
 ///     rules declared at-or-below that scope apply.
 ///     </para>
 ///     <para>
-///     FOSS resolution walks global → endpoint → method. Domain / subdomain
-///     scopes are commercial; this implementation accepts them in config
-///     (so the YAML is forward-compatible) but skips them at walk time. The
-///     commercial layer replaces <see cref="Walk"/> with the full traversal.
+///     Detection is symmetric across FOSS and commercial: the resolver
+///     walks the full tree in both editions. What's gated to commercial
+///     is the MANAGEMENT surface (dashboard editor, hot-reload apply) --
+///     not the resolution semantics themselves.
 ///     </para>
 /// </summary>
 public class ScopedRateLimitResolver
 {
     private readonly IOptionsMonitor<RateLimitOptions> _options;
+    private readonly DomainNormalizer? _domainNormalizer;
 
-    public ScopedRateLimitResolver(IOptionsMonitor<RateLimitOptions> options)
+    public ScopedRateLimitResolver(
+        IOptionsMonitor<RateLimitOptions> options,
+        DomainNormalizer? domainNormalizer = null)
     {
         _options = options;
+        _domainNormalizer = domainNormalizer;
     }
 
     /// <summary>
@@ -53,10 +58,10 @@ public class ScopedRateLimitResolver
     }
 
     /// <summary>
-    ///     FOSS walk: global → endpoint → method. Override in commercial to
-    ///     also walk <see cref="RateLimitOptions.Domains"/> and the per-domain
-    ///     <see cref="RateLimitScopeNode.Subdomains"/> trees before reaching
-    ///     <see cref="RateLimitScopeNode.Endpoints"/>.
+    ///     Walk the full scope tree: global → domain → subdomain → endpoint →
+    ///     method. Commercial can still override for extended concerns (e.g.
+    ///     tenant-scoped dynamic reload) but the default walk works in both
+    ///     editions.
     /// </summary>
     protected virtual void Walk(
         RateLimitOptions options,
@@ -65,10 +70,38 @@ public class ScopedRateLimitResolver
         string method,
         List<RateLimitScopeNode> scopes)
     {
-        var endpoint = MatchEndpoint(options.Endpoints, path);
+        // Walk the domain layer first (if a Domains map is populated + the host matches).
+        RateLimitScopeNode? domainScope = null;
+        if (!string.IsNullOrEmpty(host) && options.Domains.Count > 0)
+        {
+            domainScope = MatchScope(options.Domains, host);
+            // Also try the normalized eTLD+1 form if the raw host misses.
+            if (domainScope is null)
+            {
+                var registrable = _domainNormalizer?.NormalizeDomain(host);
+                if (!string.IsNullOrEmpty(registrable) && !string.Equals(registrable, host, StringComparison.OrdinalIgnoreCase))
+                    domainScope = MatchScope(options.Domains, registrable);
+            }
+            if (domainScope is not null) scopes.Add(domainScope);
+        }
+
+        // Subdomain layer nested under the matched domain.
+        RateLimitScopeNode? subdomainScope = null;
+        if (domainScope is not null && !string.IsNullOrEmpty(host) && domainScope.Subdomains.Count > 0)
+        {
+            subdomainScope = MatchScope(domainScope.Subdomains, host);
+            if (subdomainScope is not null) scopes.Add(subdomainScope);
+        }
+
+        // Endpoint layer: try the innermost active scope first (subdomain → domain → global).
+        var endpointHost = subdomainScope?.Endpoints
+                        ?? domainScope?.Endpoints
+                        ?? options.Endpoints;
+        var endpoint = MatchEndpoint(endpointHost, path);
         if (endpoint is null) return;
         scopes.Add(endpoint);
 
+        // Method layer nested under endpoint.
         if (endpoint.Methods.TryGetValue(method, out var methodScope))
             scopes.Add(methodScope);
     }
@@ -98,6 +131,26 @@ public class ScopedRateLimitResolver
             {
                 return kv.Value;
             }
+        }
+        return null;
+    }
+
+    /// <summary>
+    ///     First-match-wins over a scope dictionary. Exact match on the whole
+    ///     key wins over any wildcard. Keys starting with <c>*.</c> are
+    ///     wildcards (<c>*.example.com</c> matches <c>api.example.com</c> AND
+    ///     <c>admin.example.com</c>).
+    /// </summary>
+    protected static RateLimitScopeNode? MatchScope(
+        IReadOnlyDictionary<string, RateLimitScopeNode> scopes,
+        string host)
+    {
+        if (scopes.TryGetValue(host, out var exact)) return exact;
+        foreach (var kv in scopes)
+        {
+            if (!kv.Key.StartsWith("*.", StringComparison.Ordinal)) continue;
+            var suffix = kv.Key.Substring(1); // ".example.com"
+            if (host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return kv.Value;
         }
         return null;
     }
