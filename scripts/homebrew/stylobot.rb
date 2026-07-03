@@ -4,7 +4,7 @@
 
 class Stylobot < Formula
   desc "Self-hosted bot detection with 31 detectors, session vectors, and zero PII"
-  homepage "https://stylobot.net"
+  homepage "https://stylo.bot"
   version "5.6.3"
   license "Unlicense"
 
@@ -46,7 +46,7 @@ class Stylobot < Formula
       Configuration: #{etc}/stylobot/appsettings.json
 
       Documentation: https://github.com/scottgal/stylobot
-      Commercial tiers: https://stylobot.net/pricing
+      Commercial tiers: https://stylo.bot/pricing
     EOS
   end
 

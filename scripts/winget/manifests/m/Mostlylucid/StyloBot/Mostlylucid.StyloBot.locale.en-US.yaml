@@ -2,10 +2,10 @@ PackageIdentifier: Mostlylucid.StyloBot
 PackageVersion: 1.0.0
 PackageLocale: en-US
 Publisher: Mostlylucid
-PublisherUrl: https://stylobot.net
+PublisherUrl: https://stylo.bot
 PublisherSupportUrl: https://github.com/scottgal/stylobot/issues
 PackageName: StyloBot
-PackageUrl: https://stylobot.net
+PackageUrl: https://stylo.bot
 License: MIT
 LicenseUrl: https://github.com/scottgal/stylobot/blob/main/LICENSE
 ShortDescription: Self-hosted bot detection gateway

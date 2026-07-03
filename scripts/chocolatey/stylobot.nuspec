@@ -6,9 +6,9 @@
     <title>StyloBot - Self-hosted Bot Defense</title>
     <authors>Scott Galloway</authors>
     <owners>scottgal</owners>
-    <!-- TODO: switch back to https://stylobot.net once the marketing site is live.
+    <!-- TODO: switch back to https://stylo.bot once the marketing site is live.
          Chocolatey moderation validates description + releaseNotes URLs and
-         flagged stylobot.net as unresolvable; pointing at the GH repo for now. -->
+         flagged stylo.bot as unresolvable; pointing at the GH repo for now. -->
     <projectUrl>https://github.com/scottgal/stylobot</projectUrl>
     <iconUrl>https://raw.githubusercontent.com/scottgal/stylobot/main/Mostlylucid.BotDetection/icon.png</iconUrl>
     <projectSourceUrl>https://github.com/scottgal/stylobot</projectSourceUrl>
