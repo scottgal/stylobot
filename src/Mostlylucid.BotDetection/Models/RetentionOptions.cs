@@ -96,8 +96,20 @@ public sealed class RetentionOptions
     /// <summary>
     ///     Hour of day (UTC) to run the nightly compaction job.
     ///     Default: 3am UTC (low-traffic window).
+    ///     <para>Legacy: superseded by <see cref="CompactionInterval"/> now that
+    ///     compaction runs as a data guardian on an interval, not a daily gate.
+    ///     Retained for config back-compat.</para>
     /// </summary>
     public int CompactionHourUtc { get; set; } = 3;
+
+    /// <summary>
+    ///     How often the storage compaction guardian runs. Replaces the daily
+    ///     hour-gate: storage stays bounded in near-real-time instead of growing
+    ///     all day and dropping once. Cheap phases self-gate (Phase 2 only touches
+    ///     signatures over the session limit; HNSW only past its threshold).
+    ///     Default 30 min. FOSS tunes via config; commercial via the in-app editor.
+    /// </summary>
+    public TimeSpan CompactionInterval { get; set; } = TimeSpan.FromMinutes(30);
 
     // ==========================================
     // Session atomizer timing

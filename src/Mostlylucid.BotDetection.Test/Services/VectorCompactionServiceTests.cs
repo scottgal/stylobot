@@ -102,8 +102,7 @@ public class VectorCompactionServiceTests
             NullLogger<VectorCompactionService>.Instance,
             sigStore,
             sessStore,
-            intentStore,
-            new RecordingScheduleCoordinator());
+            intentStore);
     }
 
     // -----------------------------------------------------------------------

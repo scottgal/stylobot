@@ -6,6 +6,7 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Similarity;
+using Mostlylucid.BotDetection.Guardians;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -42,7 +43,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///         <c>feedback_no_background_services</c>.
 ///     </para>
 /// </summary>
-public sealed class VectorCompactionService : IDisposable
+public sealed class VectorCompactionService : IGuardian
 {
     private readonly ISessionStore _store;
     private readonly ISessionVectorSearch? _vectorSearch;
@@ -52,9 +53,6 @@ public sealed class VectorCompactionService : IDisposable
     private readonly ISessionCentroidStore _sessionCentroidStore;
     private readonly IIntentCentroidStore _intentCentroidStore;
     private readonly ILogger<VectorCompactionService> _logger;
-    private readonly IDisposable _subscription;
-    private DateOnly _lastRunDateUtc = DateOnly.MinValue;
-    private int _disposed;
 
     public VectorCompactionService(
         ISessionStore store,
@@ -63,10 +61,8 @@ public sealed class VectorCompactionService : IDisposable
         ISignatureCentroidStore signatureCentroidStore,
         ISessionCentroidStore sessionCentroidStore,
         IIntentCentroidStore intentCentroidStore,
-        IScheduleCoordinator coordinator,
         ISessionVectorSearch? vectorSearch = null)
     {
-        ArgumentNullException.ThrowIfNull(coordinator);
         _store = store;
         _vectorSearch = vectorSearch;
         _retention = options.Value.Retention;
@@ -75,52 +71,37 @@ public sealed class VectorCompactionService : IDisposable
         _sessionCentroidStore = sessionCentroidStore;
         _intentCentroidStore = intentCentroidStore;
         _logger = logger;
+    }
 
-        _subscription = coordinator.Subscribe(
-            TickCadence.Tick1h,
-            "VectorCompactionService",
-            CostHint.High,
-            OnTickAsync);
+    // ── IGuardian ────────────────────────────────────────────────────────────
+    // Storage compaction is a data-category guardian. The GuardianService walker
+    // drives GuardAsync on Interval instead of the old daily hour-gate, so the
+    // store stays bounded in near-real-time.
+
+    public string Name => "VectorCompaction";
+    public GuardianCategory Category => GuardianCategory.Data;
+    public TimeSpan Interval => _retention.CompactionInterval;
+
+    public async Task<GuardianReport> GuardAsync(CancellationToken ct = default)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var compacted = await RunCompactionAsync(ct);
+        return new GuardianReport
+        {
+            GuardianName = Name,
+            Category = Category,
+            Status = compacted > 0 ? "compacted" : "ok",
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            Details = compacted > 0 ? $"{compacted} signatures compacted" : null
+        };
     }
 
     /// <summary>
-    ///     The coordinator's tick handler. Fires every Tick1h; runs the full
-    ///     compaction pass only when the current UTC hour matches the
-    ///     configured <see cref="RetentionOptions.CompactionHourUtc"/> AND we
-    ///     haven't already run today. Public so tests can drive a single
-    ///     beat deterministically.
+    ///     One full compaction pass. Returns the number of signatures whose
+    ///     overflowing sessions were folded into their root (the primary bounding
+    ///     metric). Internal so tests can drive it directly.
     /// </summary>
-    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
-    {
-        if (_disposed != 0) return;
-
-        var utcNow = now.UtcDateTime;
-        if (utcNow.Hour != _retention.CompactionHourUtc) return;
-
-        var today = DateOnly.FromDateTime(utcNow);
-        if (_lastRunDateUtc == today) return; // Already ran this UTC day.
-
-        try
-        {
-            await RunCompactionAsync(ct);
-            _lastRunDateUtc = today;
-        }
-        catch (OperationCanceledException) { return; }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Vector compaction cycle failed - will retry next scheduled window");
-        }
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        try { _subscription.Dispose(); }
-        catch { /* coordinator already torn down */ }
-    }
-
-    internal async Task RunCompactionAsync(CancellationToken ct)
+    internal async Task<int> RunCompactionAsync(CancellationToken ct)
     {
         _logger.LogInformation("Vector compaction started");
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -129,7 +110,7 @@ public sealed class VectorCompactionService : IDisposable
         await RunPhase1BucketPruneAsync(ct);
 
         // Phase 2: Compact overflowing SQLite sessions into behavioral centroids
-        await RunPhase2SessionCompactionAsync(ct);
+        var compacted = await RunPhase2SessionCompactionAsync(ct);
 
         // Phase 3: Compact HNSW index if it's grown too large
         if (_vectorSearch != null)
@@ -139,6 +120,7 @@ public sealed class VectorCompactionService : IDisposable
         await RunCentroidPruningAsync(ct);
 
         _logger.LogInformation("Vector compaction complete in {Elapsed:g}", sw.Elapsed);
+        return compacted;
     }
 
     // ===========================
@@ -188,7 +170,7 @@ public sealed class VectorCompactionService : IDisposable
     // Phase 2: SQLite session compaction
     // ===========================
 
-    private async Task RunPhase2SessionCompactionAsync(CancellationToken ct)
+    private async Task<int> RunPhase2SessionCompactionAsync(CancellationToken ct)
     {
         try
         {
@@ -198,7 +180,7 @@ public sealed class VectorCompactionService : IDisposable
             if (overflowing.Count == 0)
             {
                 _logger.LogDebug("Phase 2: no signatures over session limit ({Max})", _retention.MaxSessionsPerSignature);
-                return;
+                return 0;
             }
 
             _logger.LogInformation("Phase 2: compacting {Count} signatures over {Max}-session limit",
@@ -223,10 +205,12 @@ public sealed class VectorCompactionService : IDisposable
             }
 
             _logger.LogInformation("Phase 2 complete: {Count} signatures compacted", compacted);
+            return compacted;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Phase 2 (session compaction) failed");
+            return 0;
         }
     }
 

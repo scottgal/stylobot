@@ -4,21 +4,19 @@ using Microsoft.Extensions.Options;
 using Moq;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
+using Mostlylucid.BotDetection.Guardians;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.Common.Scheduling;
-using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Services;
-using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
 namespace Mostlylucid.BotDetection.Test.Services;
 
 /// <summary>
-///     Wave 2 batch 1 regression coverage for
-///     <see cref="VectorCompactionService"/>. Was a
-///     <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> that
-///     slept until the configured CompactionHourUtc; now subscribes to
-///     <see cref="TickCadence.Tick1h"/> and runs only when the current UTC
-///     hour matches the configured hour AND we haven't already run today.
+///     <see cref="VectorCompactionService"/> is now a Data-category
+///     <see cref="IGuardian"/> (reframed from the daily CompactionHourUtc gate).
+///     The <c>GuardianService</c> walker drives <see cref="VectorCompactionService.GuardAsync"/>
+///     on <see cref="RetentionOptions.CompactionInterval"/>, so storage stays
+///     bounded in near-real-time. These cover the guardian contract + that a pass
+///     runs the store compaction and reports its outcome.
 /// </summary>
 public sealed class VectorCompactionServiceTickTests
 {
@@ -47,65 +45,62 @@ public sealed class VectorCompactionServiceTickTests
     }
 
     private static VectorCompactionService NewService(
-        RecordingScheduleCoordinator coordinator)
+        List<(string Signature, int SessionCount)> overflowing,
+        TimeSpan? interval = null)
     {
+        var opts = new BotDetectionOptions();
+        if (interval is { } iv) opts.Retention.CompactionInterval = iv;
+
         var sessionStore = new Mock<ISessionStore>(MockBehavior.Loose);
         sessionStore
             .Setup(s => s.GetOverflowingSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<(string Signature, int SessionCount)>());
+            .ReturnsAsync(overflowing);
+        sessionStore
+            .Setup(s => s.CompactSignatureSessionsAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string sig, int _, CancellationToken _) =>
+                new CompactionResult { Signature = sig, CompactedCount = 5 });
 
         return new VectorCompactionService(
             sessionStore.Object,
-            Options.Create(new BotDetectionOptions()),
+            Options.Create(opts),
             NullLogger<VectorCompactionService>.Instance,
             new NoopSignatureStore(),
             new NoopSessionStore(),
-            new NoopIntentStore(),
-            coordinator);
+            new NoopIntentStore());
     }
 
     [Fact]
-    public void Constructor_subscribes_to_Tick1h_with_service_name()
+    public void Is_a_data_category_guardian_with_the_configured_interval()
     {
-        var coordinator = new RecordingScheduleCoordinator();
+        var svc = NewService([], interval: TimeSpan.FromMinutes(15));
 
-        using var sut = NewService(coordinator);
-
-        var sub = Assert.Single(coordinator.Subscriptions);
-        sub.Cadence.Should().Be(TickCadence.Tick1h);
-        sub.Name.Should().Be("VectorCompactionService");
-        sub.Hint.Should().Be(CostHint.High);
+        svc.Should().BeAssignableTo<IGuardian>();
+        svc.Name.Should().Be("VectorCompaction");
+        svc.Category.Should().Be(GuardianCategory.Data);
+        svc.Interval.Should().Be(TimeSpan.FromMinutes(15));
     }
 
     [Fact]
-    public async Task OnTickAsync_runs_without_throwing_when_outside_compaction_window()
+    public async Task GuardAsync_reports_ok_when_nothing_is_over_the_session_limit()
     {
-        // The default CompactionHourUtc is 3 (3 AM UTC). Force the tick handler
-        // to evaluate at noon UTC -- it should take the "not yet" path and
-        // return cleanly without invoking the centroid pruning sequence.
-        var coordinator = new RecordingScheduleCoordinator();
-        using var sut = NewService(coordinator);
+        var svc = NewService([]); // no overflowing signatures
 
-        var captured = Assert.Single(coordinator.Subscriptions);
-        var noon = new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
-        await captured.Handler(noon, CancellationToken.None);
+        var report = await svc.GuardAsync();
 
-        captured.Disposed.Should().BeFalse();
+        report.GuardianName.Should().Be("VectorCompaction");
+        report.Category.Should().Be(GuardianCategory.Data);
+        report.Status.Should().Be("ok");
+        report.DurationMs.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]
-    public void Dispose_unsubscribes_from_coordinator()
+    public async Task GuardAsync_compacts_overflowing_signatures_and_reports_the_count()
     {
-        var coordinator = new RecordingScheduleCoordinator();
+        var svc = NewService([("sigA", 50), ("sigB", 40)]);
 
-        var sut = NewService(coordinator);
+        var report = await svc.GuardAsync();
 
-        var sub = Assert.Single(coordinator.Subscriptions);
-        sut.Dispose();
-
-        sub.Disposed.Should().BeTrue();
-
-        // Double-dispose is safe.
-        sut.Dispose();
+        report.Status.Should().Be("compacted");
+        report.Details.Should().Contain("2");
     }
 }

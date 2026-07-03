@@ -1566,6 +1566,10 @@ public static class ServiceCollectionExtensions
         // we haven't run today". Drop AddHostedService and add to the
         // BotDetectionHostedSingletonsBootstrap eager-resolve chain.
         services.AddSingleton<Services.VectorCompactionService>();
+        // Storage compaction is now a data-category guardian: the GuardianService
+        // walker drives it on RetentionOptions.CompactionInterval instead of the
+        // old daily hour-gate. Forwarded so it joins the guardian roster.
+        services.AddSingleton<Guardians.IGuardian>(sp => sp.GetRequiredService<Services.VectorCompactionService>());
 
         // Learning handler that feeds high-confidence detections into the similarity index
         services.AddSingleton<ILearningEventHandler, SimilarityLearningHandler>();

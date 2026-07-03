@@ -67,7 +67,8 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<VerifiedBotRegistry>();
         _services.GetService<EntityResolutionService>();
         _services.GetService<SessionAtomizerService>();
-        _services.GetService<VectorCompactionService>();
+        // VectorCompactionService is now an IGuardian, constructed via GuardianService's
+        // IEnumerable<IGuardian> (resolved above) — no separate eager-resolve needed.
         _services.GetService<FingerprintDriftService>();
         _services.GetService<PopulationMarkovService>();
         _services.GetService<IdentityGlobalWeightsCache>();
