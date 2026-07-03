@@ -146,8 +146,7 @@ public sealed class TrafficController : Controller
                     v.BotName ?? string.Empty,
                     v.ThreatBand ?? "None",
                     v.LastSeen))
-                .ToList(),
-            AllVisitors: visitors);
+                .ToList());
 
         // Views live under the non-conventional /Views/StyloBot/Dashboard/... root
         // alongside the rest of the middleware-rendered dashboard pages, so the

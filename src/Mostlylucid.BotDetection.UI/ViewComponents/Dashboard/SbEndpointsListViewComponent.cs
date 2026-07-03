@@ -20,6 +20,15 @@ public class SbEndpointsListViewComponent(
         int pageSize = 25,
         bool excludeStatic = false,
         bool compact = false,
+        // When true, restrict to UPSTREAM CONTENT PAGES only: rows the upstream
+        // app serves (not StyloBot's own dashboard / admin / API surface), that
+        // are not API endpoints and not static assets. Powers the traffic
+        // overview's "Top content pages" widget — API + StyloBot rows don't
+        // belong there.
+        bool contentOnly = false,
+        // Card heading. Defaults to "Endpoints"; the content-pages widget passes
+        // its own label.
+        string heading = "Endpoints",
         string? audience = null,
         string? range = null,
         // Si1 (dashboard IA collapse plan): URL-bound filters surfaced by the
@@ -45,9 +54,17 @@ public class SbEndpointsListViewComponent(
             var cached = aggregateCache.Current.Endpoints;
             data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
         }
-        if (excludeStatic)
+        var basePath = options.Value.BasePath.TrimEnd('/');
+        if (contentOnly)
         {
-            data = data.Where(e => !IsStaticResource(e.Path)).ToList();
+            // Upstream + non-API + non-static in one pass. Supersedes excludeStatic
+            // (which only strips assets) — "content pages" also excludes API
+            // endpoints and StyloBot's own paths.
+            data = data.Where(e => EndpointClassifier.IsUpstreamContent(e.Path, basePath)).ToList();
+        }
+        else if (excludeStatic)
+        {
+            data = data.Where(e => !EndpointClassifier.IsStaticResource(e.Path)).ToList();
         }
 
         // Si1 filters: path/method/threat/bot_pressure. Applied AFTER the source
@@ -103,7 +120,9 @@ public class SbEndpointsListViewComponent(
             Page = page,
             PageSize = pageSize,
             TotalCount = data.Count,
-            BasePath = options.Value.BasePath.TrimEnd('/'),
+            BasePath = basePath,
+            Heading = heading,
+            ContentOnly = contentOnly,
             IsCompact = compact,
             AllowEndpointPinning = options.Value.EnableEndpointPinning,
             AudienceFilter = string.IsNullOrEmpty(audience) ? "all" : audience,
@@ -134,18 +153,4 @@ public class SbEndpointsListViewComponent(
         "Low" => 1,
         _ => 0,
     };
-
-    // Same static-extension list used by ServeEndpointsCompactPartialAsync (FOSS UI middleware).
-    // Keeping the rule colocated with the view component avoids the lazy-load partial drifting
-    // away from the SSR-first widget.
-    private static readonly string[] StaticExtensions =
-        [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".map"];
-
-    private static bool IsStaticResource(string path)
-    {
-        if (string.IsNullOrEmpty(path)) return false;
-        foreach (var ext in StaticExtensions)
-            if (path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
-    }
 }

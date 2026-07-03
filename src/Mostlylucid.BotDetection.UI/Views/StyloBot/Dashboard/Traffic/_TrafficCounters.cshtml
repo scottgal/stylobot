@@ -4,32 +4,6 @@
     var c = Model.Counters;
     var humanShare = 1d - c.BotShare;
 
-    // Top bots BY NAME, from the same visitor set (no new store / aggregator):
-    // group the bot visitors by their resolved name, rank by hits. This is the
-    // high-value info that used to sit below the fold in the panels.
-    var navBp = ViewData["BasePath"]?.ToString() ?? "/dashboard";
-    // Group over the FULL visitor set, not the Top-N: high-volume internal traffic
-    // fills the Top-N, so external bots (Googlebot etc.) only surface when ranked
-    // across everything. Falls back to TopVisitors if AllVisitors wasn't supplied.
-    var groupedBots = (Model.AllVisitors is { Count: > 0 } ? Model.AllVisitors : Model.TopVisitors)
-        .Where(v => v.IsBot)
-        .GroupBy(v => !string.IsNullOrWhiteSpace(v.BotName) ? v.BotName!
-                    : (!string.IsNullOrWhiteSpace(v.BotType) ? v.BotType! : "Unknown bot"))
-        .Select(g => new {
-            Name = g.Key,
-            Hits = g.Sum(v => v.Hits),
-            Fps = g.Count(),
-            // Drill target: the group's highest-hit fingerprint, so the name links in.
-            Sig = g.OrderByDescending(v => v.Hits).First().PrimarySignature,
-            IsInternal = g.All(v => string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
-        })
-        .OrderByDescending(g => g.Hits)
-        .ToList();
-    // Internal (our own traffic) is HIDDEN BY DEFAULT but never removed from the
-    // DOM — the operator toggles it on. No traffic is ever hard-excluded.
-    var externalBots = groupedBots.Where(b => !b.IsInternal).Take(6).ToList();
-    var internalBots = groupedBots.Where(b => b.IsInternal).ToList();
-
     string DeltaText(int delta, double pct)
     {
         if (delta == 0) return "no change vs prior";
@@ -77,52 +51,13 @@
         </div>
     </div>
 
-    @* Block 2 — top bots by name. Internal is in the DOM but hidden by default;
-       the operator toggles it on (never hard-excluded — security). *@
-    <div class="card bg-base-100 border border-base-300" x-data="{ showInternal: false }">
+    @* Block 2 — Top bots via the canonical SbTopBots control: event-store backed,
+       identity-collapsed, internal-traffic aware (its own All / Bots / Humans /
+       Internal switch), sortable + searchable. Replaces the hand-rolled group-by.
+       Windowed to the page filter so it tracks the chart. *@
+    <div class="card bg-base-100 border border-base-300">
         <div class="card-body p-3">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-xs text-base-content/50 uppercase tracking-wide">Top bots</span>
-                @if (internalBots.Count > 0)
-                {
-                    <button type="button"
-                            class="text-[10px] uppercase tracking-wide text-base-content/40 hover:text-base-content/70"
-                            x-on:click="showInternal = !showInternal"
-                            x-text="showInternal ? 'hide internal' : 'show internal (@internalBots.Count)'">show internal (@internalBots.Count)</button>
-                }
-            </div>
-            @if (externalBots.Count == 0 && internalBots.Count == 0)
-            {
-                <div class="text-sm text-base-content/40">No bots in this window.</div>
-            }
-            else
-            {
-                <ul class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                    @foreach (var b in externalBots)
-                    {
-                        <li class="flex items-center justify-between text-sm gap-2 min-w-0">
-                            <a href="@navBp/signature/@Uri.EscapeDataString(b.Sig ?? string.Empty)"
-                               class="truncate hover:underline" title="@b.Name (@b.Fps.ToString("N0") fingerprints)">@b.Name</a>
-                            <span class="text-base-content/60 tabular-nums shrink-0">@b.Hits.ToString("N0")</span>
-                        </li>
-                    }
-                    @foreach (var b in internalBots)
-                    {
-                        <li class="flex items-center justify-between text-sm gap-2 min-w-0 text-base-content/50"
-                            x-show="showInternal" x-cloak>
-                            <a href="@navBp/signature/@Uri.EscapeDataString(b.Sig ?? string.Empty)"
-                               class="truncate hover:underline" title="@b.Name (internal · @b.Fps.ToString("N0") fingerprints)">
-                                @b.Name <span class="text-[9px] uppercase opacity-60">internal</span>
-                            </a>
-                            <span class="tabular-nums shrink-0">@b.Hits.ToString("N0")</span>
-                        </li>
-                    }
-                    @if (externalBots.Count == 0)
-                    {
-                        <li class="text-sm text-base-content/40 sm:col-span-2" x-show="!showInternal">Only internal traffic this window — toggle to view.</li>
-                    }
-                </ul>
-            }
+            <sb-top-bots filter="bots" range="@Model.Filters.Window" page-size="6" widget-id="overview-topbots" />
         </div>
     </div>
 </div>

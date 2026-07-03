@@ -18,11 +18,7 @@ public sealed record TrafficPageModel(
     IReadOnlyList<BotTypeRow> BotTypes,
     IReadOnlyList<EndpointRow> TopEndpoints,
     IReadOnlyList<CachedVisitor> TopVisitors,
-    IReadOnlyList<ThreatRow> Threats,
-    // Full visitor set (hits-ranked) for the top-bots strip to group over. The
-    // Top-N TopVisitors above is too small a window to rank external bots when
-    // high-volume internal traffic fills it, so the strip groups this instead.
-    IReadOnlyList<CachedVisitor>? AllVisitors = null);
+    IReadOnlyList<ThreatRow> Threats);
 
 /// <summary>
 ///     URL-bound filter set. Empty / null values mean "no filter on this axis".

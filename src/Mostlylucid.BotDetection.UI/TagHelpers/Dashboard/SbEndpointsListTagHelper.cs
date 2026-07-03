@@ -31,6 +31,14 @@ public class SbEndpointsListTagHelper(IViewComponentHelper vc) : TagHelper
     [HtmlAttributeName("compact")]
     public bool Compact { get; set; }
 
+    /// <summary>When true, restrict to upstream content pages only (non-API, non-static, non-StyloBot).</summary>
+    [HtmlAttributeName("content-only")]
+    public bool ContentOnly { get; set; }
+
+    /// <summary>Card heading. Defaults to "Endpoints".</summary>
+    [HtmlAttributeName("heading")]
+    public string Heading { get; set; } = "Endpoints";
+
     [HtmlAttributeName("audience")]
     public string? Audience { get; set; }
 
@@ -42,6 +50,6 @@ public class SbEndpointsListTagHelper(IViewComponentHelper vc) : TagHelper
         if (ViewContext != null) (vc as IViewContextAware)?.Contextualize(ViewContext);
         output.TagName = null;
         output.Content.SetHtmlContent(await vc.InvokeAsync("SbEndpointsList",
-            new { sort = Sort, dir = Dir, page = Page, pageSize = PageSize, excludeStatic = ExcludeStatic, compact = Compact, audience = Audience, range = Range }));
+            new { sort = Sort, dir = Dir, page = Page, pageSize = PageSize, excludeStatic = ExcludeStatic, compact = Compact, contentOnly = ContentOnly, heading = Heading, audience = Audience, range = Range }));
     }
 }

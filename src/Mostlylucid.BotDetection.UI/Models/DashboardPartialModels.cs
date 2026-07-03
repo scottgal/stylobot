@@ -236,6 +236,16 @@ public sealed record EndpointsListModel
     /// breakpoints, which fail when the parent column is narrower than the breakpoint.</summary>
     public bool IsCompact { get; init; }
 
+    /// <summary>Card heading. Defaults to "Endpoints"; the traffic-overview
+    /// content widget passes "Top content pages".</summary>
+    public string Heading { get; init; } = "Endpoints";
+
+    /// <summary>True when the list was restricted to upstream content pages
+    /// (non-API, non-static, non-StyloBot). The view uses this to label the
+    /// widget and to suppress the per-row owner badge (every row is upstream, so
+    /// the badge would be redundant noise).</summary>
+    public bool ContentOnly { get; init; }
+
     /// <summary>True when the request resolves to commercial mode. Gates the
     /// "Pin Endpoint" / honeypot management UI -- pinning is a paid feature
     /// and must never render or accept input in FOSS mode.</summary>

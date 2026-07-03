@@ -37,7 +37,7 @@
      class="transition-colors duration-200">
     <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-1">
-            <h3 class="text-sm font-bold text-base-content">Endpoints</h3>
+            <h3 class="text-sm font-bold text-base-content">@Model.Heading</h3>
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </div>
         @if (Model.IsCommercial && Model.AllowEndpointPinning)
@@ -171,9 +171,12 @@
                     <th class="py-1 text-center @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Bot pressure: bot hits as a fraction of total in the trailing window">Bot Pressure@(Html.Raw(SortIcon("botrate")))</th>
                     <th class="py-1 text-center @ThClass("threat") cursor-pointer @(compact ? "" : "hidden md:table-cell")" hx-get="@SortUrl("threat")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Threat@(Html.Raw(SortIcon("threat")))</th>
                     <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Hits@(Html.Raw(SortIcon("total")))</th>
+                    @* Latency (avg / p95) shows in compact too — operators asked for
+                       p95 on the overview's content-pages widget. Bytes / Sigs /
+                       Policy / Split stay full-mode only (they don't fit a side column). *@
+                    <th class="py-1 text-right @ThClass("latency") cursor-pointer whitespace-nowrap @(compact ? "" : "hidden md:table-cell")" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Avg / p95 ms">Latency@(Html.Raw(SortIcon("latency")))</th>
                     @if (!compact)
                     {
-                        <th class="py-1 text-right @ThClass("latency") cursor-pointer hidden md:table-cell whitespace-nowrap" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Avg / p95 ms">Latency@(Html.Raw(SortIcon("latency")))</th>
                         <th class="py-1 text-right @ThClass("bytes") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("bytes")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Total response bytes served (Content-Length sum)">Bytes@(Html.Raw(SortIcon("bytes")))</th>
                         <th class="py-1 text-right @ThClass("unique") cursor-pointer hidden lg:table-cell" hx-get="@SortUrl("unique")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Sigs@(Html.Raw(SortIcon("unique")))</th>
                         <th class="py-1 hidden lg:table-cell text-base-content/40">Policy</th>
@@ -236,6 +239,23 @@
                             {
                                 <i class="bx bxs-bug text-warning mr-0.5" title="Honeypot"></i>
                             }
+                            @* Owner badge: is this the operator's own app (upstream) or
+                               StyloBot's injected dashboard/API surface? Suppressed in
+                               content-only mode where every row is upstream anyway. *@
+                            @if (!Model.ContentOnly)
+                            {
+                                var owner = EndpointClassifier.Classify(endpoint.Path, Model.BasePath);
+                                if (owner == EndpointOwner.Stylobot)
+                                {
+                                    <span class="badge badge-xs badge-ghost mr-1 font-normal align-middle"
+                                          title="Served by StyloBot itself (dashboard / admin / API), not your upstream app">stylobot</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-xs badge-outline mr-1 font-normal align-middle opacity-60"
+                                          title="Served by your upstream application">upstream</span>
+                                }
+                            }
                             <span class="font-mono">@endpoint.Path</span>
                         </td>
                         <td class="py-1 text-center">
@@ -245,14 +265,16 @@
                             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIcon)
                         </td>
                         <td class="py-1 text-right text-xs font-mono tabular-nums">@endpoint.TotalCount</td>
+                        @* Latency (avg / p95) renders in compact too so the content-pages
+                           widget carries p95; kept as its own cell outside the !compact gate. *@
+                        <td class="py-1 text-right text-xs font-mono tabular-nums whitespace-nowrap @(compact ? "" : "hidden md:table-cell")"
+                            title="min @BotDisplayHelpers.FormatProcessingTime(endpoint.MinProcessingTimeMs) · avg @BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs) · p95 @BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs) · max @BotDisplayHelpers.FormatProcessingTime(endpoint.MaxProcessingTimeMs)">
+                            <span>@BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs)</span>
+                            <span class="text-base-content/40">/</span>
+                            <span class="text-base-content/70">@BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs)</span>
+                        </td>
                         @if (!compact)
                         {
-                            <td class="py-1 text-right text-xs hidden md:table-cell font-mono tabular-nums whitespace-nowrap"
-                                title="min @BotDisplayHelpers.FormatProcessingTime(endpoint.MinProcessingTimeMs) · avg @BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs) · p95 @BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs) · max @BotDisplayHelpers.FormatProcessingTime(endpoint.MaxProcessingTimeMs)">
-                                <span>@BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs)</span>
-                                <span class="text-base-content/40">/</span>
-                                <span class="text-base-content/70">@BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs)</span>
-                            </td>
                             <td class="py-1 text-right text-xs font-mono tabular-nums hidden md:table-cell" title="Total response bytes served">@AnalyticsFormatting.FormatBytes(endpoint.BytesOut)</td>
                             <td class="py-1 text-right text-xs font-mono hidden lg:table-cell">@endpoint.UniqueSignatures</td>
                             <td class="py-1 hidden lg:table-cell">
