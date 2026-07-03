@@ -8,7 +8,10 @@
     // group the bot visitors by their resolved name, rank by hits. This is the
     // high-value info that used to sit below the fold in the panels.
     var navBp = ViewData["BasePath"]?.ToString() ?? "/dashboard";
-    var groupedBots = Model.TopVisitors
+    // Group over the FULL visitor set, not the Top-N: high-volume internal traffic
+    // fills the Top-N, so external bots (Googlebot etc.) only surface when ranked
+    // across everything. Falls back to TopVisitors if AllVisitors wasn't supplied.
+    var groupedBots = (Model.AllVisitors is { Count: > 0 } ? Model.AllVisitors : Model.TopVisitors)
         .Where(v => v.IsBot)
         .GroupBy(v => !string.IsNullOrWhiteSpace(v.BotName) ? v.BotName!
                     : (!string.IsNullOrWhiteSpace(v.BotType) ? v.BotType! : "Unknown bot"))
