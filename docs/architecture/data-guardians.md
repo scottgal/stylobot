@@ -183,14 +183,24 @@ from config, ramped down under memory pressure).
 ## 5. Build sequence
 
 1. **Global framework, FOSS core:** `IGuardian` + `GuardianCategory` +
-   `GuardianReport` + `GuardianService` (walker) + roster/reports accessor. Small.
+   `GuardianReport` + `GuardianService` (walker) + roster/reports accessor. ✅ done.
 2. **Re-base compliance guardians** onto `IGuardian` (Category = Compliance); fold
    `ComplianceGuardianService` into `GuardianService`. No behaviour change — proves
-   the framework is category-agnostic.
-3. `SqliteDataGuardian` (Data): cap-enforce (evict lowest `DecisionNecessity`) +
-   retention delete + jsonl rotation. Tests: seed N signatures at varied
-   bot-prob/threat/age, run guardian, assert count ≤ cap AND the survivors are the
-   high-`DecisionNecessity` ones.
+   the framework is category-agnostic. (commercial repo, pending)
+3. The `SqliteDataGuardian` is `VectorCompactionService` itself (the persisted
+   compaction that already existed just "stopped before the DB"), reframed as a
+   Data guardian and split by mechanism:
+   - **3a** ✅ reframe: drop the daily hour-gate, run `GuardAsync` on
+     `Retention.CompactionInterval` (30 min) via `GuardianService`.
+   - **3b** ✅ cross-signature cap enforcement (Phase 5): when distinct signatures
+     exceed a `MemoryAdaptiveCap(MaxSignatures, MinSignatures)`, evict the lowest
+     `DecisionNecessity.ColdnessScore` (uncertainty peaks at `Classification.BotFloor`).
+     Tests seed N signatures at varied bot-prob/threat/age and assert count ≤ cap AND
+     the survivors are the high-`DecisionNecessity` ones.
+   - **3c** ✅ jsonl retention: `SignatureJsonlRetentionGuardian` (Console gateway,
+     Data) prunes `signatures-*.jsonl` past the window then oldest-first under a byte
+     cap, sparing today's active file; `SignatureLoaderService` boot scan is now
+     `FileInfo.Length` (O(files), not O(bytes)). Config `SignatureLogging:Retention:*`.
 4. Persisted root-merge compaction (durable mirror of `CompactHistory`). Tests.
 5. Wire the `WriteBehindLfuStore<signature>` subclass hot-tier eviction to
    `DecisionNecessity` (the deferred store piece).
