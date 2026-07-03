@@ -51,6 +51,24 @@ public sealed class RetentionOptions
     /// <summary>Maximum number of learned pattern records to keep. 0 = unlimited. Default: 100,000.</summary>
     public int MaxPatternCount { get; set; } = 100_000;
 
+    /// <summary>
+    ///     Cross-signature cap: the ceiling on distinct signatures kept in the store.
+    ///     The data guardian's cap-enforcement phase uses this as the
+    ///     <see cref="Storage.MemoryAdaptiveCap"/> ceiling (ramped down under memory
+    ///     pressure) and, when exceeded, evicts the lowest-value signatures by
+    ///     <see cref="Storage.DecisionNecessity"/> — resolved-and-harmless first.
+    ///     This is the last-resort bound after compaction + retention (the
+    ///     rotation-attack case). Default 200,000; 0 = disabled.
+    /// </summary>
+    public int MaxSignatures { get; set; } = 200_000;
+
+    /// <summary>Floor the memory-adaptive signature cap never drops below. Default 2,000.</summary>
+    public int MinSignatures { get; set; } = 2_000;
+
+    /// <summary>Recency half-life for the eviction score: a signature's retention
+    ///     value halves every this-long since it was last seen. Default 7 days.</summary>
+    public TimeSpan SignatureRecencyHalfLife { get; set; } = TimeSpan.FromDays(7);
+
     // ==========================================
     // Behavioral compression (LOD compaction)
     // ==========================================

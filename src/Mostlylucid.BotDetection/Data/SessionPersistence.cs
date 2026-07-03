@@ -360,6 +360,28 @@ public interface ISessionStore
     Task<List<CompactionSignatureInfo>> GetSignaturePriorityInfoAsync(
         List<string> signatures, CancellationToken ct = default);
 
+    // === Cross-signature cap enforcement (data guardian, step 3b) ===
+    // Default no-ops so stores without a signatures table (NullSessionStore),
+    // read-only proxies (RemoteSessionStore), and the commercial Postgres store
+    // (which gets its own retention guardian) opt out cleanly. Only
+    // SqliteSessionStore overrides these.
+
+    /// <summary>Total distinct signatures currently stored (for cap enforcement).</summary>
+    Task<int> GetSignatureCountAsync(CancellationToken ct = default) => Task.FromResult(0);
+
+    /// <summary>
+    ///     Priority metadata for up to <paramref name="limit"/> signatures, oldest-first,
+    ///     for the data guardian's <c>DecisionNecessity</c> ranking. Oldest-first because
+    ///     stale signatures are the likeliest eviction candidates; the guardian scores the
+    ///     returned set and evicts the lowest.
+    /// </summary>
+    Task<List<CompactionSignatureInfo>> GetAllSignaturePriorityInfoAsync(int limit, CancellationToken ct = default)
+        => Task.FromResult(new List<CompactionSignatureInfo>());
+
+    /// <summary>Deletes the given signatures and their sessions. Returns rows removed.</summary>
+    Task<int> DeleteSignaturesAsync(IReadOnlyList<string> signatures, CancellationToken ct = default)
+        => Task.FromResult(0);
+
     /// <summary>Initialize schema (create tables if needed).</summary>
     Task InitializeAsync(CancellationToken ct = default);
 

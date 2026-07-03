@@ -1408,6 +1408,99 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         return results;
     }
 
+    // === Cross-signature cap enforcement (data guardian, step 3b) ===
+
+    public async Task<int> GetSignatureCountAsync(CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM signatures";
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    public async Task<List<CompactionSignatureInfo>> GetAllSignaturePriorityInfoAsync(int limit, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // Oldest-first: stale signatures are the likeliest eviction candidates; the
+        // guardian scores the returned set by DecisionNecessity and evicts the lowest.
+        cmd.CommandText = """
+            SELECT s.signature_id, COUNT(se.id) as session_count,
+                   s.bot_probability, s.risk_band, s.is_bot, s.last_seen,
+                   CASE WHEN EXISTS(
+                       SELECT 1 FROM entity_edges ee
+                       WHERE ee.signature = s.signature_id AND ee.reverted_at IS NULL
+                   ) THEN 1 ELSE 0 END as has_entity
+            FROM signatures s
+            LEFT JOIN sessions se ON se.signature = s.signature_id
+            GROUP BY s.signature_id
+            ORDER BY s.last_seen ASC
+            LIMIT @limit
+        """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+
+        var results = new List<CompactionSignatureInfo>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new CompactionSignatureInfo
+            {
+                Signature = reader.GetString(0),
+                SessionCount = reader.GetInt32(1),
+                BotProbability = reader.GetDouble(2),
+                RiskBand = reader.GetString(3),
+                IsBot = reader.GetInt32(4) == 1,
+                LastSeen = DateTime.Parse(reader.GetString(5)),
+                HasEntityMapping = reader.GetInt32(6) == 1
+            });
+        }
+        return results;
+    }
+
+    public async Task<int> DeleteSignaturesAsync(IReadOnlyList<string> signatures, CancellationToken ct = default)
+    {
+        if (signatures.Count == 0) return 0;
+        await EnsureInitializedAsync(ct);
+
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            var deleted = 0;
+            // Chunk to stay under SQLite's 999-parameter limit; sessions then signatures
+            // in one transaction per chunk so a crash can't orphan sessions.
+            foreach (var chunk in signatures.Chunk(500))
+            {
+                var paramNames = chunk.Select((_, i) => $"@p{i}").ToArray();
+                var inClause = string.Join(",", paramNames);
+                using var tx = conn.BeginTransaction();
+
+                await using (var delSessions = conn.CreateCommand())
+                {
+                    delSessions.Transaction = tx;
+                    delSessions.CommandText = $"DELETE FROM sessions WHERE signature IN ({inClause})";
+                    for (var i = 0; i < chunk.Length; i++) delSessions.Parameters.AddWithValue(paramNames[i], chunk[i]);
+                    await delSessions.ExecuteNonQueryAsync(ct);
+                }
+                await using (var delSigs = conn.CreateCommand())
+                {
+                    delSigs.Transaction = tx;
+                    delSigs.CommandText = $"DELETE FROM signatures WHERE signature_id IN ({inClause})";
+                    for (var i = 0; i < chunk.Length; i++) delSigs.Parameters.AddWithValue(paramNames[i], chunk[i]);
+                    deleted += await delSigs.ExecuteNonQueryAsync(ct);
+                }
+                tx.Commit();
+            }
+            return deleted;
+        }
+        finally { _writeLock.Release(); }
+    }
+
     public async Task PruneAsync(TimeSpan retention, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
