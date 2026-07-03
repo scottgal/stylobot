@@ -1193,6 +1193,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(Definitions.WellKnownBots.WellKnownBotIndex.Default);
         services.AddHttpClient(Definitions.WellKnownBots.WellKnownBotRefreshService.HttpClientName);
         services.TryAddSingleton<Definitions.WellKnownBots.WellKnownBotRefreshService>();
+        // Guardian framework (FOSS-core). Walks registered IGuardians on their own
+        // intervals; harmless no-op until data/compliance/license guardians register.
+        services.TryAddSingleton<Guardians.GuardianService>();
         services.AddSingleton<IContributingDetector, TlsFingerprintContributor>();
         services.AddSingleton<IContributingDetector, TcpIpFingerprintContributor>();
         services.AddSingleton<IContributingDetector, Http2FingerprintContributor>();
