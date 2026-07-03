@@ -550,7 +550,7 @@ Expected: build succeeds.
 
 If you have a local dashboard running (FOSS standalone or the host app), curl the endpoint with a known signature id. Otherwise hit prod:
 ```
-curl -s https://www.stylobot.net/_stylobot/api/sessions/signature/<known-sig-id> | jq '.[0] | {radarAxes: (.radarAxes|length), clockAxes: (.clockAxes|length)}'
+curl -s https://stylo.bot/_stylobot/api/sessions/signature/<known-sig-id> | jq '.[0] | {radarAxes: (.radarAxes|length), clockAxes: (.clockAxes|length)}'
 ```
 Expected output:
 ```
@@ -1132,10 +1132,10 @@ git commit -m "feat(ui): swap three behavioral panels for _BehavioralEvolution p
 
 ### Task 9: Interaction-verify against prod via chrome-devtools-mcp
 
-Per repo memory: UI tasks are not complete until a real click / keypress has been driven in chrome-devtools (or playwright) and the resulting state observed. DOM-existence checks and API-direct-fetch checks DO NOT count. Verify against **prod (`www.stylobot.net`) only** - staging lacks the session history needed to read the panel.
+Per repo memory: UI tasks are not complete until a real click / keypress has been driven in chrome-devtools (or playwright) and the resulting state observed. DOM-existence checks and API-direct-fetch checks DO NOT count. Verify against **prod (`stylo.bot`) only** - staging lacks the session history needed to read the panel.
 
 First confirm the change reaches prod. The repo memory has the canonical deploy flow:
-- Maxo (`.15`) builds via `C:\build\build-gateway.ps1` → registry `192.168.0.89:5000` → staging on `.15` (`stylobot-test` compose, `staging.stylobot.net`) → WAIT FOR APPROVAL → prod on `.89` (`stylobot` compose, `www.stylobot.net`).
+- Maxo (`.15`) builds via `C:\build\build-gateway.ps1` → registry `192.168.0.89:5000` → staging on `.15` (`stylobot-test` compose, `staging.stylo.bot`) → WAIT FOR APPROVAL → prod on `.89` (`stylobot` compose, `stylo.bot`).
 - Never rsync. Never skip staging. `git branch --show-current` before every commit.
 
 This task only fires *after* the build has been promoted to prod via that flow.
@@ -1143,14 +1143,14 @@ This task only fires *after* the build has been promoted to prod via that flow.
 - [ ] **Step 9.1: Pick a real signature id from prod**
 
 ```
-curl -s https://www.stylobot.net/_stylobot/api/top-bots\?count\=1 | jq -r '.[0].signatureId'
+curl -s https://stylo.bot/_stylobot/api/top-bots\?count\=1 | jq -r '.[0].signatureId'
 ```
 Note the value - call it `$SIG`.
 
 - [ ] **Step 9.2: Confirm the API now returns `clockAxes`**
 
 ```
-curl -s "https://www.stylobot.net/_stylobot/api/sessions/signature/$(printf %s "$SIG" | jq -sRr @uri)" \
+curl -s "https://stylo.bot/_stylobot/api/sessions/signature/$(printf %s "$SIG" | jq -sRr @uri)" \
   | jq '.[0] | {radarLen: (.radarAxes|length), clockLen: (.clockAxes|length)}'
 ```
 Expected:
@@ -1161,7 +1161,7 @@ If `clockLen` is missing or ≠ 12, the deploy has not promoted - stop here.
 
 - [ ] **Step 9.3: Open the signature page in chrome-devtools**
 
-Use `mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page` with URL `https://www.stylobot.net/_stylobot/signature/<urlencode($SIG)>`. Wait for the page (no fixed sleep - use `wait_for` on a selector emitted by the new partial, e.g. text `Behavioral Evolution`).
+Use `mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page` with URL `https://stylo.bot/_stylobot/signature/<urlencode($SIG)>`. Wait for the page (no fixed sleep - use `wait_for` on a selector emitted by the new partial, e.g. text `Behavioral Evolution`).
 
 - [ ] **Step 9.4: Wait for the radar to render**
 

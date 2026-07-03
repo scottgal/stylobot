@@ -63,7 +63,7 @@ suggested_packs:             # cross-sell surface in the dashboard
 ```yaml
 default_profile: generic
 sites:
-  - host: stylobot.net
+  - host: stylo.bot
     profile: aspnet
   - host: blog.example.com
     profile: wordpress

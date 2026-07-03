@@ -209,12 +209,12 @@ Each migration is mechanical once the primitives exist. The widget chrome stops 
 - Unit tests for `_Primitives/Models/*.cs` records (trivial).
 - Unit test for `InjectOobAttribute`: feed it a sample widget HTML with `data-sb-data-region`, assert the OOB attribute lands on the data region with `innerHTML`, not on the widget root.
 - Unit test for the fallback path: HTML without `data-sb-data-region` still gets OOB injected on the root with `true` (preserves the old behaviour for partials not yet migrated).
-- Browser smoke test (Playwright) at `https://www.stylobot.net/dashboard?tab=overview`:
+- Browser smoke test (Playwright) at `https://stylo.bot/dashboard?tab=overview`:
   - Load the page, scroll the Live Activity table horizontally to position N.
   - Wait for a SignalR beacon (visible via `#sb-connection-status` activity).
   - Assert: scroll position is still N. Sort indicator is still where it was. Filter chip is still highlighted. Page number is unchanged.
   - Click "Next Page". Assert: chrome AND data re-render, page number now N+1.
-- Per the memory rule "Repro first then fix": run the smoke test against prod (www.stylobot.net) before declaring done.
+- Per the memory rule "Repro first then fix": run the smoke test against prod (stylo.bot) before declaring done.
 
 ## What this design explicitly rejects
 

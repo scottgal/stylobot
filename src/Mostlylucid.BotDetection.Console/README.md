@@ -312,4 +312,4 @@ Example appsettings: [`Mostlylucid.BotDetection/docs/appsettings.typical.json`](
 - [Detection strategies](../Mostlylucid.BotDetection/docs/detection-strategies.md)
 - [Action policies](../Mostlylucid.BotDetection/docs/action-policies.md)
 - [GitHub Releases](https://github.com/scottgal/stylobot/releases)
-- [stylobot.net](https://stylobot.net)
+- [stylo.bot](https://stylo.bot)

@@ -33,7 +33,7 @@ When commercial packages are loaded (`AddStyloBot()` with commercial DI), the re
 
 ```
 StyloBot commercial features require a valid license.
-Start a free 30-day trial at https://stylobot.net
+Start a free 30-day trial at https://stylo.bot
 ```
 
 FOSS registration path (`AddBotDetection()`) never checks for a license and is entirely unaffected.

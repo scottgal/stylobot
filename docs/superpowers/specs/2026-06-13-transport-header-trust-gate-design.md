@@ -83,7 +83,7 @@ Bound at `BotDetection:TransportTrust`. CIDR parsing reuses any existing helper 
 
 ## Default-safety argument
 
-The shipped default is `Auto`, not `Off`. The only behaviour change versus today is for a **public direct peer that sends gated headers** : exactly the attack, never a legitimate pattern. The canonical production topology (Internet -> Cloudflare Tunnel -> Caddy (TLS) -> YARP Gateway) presents a loopback/private peer to the gateway, which `Auto` trusts via step 3, so stylobot.net and equivalent edge-fronted deploys are unaffected. Deployments with a public-IP load balancer in front (e.g. AWS ALB on a routable address) add it to `TrustedProxyIps`; this is the documented migration note.
+The shipped default is `Auto`, not `Off`. The only behaviour change versus today is for a **public direct peer that sends gated headers** : exactly the attack, never a legitimate pattern. The canonical production topology (Internet -> Cloudflare Tunnel -> Caddy (TLS) -> YARP Gateway) presents a loopback/private peer to the gateway, which `Auto` trusts via step 3, so stylo.bot and equivalent edge-fronted deploys are unaffected. Deployments with a public-IP load balancer in front (e.g. AWS ALB on a routable address) add it to `TrustedProxyIps`; this is the documented migration note.
 
 ## Affected files
 

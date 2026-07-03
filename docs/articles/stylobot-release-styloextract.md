@@ -2,7 +2,7 @@
 
 *Cloudflare's Markdown Mode is the obvious version when you own the edge. StyloBot's version is the awkward local version: the gateway sits in front of an origin it doesn't control, has to classify the crawler, fetch/proxy the upstream HTML, extract the useful body, render GFM, and do it fast enough that an operator won't turn it off. This article is about the extractor part: StyloExtract, the walker bug that made it honest, and the dogfood loop through lucidVIEW that caught it.*
 
-[<img src="/articleimages/stylobot-logo.svg" alt="StyloBot" width="120" />](https://www.stylobot.net)
+[<img src="/articleimages/stylobot-logo.svg" alt="StyloBot" width="120" />](https://stylo.bot)
 
 > **StyloBot Release Series**
 >

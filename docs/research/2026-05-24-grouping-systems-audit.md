@@ -305,7 +305,7 @@ Family merge data already exists; grouper should consult it as a tier between Id
 
 ## 7. Open questions for follow-up
 
-1. **Production N today.** What's the actual signature-count distribution on stylobot.net's cluster cycles? If it's <300, R2's speedup is real-but-not-urgent. If >2000, R2 jumps in priority.
+1. **Production N today.** What's the actual signature-count distribution on stylo.bot's cluster cycles? If it's <300, R2's speedup is real-but-not-urgent. If >2000, R2 jumps in priority.
 2. **sqlite-vec install story.** R2 assumes the extension is installable on the target deployment. Docker layer addition is trivial; bare-metal needs `apt install` or similar. Need to verify with the deployment pipeline what's already in the gateway image.
 3. **Cluster quality benchmark.** Need a fixture set (BDF replay corpus would work) for A/B'ing brute-force-N² vs KNN-graph Leiden. Without it, the "quality should improve" claim is uncalibrated.
 4. **Behavioural grouper test corpus.** Same need - a labelled fixture set where we know which signatures SHOULD group is needed for tier-hierarchy tests. The BDF replay scenarios may already provide this.

@@ -38,7 +38,7 @@ For detection-as-a-service and dashboard read access. Uses the existing rich API
 
 ### Tier 3 - OIDC Bearer Token (commercial)
 
-For management operations. Uses the customer's OIDC provider (self-hosted) or Keycloak (stylobot.net). Follows the two-domain auth model: vendor domain issues licenses, customer domain manages their own deployment.
+For management operations. Uses the customer's OIDC provider (self-hosted) or Keycloak (stylo.bot). Follows the two-domain auth model: vendor domain issues licenses, customer domain manages their own deployment.
 
 **Endpoints:** `PUT /api/v1/config/policies/*`, `POST/DELETE /api/v1/keys`, `GET /api/v1/export`.
 
@@ -165,7 +165,7 @@ All errors use RFC 9457 Problem Details:
 
 ```json
 {
-  "type": "https://stylobot.net/errors/rate-limit-exceeded",
+  "type": "https://stylo.bot/errors/rate-limit-exceeded",
   "title": "Rate limit exceeded",
   "status": 429,
   "detail": "API key 'CI Pipeline' exceeded 200 req/min limit",

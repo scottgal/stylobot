@@ -27,7 +27,7 @@ Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone 
 [![NuGet](https://img.shields.io/nuget/v/mostlylucid.botdetection)](https://www.nuget.org/packages/mostlylucid.botdetection)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> **This repo is the FOSS product.** Full detection engine, dashboard, entity resolution, simulation packs. The [commercial product](https://stylobot.net) uses the same engine with enterprise add-ons (see [FOSS vs Commercial](#foss-vs-commercial)).
+> **This repo is the FOSS product.** Full detection engine, dashboard, entity resolution, simulation packs. The [commercial product](https://stylo.bot) uses the same engine with enterprise add-ons (see [FOSS vs Commercial](#foss-vs-commercial)).
 
 ---
 
@@ -343,7 +343,7 @@ Real-time monitoring at `/stylobot`. All data persists to SQLite.
 
 ## FOSS vs Commercial
 
-Two products, same detection engine. FOSS is complete for detection, entity resolution, and the dashboard. The [commercial product](https://stylobot.net) adds enterprise operational features via DI; gateways run unmodified FOSS detection.
+Two products, same detection engine. FOSS is complete for detection, entity resolution, and the dashboard. The [commercial product](https://stylo.bot) adds enterprise operational features via DI; gateways run unmodified FOSS detection.
 
 ### What's in FOSS (this repo)
 

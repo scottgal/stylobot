@@ -563,7 +563,7 @@ internal sealed class LicenseStateRefreshService : BackgroundService
                 await _graceStore.SetGraceStartedAtAsync(now, ct);
                 _logger.LogWarning(
                     "StyloBot license expired. 30-day grace period started - detection active, learning paused. " +
-                    "Renew at https://stylobot.net");
+                    "Renew at https://stylo.bot");
             }
 
             // Renewal: license is active again, clear grace timer
@@ -580,7 +580,7 @@ internal sealed class LicenseStateRefreshService : BackgroundService
             if (snapshot.LogOnly)
                 _logger.LogWarning(
                     "StyloBot license grace period expired. Running in log-only mode. " +
-                    "Renew at https://stylobot.net");
+                    "Renew at https://stylo.bot");
         }
         catch (Exception ex)
         {
@@ -971,7 +971,7 @@ A signed license JWT is required. Set it in configuration:
 }
 ```
 
-Start a free 30-day trial (one per organization) at https://stylobot.net.
+Start a free 30-day trial (one per organization) at https://stylo.bot.
 
 ## What happens when a license expires
 

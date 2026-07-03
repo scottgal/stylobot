@@ -221,7 +221,7 @@ Two new minimal-API extension methods make it a single call to serve crawler-awa
 - **`endpoints.MapStyloBotRobotsTxt()`** composes a `/robots.txt` from configured `User-agent` / `Allow` / `Disallow` / `Crawl-delay` rules and auto-derives the `Sitemap:` directive from the request scheme and host (override via `StyloBotRobotsTxtOptions.SitemapUrl`). Policy-derived `Disallow` lines: the extension consults `IPolicyRuleStore` and appends a `Disallow:` entry for every live Block-action rule scoped to a single endpoint, keeping the public crawl contract automatically consistent with live enforcement. Opt out via `StyloBotRobotsTxtOptions.IncludePolicyDerivedDisallows = false`.
 - **`endpoints.MapStyloBotSitemap()`** serves an adaptive `/sitemap.xml` that returns different URL lists by detection verdict: `PublicUrls` for humans and verified crawlers, `HoneypotPath` for confirmed bots, and optional `UncertainUrls` for the grey zone. All thresholds are configurable via `StyloBotSitemapOptions`.
 
-Also shipped: **`TrailblazorDemo`** -- a self-contained ASP.NET Core MVC reference app for the Trailblazor 2026 conference talk. Demonstrates in-process middleware mode (no separate gateway), `<sb-risk-pill>`, `<sb-signal>`, `<sb-honeypot>`, `.BlockBots()`, named action policies, client-side fingerprinting (`MapBotDetectionScript` + `MapBotDetectionFingerprintEndpoint`), BotD probe, `UseForwardedHeaders` for Cloudflare tunnel, and a `/Signals` page backed by the new `SbAllSignals` view component. Ships with a `Dockerfile` and subdomain banner for hosting at `aspnet.stylobot.net`.
+Also shipped: **`TrailblazorDemo`** -- a self-contained ASP.NET Core MVC reference app for the Trailblazor 2026 conference talk. Demonstrates in-process middleware mode (no separate gateway), `<sb-risk-pill>`, `<sb-signal>`, `<sb-honeypot>`, `.BlockBots()`, named action policies, client-side fingerprinting (`MapBotDetectionScript` + `MapBotDetectionFingerprintEndpoint`), BotD probe, `UseForwardedHeaders` for Cloudflare tunnel, and a `/Signals` page backed by the new `SbAllSignals` view component. Ships with a `Dockerfile` and subdomain banner for hosting at `aspnet.stylo.bot`.
 
 ### Session: Dashboard Expiry Filter
 
@@ -885,7 +885,7 @@ Commercial CF Enterprise extension (in `stylobot-commercial`): four more headers
 
 ### Added: pre-launch observe-only default
 
-The Gateway image ships with `BlockDetectedBots = false` and `DefaultActionPolicyName = throttle-stealth` for the calibration window leading into RTM. Detection runs as normal; the response is delayed rather than refused. A pre-launch banner across the dashboard chrome ((130ebc0)) tells operators (and dashboard visitors on stylobot.net itself) that this site is observe-only while the engine learns real-traffic baselines.
+The Gateway image ships with `BlockDetectedBots = false` and `DefaultActionPolicyName = throttle-stealth` for the calibration window leading into RTM. Detection runs as normal; the response is delayed rather than refused. A pre-launch banner across the dashboard chrome ((130ebc0)) tells operators (and dashboard visitors on stylo.bot itself) that this site is observe-only while the engine learns real-traffic baselines.
 
 To flip to hard block once you've calibrated, set:
 
@@ -1579,7 +1579,7 @@ False-positive reduction in `ContentSequenceContributor`. The previous flat unex
 - **FileSystemConfigurationOverrideSource** - FOSS hot-reload implementation for YAML-file-based config changes without restart
 - **Signature labeling infrastructure** - groundwork for the upcoming detector weighting pass
 
-#### Customer Portal (stylobot.net)
+#### Customer Portal (stylo.bot)
 - **Keycloak OIDC integration** - portal auth scaffold with organization management
 - **LicenseIssuer** - Ed25519-signed JWT license issuance with trial request, download, rotate, and revoke
 - **Domain-based license entitlement** - DomainEntitlementValidator + cloud-pool host list; signed JWTs include `domains[]` claim

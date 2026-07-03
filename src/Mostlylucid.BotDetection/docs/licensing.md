@@ -20,7 +20,7 @@ A signed license JWT is required. Set it in configuration:
 }
 ```
 
-Start a free 30-day trial (one per organization) at https://stylobot.net.
+Start a free 30-day trial (one per organization) at https://stylo.bot.
 
 ## What happens when a license expires
 

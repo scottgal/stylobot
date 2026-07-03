@@ -6,7 +6,7 @@ Ok
 
 # Why I run StyloBot behind a tunnel anyway
 
-`www.stylobot.net` runs behind Cloudflare Tunnel because when the original colo box died, cloudflared on a small VPS was the path of least resistance: no public IP exposure, no firewall rules, no inbound port to defend, no DNS dance. That tradeoff is the right one for a small site and I'd make it again. The cost is what this article is about.
+`stylo.bot` runs behind Cloudflare Tunnel because when the original colo box died, cloudflared on a small VPS was the path of least resistance: no public IP exposure, no firewall rules, no inbound port to defend, no DNS dance. That tradeoff is the right one for a small site and I'd make it again. The cost is what this article is about.
 
 Behind any tunnel-shaped topology - cloudflared, Caddy doing TLS in front of YARP, nginx in front of Kestrel, AWS ALB, anything that terminates TLS - the gateway no longer sees the client's TLS handshake, TCP options, or HTTP/2 frame sequence. The dashboard's signature cards reflect that honestly: behind cloudflared without header forwarding, every visitor's TLS Version is blank and HTTP Protocol reads `HTTP/1.1`, because that's literally what the cloudflared↔Kestrel hop is. The detection engine still classifies correctly (the behavioural waveform doesn't care what protocol the bytes arrived on), but a meaningful chunk of the fingerprint surface is dark.
 

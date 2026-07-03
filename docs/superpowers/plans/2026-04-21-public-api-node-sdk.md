@@ -1011,7 +1011,7 @@ public static class DetectEndpoints
                 title: "Batch too large",
                 detail: $"Maximum batch size is {apiOptions.MaxBatchSize}, got {requests.Length}",
                 statusCode: 400,
-                type: "https://stylobot.net/errors/batch-too-large");
+                type: "https://stylo.bot/errors/batch-too-large");
         }
 
         var responses = new DetectResponse[requests.Length];
@@ -1279,7 +1279,7 @@ public static class MeEndpoints
             return Results.Problem(
                 title: "No API key context",
                 statusCode: 401,
-                type: "https://stylobot.net/errors/no-api-key");
+                type: "https://stylo.bot/errors/no-api-key");
         }
 
         return Results.Ok(new SingleResponse<object>

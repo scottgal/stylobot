@@ -1,6 +1,6 @@
 #!/bin/bash
 # StyloBot Community Edition Installer
-# Usage: curl -fsSL https://get.stylobot.net/install.sh | bash
+# Usage: curl -fsSL https://stylo.bot/install.sh | bash
 #
 # This script downloads the latest StyloBot console gateway binary
 # for your platform and installs it to /usr/local/bin/stylobot
@@ -87,6 +87,6 @@ echo "  DEFAULT_UPSTREAM=http://localhost:3000 stylobot --mode production"
 echo ""
 echo "Dashboard:  http://localhost:5080/_stylobot"
 echo "Docs:       https://github.com/scottgal/stylobot"
-echo "Commercial: https://stylobot.net/pricing"
+echo "Commercial: https://stylo.bot/pricing"
 echo ""
 echo "Install StyloBot Community in under 60 seconds. Upgrade only when you need scale."
