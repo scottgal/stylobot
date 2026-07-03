@@ -91,43 +91,14 @@
             var ydRiskClass = yd.RiskBand is "VeryHigh" or "High" ? "text-error"
                 : yd.RiskBand is "Medium" or "Elevated" ? "text-warning" : "text-success";
             var ydProbPct = (yd.BotProbability * 100).ToString("F1");
-            var summary = Model.Summary.Summary;
-            var totalReq = summary.TotalRequests;
-            var botReq = summary.BotRequests;
-            var humanReq = summary.HumanRequests;
-            var uncertain = summary.UncertainRequests;
-            var uniqueSigs = summary.UniqueSignatures;
-            var botPctStrip = totalReq > 0 ? (double)botReq / totalReq * 100 : 0;
-            var botPctClass = botPctStrip > 50 ? "text-error" : botPctStrip > 20 ? "text-warning" : "text-success";
         }
-        <div class="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-2 mb-3 rounded-lg border text-xs"
+        @* The aggregate metric strip (req / bot% / bot·human / signatures / uncertain)
+           was REMOVED: it was a second, slightly-divergent source vs the per-tab
+           counters (e.g. the Traffic visitors bar) and read as "wrong numbers".
+           The per-tab widgets own their totals now (one source). What stays here is
+           the operator's own detection pill, which is genuinely global. *@
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-1.5 mb-3 rounded-lg border text-xs"
              style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <span class="flex items-baseline gap-1">
-                <span class="font-bold text-base-content">@totalReq.ToString("N0")</span>
-                <span class="text-base-content/50 text-[10px]">req</span>
-            </span>
-            <span class="flex items-baseline gap-1">
-                <span class="font-bold @botPctClass">@botPctStrip.ToString("F1")%</span>
-                <span class="text-base-content/50 text-[10px]">bot</span>
-            </span>
-            <span class="flex items-baseline gap-1 text-base-content/70">
-                <span class="text-error">@botReq.ToString("N0")</span>
-                <span class="text-base-content/30">/</span>
-                <span class="text-success">@humanReq.ToString("N0")</span>
-                <span class="text-base-content/50 text-[10px]">bot / human</span>
-            </span>
-            <span class="flex items-baseline gap-1">
-                <span class="font-bold">@uniqueSigs.ToString("N0")</span>
-                <span class="text-base-content/50 text-[10px]">signatures</span>
-            </span>
-            @if (uncertain > 0)
-            {
-                <span class="flex items-baseline gap-1 text-base-content/50">
-                    <span class="font-bold">@uncertain.ToString("N0")</span>
-                    <span class="text-[10px]">uncertain</span>
-                </span>
-            }
-
             @* Your detection pill, right-aligned. Whole pill clicks through to the user's signature page. *@
             <span class="ml-auto flex items-center gap-1.5">
                 @if (yd.HasData)

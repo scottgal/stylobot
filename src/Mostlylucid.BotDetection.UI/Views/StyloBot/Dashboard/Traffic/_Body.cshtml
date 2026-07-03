@@ -1,8 +1,11 @@
 @using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @using Mostlylucid.BotDetection.UI.Services.Dashboard
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Configuration
 @model TrafficPageModel
 @inject DashboardContributionRegistry Contributions
+@inject IOptions<StyloBotDashboardOptions> DashOpts
 @*
     Inner body partial -- rendered standalone when /dashboard/traffic?partial=1
     is fetched by the SignalR-driven HTMX swap, and inlined by the full Index
@@ -28,8 +31,21 @@
     }
     // Analytics-package window set: short shape (6h/24h) through 7d/30d history.
     // The timeseries bucketer adapts bucket width to the window so the longer
-    // ranges roll up rather than render thousands of thin buckets.
-    var windows = new[] { ("6h", "6h"), ("24h", "24h"), ("7d", "7d"), ("30d", "30d") };
+    // ranges roll up rather than render thousands of thin buckets. The set is
+    // CAPPED at the detection-retention policy — no point offering 30d when the
+    // store only keeps, say, 7d.
+    var retention = DashOpts.Value.DetectionRetention;
+    var windows = new[]
+        {
+            ("6h",  TimeSpan.FromHours(6)),
+            ("24h", TimeSpan.FromDays(1)),
+            ("7d",  TimeSpan.FromDays(7)),
+            ("30d", TimeSpan.FromDays(30)),
+        }
+        .Where(w => w.Item2 <= retention)
+        .Select(w => (w.Item1, w.Item1))
+        .ToArray();
+    if (windows.Length == 0) windows = new[] { ("6h", "6h") };
 
     // Refresh URL preserves the active filter set so the SignalR-driven swap
     // re-renders the same view the operator is looking at, not a default one.
@@ -91,17 +107,9 @@
         var chartLabel = $"Hits per period (last {Model.Filters.Window})";
     }
 
-    @* UX3: bot-families donut removed. Same family axis already lives in
-       the hits-per-period legend; the donut took half the row and added
-       no drill behaviour the stacked bar didn't already provide. *@
-    @* Chart is no longer full-width: it shares the row with the top content
-       pages over the period, so the highest-traffic paths sit next to the
-       volume shape instead of below the fold. *@
-    @* 50/50: the volume shape on one half, the top content pages on the other.
-       The content list is the canonical SbEndpointsList control (compact), NOT a
-       hand-rolled list — content-only restricts it to the upstream app's real
-       pages (no API, no static assets, no StyloBot dashboard paths) and it brings
-       p95 + bot-pressure with it. Window follows the chart. *@
+    @* Row A: the volume shape now sits in the prime top-left slot (where the old
+       VISITORS card was), with Top Bots beside it — the two headline widgets of
+       the page. The visitor split moved to the compact bar above. *@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div class="card bg-base-100 border border-base-300">
             <div class="card-body p-3">
@@ -111,20 +119,27 @@
         </div>
         <div class="card bg-base-100 border border-base-300">
             <div class="card-body p-3">
+                <sb-top-bots filter="bots" range="@Model.Filters.Window" page-size="6" widget-id="overview-topbots" />
+            </div>
+        </div>
+    </div>
+
+    @* Row B: top content pages + site health, half-and-half. Content is the
+       canonical SbEndpointsList (compact, content-only = upstream GET pages, p95).
+       Site-health carries its own card (ms + percent, different units; a dual-axis
+       overlay on the chart would mislead), backed by persisted DegradationSnapshot
+       rows via IDashboardEventStore. *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div class="card bg-base-100 border border-base-300">
+            <div class="card-body p-3">
                 <sb-endpoints-list compact="true" content-only="true"
                                    heading="Top content pages"
                                    range="@Model.Filters.Window"
                                    sort="total" dir="desc" page-size="8" />
             </div>
         </div>
+        <vc:sb-site-health window="@Model.Filters.Window" />
     </div>
-
-    @* Site-health widget rendered next to the hits chart. Its own card
-       (NOT overlaid on the hits chart) because ms + percent have different
-       units; a dual-axis overlay would mislead. Backed by persisted
-       DegradationSnapshot rows via IDashboardEventStore -- the prior
-       in-memory ring lost the window on restart. *@
-    <vc:sb-site-health window="@Model.Filters.Window" />
 
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", Model)
 </div>

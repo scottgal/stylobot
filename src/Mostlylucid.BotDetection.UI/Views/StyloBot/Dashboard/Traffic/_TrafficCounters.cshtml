@@ -6,58 +6,45 @@
 
     string DeltaText(int delta, double pct)
     {
-        if (delta == 0) return "no change vs prior";
+        if (delta == 0) return "0";
         var sign = delta > 0 ? "↑" : "↓";
         var mag = Math.Abs(pct) >= 1000d ? "new" : $"{Math.Abs(pct):F0}%";
-        return $"{sign} {mag} vs prior";
+        return $"{sign}{mag}";
     }
 }
 @*
-    Two purposeful blocks replacing the old four-tile strip (Visitors / Humans /
-    Bots / Bot pressure). Headline numbers are DISTINCT FINGERPRINTS ("how many
-    actors"); requests are the secondary line. Bot pressure is now the inline
-    share bar, and the top bots (by name) are lifted above the fold.
+    Compact visitors bar. Replaces the old full-height VISITORS card — the split
+    is one line so the volume chart can sit in the prime top-left slot. Headline
+    numbers are DISTINCT FINGERPRINTS ("how many actors"); requests are secondary.
+    Counts come from TrafficCounters (the durable projection), the single source —
+    NOT the dashboard summary strip, which drifted from these by a few requests.
 *@
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-    @* Block 1 — visitor split: humans vs bots (all visitors = fingerprints) *@
-    <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-3">
-            <div class="flex items-baseline justify-between mb-2">
-                <span class="text-xs text-base-content/50 uppercase tracking-wide">Visitors</span>
-                <span class="text-sm font-semibold">
-                    @c.TotalFingerprints.ToString("N0")
-                    <span class="text-xs font-normal text-base-content/40">· @c.Total.ToString("N0") requests</span>
-                </span>
-            </div>
-            @* bot-share bar (replaces the standalone Bot pressure tile) *@
-            <div class="flex h-2 rounded overflow-hidden bg-base-300 mb-2" title="@c.BotShare.ToString("P0") bot pressure">
-                <div class="bg-success" style="width:@((humanShare * 100).ToString("F1"))%"></div>
-                <div class="bg-error" style="width:@((c.BotShare * 100).ToString("F1"))%"></div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <div class="text-success text-[10px] uppercase tracking-wide">Humans</div>
-                    <div class="text-2xl font-bold leading-tight">@c.HumanFingerprints.ToString("N0")</div>
-                    <div class="text-[10px] text-base-content/50">@c.Humans.ToString("N0") requests · @humanShare.ToString("P0")</div>
-                    <div class="text-[10px] text-base-content/40">@DeltaText(c.HumansDelta, c.HumansDeltaPct)</div>
-                </div>
-                <div>
-                    <div class="text-error text-[10px] uppercase tracking-wide">Bots</div>
-                    <div class="text-2xl font-bold leading-tight">@c.BotFingerprints.ToString("N0")</div>
-                    <div class="text-[10px] text-base-content/50">@c.Bots.ToString("N0") requests · @c.BotShare.ToString("P0")</div>
-                    <div class="text-[10px] text-base-content/40">@DeltaText(c.BotsDelta, c.BotsDeltaPct)</div>
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="card bg-base-100 border border-base-300">
+    <div class="card-body p-2.5 flex-row flex-wrap items-center gap-x-6 gap-y-2">
+        <span class="flex items-baseline gap-1.5">
+            <span class="text-[10px] uppercase tracking-wide text-base-content/50">Visitors</span>
+            <span class="text-lg font-bold leading-none">@c.TotalFingerprints.ToString("N0")</span>
+            <span class="text-[10px] text-base-content/40">· @c.Total.ToString("N0") req</span>
+        </span>
 
-    @* Block 2 — Top bots via the canonical SbTopBots control: event-store backed,
-       identity-collapsed, internal-traffic aware (its own All / Bots / Humans /
-       Internal switch), sortable + searchable. Replaces the hand-rolled group-by.
-       Windowed to the page filter so it tracks the chart. *@
-    <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-3">
-            <sb-top-bots filter="bots" range="@Model.Filters.Window" page-size="6" widget-id="overview-topbots" />
-        </div>
+        <span class="flex items-baseline gap-1.5" title="@c.Humans.ToString("N0") human requests">
+            <span class="text-[10px] uppercase tracking-wide text-success">Human</span>
+            <span class="text-lg font-bold text-success leading-none">@c.HumanFingerprints.ToString("N0")</span>
+            <span class="text-[10px] text-base-content/40">@humanShare.ToString("P0") · @DeltaText(c.HumansDelta, c.HumansDeltaPct)</span>
+        </span>
+
+        <span class="flex items-baseline gap-1.5" title="@c.Bots.ToString("N0") bot requests">
+            <span class="text-[10px] uppercase tracking-wide text-error">Bot</span>
+            <span class="text-lg font-bold text-error leading-none">@c.BotFingerprints.ToString("N0")</span>
+            <span class="text-[10px] text-base-content/40">@c.BotShare.ToString("P0") · @DeltaText(c.BotsDelta, c.BotsDeltaPct)</span>
+        </span>
+
+        @* Inline bot-pressure bar, takes the remaining width. *@
+        <span class="flex items-center gap-2 flex-1 min-w-[140px]">
+            <span class="flex h-2 flex-1 rounded overflow-hidden bg-base-300" title="@c.BotShare.ToString("P0") bot pressure">
+                <span class="bg-success" style="width:@((humanShare * 100).ToString("F1"))%"></span>
+                <span class="bg-error" style="width:@((c.BotShare * 100).ToString("F1"))%"></span>
+            </span>
+        </span>
     </div>
 </div>
