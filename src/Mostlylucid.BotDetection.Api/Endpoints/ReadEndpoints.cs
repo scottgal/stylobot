@@ -337,7 +337,7 @@ public static class ReadEndpoints
 
         // HitTrend is a runtime ring buffer that lives only in SignatureAggregateCache;
         // the DB stores raw detections, not per-minute counts. Without this overlay,
-        // remote-mode dashboard hosts (e.g. stylobot.net's website) request a 24h-
+        // remote-mode dashboard hosts (e.g. stylo.bot's website) request a 24h-
         // windowed top-bots and get DB rows with hitTrend=[] -- so every row's
         // Live Activity sparkline renders as a flat baseline regardless of how
         // much fresh traffic the signature is actually getting. Splice in the live

@@ -96,7 +96,7 @@ public sealed class StyloBotDashboardOptions
     ///     markup is emitted at the call sites.
     ///     <para>
     ///     Default false — the FOSS dashboard stays compact for operators who already
-    ///     know the surface. stylobot.net flips this to true in its
+    ///     know the surface. stylo.bot flips this to true in its
     ///     <c>appsettings.json</c> so visitors get inline glossary copy without a
     ///     separate docs page.
     ///     </para>

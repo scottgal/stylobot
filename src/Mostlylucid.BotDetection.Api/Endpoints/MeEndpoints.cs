@@ -27,7 +27,7 @@ public static class MeEndpoints
         if (keyContext is null)
         {
             return TypedResults.Problem(title: "No API key context", statusCode: 401,
-                type: "https://stylobot.net/errors/no-api-key");
+                type: "https://stylo.bot/errors/no-api-key");
         }
 
         return TypedResults.Ok(new SingleResponse<ApiKeyContextDto>

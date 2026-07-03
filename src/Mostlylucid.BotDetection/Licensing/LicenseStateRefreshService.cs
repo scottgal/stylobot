@@ -104,7 +104,7 @@ internal sealed class LicenseStateRefreshService : IDisposable
                 await _graceStore.SetGraceStartedAtAsync(now, ct);
                 _logger.LogWarning(
                     "StyloBot license expired. 30-day grace period started - detection active, learning paused. " +
-                    "Renew at https://stylobot.net");
+                    "Renew at https://stylo.bot");
             }
 
             if (isActive && graceStartedAt != null)
@@ -120,7 +120,7 @@ internal sealed class LicenseStateRefreshService : IDisposable
             if (snapshot.LogOnly)
                 _logger.LogWarning(
                     "StyloBot license grace period expired. Running in log-only mode. " +
-                    "Renew at https://stylobot.net");
+                    "Renew at https://stylo.bot");
         }
         catch (Exception ex)
         {

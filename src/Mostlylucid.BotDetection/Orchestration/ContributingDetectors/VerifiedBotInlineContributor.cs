@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 /// <remarks>
 ///     <para>
 ///         Live trigger: signature <c>9z3avO7sKTd7NAYY896Yog</c> on
-///         www.stylobot.net -- User-Agent claimed Amazonbot, client IP was
+///         stylo.bot -- User-Agent claimed Amazonbot, client IP was
 ///         <c>85.121.245.x</c> (Hong Kong residential, NOT in Amazon's
 ///         published range). The dashboard tagged the actor "Amazonbot /
 ///         GoodBot" because the heavier <see cref="VerifiedBotContributor"/>

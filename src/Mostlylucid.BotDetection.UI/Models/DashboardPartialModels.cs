@@ -706,7 +706,7 @@ public sealed class DashboardShellModel
     ///     Docs URL the tunnel banner links to. Cached on the shell model so the
     ///     view doesn't have to resolve options again at render time.
     /// </summary>
-    public string TunnelDocsUrl { get; init; } = "https://stylobot.net/articles/tunnel-trade-off";
+    public string TunnelDocsUrl { get; init; } = "https://stylo.bot/articles/tunnel-trade-off";
 
     /// <summary>Compliance tab model. Only set when active tab is "compliance".</summary>
     public ComplianceTabModel? Compliance { get; init; }

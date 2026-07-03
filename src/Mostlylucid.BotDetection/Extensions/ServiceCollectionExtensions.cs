@@ -467,7 +467,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient("VerifiedBot", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/1.0 (+https://stylobot.net; stylobot@mostlylucid.net)");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/1.0 (+https://stylo.bot; stylobot@mostlylucid.net)");
         });
 
         // VerifiedBotRegistry options - configurable via appsettings.json: BotDetection:VerifiedBotRegistry
@@ -842,7 +842,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IFediverseDomainVerifier, FediverseDomainVerifier>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(5);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("stylobot-nodeinfo-verifier/1.0 (+https://stylobot.net)");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("stylobot-nodeinfo-verifier/1.0 (+https://stylo.bot)");
         }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
         {
             AllowAutoRedirect = false,  // SSRF guard -- no redirect chains

@@ -117,7 +117,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
 {
     Console.WriteLine();
     Console.WriteLine("  stylobot · self-hosted bot defense · free forever");
-    Console.WriteLine("  https://stylobot.net");
+    Console.WriteLine("  https://stylo.bot");
     Console.WriteLine();
     Console.WriteLine("  Usage:");
     Console.WriteLine("    stylobot <port> <upstream>                  Proxy to upstream on port");
@@ -187,7 +187,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("  Health:     http://localhost:<port>/health");
     Console.WriteLine();
     Console.WriteLine("  Docs:       https://github.com/scottgal/stylobot");
-    Console.WriteLine("  Commercial: https://stylobot.net/pricing");
+    Console.WriteLine("  Commercial: https://stylo.bot/pricing");
     Console.WriteLine();
     return 0;
 }
@@ -343,7 +343,7 @@ var enableApi = cmdArgs.Any(a =>
 // Note: there is no --enable-monitoring flag here because the Console binary
 // is a reverse-proxy + detection host without a dashboard. The ASP.NET
 // monitoring pack lives in projects that host the dashboard (Demo, the
-// stylobot.net website, and commercial variant binaries). To turn it on
+// stylo.bot website, and commercial variant binaries). To turn it on
 // there, set StyloBot:Dashboard:MonitoringPack:Enabled = true in appsettings.
 
 // Validate TLS cert exists
@@ -457,7 +457,7 @@ try
         Log.Information("");
         Log.Information("  ┌─────────────────────────────────────────┐");
         Log.Information("  │  stylobot  ·  self-hosted bot defense   │");
-        Log.Information("  │  https://stylobot.net                   │");
+        Log.Information("  │  https://stylo.bot                   │");
         Log.Information("  └─────────────────────────────────────────┘");
         Log.Information("");
         Log.Information("  Mode:     {Mode}", mode.ToUpper());
@@ -1051,7 +1051,7 @@ try
                           "provider": {
                             "@type": "Organization",
                             "name": "Stylobot Bot Detection",
-                            "url": "https://stylobot.net"
+                            "url": "https://stylo.bot"
                           },
                           "mainEntity": {
                             "@type": "Dataset",
@@ -1649,7 +1649,7 @@ static void ShowManPage()
         ./logs/                             Log output directory
 
     [bold]SEE ALSO[/]
-        https://stylobot.net
+        https://stylo.bot
         https://github.com/scottgal/stylobot
 
     [dim]StyloBot Community Edition                Free forever                  v6.8.2[/]

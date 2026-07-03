@@ -30,5 +30,5 @@ public sealed class TunnelEnvironmentOptions
     ///     links to. Configurable so commercial / self-hosted operators can point
     ///     to their own write-up of the recipe.
     /// </summary>
-    public string DocsUrl { get; set; } = "https://stylobot.net/articles/tunnel-trade-off";
+    public string DocsUrl { get; set; } = "https://stylo.bot/articles/tunnel-trade-off";
 }

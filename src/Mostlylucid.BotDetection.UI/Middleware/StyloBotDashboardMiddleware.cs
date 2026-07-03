@@ -1333,7 +1333,7 @@ public class StyloBotDashboardMiddleware
             TunnelDocsUrl = context.RequestServices
                 .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()
                 ?.Value.TunnelEnvironment.DocsUrl
-                ?? "https://stylobot.net/articles/tunnel-trade-off"
+                ?? "https://stylo.bot/articles/tunnel-trade-off"
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -6538,7 +6538,7 @@ public class StyloBotDashboardMiddleware
 
         // Same chrome contract as the signature-detail page: render _EndpointDetail.cshtml
         // as a main page and let the host's _ViewStart pick the layout (marketing-site
-        // _Layout on stylobot.net; whatever the FOSS host provides elsewhere). Previously
+        // _Layout on stylo.bot; whatever the FOSS host provides elsewhere). Previously
         // this handler hand-rolled <!DOCTYPE>... + vendor CSS links + an embedded navbar,
         // which guaranteed visual drift the moment the host layout evolved (new theme
         // tokens, footer rules, vendor bundle updates). The signature-detail page already

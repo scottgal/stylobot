@@ -27,7 +27,7 @@ namespace Mostlylucid.BotDetection.Identity;
 ///         traffic upstream.
 ///     </para>
 ///     <para>
-///         Format: <c>StyloBot.Internal/{version} (+https://stylobot.net)</c>.
+///         Format: <c>StyloBot.Internal/{version} (+https://stylo.bot)</c>.
 ///         The version is read from the FOSS assembly so a single source
 ///         of truth (the assembly's <see cref="AssemblyName.Version"/>)
 ///         drives every internal client across both repos.
@@ -47,6 +47,6 @@ public static class StyloBotInternalUserAgent
     {
         var asmName = typeof(StyloBotInternalUserAgent).Assembly.GetName();
         var version = asmName.Version?.ToString(3) ?? "0.0.0";
-        return $"StyloBot.Internal/{version} (+https://stylobot.net)";
+        return $"StyloBot.Internal/{version} (+https://stylo.bot)";
     }
 }

@@ -4,7 +4,7 @@
 @model DashboardShellModel
 @{
     // No Layout = null. Host's _ViewStart picks the layout (the website's _Layout
-    // for stylobot.net). The host owns the chrome: navbar, footer, vendor CSS/JS,
+    // for stylo.bot). The host owns the chrome: navbar, footer, vendor CSS/JS,
     // theme boot, CSP nonces. This view emits dashboard CONTENT only; the inline
     // CSS vars and supplemental scripts stay because they are content-specific.
     ViewData["Title"] = "StyloBot Detection Dashboard";
@@ -222,7 +222,7 @@
             <div class="rounded-xl border p-6 text-sm text-base-content/60"
                  style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
                 This section is part of the commercial dashboard.
-                <a href="https://stylobot.net/pricing" class="sb-link">View licensing</a>.
+                <a href="https://stylo.bot/pricing" class="sb-link">View licensing</a>.
             </div>
         }
         else if (match.ViewComponentName is not null)

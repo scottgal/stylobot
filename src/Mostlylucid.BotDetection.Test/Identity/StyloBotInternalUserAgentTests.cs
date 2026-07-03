@@ -32,7 +32,7 @@ public class StyloBotInternalUserAgentTests
         var ua = StyloBotInternalUserAgent.Value;
 
         ua.Should().StartWith("StyloBot.Internal/");
-        ua.Should().Contain("(+https://stylobot.net)");
+        ua.Should().Contain("(+https://stylo.bot)");
     }
 
     [Fact]

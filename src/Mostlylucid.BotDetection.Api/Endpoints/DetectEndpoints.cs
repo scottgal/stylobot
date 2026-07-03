@@ -46,7 +46,7 @@ public static class DetectEndpoints
                 title: "Batch too large",
                 detail: $"Maximum batch size is {apiOptions.MaxBatchSize}, got {requests.Length}",
                 statusCode: 400,
-                type: "https://stylobot.net/errors/batch-too-large");
+                type: "https://stylo.bot/errors/batch-too-large");
         }
 
         var responses = new DetectResponse[requests.Length];

@@ -37,7 +37,7 @@ public sealed class SbAllSignalsViewComponent : ViewComponent
     ///     When true the catalog short description renders inline next to
     ///     each signal row instead of staying hidden in the hover tooltip.
     ///     Defaults to false so the dashboard's dense usage stays compact;
-    ///     the conference demo on aspnet.stylobot.net passes true.
+    ///     the conference demo on aspnet.stylo.bot passes true.
     /// </param>
     public IViewComponentResult Invoke(
         string viewName = "Default",

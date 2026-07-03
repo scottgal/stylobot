@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     the human-readable DESCRIPTION (per-signature transient narrative) and
 ///     the score narrative. Removing the name write closes the parasite that
 ///     let the LLM's contextual inference (e.g. inferring "stylobot" because
-///     the host header was stylobot.net) clobber the composer's authoritative
+///     the host header was stylo.bot) clobber the composer's authoritative
 ///     name on hot human signatures.
 /// </summary>
 public class LlmResultSignalRCallback : ILlmResultCallback
