@@ -62,13 +62,25 @@ public sealed class TrafficController : Controller
         CancellationToken ct)
     {
         var opts = _layout.Value;
-        // Neutral filter construction. TrafficFilters.Domains stays on the
-        // model as neutral plumbing (SQL WHERE, LinkWith param, remote
-        // pass-through all consume it), but FOSS itself doesn't bind
-        // anything into it — the widget + Query["domain"] binding + the
-        // GetDomainOptionsAsync load live in the commercial marketing-site
-        // overlay because the domain axis is a License.Domains display
-        // scope. Empty Domains = fail open on every store call downstream.
+        // Neutral filter construction. TrafficFilters.Domains is neutral
+        // plumbing (SQL WHERE, LinkWith param, remote pass-through all
+        // consume it). The URL round-trip is FOSS infrastructure so the
+        // store's "WHERE ... AND domain IN (...)" clause actually reduces
+        // the result set — commercial only overlays the widget markup +
+        // chip row + license-filtered dropdown options. Empty Domains =
+        // fail open on every store call downstream.
+        //
+        // NOTE: [FromQuery] on a single string only binds the first
+        // occurrence; ?domain=X&domain=Y needs a manual read off
+        // Request.Query to preserve both values. Repeated-key binding is
+        // ASP.NET Core's Query collection semantics, not something the
+        // model binder auto-fans out into arrays without a matching
+        // parameter type.
+        var domainValues = Request.Query["domain"]
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         var filters = new TrafficFilters(
             Country: string.IsNullOrWhiteSpace(country) ? null : country,
             BotType: string.IsNullOrWhiteSpace(botType) ? null : botType,
@@ -77,7 +89,10 @@ public sealed class TrafficController : Controller
             // ParseWindow recognises both forms so legacy hosts that set
             // DefaultTimeWindowMinutes still resolve.
             Window: string.IsNullOrWhiteSpace(window) ? FormatDefaultWindow(opts.DefaultTimeWindowMinutes) : window,
-            Threat: string.IsNullOrWhiteSpace(threat) ? null : threat);
+            Threat: string.IsNullOrWhiteSpace(threat) ? null : threat)
+        {
+            Domains = domainValues,
+        };
 
         var topN = opts.TrafficCardTopN;
         var windowMinutes = ParseWindow(filters.Window);
