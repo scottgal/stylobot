@@ -5,6 +5,7 @@ using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Risk;
 using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 
@@ -136,7 +137,30 @@ public sealed class SessionAtomizerService : IDisposable
 
                 var avgBot  = group.Average(r => r.BotProbability);
                 var avgConf = group.Average(r => r.Confidence);
-                var riskBand = group.OrderByDescending(r => r.BotProbability).First().RiskBand;
+
+                // Canonical parity: derive IsBot + RiskBand through SignatureRiskVerdictComposer
+                // so the session tier writes the same classification the fingerprint EWMA read
+                // and dashboard is_bot / risk_band columns use. See
+                // docs/architecture/bot-human-classification-rationalisation.md.
+                // The atomizer runs on session-aggregate data; AiRan / SessionRequestCount /
+                // IntentCategory / cluster / archetype context aren't in scope here, so the
+                // composer degrades to the confidence-scaled probability bucketing per its own
+                // contract (see ComputeNeutralRiskBand doc). RiskBand is persisted as string to
+                // match the existing PersistedSession.RiskBand shape.
+                var classificationThresholds = Classification;
+                var neutralRiskBand = SignatureRiskVerdictComposer.ComputeNeutralRiskBand(
+                    new SignatureRiskInputs
+                    {
+                        PrimarySignature = sigGroup.Key,
+                        BotProbability   = avgBot,
+                        Confidence       = avgConf,
+                        RawThreatScore   = 0,
+                        FriendlyVerified = false,
+                        ConfirmedBad     = false,
+                        DeclaredBot      = false,
+                    });
+                var isBot   = SignatureRiskVerdictComposer.IsBot(avgBot, classificationThresholds);
+                var riskBand = neutralRiskBand.ToString();
 
                 // Build transition counts for Markov drill-in visualization
                 var transitionCounts = new Dictionary<string, int>();
@@ -169,7 +193,7 @@ public sealed class SessionAtomizerService : IDisposable
                     Vector               = SqliteSessionStore.SerializeVector(vector),
                     Maturity             = maturity,
                     DominantState        = dominant.ToString(),
-                    IsBot                = avgBot > 0.5,
+                    IsBot                = isBot,
                     AvgBotProbability    = avgBot,
                     AvgConfidence        = avgConf,
                     RiskBand             = riskBand,
