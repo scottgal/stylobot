@@ -34,26 +34,28 @@ public sealed class SessionAtomizerService : IDisposable
 
     private readonly ISessionStore _store;
     private readonly ILogger<SessionAtomizerService> _logger;
-    private readonly RetentionOptions _retention;
+    private readonly IOptionsMonitor<BotDetectionOptions> _options;
     private readonly IDisposable _subscription;
     private DateTime _lastSuccessfulPassUtc = DateTime.MinValue;
     private int _disposed;
 
-    private TimeSpan SessionGap     => _retention.SessionGap;
-    private TimeSpan RunInterval    => _retention.AtomizerRunInterval;
-    private TimeSpan GraceAge       => _retention.SessionGraceAge;
-    private int      MinRequests    => _retention.SessionMinRequests;
+    private RetentionOptions      Retention      => _options.CurrentValue.Retention;
+    private ClassificationOptions Classification => _options.CurrentValue.Classification;
+    private TimeSpan SessionGap     => Retention.SessionGap;
+    private TimeSpan RunInterval    => Retention.AtomizerRunInterval;
+    private TimeSpan GraceAge       => Retention.SessionGraceAge;
+    private int      MinRequests    => Retention.SessionMinRequests;
 
     public SessionAtomizerService(
         ISessionStore store,
         ILogger<SessionAtomizerService> logger,
-        IOptions<BotDetectionOptions> options,
+        IOptionsMonitor<BotDetectionOptions> options,
         IScheduleCoordinator coordinator)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         _store = store;
         _logger = logger;
-        _retention = options.Value.Retention;
+        _options = options;
 
         _subscription = coordinator.Subscribe(
             TickCadence.Tick1m,

@@ -35,8 +35,17 @@ public sealed class SessionAtomizerServiceTests
         return new SessionAtomizerService(
             store.Object,
             NullLogger<SessionAtomizerService>.Instance,
-            Options.Create(new BotDetectionOptions()),
+            new TestOptionsMonitor<BotDetectionOptions>(new BotDetectionOptions()),
             coordinator);
+    }
+
+    private sealed class TestOptionsMonitor<T>(T value) : IOptionsMonitor<T>
+    {
+        public T CurrentValue { get; } = value;
+        public T Get(string? name) => CurrentValue;
+        public IDisposable OnChange(Action<T, string?> listener) => new NoopDisposable();
+
+        private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
     }
 
     [Fact]
