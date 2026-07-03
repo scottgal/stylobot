@@ -38,4 +38,13 @@ public sealed class SiteMapRule
 
     /// <summary>Profile id to apply when this rule matches.</summary>
     public string Profile { get; set; } = "";
+
+    /// <summary>
+    ///     Optional eTLD+1 the rule attaches at the domain level. Lets the
+    ///     operator attach a policy to <c>stylo.bot</c> so hosts under it
+    ///     inherit unless they carry their own more-specific rule. Used by
+    ///     <see cref="IEffectivePolicyResolver"/>; the host-side match is a
+    ///     peer lookup, not nested under the domain.
+    /// </summary>
+    public string? Domain { get; set; }
 }

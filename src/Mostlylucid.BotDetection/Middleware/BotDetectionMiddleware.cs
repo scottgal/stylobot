@@ -22,6 +22,7 @@ using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.SiteProfiles;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Middleware;
@@ -149,6 +150,15 @@ public class BotDetectionMiddleware(
         AuditProcessorDispatcher? auditProcessorDispatcher = null)
     {
         _domainNormalizer.Resolve(context);
+
+        // Stamp the per-request EffectiveThresholds (global → domain-profile →
+        // host-profile overlay). Optional: hosts that didn't register the
+        // resolver just skip the cache and downstream consumers fall back to
+        // reading IOptionsMonitor<BotDetectionOptions> directly (the pre-overlay
+        // path). Detection code doesn't read the cached value yet -- that's a
+        // follow-up. This call only makes the effective policy AVAILABLE.
+        var effectivePolicyResolver = context.RequestServices.GetService<IEffectivePolicyResolver>();
+        effectivePolicyResolver?.ResolveThresholds(context);
 
         _loadSensor?.RecordRequest();
 

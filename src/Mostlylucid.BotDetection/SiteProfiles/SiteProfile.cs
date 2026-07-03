@@ -50,6 +50,14 @@ public sealed partial class SiteProfile
 
     /// <summary>Suggested simulation packs for cross-sell display in the dashboard.</summary>
     public List<SuggestedPack> SuggestedPacks { get; set; } = new();
+
+    /// <summary>
+    ///     Optional per-site threshold overlay. Null (the default) means "inherit
+    ///     from the next level up". Consumed by
+    ///     <see cref="IEffectivePolicyResolver"/>, which merges global →
+    ///     domain-profile → host-profile per-field.
+    /// </summary>
+    public SiteThresholdOverrides? Thresholds { get; set; }
 }
 
 /// <summary>Honeypot subsystem modulations carried by a site profile.</summary>

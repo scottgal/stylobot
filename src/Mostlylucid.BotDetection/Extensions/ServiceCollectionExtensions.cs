@@ -1093,6 +1093,10 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(SiteProfiles.SiteMapOptions.SectionName);
         services.TryAddSingleton<SiteProfiles.ISiteProfileCatalog, SiteProfiles.SiteProfileCatalog>();
         services.TryAddSingleton<SiteProfiles.ISiteProfileResolver, SiteProfiles.SiteProfileResolver>();
+        // Per-request effective threshold overlay: global → domain-profile →
+        // host-profile with per-field null-fill. Consumers read the cached
+        // EffectiveThresholds off HttpContext.Items in follow-up work.
+        services.TryAddSingleton<SiteProfiles.IEffectivePolicyResolver, SiteProfiles.EffectivePolicyResolver>();
         // Operator-declared per-(host, method, path, transport, protocol) policies.
         // Runs before bot detection; matched rules dispatch a named action via the
         // existing IActionPolicyRegistry. Pre-detection layer -- no detection cost
