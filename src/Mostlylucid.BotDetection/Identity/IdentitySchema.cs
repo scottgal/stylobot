@@ -80,6 +80,18 @@ internal static class IdentitySchema
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprint_mode_observations ADD COLUMN ua_family TEXT", ct);
 
+        // Multi-domain: (domain, host) owner of each observation row. Nullable —
+        // pre-multi-domain rows have no scope and the read paths treat null as
+        // "unknown scope" the same way they treat null ua_family.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprint_observations ADD COLUMN domain TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprint_observations ADD COLUMN host TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprint_mode_observations ADD COLUMN domain TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprint_mode_observations ADD COLUMN host TEXT", ct);
+
         // Phase 3 umbrella-shrinkage (2026-06-21). VarianceMultiplier on each
         // archetype is the calibration-tuned per-archetype tightening factor
         // applied to the matcher's per-dim variance. 1.0 = no narrowing

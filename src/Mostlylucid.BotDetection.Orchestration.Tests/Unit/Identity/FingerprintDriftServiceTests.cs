@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Common.Scheduling;
@@ -75,7 +76,7 @@ public sealed class FingerprintDriftServiceTests : IDisposable
         var dim = _store.Layout.Dimension;
         var vec = IdentityTestHelpers.MakeUnitVector(dim, seed: 1);
         await _store.InsertFingerprintAsync(MakeFingerprint("stable-fp", vec), "sig-stable");
-        await _store.RecordObservationAsync("stable-fp", vec);
+        await _store.RecordObservationAsync(RequestScope.Unknown, "stable-fp", vec);
 
         var (checks, drifts) = await _service.TickOnceAsync(CancellationToken.None);
 
@@ -93,7 +94,7 @@ public sealed class FingerprintDriftServiceTests : IDisposable
         var centroid = IdentityTestHelpers.MakeUnitVector(dim, seed: 1);
         var orthogonalObs = IdentityTestHelpers.MakeUnitVectorOrthogonalTo(dim, seed: 2, orthogonalTo: centroid);
         await _store.InsertFingerprintAsync(MakeFingerprint("drifting-fp", centroid), "sig-drift");
-        await _store.RecordObservationAsync("drifting-fp", orthogonalObs);
+        await _store.RecordObservationAsync(RequestScope.Unknown, "drifting-fp", orthogonalObs);
 
         var (checks, drifts) = await _service.TickOnceAsync(CancellationToken.None);
 
@@ -109,7 +110,7 @@ public sealed class FingerprintDriftServiceTests : IDisposable
         var dim = _store.Layout.Dimension;
         var vec = IdentityTestHelpers.MakeUnitVector(dim, seed: 3);
         await _store.InsertFingerprintAsync(MakeFingerprint("fresh-fp", vec), "sig-fresh");
-        await _store.RecordObservationAsync("fresh-fp", vec);
+        await _store.RecordObservationAsync(RequestScope.Unknown, "fresh-fp", vec);
 
         // First tick claims it (cached_score_updated_at was null).
         var (checks1, _) = await _service.TickOnceAsync(CancellationToken.None);

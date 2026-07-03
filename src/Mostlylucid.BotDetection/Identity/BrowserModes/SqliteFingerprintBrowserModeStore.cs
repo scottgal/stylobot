@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Identity.BrowserModes;
@@ -129,6 +130,7 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
     }
 
     public async Task RecordModeObservationAsync(
+        RequestScope scope,
         string fingerprintId, string modeId, float[] vector,
         string? uaFamily = null,
         CancellationToken ct = default)
@@ -140,14 +142,16 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO fingerprint_mode_observations
-                (fingerprint_id, mode_id, vector, observed_at, absorbed_at, ua_family)
-            VALUES (@fp, @mode, @vec, @ts, NULL, @ua)
+                (fingerprint_id, mode_id, vector, observed_at, absorbed_at, ua_family, domain, host)
+            VALUES (@fp, @mode, @vec, @ts, NULL, @ua, @domain, @host)
             """;
         cmd.Parameters.AddWithValue("@fp", fingerprintId);
         cmd.Parameters.AddWithValue("@mode", modeId);
         cmd.Parameters.AddWithValue("@vec", SqliteFingerprintStore.FloatsToBlob(vector));
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@ua", (object?)uaFamily ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@domain", (object?)scope.Domain ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@host", (object?)scope.Host ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -163,7 +167,7 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         // arrival order — the EWMA result is otherwise indistinguishable, but
         // grouping in C# is one pass instead of a sort.
         cmd.CommandText = """
-            SELECT id, fingerprint_id, mode_id, vector, observed_at, ua_family
+            SELECT id, fingerprint_id, mode_id, vector, observed_at, ua_family, domain, host
               FROM fingerprint_mode_observations
              WHERE absorbed_at IS NULL
              ORDER BY fingerprint_id, mode_id, id
@@ -181,7 +185,9 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
                 ModeId: reader.GetString(2),
                 Vector: SqliteFingerprintStore.BlobToFloats((byte[])reader.GetValue(3)),
                 ObservedAt: DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind),
-                UaFamily: reader.IsDBNull(5) ? null : reader.GetString(5)));
+                UaFamily: reader.IsDBNull(5) ? null : reader.GetString(5),
+                Domain: reader.IsDBNull(6) ? null : reader.GetString(6),
+                Host: reader.IsDBNull(7) ? null : reader.GetString(7)));
         }
         return rows;
     }

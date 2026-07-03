@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Xunit;
@@ -77,9 +78,36 @@ public class ObservationAppendedEventTests : IDisposable
         string? capturedId = null;
         store.ObservationAppended += id => capturedId = id;
 
-        await store.RecordObservationAsync(fpId, new float[dim], ct: CancellationToken.None);
+        await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
 
         Assert.Equal(fpId, capturedId);
+    }
+
+    [Fact]
+    public async Task Observation_persists_scope_and_read_path_hydrates_it()
+    {
+        // Multi-domain contract: RecordObservationAsync(RequestScope, ...) tags the
+        // row with (domain, host); the ListAbsorbableObservationsAsync read path
+        // must hydrate them back onto AbsorbableObservation so downstream
+        // per-site aggregators can partition by owner.
+        var store = await NewStoreAsync();
+        const string fpId = "fp-scope";
+        var dim = store.Layout.Dimension;
+        // Insert with observation_count meeting the maturity threshold so the
+        // absorb picker returns the row on first pass.
+        var fp = NewFingerprint(fpId, dim) with { ObservationCount = 100 };
+        await store.InsertFingerprintAsync(fp, "sig-scope", CancellationToken.None);
+
+        var scope = new RequestScope("acme.com", "www.acme.com");
+        await store.RecordObservationAsync(scope, fpId, new float[dim], ct: CancellationToken.None);
+
+        // Materialise the read path -- absorb picker returns all rows on active
+        // fingerprints past the maturity threshold.
+        var rows = await store.ListAbsorbableObservationsAsync(
+            maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, CancellationToken.None);
+        var row = Assert.Single(rows, r => r.FingerprintId == fpId);
+        Assert.Equal("acme.com", row.Domain);
+        Assert.Equal("www.acme.com", row.Host);
     }
 
     [Fact]
@@ -103,7 +131,7 @@ public class ObservationAppendedEventTests : IDisposable
                 .GetResult();
         };
 
-        await store.RecordObservationAsync(fpId, new float[dim], ct: CancellationToken.None);
+        await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
 
         // The observation row must already exist (count >= 1) when the handler ran.
         Assert.True(countInsideHandler.HasValue, "handler was never invoked");

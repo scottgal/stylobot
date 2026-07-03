@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Identity.BrowserModes;
 using Mostlylucid.BotDetection.Models;
@@ -143,7 +144,7 @@ public sealed class AbsorptionPairTickTests : IDisposable
         // confirm a post-dispose observation doesn't increment the counter.
         var before = sut.EventDrivenAbsorptionCount;
         await env.Store.RecordObservationAsync(
-            "fp-dispose-1", new float[env.Store.Layout.Dimension], ct: CancellationToken.None);
+            RequestScope.Unknown, "fp-dispose-1", new float[env.Store.Layout.Dimension], ct: CancellationToken.None);
         await Task.Delay(300);
         sut.EventDrivenAbsorptionCount.Should().Be(before, "Dispose unhooks ObservationAppended");
 
@@ -167,7 +168,7 @@ public sealed class AbsorptionPairTickTests : IDisposable
 
         await SeedFingerprintAsync(env.Store, "fp-tick-1");
         await env.Store.RecordObservationAsync(
-            "fp-tick-1", new float[env.Store.Layout.Dimension], ct: CancellationToken.None);
+            RequestScope.Unknown, "fp-tick-1", new float[env.Store.Layout.Dimension], ct: CancellationToken.None);
 
         var pendingBefore = await env.Store.GetUnabsorbedObservationCountAsync(
             "fp-tick-1", CancellationToken.None);
@@ -246,7 +247,7 @@ public sealed class AbsorptionPairTickTests : IDisposable
         await SeedFingerprintAsync(env.Store, "fp-mode-1");
         var dim = env.Store.Layout.Dimension;
         await env.ModeStore.RecordModeObservationAsync(
-            "fp-mode-1", "navigation", new float[dim], ct: CancellationToken.None);
+            RequestScope.Unknown, "fp-mode-1", "navigation", new float[dim], ct: CancellationToken.None);
 
         var before = await env.ModeStore.ListUnabsorbedModeObservationsAsync(1000, CancellationToken.None);
         before.Count.Should().Be(1);

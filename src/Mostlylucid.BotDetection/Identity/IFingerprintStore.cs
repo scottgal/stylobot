@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Domains;
+
 namespace Mostlylucid.BotDetection.Identity;
 
 /// <summary>
@@ -60,7 +62,17 @@ public interface IFingerprintStore : IFingerprintReader
 
     Task UpsertKeyAsync(string primarySignature, string fingerprintId, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Append an unabsorbed observation row for <paramref name="fingerprintId"/>.
+    ///     The <paramref name="scope"/> parameter tags the row with the
+    ///     <c>(domain, host)</c> owner it was observed under so downstream
+    ///     multi-domain aggregates can partition observations per-site.
+    ///     Callers on the request hot path derive the scope from
+    ///     <c>HttpContext.Items[HttpContextItemKeys.RequestScope]</c>;
+    ///     background / seed / test callers pass <see cref="RequestScope.Unknown"/>.
+    /// </summary>
     Task RecordObservationAsync(
+        RequestScope scope,
         string fingerprintId,
         float[] vector,
         string? uaFamily = null,

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
@@ -109,7 +110,7 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
             var fpId = await SeedFingerprintAsync(store, "fp-absorb-1");
 
             // Record one observation; this fires ObservationAppended.
-            await store.RecordObservationAsync(fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
+            await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
 
             // Poll until absorbed rather than sleeping a fixed duration.
             // The debounce fires after ~200ms then the Task.Run worker must be
@@ -144,7 +145,7 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
 
             // Record 10 observations in quick succession.
             for (var i = 0; i < 10; i++)
-                await store.RecordObservationAsync(fpId, new float[dim], ct: CancellationToken.None);
+                await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
 
             // Wait debounce + 400ms buffer.
             await Task.Delay(600, CancellationToken.None);

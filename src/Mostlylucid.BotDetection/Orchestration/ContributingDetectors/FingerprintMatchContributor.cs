@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Identity.BrowserModes;
@@ -179,7 +180,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             if (confirmScore >= _options.Match.MergeThreshold)
             {
                 EmitConfirmedSignals(state, vector, l1Candidate, confirmScore, primarySig);
-                await _store.RecordObservationAsync(l1Candidate.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
+                await _store.RecordObservationAsync(ResolveRequestScope(state), l1Candidate.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
                 await EmitPostObservationSignalsAsync(state, l1Candidate.ObservationCount + 1, l1Candidate.CentroidMaturity, cancellationToken);
                 await AbsorbIntoBrowserModeAsync(state, l1Candidate.FingerprintId, vector, cancellationToken);
                 // Clean L1 confirm = non-ambiguity event; pulls EWMA toward 0.
@@ -260,7 +261,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Already seen this identity. Bind this primary_signature so future L1 lookups
             // skip even the SHA + GetFingerprint call; record the observation; emit signals.
             await _store.UpsertKeyAsync(primarySig, canonicalId, ct);
-            await _store.RecordObservationAsync(canonicalId, vector, ResolveObservedUaFamily(state), ct);
+            await _store.RecordObservationAsync(ResolveRequestScope(state), canonicalId, vector, ResolveObservedUaFamily(state), ct);
             await AbsorbIntoBrowserModeAsync(state, canonicalId, vector, ct);
             EmitConfirmedSignals(state, vector, existing, matchScore: 1.0, primarySig);
             await BumpAmbiguityAsync(state, canonicalId, isAmbiguous: false, ct);
@@ -357,7 +358,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             var isCorrection = l1Candidate is not null
                 && !string.Equals(l1Candidate.FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, isCorrection: isCorrection);
-            await _store.RecordObservationAsync(best.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
+            await _store.RecordObservationAsync(ResolveRequestScope(state), best.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
             await EmitPostObservationSignalsAsync(state, best.ObservationCount + 1, best.CentroidMaturity, cancellationToken);
             await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
 
@@ -390,7 +391,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         {
             // Rotation candidate band: assign to the candidate, observe-and-drift, signal it.
             EmitConfirmedSignals(state, vector, best, bestScore, primarySig, rotationCandidate: true);
-            await _store.RecordObservationAsync(best.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
+            await _store.RecordObservationAsync(ResolveRequestScope(state), best.FingerprintId, vector, ResolveObservedUaFamily(state), cancellationToken);
             await EmitPostObservationSignalsAsync(state, best.ObservationCount + 1, best.CentroidMaturity, cancellationToken);
             await AbsorbIntoBrowserModeAsync(state, best.FingerprintId, vector, cancellationToken);
             // Rotation-band match = ambiguity event by definition.
@@ -664,7 +665,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         try
         {
             var modeId = ResolveBrowserModeId(state);
-            await _modeStore.RecordModeObservationAsync(fingerprintId, modeId, vector, ResolveObservedUaFamily(state), cancellationToken);
+            await _modeStore.RecordModeObservationAsync(ResolveRequestScope(state), fingerprintId, modeId, vector, ResolveObservedUaFamily(state), cancellationToken);
 
             // Diagnostic signals reflect the current cached state (before this
             // observation is folded by the drainer). unseen flips true the
@@ -707,6 +708,23 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         var signal = state.GetSignal<string>(SignalKeys.IdentityBrowserMode);
         if (!string.IsNullOrEmpty(signal)) return signal;
         return _modeResolver.Resolve(state.HttpContext);
+    }
+
+    /// <summary>
+    ///     Resolve the request's (domain, host) scope from
+    ///     <c>HttpContext.Items[HttpContextItemKeys.RequestScope]</c> stamped by
+    ///     the outer <c>BotDetectionMiddleware</c>. Falls back to
+    ///     <see cref="RequestScope.Unknown"/> when the middleware didn't stamp
+    ///     one (test fixtures, out-of-band call paths). Observation stores
+    ///     accept the fallback and persist the sentinel values so the row is
+    ///     never left with the wrong owner.
+    /// </summary>
+    private static RequestScope ResolveRequestScope(BlackboardState state)
+    {
+        if (state.HttpContext.Items.TryGetValue(HttpContextItemKeys.RequestScope, out var cached)
+            && cached is RequestScope existing)
+            return existing;
+        return RequestScope.Unknown;
     }
 
     /// <summary>

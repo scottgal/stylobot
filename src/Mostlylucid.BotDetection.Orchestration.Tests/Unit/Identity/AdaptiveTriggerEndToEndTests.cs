@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Identity.Triggers;
 using Mostlylucid.BotDetection.Models;
@@ -67,7 +68,7 @@ public sealed class AdaptiveTriggerEndToEndTests : IDisposable
 
             // ---- Step 2: 3 observations < threshold(5) -> no fire ---------
             for (var i = 0; i < 3; i++)
-                await store.RecordObservationAsync("fp-e2e", new float[dim]);
+                await store.RecordObservationAsync(RequestScope.Unknown, "fp-e2e", new float[dim]);
 
             // Heartbeat 1s after primer: min interval elapsed, but signal
             // (3 obs) is below threshold (5) and safety net hasn't elapsed.
@@ -79,7 +80,7 @@ public sealed class AdaptiveTriggerEndToEndTests : IDisposable
 
             // ---- Step 3: 3 more observations -> 6 >= 5 -> fire ------------
             for (var i = 0; i < 3; i++)
-                await store.RecordObservationAsync("fp-e2e", new float[dim]);
+                await store.RecordObservationAsync(RequestScope.Unknown, "fp-e2e", new float[dim]);
 
             await calibration.OnTickAsync(t0.AddSeconds(2), CancellationToken.None);
             var firedSnapshot = calibration.LastDecisionSnapshot;
@@ -127,7 +128,7 @@ public sealed class AdaptiveTriggerEndToEndTests : IDisposable
 
             // Hammer the signal axis -- in adaptive mode this would trigger.
             for (var i = 0; i < 100; i++)
-                await store.RecordObservationAsync("fp-legacy", new float[dim]);
+                await store.RecordObservationAsync(RequestScope.Unknown, "fp-legacy", new float[dim]);
 
             // Only 5 minutes later. Legacy gate must NOT fire (interval is 30m).
             await calibration.OnTickAsync(t0.AddMinutes(5), CancellationToken.None);

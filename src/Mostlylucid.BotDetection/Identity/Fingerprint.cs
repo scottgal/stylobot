@@ -171,4 +171,17 @@ public sealed record AbsorbableObservation
     ///     scoring -- same behavior as before this field existed.
     /// </summary>
     public string? UaFamily { get; init; }
+
+    /// <summary>
+    ///     eTLD+1 owner of the request that produced this observation. Null on
+    ///     pre-multi-domain rows recorded before the column existed; downstream
+    ///     aggregators treat null as "unknown scope" and fall back to global counts.
+    /// </summary>
+    public string? Domain { get; init; }
+
+    /// <summary>
+    ///     Full lowercased port-stripped Host header of the request that produced this
+    ///     observation. Null on pre-multi-domain rows.
+    /// </summary>
+    public string? Host { get; init; }
 }

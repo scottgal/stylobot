@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Identity;
@@ -1002,6 +1003,7 @@ public class SqliteFingerprintStore : IFingerprintStore
 
     /// <summary>Append an unabsorbed observation row.</summary>
     public async Task RecordObservationAsync(
+        RequestScope scope,
         string fingerprintId,
         float[] vector,
         string? uaFamily = null,
@@ -1011,14 +1013,16 @@ public class SqliteFingerprintStore : IFingerprintStore
         await using var conn = await OpenConnectionWithVecAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at, ua_family)
-            VALUES (@id, @vec, @ts, NULL, @ua);
+            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at, ua_family, domain, host)
+            VALUES (@id, @vec, @ts, NULL, @ua, @domain, @host);
             SELECT last_insert_rowid();
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         cmd.Parameters.AddWithValue("@vec", FloatsToBlob(vector));
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@ua", (object?)uaFamily ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@domain", (object?)scope.Domain ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@host", (object?)scope.Host ?? DBNull.Value);
         var observationId = (long)(await cmd.ExecuteScalarAsync(ct))!;
 
         await using var bump = conn.CreateCommand();
@@ -1243,7 +1247,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.CommandText = """
             SELECT o.id, o.fingerprint_id, o.vector, o.observed_at,
                    f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen,
-                   f.inferred_client_type, o.ua_family
+                   f.inferred_client_type, o.ua_family, o.domain, o.host
               FROM fingerprint_observations o
               JOIN fingerprints f ON f.fingerprint_id = o.fingerprint_id
              WHERE o.absorbed_at IS NULL
@@ -1278,7 +1282,9 @@ public class SqliteFingerprintStore : IFingerprintStore
                 CentroidMaturity = reader.GetInt32(5),
                 Weights = BlobToFloats((byte[])reader.GetValue(6)),
                 InferredClientType = reader.GetString(9),
-                UaFamily = reader.IsDBNull(10) ? null : reader.GetString(10)
+                UaFamily = reader.IsDBNull(10) ? null : reader.GetString(10),
+                Domain = reader.IsDBNull(11) ? null : reader.GetString(11),
+                Host = reader.IsDBNull(12) ? null : reader.GetString(12),
             });
         }
         return results;

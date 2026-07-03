@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Domains;
+
 namespace Mostlylucid.BotDetection.Identity.BrowserModes;
 
 /// <summary>
@@ -50,8 +52,15 @@ public interface IFingerprintBrowserModeStore
     ///     single SQL insert with no race. The drainer (FingerprintMode
     ///     AbsorptionService) batches absorption per (fingerprint_id, mode_id)
     ///     tuple on a tick.
+    ///     The <paramref name="scope"/> parameter tags the row with the
+    ///     <c>(domain, host)</c> owner it was observed under so downstream
+    ///     multi-domain aggregates can partition per-site.
+    ///     Callers on the request hot path derive the scope from
+    ///     <c>HttpContext.Items[HttpContextItemKeys.RequestScope]</c>;
+    ///     background / seed / test callers pass <see cref="RequestScope.Unknown"/>.
     /// </summary>
     Task RecordModeObservationAsync(
+        RequestScope scope,
         string fingerprintId, string modeId, float[] vector,
         string? uaFamily = null,
         CancellationToken ct = default);
@@ -90,6 +99,9 @@ public interface IFingerprintBrowserModeStore
 
 /// <summary>
 ///     One unabsorbed observation row returned by the drainer's batch fetch.
+///     <see cref="Domain"/> / <see cref="Host"/> are nullable so pre-multi-domain
+///     rows recorded before the column existed round-trip cleanly through
+///     the drainer's absorb step.
 /// </summary>
 public sealed record UnabsorbedModeObservation(
     long ObservationId,
@@ -97,4 +109,6 @@ public sealed record UnabsorbedModeObservation(
     string ModeId,
     float[] Vector,
     DateTime ObservedAt,
-    string? UaFamily = null);
+    string? UaFamily = null,
+    string? Domain = null,
+    string? Host = null);

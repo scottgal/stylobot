@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity.BrowserModes;
 
 namespace Mostlylucid.BotDetection.UI.Adapters.Remote;
@@ -45,6 +46,7 @@ internal sealed class RemoteFingerprintBrowserModeStore : IFingerprintBrowserMod
             "DeleteModeAsync is gateway-only — the dashboard host must not delete mode rows over REST.");
 
     public Task RecordModeObservationAsync(
+        RequestScope scope,
         string fingerprintId, string modeId, float[] vector,
         string? uaFamily = null,
         CancellationToken ct = default)

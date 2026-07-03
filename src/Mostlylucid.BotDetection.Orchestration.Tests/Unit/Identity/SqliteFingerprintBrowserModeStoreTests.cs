@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Identity.BrowserModes;
 using Mostlylucid.BotDetection.Models;
@@ -121,6 +122,30 @@ public sealed class SqliteFingerprintBrowserModeStoreTests : IDisposable
         Assert.DoesNotContain(afterDelete, m => m.ModeId == "xhr");
         // unknown mode remains from the seed.
         Assert.Contains(afterDelete, m => m.ModeId == "unknown");
+    }
+
+    [Fact]
+    public async Task ModeObservation_persists_scope_and_read_path_hydrates_it()
+    {
+        // Multi-domain contract: RecordModeObservationAsync(RequestScope, ...)
+        // tags the row with (domain, host); ListUnabsorbedModeObservationsAsync
+        // hydrates them back onto UnabsorbedModeObservation so the drainer can
+        // partition per-site during absorb.
+        await _parent.EnsureInitialisedAsync();
+        var dim = _parent.Layout.Dimension;
+        await _parent.InsertFingerprintAsync(
+            IdentityTestHelpers.MakeFingerprint("fp-mode-scope", IdentityTestHelpers.MakeUnitVector(dim, seed: 42)),
+            "sig-mode-scope");
+
+        var scope = new RequestScope("acme.com", "www.acme.com");
+        await _modeStore.RecordModeObservationAsync(
+            scope, "fp-mode-scope", "navigation", new float[dim], ct: CancellationToken.None);
+
+        var rows = await _modeStore.ListUnabsorbedModeObservationsAsync(
+            maxRows: 100, CancellationToken.None);
+        var row = Assert.Single(rows, r => r.FingerprintId == "fp-mode-scope" && r.ModeId == "navigation");
+        Assert.Equal("acme.com", row.Domain);
+        Assert.Equal("www.acme.com", row.Host);
     }
 
     private async Task SeedAgainAsync()

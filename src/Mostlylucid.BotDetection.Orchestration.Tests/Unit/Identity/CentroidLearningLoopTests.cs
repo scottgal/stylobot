@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Xunit;
@@ -62,7 +63,7 @@ public sealed class CentroidLearningLoopTests : IDisposable
 
             for (var i = 0; i < 10; i++)
             {
-                await store.RecordObservationAsync(fpId, observed, uaFamily: "chrome");
+                await store.RecordObservationAsync(RequestScope.Unknown, fpId, observed, uaFamily: "chrome");
                 var absorbed = await absorption.TickOnceAsync(CancellationToken.None);
                 Assert.True(absorbed >= 1,
                     $"absorption tick #{i} should have absorbed at least one observation");
@@ -125,8 +126,8 @@ public sealed class CentroidLearningLoopTests : IDisposable
                 var bid = $"fp-shape-b-{i}";
                 await SeedFingerprintAtOriginAsync(store, aid, dim, inferredClientType: "shape-a");
                 await SeedFingerprintAtOriginAsync(store, bid, dim, inferredClientType: "shape-b");
-                await store.RecordObservationAsync(aid, shapeA, uaFamily: "chrome");
-                await store.RecordObservationAsync(bid, shapeB, uaFamily: "googlebot");
+                await store.RecordObservationAsync(RequestScope.Unknown, aid, shapeA, uaFamily: "chrome");
+                await store.RecordObservationAsync(RequestScope.Unknown, bid, shapeB, uaFamily: "googlebot");
             }
             await absorption.TickOnceAsync(CancellationToken.None);
 
