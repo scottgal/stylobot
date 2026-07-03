@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Middleware;
 
 namespace Mostlylucid.BotDetection.Lifecycle;
@@ -66,15 +67,24 @@ public sealed class PathLifecycleMiddleware
 
         var statusCode = context.Response.StatusCode;
 
+        // Source the (domain, host) that owns this response from the same
+        // cached RequestScope the detection middleware set on HttpContext.Items.
+        // Fallback to RequestScope.Unknown so misconfigured pipelines still
+        // record something rather than silently drop the observation.
+        var scope = context.Items.TryGetValue(HttpContextItemKeys.RequestScope, out var cached)
+                    && cached is RequestScope existing
+            ? existing
+            : RequestScope.Unknown;
+
         // Fire-and-forget. The store handles its own errors.
-        _ = RecordSafelyAsync(path, statusCode, context.RequestAborted);
+        _ = RecordSafelyAsync(scope, path, statusCode, context.RequestAborted);
     }
 
-    private async Task RecordSafelyAsync(string path, int statusCode, CancellationToken ct)
+    private async Task RecordSafelyAsync(RequestScope scope, string path, int statusCode, CancellationToken ct)
     {
         try
         {
-            await _store.RecordResponseAsync(path, statusCode, ct);
+            await _store.RecordResponseAsync(scope, path, statusCode, ct);
         }
         catch (Exception ex)
         {

@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Domains;
+
 namespace Mostlylucid.BotDetection.Lifecycle;
 
 /// <summary>
@@ -7,7 +9,7 @@ namespace Mostlylucid.BotDetection.Lifecycle;
 /// </summary>
 public sealed class NullPathLifecycleStore : IPathLifecycleStore
 {
-    public Task RecordResponseAsync(string path, int statusCode, CancellationToken ct = default)
+    public Task RecordResponseAsync(RequestScope scope, string path, int statusCode, CancellationToken ct = default)
         => Task.CompletedTask;
 
     public Task<PathLifecycle?> GetAsync(string path, CancellationToken ct = default)

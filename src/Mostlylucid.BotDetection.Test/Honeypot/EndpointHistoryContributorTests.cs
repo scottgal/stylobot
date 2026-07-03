@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Honeypot;
 using Mostlylucid.BotDetection.Lifecycle;
 using Mostlylucid.BotDetection.Models;
@@ -98,7 +99,7 @@ public class EndpointHistoryContributorTests
     {
         private readonly Func<string, PathLifecycle?> _lookup;
         public StubStore(Func<string, PathLifecycle?> lookup) => _lookup = lookup;
-        public Task RecordResponseAsync(string path, int statusCode, CancellationToken ct = default) => Task.CompletedTask;
+        public Task RecordResponseAsync(RequestScope scope, string path, int statusCode, CancellationToken ct = default) => Task.CompletedTask;
         public Task<PathLifecycle?> GetAsync(string path, CancellationToken ct = default) =>
             Task.FromResult(_lookup(path));
     }

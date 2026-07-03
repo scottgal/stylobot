@@ -18,6 +18,15 @@ namespace Mostlylucid.BotDetection.Lifecycle;
 /// </remarks>
 public sealed record PathLifecycle
 {
+    /// <summary>The eTLD+1 (registrable) domain that owns this path. "unknown"
+    ///     when the observation had no <c>HttpContext</c> (background jobs, tests).</summary>
+    public string Domain { get; init; } = "unknown";
+
+    /// <summary>The full lowercased port-stripped host that served this path.
+    ///     Used with <see cref="Path"/> as the aggregation key so the same path
+    ///     on different hosts is tracked independently.</summary>
+    public string Host { get; init; } = "unknown";
+
     /// <summary>The exact request path (normalised lower-case, no query).</summary>
     public required string Path { get; init; }
 

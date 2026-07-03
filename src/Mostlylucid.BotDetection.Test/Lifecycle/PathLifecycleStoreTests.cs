@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Lifecycle;
 
 namespace Mostlylucid.BotDetection.Test.Lifecycle;
@@ -7,6 +8,7 @@ public class PathLifecycleStoreTests : IAsyncDisposable
 {
     private readonly SqlitePathLifecycleStore _store;
     private readonly string _dbPath;
+    private static readonly RequestScope Scope = RequestScope.Unknown;
 
     public PathLifecycleStoreTests()
     {
@@ -26,7 +28,7 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     [Fact]
     public async Task Record2xx_MarksHasEverServed2xx()
     {
-        await _store.RecordResponseAsync("/api/users", 200);
+        await _store.RecordResponseAsync(Scope, "/api/users", 200);
         var lifecycle = await _store.GetAsync("/api/users");
 
         Assert.NotNull(lifecycle);
@@ -39,7 +41,7 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     [Fact]
     public async Task Record404_OnVirginPath_NotFormerlyReal()
     {
-        await _store.RecordResponseAsync("/scanner/probe", 404);
+        await _store.RecordResponseAsync(Scope, "/scanner/probe", 404);
         var lifecycle = await _store.GetAsync("/scanner/probe");
 
         Assert.NotNull(lifecycle);
@@ -52,9 +54,9 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     [Fact]
     public async Task Record2xxThen404_FlipsToFormerlyReal()
     {
-        await _store.RecordResponseAsync("/old-api/v1", 200);
-        await _store.RecordResponseAsync("/old-api/v1", 200);
-        await _store.RecordResponseAsync("/old-api/v1", 404);
+        await _store.RecordResponseAsync(Scope, "/old-api/v1", 200);
+        await _store.RecordResponseAsync(Scope, "/old-api/v1", 200);
+        await _store.RecordResponseAsync(Scope, "/old-api/v1", 404);
 
         var lifecycle = await _store.GetAsync("/old-api/v1");
 
@@ -69,8 +71,8 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     public async Task Record404OnEnvFile_DoesNotMarkFormerlyReal_NoPriorSuccess()
     {
         // Simulating a scanner probing /.env on a site that never had it
-        await _store.RecordResponseAsync("/.env", 404);
-        await _store.RecordResponseAsync("/.env", 404);
+        await _store.RecordResponseAsync(Scope, "/.env", 404);
+        await _store.RecordResponseAsync(Scope, "/.env", 404);
 
         var lifecycle = await _store.GetAsync("/.env");
 
@@ -82,12 +84,12 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     [Fact]
     public async Task First4xxAfter2xx_LocksFirstFlip()
     {
-        await _store.RecordResponseAsync("/feature", 200);
-        await _store.RecordResponseAsync("/feature", 404);
+        await _store.RecordResponseAsync(Scope, "/feature", 200);
+        await _store.RecordResponseAsync(Scope, "/feature", 404);
         var firstFlip = (await _store.GetAsync("/feature"))!.First4xxAfter2xxUtc;
 
         await Task.Delay(20);
-        await _store.RecordResponseAsync("/feature", 404);
+        await _store.RecordResponseAsync(Scope, "/feature", 404);
         var lifecycle = await _store.GetAsync("/feature");
 
         Assert.Equal(firstFlip, lifecycle!.First4xxAfter2xxUtc); // stays locked
@@ -96,7 +98,7 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     [Fact]
     public async Task CachedReadAfterWrite_ServesFromMemory()
     {
-        await _store.RecordResponseAsync("/cached", 200);
+        await _store.RecordResponseAsync(Scope, "/cached", 200);
         // Read twice -- second read should hit the in-memory cache.
         var first = await _store.GetAsync("/cached");
         var second = await _store.GetAsync("/cached");
@@ -109,9 +111,9 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     {
         // RecordResponse enqueues writes that the WriteBehindLfuStore drains in
         // the background. After FlushAsync returns, the durable tier is up-to-date.
-        await _store.RecordResponseAsync("/api/perf", 200);
-        await _store.RecordResponseAsync("/api/perf", 200);
-        await _store.RecordResponseAsync("/api/perf", 404);
+        await _store.RecordResponseAsync(Scope, "/api/perf", 200);
+        await _store.RecordResponseAsync(Scope, "/api/perf", 200);
+        await _store.RecordResponseAsync(Scope, "/api/perf", 404);
 
         await _store.FlushAsync();
 
@@ -143,7 +145,7 @@ public class PathLifecycleStoreTests : IAsyncDisposable
     [Fact]
     public async Task DoubleFlush_DoesNotRewriteUnchangedEntries()
     {
-        await _store.RecordResponseAsync("/api/x", 200);
+        await _store.RecordResponseAsync(Scope, "/api/x", 200);
         await _store.FlushAsync();
 
         // Second flush with nothing new -- dirty set is empty, no transaction
@@ -174,18 +176,18 @@ public class PathLifecycleStoreTests : IAsyncDisposable
         try
         {
             // High-signal: 2xx then 4xx → IsFormerlyReal = true
-            await tiny.RecordResponseAsync("/old-api", 200);
-            await tiny.RecordResponseAsync("/old-api", 404);
+            await tiny.RecordResponseAsync(Scope, "/old-api", 200);
+            await tiny.RecordResponseAsync(Scope, "/old-api", 404);
             // Low-signal: only 404 spam, no 2xx history → coldest tier
-            await tiny.RecordResponseAsync("/.env", 404);
-            await tiny.RecordResponseAsync("/.git", 404);
-            await tiny.RecordResponseAsync("/wp-login.php", 404);
+            await tiny.RecordResponseAsync(Scope, "/.env", 404);
+            await tiny.RecordResponseAsync(Scope, "/.git", 404);
+            await tiny.RecordResponseAsync(Scope, "/wp-login.php", 404);
 
             // Push past MaxEntries (cap=4, +10% = 4 → 5th triggers eviction).
             // Add several more 404-only paths so eviction must drop *some*
             // 404-only entries to stay under cap.
             for (var i = 0; i < 20; i++)
-                await tiny.RecordResponseAsync($"/scanner/{i}", 404);
+                await tiny.RecordResponseAsync(Scope, $"/scanner/{i}", 404);
 
             // The FormerlyReal path must still be hot -- it's pinned by the
             // behavioural score and survives any number of 404-only floods.
@@ -203,6 +205,43 @@ public class PathLifecycleStoreTests : IAsyncDisposable
             tiny.Dispose();
             await Task.Delay(50);
             try { File.Delete(tinyDbPath); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task Store_persists_domain_and_host_from_RequestScope()
+    {
+        // Multi-domain contract: the (domain, host) the middleware passes in
+        // MUST be persisted alongside the path so a downstream reader can tell
+        // "www.acme.com served /login" apart from "auth.acme.com served /login"
+        // (same eTLD+1 rollup, distinct host). Both dimensions round-trip
+        // through the write-behind LFU + Sqlite durable tier.
+        var scope = new RequestScope("acme.com", "www.acme.com");
+        await _store.RecordResponseAsync(scope, "/login", 200);
+
+        // Hot-tier read must carry the scope we wrote.
+        var hot = await _store.GetAsync("/login");
+        Assert.NotNull(hot);
+        Assert.Equal("acme.com", hot!.Domain);
+        Assert.Equal("www.acme.com", hot.Host);
+        Assert.Equal("/login", hot.Path);
+
+        // Cross the disk boundary via FlushAsync + a fresh store instance so
+        // we're proving the scope hit Sqlite, not just the ConcurrentDictionary.
+        await _store.FlushAsync();
+        var probe = new SqlitePathLifecycleStore(
+            $"Data Source={_dbPath};Cache=Shared",
+            NullLogger<SqlitePathLifecycleStore>.Instance);
+        try
+        {
+            var cold = await probe.GetAsync("/login");
+            Assert.NotNull(cold);
+            Assert.Equal("acme.com", cold!.Domain);
+            Assert.Equal("www.acme.com", cold.Host);
+        }
+        finally
+        {
+            probe.Dispose();
         }
     }
 

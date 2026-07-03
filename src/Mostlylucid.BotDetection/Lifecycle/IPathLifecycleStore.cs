@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Domains;
+
 namespace Mostlylucid.BotDetection.Lifecycle;
 
 /// <summary>
@@ -13,8 +15,16 @@ public interface IPathLifecycleStore
     ///     block the request pipeline -- the response-side middleware
     ///     fire-and-forgets this call. Static asset paths (CSS/JS/images
     ///     and fonts) are filtered out at the call site.
+    ///     <para>
+    ///     <paramref name="scope"/> carries the (domain, host) that owns this
+    ///     path. Implementations MUST use <c>(host, path)</c> as the aggregation
+    ///     key so the same path on different hosts is tracked independently and
+    ///     persist <c>domain</c> alongside for cross-host rollups. Callers with
+    ///     no <c>HttpContext</c> (background workers, seed jobs, tests) pass
+    ///     <see cref="RequestScope.Unknown"/>.
+    ///     </para>
     /// </summary>
-    Task RecordResponseAsync(string path, int statusCode, CancellationToken ct = default);
+    Task RecordResponseAsync(RequestScope scope, string path, int statusCode, CancellationToken ct = default);
 
     /// <summary>
     ///     Look up the lifecycle for a path. Returns null when the path has

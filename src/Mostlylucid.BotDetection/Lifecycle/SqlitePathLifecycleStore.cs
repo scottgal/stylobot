@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Lifecycle;
@@ -9,8 +10,14 @@ namespace Mostlylucid.BotDetection.Lifecycle;
 ///     Discrete write op enqueued for batched persistence. The drainer folds
 ///     a batch of these into SQLite UPSERTs in a single transaction; the merge
 ///     into the hot tier is handled by <see cref="SqlitePathLifecycleStore.MergeIntoExisting"/>.
+///     <para>
+///     <c>Domain</c> + <c>Host</c> carry the (domain, host) that owns the
+///     observation so writes land under the right owner. Persistence uses
+///     <c>(host, path)</c> as the natural key -- domain is the derived rollup
+///     column.
+///     </para>
 /// </summary>
-public sealed record PathLifecycleOp(string Path, int StatusCode, DateTime UtcNow);
+public sealed record PathLifecycleOp(string Domain, string Host, string Path, int StatusCode, DateTime UtcNow);
 
 /// <summary>
 ///     SQLite-backed <see cref="WriteBehindLfuStore{TKey,TValue,TWriteOp}"/>
@@ -38,9 +45,16 @@ public sealed record PathLifecycleOp(string Path, int StatusCode, DateTime UtcNo
 ///         Static asset paths (CSS/JS/images/fonts) are filtered at the
 ///         caller -- they would dominate the table without adding signal.
 ///     </para>
+///     <para>
+///         Multi-domain: the hot-tier key is <c>(host, path)</c> so the same
+///         path served by different hosts is tracked independently. Domain
+///         is persisted alongside for cross-host rollups. The <see cref="GetAsync"/>
+///         cold path still keys by path only (single-host lookup) so short-lived
+///         non-multi-domain deployments keep the O(path) read shape.
+///     </para>
 /// </remarks>
 public sealed class SqlitePathLifecycleStore
-    : WriteBehindLfuStore<string, PathLifecycle, PathLifecycleOp>,
+    : WriteBehindLfuStore<(string Host, string Path), PathLifecycle, PathLifecycleOp>,
       IPathLifecycleStore
 {
     private readonly string _connectionString;
@@ -59,7 +73,7 @@ public sealed class SqlitePathLifecycleStore
             batchMaxSize: (opts ?? new PathLifecycleOptions()).BatchMaxSize,
             drainInterval: (opts ?? new PathLifecycleOptions()).DrainInterval,
             logger: logger,
-            keyComparer: StringComparer.Ordinal)
+            keyComparer: null)
     {
         _connectionString = connectionString;
         _logger = logger;
@@ -72,20 +86,38 @@ public sealed class SqlitePathLifecycleStore
     ///     happens out-of-band via the base-class drainer. <paramref name="ct"/>
     ///     is ignored -- the work is bounded local memory ops.
     /// </summary>
-    public Task RecordResponseAsync(string path, int statusCode, CancellationToken ct = default)
+    public Task RecordResponseAsync(RequestScope scope, string path, int statusCode, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(path)) return Task.CompletedTask;
-        Record(path, new PathLifecycleOp(path, statusCode, DateTime.UtcNow));
+        Record((scope.Host, path), new PathLifecycleOp(scope.Domain, scope.Host, path, statusCode, DateTime.UtcNow));
         return Task.CompletedTask;
     }
 
     Task<PathLifecycle?> IPathLifecycleStore.GetAsync(string path, CancellationToken ct)
+        => GetAsync(path, ct);
+
+    /// <summary>
+    ///     Path-only read for the honeypot EndpointHistory classifier. Hot
+    ///     tier is keyed by <c>(host, path)</c>; this scans the hot tier for
+    ///     any host serving <paramref name="path"/>, then falls through to
+    ///     Sqlite on miss. The cold row is not repopulated into the hot tier
+    ///     from here (we don't know which host key the caller cares about);
+    ///     the next <see cref="RecordResponseAsync"/> from middleware -- which
+    ///     does know the host -- lands it back in the hot dict correctly.
+    /// </summary>
+    public async Task<PathLifecycle?> GetAsync(string path, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(path)) return Task.FromResult<PathLifecycle?>(null);
-        // Adapter: IPathLifecycleStore exposes Task; base.GetAsync returns
-        // ValueTask. Explicit interface impl so the base method stays
-        // reachable from internal callers via the typed instance.
-        return base.GetAsync(path, ct).AsTask();
+        if (string.IsNullOrEmpty(path)) return null;
+        var hot = FirstHotByPath(path);
+        return hot ?? await LoadFromDurableTierAsync(path, ct);
+    }
+
+    private PathLifecycle? FirstHotByPath(string path)
+    {
+        foreach (var (key, value) in Snapshot())
+            if (string.Equals(key.Path, path, StringComparison.Ordinal))
+                return value;
+        return null;
     }
 
     /// <summary>
@@ -97,13 +129,15 @@ public sealed class SqlitePathLifecycleStore
 
     // === WriteBehindLfuStore hooks =========================================
 
-    protected override PathLifecycle CreateInitial(string path, PathLifecycleOp op)
+    protected override PathLifecycle CreateInitial((string Host, string Path) key, PathLifecycleOp op)
     {
         var is2xx = op.StatusCode is >= 200 and < 300;
         var is4xx = op.StatusCode is >= 400 and < 500;
         return new PathLifecycle
         {
-            Path = path,
+            Domain = op.Domain,
+            Host = op.Host,
+            Path = key.Path,
             FirstSeenUtc = op.UtcNow,
             LastSeenUtc = op.UtcNow,
             Total2xx = is2xx ? 1 : 0,
@@ -114,12 +148,16 @@ public sealed class SqlitePathLifecycleStore
         };
     }
 
-    protected override PathLifecycle MergeIntoExisting(string path, PathLifecycle prev, PathLifecycleOp op)
+    protected override PathLifecycle MergeIntoExisting((string Host, string Path) key, PathLifecycle prev, PathLifecycleOp op)
     {
         var is2xx = op.StatusCode is >= 200 and < 300;
         var is4xx = op.StatusCode is >= 400 and < 500;
         return prev with
         {
+            // Refresh scope on merge so a null-seed row that later observes a
+            // real scope picks it up. Same-host writes are a no-op update.
+            Domain = op.Domain,
+            Host = op.Host,
             LastSeenUtc = op.UtcNow,
             Total2xx = prev.Total2xx + (is2xx ? 1 : 0),
             Total4xx = prev.Total4xx + (is4xx ? 1 : 0),
@@ -139,8 +177,8 @@ public sealed class SqlitePathLifecycleStore
     ///     <para>
     ///     This score also drives sampling under overload: when the write
     ///     queue is saturated and entries get evicted from the hot tier,
-    ///     <see cref="PersistBatchAsync"/> skips any op whose path is no
-    ///     longer in the hot tier (TryGetHot returns null). So the LFU
+    ///     <see cref="PersistBatchAsync"/> skips any op whose (host,path) is
+    ///     no longer in the hot tier (TryGetHot returns null). So the LFU
     ///     ranking here decides both what stays in memory AND what gets
     ///     persisted under pressure -- the system sheds the least useful
     ///     paths first, not the oldest.
@@ -174,7 +212,12 @@ public sealed class SqlitePathLifecycleStore
         return score;
     }
 
-    protected override async ValueTask<PathLifecycle?> LoadFromDurableTierAsync(string path, CancellationToken ct)
+    protected override async ValueTask<PathLifecycle?> LoadFromDurableTierAsync((string Host, string Path) key, CancellationToken ct)
+    {
+        return await LoadFromDurableTierAsync(key.Path, ct);
+    }
+
+    private async ValueTask<PathLifecycle?> LoadFromDurableTierAsync(string path, CancellationToken ct)
     {
         await EnsureInitializedAsync(ct);
         try
@@ -183,23 +226,26 @@ public sealed class SqlitePathLifecycleStore
             await conn.OpenAsync(ct);
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
-                SELECT first_seen_utc, total_2xx, total_4xx, total_other,
+                SELECT domain, host, first_seen_utc, total_2xx, total_4xx, total_other,
                        last_2xx_utc, first_4xx_after_2xx_utc, last_seen_utc
                 FROM path_lifecycle WHERE path = @path
+                LIMIT 1
                 """;
             cmd.Parameters.AddWithValue("@path", path);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             if (!await reader.ReadAsync(ct)) return null;
             return new PathLifecycle
             {
+                Domain = reader.GetString(0),
+                Host = reader.GetString(1),
                 Path = path,
-                FirstSeenUtc = ParseUtc(reader.GetString(0)),
-                Total2xx = reader.GetInt32(1),
-                Total4xx = reader.GetInt32(2),
-                TotalOther = reader.GetInt32(3),
-                Last2xxUtc = reader.IsDBNull(4) ? null : ParseUtc(reader.GetString(4)),
-                First4xxAfter2xxUtc = reader.IsDBNull(5) ? null : ParseUtc(reader.GetString(5)),
-                LastSeenUtc = ParseUtc(reader.GetString(6))
+                FirstSeenUtc = ParseUtc(reader.GetString(2)),
+                Total2xx = reader.GetInt32(3),
+                Total4xx = reader.GetInt32(4),
+                TotalOther = reader.GetInt32(5),
+                Last2xxUtc = reader.IsDBNull(6) ? null : ParseUtc(reader.GetString(6)),
+                First4xxAfter2xxUtc = reader.IsDBNull(7) ? null : ParseUtc(reader.GetString(7)),
+                LastSeenUtc = ParseUtc(reader.GetString(8))
             };
         }
         catch (Exception ex)
@@ -214,11 +260,12 @@ public sealed class SqlitePathLifecycleStore
         if (batch.Count == 0) return;
         await EnsureInitializedAsync(ct);
 
-        // Dedupe by path: many ops in a single batch can land on the same path
-        // under load. We only need to UPSERT the current aggregated value once
-        // per unique path -- the hot tier already holds the merged result.
-        var keys = new HashSet<string>(batch.Count, StringComparer.Ordinal);
-        foreach (var op in batch) keys.Add(op.Path);
+        // Dedupe by (host, path): many ops in a single batch can land on the
+        // same (host, path) under load. We only need to UPSERT the current
+        // aggregated value once per unique key -- the hot tier already holds
+        // the merged result.
+        var keys = new HashSet<(string Host, string Path)>(batch.Count);
+        foreach (var op in batch) keys.Add((op.Host, op.Path));
 
         await _writeLock.WaitAsync(ct);
         try
@@ -230,11 +277,12 @@ public sealed class SqlitePathLifecycleStore
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
                 INSERT INTO path_lifecycle
-                    (path, first_seen_utc, total_2xx, total_4xx, total_other,
+                    (domain, host, path, first_seen_utc, total_2xx, total_4xx, total_other,
                      last_2xx_utc, first_4xx_after_2xx_utc, last_seen_utc)
                 VALUES
-                    (@path, @first_seen, @t2, @t4, @to, @last2, @first4, @last_seen)
-                ON CONFLICT(path) DO UPDATE SET
+                    (@domain, @host, @path, @first_seen, @t2, @t4, @to, @last2, @first4, @last_seen)
+                ON CONFLICT(host, path) DO UPDATE SET
+                    domain = excluded.domain,
                     total_2xx = excluded.total_2xx,
                     total_4xx = excluded.total_4xx,
                     total_other = excluded.total_other,
@@ -242,6 +290,8 @@ public sealed class SqlitePathLifecycleStore
                     first_4xx_after_2xx_utc = COALESCE(path_lifecycle.first_4xx_after_2xx_utc, excluded.first_4xx_after_2xx_utc),
                     last_seen_utc = excluded.last_seen_utc
                 """;
+            var pDomain = cmd.Parameters.Add("@domain", SqliteType.Text);
+            var pHost = cmd.Parameters.Add("@host", SqliteType.Text);
             var pPath = cmd.Parameters.Add("@path", SqliteType.Text);
             var pFirst = cmd.Parameters.Add("@first_seen", SqliteType.Text);
             var pT2 = cmd.Parameters.Add("@t2", SqliteType.Integer);
@@ -251,10 +301,12 @@ public sealed class SqlitePathLifecycleStore
             var pFirst4 = cmd.Parameters.Add("@first4", SqliteType.Text);
             var pLastSeen = cmd.Parameters.Add("@last_seen", SqliteType.Text);
 
-            foreach (var path in keys)
+            foreach (var key in keys)
             {
-                var entry = TryGetHot(path);
+                var entry = TryGetHot(key);
                 if (entry is null) continue;
+                pDomain.Value = entry.Domain;
+                pHost.Value = entry.Host;
                 pPath.Value = entry.Path;
                 pFirst.Value = entry.FirstSeenUtc.ToString("O");
                 pT2.Value = entry.Total2xx;
@@ -317,11 +369,12 @@ public sealed class SqlitePathLifecycleStore
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = """
                 INSERT INTO path_lifecycle
-                    (path, first_seen_utc, total_2xx, total_4xx, total_other,
+                    (domain, host, path, first_seen_utc, total_2xx, total_4xx, total_other,
                      last_2xx_utc, first_4xx_after_2xx_utc, last_seen_utc)
                 VALUES
-                    (@path, @first_seen, @t2, @t4, @to, @last2, @first4, @last_seen)
-                ON CONFLICT(path) DO UPDATE SET
+                    (@domain, @host, @path, @first_seen, @t2, @t4, @to, @last2, @first4, @last_seen)
+                ON CONFLICT(host, path) DO UPDATE SET
+                    domain = excluded.domain,
                     total_2xx = excluded.total_2xx,
                     total_4xx = excluded.total_4xx,
                     total_other = excluded.total_other,
@@ -329,9 +382,11 @@ public sealed class SqlitePathLifecycleStore
                     first_4xx_after_2xx_utc = COALESCE(path_lifecycle.first_4xx_after_2xx_utc, excluded.first_4xx_after_2xx_utc),
                     last_seen_utc = excluded.last_seen_utc
                 """;
-            foreach (var (path, entry) in snapshot)
+            foreach (var (_, entry) in snapshot)
             {
                 cmd.Parameters.Clear();
+                cmd.Parameters.AddWithValue("@domain", entry.Domain);
+                cmd.Parameters.AddWithValue("@host", entry.Host);
                 cmd.Parameters.AddWithValue("@path", entry.Path);
                 cmd.Parameters.AddWithValue("@first_seen", entry.FirstSeenUtc.ToString("O"));
                 cmd.Parameters.AddWithValue("@t2", entry.Total2xx);
