@@ -8,7 +8,7 @@ const out = '/tmp';
 
 // Main dashboard
 console.log('Loading dashboard...');
-await page.goto('https://www.stylobot.net/_stylobot', { waitUntil: 'networkidle', timeout: 30000 });
+await page.goto('https://stylo.bot/_stylobot', { waitUntil: 'networkidle', timeout: 30000 });
 await page.waitForTimeout(3000);
 await page.screenshot({ path: `${out}/sb-overview.png`, fullPage: true });
 console.log('Overview captured');
@@ -60,7 +60,7 @@ try {
   for (let i = 0; i < Math.min(5, count); i++) {
     const href = await sigLinks.nth(i).getAttribute('href');
     console.log(`  Testing signature ${i}: ${href}`);
-    await page.goto(`https://www.stylobot.net${href}`, { waitUntil: 'networkidle', timeout: 15000 });
+    await page.goto(`https://stylo.bot${href}`, { waitUntil: 'networkidle', timeout: 15000 });
     await page.waitForTimeout(1000);
 
     const nf = await page.locator('text=Signature Not Found, text=not found, text=Not Found').first().isVisible().catch(() => false);

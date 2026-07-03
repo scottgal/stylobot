@@ -4,7 +4,7 @@
 
 import { chromium } from 'playwright';
 
-const BASE = process.argv[2] || 'https://www.stylobot.net';
+const BASE = process.argv[2] || 'https://stylo.bot';
 const out = '/tmp/sb-audit';
 
 const browser = await chromium.launch();
