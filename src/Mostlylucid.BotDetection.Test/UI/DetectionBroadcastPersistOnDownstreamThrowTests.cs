@@ -194,8 +194,6 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
             => throw new NotImplementedException();
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => throw new NotImplementedException();
-        public Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(int lookbackDays = 30, int limit = 100, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>>(Array.Empty<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>());
         public Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(string signature, int topN = 25, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)

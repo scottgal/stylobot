@@ -131,11 +131,6 @@ public sealed class TrafficControllerFilterTests
             int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(new List<DashboardEndpointStats>());
 
-        public Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
-            int lookbackDays = 30, int limit = 100, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>>(
-                Array.Empty<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>());
-
         // Stubs for methods the controller doesn't touch on this path. They
         // exist only to satisfy the interface; the tests never invoke them.
         public Task AddDetectionAsync(DashboardDetectionEvent detection) => Task.CompletedTask;

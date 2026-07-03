@@ -236,20 +236,6 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     }
 
     /// <summary>
-    ///     Remote stub for the multi-select domain picker. The gateway does not
-    ///     yet expose <c>/api/v1/domains</c>; a remote-mode dashboard sees no
-    ///     options (dropdown collapses to empty), which is the same fail-open
-    ///     posture the other unimplemented remote endpoints take. Wiring the
-    ///     gateway route is a follow-up per feedback_remote_mode_optional_di.
-    /// </summary>
-    public Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
-        int lookbackDays = 30,
-        int limit = 100,
-        CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>>(
-            Array.Empty<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>());
-
-    /// <summary>
     ///     Remote stub. The gateway's <c>/api/v1</c> surface does not yet expose
     ///     per-signature endpoint stats, so a remote-mode dashboard hosts an
     ///     empty list for this signature. The signature detail page falls back

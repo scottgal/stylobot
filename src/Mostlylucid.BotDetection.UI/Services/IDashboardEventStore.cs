@@ -93,17 +93,6 @@ public interface IDashboardEventStore
     Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null);
 
     /// <summary>
-    ///     Distinct <c>dashboard_detections.domain</c> values seen in the last
-    ///     <paramref name="lookbackDays"/> days, ordered by detection count DESC.
-    ///     Backs the multi-select domain picker on the Traffic page. Returns
-    ///     raw values (no display transformation); caller renders the label.
-    /// </summary>
-    Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
-        int lookbackDays = 30,
-        int limit = 100,
-        CancellationToken ct = default);
-
-    /// <summary>
     ///     Per-endpoint stats restricted to a single signature, grouped by
     ///     (method, path) and ordered by hit count descending. Powers the
     ///     Endpoints Visited table on the signature detail page.

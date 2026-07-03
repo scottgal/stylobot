@@ -71,9 +71,6 @@ public sealed class DashboardEventStoreBackedEndpointPerfBaselineTests
         public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20,
             System.DateTime? startTime = null, System.DateTime? endTime = null,
             string? audienceFilter = null, IReadOnlyList<string>? domains = null) => throw new System.NotSupportedException();
-        public Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
-            int lookbackDays = 30, int limit = 100, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>>(Array.Empty<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>());
         public Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode,
             System.DateTime? startTime = null, System.DateTime? endTime = null)
             => throw new System.NotSupportedException();

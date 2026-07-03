@@ -2178,59 +2178,6 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return ($" AND {prefix}domain IN ({string.Join(", ", placeholders)})", parameters);
     }
 
-    /// <summary>
-    ///     Distinct <c>dashboard_detections.domain</c> values seen in the last
-    ///     <paramref name="lookbackDays"/> days, ordered by detection count DESC.
-    ///     Backs the multi-select domain picker on the Traffic page.
-    /// </summary>
-    public async Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(
-        int lookbackDays = 30,
-        int limit = 100,
-        CancellationToken ct = default)
-    {
-        await EnsureInitializedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT domain, COUNT(*) AS n
-            FROM detections
-            WHERE domain IS NOT NULL AND domain != ''
-              AND timestamp >= @since
-            GROUP BY domain
-            ORDER BY n DESC
-            LIMIT @limit
-            """;
-        cmd.Parameters.AddWithValue("@since", DateTime.UtcNow.AddDays(-Math.Max(1, lookbackDays)).ToString("O"));
-        cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
-
-        var results = new List<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>(limit);
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            var value = reader.GetString(0);
-            var count = reader.IsDBNull(1) ? 0L : Convert.ToInt64(reader.GetValue(1));
-            var (label, isInternal) = FormatDomainLabel(value);
-            results.Add(new Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption(
-                Value: value, DisplayLabel: label, Count: count, IsInternal: isInternal));
-        }
-        return results;
-    }
-
-    /// <summary>
-    ///     UI-only label transform: hosts under the internal cluster gateway
-    ///     render as "internal" so operators aren't staring at
-    ///     <c>stylobot-gateway.stylobot-system.svc.cluster.local</c>. The raw
-    ///     value stays intact for URL + SQL round-trip.
-    /// </summary>
-    private static (string Label, bool IsInternal) FormatDomainLabel(string value)
-    {
-        if (value.StartsWith("stylobot-gateway.", StringComparison.OrdinalIgnoreCase))
-            return ("internal", true);
-        return (value, false);
-    }
-
     public ValueTask DisposeAsync()
     {
         _initLock.Dispose();

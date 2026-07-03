@@ -174,9 +174,6 @@ public sealed class TopEndpointsPerfProjectionTests
             int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(new List<DashboardCountryStats>());
 
-        public Task<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>> GetDomainOptionsAsync(int lookbackDays = 30, int limit = 100, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>>(Array.Empty<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.DomainOption>());
-
         public Task AddDetectionAsync(DashboardDetectionEvent detection) => Task.CompletedTask;
         public Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature) => Task.FromResult(signature);
         public Task UpdateSignatureBotNameAsync(string signature, string name, string? description, CancellationToken ct = default) => Task.CompletedTask;

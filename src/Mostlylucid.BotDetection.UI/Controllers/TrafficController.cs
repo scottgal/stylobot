@@ -62,17 +62,13 @@ public sealed class TrafficController : Controller
         CancellationToken ct)
     {
         var opts = _layout.Value;
-        // Bind repeated ?domain=X&domain=Y URL parameters into a distinct,
-        // whitespace-trimmed list. Empty list = no domain filter (matches
-        // the store-side "domains == null || Count == 0 → skip predicate"
-        // fail-open convention on both SQLite and Postgres).
-        var rawDomains = Request.Query["domain"];
-        var domains = rawDomains
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(v => v!.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-
+        // Neutral filter construction. TrafficFilters.Domains stays on the
+        // model as neutral plumbing (SQL WHERE, LinkWith param, remote
+        // pass-through all consume it), but FOSS itself doesn't bind
+        // anything into it — the widget + Query["domain"] binding + the
+        // GetDomainOptionsAsync load live in the commercial marketing-site
+        // overlay because the domain axis is a License.Domains display
+        // scope. Empty Domains = fail open on every store call downstream.
         var filters = new TrafficFilters(
             Country: string.IsNullOrWhiteSpace(country) ? null : country,
             BotType: string.IsNullOrWhiteSpace(botType) ? null : botType,
@@ -81,15 +77,7 @@ public sealed class TrafficController : Controller
             // ParseWindow recognises both forms so legacy hosts that set
             // DefaultTimeWindowMinutes still resolve.
             Window: string.IsNullOrWhiteSpace(window) ? FormatDefaultWindow(opts.DefaultTimeWindowMinutes) : window,
-            Threat: string.IsNullOrWhiteSpace(threat) ? null : threat) with
-        {
-            Domains = domains,
-        };
-        // Load + cache the domain picker options on HttpContext.Items so any
-        // partial that re-renders during this request reuses the same list
-        // (per-request cache, NOT a store spanning requests -- see
-        // feedback_centralised_change_detection + task constraint).
-        var domainOptions = await LoadDomainOptionsAsync(ct);
+            Threat: string.IsNullOrWhiteSpace(threat) ? null : threat);
 
         var topN = opts.TrafficCardTopN;
         var windowMinutes = ParseWindow(filters.Window);
@@ -169,7 +157,7 @@ public sealed class TrafficController : Controller
                     v.BotName ?? string.Empty,
                     v.ThreatBand ?? "None",
                     v.LastSeen))
-                .ToList()) with { DomainOptions = domainOptions };
+                .ToList());
 
         // Views live under the non-conventional /Views/StyloBot/Dashboard/... root
         // alongside the rest of the middleware-rendered dashboard pages, so the
@@ -215,26 +203,6 @@ public sealed class TrafficController : Controller
     {
         try { return await _eventStore.GetTimeSeriesAsync(start, end, bucketSize, domains: domains); }
         catch { return new List<DashboardTimeSeriesPoint>(); }
-    }
-
-    /// <summary>
-    ///     Load the multi-select domain picker options, caching them on
-    ///     <see cref="HttpContext.Items"/> so the widget partial + any
-    ///     down-stream re-render see the same list within one request. The
-    ///     store call is a 30-day distinct-domain scan; not cached across
-    ///     requests (per feedback_no_inmemory_stores + task constraint).
-    /// </summary>
-    private async Task<IReadOnlyList<DomainOption>> LoadDomainOptionsAsync(CancellationToken ct)
-    {
-        const string cacheKey = "sb.dashboard.traffic.domain-options";
-        if (HttpContext.Items.TryGetValue(cacheKey, out var cached)
-            && cached is IReadOnlyList<DomainOption> cachedList)
-            return cachedList;
-        IReadOnlyList<DomainOption> options;
-        try { options = await _eventStore.GetDomainOptionsAsync(lookbackDays: 30, limit: 100, ct: ct); }
-        catch { options = Array.Empty<DomainOption>(); }
-        HttpContext.Items[cacheKey] = options;
-        return options;
     }
 
     /// <summary>
