@@ -214,11 +214,11 @@ public static class ContributingDetectorAdapterExtensions
     /// <remarks>
     ///     <para>
     ///         Call this AFTER
-    ///         <see cref="BotDetectionPackExtensions.AddNativeDetectorAtoms"/>
+    ///         <see cref="BotDetectionOrchestratorExtensions.AddNativeDetectorAtoms"/>
     ///         so the native atoms are the source of truth for their names.
     ///         The skip set is derived at DI-resolution time from the
     ///         <see cref="INativeAtomNameMarker"/> registrations that
-    ///         <see cref="BotDetectionPackExtensions.AddDetectorAtom{TAtom}(IServiceCollection)"/>
+    ///         <see cref="BotDetectionOrchestratorExtensions.AddDetectorAtom{TAtom}(IServiceCollection)"/>
     ///         adds alongside each native atom -- no hand-maintained list.
     ///     </para>
     ///     <para>

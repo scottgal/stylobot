@@ -7,16 +7,17 @@ using Mostlylucid.BotDetection.Orchestration.Atoms;
 namespace Mostlylucid.BotDetection.Middleware;
 
 /// <summary>
-///     Pack-path middleware — the target of the pack-signalsink-blackboard
-///     realignment. Runs the request through <see cref="BotDetectionPack"/>'s
+///     Atom-orchestrator middleware — the target of the atoms-as-detection
+///     realignment. Runs the request through <see cref="BotDetectionOrchestrator"/>'s
 ///     wave orchestrator, which raises signals onto the per-request
 ///     <c>SignalSink</c> (the blackboard) and triggers the
 ///     <see cref="SignatureEscalatorAtom"/> tight with that sink.
 /// </summary>
 /// <remarks>
 ///     <para>
-///         Bounded scope for the initial commit: resolve the scoped Pack,
-///         call <see cref="BotDetectionPack.DetectAsync"/>, stash the
+///         Bounded scope for the initial commit: resolve the scoped
+///         <see cref="BotDetectionOrchestrator"/>, call
+///         <see cref="BotDetectionOrchestrator.DetectAsync"/>, stash the
 ///         returned <see cref="AggregatedEvidence"/> on
 ///         <c>HttpContext.Items[BotDetectionMiddleware.AggregatedEvidenceKey]</c>
 ///         so existing downstream consumers (dashboard broadcast, YARP
@@ -26,38 +27,38 @@ namespace Mostlylucid.BotDetection.Middleware;
 ///         (action-policy dispatch, honeypot tag override, per-BotType policy
 ///         fallback, load-shed, license log-only) migrate onto blackboard
 ///         escalator atoms in subsequent phases; until then a host that flips
-///         <c>BotDetection:UsePackPath=true</c> runs in observe-only shape
+///         <c>BotDetection:UseAtomOrchestrator=true</c> runs in observe-only shape
 ///         (detection populates the dashboard; bots are not blocked).
 ///     </para>
 ///     <para>
-///         This middleware is registered via <see cref="UseBotDetectionPack"/>.
+///         This middleware is registered via <see cref="UseBotDetectionAtoms"/>.
 ///         The gateway <c>Program.cs</c> reads the config flag and calls
-///         <see cref="UseBotDetectionPack"/> instead of
+///         <see cref="UseBotDetectionAtoms"/> instead of
 ///         <see cref="BotDetectionMiddlewareExtensions.UseBotDetection"/> when
 ///         the flag is on.
 ///     </para>
 /// </remarks>
-public sealed class BotDetectionPackMiddleware
+public sealed class BotDetectionAtomMiddleware
 {
     private readonly RequestDelegate _next;
 
-    public BotDetectionPackMiddleware(RequestDelegate next)
+    public BotDetectionAtomMiddleware(RequestDelegate next)
     {
         _next = next;
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Pack is scoped-per-request; resolve from the request's own container.
-        var pack = context.RequestServices.GetRequiredService<BotDetectionPack>();
+        // Orchestrator is scoped-per-request; resolve from the request's own container.
+        var orchestrator = context.RequestServices.GetRequiredService<BotDetectionOrchestrator>();
 
         // Run detection through the wave orchestrator. This raises
         // detection.completed / request.risk / request.honeypot signals onto
-        // the pack's SignalSink (blackboard), and triggers
+        // the orchestrator's SignalSink (blackboard), and triggers
         // SignatureEscalatorAtom's OnRequestAnalysisCompleteAsync which
         // handles salience-based escalation into the SignatureResponseCoordinator
         // for this signature.
-        var evidence = await pack.DetectAsync(context, context.RequestAborted);
+        var evidence = await orchestrator.DetectAsync(context, context.RequestAborted);
 
         // Stash the evidence under the canonical items key so existing
         // downstream middleware (DetectionBroadcastMiddleware,
@@ -76,12 +77,12 @@ public sealed class BotDetectionPackMiddleware
         // response.status_code on the blackboard see the FINAL code, not a
         // pre-_next snapshot.
         //
-        // The pack's SignalSink is per-request-scoped and lives until the
-        // BotDetectionPack instance is disposed by the request scope
-        // (BotDetectionPack.Dispose calls _signalSink.ClearPattern("*") at
-        // line 288). Raising here is safe.
+        // The orchestrator's SignalSink is per-request-scoped and lives until the
+        // BotDetectionOrchestrator instance is disposed by the request scope
+        // (BotDetectionOrchestrator.Dispose calls _signalSink.ClearPattern("*")).
+        // Raising here is safe.
         var sessionId = context.TraceIdentifier;
-        var sink = pack.SignalSink;
+        var sink = orchestrator.SignalSink;
         sink.Raise($"response.status_code:{context.Response.StatusCode}", sessionId);
         sink.Raise($"response.bytes:{context.Response.ContentLength ?? 0}", sessionId);
         sink.Raise($"response.from_upstream:{context.IsResponseFromUpstream()}", sessionId);
@@ -89,26 +90,26 @@ public sealed class BotDetectionPackMiddleware
 }
 
 /// <summary>
-///     Extension methods for wiring the pack-path middleware.
+///     Extension methods for wiring the atom-orchestrator middleware.
 /// </summary>
-public static class BotDetectionPackMiddlewareExtensions
+public static class BotDetectionAtomMiddlewareExtensions
 {
     /// <summary>
-    ///     Register <see cref="BotDetectionPackMiddleware"/> in the pipeline.
+    ///     Register <see cref="BotDetectionAtomMiddleware"/> in the pipeline.
     ///     Requires that <see cref="Modules.BotDetectionModuleExtensions.AddBotDetectionModule"/>
     ///     has been called at DI-registration time so
-    ///     <see cref="BotDetectionPack"/> is resolvable.
+    ///     <see cref="BotDetectionOrchestrator"/> is resolvable.
     /// </summary>
     /// <example>
     ///     <code>
-    ///     if (builder.Configuration.GetValue&lt;bool&gt;("BotDetection:UsePackPath"))
-    ///         app.UseBotDetectionPack();
+    ///     if (builder.Configuration.GetValue&lt;bool&gt;("BotDetection:UseAtomOrchestrator"))
+    ///         app.UseBotDetectionAtoms();
     ///     else
     ///         app.UseBotDetection();
     ///     </code>
     /// </example>
-    public static IApplicationBuilder UseBotDetectionPack(this IApplicationBuilder app)
+    public static IApplicationBuilder UseBotDetectionAtoms(this IApplicationBuilder app)
     {
-        return app.UseMiddleware<BotDetectionPackMiddleware>();
+        return app.UseMiddleware<BotDetectionAtomMiddleware>();
     }
 }

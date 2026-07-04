@@ -81,8 +81,8 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<BrowserVersionService>();
         services.TryAddSingleton<BotListDatabase>();
 
-        // Register the pack-based orchestration
-        services.AddBotDetectionPack();
+        // Register the atom-orchestrator
+        services.AddBotDetectionOrchestrator();
 
         // Register contributors as detector atoms (adapt existing contributors)
         RegisterContributors(services, context);
@@ -186,8 +186,8 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // not HttpContext.Items via BlackboardState.
         //
         // Native atoms register themselves via AddDetectorAtom<T>() (see
-        // BotDetectionPack.cs BotDetectionPackExtensions) as new IContributingDetector
-        // implementations are converted.
+        // BotDetectionOrchestrator.cs BotDetectionOrchestratorExtensions) as new
+        // IContributingDetector implementations are converted.
     }
 }
 

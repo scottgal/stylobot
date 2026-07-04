@@ -11,7 +11,7 @@ using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 
 /// <summary>
-///     Bot detection as a configurable "pack" of detector atoms.
+///     Bot detection as a wave-orchestrated set of detector atoms.
 ///     Uses ephemeral's DetectorOrchestrator for wave-based execution,
 ///     SignalSink for coordination, and integrates with StyloFlow dashboard.
 /// </summary>
@@ -31,16 +31,16 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 ///     Dashboard (real-time visualization)
 ///     ```
 ///
-///     This pack-based approach means:
+///     This atom-orchestrator approach means:
 ///     - Detectors are plug-and-play (register via DI)
 ///     - Configuration via YAML manifests
 ///     - Swappable storage (SQLite, Postgres, etc.)
 ///     - Real-time dashboard integration
 /// </remarks>
-public sealed class BotDetectionPack : IDisposable
+public sealed class BotDetectionOrchestrator : IDisposable
 {
     private readonly EscalatorConfig _escalatorConfig;
-    private readonly ILogger<BotDetectionPack> _logger;
+    private readonly ILogger<BotDetectionOrchestrator> _logger;
     private readonly ILogger<SignatureEscalatorAtom> _escalatorLogger;
     private readonly BotDetectionOptions _options;
     private readonly DetectorOrchestrator _orchestrator;
@@ -48,12 +48,12 @@ public sealed class BotDetectionPack : IDisposable
     private readonly SignalSink _signalSink;
     private readonly SignatureResponseCoordinatorCache _signatureCoordinators;
 
-    public BotDetectionPack(
+    public BotDetectionOrchestrator(
         IServiceProvider serviceProvider,
         IOptions<BotDetectionOptions> options,
         SignatureResponseCoordinatorCache signatureCoordinators,
         IOptions<EscalatorConfig> escalatorConfig,
-        ILogger<BotDetectionPack> logger,
+        ILogger<BotDetectionOrchestrator> logger,
         ILogger<SignatureEscalatorAtom> escalatorLogger)
     {
         _serviceProvider = serviceProvider;
@@ -63,7 +63,7 @@ public sealed class BotDetectionPack : IDisposable
         _logger = logger;
         _escalatorLogger = escalatorLogger;
 
-        // Create shared signal sink for this pack
+        // Create shared signal sink for this orchestrator
         _signalSink = new SignalSink(
             maxCapacity: _options.MaxSignalCapacity,
             maxAge: TimeSpan.FromMinutes(_options.SignalRetentionMinutes));
@@ -87,7 +87,7 @@ public sealed class BotDetectionPack : IDisposable
         }
 
         _logger.LogInformation(
-            "BotDetectionPack initialized with {Count} detector atoms",
+            "BotDetectionOrchestrator initialized with {Count} detector atoms",
             detectorAtoms.Count(d => d.IsEnabled));
     }
 
@@ -286,23 +286,23 @@ public sealed class BotDetectionPack : IDisposable
     public void Dispose()
     {
         _signalSink.ClearPattern("*");
-        _logger.LogDebug("BotDetectionPack disposed");
+        _logger.LogDebug("BotDetectionOrchestrator disposed");
     }
 }
 
 /// <summary>
-///     Extension methods for registering BotDetectionPack in DI.
+///     Extension methods for registering BotDetectionOrchestrator in DI.
 /// </summary>
-public static class BotDetectionPackExtensions
+public static class BotDetectionOrchestratorExtensions
 {
     /// <summary>
-    ///     Adds BotDetectionPack and related services for the "pack" architecture.
+    ///     Adds BotDetectionOrchestrator and related services for the atom-orchestrator architecture.
     /// </summary>
-    public static IServiceCollection AddBotDetectionPack(
+    public static IServiceCollection AddBotDetectionOrchestrator(
         this IServiceCollection services)
     {
-        // Register the pack as scoped (one per request)
-        services.AddScoped<BotDetectionPack>();
+        // Register the orchestrator as scoped (one per request)
+        services.AddScoped<BotDetectionOrchestrator>();
 
         // Register the hydrator atom
         services.AddSingleton<IDetectorAtom, RequestHydratorAtom>();
@@ -327,7 +327,7 @@ public static class BotDetectionPackExtensions
         services.AddNativeDetectorAtoms();
 
         // Migration adapters: every un-migrated IContributingDetector is
-        // wrapped as a ContributingDetectorAdapter so the pack path has full
+        // wrapped as a ContributingDetectorAdapter so the atom-orchestrator path has full
         // detector coverage today. The skip set is derived at DI-build time
         // from INativeAtomNameMarker registrations authored inside
         // AddDetectorAtom<T>() -- the atom's own Name property is the sole
@@ -345,16 +345,16 @@ public static class BotDetectionPackExtensions
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///         Only runs under the pack path (behind
-    ///         <c>BotDetection:UsePackPath</c>). Legacy contributors continue
+    ///         Only runs under the atom-orchestrator path (behind
+    ///         <c>BotDetection:UseAtomOrchestrator</c>). Legacy contributors continue
     ///         to run under the blackboard path. Atoms and contributors are
     ///         additive today -- the same detection role can be represented
     ///         in both. Once every legacy contributor has a native atom, the
-    ///         blackboard path retires and only the pack path remains.
+    ///         blackboard path retires and only the atom-orchestrator path remains.
     ///     </para>
     ///     <para>
     ///         Add newly-converted atoms here (grouped by taxonomy role for
-    ///         readability, but the pack orchestrator sorts by Priority at
+    ///         readability, but the orchestrator sorts by Priority at
     ///         runtime).
     ///     </para>
     /// </remarks>
@@ -432,7 +432,7 @@ public static class BotDetectionPackExtensions
     }
 
     /// <summary>
-    ///     Adds a detector atom to the pack. Also registers an
+    ///     Adds a detector atom to the orchestrator. Also registers an
     ///     <see cref="INativeAtomNameMarker"/> that exposes the atom's Name
     ///     to <see cref="ContributingDetectorAdapterExtensions.AddContributingDetectorAdapters"/>
     ///     so the adapter path can skip contributors whose name a native atom
@@ -451,7 +451,7 @@ public static class BotDetectionPackExtensions
     }
 
     /// <summary>
-    ///     Adds a detector atom to the pack with factory.
+    ///     Adds a detector atom to the orchestrator with factory.
     /// </summary>
     public static IServiceCollection AddDetectorAtom<TAtom>(
         this IServiceCollection services,
@@ -467,7 +467,7 @@ public static class BotDetectionPackExtensions
 }
 
 /// <summary>
-///     Marker registered by <see cref="BotDetectionPackExtensions.AddDetectorAtom{TAtom}(IServiceCollection)"/>
+///     Marker registered by <see cref="BotDetectionOrchestratorExtensions.AddDetectorAtom{TAtom}(IServiceCollection)"/>
 ///     that carries the atom's <see cref="IDetectorAtom.Name"/>. The
 ///     migration adapter enumerates these markers (a distinct service type,
 ///     no recursion into <see cref="IDetectorAtom"/> resolution) to compute

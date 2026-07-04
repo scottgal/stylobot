@@ -35,7 +35,7 @@ public class DetectorAtomWireupTests
                 ["BotDetection:EnableBehavioralAnalysis"] = "true",
                 ["BotDetection:EnableLlmDetection"] = "false",
                 ["BotDetection:EnableTestMode"] = "true",
-                ["BotDetection:UsePackPath"] = "true",
+                ["BotDetection:UseAtomOrchestrator"] = "true",
                 // BrowserModeClassifierAtom.IsEnabled depends on Identity being on
                 ["BotDetection:Identity:Enabled"] = "true",
                 ["BotDetection:Identity:BrowserMode:Enabled"] = "true"
@@ -49,10 +49,10 @@ public class DetectorAtomWireupTests
         services.AddHttpClient();
         services.AddHttpContextAccessor();
         services.AddBotDetection();
-        // AddBotDetection registers the legacy contributor path; the pack
-        // path (native atoms via AddNativeDetectorAtoms) requires an
-        // explicit opt-in until the module wire-up is universal.
-        services.AddBotDetectionPack();
+        // AddBotDetection registers the legacy contributor path; the
+        // atom-orchestrator path (native atoms via AddNativeDetectorAtoms)
+        // requires an explicit opt-in until the module wire-up is universal.
+        services.AddBotDetectionOrchestrator();
         _sp = services.BuildServiceProvider();
     }
 

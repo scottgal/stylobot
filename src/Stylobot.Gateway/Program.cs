@@ -203,14 +203,15 @@ try
     //     * loads *.entity.yaml types via AddStyloFlowEntitiesFromAssemblies
     //     * TryAddSingleton core services (IBotDetectionService, CommonUserAgentService,
     //       BrowserVersionService, BotListDatabase)
-    //     * calls AddBotDetectionPack() (registers BotDetectionPack scoped,
+    //     * calls AddBotDetectionOrchestrator() (registers BotDetectionOrchestrator scoped,
     //       SignatureResponseCoordinatorCache singleton, IDetectorAtom RequestHydratorAtom,
     //       EscalatorConfig options)
     //     * RegisterContributors registers every IContributingDetector as singleton
     //       (adapter registration for IDetectorAtom lands in Phase 3)
     //
-    // Phase 2 of the pack-signalsink-blackboard realignment: module DI-only. Nothing
-    // in the pipeline resolves the Pack yet -- middleware routing lands in Phase 4.
+    // Phase 2 of the atom-orchestrator realignment: module DI-only. Nothing
+    // in the pipeline resolves the orchestrator yet -- middleware routing lands
+    // in Phase 4.
     builder.Services.AddBotDetectionModule();
 
     // StyloExtract action policies: registers extract-markdown / extract-headers /
@@ -349,24 +350,24 @@ try
 
     // Bot Detection middleware - runs on every request.
     //
-    // Config flag BotDetection:UsePackPath selects the request path:
-    //   true  -> UseBotDetectionPack: runs the request through BotDetectionPack's
-    //            wave orchestrator (Ephemeral DetectorOrchestrator + shared
-    //            SignalSink / blackboard + SignatureEscalatorAtom +
-    //            SignatureResponseCoordinator lanes). Post-detection
-    //            middleware-level concerns (action-policy dispatch, honeypot
-    //            tag override, per-BotType policy fallback, load-shed,
-    //            license log-only) migrate onto blackboard escalators in
-    //            subsequent phases -- until that migration is complete, this
-    //            path runs in observe-only shape (detection populates the
-    //            dashboard; bots are not blocked).
+    // Config flag BotDetection:UseAtomOrchestrator selects the request path:
+    //   true  -> UseBotDetectionAtoms: runs the request through
+    //            BotDetectionOrchestrator's wave orchestrator (Ephemeral
+    //            DetectorOrchestrator + shared SignalSink / blackboard +
+    //            SignatureEscalatorAtom + SignatureResponseCoordinator lanes).
+    //            Post-detection middleware-level concerns (action-policy
+    //            dispatch, honeypot tag override, per-BotType policy fallback,
+    //            load-shed, license log-only) migrate onto blackboard
+    //            escalators in subsequent phases -- until that migration is
+    //            complete, this path runs in observe-only shape (detection
+    //            populates the dashboard; bots are not blocked).
     //   false -> UseBotDetection: the legacy BotDetectionMiddleware +
     //            BlackboardOrchestrator path.
     // Default: false (unset). Deploys are safe until the operator flips the
     // flag on staging and verifies parity.
-    var usePackPath = builder.Configuration.GetValue<bool>("BotDetection:UsePackPath");
-    if (usePackPath)
-        app.UseBotDetectionPack();
+    var useAtomOrchestrator = builder.Configuration.GetValue<bool>("BotDetection:UseAtomOrchestrator");
+    if (useAtomOrchestrator)
+        app.UseBotDetectionAtoms();
     else
         app.UseBotDetection();
 
