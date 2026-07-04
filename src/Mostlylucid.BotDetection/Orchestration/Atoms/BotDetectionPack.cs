@@ -386,6 +386,7 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<HeaderAtom>();                // Priority 10
         services.AddDetectorAtom<IpAtom>();                    // Priority 12
         services.AddDetectorAtom<CacheBehaviorAtom>();         // Priority 15
+        services.AddDetectorAtom<ProjectHoneypotAtom>();       // Priority 15
         services.AddDetectorAtom<BehavioralAtom>();            // Priority 20
         services.AddDetectorAtom<GeoChangeAtom>();             // Priority 16
         services.AddDetectorAtom<ClientSideAtom>();            // Priority 18
@@ -408,6 +409,7 @@ public static class BotDetectionPackExtensions
         // RankerAtoms -- re-scoring / re-ordering
         services.AddDetectorAtom<VersionAgeAtom>();            // Priority 25
         services.AddDetectorAtom<ReputationBiasAtom>();        // Priority 45
+        services.AddDetectorAtom<ClusterAtom>();               // Priority 850 (very late)
 
         return services;
     }
