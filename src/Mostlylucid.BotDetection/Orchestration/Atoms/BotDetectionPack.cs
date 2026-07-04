@@ -379,6 +379,7 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<VerifiedBotAtom>();           // Priority 4  (Wave 0)
         services.AddDetectorAtom<ThreatIntelAtom>();           // Priority 7  (Wave 0)
         services.AddDetectorAtom<SecurityToolAtom>();          // Priority 8  (Wave 0)
+        services.AddDetectorAtom<AiScraperAtom>();             // Priority 9  (Wave 0)
 
         // ConstrainerAtoms -- validate + constrain proposals
         services.AddDetectorAtom<HeaderAtom>();                // Priority 10
@@ -394,6 +395,7 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<IdentityChangeAtom>();        // Priority 30
         services.AddDetectorAtom<ReactivePatternAtom>();       // Priority 32
         services.AddDetectorAtom<ClaimedIdentityAtom>();       // Priority 35
+        services.AddDetectorAtom<StreamAbuseAtom>();           // Priority 35
         services.AddDetectorAtom<ClickFraudAtom>();            // Priority 38
         services.AddDetectorAtom<PoolCollisionAtom>();         // Priority 55
 
