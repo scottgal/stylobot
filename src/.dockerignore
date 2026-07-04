@@ -1,0 +1,23 @@
+# Context-root ignore for the gateway/demo/all/ui/sidecar image builds, which
+# CI runs with `context: ./src`. Buildkit reads the .dockerignore from the
+# context root, so it must live here (not just under Stylobot.Gateway/).
+# Without this, a working tree that has run `npm install` leaks
+# Mostlylucid.BotDetection.UI/node_modules into the build context and the
+# UI project's BuildTailwindCSS target fires `npx` inside the Node-less Alpine
+# SDK image (exit 127). Dropping node_modules makes the target's
+# Exists('node_modules') condition false, so the committed tailwind.min.css is
+# used instead. Also keeps host bin/obj out so stale artifacts can't contaminate
+# the in-container restore/publish.
+**/.git
+**/.vs
+**/.vscode
+**/.idea
+**/bin
+**/obj
+**/node_modules
+**/*.user
+**/*.suo
+**/Thumbs.db
+**/.DS_Store
+**/logs
+**/data

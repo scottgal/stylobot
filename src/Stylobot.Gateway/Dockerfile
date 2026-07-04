@@ -13,6 +13,10 @@ COPY Mostlylucid.Common/Mostlylucid.Common.csproj Mostlylucid.Common/
 COPY Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj Mostlylucid.GeoDetection/
 COPY Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj Mostlylucid.GeoDetection.Contributor/
 COPY Mostlylucid.BotDetection.StyloExtract/Mostlylucid.BotDetection.StyloExtract.csproj Mostlylucid.BotDetection.StyloExtract/
+COPY Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj Mostlylucid.BotDetection.Api/
+COPY Mostlylucid.BotDetection.Llm.Ollama/Mostlylucid.BotDetection.Llm.Ollama.csproj Mostlylucid.BotDetection.Llm.Ollama/
+COPY Mostlylucid.BotDetection.Llm.Tunnel/Mostlylucid.BotDetection.Llm.Tunnel.csproj Mostlylucid.BotDetection.Llm.Tunnel/
+COPY Mostlylucid.BotDetection.PrometheusPack/Mostlylucid.BotDetection.PrometheusPack.csproj Mostlylucid.BotDetection.PrometheusPack/
 # csproj files read ReleaseNotes.txt during restore for PackageReleaseNotes
 COPY Mostlylucid.BotDetection/ReleaseNotes.txt Mostlylucid.BotDetection/
 COPY Mostlylucid.GeoDetection/ReleaseNotes.txt Mostlylucid.GeoDetection/
@@ -29,6 +33,10 @@ COPY Mostlylucid.Common/ Mostlylucid.Common/
 COPY Mostlylucid.GeoDetection/ Mostlylucid.GeoDetection/
 COPY Mostlylucid.GeoDetection.Contributor/ Mostlylucid.GeoDetection.Contributor/
 COPY Mostlylucid.BotDetection.StyloExtract/ Mostlylucid.BotDetection.StyloExtract/
+COPY Mostlylucid.BotDetection.Api/ Mostlylucid.BotDetection.Api/
+COPY Mostlylucid.BotDetection.Llm.Ollama/ Mostlylucid.BotDetection.Llm.Ollama/
+COPY Mostlylucid.BotDetection.Llm.Tunnel/ Mostlylucid.BotDetection.Llm.Tunnel/
+COPY Mostlylucid.BotDetection.PrometheusPack/ Mostlylucid.BotDetection.PrometheusPack/
 RUN dotnet publish Stylobot.Gateway/Stylobot.Gateway.csproj -c Release -o /app
 
 # Install dotnet-trace into the build output so it's available at runtime
