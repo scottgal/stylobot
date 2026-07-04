@@ -396,6 +396,7 @@ public static class BotDetectionOrchestratorExtensions
 
         // GuardAtoms -- hard safety / policy gates
         services.AddDetectorAtom<FastPathReputationAtom>();    // Priority 3  (Wave 0)
+        services.AddDetectorAtom<HoneypotLinkAtom>();          // Priority 5  (Wave 0)
         services.AddDetectorAtom<VerifiedBotInlineAtom>();     // Priority 4  (Wave 0)
         services.AddDetectorAtom<FingerprintPriorAtom>();      // Priority 4  (Wave 0)
         services.AddDetectorAtom<MultiLayerCorrelationAtom>(); // Priority 4  (Wave 0)
@@ -404,6 +405,7 @@ public static class BotDetectionOrchestratorExtensions
         services.AddDetectorAtom<HaxxorAtom>();                // Priority 7  (Wave 0)
         services.AddDetectorAtom<SecurityToolAtom>();          // Priority 8  (Wave 0)
         services.AddDetectorAtom<AiScraperAtom>();             // Priority 9  (Wave 0)
+        services.AddDetectorAtom<CveProbeAtom>();              // Priority 11 (Wave 0)
 
         // ConstrainerAtoms -- validate + constrain proposals
         services.AddDetectorAtom<HeaderAtom>();                // Priority 10
@@ -412,6 +414,7 @@ public static class BotDetectionOrchestratorExtensions
         services.AddDetectorAtom<ResponseBehaviorAtom>();      // Priority 12
         services.AddDetectorAtom<CacheBehaviorAtom>();         // Priority 15
         services.AddDetectorAtom<ProjectHoneypotAtom>();       // Priority 15
+        services.AddDetectorAtom<EndpointHistoryAtom>();       // Priority 6  (Wave 0)
         services.AddDetectorAtom<BehavioralAtom>();            // Priority 20
         services.AddDetectorAtom<GeoChangeAtom>();             // Priority 16
         services.AddDetectorAtom<ClientSideAtom>();            // Priority 18
@@ -433,6 +436,7 @@ public static class BotDetectionOrchestratorExtensions
         // ProposerAtoms -- probabilistic proposals
         services.AddDetectorAtom<HeuristicAtom>();             // Priority 50
         services.AddDetectorAtom<InconsistencyAtom>();         // Priority 50
+        services.AddDetectorAtom<CveFingerprintAtom>();        // Priority 55
         services.AddDetectorAtom<SimilarityAtom>();            // Priority 60
         services.AddDetectorAtom<HeuristicLateAtom>();         // Priority 100
         services.AddDetectorAtom<AiAtom>();                    // Priority 100
