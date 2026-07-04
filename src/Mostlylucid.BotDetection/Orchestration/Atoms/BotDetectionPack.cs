@@ -406,6 +406,7 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<ChallengeVerificationAtom>(); // Priority 25
         services.AddDetectorAtom<PeriodicityAtom>();           // Priority 25
         services.AddDetectorAtom<ResourceWaterfallAtom>();     // Priority 22
+        services.AddDetectorAtom<SessionVectorAtom>();         // Priority 30
         services.AddDetectorAtom<IdentityChangeAtom>();        // Priority 30
         services.AddDetectorAtom<ReactivePatternAtom>();       // Priority 32
         services.AddDetectorAtom<ClaimedIdentityAtom>();       // Priority 35
