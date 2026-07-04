@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Enforcement;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
@@ -45,21 +46,27 @@ public sealed class BotDetectionAtomMiddleware
     private readonly RequestDelegate _next;
     private readonly LoadShedGate _loadShedGate;
     private readonly PolicyDispatchGate _policyDispatchGate;
+    private readonly PostDetectionActionGate _postDetectionActionGate;
     private readonly BlockResponseGate _blockResponseGate;
+    private readonly ResponsePiiMaskGate _piiMaskGate;
 
     public BotDetectionAtomMiddleware(
         RequestDelegate next,
         LoadShedGate loadShedGate,
         PolicyDispatchGate policyDispatchGate,
-        BlockResponseGate blockResponseGate)
+        PostDetectionActionGate postDetectionActionGate,
+        BlockResponseGate blockResponseGate,
+        ResponsePiiMaskGate piiMaskGate)
     {
         _next = next;
         _loadShedGate = loadShedGate;
         _policyDispatchGate = policyDispatchGate;
+        _postDetectionActionGate = postDetectionActionGate;
         _blockResponseGate = blockResponseGate;
+        _piiMaskGate = piiMaskGate;
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, IActionPolicyRegistry actionPolicyRegistry)
     {
         // Pre-detection load-shed. When the sensor is in the High band we
         // skip detection and forward to upstream; when it's Critical we
@@ -111,12 +118,26 @@ public sealed class BotDetectionAtomMiddleware
             return;
         }
 
+        // Honeypot tag override + endpoint action-policy override +
+        // per-BotType policy fallback. The gate mutates evidence when it
+        // triggers a policy so downstream broadcast / dashboard see the
+        // action name. PolicyHandledResponse short-circuits the pipeline;
+        // PolicyContinued runs _next but skips the block-decision gate
+        // (log-only / throttle-stealth explicitly allowed continuation).
+        var (postOutcome, mutated) = await _postDetectionActionGate.EvaluateAsync(
+            context, evidence, actionPolicyRegistry);
+        evidence = mutated;
+        if (postOutcome == PostDetectionActionOutcome.PolicyHandledResponse)
+        {
+            EmitResponseSignals(context, orchestrator);
+            return;
+        }
+
         // Legacy block / throttle / challenge decision + response shaping.
-        // Runs AFTER policy-stack dispatch so a policy-stack Allow marker
-        // wins (policy dispatcher stamps context.Items[PolicyActionDispatcher
-        // .AllowMarkerItemKey] before returning FallThrough on allow-through).
+        // Skipped when the policy-stack dispatch stamped the Allow marker or
+        // when the post-detection action gate ran a Continue-flagged policy.
         var policyAllowed = context.Items.ContainsKey(PolicyActionDispatcher.AllowMarkerItemKey);
-        if (!policyAllowed)
+        if (postOutcome == PostDetectionActionOutcome.NoOverride && !policyAllowed)
         {
             var blockOutcome = await _blockResponseGate.HandleAsync(context, evidence);
             if (blockOutcome == BlockResponseOutcome.Blocked)
@@ -126,7 +147,12 @@ public sealed class BotDetectionAtomMiddleware
             }
         }
 
-        await _next(context);
+        // Safety-net: auto-apply mask-pii when the evidence points at
+        // high-confidence malicious traffic that still gets to run _next.
+        // Then wrap _next with the sliding-window PII masking stream when
+        // mask-pii is requested (either by policy or by this auto-apply).
+        _piiMaskGate.MaybeAutoApplyMaliciousMask(context, evidence);
+        await _piiMaskGate.InvokeNextAsync(context, _next);
 
         EmitResponseSignals(context, orchestrator);
     }
