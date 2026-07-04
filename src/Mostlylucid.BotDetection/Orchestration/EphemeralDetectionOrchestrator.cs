@@ -453,7 +453,17 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         if (!ephemeralVerdict)
         {
             PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
-            TryPersistRequest(httpContext, result);
+            // Defer the request-row persist to Response.OnCompleted so
+            // status_code reflects the final response after action
+            // policies + upstream have run. Reading httpContext.Response.StatusCode
+            // synchronously here always saw the pre-populated default 200,
+            // making every persisted row misrecord its status. Matches the
+            // same fix in BlackboardOrchestrator.
+            httpContext.Response.OnCompleted(() =>
+            {
+                TryPersistRequest(httpContext, result);
+                return Task.CompletedTask;
+            });
             TryEnqueueBackgroundEnrichment(httpContext, result);
         }
 
