@@ -387,10 +387,12 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<HeaderCorrelationAtom>();     // Priority 21
         services.AddDetectorAtom<FingerprintApprovalAtom>();   // Priority 24
         services.AddDetectorAtom<ChallengeVerificationAtom>(); // Priority 25
+        services.AddDetectorAtom<PeriodicityAtom>();           // Priority 25
         services.AddDetectorAtom<ResourceWaterfallAtom>();     // Priority 22
         services.AddDetectorAtom<IdentityChangeAtom>();        // Priority 30
         services.AddDetectorAtom<ReactivePatternAtom>();       // Priority 32
         services.AddDetectorAtom<ClaimedIdentityAtom>();       // Priority 35
+        services.AddDetectorAtom<ClickFraudAtom>();            // Priority 38
         services.AddDetectorAtom<PoolCollisionAtom>();         // Priority 55
 
         // ProposerAtoms -- probabilistic proposals
