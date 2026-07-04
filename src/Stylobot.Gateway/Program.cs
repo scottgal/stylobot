@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.EndpointPolicies;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Honeypot;
-using Mostlylucid.BotDetection.Orchestration.Atoms;
+using Mostlylucid.BotDetection.Modules;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
 using Mostlylucid.BotDetection.Llm.Ollama.Extensions;
@@ -196,16 +196,22 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
-    // Wire the Pack primitives (shared SignalSink / blackboard,
-    // SignatureResponseCoordinatorCache, EscalatorConfig, RequestHydratorAtom).
-    // Phase 1 of the pack-signalsink-blackboard realignment: DI-only registration
-    // so the graph resolves. Middleware routing through the Pack lands in Phase 2.
-    // Reference primitives:
-    //   Mostlylucid.BotDetection.Orchestration.Atoms.BotDetectionPack
-    //   Mostlylucid.BotDetection.Orchestration.SignatureResponseCoordinator
-    //   Mostlylucid.BotDetection.Orchestration.SignatureEscalatorAtom
-    //   Mostlylucid.BotDetection.Orchestration.Lanes.{Behavioral,Spectral,Reputation}Lane
-    builder.Services.AddBotDetectionPack();
+    // Wire the StyloFlow module -- the correct entry point per BotDetectionModule.cs:27.
+    // AddBotDetectionModule -> AddStyloFlowModule(new BotDetectionModule(), context)
+    //   -> BotDetectionModule.ConfigureServices runs, which:
+    //     * loads *.detector.yaml manifests via AddStyloFlowFromAssemblies
+    //     * loads *.entity.yaml types via AddStyloFlowEntitiesFromAssemblies
+    //     * TryAddSingleton core services (IBotDetectionService, CommonUserAgentService,
+    //       BrowserVersionService, BotListDatabase)
+    //     * calls AddBotDetectionPack() (registers BotDetectionPack scoped,
+    //       SignatureResponseCoordinatorCache singleton, IDetectorAtom RequestHydratorAtom,
+    //       EscalatorConfig options)
+    //     * RegisterContributors registers every IContributingDetector as singleton
+    //       (adapter registration for IDetectorAtom lands in Phase 3)
+    //
+    // Phase 2 of the pack-signalsink-blackboard realignment: module DI-only. Nothing
+    // in the pipeline resolves the Pack yet -- middleware routing lands in Phase 4.
+    builder.Services.AddBotDetectionModule();
 
     // StyloExtract action policies: registers extract-markdown / extract-headers /
     // extract-sidecar / extract-passthrough into the IActionPolicyRegistry. The
