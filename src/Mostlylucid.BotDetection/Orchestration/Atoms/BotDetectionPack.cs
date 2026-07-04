@@ -320,17 +320,96 @@ public static class BotDetectionPackExtensions
         services.AddOptions<EscalatorConfig>()
             .BindConfiguration("BotDetection:Escalation");
 
+        // Native detector atoms -- the migration target for the legacy
+        // IContributingDetector implementations. Each atom is a
+        // per-taxonomy-role IDetectorAtom that reads/writes the shared
+        // SignalSink directly. Ordered by Priority (Wave 0 -> Wave N).
+        services.AddNativeDetectorAtoms();
+
+        // Migration adapters: every un-migrated IContributingDetector is
+        // wrapped as a ContributingDetectorAdapter so the pack path has full
+        // detector coverage today. The skip set is derived at DI-build time
+        // from INativeAtomNameMarker registrations authored inside
+        // AddDetectorAtom<T>() -- the atom's own Name property is the sole
+        // source of truth, no hand-maintained list. Deleted with the last
+        // legacy contributor.
+        services.AddContributingDetectorAdapters();
+
         return services;
     }
 
     /// <summary>
-    ///     Adds a detector atom to the pack.
+    ///     Registers all native <see cref="IDetectorAtom"/> implementations
+    ///     that have been converted from the legacy
+    ///     <c>IContributingDetector</c> contract.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Only runs under the pack path (behind
+    ///         <c>BotDetection:UsePackPath</c>). Legacy contributors continue
+    ///         to run under the blackboard path. Atoms and contributors are
+    ///         additive today -- the same detection role can be represented
+    ///         in both. Once every legacy contributor has a native atom, the
+    ///         blackboard path retires and only the pack path remains.
+    ///     </para>
+    ///     <para>
+    ///         Add newly-converted atoms here (grouped by taxonomy role for
+    ///         readability, but the pack orchestrator sorts by Priority at
+    ///         runtime).
+    ///     </para>
+    /// </remarks>
+    public static IServiceCollection AddNativeDetectorAtoms(
+        this IServiceCollection services)
+    {
+        // SensorAtoms -- boundary / signal extractors
+        services.AddDetectorAtom<SignatureAtom>();             // Priority 1  (Wave 0)
+        services.AddDetectorAtom<TimeAtom>();                  // Priority 5  (Wave 0)
+        services.AddDetectorAtom<FediverseDomainAtom>();       // Priority 5  (Wave 0)
+        services.AddDetectorAtom<BrowserModeClassifierAtom>(); // Priority 6  (Wave 0)
+        services.AddDetectorAtom<PiiQueryStringAtom>();        // Priority 8  (Wave 0)
+        services.AddDetectorAtom<LlmAtom>();                   // Priority 55
+
+        // GuardAtoms -- hard safety / policy gates
+        services.AddDetectorAtom<FastPathReputationAtom>();    // Priority 3  (Wave 0)
+        services.AddDetectorAtom<VerifiedBotInlineAtom>();     // Priority 4  (Wave 0)
+        services.AddDetectorAtom<FingerprintPriorAtom>();      // Priority 4  (Wave 0)
+
+        // ConstrainerAtoms -- validate + constrain proposals
+        services.AddDetectorAtom<CacheBehaviorAtom>();         // Priority 15
+        services.AddDetectorAtom<GeoChangeAtom>();             // Priority 16
+        services.AddDetectorAtom<CookieBehaviorAtom>();        // Priority 20
+        services.AddDetectorAtom<HeaderCorrelationAtom>();     // Priority 21
+        services.AddDetectorAtom<FingerprintApprovalAtom>();   // Priority 24
+        services.AddDetectorAtom<ChallengeVerificationAtom>(); // Priority 25
+        services.AddDetectorAtom<IdentityChangeAtom>();        // Priority 30
+        services.AddDetectorAtom<ClaimedIdentityAtom>();       // Priority 35
+        services.AddDetectorAtom<PoolCollisionAtom>();         // Priority 55
+
+        // ProposerAtoms -- probabilistic proposals
+        services.AddDetectorAtom<HeuristicAtom>();             // Priority 50
+
+        // RankerAtoms -- re-scoring / re-ordering
+        services.AddDetectorAtom<VersionAgeAtom>();            // Priority 25
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Adds a detector atom to the pack. Also registers an
+    ///     <see cref="INativeAtomNameMarker"/> that exposes the atom's Name
+    ///     to <see cref="ContributingDetectorAdapterExtensions.AddContributingDetectorAdapters"/>
+    ///     so the adapter path can skip contributors whose name a native atom
+    ///     has already claimed. Name comes from the atom instance itself --
+    ///     no hand-maintained lists.
     /// </summary>
     public static IServiceCollection AddDetectorAtom<TAtom>(
         this IServiceCollection services)
         where TAtom : class, IDetectorAtom
     {
-        services.AddSingleton<IDetectorAtom, TAtom>();
+        services.AddSingleton<TAtom>();
+        services.AddSingleton<IDetectorAtom>(sp => sp.GetRequiredService<TAtom>());
+        services.AddSingleton<INativeAtomNameMarker>(sp =>
+            new NativeAtomNameMarker(sp.GetRequiredService<TAtom>().Name));
         return services;
     }
 
@@ -342,7 +421,25 @@ public static class BotDetectionPackExtensions
         Func<IServiceProvider, TAtom> factory)
         where TAtom : class, IDetectorAtom
     {
-        services.AddSingleton<IDetectorAtom>(factory);
+        services.AddSingleton<TAtom>(factory);
+        services.AddSingleton<IDetectorAtom>(sp => sp.GetRequiredService<TAtom>());
+        services.AddSingleton<INativeAtomNameMarker>(sp =>
+            new NativeAtomNameMarker(sp.GetRequiredService<TAtom>().Name));
         return services;
     }
 }
+
+/// <summary>
+///     Marker registered by <see cref="BotDetectionPackExtensions.AddDetectorAtom{TAtom}(IServiceCollection)"/>
+///     that carries the atom's <see cref="IDetectorAtom.Name"/>. The
+///     migration adapter enumerates these markers (a distinct service type,
+///     no recursion into <see cref="IDetectorAtom"/> resolution) to compute
+///     the skip set for wrapped contributors.
+/// </summary>
+public interface INativeAtomNameMarker
+{
+    /// <summary>The <see cref="IDetectorAtom.Name"/> of the native atom this marker represents.</summary>
+    string AtomName { get; }
+}
+
+internal sealed record NativeAtomNameMarker(string AtomName) : INativeAtomNameMarker;
