@@ -64,4 +64,50 @@ public static class SignalHintExtensions
         for (var i = 0; i < sorted.Count; i++) values[i] = sorted[i].Value;
         return values;
     }
+
+    /// <summary>
+    ///     Reads a Model-2 hint as a bool. Recognises "true"/"1" as true,
+    ///     "false"/"0" as false; any other value (or absent hint) returns
+    ///     <paramref name="fallback"/>. Presence-only signals (raised without
+    ///     a colon-suffix value) do NOT match a hint read -- use
+    ///     <c>sink.Detect(name)</c> for pure presence checks.
+    /// </summary>
+    public static bool ReadBoolHint(this SignalSink sink, string prefix, bool fallback = false)
+    {
+        var value = sink.ReadHint(prefix);
+        if (value is null) return fallback;
+        return value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1"
+            ? true
+            : value.Equals("false", StringComparison.OrdinalIgnoreCase) || value == "0"
+                ? false
+                : fallback;
+    }
+
+    /// <summary>
+    ///     Reads a Model-2 hint as a double parsed with invariant culture.
+    ///     Absent or unparseable → <paramref name="fallback"/>.
+    /// </summary>
+    public static double ReadDoubleHint(this SignalSink sink, string prefix, double fallback = 0.0)
+    {
+        var value = sink.ReadHint(prefix);
+        return value is not null &&
+               double.TryParse(value, System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture, out var d)
+            ? d
+            : fallback;
+    }
+
+    /// <summary>
+    ///     Reads a Model-2 hint as an int parsed with invariant culture.
+    ///     Absent or unparseable → <paramref name="fallback"/>.
+    /// </summary>
+    public static int ReadIntHint(this SignalSink sink, string prefix, int fallback = 0)
+    {
+        var value = sink.ReadHint(prefix);
+        return value is not null &&
+               int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                   System.Globalization.CultureInfo.InvariantCulture, out var i)
+            ? i
+            : fallback;
+    }
 }
