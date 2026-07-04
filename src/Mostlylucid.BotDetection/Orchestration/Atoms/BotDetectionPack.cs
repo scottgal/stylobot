@@ -363,6 +363,7 @@ public static class BotDetectionPackExtensions
     {
         // SensorAtoms -- boundary / signal extractors
         services.AddDetectorAtom<SignatureAtom>();             // Priority 1  (Wave 0)
+        services.AddDetectorAtom<TransportProtocolAtom>();     // Priority 5  (Wave 0)
         services.AddDetectorAtom<TimeAtom>();                  // Priority 5  (Wave 0)
         services.AddDetectorAtom<FediverseDomainAtom>();       // Priority 5  (Wave 0)
         services.AddDetectorAtom<BrowserModeClassifierAtom>(); // Priority 6  (Wave 0)
