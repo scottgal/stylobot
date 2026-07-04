@@ -47,6 +47,7 @@ public class SqliteDashboardEventStoreSchemaTests
         finally
         {
             if (Directory.Exists(tempDir))
+                SqliteConnection.ClearAllPools();
                 Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -96,6 +97,7 @@ public class SqliteDashboardEventStoreSchemaTests
         finally
         {
             if (Directory.Exists(tempDir))
+                SqliteConnection.ClearAllPools();
                 Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -146,6 +148,7 @@ public class SqliteDashboardEventStoreSchemaTests
         finally
         {
             if (Directory.Exists(tempDir))
+                SqliteConnection.ClearAllPools();
                 Directory.Delete(tempDir, recursive: true);
         }
     }

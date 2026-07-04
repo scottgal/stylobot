@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Mostlylucid.BotDetection.ApiHolodeck.Services;
 
 namespace Mostlylucid.BotDetection.Test.Holodeck;
@@ -16,6 +17,11 @@ public class BeaconStoreTests : IDisposable
     public void Dispose()
     {
         _store.Dispose();
+        // Microsoft.Data.Sqlite pools connections by the connection string, so the
+        // temp-DB file handle survives _store.Dispose(). Windows then refuses the
+        // delete ("used by another process"); macOS allows unlink-while-open. Clear
+        // the pool so the handle is released before we delete the file.
+        SqliteConnection.ClearAllPools();
         if (File.Exists(_dbPath)) File.Delete(_dbPath);
     }
 

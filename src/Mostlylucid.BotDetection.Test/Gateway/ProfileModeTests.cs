@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies;
 using Stylobot.Gateway.Configuration;
@@ -187,6 +188,7 @@ public class ProfileCalibrationStoreTests : IDisposable
 
     public void Dispose()
     {
+        SqliteConnection.ClearAllPools();
         if (File.Exists(_dbPath)) File.Delete(_dbPath);
     }
 
@@ -268,6 +270,6 @@ public class CalibrationEndpointTests
             Assert.Equal(0, ok.Value!.TotalAnalyzed);
             Assert.Null(ok.Value.RecommendedThreshold);
         }
-        finally { if (File.Exists(dbPath)) File.Delete(dbPath); }
+        finally { SqliteConnection.ClearAllPools(); if (File.Exists(dbPath)) File.Delete(dbPath); }
     }
 }

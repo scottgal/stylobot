@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.ApiHolodeck.Contributors;
@@ -29,6 +30,8 @@ public class BeaconContributorTests : IDisposable
     public void Dispose()
     {
         _store.Dispose();
+        // Release pooled SQLite handles so Windows can delete the temp DB (see BeaconStoreTests).
+        SqliteConnection.ClearAllPools();
         if (File.Exists(_dbPath)) File.Delete(_dbPath);
     }
 
