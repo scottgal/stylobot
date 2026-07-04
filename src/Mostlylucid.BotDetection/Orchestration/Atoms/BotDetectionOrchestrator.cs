@@ -399,6 +399,7 @@ public static class BotDetectionOrchestratorExtensions
         services.AddDetectorAtom<HoneypotLinkAtom>();          // Priority 5  (Wave 0)
         services.AddDetectorAtom<VerifiedBotInlineAtom>();     // Priority 4  (Wave 0)
         services.AddDetectorAtom<FingerprintPriorAtom>();      // Priority 4  (Wave 0)
+        services.AddDetectorAtom<FingerprintMatchAtom>();      // Priority 6  (Wave 0)
         services.AddDetectorAtom<MultiLayerCorrelationAtom>(); // Priority 4  (Wave 0)
         services.AddDetectorAtom<VerifiedBotAtom>();           // Priority 4  (Wave 0)
         services.AddDetectorAtom<ThreatIntelAtom>();           // Priority 7  (Wave 0)
