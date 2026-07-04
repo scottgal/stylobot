@@ -11,6 +11,7 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;
 using StyloFlow;
 using StyloFlow.Modules;
 
@@ -170,9 +171,21 @@ public sealed class BotDetectionModule : IStyloflowWebModule
 
     private static void RegisterContributors(IServiceCollection services, IStyloflowModuleContext context)
     {
-        // Register all IContributingDetector implementations
-        // These are adapted to work as IDetectorAtom through ContributingDetectorAdapter
-
+        // Register every IContributingDetector as an IDetectorAtom via the
+        // ContributingDetectorAdapter bridge. Existing IContributingDetector
+        // singletons are already registered by AddBotDetection ->
+        // RegisterCoreServices with concrete AddSingleton<IContributingDetector, T>
+        // calls; we do NOT re-add them here (that would cause GetServices to
+        // return duplicates and every detector to run twice). What was missing
+        // is the IDetectorAtom side: the Pack's DetectorOrchestrator enumerates
+        // IDetectorAtom, not IContributingDetector, so without an adapter
+        // registration the wave orchestrator sees an empty atom set for
+        // legacy detectors. This closes that gap.
+        //
+        // Adapter resolves the underlying IContributingDetector through the
+        // service provider so we honour whatever concrete implementation was
+        // already registered (including replacements Commercial packs may
+        // Replace() in via TryAdd + Replace).
         var contributorTypes = typeof(BotDetectionModule).Assembly
             .GetTypes()
             .Where(t => !t.IsAbstract &&
@@ -181,12 +194,24 @@ public sealed class BotDetectionModule : IStyloflowWebModule
 
         foreach (var contributorType in contributorTypes)
         {
-            // Register the contributor itself
-            services.TryAddSingleton(contributorType);
+            var closedType = contributorType;
 
-            // Register as IContributingDetector for discovery
-            services.AddSingleton(typeof(IContributingDetector), sp =>
-                sp.GetRequiredService(contributorType));
+            // AddBotDetection registers each contributor as
+            // AddSingleton<IContributingDetector, T> which does not register T
+            // by its concrete type. Ensure the concrete is resolvable so the
+            // adapter factory below can pick the specific detector instance
+            // (rather than enumerating IContributingDetector and filtering
+            // on every scope). Contributors are stateless-ish service classes
+            // with dep-injected primitives (loggers/options), so the extra
+            // singleton allocation is negligible.
+            services.TryAddSingleton(closedType);
+
+            services.AddSingleton<IDetectorAtom>(sp =>
+            {
+                var detector = (IContributingDetector)sp.GetRequiredService(closedType);
+                var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+                return new ContributingDetectorAdapter(detector, accessor);
+            });
         }
     }
 }
