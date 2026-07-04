@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.EndpointPolicies;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Honeypot;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
 using Mostlylucid.BotDetection.Llm.Ollama.Extensions;
@@ -194,6 +195,17 @@ try
     // Add Bot Detection - the core feature of this gateway!
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
+
+    // Wire the Pack primitives (shared SignalSink / blackboard,
+    // SignatureResponseCoordinatorCache, EscalatorConfig, RequestHydratorAtom).
+    // Phase 1 of the pack-signalsink-blackboard realignment: DI-only registration
+    // so the graph resolves. Middleware routing through the Pack lands in Phase 2.
+    // Reference primitives:
+    //   Mostlylucid.BotDetection.Orchestration.Atoms.BotDetectionPack
+    //   Mostlylucid.BotDetection.Orchestration.SignatureResponseCoordinator
+    //   Mostlylucid.BotDetection.Orchestration.SignatureEscalatorAtom
+    //   Mostlylucid.BotDetection.Orchestration.Lanes.{Behavioral,Spectral,Reputation}Lane
+    builder.Services.AddBotDetectionPack();
 
     // StyloExtract action policies: registers extract-markdown / extract-headers /
     // extract-sidecar / extract-passthrough into the IActionPolicyRegistry. The
