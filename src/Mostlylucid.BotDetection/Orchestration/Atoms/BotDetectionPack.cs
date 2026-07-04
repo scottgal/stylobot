@@ -392,6 +392,7 @@ public static class BotDetectionPackExtensions
         // ConstrainerAtoms -- validate + constrain proposals
         services.AddDetectorAtom<HeaderAtom>();                // Priority 10
         services.AddDetectorAtom<IpAtom>();                    // Priority 12
+        services.AddDetectorAtom<ResponseBehaviorAtom>();      // Priority 12
         services.AddDetectorAtom<CacheBehaviorAtom>();         // Priority 15
         services.AddDetectorAtom<ProjectHoneypotAtom>();       // Priority 15
         services.AddDetectorAtom<BehavioralAtom>();            // Priority 20
