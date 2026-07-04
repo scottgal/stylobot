@@ -67,6 +67,24 @@ public sealed class BotDetectionPackMiddleware
         context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
 
         await _next(context);
+
+        // Response-side facts onto the blackboard. Raised AFTER _next so
+        // context.Response.StatusCode reflects the final status (upstream
+        // 4xx/5xx via YARP, action-policy synthesised codes, throttle 429,
+        // etc). This is where the "requests.status_code / dashboard_detections.status_code
+        // always = 200" bug is structurally resolved: consumers subscribed to
+        // response.status_code on the blackboard see the FINAL code, not a
+        // pre-_next snapshot.
+        //
+        // The pack's SignalSink is per-request-scoped and lives until the
+        // BotDetectionPack instance is disposed by the request scope
+        // (BotDetectionPack.Dispose calls _signalSink.ClearPattern("*") at
+        // line 288). Raising here is safe.
+        var sessionId = context.TraceIdentifier;
+        var sink = pack.SignalSink;
+        sink.Raise($"response.status_code:{context.Response.StatusCode}", sessionId);
+        sink.Raise($"response.bytes:{context.Response.ContentLength ?? 0}", sessionId);
+        sink.Raise($"response.from_upstream:{context.IsResponseFromUpstream()}", sessionId);
     }
 }
 
