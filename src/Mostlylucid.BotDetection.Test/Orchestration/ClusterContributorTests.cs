@@ -3,7 +3,6 @@ using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -57,8 +56,7 @@ public class ClusterContributorTests
         return new BotClusterService(
             NullLogger<BotClusterService>.Instance,
             Options.Create(opts),
-            coordinator,
-            new FossLicenseState());
+            coordinator);
     }
 
     private static CountryReputationTracker CreateCountryTracker(BotDetectionOptions? opts = null)

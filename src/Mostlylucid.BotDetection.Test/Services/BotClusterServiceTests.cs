@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
@@ -47,8 +46,7 @@ public class BotClusterServiceTests
         return new BotClusterService(
             NullLogger<BotClusterService>.Instance,
             Options.Create(opts),
-            coordinator,
-            new FossLicenseState());
+            coordinator);
     }
 
     private static SignatureBehavior CreateBehavior(

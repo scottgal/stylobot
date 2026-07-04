@@ -3,7 +3,6 @@ using Microsoft.Extensions.Hosting;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Identity;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.Services;
@@ -56,7 +55,6 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // sidecar) may not register a particular migrated singleton; the
         // bootstrap should not crash the host when the singleton is absent.
         _services.GetService<DeploymentNormCalibrationService>();
-        _services.GetService<LicenseStateRefreshService>();
         // CommonUserAgentService is resolved via its interface (the
         // production registration is TryAddSingleton<ICommonUserAgentService,
         // CommonUserAgentService>); GetService<concrete> would miss it.

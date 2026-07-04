@@ -170,14 +170,6 @@ public class BotDetectionOptions
     public ThreatIntel.ThreatIntelOptions ThreatIntel { get; set; } = new();
 
     /// <summary>
-    ///     Licensing options. Control plane reads <c>Licensing.Domains</c> to populate the
-    ///     <c>DomainEntitlementValidator</c> at startup; an empty list = OSS / unconfigured =
-    ///     pass-through (no enforcement, no warnings, dashboard shows the muted "no license" line).
-    ///     See <c>stylobot-commercial/docs/licensing-simplified.md</c>.
-    /// </summary>
-    public LicensingOptions Licensing { get; set; } = new();
-
-    /// <summary>
     ///     Proxy topology sensing: controls how the real client IP and scheme are resolved
     ///     when the application sits behind a CDN or reverse proxy.
     ///     Auto-detected from request headers on first request, then cached.
@@ -3712,31 +3704,6 @@ public class BdfReplayOptions
     ///     Prevents excessively large BDF files from consuming resources.
     /// </summary>
     public int MaxRequestsPerReplay { get; set; } = 100;
-}
-
-/// <summary>
-///     License-related configuration.
-///     Bound from <c>BotDetection:Licensing</c> in appsettings/env vars.
-/// </summary>
-public sealed class LicensingOptions
-{
-    /// <summary>
-    ///     Licensed domains for this install. Each entry is either an eTLD+1 (covers all
-    ///     subdomains, e.g., <c>acme.com</c> matches <c>api.acme.com</c>) or an exact host
-    ///     prefixed with <c>=</c> (e.g., <c>=admin.acme.com</c> matches only that host).
-    ///     Empty list = no enforcement: validator runs in pass-through mode and the dashboard
-    ///     shows the OSS/unconfigured state. See <c>stylobot-commercial/docs/licensing-simplified.md</c>.
-    /// </summary>
-    public List<string> Domains { get; set; } = [];
-
-    /// <summary>
-    ///     The signed JWT (Ed25519) the customer pasted into config / env. When set, the
-    ///     dashboard license card decodes the payload to show issuer, tier, expiry, etc.
-    ///     The runtime never blocks on signature validity - bad sig → treat as OSS, log info.
-    ///     Optional; if unset and <see cref="Domains"/> is non-empty, enforcement still runs
-    ///     (you can pre-configure domains without a token, useful for the gateway side).
-    /// </summary>
-    [Secret] public string? Token { get; set; }
 }
 
 /// <summary>

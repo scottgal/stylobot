@@ -6,7 +6,6 @@ using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Privacy;
 using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Events;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -184,7 +183,6 @@ public class EffectiveThresholdConsumerTests
             next,
             Logger,
             Options.Create(options),
-            new FossLicenseState(),
             new DomainNormalizer(
                 Options.Create(new DomainNormalizerOptions()),
                 PublicSuffixList.LoadEmbedded()));

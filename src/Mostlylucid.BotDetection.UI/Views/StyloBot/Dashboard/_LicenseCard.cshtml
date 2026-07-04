@@ -1,144 +1,15 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model LicenseCardModel
-@{
-    var bp = Model.BasePath;
-    var stats = Model.Stats;
-    var claims = Model.Claims;
-
-    // Status → badge colour. Mirrors the spec's status states from
-    // stylobot-commercial/docs/licensing-simplified.md §admin-dashboard.
-    var (badgeClass, dotColor, statusLabel) = Model.Status switch
-    {
-        LicenseStatusKind.Active             => ("text-success", "var(--sb-signal-pos)",    $"Active - {claims?.Tier ?? "?"} tier"),
-        LicenseStatusKind.Trial              => ("text-warning", "var(--sb-signal-warn)",   $"Trial - {Model.DaysUntilExpiry?.ToString() ?? "?"} days remaining"),
-        LicenseStatusKind.Grace              => ("text-warning", "var(--sb-signal-warn)",   $"Grace - {Model.DaysUntilGraceEnds?.ToString() ?? "?"} days until premium features lock"),
-        LicenseStatusKind.Expired            => ("text-info",    "var(--sb-signal-info,var(--sb-signal-danger))", "FOSS mode - all detectors active. Upgrade anytime to restore premium features."),
-        LicenseStatusKind.DomainMismatchOnly => ("text-error",   "var(--sb-signal-danger)", "License domain mismatch - running on unlicensed host"),
-        _                                    => ("text-base-content/50", "var(--sb-card-subtle)", "OSS tier - no license")
-    };
-}
-
-@if (Model.Status == LicenseStatusKind.Unconfigured)
-{
-    <!-- OSS / unconfigured: single muted line. Never nag. -->
-    <div id="license-card"
-         data-sb-widget="license"
-         class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-         style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
-        <span class="w-2 h-2 rounded-full" style="background: @dotColor;"></span>
-        <span class="text-base-content/60">OSS tier - no license.</span>
-        <a href="https://stylo.bot/pricing" target="_blank" rel="noopener" class="sb-link text-base-content/50 hover:text-base-content/80">
-            Compare paid tiers →
-        </a>
-    </div>
-}
-else
-{
-    <div id="license-card"
-         data-sb-widget="license"
-         hx-get="@bp/partials/license"
-         hx-trigger="every 60s"
-         hx-swap="outerHTML"
-         class="rounded-xl border overflow-hidden"
-         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-
-        <!-- Header strip: status -->
-        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-            <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full" style="background: @dotColor;"></span>
-                <span class="text-[10px] font-semibold @badgeClass uppercase tracking-wide">@statusLabel</span>
-            </div>
-            <span class="text-[9px] text-base-content/40">License</span>
-        </div>
-
-        <div class="p-3 space-y-2 text-sm">
-
-            @if (claims is not null)
-            {
-                <div class="flex items-baseline gap-2">
-                    <span class="text-base-content/50 text-xs w-20">Issued to:</span>
-                    <span class="font-semibold text-base-content">@claims.IssuedTo</span>
-                </div>
-
-                <div class="flex items-baseline gap-2">
-                    <span class="text-base-content/50 text-xs w-20">Domains:</span>
-                    <span class="font-mono text-xs text-base-content/80">
-                        @string.Join(", ", claims.Domains)
-                    </span>
-                </div>
-
-                @if (claims.ExpiresAt is { } expiry)
-                {
-                    <div class="flex items-baseline gap-2">
-                        <span class="text-base-content/50 text-xs w-20">Expires:</span>
-                        <span class="text-xs text-base-content/80">
-                            @expiry.ToString("yyyy-MM-dd")
-                            @if (Model.DaysUntilExpiry is { } days)
-                            {
-                                <span class="text-base-content/40">(@days days)</span>
-                            }
-                        </span>
-                    </div>
-                }
-            }
-            else
-            {
-                <!-- Domains configured at gateway but no token: just show observation. -->
-                <div class="flex items-baseline gap-2">
-                    <span class="text-base-content/50 text-xs w-20">Domains:</span>
-                    <span class="font-mono text-xs text-base-content/80">
-                        @string.Join(", ", stats.AllowedDomains)
-                    </span>
-                </div>
-            }
-
-            <!-- Runtime usage row: licensed vs mismatched request counts. -->
-            <div class="flex items-baseline gap-2 pt-1 border-t" style="border-color: var(--sb-card-divider);">
-                <span class="text-base-content/50 text-xs w-20">Observed:</span>
-                <span class="text-xs">
-                    <span class="font-bold text-success">@stats.RequestsLicensed.ToString("N0")</span>
-                    <span class="text-base-content/50">licensed</span>
-                    <span class="text-base-content/30 mx-1">·</span>
-                    <span class="font-bold @(stats.RequestsMismatched > 0 ? "text-error" : "text-base-content")">
-                        @stats.RequestsMismatched.ToString("N0")
-                    </span>
-                    <span class="text-base-content/50">mismatched</span>
-                    @if (stats.RequestsCloudPool > 0)
-                    {
-                        <span class="text-base-content/30 mx-1">·</span>
-                        <span class="font-bold text-warning">@stats.RequestsCloudPool.ToString("N0")</span>
-                        <span class="text-base-content/50">cloud-pool</span>
-                    }
-                </span>
-            </div>
-
-            @if (stats.TopUnfamiliarHosts.Count > 0)
-            {
-                <details class="text-xs text-base-content/60">
-                    <summary class="cursor-pointer text-base-content/50 hover:text-base-content/80 select-none">
-                        Top unfamiliar hosts (@stats.TopUnfamiliarHosts.Count)
-                    </summary>
-                    <ul class="mt-1 ml-2 space-y-0.5">
-                        @foreach (var host in stats.TopUnfamiliarHosts)
-                        {
-                            <li class="font-mono">
-                                <span class="text-base-content/80">@host.Host</span>
-                                <span class="text-base-content/40">- @host.Hits.ToString("N0") hits</span>
-                            </li>
-                        }
-                    </ul>
-                </details>
-            }
-
-            @if (claims is not null)
-            {
-                <div class="flex gap-2 pt-2 border-t" style="border-color: var(--sb-card-divider);">
-                    <a href="https://stylo.bot/portal" target="_blank" rel="noopener"
-                       class="text-xs sb-link">
-                        View at stylo.bot →
-                    </a>
-                </div>
-            }
-        </div>
-    </div>
-}
+@*
+    FOSS license card = small upsell link only. FOSS builds have no license
+    concept (moved to Stylobot.Commercial.Licensing); this partial just points
+    to the pricing page so operators know a paid tier exists. Commercial ships
+    its own partial view that shadows this one via view-location precedence
+    and renders the full status card.
+*@
+<div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 text-sm text-base-content/70 flex items-center justify-between">
+    <span class="opacity-70">FOSS build — all detectors active.</span>
+    <a href="@Model.UpsellUrl" target="_blank" rel="noopener" class="link link-primary link-hover text-xs">
+        @Model.UpsellLabel →
+    </a>
+</div>

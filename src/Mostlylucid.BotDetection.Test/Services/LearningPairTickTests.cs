@@ -2,7 +2,6 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Events;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Services;
@@ -181,7 +180,6 @@ public sealed class LearningPairTickTests
             NullLogger<LearningBackgroundService>.Instance,
             OptionsFor(),
             handlers,
-            new FossLicenseState(),
             coordinator);
 
         var sub = Assert.Single(coordinator.Subscriptions);
@@ -202,7 +200,6 @@ public sealed class LearningPairTickTests
             NullLogger<LearningBackgroundService>.Instance,
             OptionsFor(),
             new ILearningEventHandler[] { handler },
-            new FossLicenseState(),
             coordinator);
 
         var captured = Assert.Single(coordinator.Subscriptions);
@@ -223,7 +220,6 @@ public sealed class LearningPairTickTests
             NullLogger<LearningBackgroundService>.Instance,
             OptionsFor(),
             new ILearningEventHandler[] { new RecordingHandler() },
-            new FossLicenseState(),
             coordinator);
 
         var sub = Assert.Single(coordinator.Subscriptions);
@@ -246,7 +242,6 @@ public sealed class LearningPairTickTests
             NullLogger<LearningBackgroundService>.Instance,
             OptionsFor(),
             new ILearningEventHandler[] { handler },
-            new FossLicenseState(),
             coordinator);
 
         // Publish two events on the bus -- the service should drain both on

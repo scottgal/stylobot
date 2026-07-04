@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Events;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.Common.Scheduling;
@@ -36,7 +35,6 @@ public sealed class LearningBackgroundService : IDisposable
 {
     private readonly ILearningEventBus _eventBus;
     private readonly IEnumerable<ILearningEventHandler> _handlers;
-    private readonly ILicenseState _licenseState;
     private readonly ILogger<LearningBackgroundService> _logger;
     private readonly BotDetectionOptions _options;
     private readonly IDisposable? _subscription;
@@ -47,14 +45,12 @@ public sealed class LearningBackgroundService : IDisposable
         ILogger<LearningBackgroundService> logger,
         IOptions<BotDetectionOptions> options,
         IEnumerable<ILearningEventHandler> handlers,
-        ILicenseState licenseState,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
         _eventBus = eventBus;
         _logger = logger;
         _options = options.Value;
         _handlers = handlers;
-        _licenseState = licenseState;
 
         // Optional so existing direct-construction tests that exercise
         // ProcessEventAsync in isolation keep working.
@@ -101,12 +97,6 @@ public sealed class LearningBackgroundService : IDisposable
 
     private async Task ProcessEventAsync(LearningEvent evt, CancellationToken ct)
     {
-        if (_licenseState.LearningFrozen)
-        {
-            _logger.LogDebug("Learning frozen, skipping event: {Type}", evt.Type);
-            return;
-        }
-
         _logger.LogDebug("Processing learning event: {Type} from {Source}", evt.Type, evt.Source);
 
         // Find handlers interested in this event type

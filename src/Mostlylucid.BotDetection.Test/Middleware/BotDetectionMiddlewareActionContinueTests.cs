@@ -8,7 +8,6 @@ using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Privacy;
 using Mostlylucid.BotDetection.Domains;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -117,7 +116,6 @@ public class BotDetectionMiddlewareActionContinueTests
             next,
             NullLogger<BotDetectionMiddleware>.Instance,
             Options.Create(new BotDetectionOptions()),
-            new FossLicenseState(),
             new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
     private static HttpContext NewContext()

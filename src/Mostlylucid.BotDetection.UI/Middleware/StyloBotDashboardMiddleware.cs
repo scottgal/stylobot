@@ -18,7 +18,6 @@ using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Similarity;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.Orchestration;
@@ -3222,8 +3221,9 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     <c>GET /api/license</c> - JSON payload with parsed claims + live entitlement stats.
-    ///     Used by external tooling and tests; the dashboard itself loads <c>/partials/license</c>.
+    ///     <c>GET /api/license</c> - FOSS builds carry no license concept, so
+    ///     this endpoint just returns the upsell target. Commercial replaces
+    ///     the middleware and serves parsed claims + entitlement stats.
     /// </summary>
     private async Task ServeLicenseApiAsync(HttpContext context)
     {
@@ -3232,10 +3232,8 @@ public class StyloBotDashboardMiddleware
         await JsonSerializer.SerializeAsync(context.Response.Body, new
         {
             status = model.Status.ToString(),
-            stats = model.Stats,
-            claims = model.Claims,
-            daysUntilExpiry = model.DaysUntilExpiry,
-            daysUntilGraceEnds = model.DaysUntilGraceEnds
+            upsellUrl = model.UpsellUrl,
+            upsellLabel = model.UpsellLabel
         }, CamelCaseJson);
     }
 

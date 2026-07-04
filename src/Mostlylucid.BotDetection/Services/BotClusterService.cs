@@ -4,7 +4,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Clustering;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -39,7 +38,6 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
     private volatile ClusterDiagnosticsSnapshot _diagnostics = ClusterDiagnosticsSnapshot.Empty;
 
     private readonly ILogger<BotClusterService> _logger;
-    private readonly ILicenseState _licenseState;
     private readonly ClusterOptions _options;
     private readonly Models.IdentityMatchOptions _matchOptions;
     private readonly SignatureCoordinator _signatureCoordinator;
@@ -70,7 +68,6 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
         ILogger<BotClusterService> logger,
         IOptions<BotDetectionOptions> options,
         SignatureCoordinator signatureCoordinator,
-        ILicenseState licenseState,
         Identity.IFingerprintStore? fingerprintStore = null,
         MarkovTracker? markovTracker = null,
         AdaptiveSimilarityWeighter? adaptiveWeighter = null,
@@ -83,7 +80,6 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
         _options = options.Value.Cluster;
         _matchOptions = options.Value.Identity.Match;
         _signatureCoordinator = signatureCoordinator;
-        _licenseState = licenseState;
         _fingerprintStore = fingerprintStore;
         _markovTracker = markovTracker;
         _adaptiveWeighter = adaptiveWeighter;
@@ -249,27 +245,20 @@ public class BotClusterService : BackgroundService, IBotClusterReader, IClusterM
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (_licenseState.LearningFrozen)
+            try
             {
-                _logger.LogDebug("Learning frozen, skipping cluster run.");
+                // Run clustering on a LongRunning thread so it does not steal
+                // thread-pool slots from the request pipeline.
+                await Task.Factory.StartNew(
+                    RunClustering,
+                    stoppingToken,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
             }
-            else
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch (Exception ex)
             {
-                try
-                {
-                    // Run clustering on a LongRunning thread so it does not steal
-                    // thread-pool slots from the request pipeline.
-                    await Task.Factory.StartNew(
-                        RunClustering,
-                        stoppingToken,
-                        TaskCreationOptions.LongRunning,
-                        TaskScheduler.Default);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error during clustering run");
-                }
+                _logger.LogWarning(ex, "Error during clustering run");
             }
 
             // Reset bot detection counter after each run

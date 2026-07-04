@@ -12,7 +12,6 @@ using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Test.Middleware;
@@ -82,7 +81,6 @@ public class BotDetectionMiddlewarePiiMaskingTests
             next,
             Mock.Of<ILogger<BotDetectionMiddleware>>(),
             Options.Create(options),
-            new FossLicenseState(),
             new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
@@ -153,7 +151,6 @@ public class BotDetectionMiddlewarePiiMaskingTests
                     Enabled = true
                 }
             }),
-            new FossLicenseState(),
             new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
@@ -224,7 +221,6 @@ public class BotDetectionMiddlewarePiiMaskingTests
                     Enabled = true
                 }
             }),
-            new FossLicenseState(),
             new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
@@ -293,7 +289,6 @@ public class BotDetectionMiddlewarePiiMaskingTests
                     Enabled = true
                 }
             }),
-            new FossLicenseState(),
             new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence
@@ -363,7 +358,6 @@ public class BotDetectionMiddlewarePiiMaskingTests
             next,
             Mock.Of<ILogger<BotDetectionMiddleware>>(),
             Options.Create(new BotDetectionOptions { BotThreshold = 0.7 }),
-            new FossLicenseState(),
             new DomainNormalizer(Options.Create(new DomainNormalizerOptions()), PublicSuffixList.LoadEmbedded()));
 
         var evidence = new AggregatedEvidence

@@ -18,7 +18,6 @@ using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Identity;
 // LlmDetector removed - now in Mostlylucid.BotDetection.Llm.Ollama/LlamaSharp packages
 using Mostlylucid.BotDetection.Events;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Events.Listeners;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
@@ -297,7 +296,6 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Singleton<IClusterStore, NullClusterStore>());
         services.Replace(ServiceDescriptor.Singleton<ILearnedPatternStore, NullLearnedPatternStore>());
         services.Replace(ServiceDescriptor.Singleton<IWeightStore, NullWeightStore>());
-        services.Replace(ServiceDescriptor.Singleton<ILicenseGraceStore, NullLicenseGraceStore>());
         services.Replace(ServiceDescriptor.Singleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>());
         services.Replace(ServiceDescriptor.Singleton<IChallengeStore, InMemoryChallengeStore>());
         services.Replace(ServiceDescriptor.Singleton<IPinnedEndpointStore, NullPinnedEndpointStore>());
@@ -542,33 +540,6 @@ public static class ServiceCollectionExtensions
 
         // Domain entitlement validator (licensed-domain enforcement, warn-never-lock).
         // No-op when BotDetection:Licensing:Domains is empty (OSS / unconfigured default).
-        services.AddDomainEntitlement();
-
-        // License state: FossLicenseState when no token, real enforcement when token present
-        services.AddSingleton<SqliteLicenseGraceStore>();
-        // Default ILicenseGraceStore forwards to the Sqlite concrete; commercial
-        // plugin Replace()s this with PostgreSQLLicenseGraceStore at startup.
-        services.TryAddSingleton<ILicenseGraceStore>(sp => sp.GetRequiredService<SqliteLicenseGraceStore>());
-        services.AddSingleton<LicenseState>();
-        services.AddSingleton<ILicenseState>(sp =>
-        {
-            var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
-            if (!string.IsNullOrWhiteSpace(opts.Licensing?.Token))
-                return sp.GetRequiredService<LicenseState>();
-            return new FossLicenseState();
-        });
-        // Wave 2 migrated: LicenseStateRefreshService is a plain singleton
-        // that subscribes to ScheduleCoordinator.Tick1m at construction. The
-        // BotDetectionHostedSingletonsBootstrap shim eagerly resolves it at
-        // boot so the subscription is live before the first tick.
-        services.AddSingleton<LicenseStateRefreshService>(sp =>
-            new LicenseStateRefreshService(
-                sp.GetRequiredService<LicenseState>(),
-                sp.GetRequiredService<IOptionsMonitor<BotDetectionOptions>>(),
-                sp.GetRequiredService<ILicenseGraceStore>(),
-                sp.GetRequiredService<ILogger<LicenseStateRefreshService>>(),
-                sp.GetRequiredService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>()));
-
         // Register bot list update service.
         // Wave 2: migrated to ScheduleCoordinator tick.1h. Eager-resolved by
         // BotDetectionHostedSingletonsBootstrap so the constructor's Subscribe(...)

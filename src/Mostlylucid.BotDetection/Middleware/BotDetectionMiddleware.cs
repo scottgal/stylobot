@@ -19,7 +19,6 @@ using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Policies.Dispatch;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.Dashboard;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.SiteProfiles;
@@ -51,7 +50,6 @@ public class BotDetectionMiddleware(
     RequestDelegate next,
     ILogger<BotDetectionMiddleware> logger,
     IOptions<BotDetectionOptions> options,
-    ILicenseState licenseState,
     DomainNormalizer domainNormalizer,
     CountryReputationTracker? countryTracker = null,
     BotClusterService? clusterService = null,
@@ -108,7 +106,6 @@ public class BotDetectionMiddleware(
     // Caches PropertyInfo lookups for the GeoLocation duck-type (avoids reflection on every request).
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type Type, string Name), System.Reflection.PropertyInfo?> GeoLocationPropertyCache = new();
 
-    private readonly ILicenseState _licenseState = licenseState;
     private readonly ILogger<BotDetectionMiddleware> _logger = logger;
     private readonly RequestDelegate _next = next;
     private readonly BotDetectionOptions _options = options.Value;
@@ -977,21 +974,6 @@ public class BotDetectionMiddleware(
                 TriggeredActionPolicyName = internalPolicyName
             };
             context.Items[AggregatedEvidenceKey] = aggregatedResult;
-        }
-
-        // License log-only override: when license is expired past grace period,
-        // force log-only regardless of any configured action policy.
-        if (_licenseState.LogOnly)
-        {
-            var logOnlyPolicy = actionPolicyRegistry.GetPolicy("logonly");
-            if (logOnlyPolicy != null)
-            {
-                var logOnlyResult = await logOnlyPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
-                if (!logOnlyResult.Continue)
-                    return;
-            }
-            await InvokeNextWithResponseMutationAsync(context);
-            return;
         }
 
         // Honeypot tag wins over the default action selection. If the tagger

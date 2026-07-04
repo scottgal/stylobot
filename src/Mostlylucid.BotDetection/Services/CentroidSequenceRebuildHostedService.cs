@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Services;
@@ -13,18 +12,15 @@ internal sealed class CentroidSequenceRebuildHostedService : IHostedService
 {
     private readonly BotClusterService? _clusterService;
     private readonly CentroidSequenceStore _centroidStore;
-    private readonly ILicenseState _licenseState;
     private readonly ILogger<CentroidSequenceRebuildHostedService> _logger;
 
     public CentroidSequenceRebuildHostedService(
         CentroidSequenceStore centroidStore,
         ILogger<CentroidSequenceRebuildHostedService> logger,
-        ILicenseState licenseState,
         BotClusterService? clusterService = null)
     {
         _centroidStore = centroidStore;
         _logger = logger;
-        _licenseState = licenseState;
         _clusterService = clusterService;
     }
 
@@ -74,12 +70,6 @@ internal sealed class CentroidSequenceRebuildHostedService : IHostedService
         IReadOnlyList<BotCluster> clusters,
         IReadOnlyList<SignatureBehavior> behaviors)
     {
-        if (_licenseState.LearningFrozen)
-        {
-            _logger.LogDebug("Learning frozen, skipping centroid sequence rebuild.");
-            return;
-        }
-
         _ = Task.Run(async () =>
         {
             try

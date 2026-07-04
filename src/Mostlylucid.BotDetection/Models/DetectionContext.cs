@@ -1697,14 +1697,6 @@ public static class SignalKeys
     public const string ApprovalExpiresAt = "approval.expires_at";
 
     // ==========================================
-    // License entitlement signals
-    // Set by DomainEntitlementMiddleware (warn-never-lock; never affects request flow)
-    // ==========================================
-
-    // Boolean: true when the request host did not match any licensed domain.
-    // String: the mismatch classification - "mismatch", "mismatch_cloud_pool", or "no_host".
-    // String: the normalized request host that triggered the mismatch.
-    // ==========================================
     // CVE / Threat Intelligence signals
     // Set by CveFingerprintContributor when traffic matches CVE-derived fingerprints
     // ==========================================
