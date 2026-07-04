@@ -347,8 +347,28 @@ try
     // license card; never affects request flow.
     app.UseDomainEntitlement();
 
-    // Bot Detection middleware - runs on every request
-    app.UseBotDetection();
+    // Bot Detection middleware - runs on every request.
+    //
+    // Config flag BotDetection:UsePackPath selects the request path:
+    //   true  -> UseBotDetectionPack: runs the request through BotDetectionPack's
+    //            wave orchestrator (Ephemeral DetectorOrchestrator + shared
+    //            SignalSink / blackboard + SignatureEscalatorAtom +
+    //            SignatureResponseCoordinator lanes). Post-detection
+    //            middleware-level concerns (action-policy dispatch, honeypot
+    //            tag override, per-BotType policy fallback, load-shed,
+    //            license log-only) migrate onto blackboard escalators in
+    //            subsequent phases -- until that migration is complete, this
+    //            path runs in observe-only shape (detection populates the
+    //            dashboard; bots are not blocked).
+    //   false -> UseBotDetection: the legacy BotDetectionMiddleware +
+    //            BlackboardOrchestrator path.
+    // Default: false (unset). Deploys are safe until the operator flips the
+    // flag on staging and verifies parity.
+    var usePackPath = builder.Configuration.GetValue<bool>("BotDetection:UsePackPath");
+    if (usePackPath)
+        app.UseBotDetectionPack();
+    else
+        app.UseBotDetection();
 
     // DetectionPolicyMiddleware: dispatches IActionPolicy entries by name from
     // BotDetection:DetectionPolicies:Rules based on the detection verdict.
