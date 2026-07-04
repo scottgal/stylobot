@@ -391,6 +391,7 @@ public static class BotDetectionPackExtensions
 
         // ConstrainerAtoms -- validate + constrain proposals
         services.AddDetectorAtom<HeaderAtom>();                // Priority 10
+        services.AddDetectorAtom<UserAgentAtom>();             // Priority 10
         services.AddDetectorAtom<IpAtom>();                    // Priority 12
         services.AddDetectorAtom<ResponseBehaviorAtom>();      // Priority 12
         services.AddDetectorAtom<CacheBehaviorAtom>();         // Priority 15
@@ -414,6 +415,7 @@ public static class BotDetectionPackExtensions
 
         // ProposerAtoms -- probabilistic proposals
         services.AddDetectorAtom<HeuristicAtom>();             // Priority 50
+        services.AddDetectorAtom<InconsistencyAtom>();         // Priority 50
 
         // RankerAtoms -- re-scoring / re-ordering
         services.AddDetectorAtom<VersionAgeAtom>();            // Priority 25
