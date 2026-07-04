@@ -75,11 +75,11 @@ public sealed class PoolCollisionAtom : DetectorAtomBase
     {
         // Model 2 hint reads: the sensor atom that raised these signals
         // embeds the value after a colon (e.g. "client_side.shape_hash:abc123").
-        var shape = ReadHint(sink, SignalKeys.ClientSideShapeHash);
+        var shape = sink.ReadHint(SignalKeys.ClientSideShapeHash);
         if (string.IsNullOrEmpty(shape))
             return Task.FromResult(None());
 
-        var ipHash = ReadHint(sink, SignalKeys.ClientIp) ?? "";
+        var ipHash = sink.ReadHint(SignalKeys.ClientIp) ?? "";
 
         // Connection.Id lives on HttpContext -- boundary read via accessor
         // is the correct shape until a session hydrator atom raises it.
@@ -112,25 +112,4 @@ public sealed class PoolCollisionAtom : DetectorAtomBase
         return Task.FromResult(None());
     }
 
-    /// <summary>
-    ///     Extract the value hint from a Model-2 signal like
-    ///     <c>"prefix:value"</c>. Returns null if no signal with that prefix
-    ///     was raised in the current window.
-    /// </summary>
-    private static string? ReadHint(SignalSink sink, string prefix)
-    {
-        var needle = prefix + ":";
-        var signals = sink.Sense(s => s.Signal.StartsWith(needle, StringComparison.Ordinal));
-        if (signals.Count == 0) return null;
-
-        // Most recent hint wins (Model 2 hints may be stale, but for boundary
-        // reads the freshest is the closest to source of truth).
-        var latest = signals[0];
-        for (var i = 1; i < signals.Count; i++)
-        {
-            if (signals[i].Timestamp > latest.Timestamp) latest = signals[i];
-        }
-
-        return latest.Signal[needle.Length..];
-    }
 }
