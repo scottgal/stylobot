@@ -368,6 +368,7 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<FediverseDomainAtom>();       // Priority 5  (Wave 0)
         services.AddDetectorAtom<BrowserModeClassifierAtom>(); // Priority 6  (Wave 0)
         services.AddDetectorAtom<PiiQueryStringAtom>();        // Priority 8  (Wave 0)
+        services.AddDetectorAtom<BehavioralWaveformAtom>();    // Priority 3  (Wave 0)
         services.AddDetectorAtom<ContentSequenceAtom>();       // Priority 6  (Wave 0)
         services.AddDetectorAtom<TcpIpFingerprintAtom>();      // Priority 11 (Wave 0)
         services.AddDetectorAtom<TlsFingerprintAtom>();        // Priority 11 (Wave 0)
@@ -416,6 +417,9 @@ public static class BotDetectionPackExtensions
         // ProposerAtoms -- probabilistic proposals
         services.AddDetectorAtom<HeuristicAtom>();             // Priority 50
         services.AddDetectorAtom<InconsistencyAtom>();         // Priority 50
+        services.AddDetectorAtom<SimilarityAtom>();            // Priority 60
+        services.AddDetectorAtom<HeuristicLateAtom>();         // Priority 100
+        services.AddDetectorAtom<AiAtom>();                    // Priority 100
 
         // RankerAtoms -- re-scoring / re-ordering
         services.AddDetectorAtom<VersionAgeAtom>();            // Priority 25
