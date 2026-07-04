@@ -304,6 +304,11 @@ public static class BotDetectionOrchestratorExtensions
         // Register the orchestrator as scoped (one per request)
         services.AddScoped<BotDetectionOrchestrator>();
 
+        // Enforcement gates -- extracted from BotDetectionMiddleware so the
+        // atom-orchestrator middleware can enforce the same rules without
+        // duplicating logic. See Mostlylucid.BotDetection.Enforcement.
+        services.AddSingleton<Enforcement.LoadShedGate>();
+
         // Register the hydrator atom
         services.AddSingleton<IDetectorAtom, RequestHydratorAtom>();
 
