@@ -171,48 +171,23 @@ public sealed class BotDetectionModule : IStyloflowWebModule
 
     private static void RegisterContributors(IServiceCollection services, IStyloflowModuleContext context)
     {
-        // Register every IContributingDetector as an IDetectorAtom via the
-        // ContributingDetectorAdapter bridge. Existing IContributingDetector
-        // singletons are already registered by AddBotDetection ->
-        // RegisterCoreServices with concrete AddSingleton<IContributingDetector, T>
-        // calls; we do NOT re-add them here (that would cause GetServices to
-        // return duplicates and every detector to run twice). What was missing
-        // is the IDetectorAtom side: the Pack's DetectorOrchestrator enumerates
-        // IDetectorAtom, not IContributingDetector, so without an adapter
-        // registration the wave orchestrator sees an empty atom set for
-        // legacy detectors. This closes that gap.
+        // Intentionally empty. Legacy IContributingDetector implementations
+        // must be rewritten as native IDetectorAtom implementations against
+        // the Ephemeral taxonomy roles (SensorAtom / ExtractorAtom /
+        // ProposerAtom / ConstrainerAtom / RankerAtom / RendererAtom /
+        // CoordinatorAtom / FeedbackAtom / EscalatorAtom / GuardAtom).
         //
-        // Adapter resolves the underlying IContributingDetector through the
-        // service provider so we honour whatever concrete implementation was
-        // already registered (including replacements Commercial packs may
-        // Replace() in via TryAdd + Replace).
-        var contributorTypes = typeof(BotDetectionModule).Assembly
-            .GetTypes()
-            .Where(t => !t.IsAbstract &&
-                        !t.IsInterface &&
-                        typeof(IContributingDetector).IsAssignableFrom(t));
-
-        foreach (var contributorType in contributorTypes)
-        {
-            var closedType = contributorType;
-
-            // AddBotDetection registers each contributor as
-            // AddSingleton<IContributingDetector, T> which does not register T
-            // by its concrete type. Ensure the concrete is resolvable so the
-            // adapter factory below can pick the specific detector instance
-            // (rather than enumerating IContributingDetector and filtering
-            // on every scope). Contributors are stateless-ish service classes
-            // with dep-injected primitives (loggers/options), so the extra
-            // singleton allocation is negligible.
-            services.TryAddSingleton(closedType);
-
-            services.AddSingleton<IDetectorAtom>(sp =>
-            {
-                var detector = (IContributingDetector)sp.GetRequiredService(closedType);
-                var accessor = sp.GetRequiredService<IHttpContextAccessor>();
-                return new ContributingDetectorAdapter(detector, accessor);
-            });
-        }
+        // ContributingDetectorAdapter was a bridge that encoded the OLD
+        // BlackboardState-shaped detector contract as an IDetectorAtom. The
+        // operator has ruled that out ("NO ADAPTORS FIX THEM") -- the adapter
+        // preserves the wrong shape rather than migrating to atoms. The
+        // migration is: rewrite each contributor as a native IDetectorAtom
+        // whose DetectAsync reads/writes the SignalSink (blackboard) directly,
+        // not HttpContext.Items via BlackboardState.
+        //
+        // Native atoms register themselves via AddDetectorAtom<T>() (see
+        // BotDetectionPack.cs BotDetectionPackExtensions) as new IContributingDetector
+        // implementations are converted.
     }
 }
 
