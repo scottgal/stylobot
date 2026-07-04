@@ -61,7 +61,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
     private readonly IPolicyRegistry? _policyRegistry;
     private readonly RequestPersistenceService? _requestPersistence;
     private readonly Services.BackgroundEnrichmentService? _enrichmentService;
-    private readonly Dashboard.PiiHasher? _piiHasher;
+    private readonly Privacy.PiiHasher? _piiHasher;
     private readonly Identity.IFingerprintStore? _fingerprintStore;
 
     public EphemeralDetectionOrchestrator(
@@ -73,7 +73,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         IPolicyEvaluator? policyEvaluator = null,
         RequestPersistenceService? requestPersistence = null,
         Services.BackgroundEnrichmentService? enrichmentService = null,
-        Dashboard.PiiHasher? piiHasher = null,
+        Privacy.PiiHasher? piiHasher = null,
         Identity.IFingerprintStore? fingerprintStore = null)
     {
         _logger = logger;

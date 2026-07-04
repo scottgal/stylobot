@@ -31,6 +31,7 @@ using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Persistence;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Policies.Dispatch;
+using Mostlylucid.BotDetection.Privacy;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Similarity;
 using Mostlylucid.BotDetection.Compliance;

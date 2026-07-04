@@ -1,4 +1,4 @@
-using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Privacy;
 
 namespace Mostlylucid.BotDetection.Orchestration.PiiManagement;
 

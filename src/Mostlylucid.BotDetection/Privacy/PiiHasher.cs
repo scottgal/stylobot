@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Mostlylucid.BotDetection.Dashboard;
+namespace Mostlylucid.BotDetection.Privacy;
 
 /// <summary>
 ///     ZERO-PII signature generator using keyed HMAC-SHA256.

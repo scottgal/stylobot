@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Privacy;
 using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Middleware;

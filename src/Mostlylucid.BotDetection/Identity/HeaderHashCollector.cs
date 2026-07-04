@@ -1,5 +1,5 @@
 using System.Collections.Frozen;
-using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Privacy;
 
 namespace Mostlylucid.BotDetection.Identity;
 
