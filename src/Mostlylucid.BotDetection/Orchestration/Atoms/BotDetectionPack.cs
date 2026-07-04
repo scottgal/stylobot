@@ -376,6 +376,8 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<FastPathReputationAtom>();    // Priority 3  (Wave 0)
         services.AddDetectorAtom<VerifiedBotInlineAtom>();     // Priority 4  (Wave 0)
         services.AddDetectorAtom<FingerprintPriorAtom>();      // Priority 4  (Wave 0)
+        services.AddDetectorAtom<VerifiedBotAtom>();           // Priority 4  (Wave 0)
+        services.AddDetectorAtom<ThreatIntelAtom>();           // Priority 7  (Wave 0)
         services.AddDetectorAtom<SecurityToolAtom>();          // Priority 8  (Wave 0)
 
         // ConstrainerAtoms -- validate + constrain proposals
