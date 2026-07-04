@@ -308,6 +308,7 @@ public static class BotDetectionOrchestratorExtensions
         // atom-orchestrator middleware can enforce the same rules without
         // duplicating logic. See Mostlylucid.BotDetection.Enforcement.
         services.AddSingleton<Enforcement.LoadShedGate>();
+        services.AddSingleton<Enforcement.PolicyDispatchGate>();
 
         // Register the hydrator atom
         services.AddSingleton<IDetectorAtom, RequestHydratorAtom>();

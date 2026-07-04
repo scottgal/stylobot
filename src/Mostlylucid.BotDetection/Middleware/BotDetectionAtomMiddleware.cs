@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Mostlylucid.BotDetection.Enforcement;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
+using Mostlylucid.BotDetection.Policies.Dispatch;
 
 namespace Mostlylucid.BotDetection.Middleware;
 
@@ -43,11 +44,16 @@ public sealed class BotDetectionAtomMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly LoadShedGate _loadShedGate;
+    private readonly PolicyDispatchGate _policyDispatchGate;
 
-    public BotDetectionAtomMiddleware(RequestDelegate next, LoadShedGate loadShedGate)
+    public BotDetectionAtomMiddleware(
+        RequestDelegate next,
+        LoadShedGate loadShedGate,
+        PolicyDispatchGate policyDispatchGate)
     {
         _next = next;
         _loadShedGate = loadShedGate;
+        _policyDispatchGate = policyDispatchGate;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -88,6 +94,19 @@ public sealed class BotDetectionAtomMiddleware
         // emission, EndpointPolicyMiddleware, etc.) continue to read the same
         // signal surface they read when the legacy BotDetectionMiddleware ran.
         context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+
+        // Policy-stack dispatch. Bridges PolicyAction (Allow / Block / Observe
+        // / Tag / Challenge / RateLimit / Throttle) records to the HTTP
+        // response BEFORE _next runs. Handled → the dispatcher has already
+        // shaped the response so we short-circuit; FallThrough → run _next
+        // and emit response signals as normal. Optional dependency: hosts
+        // without a PolicyActionDispatcher never trigger the Handled path.
+        var dispatchOutcome = await _policyDispatchGate.EvaluateAsync(context, evidence);
+        if (dispatchOutcome == PolicyDispatchResult.Handled)
+        {
+            EmitResponseSignals(context, orchestrator);
+            return;
+        }
 
         await _next(context);
 
