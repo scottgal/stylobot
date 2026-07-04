@@ -89,8 +89,6 @@ public sealed class IntentAtom : DetectorAtomBase
                                || sink.ReadHint(SignalKeys.ClickFraudChecked) is not null;
         if (!hasPartnerSignal) return None();
 
-        sink.Raise("intent.ran", sessionId);
-
         var contributions = new List<DetectionContribution>(1);
         var context = _httpContextAccessor.HttpContext;
         var path = context?.Request.Path.Value ?? "/";

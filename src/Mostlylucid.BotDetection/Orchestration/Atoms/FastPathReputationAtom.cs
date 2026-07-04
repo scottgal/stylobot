@@ -74,7 +74,6 @@ public sealed class FastPathReputationAtom : DetectorAtomBase
         CancellationToken ct = default)
     {
         // Ledger: every request enters the fast-path check.
-        sink.Raise("reputation.fastpath.ran", sessionId);
 
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());

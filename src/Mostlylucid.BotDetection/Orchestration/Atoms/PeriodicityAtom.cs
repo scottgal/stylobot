@@ -77,8 +77,6 @@ public sealed class PeriodicityAtom : DetectorAtomBase
         if (string.IsNullOrEmpty(signature))
             return Task.FromResult(None());
 
-        sink.Raise("periodicity.ran", sessionId);
-
         var now = DateTimeOffset.UtcNow;
         var history = RecordTimestamp(signature, now);
 

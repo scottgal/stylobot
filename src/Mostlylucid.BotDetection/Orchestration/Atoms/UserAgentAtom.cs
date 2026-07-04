@@ -94,8 +94,6 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("useragent.ran", sessionId);
-
         var userAgent = context.Request.Headers.UserAgent.ToString();
 
         if (string.IsNullOrWhiteSpace(userAgent))

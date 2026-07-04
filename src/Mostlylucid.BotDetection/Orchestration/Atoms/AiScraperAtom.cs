@@ -83,8 +83,6 @@ public sealed class AiScraperAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("aiscraper.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var request = context.Request;
         var userAgent = request.Headers.UserAgent.ToString();

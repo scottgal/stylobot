@@ -96,8 +96,6 @@ public sealed class BehavioralAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("behavioral.ran", sessionId);
-
         var contributions = new List<DetectionContribution>(8);
 
         // Basic behavioral detector

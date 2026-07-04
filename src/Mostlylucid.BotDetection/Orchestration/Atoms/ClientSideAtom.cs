@@ -84,8 +84,6 @@ public sealed class ClientSideAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("clientside.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
 
         try

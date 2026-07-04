@@ -87,8 +87,6 @@ public sealed partial class VerifiedBotAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("verifiedbot.ran", sessionId);
-
         var userAgent = context.Request.Headers.UserAgent.ToString();
         var clientIp = context.Connection.RemoteIpAddress?.ToString();
 

@@ -88,8 +88,6 @@ public sealed class AccountTakeoverAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("ato.ran", sessionId);
-
         try
         {
             var signature = sink.ReadHint(SignalKeys.PrimarySignature);

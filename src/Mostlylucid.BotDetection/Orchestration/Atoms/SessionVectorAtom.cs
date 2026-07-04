@@ -113,8 +113,6 @@ public sealed class SessionVectorAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("session_vector.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
 
         try

@@ -75,8 +75,6 @@ public sealed class AiAtom : DetectorAtomBase
         // have produced contributions. Matches the legacy AllOf trigger.
         if (currentRisk < MediumRiskThreshold || detectorCount < MinDetectorCount)
             return None();
-
-        sink.Raise("ai.ran", sessionId);
         _logger.LogDebug("AI detector running for request {RequestId} (risk={Risk:F2}, detectors={Count})",
             sessionId, currentRisk, detectorCount);
 

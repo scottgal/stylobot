@@ -79,8 +79,6 @@ public sealed class HeaderAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("header.analysis.ran", sessionId);
-
         var headers = context.Request.Headers;
         var contributions = new List<DetectionContribution>();
 

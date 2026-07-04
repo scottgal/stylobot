@@ -157,7 +157,6 @@ public sealed partial class FediverseDomainAtom : DetectorAtomBase
         // "ran" ledger for the DNS confirmation step -- distinct from the
         // NodeInfo verification. A downstream constrainer can see that DNS
         // was attempted (or cached) even if the match didn't happen.
-        sink.Raise("fediverse.forward_dns.ran", sessionId);
 
         IReadOnlyList<IPAddress>? resolved;
         if (!_forwardDnsCache.TryGet(domain, out resolved) || resolved is null)

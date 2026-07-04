@@ -72,6 +72,7 @@ public sealed class ClickFraudAtom : DetectorAtomBase
         string sessionId,
         CancellationToken ct = default)
     {
+
         // OR-trigger evaluation -- UTM present is the paid-traffic arm; the
         // organic-datacenter arm needs both session count and datacenter.
         var utmPresent = sink.ReadBoolHint(SignalKeys.UtmPresent);

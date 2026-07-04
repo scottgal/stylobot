@@ -80,8 +80,6 @@ public sealed class SecurityToolAtom : DetectorAtomBase
         if (string.IsNullOrWhiteSpace(userAgent)) return None();
         if (!_options.SecurityTools.Enabled) return None();
 
-        sink.Raise("security_tool.ran", sessionId);
-
         var patterns = await GetPatternsAsync(ct).ConfigureAwait(false);
         if (patterns.Count == 0) return None();
 

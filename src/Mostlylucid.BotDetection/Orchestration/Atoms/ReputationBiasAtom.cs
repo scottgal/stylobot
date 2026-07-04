@@ -76,8 +76,6 @@ public sealed partial class ReputationBiasAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("reputation.bias.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var userAgent = context.Request.Headers.UserAgent.ToString();
         var resolvedIp = sink.ReadHint(SignalKeys.ClientIp) ?? context.Connection.RemoteIpAddress?.ToString();

@@ -102,8 +102,6 @@ public sealed class IpAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("ip.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var clientIp = ResolveClientIp(context);
 

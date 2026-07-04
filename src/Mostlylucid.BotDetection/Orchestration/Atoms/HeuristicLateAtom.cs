@@ -77,8 +77,6 @@ public sealed class HeuristicLateAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("heuristic.late.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
 
         try

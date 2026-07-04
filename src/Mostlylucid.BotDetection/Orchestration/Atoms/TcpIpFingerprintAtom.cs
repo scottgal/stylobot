@@ -154,8 +154,6 @@ public sealed class TcpIpFingerprintAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("tcpip.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var req = context.Request;
 

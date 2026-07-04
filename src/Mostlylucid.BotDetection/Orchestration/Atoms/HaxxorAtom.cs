@@ -124,8 +124,6 @@ public sealed class HaxxorAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("attack.ran", sessionId);
-
         try
         {
             var path = context.Request.Path.Value;

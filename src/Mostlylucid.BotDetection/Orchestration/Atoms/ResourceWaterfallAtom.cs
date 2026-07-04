@@ -85,8 +85,6 @@ public sealed class ResourceWaterfallAtom : DetectorAtomBase
         if (string.IsNullOrEmpty(signature))
             return Task.FromResult(None());
 
-        sink.Raise("resource.waterfall.ran", sessionId);
-
         var request = context.Request;
         var secFetchDest = request.Headers["Sec-Fetch-Dest"].FirstOrDefault()?.ToLowerInvariant() ?? string.Empty;
         var accept = request.Headers["Accept"].FirstOrDefault() ?? string.Empty;

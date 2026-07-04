@@ -73,7 +73,6 @@ public sealed class ClusterAtom : DetectorAtomBase
         string sessionId,
         CancellationToken ct = default)
     {
-        sink.Raise("cluster.ran", sessionId);
 
         var contributions = new List<DetectionContribution>();
 

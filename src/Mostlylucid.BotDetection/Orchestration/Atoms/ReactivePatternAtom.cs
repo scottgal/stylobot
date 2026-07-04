@@ -85,8 +85,6 @@ public sealed class ReactivePatternAtom : DetectorAtomBase
         if (string.IsNullOrEmpty(signature))
             return Task.FromResult(None());
 
-        sink.Raise("reactive.pattern.ran", sessionId);
-
         var history = _tracker.GetHistory(signature);
         var now = DateTimeOffset.UtcNow;
 

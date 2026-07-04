@@ -132,8 +132,6 @@ public sealed class ResponseBehaviorAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("response.behavior.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
 
         try

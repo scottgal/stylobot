@@ -90,7 +90,6 @@ public sealed class ClaimedIdentityAtom : DetectorAtomBase
     {
         // Always ledger the run so downstream can distinguish "not checked"
         // from "checked, no value" (rule: ran-vs-value).
-        sink.Raise("claimed_identity.ran", sessionId);
 
         var rawFamily = sink.ReadHint(SignalKeys.UserAgentFamily);
         if (string.IsNullOrEmpty(rawFamily))

@@ -103,7 +103,6 @@ public sealed class CacheBehaviorAtom : DetectorAtomBase
 
         // Ledger: we entered the check. Absent hint means we bailed on
         // guard (above), so downstream can distinguish.
-        sink.Raise("cache.behavior.ran", sessionId);
 
         // Streaming transports are non-cacheable by design -- skip cache
         // analysis but still ledger the skip so downstream sees the reason.

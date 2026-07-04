@@ -79,8 +79,6 @@ public sealed class ThreatIntelAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("threatintel.ran", sessionId);
-
         var path = context.Request.Path.Value;
         var risk = EndpointRiskClassifier.Classify(path);
 

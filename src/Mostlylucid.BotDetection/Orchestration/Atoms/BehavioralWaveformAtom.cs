@@ -79,8 +79,6 @@ public sealed partial class BehavioralWaveformAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("waveform.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
 
         try

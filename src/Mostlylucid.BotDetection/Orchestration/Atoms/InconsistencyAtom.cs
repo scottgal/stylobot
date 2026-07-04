@@ -69,8 +69,6 @@ public sealed partial class InconsistencyAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("inconsistency.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var userAgent = sink.ReadHint(SignalKeys.UserAgent) ?? string.Empty;
         var isDatacenter = sink.ReadBoolHint(SignalKeys.IpIsDatacenter);

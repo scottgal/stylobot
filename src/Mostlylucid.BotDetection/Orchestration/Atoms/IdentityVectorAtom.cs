@@ -87,8 +87,6 @@ public sealed class IdentityVectorAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("identity.vector.ran", sessionId);
-
         var primarySig = sink.ReadHint(SignalKeys.PrimarySignature) ?? string.Empty;
 
         // Cache hit: reuse the encoded vector, skip raw-values composition.

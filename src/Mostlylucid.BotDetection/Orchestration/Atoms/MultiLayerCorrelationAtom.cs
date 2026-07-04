@@ -76,8 +76,6 @@ public sealed class MultiLayerCorrelationAtom : DetectorAtomBase
                                   || sink.ReadHint(SignalKeys.H3Protocol) is not null;
         if (!hasFingerprintLayer) return Task.FromResult(None());
 
-        sink.Raise("correlation.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var anomalyCount = 0;
         var anomalyLayers = new List<string>();

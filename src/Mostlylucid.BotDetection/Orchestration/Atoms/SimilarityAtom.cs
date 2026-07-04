@@ -70,8 +70,6 @@ public sealed class SimilarityAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
-        sink.Raise("similarity.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
 
         try

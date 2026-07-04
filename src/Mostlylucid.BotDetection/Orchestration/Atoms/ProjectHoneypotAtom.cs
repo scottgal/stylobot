@@ -66,7 +66,6 @@ public sealed class ProjectHoneypotAtom : DetectorAtomBase
         string sessionId,
         CancellationToken ct = default)
     {
-        sink.Raise("honeypot.ran", sessionId);
 
         if (_options.EnableTestMode)
         {

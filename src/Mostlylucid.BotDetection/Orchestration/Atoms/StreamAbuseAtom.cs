@@ -97,8 +97,6 @@ public sealed class StreamAbuseAtom : DetectorAtomBase
 
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
-
-        sink.Raise("stream_abuse.ran", sessionId);
         sink.Raise($"{SignalKeys.StreamAbuseChecked}:true", sessionId);
 
         var contributions = new List<DetectionContribution>();

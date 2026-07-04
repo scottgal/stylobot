@@ -107,8 +107,6 @@ public sealed partial class TlsFingerprintAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("tls.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var req = context.Request;
 

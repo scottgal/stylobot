@@ -76,8 +76,6 @@ public sealed partial class TransportProtocolAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("transport.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
 
         try

@@ -99,8 +99,6 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("sequence.ran", sessionId);
-
         // Publish current-request markov classification BEFORE any sequence-context
         // short-circuit. Downstream persistence + SessionVector rely on this hint
         // being present on every request.
