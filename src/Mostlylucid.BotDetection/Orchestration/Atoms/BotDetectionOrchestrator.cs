@@ -309,6 +309,7 @@ public static class BotDetectionOrchestratorExtensions
         // duplicating logic. See Mostlylucid.BotDetection.Enforcement.
         services.AddSingleton<Enforcement.LoadShedGate>();
         services.AddSingleton<Enforcement.PolicyDispatchGate>();
+        services.AddSingleton<Enforcement.BlockResponseGate>();
 
         // Register the hydrator atom
         services.AddSingleton<IDetectorAtom, RequestHydratorAtom>();

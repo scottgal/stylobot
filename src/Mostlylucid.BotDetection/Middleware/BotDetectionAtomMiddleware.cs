@@ -45,15 +45,18 @@ public sealed class BotDetectionAtomMiddleware
     private readonly RequestDelegate _next;
     private readonly LoadShedGate _loadShedGate;
     private readonly PolicyDispatchGate _policyDispatchGate;
+    private readonly BlockResponseGate _blockResponseGate;
 
     public BotDetectionAtomMiddleware(
         RequestDelegate next,
         LoadShedGate loadShedGate,
-        PolicyDispatchGate policyDispatchGate)
+        PolicyDispatchGate policyDispatchGate,
+        BlockResponseGate blockResponseGate)
     {
         _next = next;
         _loadShedGate = loadShedGate;
         _policyDispatchGate = policyDispatchGate;
+        _blockResponseGate = blockResponseGate;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -106,6 +109,21 @@ public sealed class BotDetectionAtomMiddleware
         {
             EmitResponseSignals(context, orchestrator);
             return;
+        }
+
+        // Legacy block / throttle / challenge decision + response shaping.
+        // Runs AFTER policy-stack dispatch so a policy-stack Allow marker
+        // wins (policy dispatcher stamps context.Items[PolicyActionDispatcher
+        // .AllowMarkerItemKey] before returning FallThrough on allow-through).
+        var policyAllowed = context.Items.ContainsKey(PolicyActionDispatcher.AllowMarkerItemKey);
+        if (!policyAllowed)
+        {
+            var blockOutcome = await _blockResponseGate.HandleAsync(context, evidence);
+            if (blockOutcome == BlockResponseOutcome.Blocked)
+            {
+                EmitResponseSignals(context, orchestrator);
+                return;
+            }
         }
 
         await _next(context);
