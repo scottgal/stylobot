@@ -944,26 +944,10 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 // Enqueue for background enrichment (ProjectHoneypot DNS lookup) when confidence is low
                 TryEnqueueBackgroundEnrichment(httpContext, result);
 
-                // Persist per-request data to SQLite/Postgres. The write is
-                // deferred to Response.OnCompleted so status_code reflects
-                // the ACTUAL final response after action policies have run.
-                // Reading httpContext.Response.StatusCode synchronously here
-                // pre-action-policy always saw the pre-populated default 200,
-                // which meant every persisted row recorded 200 regardless of
-                // whether the honeypot policy synthesised a 404, the throttle
-                // policy returned 429, the block policy returned 403, or
-                // upstream itself returned a real 4xx/5xx. Downstream error
-                // counts (session.error_count, dashboard status-code chips,
-                // fail2ban count-derivations that read requests.status_code
-                // instead of the live ResponseCoordinator) all inherited
-                // that bug. Bucket counters are still updated in the same
-                // batch write inside AddRequestBatchAsync (coordinator thread).
-                var pathForPersist = httpContext.Request.Path.ToString();
-                httpContext.Response.OnCompleted(() =>
-                {
-                    TryPersistRequest(httpContext, result, pathForPersist, httpContext.Response.StatusCode);
-                    return Task.CompletedTask;
-                });
+                // Persist per-request data to SQLite. Bucket counters are updated
+                // in the same batch write inside AddRequestBatchAsync (coordinator thread),
+                // so no separate IncrementBucketAsync call is needed here.
+                TryPersistRequest(httpContext, result, httpContext.Request.Path.ToString(), httpContext.Response.StatusCode);
 
                 // Architecture spec (docs/architecture/fingerprint-match.md): the request-path
                 // verdict EWMA-updates the matched fingerprint row, in-line, every request.
