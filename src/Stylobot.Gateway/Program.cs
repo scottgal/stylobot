@@ -349,17 +349,16 @@ try
     //            BotDetectionOrchestrator's wave orchestrator (Ephemeral
     //            DetectorOrchestrator + shared SignalSink / blackboard +
     //            SignatureEscalatorAtom + SignatureResponseCoordinator lanes).
-    //            Post-detection middleware-level concerns (action-policy
-    //            dispatch, honeypot tag override, per-BotType policy fallback,
-    //            load-shed, license log-only) migrate onto blackboard
-    //            escalators in subsequent phases -- until that migration is
-    //            complete, this path runs in observe-only shape (detection
-    //            populates the dashboard; bots are not blocked).
+    //            Enforcement (LoadShed / PolicyDispatch / PostDetectionAction
+    //            / BlockResponse / ResponsePiiMask) is fully wired under
+    //            Mostlylucid.BotDetection.Enforcement; the atom path now
+    //            blocks the same requests the contributor path does.
     //   false -> UseBotDetection: the legacy BotDetectionMiddleware +
-    //            BlackboardOrchestrator path.
-    // Default: false (unset). Deploys are safe until the operator flips the
-    // flag on staging and verifies parity.
-    var useAtomOrchestrator = builder.Configuration.GetValue<bool>("BotDetection:UseAtomOrchestrator");
+    //            BlackboardOrchestrator path. Kept as a safety-net until
+    //            the contributor delete lands (see feat(atoms) plan step 7).
+    // Default: true. Flip to false to reactivate the contributor path.
+    var useAtomOrchestrator = builder.Configuration.GetValue<bool>(
+        "BotDetection:UseAtomOrchestrator", defaultValue: true);
     if (useAtomOrchestrator)
         app.UseBotDetectionAtoms();
     else
