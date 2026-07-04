@@ -367,6 +367,8 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<FediverseDomainAtom>();       // Priority 5  (Wave 0)
         services.AddDetectorAtom<BrowserModeClassifierAtom>(); // Priority 6  (Wave 0)
         services.AddDetectorAtom<PiiQueryStringAtom>();        // Priority 8  (Wave 0)
+        services.AddDetectorAtom<Http2FingerprintAtom>();      // Priority 13 (Wave 0)
+        services.AddDetectorAtom<Http3FingerprintAtom>();      // Priority 14 (Wave 0)
         services.AddDetectorAtom<LlmAtom>();                   // Priority 55
 
         // ExtractorAtoms -- raw content -> semantic units
