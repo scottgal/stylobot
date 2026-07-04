@@ -384,6 +384,7 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<MultiLayerCorrelationAtom>(); // Priority 4  (Wave 0)
         services.AddDetectorAtom<VerifiedBotAtom>();           // Priority 4  (Wave 0)
         services.AddDetectorAtom<ThreatIntelAtom>();           // Priority 7  (Wave 0)
+        services.AddDetectorAtom<HaxxorAtom>();                // Priority 7  (Wave 0)
         services.AddDetectorAtom<SecurityToolAtom>();          // Priority 8  (Wave 0)
         services.AddDetectorAtom<AiScraperAtom>();             // Priority 9  (Wave 0)
 
@@ -414,6 +415,7 @@ public static class BotDetectionPackExtensions
 
         // RankerAtoms -- re-scoring / re-ordering
         services.AddDetectorAtom<VersionAgeAtom>();            // Priority 25
+        services.AddDetectorAtom<AccountTakeoverAtom>();       // Priority 25
         services.AddDetectorAtom<ReputationBiasAtom>();        // Priority 45
         services.AddDetectorAtom<ClusterAtom>();               // Priority 850 (very late)
 
