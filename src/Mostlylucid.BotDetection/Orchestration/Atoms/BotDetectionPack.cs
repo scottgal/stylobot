@@ -369,12 +369,16 @@ public static class BotDetectionPackExtensions
         services.AddDetectorAtom<PiiQueryStringAtom>();        // Priority 8  (Wave 0)
         services.AddDetectorAtom<LlmAtom>();                   // Priority 55
 
+        // ExtractorAtoms -- raw content -> semantic units
+        services.AddDetectorAtom<IdentityVectorAtom>();        // Priority 5  (Wave 0)
+
         // GuardAtoms -- hard safety / policy gates
         services.AddDetectorAtom<FastPathReputationAtom>();    // Priority 3  (Wave 0)
         services.AddDetectorAtom<VerifiedBotInlineAtom>();     // Priority 4  (Wave 0)
         services.AddDetectorAtom<FingerprintPriorAtom>();      // Priority 4  (Wave 0)
 
         // ConstrainerAtoms -- validate + constrain proposals
+        services.AddDetectorAtom<HeaderAtom>();                // Priority 10
         services.AddDetectorAtom<CacheBehaviorAtom>();         // Priority 15
         services.AddDetectorAtom<GeoChangeAtom>();             // Priority 16
         services.AddDetectorAtom<CookieBehaviorAtom>();        // Priority 20
