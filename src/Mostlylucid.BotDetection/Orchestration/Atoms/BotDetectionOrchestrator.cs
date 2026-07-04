@@ -335,13 +335,19 @@ public static class BotDetectionOrchestratorExtensions
         // SignalSink directly. Ordered by Priority (Wave 0 -> Wave N).
         services.AddNativeDetectorAtoms();
 
-        // Migration adapters: every un-migrated IContributingDetector is
-        // wrapped as a ContributingDetectorAdapter so the atom-orchestrator path has full
-        // detector coverage today. The skip set is derived at DI-build time
-        // from INativeAtomNameMarker registrations authored inside
-        // AddDetectorAtom<T>() -- the atom's own Name property is the sole
-        // source of truth, no hand-maintained list. Deleted with the last
-        // legacy contributor.
+        // Migration adapters. Native atoms cover 55/60 of the previous
+        // contributor surface; 5 contributors still lack native atoms:
+        //   * FingerprintMatch (1033-line contributor — mechanical port
+        //     scheduled after the enforcement extraction settles).
+        //   * CveProbe, CveFingerprint (CVE-driven detectors — wait for
+        //     the threat-intel atom family).
+        //   * HoneypotLink (honeypot-tagger extension — waits for
+        //     honeypot atom).
+        //   * EndpointHistory (per-endpoint history — needs Wave 6
+        //     persistence atom).
+        // Adapter stays registered until each of those has a native
+        // atom; then the whole ContributingDetectorAdapter file plus
+        // this call go with the Step 7 delete.
         services.AddContributingDetectorAdapters();
 
         return services;
