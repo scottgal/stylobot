@@ -28,6 +28,11 @@
     return;
 }
 
+@* Data guardians: storage-bounding roster (behavioural compaction, cross-signature
+   eviction, jsonl retention). Read-only FOSS surface; renders a graceful empty state
+   in remote-mode hosts with no detection runtime. *@
+@await Component.InvokeAsync("SbGuardians")
+
 @* FOSS: read-only, server-rendered, server-highlighted. Left rail lists effective-
    config sections and detectors. Right panel shows YAML or JSON for the active
    item, fetched as an HTMX fragment. Zero CDN dependencies; works under the

@@ -1,0 +1,137 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model GuardianRosterModel
+@{
+    string StatusBadge(string? s) => s switch
+    {
+        "compacted" or "pruned" => "badge-info",
+        "evicted" or "alert" => "badge-warning",
+        "error" => "badge-error",
+        "ok" => "badge-ghost",
+        _ => "badge-ghost"
+    };
+
+    string CategoryBadge(string c) => c switch
+    {
+        "Data" => "badge-primary",
+        "Compliance" => "badge-secondary",
+        "License" => "badge-accent",
+        _ => "badge-ghost"
+    };
+
+    string Bytes(long b) =>
+        b >= 1_048_576 ? $"{b / 1_048_576.0:0.#} MB"
+        : b >= 1024 ? $"{b / 1024.0:0.#} KB"
+        : $"{b} B";
+}
+
+<div class="rounded-xl border p-4 mb-4" style="border-color:var(--sb-card-border); background:var(--sb-card-bg);">
+    <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+            <h3 class="text-sm font-bold text-base-content">Data guardians</h3>
+            <span class="text-[10px] text-base-content/50">storage stays bounded · read-only</span>
+        </div>
+        @if (Model.Available)
+        {
+            <div class="flex items-center gap-2">
+                <span class="badge badge-ghost badge-sm">@Model.TotalGuardians guardian@(Model.TotalGuardians == 1 ? "" : "s")</span>
+                @if (Model.TotalBytesReclaimed > 0)
+                {
+                    <span class="badge badge-info badge-sm">@Bytes(Model.TotalBytesReclaimed) reclaimed</span>
+                }
+                @if (Model.AnyErrors)
+                {
+                    <span class="badge badge-error badge-sm">errors</span>
+                }
+            </div>
+        }
+    </div>
+
+    @if (!Model.Available)
+    {
+        <p class="text-xs text-base-content/60 italic">
+            Guardian runtime not available in this dashboard host (remote / view-only mode).
+            Storage bounding runs in the detection component (gateway / sidecar / embedded).
+        </p>
+    }
+    else if (Model.TotalGuardians == 0)
+    {
+        <p class="text-xs text-base-content/60 italic">No guardians registered.</p>
+    }
+    else
+    {
+        <div class="overflow-x-auto">
+            <table class="table table-xs">
+                <thead>
+                    <tr class="text-base-content/50">
+                        <th>Guardian</th>
+                        <th>Category</th>
+                        <th>Every</th>
+                        <th>Status</th>
+                        <th>Rows</th>
+                        <th>Reclaimed</th>
+                        <th>Last run</th>
+                        <th>Detail</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Model.Rows)
+                    {
+                        <tr>
+                            <td class="font-mono text-xs">@row.Name</td>
+                            <td><span class="badge badge-sm @CategoryBadge(row.Category)">@row.Category</span></td>
+                            <td class="text-xs">@row.IntervalDisplay</td>
+                            <td>
+                                @if (row.Status is null)
+                                {
+                                    <span class="badge badge-sm badge-ghost">pending</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-sm @StatusBadge(row.Status)">@row.Status</span>
+                                }
+                            </td>
+                            <td class="text-xs">
+                                @if (row.Status is not null && (row.RowsBefore > 0 || row.RowsAfter > 0))
+                                {
+                                    <span>@row.RowsBefore &rarr; @row.RowsAfter</span>
+                                }
+                                else
+                                {
+                                    <span class="text-base-content/30">&mdash;</span>
+                                }
+                            </td>
+                            <td class="text-xs">
+                                @if (row.BytesReclaimed > 0)
+                                {
+                                    <span>@Bytes(row.BytesReclaimed)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-base-content/30">&mdash;</span>
+                                }
+                            </td>
+                            <td class="text-xs text-base-content/60">
+                                @if (row.LastRunAt is { } at)
+                                {
+                                    <span title="@at.UtcDateTime.ToString("u")">@at.UtcDateTime.ToString("HH:mm:ss")</span>
+                                    <span class="text-base-content/40">(@($"{row.DurationMs:0}")ms)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-base-content/30">&mdash;</span>
+                                }
+                            </td>
+                            <td class="text-xs text-base-content/60">@(row.Details ?? "")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <p class="text-[11px] text-base-content/50 mt-3 leading-relaxed">
+            Read-only. Tune via <code>appsettings.json</code>
+            (<code>BotDetection:Retention</code>, <code>SignatureLogging:Retention</code>).
+            In-app editing of intervals, caps and retention windows is a commercial feature.
+        </p>
+    }
+</div>
