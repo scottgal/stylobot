@@ -27,10 +27,10 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 ///         read TransportIsSignalR / IsUpgrade / ProtocolClass.
 ///     </para>
 ///     <para>
-///         RequestMarkovClassifier reads <see cref="BlackboardState"/>
-///         directly. A lightweight shim is constructed per request so the
-///         legacy classifier keeps working without duplicating its logic
-///         under the pack path.
+///         RequestMarkovClassifier exposes a sink-native
+///         <c>Classify(HttpContext, SignalSink)</c> overload that reads the
+///         transport / response hints off the sink directly, so no
+///         BlackboardState shim is needed.
 ///     </para>
 /// </remarks>
 public sealed class ContentSequenceAtom : DetectorAtomBase
@@ -102,10 +102,9 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
         // Publish current-request markov classification BEFORE any sequence-context
         // short-circuit. Downstream persistence + SessionVector rely on this hint
         // being present on every request.
-        var shim = BuildShim(context, sink, sessionId);
         try
         {
-            var currentState = RequestMarkovClassifier.Classify(shim);
+            var currentState = RequestMarkovClassifier.Classify(context, sink);
             sink.Raise($"{SignalKeys.SessionCurrentState}:{currentState}", sessionId);
         }
         catch (Exception ex)
@@ -133,38 +132,7 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
             return Task.FromResult(None());
         }
 
-        return Task.FromResult(HandleContinuationRequest(sink, sessionId, signature, request, ctx, shim));
-    }
-
-    private static BlackboardState BuildShim(HttpContext context, SignalSink sink, string sessionId)
-    {
-        // Signals dict shim: RequestMarkovClassifier reads state.HttpContext primarily and
-        // may consult a small number of hint signals via state.GetSignal<T>. We hydrate the
-        // relevant known keys from the sink so the classifier gets what it expects. Values
-        // land as strings (Model-2 shape) which is fine for the classifier's ordinal checks.
-        var signals = new Dictionary<string, object>(StringComparer.Ordinal);
-        void Copy(string key)
-        {
-            var v = sink.ReadHint(key);
-            if (v is not null) signals[key] = v;
-        }
-        Copy(SignalKeys.TransportProtocolClass);
-        Copy(SignalKeys.TransportIsSignalR);
-        Copy(SignalKeys.TransportIsUpgrade);
-        Copy(SignalKeys.PrimarySignature);
-        Copy(SignalKeys.UserAgent);
-        Copy(SignalKeys.UserAgentFamily);
-
-        return new BlackboardState
-        {
-            HttpContext = context,
-            Signals = signals,
-            SignalWriter = null,
-            CompletedDetectors = new HashSet<string>(),
-            FailedDetectors = new HashSet<string>(),
-            Contributions = Array.Empty<DetectionContribution>(),
-            RequestId = sessionId
-        };
+        return Task.FromResult(HandleContinuationRequest(sink, sessionId, signature, request, ctx, context));
     }
 
     private static bool IsDocumentRequest(HttpRequest request, SignalSink sink)
@@ -230,10 +198,10 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
     }
 
     private IReadOnlyList<DetectionContribution> HandleContinuationRequest(
-        SignalSink sink, string sessionId, string signature, HttpRequest request, SequenceContext ctx, BlackboardState shim)
+        SignalSink sink, string sessionId, string signature, HttpRequest request, SequenceContext ctx, HttpContext context)
     {
         var isPrefetch = RequestMarkovClassifier.IsPrefetchRequest(request);
-        var requestState = RequestMarkovClassifier.Classify(shim);
+        var requestState = RequestMarkovClassifier.Classify(context, sink);
         var now = DateTimeOffset.UtcNow;
 
         var idleSeconds = (now - ctx.LastRequest).TotalSeconds;

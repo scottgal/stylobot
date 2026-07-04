@@ -123,8 +123,6 @@ public sealed class Http2FingerprintAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("h2.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var req = context.Request;
 
@@ -133,16 +131,7 @@ public sealed class Http2FingerprintAtom : DetectorAtomBase
             var trustHeaders = true;
             if (_transportTrust is not null)
             {
-                var stateShim = new Mostlylucid.BotDetection.Orchestration.BlackboardState
-                {
-                    HttpContext = context,
-                    Signals = new Dictionary<string, object>(),
-                    CompletedDetectors = new HashSet<string>(),
-                    FailedDetectors = new HashSet<string>(),
-                    Contributions = Array.Empty<DetectionContribution>(),
-                    RequestId = sessionId
-                };
-                var trust = _transportTrust.Evaluate(stateShim);
+                var trust = _transportTrust.Evaluate(context, sink, sessionId);
                 trustHeaders = trust.Trusted;
 
                 if (!trust.Trusted)

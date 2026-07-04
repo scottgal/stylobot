@@ -115,16 +115,7 @@ public sealed partial class TlsFingerprintAtom : DetectorAtomBase
             var trustHeaders = true;
             if (_transportTrust is not null)
             {
-                var stateShim = new Mostlylucid.BotDetection.Orchestration.BlackboardState
-                {
-                    HttpContext = context,
-                    Signals = new Dictionary<string, object>(),
-                    CompletedDetectors = new HashSet<string>(),
-                    FailedDetectors = new HashSet<string>(),
-                    Contributions = Array.Empty<DetectionContribution>(),
-                    RequestId = sessionId
-                };
-                var trust = _transportTrust.Evaluate(stateShim);
+                var trust = _transportTrust.Evaluate(context, sink, sessionId);
                 trustHeaders = trust.Trusted;
 
                 if (!trust.Trusted)

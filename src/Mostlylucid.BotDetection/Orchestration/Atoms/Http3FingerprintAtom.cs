@@ -101,34 +101,17 @@ public sealed class Http3FingerprintAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
 
-        sink.Raise("h3.ran", sessionId);
-
         var contributions = new List<DetectionContribution>();
         var req = context.Request;
 
-        // ITransportHeaderTrust needs BlackboardState in the legacy path; under
-        // the pack we pass a minimal shim -- but the trust service treats
-        // missing state as "not trusted" which is safe. Fall back to the same
-        // "trust by default" semantics when the service isn't wired.
+        // Fall back to "trust by default" when the trust service isn't wired.
         var trustHeaders = _transportTrust is null;
 
         try
         {
             if (_transportTrust is not null)
             {
-                // Reconstruct a light-weight BlackboardState-shaped view. The
-                // trust service reads state.HttpContext primarily; other
-                // fields are unused. Handled the same way as legacy for parity.
-                var stateShim = new Mostlylucid.BotDetection.Orchestration.BlackboardState
-                {
-                    HttpContext = context,
-                    Signals = new Dictionary<string, object>(),
-                    CompletedDetectors = new HashSet<string>(),
-                    FailedDetectors = new HashSet<string>(),
-                    Contributions = Array.Empty<DetectionContribution>(),
-                    RequestId = sessionId
-                };
-                var trust = _transportTrust.Evaluate(stateShim);
+                var trust = _transportTrust.Evaluate(context, sink, sessionId);
                 trustHeaders = trust.Trusted;
 
                 if (!trust.Trusted)

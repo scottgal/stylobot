@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Markov;
 
@@ -23,6 +25,48 @@ public static class RequestMarkovClassifier
         // Transport-level classification (highest priority)
         var isSignalR = state.GetSignal<bool?>(SignalKeys.TransportIsSignalR) ?? false;
         var isUpgrade = state.GetSignal<bool?>(SignalKeys.TransportIsUpgrade) ?? false;
+
+        return ClassifyCore(
+            context,
+            request,
+            isSignalR,
+            isUpgrade,
+            upstreamHealthy: state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true,
+            gatewayWarming: state.GetSignal<bool?>(SignalKeys.GatewayWarmup) ?? false,
+            fromUpstream: state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true,
+            protocolClass: state.GetSignal<string>(SignalKeys.TransportProtocolClass));
+    }
+
+    /// <summary>
+    ///     Sink-native <see cref="Classify(BlackboardState)"/> overload used by
+    ///     native atoms that don't have a <see cref="BlackboardState"/> in hand.
+    ///     Reads the same five transport/response signals off the sink instead
+    ///     of the blackboard dictionary.
+    /// </summary>
+    public static RequestState Classify(HttpContext context, SignalSink sink)
+    {
+        var request = context.Request;
+        return ClassifyCore(
+            context,
+            request,
+            isSignalR: sink.ReadBoolHint(SignalKeys.TransportIsSignalR),
+            isUpgrade: sink.ReadBoolHint(SignalKeys.TransportIsUpgrade),
+            upstreamHealthy: sink.ReadBoolHint(SignalKeys.UpstreamHealthy, fallback: true),
+            gatewayWarming: sink.ReadBoolHint(SignalKeys.GatewayWarmup),
+            fromUpstream: sink.ReadBoolHint(SignalKeys.ResponseFromUpstream, fallback: true),
+            protocolClass: sink.ReadHint(SignalKeys.TransportProtocolClass));
+    }
+
+    private static RequestState ClassifyCore(
+        HttpContext context,
+        HttpRequest request,
+        bool isSignalR,
+        bool isUpgrade,
+        bool upstreamHealthy,
+        bool gatewayWarming,
+        bool fromUpstream,
+        string? protocolClass)
+    {
 
         if (isSignalR) return RequestState.SignalR;
         if (isUpgrade) return RequestState.WebSocket;
@@ -52,9 +96,6 @@ public static class RequestMarkovClassifier
         // don't bake outage / cold-start / enforcement shape (per
         // feedback_centroid_learning_feedback_loop).
         var statusCode = context.Response.StatusCode;
-        var upstreamHealthy = state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true;
-        var gatewayWarming = state.GetSignal<bool?>(SignalKeys.GatewayWarmup) ?? false;
-        var fromUpstream = state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true;
         if (upstreamHealthy && !gatewayWarming && fromUpstream)
         {
             if (statusCode == 401 || statusCode == 403)
@@ -64,7 +105,6 @@ public static class RequestMarkovClassifier
         }
 
         // Content-type classification from transport signal
-        var protocolClass = state.GetSignal<string>(SignalKeys.TransportProtocolClass);
         if (protocolClass == "api") return RequestState.ApiCall;
         if (protocolClass == "static") return RequestState.StaticAsset;
 

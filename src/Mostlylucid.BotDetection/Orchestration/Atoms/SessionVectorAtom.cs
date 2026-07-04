@@ -121,10 +121,7 @@ public sealed class SessionVectorAtom : DetectorAtomBase
             if (string.IsNullOrEmpty(signature))
                 return Single(Neutral("No waveform signature available"));
 
-            // RequestMarkovClassifier needs a BlackboardState shim -- see
-            // ephemeral-review drift #2; TODO: sink-native classifier.
-            var shim = BuildClassifierShim(context, sink, sessionId);
-            var requestState = RequestMarkovClassifier.Classify(shim);
+            var requestState = RequestMarkovClassifier.Classify(context, sink);
             var statusCode = context.Response.StatusCode;
             var path = TemplatizePath(context.Request.Path.Value ?? "/");
             var fromUpstream = sink.ReadBoolHint(SignalKeys.ResponseFromUpstream, fallback: true);
@@ -229,25 +226,7 @@ public sealed class SessionVectorAtom : DetectorAtomBase
                && pos >= SequenceMinPosition;
     }
 
-    private static BlackboardState BuildClassifierShim(HttpContext context, SignalSink sink, string sessionId)
-    {
-        var signals = new Dictionary<string, object>(StringComparer.Ordinal);
-        void Copy(string key) { var v = sink.ReadHint(key); if (v is not null) signals[key] = v; }
-        Copy(SignalKeys.TransportProtocolClass);
-        Copy(SignalKeys.TransportIsSignalR);
-        Copy(SignalKeys.TransportIsUpgrade);
-        Copy(SignalKeys.PrimarySignature);
-        Copy(SignalKeys.UserAgent);
-        Copy(SignalKeys.UserAgentFamily);
-        return new BlackboardState
-        {
-            HttpContext = context, Signals = signals, SignalWriter = null,
-            CompletedDetectors = new HashSet<string>(), FailedDetectors = new HashSet<string>(),
-            Contributions = Array.Empty<DetectionContribution>(), RequestId = sessionId
-        };
-    }
-
-    private void AnalyzeCurrentSession(SignalSink sink, string sessionId, string signature, float[] currentVector, List<DetectionContribution> contributions)
+private void AnalyzeCurrentSession(SignalSink sink, string sessionId, string signature, float[] currentVector, List<DetectionContribution> contributions)
     {
         var history = _sessionStore.GetHistory(signature);
         if (history.Count == 0) return;

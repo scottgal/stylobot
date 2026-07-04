@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Proxy;
 
@@ -21,6 +22,15 @@ public sealed class TransportHeaderTrust : ITransportHeaderTrust
         var result = Decide(state.HttpContext);
         state.WriteSignal(SignalKeys.TransportHeadersTrusted, result.Trusted);
         state.WriteSignal(SignalKeys.TransportTrustReason, result.Reason);
+        return result;
+    }
+
+    /// <inheritdoc />
+    public TransportTrustResult Evaluate(HttpContext context, SignalSink sink, string sessionId)
+    {
+        var result = Decide(context);
+        sink.Raise($"{SignalKeys.TransportHeadersTrusted}:{(result.Trusted ? "true" : "false")}", sessionId);
+        sink.Raise($"{SignalKeys.TransportTrustReason}:{result.Reason}", sessionId);
         return result;
     }
 

@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Proxy;
 
@@ -11,6 +13,14 @@ public readonly record struct TransportTrustResult(bool Trusted, string Reason);
 /// </summary>
 public interface ITransportHeaderTrust
 {
-    /// <summary>Evaluate trust and write transport.headers_trusted / transport.trust_reason signals.</summary>
+    /// <summary>Legacy blackboard-path overload. Prefer the sink-based overload from new atoms.</summary>
     TransportTrustResult Evaluate(BlackboardState state);
+
+    /// <summary>
+    ///     Sink-native evaluation. Called from native atoms that don't have
+    ///     a <see cref="BlackboardState"/> in hand. Writes the same
+    ///     transport.headers_trusted / transport.trust_reason signals onto
+    ///     the sink instead of the blackboard.
+    /// </summary>
+    TransportTrustResult Evaluate(HttpContext context, SignalSink sink, string sessionId);
 }
