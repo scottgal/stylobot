@@ -295,12 +295,11 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddSingleton<Actions.IActionPolicyFactory, Actions.ChallengeActionPolicyFactory>();
         services.AddSingleton<Actions.IActionPolicyFactory, Actions.ThrottleActionPolicyFactory>();
         services.AddSingleton<Actions.IActionPolicyFactory, Actions.RedirectActionPolicyFactory>();
-        // Escalate-to-Learning / Session / LLM policies take a runtime name +
-        // options and are constructed by name from config -- factory pattern
-        // needed (matches ThrottleActionPolicyFactory). Direct AddSingleton
-        // won't work because their ctors take `string name`. Factories are a
-        // follow-on slice; for now these policies are only reachable through
-        // manual construction (test scenarios, direct sink writes).
+        // Escalate-to-Learning / Session / LLM: one combined factory keyed
+        // on ActionType.Escalate (registry uses ToDictionary(f => f.ActionType)
+        // so only one factory per type). options["Target"] = learning | session
+        // | llm picks the concrete class. See EscalateActionPolicyFactory.
+        services.AddSingleton<Actions.IActionPolicyFactory, Actions.EscalateActionPolicyFactory>();
 
         // Register contributors as detector atoms (adapt existing contributors)
         RegisterContributors(services, context);
