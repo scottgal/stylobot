@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.Common.Scheduling;
 using Stylobot.Gateway.Configuration;
@@ -192,14 +193,14 @@ public sealed class ProfileAnalysisWorker : IDisposable
     private async Task<AggregatedEvidence?> RunDetectionAsync(
         HttpContext ctx, IServiceProvider services, CancellationToken ct)
     {
-        var orchestrator = services.GetService<BlackboardOrchestrator>();
+        var orchestrator = services.GetService<BotDetectionOrchestrator>();
         if (orchestrator is null)
         {
-            _logger.LogWarning("BlackboardOrchestrator not available in profile analysis scope");
+            _logger.LogWarning("BotDetectionOrchestrator not available in profile analysis scope");
             return null;
         }
 
-        return await orchestrator.DetectAsync(ctx, PolicyName, ct);
+        return await orchestrator.DetectAsync(ctx, ct);
     }
 
     private static string ComputeVisitorHash(string ip, string ua)

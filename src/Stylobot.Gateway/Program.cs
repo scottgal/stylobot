@@ -357,12 +357,7 @@ try
     //            BlackboardOrchestrator path. Kept as a safety-net until
     //            the contributor delete lands (see feat(atoms) plan step 7).
     // Default: true. Flip to false to reactivate the contributor path.
-    var useAtomOrchestrator = builder.Configuration.GetValue<bool>(
-        "BotDetection:UseAtomOrchestrator", defaultValue: true);
-    if (useAtomOrchestrator)
-        app.UseBotDetectionAtoms();
-    else
-        app.UseBotDetection();
+    app.UseBotDetection();
 
     // DetectionPolicyMiddleware: dispatches IActionPolicy entries by name from
     // BotDetection:DetectionPolicies:Rules based on the detection verdict.

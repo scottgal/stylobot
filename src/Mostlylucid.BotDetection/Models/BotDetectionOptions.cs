@@ -465,16 +465,6 @@ public class BotDetectionOptions
     /// </summary>
     public RiskVerdictOptions RiskVerdict { get; set; } = new();
 
-    // ==========================================
-    // Blackboard Orchestrator Settings
-    // ==========================================
-
-    /// <summary>
-    ///     Configuration for the blackboard orchestrator.
-    ///     Controls wave-based parallel execution, circuit breakers, and resilience.
-    /// </summary>
-    public OrchestratorOptions Orchestrator { get; set; } = new();
-
     /// <summary>
     ///     Tuning for the in-memory + write-behind PathLifecycle store.
     ///     LFU cap, channel size, batch size, drainer cadence.

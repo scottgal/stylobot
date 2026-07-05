@@ -1,47 +1,23 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Markov;
 
 /// <summary>
-///     Classifies an HTTP request into a <see cref="RequestState"/> for Markov chain tracking.
-///     Shared by <c>SessionVectorContributor</c> and <c>ContentSequenceContributor</c>
-///     so both use identical classification logic.
+///     Classifies an HTTP request into a <see cref="RequestState"/> for
+///     Markov chain tracking. Shared by <c>SessionVectorAtom</c> and
+///     <c>ContentSequenceAtom</c> so both use identical classification
+///     logic.
 /// </summary>
 public static class RequestMarkovClassifier
 {
     /// <summary>
-    ///     Maps the current request into a Markov state based on transport, path, and response signals.
-    /// </summary>
-    public static RequestState Classify(BlackboardState state)
-    {
-        var context = state.HttpContext;
-        var request = context.Request;
-
-        // Transport-level classification (highest priority)
-        var isSignalR = state.GetSignal<bool?>(SignalKeys.TransportIsSignalR) ?? false;
-        var isUpgrade = state.GetSignal<bool?>(SignalKeys.TransportIsUpgrade) ?? false;
-
-        return ClassifyCore(
-            context,
-            request,
-            isSignalR,
-            isUpgrade,
-            upstreamHealthy: state.GetSignal<bool?>(SignalKeys.UpstreamHealthy) ?? true,
-            gatewayWarming: state.GetSignal<bool?>(SignalKeys.GatewayWarmup) ?? false,
-            fromUpstream: state.GetSignal<bool?>(SignalKeys.ResponseFromUpstream) ?? true,
-            protocolClass: state.GetSignal<string>(SignalKeys.TransportProtocolClass));
-    }
-
-    /// <summary>
-    ///     Sink-native <see cref="Classify(BlackboardState)"/> overload used by
-    ///     native atoms that don't have a <see cref="BlackboardState"/> in hand.
-    ///     Reads the same five transport/response signals off the sink instead
-    ///     of the blackboard dictionary.
+    ///     Maps the current request into a Markov state based on transport,
+    ///     path, and response signals. Reads the five transport / response
+    ///     hints off the sink.
     /// </summary>
     public static RequestState Classify(HttpContext context, SignalSink sink)
     {

@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;

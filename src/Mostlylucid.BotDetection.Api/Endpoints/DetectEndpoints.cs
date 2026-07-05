@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Bridge;
 using Mostlylucid.BotDetection.Api.Models;
-using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
@@ -26,7 +26,7 @@ public static class DetectEndpoints
 
     private static async Task<Ok<DetectResponse>> HandleDetect(
         DetectRequest request,
-        BlackboardOrchestrator orchestrator,
+        BotDetectionOrchestrator orchestrator,
         CancellationToken cancellationToken)
     {
         var httpContext = SyntheticHttpContext.FromDetectRequest(request);
@@ -36,7 +36,7 @@ public static class DetectEndpoints
 
     private static async Task<Results<Ok<DetectResponse[]>, ProblemHttpResult>> HandleDetectBatch(
         DetectRequest[] requests,
-        BlackboardOrchestrator orchestrator,
+        BotDetectionOrchestrator orchestrator,
         StyloBotApiOptions apiOptions,
         CancellationToken cancellationToken)
     {

@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Storage;
 
-namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 
 /// <summary>
 ///     Write op enqueued for batched persistence. Signature rides on every

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
 
@@ -164,14 +165,12 @@ public class BlockBotsEndpointFilter : IEndpointFilter
     /// </summary>
     private static async Task<BotDetectionResult?> EnsureDetectionAsync(HttpContext httpContext)
     {
-        var orchestrator = httpContext.RequestServices.GetService<IDetectionOrchestrator>();
-        var policies = httpContext.RequestServices.GetService<IPolicyRegistry>();
-        if (orchestrator is null || policies is null) return null;
+        var orchestrator = httpContext.RequestServices.GetService<BotDetectionOrchestrator>();
+        if (orchestrator is null) return null;
 
         try
         {
-            var evidence = await orchestrator.DetectWithPolicyAsync(
-                httpContext, policies.DefaultPolicy, httpContext.RequestAborted);
+            var evidence = await orchestrator.DetectAsync(httpContext, httpContext.RequestAborted);
 
             var detectionResult = new BotDetectionResult
             {

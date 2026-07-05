@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 
 namespace Mostlylucid.BotDetection.Services;
 

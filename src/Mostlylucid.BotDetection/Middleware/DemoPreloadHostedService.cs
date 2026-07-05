@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Policies;
 
 namespace Mostlylucid.BotDetection.Middleware;
@@ -71,18 +72,14 @@ public sealed class DemoPreloadHostedService : IHostedService
         try
         {
             using var scope = _services.CreateScope();
-            var orchestrator = scope.ServiceProvider.GetService<IDetectionOrchestrator>();
-            var policies = scope.ServiceProvider.GetService<IPolicyRegistry>();
+            var orchestrator = scope.ServiceProvider.GetService<BotDetectionOrchestrator>();
             var statsRecorder = scope.ServiceProvider.GetService<Services.IBotDetectionService>();
 
-            if (orchestrator is null || policies is null)
+            if (orchestrator is null)
             {
-                _logger.LogDebug(
-                    "DemoPreload: orchestrator or policy registry not registered; skipping");
+                _logger.LogDebug("DemoPreload: orchestrator not registered; skipping");
                 return;
             }
-
-            var policy = policies.DefaultPolicy;
 
             foreach (var name in _options.DemoPreloadOnStartup)
             {
@@ -100,7 +97,7 @@ public sealed class DemoPreloadHostedService : IHostedService
                 try
                 {
                     var fake = BuildSyntheticContext(ua, name);
-                    var evidence = await orchestrator.DetectWithPolicyAsync(fake, policy, ct);
+                    var evidence = await orchestrator.DetectAsync(fake, ct);
 
                     // Tally synthetic preload requests in IBotDetectionService
                     // so /bot-detection/stats reflects the preload work that

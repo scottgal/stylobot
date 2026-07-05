@@ -1,28 +1,24 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Setup;
 using Mostlylucid.GeoDetection.Contributor.Setup;
 
 namespace Mostlylucid.GeoDetection.Contributor.Extensions;
 
 /// <summary>
-///     Extension methods for registering the GeoDetection contributor with DI.
+///     Extension methods for the GeoDetection wire-up. The former
+///     <c>IContributingDetector</c>-based geo enrichment moved into the
+///     atom orchestrator's hydrator step; these extensions retain the
+///     options binding + setup-resource registration so hosts that call
+///     <c>AddGeoDetectionContributor</c> or <c>ConfigureGeoDetection</c>
+///     compile unchanged.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>
-    ///     Adds the geo-detection contributor to the bot detection pipeline.
-    ///     Requires that AddGeoLocationServices() and AddBotDetection() have been called.
-    /// </summary>
-    /// <param name="services">The service collection</param>
-    /// <param name="configureOptions">Optional options configuration</param>
-    /// <returns>The service collection for chaining</returns>
     public static IServiceCollection AddGeoDetectionContributor(
         this IServiceCollection services,
         Action<GeoContributorOptions>? configureOptions = null)
     {
-        // Configure options
         if (configureOptions != null)
         {
             services.Configure(configureOptions);
@@ -33,22 +29,10 @@ public static class ServiceCollectionExtensions
                 .BindConfiguration("BotDetection:Geo");
         }
 
-        // Register the server-side geo contributor
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IContributingDetector, GeoContributor>());
-
-        // Register the client-side geo contributor (if enabled)
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IContributingDetector, GeoClientContributor>());
-
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, GeoIpSetupResource>());
-
         return services;
     }
 
-    /// <summary>
-    ///     Adds the geo-detection contributor with specific options.
-    /// </summary>
     public static IServiceCollection AddGeoDetectionContributor(
         this IServiceCollection services,
         GeoContributorOptions options)
@@ -67,11 +51,7 @@ public static class ServiceCollectionExtensions
             o.Priority = options.Priority;
         });
 
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IContributingDetector, GeoContributor>());
-
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, GeoIpSetupResource>());
-
         return services;
     }
 }

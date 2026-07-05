@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Proxy;
@@ -15,14 +14,6 @@ public sealed class TransportHeaderTrust : ITransportHeaderTrust
     public TransportHeaderTrust(IOptions<BotDetectionOptions> options)
     {
         _options = options;
-    }
-
-    public TransportTrustResult Evaluate(BlackboardState state)
-    {
-        var result = Decide(state.HttpContext);
-        state.WriteSignal(SignalKeys.TransportHeadersTrusted, result.Trusted);
-        state.WriteSignal(SignalKeys.TransportTrustReason, result.Reason);
-        return result;
     }
 
     /// <inheritdoc />

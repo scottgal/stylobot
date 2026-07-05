@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 
 /// <summary>
 ///     One captured request in the behavioural waveform history for a

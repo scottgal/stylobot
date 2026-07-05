@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 
 /// <summary>
 ///     Dedicated per-fingerprint dim-snapshot cache for <see cref="IdentityChangeContributor"/>.

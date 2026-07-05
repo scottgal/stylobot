@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;
