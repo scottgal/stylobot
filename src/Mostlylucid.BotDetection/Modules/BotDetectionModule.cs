@@ -106,6 +106,15 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Orchestration.Manifests.IDetectorConfigProvider,
             Orchestration.Manifests.DetectorConfigProvider>();
 
+        // Detection event publisher — Null default so DetectionBroadcastMiddleware
+        // (mounted unconditionally by the dashboard middleware chain) can resolve
+        // even when observability isn't configured. AddStyloBotObservability
+        // conditionally RemoveAll + AddSingleton the Serilog publisher on top;
+        // that swap is untouched. Without the Null default the first request
+        // would crash before the pipeline could return a verdict.
+        services.TryAddSingleton<Orchestration.Telemetry.IDetectionEventPublisher,
+            Orchestration.Telemetry.NullDetectionEventPublisher>();
+
         // IBotListFetcher backs BotListDatabase's data-source pulls (bot patterns,
         // datacenter IP ranges, cloud vendor ranges) and is also a required dep
         // for SecurityToolAtom, InMemoryBotListDatabase, ListUpdateCoordinatorAtom,

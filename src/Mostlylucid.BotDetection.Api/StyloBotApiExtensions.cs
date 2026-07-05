@@ -25,6 +25,14 @@ public static class StyloBotApiExtensions
             .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
                 ApiKeyAuthenticationHandler.SchemeName, null);
 
+        // ApiKeyAuthenticationHandler ctor takes IApiKeyStore. Even if no /api
+        // route requires the scheme, .NET auth activates the handler at
+        // pipeline build time and needs the dep to resolve. Register the
+        // FOSS default in-memory store; operators / commercial packs replace
+        // via TryAdd-loses with SQLite / Postgres variants at their own site.
+        services.TryAddSingleton<Mostlylucid.BotDetection.Services.IApiKeyStore,
+            Mostlylucid.BotDetection.Services.InMemoryApiKeyStore>();
+
         services.AddAuthorizationBuilder()
             .AddPolicy(ApiKeyAuthenticationHandler.SchemeName, policy =>
                 policy.AddAuthenticationSchemes(ApiKeyAuthenticationHandler.SchemeName)
