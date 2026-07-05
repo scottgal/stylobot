@@ -78,6 +78,48 @@ public sealed class SessionStoreOptions
     public TimeSpan CleanupInterval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    ///     Two-phase finalize: how long the store waits after raising
+    ///     <see cref="SessionFinalizingSignal"/> for the configured number
+    ///     of <see cref="SessionFinalizedAckSignal"/> acks before evicting
+    ///     the aggregate anyway. Bounded so slow subscribers cannot pin
+    ///     memory indefinitely. Under pressure the store may shrink this
+    ///     further via the same adaptive curve applied to
+    ///     <see cref="Ttl"/> — set the floor via
+    ///     <see cref="MinFinalizeDeadlineUnderPressure"/>.
+    /// </summary>
+    public TimeSpan FinalizeDeadline { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Floor for the adaptive finalize deadline under pressure.</summary>
+    public TimeSpan MinFinalizeDeadlineUnderPressure { get; set; } = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    ///     How many <see cref="SessionFinalizedAckSignal"/> acks the store
+    ///     expects before considering finalization complete. Default 1 —
+    ///     the echo atom is the sole persistence subscriber. Raise to N
+    ///     if additional atoms (Markov enrichment, external audit sink,
+    ///     control-plane replicator) also need to ack before eviction.
+    /// </summary>
+    public int ExpectedAckCount { get; set; } = 1;
+
+    /// <summary>
+    ///     Emit the finalizing signal at all. Off in tests / trimmed hosts
+    ///     that do not wire an echo atom (avoids the deadline wait when
+    ///     nothing is listening). Default true — production always has an
+    ///     echo atom wired via <see cref="AddOnInitSignal"/>.
+    /// </summary>
+    public bool EmitFinalizingSignal { get; set; } = true;
+
+    /// <summary>
+    ///     How often the cleanup loop re-checks whether every pending
+    ///     finalization latch has completed while waiting for acks. Lower
+    ///     = faster response when subscribers ack quickly; higher = less
+    ///     CPU / fewer wake-ups per pass. Bounded well below
+    ///     <see cref="MinFinalizeDeadlineUnderPressure"/> so under-pressure
+    ///     evictions do not stall on the poll cadence.
+    /// </summary>
+    public TimeSpan AckPollInterval { get; set; } = TimeSpan.FromMilliseconds(10);
+
+    /// <summary>
     ///     Resolves the effective per-site aggregate cap, auto-deriving
     ///     from available memory when <see cref="MaxAggregatesPerSite"/> is
     ///     unset. Mirrors the resolver on the retired
