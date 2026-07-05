@@ -82,6 +82,189 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<CommonUserAgentService>();
         services.TryAddSingleton<BrowserVersionService>();
         services.TryAddSingleton<BotListDatabase>();
+        // BotListDatabase is the FOSS default; also serve it as IBotListDatabase
+        // so atoms + services that DI the interface pick it up.
+        services.TryAddSingleton<Data.IBotListDatabase>(sp => sp.GetRequiredService<BotListDatabase>());
+        // ScheduleCoordinator drives every migrated tick-driven service
+        // (BotListUpdateService, BackgroundEnrichmentService, EntityResolution,
+        // absorption, etc.). Also a hosted service so the cadence loops start
+        // at boot. Watchdog logs when a subscriber's tick handler runs long.
+        services.AddOptions<Scheduling.ScheduleCoordinatorOptions>()
+            .BindConfiguration(Scheduling.ScheduleCoordinatorOptions.SectionName);
+        services.TryAddSingleton<Scheduling.ScheduleCoordinator>();
+        services.TryAddSingleton<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(
+            sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
+        services.AddHostedService(sp => sp.GetRequiredService<Scheduling.ScheduleCoordinator>());
+        services.AddHostedService<Scheduling.ScheduleCoordinatorWatchdog>();
+        // Boot the migrated singletons (each subscribes to ticks at ctor time).
+        services.AddHostedService<Scheduling.BotDetectionHostedSingletonsBootstrap>();
+
+        // Manifest loader + config provider back every detector atom's
+        // per-manifest weights / thresholds / feature flags. FOSS ships the
+        // YAML manifests as embedded resources under Orchestration/Manifests/.
+        services.TryAddSingleton<Orchestration.Manifests.DetectorManifestLoader>();
+        services.TryAddSingleton<Orchestration.Manifests.IDetectorConfigProvider,
+            Orchestration.Manifests.DetectorConfigProvider>();
+
+        // IBotListFetcher backs BotListDatabase's data-source pulls (bot patterns,
+        // datacenter IP ranges, cloud vendor ranges) and is also a required dep
+        // for SecurityToolAtom, InMemoryBotListDatabase, ListUpdateCoordinatorAtom,
+        // and the CloudRangesProvider threat-intel provider. Uses IHttpClientFactory
+        // + IMemoryCache — both required-dependencies come from AddHttpClient +
+        // AddMemoryCache which are registered by the host bootstrap.
+        services.AddHttpClient();
+        services.AddMemoryCache();
+        services.TryAddSingleton<Data.IBotListFetcher, Data.BotListFetcher>();
+
+        // Store defaults — FOSS ships null/in-memory/config-driven variants.
+        // Commercial persistence packs replace via TryAdd-loses at their own
+        // Add* call site (SQLite pack, Postgres pack).
+        services.TryAddSingleton<Actions.IChallengeStore, Actions.InMemoryChallengeStore>();
+        services.TryAddSingleton<Data.IFingerprintApprovalStore, Data.NullFingerprintApprovalStore>();
+        services.TryAddSingleton<Data.IPatternReputationCache, Data.InMemoryPatternReputationCache>();
+        services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
+        services.TryAddSingleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>();
+        // Fingerprint store — FOSS default is SQLite (SqliteFingerprintStore),
+        // which the BrowserModes subsystem also depends on directly. Commercial
+        // pack replaces with a shared-schema Postgres variant via TryAdd-loses.
+        services.TryAddSingleton<Identity.SqliteFingerprintStore>();
+        services.TryAddSingleton<Identity.IFingerprintStore>(
+            sp => sp.GetRequiredService<Identity.SqliteFingerprintStore>());
+        services.TryAddSingleton<Identity.BrowserModes.IFingerprintBrowserModeStore,
+            Identity.BrowserModes.SqliteFingerprintBrowserModeStore>();
+        services.TryAddSingleton<ThreatIntel.ICveFingerprintMatcher, ThreatIntel.NullCveFingerprintMatcher>();
+        // Pool-collision tracker only has a SQLite impl; FOSS default wires the
+        // in-process SQLite path (fresh DB per-process when no connection string
+        // is supplied). Commercial swaps this via TryAdd-loses on the Postgres pack.
+        services.TryAddSingleton<Identity.SqlitePoolCollisionStore>();
+        services.TryAddSingleton<Identity.IFingerprintPoolCollisionTracker>(
+            sp => sp.GetRequiredService<Identity.SqlitePoolCollisionStore>());
+        // Browser-mode resolver: centroid classifier is the FOSS default.
+        // CachingBrowserModeResolver wraps a BrowserModeRegistry (not this
+        // resolver); it's registered separately by hosts that want the
+        // pre-materialised mode list. TryAdd so commercial can replace.
+        services.TryAddSingleton<Identity.BrowserModes.CentroidBrowserModeResolver>();
+        services.TryAddSingleton<Identity.BrowserModes.IBrowserModeResolver>(
+            sp => sp.GetRequiredService<Identity.BrowserModes.CentroidBrowserModeResolver>());
+
+        // HttpContextAccessor drives ~30 atoms that read Request.Path/Headers
+        // during DetectAsync. Idempotent — safe to add here even if the host
+        // already registered it.
+        services.AddHttpContextAccessor();
+
+        // Identity subsystem primitives.
+        services.TryAddSingleton<Identity.IdentityVectorLayout>(_ => Identity.IdentityVectorLayout.DefaultV1());
+        services.TryAddSingleton<Identity.IdentityVectorEncoder>();
+        services.TryAddSingleton<Identity.EncoderResultCache>();
+        services.TryAddSingleton<Identity.HeaderHashCollector>();
+        // Anchor index: brute-force is the FOSS default (no sqlite-vec dep);
+        // commercial swaps to SqliteVec via TryAdd-loses in the Postgres pack.
+        services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.BruteForceIdentityAnchorIndex>();
+        // Browser-mode seed source: YAML-loaded catalogue is the FOSS default;
+        // HardcodedBrowserModeSeedSource fallback is for tests.
+        services.TryAddSingleton<Identity.BrowserModes.IBrowserModeSeedSource,
+            Identity.BrowserModes.YamlBrowserModeSeedSource>();
+        services.TryAddSingleton<Identity.BrowserModes.ModeCentroidCatalogue>();
+        // ModeCentroidClassifier's ctor is private (LoadAsync static factory);
+        // materialize once at boot. Same blocking-await pattern as SignalCatalog
+        // in AddStyloBotDashboard.
+        services.TryAddSingleton<Identity.BrowserModes.ModeCentroidClassifier>(sp =>
+        {
+            var cat = sp.GetRequiredService<Identity.BrowserModes.ModeCentroidCatalogue>();
+            var layout = sp.GetRequiredService<Identity.IdentityVectorLayout>();
+            return Identity.BrowserModes.ModeCentroidClassifier
+                .LoadAsync(cat, layout).GetAwaiter().GetResult();
+        });
+        // Signature scoring / dashboard aggregate service (also read by
+        // SignatureAtom for verdict composition).
+        services.TryAddSingleton<Dashboard.MultiFactorSignatureService>();
+        // Waveform history is a per-fingerprint ring buffer feeding
+        // BehavioralWaveformAtom's spectral analysis.
+        services.TryAddSingleton<Orchestration.Atoms.WaveformHistoryStore>();
+        // Detectors (legacy) still injected by 4 atoms. FOSS defaults.
+        services.TryAddSingleton<Detectors.HeuristicDetector>();
+        services.TryAddSingleton<Detectors.VersionAgeDetector>();
+        services.TryAddSingleton<Detectors.BehavioralDetector>();
+        services.TryAddSingleton<Detectors.ClientSideDetector>();
+        // Similarity primitives.
+        services.TryAddSingleton<Similarity.FeatureVectorizer>();
+        services.TryAddSingleton<Similarity.IntentVectorizer>();
+        // Support services.
+        services.TryAddSingleton<Services.VerifiedBotRegistry>();
+        services.TryAddSingleton<Services.ProjectHoneypotLookupService>();
+        services.TryAddSingleton<Services.IFediverseDomainVerifier, Services.FediverseDomainVerifier>();
+        services.TryAddSingleton<Services.IBrowserVersionService>(sp => sp.GetRequiredService<BrowserVersionService>());
+        services.TryAddSingleton<Services.IDnsResolver, Services.SystemDnsResolver>();
+        services.TryAddSingleton<Services.UaProfileStore>();
+        services.TryAddSingleton<Services.CountryReputationTracker>();
+        services.TryAddSingleton<Services.ReactiveSignalTracker>();
+        services.TryAddSingleton<Services.BotClusterService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Services.BotClusterService>());
+        services.TryAddSingleton<Analysis.DeploymentNormTracker>();
+        // Legacy Analysis.SessionStore (per-session sliding window of vectors)
+        // still used by SessionVectorAtom. Distinct from the new
+        // Orchestration.Sessions.SessionStore (shared per-domain sink).
+        services.TryAddSingleton<Analysis.SessionStore>();
+        // Client-side fingerprint population tracker (browser fingerprint
+        // observed-value distribution).
+        services.TryAddSingleton<ClientSide.FingerprintPopulationTracker>();
+        // Centroid stores — FOSS defaults use in-memory / SQLite paths.
+        // NullSignatureCentroidStore keeps a fresh install boot-fast; hosts
+        // that want durability wire SqliteSignatureCentroidStore explicitly
+        // via TryAdd-loses replacement.
+        services.TryAddSingleton<Data.Contracts.ISignatureCentroidStore, Data.NullSignatureCentroidStore>();
+        services.TryAddSingleton<Data.Contracts.IIntentCentroidStore, Data.NullIntentCentroidStore>();
+        // Identity archetype registry (loaded from embedded YAML archetypes).
+        services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
+        // SequenceContextStore — per-fingerprint sliding sequence of request
+        // signals feeding ContentSequenceAtom.
+        services.TryAddSingleton<Services.SequenceContextStore>();
+        // Centroid sequence store — per-fingerprint sequence-of-centroids
+        // history fed to ContentSequenceAtom.
+        services.TryAddSingleton<Services.CentroidSequenceStore>();
+        // Endpoint divergence tracker — per-fingerprint deviation-from-expected
+        // endpoint access pattern; feeds ContentSequenceAtom.
+        services.TryAddSingleton<Services.EndpointDivergenceTracker>();
+        // Identity global weights cache (per-slot weight decay + updates).
+        services.TryAddSingleton<Identity.IdentityGlobalWeightsCache>();
+        // IdentityProcessingCoordinator — Pass-2 coalescer for FingerprintMatchAtom.
+        services.TryAddSingleton<Identity.IdentityProcessingCoordinator>();
+        // Func<DbConnection> — FOSS default SQLite connection factory.
+        // BotDetectionOptions.DatabasePath drives the file path; empty means
+        // a shared in-memory DB (fresh per process). Commercial Postgres pack
+        // overrides via TryAdd-loses at its Add* site.
+        services.TryAddSingleton<Func<System.Data.Common.DbConnection>>(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>().Value;
+            var connString = string.IsNullOrEmpty(opts.DatabasePath)
+                ? "Data Source=file::memory:?cache=shared;Mode=Memory;Cache=Shared"
+                : $"Data Source={opts.DatabasePath};Cache=Shared";
+            return () => new Microsoft.Data.Sqlite.SqliteConnection(connString);
+        });
+        // SignatureCoordinator — per-fingerprint verdict aggregator that
+        // multiple atoms read. Has an options block.
+        services.AddOptions<Orchestration.SignatureCoordinatorOptions>()
+            .BindConfiguration("BotDetection:SignatureCoordinator");
+        services.TryAddSingleton<Orchestration.SignatureCoordinator>();
+        // ClientSide fingerprint store (browser-side collected metrics).
+        services.TryAddSingleton<ClientSide.IBrowserFingerprintStore, ClientSide.BrowserFingerprintStore>();
+        // Pattern-reputation updater feeds the reputation cache from detection outcomes.
+        services.TryAddSingleton<Data.PatternReputationUpdater>();
+        // Fingerprint dimension snapshot cache (waveform + similarity input).
+        services.TryAddSingleton<Orchestration.Atoms.FingerprintDimSnapshotCache>();
+        // Similarity search — FOSS defaults use in-memory sliding-window impls;
+        // commercial pgvector pack swaps via TryAdd-loses.
+        services.TryAddSingleton<Similarity.IIntentSimilaritySearch, Similarity.SlimIntentSearch>();
+        services.TryAddSingleton<Similarity.ISignatureSimilaritySearch, Similarity.SlimSignatureSimilaritySearch>();
+        // Simulation pack registry (BDF replay + adversarial sim harness).
+        services.TryAddSingleton<SimulationPacks.ISimulationPackRegistry,
+            SimulationPacks.SimulationPackLoader>();
+        // PII hasher — FOSS default seeds with a fixed key so DI resolves;
+        // operators override via their own AddSingleton<PiiHasher>(sp => ...).
+        // Commercial (licensing pack) replaces with a JWT-derived key.
+        services.TryAddSingleton<Privacy.PiiHasher>(_ =>
+            new Privacy.PiiHasher(
+                System.Text.Encoding.UTF8.GetBytes("stylobot-foss-default-key-rotate-per-deployment")));
         // IBotListFetcher backs BotListDatabase's data-source pulls (bot patterns,
         // datacenter IP ranges, cloud vendor ranges) and is also a required dep
         // for SecurityToolAtom, InMemoryBotListDatabase, ListUpdateCoordinatorAtom,
@@ -94,6 +277,30 @@ public sealed class BotDetectionModule : IStyloflowWebModule
 
         // Register the atom-orchestrator
         services.AddBotDetectionOrchestrator();
+
+        // Policy dispatch stack (ArmedRuleRegistry, SustainEvaluator, token bucket,
+        // policy-decision log queue, IPolicyRuleStore YAML defaults, etc.). Called
+        // from inside the module so every FOSS host inherits the dispatcher
+        // without an extra opt-in step. Idempotent (all TryAdd).
+        Policies.Dispatch.PolicyDispatchServiceExtensions.AddPolicyDispatcher(services);
+
+        // Action policies (block / challenge / throttle / rate-limit / redirect
+        // / log-only / silent-drop / sticky-deny / escalate-to-*). Registered
+        // as IActionPolicy so ActionPolicyRegistry's ctor IEnumerable<IActionPolicy>
+        // (additionalPolicies) picks them up alongside factory-materialised
+        // policies from BotDetectionOptions.
+        services.TryAddSingleton<Actions.IActionPolicyRegistry, Actions.ActionPolicyRegistry>();
+        services.AddSingleton<Actions.IActionPolicyFactory, Actions.LogOnlyActionPolicyFactory>();
+        services.AddSingleton<Actions.IActionPolicyFactory, Actions.BlockActionPolicyFactory>();
+        services.AddSingleton<Actions.IActionPolicyFactory, Actions.ChallengeActionPolicyFactory>();
+        services.AddSingleton<Actions.IActionPolicyFactory, Actions.ThrottleActionPolicyFactory>();
+        services.AddSingleton<Actions.IActionPolicyFactory, Actions.RedirectActionPolicyFactory>();
+        // Escalate-to-Learning / Session / LLM policies take a runtime name +
+        // options and are constructed by name from config -- factory pattern
+        // needed (matches ThrottleActionPolicyFactory). Direct AddSingleton
+        // won't work because their ctors take `string name`. Factories are a
+        // follow-on slice; for now these policies are only reachable through
+        // manual construction (test scenarios, direct sink writes).
 
         // Register contributors as detector atoms (adapt existing contributors)
         RegisterContributors(services, context);
