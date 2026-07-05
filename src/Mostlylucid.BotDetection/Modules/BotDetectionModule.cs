@@ -257,6 +257,13 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Orchestration.SignatureCoordinator>();
         // ClientSide fingerprint store (browser-side collected metrics).
         services.TryAddSingleton<ClientSide.IBrowserFingerprintStore, ClientSide.BrowserFingerprintStore>();
+        // ClientSide analyzer + token service + metrics, consumed by BrowserFingerprintEndpoint.
+        // These were registered alongside the deleted ClientSideContributor (Step-7 contributor
+        // delete) and dropped with it — leaving the minimal-API endpoint with un-inferrable
+        // parameters, which fails host startup ("Failure to infer one or more parameters").
+        services.TryAddSingleton<ClientSide.IBrowserFingerprintAnalyzer, ClientSide.BrowserFingerprintAnalyzer>();
+        services.TryAddSingleton<ClientSide.IBrowserTokenService, ClientSide.BrowserTokenService>();
+        services.TryAddSingleton<Metrics.BotDetectionMetrics>();
         // Pattern-reputation updater feeds the reputation cache from detection outcomes.
         services.TryAddSingleton<Data.PatternReputationUpdater>();
         // Fingerprint dimension snapshot cache (waveform + similarity input).

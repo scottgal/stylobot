@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
@@ -276,6 +277,13 @@ public static class BotDetectionOrchestratorExtensions
     {
         // Register the orchestrator as scoped (one per request)
         services.AddScoped<BotDetectionOrchestrator>();
+
+        // TimeAtom takes a TimeProvider from DI (falls back to .System only if the
+        // parameter is optional, which it isn't for the DI activator). Without this
+        // registration the container throws "Unable to resolve service for type
+        // System.TimeProvider" activating TimeAtom, crashing every host on the atom
+        // path at boot. TryAdd so a test host binding FakeTimeProvider still wins.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
 
         // Enforcement gates -- extracted from BotDetectionMiddleware so the
         // atom-orchestrator middleware can enforce the same rules without
