@@ -82,6 +82,15 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<CommonUserAgentService>();
         services.TryAddSingleton<BrowserVersionService>();
         services.TryAddSingleton<BotListDatabase>();
+        // IBotListFetcher backs BotListDatabase's data-source pulls (bot patterns,
+        // datacenter IP ranges, cloud vendor ranges) and is also a required dep
+        // for SecurityToolAtom, InMemoryBotListDatabase, ListUpdateCoordinatorAtom,
+        // and the CloudRangesProvider threat-intel provider. Uses IHttpClientFactory
+        // + IMemoryCache — both required-dependencies come from AddHttpClient +
+        // AddMemoryCache which are registered by the host bootstrap.
+        services.AddHttpClient();
+        services.AddMemoryCache();
+        services.TryAddSingleton<Data.IBotListFetcher, Data.BotListFetcher>();
 
         // Register the atom-orchestrator
         services.AddBotDetectionOrchestrator();
@@ -103,6 +112,66 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         {
             var inner = new Mostlylucid.Ephemeral.SignalSink(maxCapacity: 32, maxAge: TimeSpan.FromMinutes(15));
             return new Mostlylucid.Ephemeral.TypedSignalSink<BotListUpdatedSignal>(
+                inner, maxCapacity: 32, maxAge: TimeSpan.FromMinutes(15));
+        });
+
+        // Threat intel: IP + CVE lookups feed the detection surface via
+        // ThreatIntelAtom (priority 7, Wave 0). Four offline providers wired
+        // by default; each self-gates on its Enabled flag so the FOSS-default
+        // posture (master + all providers off) means zero HTTP + zero cache.
+        // Operators opt in per provider under BotDetection:ThreatIntel:*.
+        //
+        // HttpClient is one shared factory-named client -- providers instantiate
+        // it via IHttpClientFactory, one per provider, so a slow feed can't
+        // starve the shared handler pool.
+        services.AddHttpClient("threatintel").ConfigureHttpClient(c =>
+            c.Timeout = TimeSpan.FromSeconds(30));
+        services.TryAddSingleton<ThreatIntel.Providers.CisaKevProvider>(sp =>
+            new ThreatIntel.Providers.CisaKevProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("threatintel"),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ThreatIntel.Providers.CisaKevProvider>>()));
+        services.TryAddSingleton<ThreatIntel.Providers.CloudRangesProvider>(sp =>
+            new ThreatIntel.Providers.CloudRangesProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("threatintel"),
+                sp.GetRequiredService<Data.IBotListFetcher>(),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ThreatIntel.Providers.CloudRangesProvider>>()));
+        services.TryAddSingleton<ThreatIntel.Providers.SpamhausDropProvider>(sp =>
+            new ThreatIntel.Providers.SpamhausDropProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("threatintel"),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ThreatIntel.Providers.SpamhausDropProvider>>()));
+        services.TryAddSingleton<ThreatIntel.Providers.TorExitProvider>(sp =>
+            new ThreatIntel.Providers.TorExitProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("threatintel"),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ThreatIntel.Providers.TorExitProvider>>()));
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.CisaKevProvider>());
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.CloudRangesProvider>());
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.SpamhausDropProvider>());
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.TorExitProvider>());
+        services.TryAddSingleton<ThreatIntel.IThreatIntelCoordinator, ThreatIntel.ThreatIntelCoordinator>();
+        services.TryAddSingleton<ThreatIntel.ThreatIntelEnrichmentQueue>();
+        // ThreatIntelEnrichmentService subscribes to tick.10s on construction;
+        // eager-resolved by BotDetectionHostedSingletonsBootstrap so the
+        // subscription is active at boot even when no atom has resolved it yet.
+        services.TryAddSingleton<ThreatIntel.ThreatIntelEnrichmentService>();
+        // Refresh service runs the actual feed pulls. When master switch or all
+        // providers are off, StartAsync/ExecuteAsync short-circuit; safe to
+        // register unconditionally.
+        services.AddHostedService<ThreatIntel.ThreatIntelRefreshService>();
+        // Signal on successful refresh (task-#65 pattern). Payload-free: the
+        // provider cache stays the source of truth; consumers re-lookup via
+        // IThreatIntelCoordinator on notification.
+        services.TryAddSingleton<Mostlylucid.Ephemeral.TypedSignalSink<ThreatIntel.ThreatIntelRefreshedSignal>>(sp =>
+        {
+            var inner = new Mostlylucid.Ephemeral.SignalSink(maxCapacity: 32, maxAge: TimeSpan.FromMinutes(15));
+            return new Mostlylucid.Ephemeral.TypedSignalSink<ThreatIntel.ThreatIntelRefreshedSignal>(
                 inner, maxCapacity: 32, maxAge: TimeSpan.FromMinutes(15));
         });
 

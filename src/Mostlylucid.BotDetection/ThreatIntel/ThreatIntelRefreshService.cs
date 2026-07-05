@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.ThreatIntel;
 
@@ -30,15 +32,23 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
     private readonly IThreatIntelCoordinator _coordinator;
     private readonly ThreatIntelOptions _options;
     private readonly ILogger<ThreatIntelRefreshService> _logger;
+    private readonly TypedSignalSink<ThreatIntelRefreshedSignal>? _refreshSignals;
+
+    // Tracks per-provider "last refresh failed" so RaiseRefreshed can set
+    // RecoveredFromFailure=true when the next successful refresh lands.
+    // Bounded by the number of registered providers.
+    private readonly ConcurrentDictionary<string, bool> _lastFailed = new();
 
     public ThreatIntelRefreshService(
         IThreatIntelCoordinator coordinator,
         IOptions<BotDetectionOptions> options,
-        ILogger<ThreatIntelRefreshService> logger)
+        ILogger<ThreatIntelRefreshService> logger,
+        TypedSignalSink<ThreatIntelRefreshedSignal>? refreshSignals = null)
     {
         _coordinator = coordinator;
         _options = options.Value.ThreatIntel;
         _logger = logger;
+        _refreshSignals = refreshSignals;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -88,9 +98,11 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
         try
         {
             await provider.RefreshAsync(subject: null, cts.Token);
+            RaiseRefreshed(provider);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested && !outer.IsCancellationRequested)
         {
+            MarkFailed(provider);
             var msg = $"Threat-intel provider {provider.Name} bootstrap timed out after {timeout.TotalSeconds:F0}s";
             if (_options.BlockStartupOnFirstFetch)
             {
@@ -101,6 +113,7 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
         }
         catch (Exception ex)
         {
+            MarkFailed(provider);
             if (_options.BlockStartupOnFirstFetch)
             {
                 _logger.LogCritical(ex, "Threat-intel provider {Provider} bootstrap failed", provider.Name);
@@ -140,6 +153,7 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
             while (!ct.IsCancellationRequested)
             {
                 await provider.RefreshAsync(subject: null, ct);
+                RaiseRefreshed(provider);
                 await Task.Delay(provider.RefreshInterval, ct);
             }
         }
@@ -149,6 +163,7 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
         }
         catch (Exception ex)
         {
+            MarkFailed(provider);
             // Loops are restarted with exponential backoff so a single bad day at
             // an upstream feed doesn't permanently silence the provider until
             // host restart. Cap restart delay at 1 hour. Provider's RefreshAsync
@@ -166,6 +181,7 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
                 {
                     await Task.Delay(backoff, ct);
                     await provider.RefreshAsync(subject: null, ct);
+                    RaiseRefreshed(provider);
                     // First successful refresh after a crash: resume normal cadence.
                     await RunLoopAsync(provider, TimeSpan.Zero, ct);
                     return;
@@ -176,6 +192,7 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
                 }
                 catch (Exception inner)
                 {
+                    MarkFailed(provider);
                     backoff = TimeSpan.FromTicks(Math.Min(TimeSpan.FromHours(1).Ticks, backoff.Ticks * 2));
                     _logger.LogWarning(inner,
                         "Threat-intel refresh loop for {Provider} still failing; next attempt in {Backoff}",
@@ -184,4 +201,20 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
             }
         }
     }
+
+    private void RaiseRefreshed(IThreatIntelProvider provider)
+    {
+        var wasFailed = _lastFailed.TryRemove(provider.Name, out var f) && f;
+        _refreshSignals?.Raise(
+            signal: ThreatIntelRefreshedSignal.Key.Name,
+            payload: new ThreatIntelRefreshedSignal
+            {
+                Provider = provider.Name,
+                Timestamp = DateTimeOffset.UtcNow,
+                RecoveredFromFailure = wasFailed,
+            });
+    }
+
+    private void MarkFailed(IThreatIntelProvider provider)
+        => _lastFailed[provider.Name] = true;
 }
