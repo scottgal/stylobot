@@ -1,25 +1,44 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Events;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Learning;
 
 /// <summary>
-///     Keyed learning coordinator - allows parallel learning workflows by signal type.
-///     Architecture:
-///     - Multiple learning workflows can run in parallel, keyed by signal type
-///     - Each key (e.g., "ua.pattern", "ip.reputation", "tls.fingerprint") has its own queue
-///     - Prevents a slow learner from blocking fast learners
-///     - Thread-safe and non-blocking from request path
-///     Example keys:
-///     - "ua.pattern" - User-Agent pattern learning
-///     - "ip.reputation" - IP reputation updates
-///     - "tls.ja3" - JA3 fingerprint learning
-///     - "behavior.waveform" - Behavioral waveform pattern extraction
-///     - "heuristic.weights" - Heuristic weight updates
+///     Cross-request learning fabric. Two surfaces:
+///     <list type="bullet">
+///         <item>
+///             <see cref="Signals"/>: a <see cref="TypedSignalSink{TPayload}"/>
+///             carrying <see cref="LearningEvent"/> payloads (the shared sink
+///             that replaced <c>ILearningEventBus</c>). The sink is DI-owned
+///             separately from this coordinator; escalators and other
+///             producers inject the sink directly and raise, without a
+///             coordinator dependency. Kept exposed on the interface as a
+///             convenience for consumers that already have the coordinator
+///             in hand.
+///         </item>
+///         <item>
+///             <see cref="TrySubmitLearning"/>: the pre-existing keyed
+///             <see cref="LearningTask"/> queue routed to
+///             <see cref="IKeyedLearningHandler"/>s. Runs parallel workflows
+///             per signal key (e.g. "ua.pattern", "ip.reputation") so a slow
+///             learner does not block fast ones.
+///         </item>
+///     </list>
 /// </summary>
 public interface ILearningCoordinator
 {
+    /// <summary>
+    ///     Typed signal sink carrying <see cref="LearningEvent"/> payloads.
+    ///     Producers raise directly against the sink they inject from DI;
+    ///     consumers hook <c>Signals.TypedSignalRaised</c> or sense keys
+    ///     defined in <see cref="LearningSignalKeys"/>.
+    /// </summary>
+    TypedSignalSink<LearningEvent> Signals { get; }
+
     /// <summary>
     ///     Submit a learning task for a specific signal key.
     ///     Non-blocking - returns immediately.
@@ -135,15 +154,29 @@ public class LearningCoordinator : ILearningCoordinator, IDisposable
     private bool _disposed;
     private bool _isShuttingDown;
 
+    /// <summary>
+    ///     The coordinator consumes the shared
+    ///     <see cref="TypedSignalSink{LearningEvent}"/> from DI rather than
+    ///     owning it. Escalators write straight to the sink without any
+    ///     coordinator dependency; the coordinator becomes purely a reactor
+    ///     that a StyloFlow start-signal (future) will lazy-boot on the
+    ///     first raise. Until then the coordinator is DI-eager-resolved, but
+    ///     the shape lets us flip it without touching producers.
+    /// </summary>
     public LearningCoordinator(
+        TypedSignalSink<LearningEvent> signals,
         ILogger<LearningCoordinator> logger,
         IEnumerable<IKeyedLearningHandler> handlers,
         int maxQueueSize = 1000)
     {
+        Signals = signals;
         _logger = logger;
         _handlers = handlers;
         _maxQueueSize = maxQueueSize;
     }
+
+    /// <inheritdoc />
+    public TypedSignalSink<LearningEvent> Signals { get; }
 
     public void Dispose()
     {

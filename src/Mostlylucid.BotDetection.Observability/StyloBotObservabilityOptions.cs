@@ -1,17 +1,20 @@
-using Mostlylucid.BotDetection.Observability.Signals;
-
 namespace Mostlylucid.BotDetection.Observability;
 
 /// <summary>
 ///     Configuration root bound from <c>BotDetection:Observability</c>.
 /// </summary>
+/// <remarks>
+///     Signal-to-log routing is not configured here -- it uses the standard
+///     .NET <c>Logging:LogLevel</c> config surface, filtering by the atom /
+///     escalator's own <see cref="Microsoft.Extensions.Logging.ILogger"/>
+///     category. Operators tune per-atom / per-namespace via
+///     <c>appsettings.json</c> <c>Logging</c> section, not a bespoke bridge.
+/// </remarks>
 public sealed class StyloBotObservabilityOptions
 {
     public const string SectionName = "BotDetection:Observability";
 
     public bool PublishDetectionEventsToSerilog { get; set; } = true;
-
-    public BlackboardSignalLogOptions SignalLog { get; set; } = new();
 
     public OpenTelemetryOptions OpenTelemetry { get; set; } = new();
 

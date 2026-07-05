@@ -6,7 +6,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Persistence;
 
@@ -20,7 +22,8 @@ public class AnomalySaverService : BackgroundService
     // Batch buffer - cleared quickly after write (SHORT window)
     private readonly List<DetectionEvent> _batchBuffer = new();
     private readonly SemaphoreSlim _batchLock = new(1, 1);
-    private readonly ILearningEventBus? _eventBus;
+    private readonly TypedSignalSink<LearningEvent>? _learningSignals;
+    private readonly Action<SignalEvent<LearningEvent>>? _onLearningRaised;
 
     // Per-file lock to ensure sequential writes (keyed by file path)
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
@@ -35,11 +38,11 @@ public class AnomalySaverService : BackgroundService
     public AnomalySaverService(
         ILogger<AnomalySaverService> logger,
         IOptions<BotDetectionOptions> options,
-        ILearningEventBus? eventBus = null)
+        TypedSignalSink<LearningEvent>? learningSignals = null)
     {
         _logger = logger;
         _options = options.Value.AnomalySaver;
-        _eventBus = eventBus;
+        _learningSignals = learningSignals;
         _fileManager = new RollingFileManager(_options);
 
         // Create bounded channel - backpressure kicks in when full
@@ -49,6 +52,22 @@ public class AnomalySaverService : BackgroundService
             FullMode = BoundedChannelFullMode.Wait // Backpressure
         };
         _writeChannel = Channel.CreateBounded<DetectionEvent>(channelOptions);
+
+        // Signal-native ingestion: subscribe to the shared learning sink
+        // and enqueue each raised learning event through the same buffered
+        // write channel. Kept optional so hosts without the learning fabric
+        // (sidecar-only builds, unit tests) still exercise the write
+        // pipeline.
+        if (_learningSignals is not null && _options.Enabled)
+        {
+            _onLearningRaised = OnLearningRaised;
+            _learningSignals.TypedSignalRaised += _onLearningRaised;
+        }
+    }
+
+    private void OnLearningRaised(SignalEvent<LearningEvent> evt)
+    {
+        _ = HandleLearningEventAsync(evt.Payload, CancellationToken.None);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -66,17 +85,12 @@ public class AnomalySaverService : BackgroundService
             _options.BatchSize,
             _options.FlushInterval);
 
-        // Background processing loops
-        var tasks = new List<Task>
-        {
+        // Background processing loops. Learning events fan in via the
+        // TypedSignalRaised callback registered in the constructor -- no
+        // dedicated drain loop needed.
+        await Task.WhenAll(
             WriterLoopAsync(stoppingToken),
-            FlushTimerAsync(stoppingToken)
-        };
-
-        // Add learning event bus reader if available
-        if (_eventBus != null) tasks.Add(LearningEventReaderAsync(stoppingToken));
-
-        await Task.WhenAll(tasks);
+            FlushTimerAsync(stoppingToken));
     }
 
     /// <summary>
@@ -234,32 +248,8 @@ public class AnomalySaverService : BackgroundService
     }
 
     /// <summary>
-    ///     Reads learning events from the event bus and queues them for writing.
-    /// </summary>
-    private async Task LearningEventReaderAsync(CancellationToken cancellationToken)
-    {
-        var reader = _eventBus!.Subscribe(nameof(AnomalySaverService));
-
-        while (!cancellationToken.IsCancellationRequested)
-            try
-            {
-                if (await reader.WaitToReadAsync(cancellationToken))
-                    while (reader.TryRead(out var evt))
-                        await HandleLearningEventAsync(evt, cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error reading learning events");
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-            }
-    }
-
-    /// <summary>
-    ///     Handles learning events and queues them for writing.
+    ///     Handles learning events raised on the shared
+    ///     <see cref="TypedSignalSink{LearningEvent}"/> and queues them for writing.
     /// </summary>
     private async Task HandleLearningEventAsync(LearningEvent evt, CancellationToken cancellationToken)
     {
@@ -312,6 +302,14 @@ public class AnomalySaverService : BackgroundService
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Anomaly saver stopping, flushing remaining events...");
+
+        // Unhook from the coordinator so raise notifications stop landing
+        // in a shutdown-in-progress channel.
+        if (_learningSignals is not null && _onLearningRaised is not null)
+        {
+            try { _learningSignals.TypedSignalRaised -= _onLearningRaised; }
+            catch { /* already torn down */ }
+        }
 
         // Complete the channel (no more writes)
         _writeChannel.Writer.Complete();

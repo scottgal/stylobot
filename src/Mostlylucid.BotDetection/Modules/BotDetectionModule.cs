@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -14,6 +15,7 @@ using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;
 using StyloFlow;
 using StyloFlow.Modules;
+using StyloFlow.Orchestration;
 
 namespace Mostlylucid.BotDetection.Modules;
 
@@ -92,6 +94,93 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Eager-resolved by BotDetectionHostedSingletonsBootstrap so the
         // constructor's Subscribe(...) fires at boot.
         services.AddSingleton<BotListUpdateService>();
+        // Task-#65 reference implementation: BotListUpdateService raises a
+        // notification signal after every successful refresh so consumers
+        // can react (subscribe to TypedSignalRaised) instead of polling
+        // IBotListDatabase. Retention window is short -- the notification
+        // is stateless, the database write is authoritative.
+        services.TryAddSingleton<Mostlylucid.Ephemeral.TypedSignalSink<BotListUpdatedSignal>>(sp =>
+        {
+            var inner = new Mostlylucid.Ephemeral.SignalSink(maxCapacity: 32, maxAge: TimeSpan.FromMinutes(15));
+            return new Mostlylucid.Ephemeral.TypedSignalSink<BotListUpdatedSignal>(
+                inner, maxCapacity: 32, maxAge: TimeSpan.FromMinutes(15));
+        });
+
+        // Learning fabric.
+        //
+        // The shared TypedSignalSink<LearningEvent> is registered as a
+        // singleton independently of the coordinator: it is the boot-time
+        // transport escalators raise into, so it must exist before any
+        // coordinator or dispatcher does. The sink's first raise fires the
+        // init signal on IInitSignalBus, which StyloFlow's InitSignalBootstrap
+        // observes to lazy-construct the coordinator + dispatcher. Zero cost
+        // until the first hot-path escalator write lands.
+        services.AddInitSignalBus();
+        services.AddOptions<LearningSignalSinkOptions>()
+            .BindConfiguration(LearningSignalSinkOptions.SectionName);
+        services.TryAddSingleton<Mostlylucid.Ephemeral.TypedSignalSink<Events.LearningEvent>>(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<LearningSignalSinkOptions>>().Value;
+            var bus = sp.GetRequiredService<StyloFlow.Orchestration.IInitSignalBus>();
+            var inner = new Mostlylucid.Ephemeral.SignalSink(opts.Capacity, opts.Retention);
+            var sink = new Mostlylucid.Ephemeral.TypedSignalSink<Events.LearningEvent>(
+                inner, maxCapacity: opts.Capacity, maxAge: opts.Retention);
+            var initFired = 0;
+            sink.TypedSignalRaised += _ =>
+            {
+                // First raise fires the init signal exactly once; subsequent
+                // raises no-op the CompareExchange. Bus.Raise is itself
+                // idempotent as a second layer of safety.
+                if (System.Threading.Interlocked.Exchange(ref initFired, 1) == 0)
+                    bus.Raise(LearningSignalSinkOptions.InitSignal);
+            };
+            return sink;
+        });
+        // ILearningCoordinator: registered first (interface → impl mapping)
+        // so the AddOnInitSignal<ILearningCoordinator> TryAdd inside the
+        // helper is a no-op; the bootstrap resolves via the existing mapping.
+        services.TryAddSingleton<ILearningCoordinator, LearningCoordinator>();
+        services.AddOnInitSignal<ILearningCoordinator>(LearningSignalSinkOptions.InitSignal);
+        services.AddOnInitSignal<LearningBackgroundService>(LearningSignalSinkOptions.InitSignal);
+
+        // Session store: shared per-domain, priority-shaped eviction, boot-time.
+        // Escalators upsert SessionSample → aggregate; SessionAtom observes
+        // Changes and emits persistence signals on fingerprint shift.
+        // See reference_session_layer_and_fingerprint_levels for the model.
+        services.AddOptions<Orchestration.Sessions.SessionStoreOptions>()
+            .BindConfiguration(Orchestration.Sessions.SessionStoreOptions.SectionName);
+        services.AddOptions<Orchestration.Sessions.SessionAtomOptions>()
+            .BindConfiguration(Orchestration.Sessions.SessionAtomOptions.SectionName);
+        services.TryAddSingleton<Orchestration.Sessions.SessionStore>();
+        services.AddOnInitSignal<Orchestration.Sessions.SessionAtom>(
+            Orchestration.Sessions.SessionStoreOptions.InitSignal);
+        services.AddOnInitSignal<Orchestration.Sessions.SessionPersistenceAtom>(
+            Orchestration.Sessions.SessionStoreOptions.InitSignal);
+
+        // LLM classification lane: shared request sink fronts the
+        // coordinator's bounded channel. Escalators raise onto the sink;
+        // the coordinator lazy-boots on the first raise via AddOnInitSignal.
+        // The internal channel still throttles LLM calls -- the sink is
+        // purely the fan-in / init-trigger surface.
+        services.AddOptions<Services.LlmClassificationSinkOptions>()
+            .BindConfiguration(Services.LlmClassificationSinkOptions.SectionName);
+        services.TryAddSingleton<Mostlylucid.Ephemeral.TypedSignalSink<Services.LlmClassificationRequest>>(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Services.LlmClassificationSinkOptions>>().Value;
+            var bus = sp.GetRequiredService<StyloFlow.Orchestration.IInitSignalBus>();
+            var inner = new Mostlylucid.Ephemeral.SignalSink(opts.Capacity, opts.Retention);
+            var sink = new Mostlylucid.Ephemeral.TypedSignalSink<Services.LlmClassificationRequest>(
+                inner, maxCapacity: opts.Capacity, maxAge: opts.Retention);
+            var initFired = 0;
+            sink.TypedSignalRaised += _ =>
+            {
+                if (System.Threading.Interlocked.Exchange(ref initFired, 1) == 0)
+                    bus.Raise(Services.LlmClassificationSinkOptions.InitSignal);
+            };
+            return sink;
+        });
+        services.AddOnInitSignal<Services.LlmClassificationCoordinator>(
+            Services.LlmClassificationSinkOptions.InitSignal);
 
         // Configure options if not already configured
         services.AddOptions<BotDetectionOptions>()

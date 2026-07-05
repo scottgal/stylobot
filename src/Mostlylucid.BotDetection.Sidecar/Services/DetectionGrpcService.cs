@@ -2,6 +2,7 @@ using Fluid;
 using Grpc.Core;
 using Mostlylucid.BotDetection.Api.Bridge;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using ApiModels = Mostlylucid.BotDetection.Api.Models;
 using Proto = Stylobot.Detection.V1;
 
@@ -9,12 +10,12 @@ namespace Mostlylucid.BotDetection.Sidecar.Services;
 
 public sealed class DetectionGrpcService : Proto.DetectionService.DetectionServiceBase
 {
-    private readonly BlackboardOrchestrator _orchestrator;
+    private readonly BotDetectionOrchestrator _orchestrator;
     private readonly SidecarOptions _options;
     private readonly TemplateOptions _templateOptions;
     private static readonly FluidParser Parser = new();
 
-    public DetectionGrpcService(BlackboardOrchestrator orchestrator, SidecarOptions options)
+    public DetectionGrpcService(BotDetectionOrchestrator orchestrator, SidecarOptions options)
     {
         _orchestrator = orchestrator;
         _options = options;

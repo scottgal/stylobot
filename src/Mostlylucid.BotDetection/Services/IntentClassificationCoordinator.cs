@@ -4,10 +4,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.Similarity;
 using Mostlylucid.Common.Scheduling;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -38,7 +40,7 @@ public class IntentClassificationCoordinator : IDisposable
     private readonly IIntentSimilaritySearch _intentSearch;
     private readonly IntentVectorizer _vectorizer;
     private readonly IPatternReputationCache _reputationCache;
-    private readonly ILearningEventBus? _learningBus;
+    private readonly TypedSignalSink<LearningEvent>? _learningSignals;
     private readonly ILogger<IntentClassificationCoordinator> _logger;
     private readonly IDisposable? _subscription;
     private int _disposed;
@@ -51,7 +53,7 @@ public class IntentClassificationCoordinator : IDisposable
         IIntentSimilaritySearch intentSearch,
         IntentVectorizer vectorizer,
         IPatternReputationCache reputationCache,
-        ILearningEventBus? learningBus = null,
+        TypedSignalSink<LearningEvent>? learningSignals = null,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
@@ -59,7 +61,7 @@ public class IntentClassificationCoordinator : IDisposable
         _intentSearch = intentSearch;
         _vectorizer = vectorizer;
         _reputationCache = reputationCache;
-        _learningBus = learningBus;
+        _learningSignals = learningSignals;
 
         _channel = Channel.CreateBounded<IntentClassificationRequest>(
             new BoundedChannelOptions(DefaultChannelCapacity)
@@ -220,7 +222,14 @@ public class IntentClassificationCoordinator : IDisposable
             }
         };
 
-        var published = _learningBus?.TryPublish(learningEvent) == true;
+        var published = false;
+        if (_learningSignals is not null)
+        {
+            var key = LearningSignalKeys.For(learningEvent.Type);
+            _learningSignals.Raise(key.Name, learningEvent, key: learningEvent.RequestId);
+            published = true;
+        }
+
         if (!published)
         {
             await _intentSearch.AddAsync(

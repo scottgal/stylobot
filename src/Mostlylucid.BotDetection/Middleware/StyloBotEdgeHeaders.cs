@@ -209,17 +209,28 @@ public sealed class StyloBotForwardedHeadersMiddleware
         }
 
         // Identity fingerprint id: the load-bearing value -- the downstream view
-        // component renders the radar around it. The L1 lookup against
-        // fingerprint_keys is the authoritative persisted value (same store
-        // the dashboard reads from); Items[IdentityFingerprintId] can be the
-        // matcher's in-flight allocation that hasn't yet flushed to the store,
-        // and emitting that produces a 404 at the downstream dashboard
-        // (it queries fingerprints by id and gets nothing). Prefer the
-        // persisted id; fall back to Items only when L1 returns nothing
-        // (cold-start cases where the matcher just allocated but the row
-        // hasn't yet committed -- the next request will resolve cleanly).
-        string? fpId = null;
-        if (!string.IsNullOrEmpty(primarySig))
+        // component renders the radar around it. Items[IdentityFingerprintId]
+        // is what FingerprintMatchAtom bound during THIS request's wave --
+        // the freshest possible answer and the source of truth once the wave
+        // has run. It reflects any late-wave re-binding (identity can change
+        // during the request as more signals arrive). The store L1 lookup
+        // against fingerprint_keys is only present for the durably-persisted
+        // subset (high-confidence / sampled writes) -- most requests do not
+        // write a binding row -- so it is the fallback for verdict-cache-skip
+        // and pre-wave paths where the atom never ran, not the primary read.
+        string? fpId = context.Items.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpObj)
+            ? fpObj as string
+            : null;
+        if (string.IsNullOrEmpty(fpId)
+            && context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+            && evObj is AggregatedEvidence evidence
+            && evidence.Signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var sigObj)
+            && sigObj is string sigFp)
+        {
+            fpId = sigFp;
+        }
+
+        if (string.IsNullOrEmpty(fpId) && !string.IsNullOrEmpty(primarySig))
         {
             var reader = context.RequestServices.GetService<IFingerprintReader>();
             if (reader is not null)
@@ -230,23 +241,8 @@ public sealed class StyloBotForwardedHeadersMiddleware
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "L1 fingerprint lookup failed for primarySig={Sig}", primarySig);
+                    _logger.LogDebug(ex, "L1 fingerprint lookup fallback failed for primarySig={Sig}", primarySig);
                 }
-            }
-        }
-
-        if (string.IsNullOrEmpty(fpId))
-        {
-            fpId = context.Items.TryGetValue(SignalKeys.IdentityFingerprintId, out var fpObj)
-                ? fpObj as string
-                : null;
-            if (string.IsNullOrEmpty(fpId)
-                && context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
-                && evObj is AggregatedEvidence evidence
-                && evidence.Signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var sigObj)
-                && sigObj is string sigFp)
-            {
-                fpId = sigFp;
             }
         }
 

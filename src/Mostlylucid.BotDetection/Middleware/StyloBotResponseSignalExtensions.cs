@@ -16,7 +16,6 @@ namespace Mostlylucid.BotDetection.Middleware;
 ///         <c>ApplyResponseStatusBoost</c>;
 ///         <c>ResponseBehaviorContributor.AnalyzeScanPatterns</c> and
 ///         <c>AnalyzeAuthStruggle</c>;
-///         <c>ReputationLane.ComputeCumulativeBadBehavior</c>;
 ///         <c>HeuristicDetector</c>'s 404-derived feature weights;
 ///         <c>RequestMarkovClassifier</c> + <c>SessionVector</c> Markov
 ///         <c>NotFound</c> transitions). When stylobot's own load-shed /

@@ -8,10 +8,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Common.Scheduling;
@@ -384,40 +386,29 @@ public class LearningFeedbackLoopTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task LearningEventBus_PublishAndConsume_WorksEndToEnd()
+    public void LearningSink_RaiseAndObserve_WorksEndToEnd()
     {
         // Arrange
-        var collector = new FakeLogCollector();
-        var bus = new LearningEventBus(100);
+        var inner = new Mostlylucid.Ephemeral.SignalSink(maxCapacity: 256, maxAge: TimeSpan.FromMinutes(1));
+        var sink = new Mostlylucid.Ephemeral.TypedSignalSink<LearningEvent>(inner);
         var receivedEvents = new List<LearningEvent>();
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
-        // Start consumer
-        var consumerTask = Task.Run(async () =>
-        {
-            await foreach (var evt in bus.Reader.ReadAllAsync(cts.Token))
-            {
-                receivedEvents.Add(evt);
-                if (receivedEvents.Count >= 5)
-                    break;
-            }
-        }, cts.Token);
+        // Signal-native consumer: subscribe to TypedSignalRaised.
+        sink.TypedSignalRaised += evt => receivedEvents.Add(evt.Payload);
 
-        // Act - Publish events
+        // Act - Raise events directly onto the shared sink.
         for (var i = 0; i < 5; i++)
         {
-            var published = bus.TryPublish(new LearningEvent
+            var evt = new LearningEvent
             {
                 Type = LearningEventType.HighConfidenceDetection,
                 Source = "Test",
                 Confidence = 0.9 + i * 0.01,
                 RequestId = $"req-{i}"
-            });
-            Assert.True(published, $"Failed to publish event {i}");
+            };
+            var key = LearningSignalKeys.For(evt.Type);
+            sink.Raise(key.Name, evt, key: evt.RequestId);
         }
-
-        // Wait for consumer
-        await consumerTask;
 
         // Assert
         Assert.Equal(5, receivedEvents.Count);
@@ -435,7 +426,7 @@ public class LearningFeedbackLoopTests : IAsyncLifetime
 
         // Verify all critical services resolve from DI
         var weightStore = host.Services.GetRequiredService<IWeightStore>();
-        var eventBus = host.Services.GetRequiredService<ILearningEventBus>();
+        var eventBus = host.Services.GetRequiredService<ILearningCoordinator>();
         var handlers = host.Services.GetServices<ILearningEventHandler>().ToList();
         var signatureHandler = handlers.OfType<SignatureFeedbackHandler>().FirstOrDefault();
 
@@ -449,8 +440,8 @@ public class LearningFeedbackLoopTests : IAsyncLifetime
         Assert.True(handlers.Count >= 5, $"Expected at least 5 handlers, got {handlers.Count}");
         Assert.Contains(handlers, h => h is SignatureFeedbackHandler);
 
-        // Verify event bus accepts events
-        var published = eventBus.TryPublish(new LearningEvent
+        // Verify the shared sink accepts events raised directly.
+        var raisedEvent = new LearningEvent
         {
             Type = LearningEventType.HighConfidenceDetection,
             Source = "IntegrationTest",
@@ -463,8 +454,9 @@ public class LearningFeedbackLoopTests : IAsyncLifetime
                 ["ip"] = "10.0.0.50",
                 ["path"] = "/api/data"
             }
-        });
-        Assert.True(published, "Event bus should accept events");
+        };
+        var raisedKey = LearningSignalKeys.For(raisedEvent.Type);
+        eventBus.Signals.Raise(raisedKey.Name, raisedEvent, key: raisedEvent.RequestId);
 
         // Verify handler can process events without errors (handler behavior tested separately)
         await signatureHandler.HandleAsync(new LearningEvent
@@ -663,7 +655,7 @@ public class LearningFeedbackLoopTests : IAsyncLifetime
         var botDetectionService = host.Services.GetService<IBotDetectionService>();
         var weightStore = host.Services.GetService<IWeightStore>();
         var versionService = host.Services.GetService<IBrowserVersionService>();
-        var eventBus = host.Services.GetService<ILearningEventBus>();
+        var eventBus = host.Services.GetService<ILearningCoordinator>();
 
         Assert.NotNull(botDetectionService);
         Assert.NotNull(weightStore);

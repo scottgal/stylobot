@@ -4,7 +4,6 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.Audit;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Test.Extensions;
@@ -107,104 +106,6 @@ public class ServiceCollectionExtensionsTests
         var provider = services.BuildServiceProvider();
         var service = provider.GetService<IBotDetectionService>();
         Assert.NotNull(service);
-    }
-
-    [Fact]
-    public void AddBotDetection_RegistersAuditProcessorServices()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-        AddTestDependencies(services);
-
-        // Act
-        services.AddBotDetection();
-
-        // Assert
-        var provider = services.BuildServiceProvider();
-        Assert.NotNull(provider.GetService<AuditProcessorDispatcher>());
-        Assert.NotNull(provider.GetService<IAuditRecordWriter>());
-        Assert.Contains(provider.GetServices<IAuditSink>(), sink => sink is LoggerAuditSink);
-        Assert.Contains(provider.GetServices<IAuditProcessor>(), processor => processor is ErrorSignalAuditProcessor);
-    }
-
-    [Fact]
-    public void AddBotDetection_RegistersDetectors()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-        AddTestDependencies(services);
-
-        // Act
-        services.AddBotDetection();
-
-        // Assert
-        var provider = services.BuildServiceProvider();
-        var detectors = provider.GetServices<IDetector>();
-        Assert.NotEmpty(detectors);
-    }
-
-    [Fact]
-    public void AddBotDetection_RegistersUserAgentDetector()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-        AddTestDependencies(services);
-
-        // Act
-        services.AddBotDetection();
-
-        // Assert
-        var provider = services.BuildServiceProvider();
-        var detectors = provider.GetServices<IDetector>();
-        Assert.Contains(detectors, d => d is UserAgentDetector);
-    }
-
-    [Fact]
-    public void AddBotDetection_RegistersHeaderDetector()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-        AddTestDependencies(services);
-
-        // Act
-        services.AddBotDetection();
-
-        // Assert
-        var provider = services.BuildServiceProvider();
-        var detectors = provider.GetServices<IDetector>();
-        Assert.Contains(detectors, d => d is HeaderDetector);
-    }
-
-    [Fact]
-    public void AddBotDetection_RegistersIpDetector()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-        AddTestDependencies(services);
-
-        // Act
-        services.AddBotDetection();
-
-        // Assert
-        var provider = services.BuildServiceProvider();
-        var detectors = provider.GetServices<IDetector>();
-        Assert.Contains(detectors, d => d is IpDetector);
-    }
-
-    [Fact]
-    public void AddBotDetection_RegistersBehavioralDetector()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-        AddTestDependencies(services);
-
-        // Act
-        services.AddBotDetection();
-
-        // Assert
-        var provider = services.BuildServiceProvider();
-        var detectors = provider.GetServices<IDetector>();
-        Assert.Contains(detectors, d => d is BehavioralDetector);
     }
 
     #endregion

@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.Escalation;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -39,29 +38,20 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 /// </remarks>
 public sealed class BotDetectionOrchestrator : IDisposable
 {
-    private readonly EscalatorConfig _escalatorConfig;
     private readonly ILogger<BotDetectionOrchestrator> _logger;
-    private readonly ILogger<SignatureEscalatorAtom> _escalatorLogger;
     private readonly BotDetectionOptions _options;
     private readonly DetectorOrchestrator _orchestrator;
     private readonly IServiceProvider _serviceProvider;
     private readonly SignalSink _signalSink;
-    private readonly SignatureResponseCoordinatorCache _signatureCoordinators;
 
     public BotDetectionOrchestrator(
         IServiceProvider serviceProvider,
         IOptions<BotDetectionOptions> options,
-        SignatureResponseCoordinatorCache signatureCoordinators,
-        IOptions<EscalatorConfig> escalatorConfig,
-        ILogger<BotDetectionOrchestrator> logger,
-        ILogger<SignatureEscalatorAtom> escalatorLogger)
+        ILogger<BotDetectionOrchestrator> logger)
     {
         _serviceProvider = serviceProvider;
         _options = options.Value;
-        _signatureCoordinators = signatureCoordinators;
-        _escalatorConfig = escalatorConfig.Value;
         _logger = logger;
-        _escalatorLogger = escalatorLogger;
 
         // Create shared signal sink for this orchestrator
         _signalSink = new SignalSink(
@@ -106,18 +96,6 @@ public sealed class BotDetectionOrchestrator : IDisposable
         var sessionId = context.TraceIdentifier;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-        // Build signature for cross-request coordination
-        var signature = BuildSignature(context);
-
-        // Create escalator for this detection (TIGHT with operation sink)
-        await using var escalator = new SignatureEscalatorAtom(
-            _signalSink,
-            signature,
-            sessionId,
-            _signatureCoordinators,
-            _escalatorLogger,
-            _escalatorConfig);
-
         try
         {
             // Step 1: Hydrate signals from HttpContext
@@ -131,14 +109,20 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // Step 3: Convert ledger to AggregatedEvidence
             var evidence = ToAggregatedEvidence(ledger, stopwatch.Elapsed);
 
-            // Step 4: Emit completion signal and hydrate risk signals for escalator
+            // Step 4: Emit completion signal and hydrate risk signals so
+            // downstream action policies (including the summary-path
+            // EscalateToSessionActionPolicy) can pick them up when the
+            // response arrives.
             _signalSink.Raise($"detection.completed:{evidence.BotProbability:F2}", sessionId);
             _signalSink.Raise("request.risk", evidence.BotProbability.ToString("F4"));
             _signalSink.Raise("request.honeypot", (evidence.CategoryBreakdown.ContainsKey("Honeypot")).ToString());
 
-            // Step 5: Use escalator for salience-based escalation (replaces manual EmitEscalationSignals)
-            // Escalator uses pattern matching and rules to decide what to escalate
-            await escalator.OnRequestAnalysisCompleteAsync(ct);
+            // Session-scope promotion (was: SessionSignatureEscalatorAtom
+            // fan-out into a per-signature coordinator cache) has moved out
+            // of the orchestrator entirely. Escalators run in the action
+            // policy pipeline against a response, decide whether to raise a
+            // SessionSample into the shared SessionStore, and the
+            // SessionAtom reacts to aggregate mutations off-thread.
 
             _logger.LogDebug(
                 "Detection completed for {SessionId}: BotProbability={Prob:F2}, Confidence={Conf:F2}, Elapsed={Elapsed}ms",
@@ -169,17 +153,6 @@ public sealed class BotDetectionOrchestrator : IDisposable
                 }
             };
         }
-    }
-
-    /// <summary>
-    ///     Builds a multi-factor signature for cross-request coordination.
-    /// </summary>
-    private static string BuildSignature(HttpContext context)
-    {
-        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var ua = context.Request.Headers.UserAgent.ToString();
-        var uaHash = ua.Length > 0 ? ua.GetHashCode().ToString("X8") : "empty";
-        return $"{ip}:{uaHash}";
     }
 
     /// <summary>
@@ -316,18 +289,11 @@ public static class BotDetectionOrchestratorExtensions
         // Register the hydrator atom
         services.AddSingleton<IDetectorAtom, RequestHydratorAtom>();
 
-        // Register signature coordinator cache (singleton for cross-request coordination).
-        // The factory pulls the upstream-health gate from DI (optional - hosts
-        // without the rate-limit module get null and the ReputationLane treats
-        // upstream as healthy, preserving today's behaviour).
-        services.AddSingleton<SignatureResponseCoordinatorCache>(sp =>
-            new SignatureResponseCoordinatorCache(
-                sp.GetRequiredService<ILogger<SignatureResponseCoordinatorCache>>(),
-                upstreamHealth: sp.GetService<Mostlylucid.BotDetection.RateLimit.UpstreamHealthGate>()));
-
-        // Register escalator config (with defaults, can be overridden via configuration)
-        services.AddOptions<EscalatorConfig>()
-            .BindConfiguration("BotDetection:Escalation");
+        // Session store + atom are registered by BotDetectionModule; the
+        // orchestrator no longer needs a per-signature coordinator cache.
+        // Session promotion runs in the action policy pipeline via
+        // EscalateToSessionActionPolicy; the SessionAtom reacts to
+        // aggregate mutations off-thread.
 
         // Native detector atoms -- the migration target for the legacy
         // IContributingDetector implementations. Each atom is a

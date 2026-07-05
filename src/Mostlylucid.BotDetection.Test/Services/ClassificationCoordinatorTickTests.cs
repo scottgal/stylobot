@@ -58,7 +58,7 @@ public sealed class ClassificationCoordinatorTickTests
             updater,
             opts,
             resultCallback: null,
-            learningBus: null,
+            learningSignals: null,
             nameSynthesizer: null,
             scheduleCoordinator: coordinator);
     }
@@ -78,7 +78,7 @@ public sealed class ClassificationCoordinatorTickTests
             intentSearch,
             vectorizer,
             cache,
-            learningBus: null,
+            learningSignals: null,
             scheduleCoordinator: coordinator);
     }
 
@@ -204,7 +204,7 @@ public sealed class ClassificationCoordinatorTickTests
         await captured.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
 
         // Cat-B load-bearing assertion: the channel has been drained by the
-        // tick handler. With no LearningEventBus registered the fallback path
+        // tick handler. With no LearningCoordinator registered the fallback path
         // calls IIntentSimilaritySearch.AddAsync for each request.
         sut.QueueDepth.Should().Be(0);
         sut.TotalProcessed.Should().Be(2);

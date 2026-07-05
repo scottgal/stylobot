@@ -5,8 +5,9 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.ApiHolodeck.Models;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
+using Mostlylucid.Common.Scheduling;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.ApiHolodeck.Services;
 
@@ -25,20 +26,14 @@ namespace Mostlylucid.BotDetection.ApiHolodeck.Services;
 ///         This service prepares data for submission when you have such a setup.
 ///     </para>
 ///     <para>
-///         <b>Wave 2 architectural-drift remediation (Category B pilot).</b> Was a
-///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> that ran two
-///         parallel loops: an <c>await foreach</c> on
-///         <see cref="ILearningEventBus.Reader"/> for fan-in plus a 1-minute
-///         <c>Task.Delay</c> loop that drained an in-memory
-///         <see cref="ConcurrentQueue{ReportEntry}"/> and POSTed batches. Now subscribes
-///         to <see cref="TickCadence.Tick1m"/>; each tick first drains the learning-event
-///         channel non-blocking via <see cref="System.Threading.Channels.ChannelReader{T}.TryRead"/>
-///         and then runs the existing batched report-queue submission. Trade-off: a
-///         learning event may sit in the channel for up to one tick interval (~60s) before
-///         it is converted to a queued report. That is well within the original 60s
-///         report-drain cadence and well below the
-///         <see cref="HolodeckOptions.MaxReportsPerHour"/> throttle (100 reports/hour
-///         default × batch cap 10/tick × 60 ticks/hour leaves plenty of slack).
+///         Fan-in is signal-native: subscribe to the shared
+///         <see cref="TypedSignalSink{LearningEvent}"/> at construction and
+///         classify each raised event straight into the report queue. A
+///         <see cref="TickCadence.Tick1m"/> subscription then drains up to
+///         <c>min(10, MaxReportsPerHour - reportsThisHour)</c> queued reports per beat.
+///         Trade-off: reports still cadence at the 1-minute tick (well within the
+///         <see cref="HolodeckOptions.MaxReportsPerHour"/> throttle -- 100/hour default
+///         × 10/tick × 60 ticks/hour leaves plenty of slack).
 ///     </para>
 ///     <para>
 ///         The in-memory <see cref="ConcurrentQueue{T}"/> stays per
@@ -58,7 +53,8 @@ public sealed class HoneypotReporter : IDisposable
     private int _reportsThisHour;
     private DateTime _hourStart = DateTime.UtcNow;
 
-    private readonly ILearningEventBus? _learningEventBus;
+    private readonly TypedSignalSink<LearningEvent>? _learningSignals;
+    private readonly Action<SignalEvent<LearningEvent>>? _onLearningRaised;
     private readonly ILogger<HoneypotReporter> _logger;
     private readonly HolodeckOptions _options;
     private readonly IDisposable? _subscription;
@@ -70,12 +66,21 @@ public sealed class HoneypotReporter : IDisposable
     public HoneypotReporter(
         ILogger<HoneypotReporter> logger,
         IOptions<HolodeckOptions> options,
-        ILearningEventBus? learningEventBus = null,
+        TypedSignalSink<LearningEvent>? learningSignals = null,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
         _logger = logger;
         _options = options.Value;
-        _learningEventBus = learningEventBus;
+        _learningSignals = learningSignals;
+
+        // Signal-native fan-in: hook the shared learning sink so every raised
+        // event is classified straight away. Kept optional so hosts without
+        // the learning fabric still exercise the queued-report tick.
+        if (_learningSignals is not null)
+        {
+            _onLearningRaised = OnLearningRaised;
+            _learningSignals.TypedSignalRaised += _onLearningRaised;
+        }
 
         // Optional so existing direct-construction tests keep working.
         if (scheduleCoordinator is not null)
@@ -86,6 +91,18 @@ public sealed class HoneypotReporter : IDisposable
                 CostHint.Low,
                 OnTickAsync);
         }
+    }
+
+    private void OnLearningRaised(SignalEvent<LearningEvent> evt)
+    {
+        if (_disposed != 0) return;
+        var payload = evt.Payload;
+        if (payload.Type != LearningEventType.HighConfidenceDetection &&
+            payload.Type != LearningEventType.FullDetection)
+        {
+            return;
+        }
+        ProcessLearningEvent(payload);
     }
 
     /// <summary>
@@ -133,23 +150,8 @@ public sealed class HoneypotReporter : IDisposable
             _startupLogged = true;
         }
 
-        // 1) Drain any pending learning events into the report queue. This replaces
-        //    the legacy fire-and-forget `await foreach (... ReadAllAsync(ct))` loop.
-        //    TryRead is non-blocking; we read whatever is available right now.
-        if (_learningEventBus is not null)
-        {
-            while (_learningEventBus.Reader.TryRead(out var evt))
-            {
-                if (ct.IsCancellationRequested) break;
-                if (evt.Type == LearningEventType.HighConfidenceDetection ||
-                    evt.Type == LearningEventType.FullDetection)
-                {
-                    ProcessLearningEvent(evt);
-                }
-            }
-        }
-
-        // 2) Process the bounded batch from the report queue (existing logic).
+        // Learning events land via TypedSignalRaised (see ctor); each tick
+        // only processes the bounded batch out of the report queue.
         await ProcessReportQueueAsync(ct);
     }
 
@@ -157,6 +159,11 @@ public sealed class HoneypotReporter : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        if (_learningSignals is not null && _onLearningRaised is not null)
+        {
+            try { _learningSignals.TypedSignalRaised -= _onLearningRaised; }
+            catch { /* already torn down */ }
+        }
         try { _subscription?.Dispose(); }
         catch { /* coordinator already torn down */ }
     }

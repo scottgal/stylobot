@@ -190,9 +190,6 @@ app.MapBotDetectionScript();
 // the verification HTML emitted by ChallengeActionPolicy.
 app.MapBotDetectionChallengeScript();
 
-// Map BDF replay endpoints for offline debugging and regression testing
-app.MapBdfReplayEndpoints();
-
 // Map training data export endpoints
 app.MapBotTrainingEndpoints();
 

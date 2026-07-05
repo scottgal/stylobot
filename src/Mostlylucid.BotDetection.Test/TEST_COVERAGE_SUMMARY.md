@@ -33,7 +33,7 @@
 
 ### 1. Orchestration Tests
 
-#### SignatureEscalatorAtomTests.cs (NEW)
+#### SessionSignatureEscalatorAtomTests.cs (NEW)
 
 Tests for the pattern-based escalation atom:
 
@@ -111,7 +111,7 @@ Tests for escalation decisions:
 
 ### 3. Signature Response Coordinator Tests
 
-#### SignatureResponseCoordinatorCacheTests.cs (NEW)
+#### SessionSignatureResponseCoordinatorCacheTests.cs (NEW)
 
 Tests for LRU cache of signature coordinators:
 
@@ -121,7 +121,7 @@ Tests for LRU cache of signature coordinators:
 - ✅ Creating different coordinators for different signatures
 - ✅ Resource disposal
 
-#### SignatureResponseCoordinatorTests.cs (NEW)
+#### SessionSignatureResponseCoordinatorTests.cs (NEW)
 
 Tests for signature-level response coordinators:
 
@@ -218,13 +218,13 @@ Tests for security scanner detection:
 
 ### Areas Now Covered
 
-1. ✅ SignatureEscalatorAtom - Pattern-based escalation logic
+1. ✅ SessionSignatureEscalatorAtom - Pattern-based escalation logic
 2. ✅ SignalPatternMatcher - Dynamic signal resolution
 3. ✅ EscalationRule - Expression-based conditions
 4. ✅ ResponseAnalysisContext - Request-side triggers
 5. ✅ ResponseSignal - PII-safe response data
-6. ✅ SignatureResponseCoordinator - Cross-request state
-7. ✅ SignatureResponseCoordinatorCache - LRU caching
+6. ✅ SessionSignatureResponseCoordinator - Cross-request state
+7. ✅ SessionSignatureResponseCoordinatorCache - LRU caching
 8. ✅ Lane implementations - Behavioral, Spectral, Reputation
 9. ✅ VersionAgeDetector - Browser version detection
 10. ✅ ClientSideDetector - JavaScript capability checks

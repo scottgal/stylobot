@@ -17,7 +17,6 @@ namespace Mostlylucid.BotDetection.Services;
 public class ReputationMaintenanceService : BackgroundService, ILearningEventHandler
 {
     private readonly IPatternReputationCache _cache;
-    private readonly ILearningEventBus? _learningBus;
     private readonly ILogger<ReputationMaintenanceService> _logger;
     private readonly ReputationOptions _options;
     private readonly PatternReputationUpdater _updater;
@@ -26,14 +25,12 @@ public class ReputationMaintenanceService : BackgroundService, ILearningEventHan
         ILogger<ReputationMaintenanceService> logger,
         IPatternReputationCache cache,
         PatternReputationUpdater updater,
-        IOptions<BotDetectionOptions> options,
-        ILearningEventBus? learningBus = null)
+        IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _cache = cache;
         _updater = updater;
         _options = options.Value.Reputation;
-        _learningBus = learningBus;
     }
 
     public IReadOnlySet<LearningEventType> HandledEventTypes => new HashSet<LearningEventType>

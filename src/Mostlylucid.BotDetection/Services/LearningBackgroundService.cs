@@ -1,88 +1,88 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Scheduling;
-using Mostlylucid.Common.Scheduling;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Processes learning events. Listens for triggers and runs inference /
-///     learning asynchronously on a per-tick drain pass.
+///     Dispatches <see cref="LearningEvent"/>s raised on
+///     <see cref="ILearningCoordinator.Signals"/> to the registered
+///     <see cref="ILearningEventHandler"/>s. Replaces the retired
+///     channel-bus drain loop: subscribes to
+///     <see cref="TypedSignalSink{T}.TypedSignalRaised"/> at construction
+///     and fires handlers per-event (fire-and-forget on the thread pool so
+///     the raiser thread stays hot).
 ///     <para>
-///         <b>Wave 2 architectural-drift remediation (Category B).</b> Was a
-///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> whose
-///         <c>ExecuteAsync</c> ran an unbounded <c>await foreach</c> on the
-///         learning bus reader. Now subscribes to <see cref="TickCadence.Tick1s"/>
-///         via <see cref="IScheduleCoordinator"/>; each tick drains whatever
-///         landed since the last tick via
-///         <see cref="System.Threading.Channels.ChannelReader{T}.TryRead"/> and
-///         dispatches each event sequentially to the relevant handlers. The
-///         1-second cadence matches the legacy "process as fast as events
-///         arrive" semantics within a one-tick latency budget; learning is
-///         high-throughput off the hot path so <see cref="CostHint.High"/>
-///         signals the per-tick concurrency cap.
-///     </para>
-///     <para>
-///         The <see cref="ILearningEventBus"/> is wired separately (the
-///         project registers <see cref="BoundedChannelLearningBus"/> as the
-///         default implementation); this class only reads from
-///         <see cref="ILearningEventBus.Reader"/>.
+///         Handler failures are logged and swallowed; one bad handler
+///         must not stop the others. Dispatch is per-event serial
+///         (each event's handlers run sequentially), across-event
+///         concurrent (independent events fan out).
 ///     </para>
 /// </summary>
 public sealed class LearningBackgroundService : IDisposable
 {
-    private readonly ILearningEventBus _eventBus;
     private readonly IEnumerable<ILearningEventHandler> _handlers;
+    private readonly TypedSignalSink<LearningEvent> _signals;
     private readonly ILogger<LearningBackgroundService> _logger;
     private readonly BotDetectionOptions _options;
-    private readonly IDisposable? _subscription;
+    private readonly Action<SignalEvent<LearningEvent>> _onRaised;
     private int _disposed;
 
     public LearningBackgroundService(
-        ILearningEventBus eventBus,
+        TypedSignalSink<LearningEvent> signals,
         ILogger<LearningBackgroundService> logger,
         IOptions<BotDetectionOptions> options,
-        IEnumerable<ILearningEventHandler> handlers,
-        IScheduleCoordinator? scheduleCoordinator = null)
+        IEnumerable<ILearningEventHandler> handlers)
     {
-        _eventBus = eventBus;
+        _signals = signals;
         _logger = logger;
         _options = options.Value;
         _handlers = handlers;
 
-        // Optional so existing direct-construction tests that exercise
-        // ProcessEventAsync in isolation keep working.
-        if (scheduleCoordinator is not null)
+        _onRaised = OnLearningRaised;
+        _signals.TypedSignalRaised += _onRaised;
+
+        // Catch-up on the raise that triggered our lazy boot. TypedSignalRaised
+        // is a plain C# multicast event, so the invocation that caused the
+        // init signal to fire (and thus caused DI to construct this
+        // dispatcher) uses a subscriber snapshot taken before our
+        // subscription landed. Sense() walks the sink's retention window
+        // and dispatches anything already in-flight so we don't lose the
+        // triggering event or any raises that arrived while DI was
+        // resolving. Runs once per singleton lifetime; safe on tests that
+        // construct directly (empty sink → empty replay).
+        foreach (var evt in _signals.Sense())
         {
-            _subscription = scheduleCoordinator.Subscribe(
-                TickCadence.Tick1s,
-                "LearningBackgroundService",
-                CostHint.High,
-                OnTickAsync);
+            _ = Task.Run(() => ProcessEventAsync(evt.Payload, CancellationToken.None));
         }
     }
 
-    /// <summary>
-    ///     ScheduleCoordinator tick handler. Each tick: drain whatever
-    ///     learning events landed since the last tick via
-    ///     <see cref="System.Threading.Channels.ChannelReader{T}.TryRead"/>
-    ///     and dispatch each through the registered handlers. Learning is
-    ///     off the hot path so a 1-second latency budget per event is
-    ///     acceptable; the ScheduleCoordinator's single-flight guarantee
-    ///     prevents re-entry while a tick is still draining.
-    /// </summary>
-    public async Task OnTickAsync(DateTimeOffset now, CancellationToken ct)
+    private void OnLearningRaised(SignalEvent<LearningEvent> evt)
     {
         if (_disposed != 0) return;
 
-        while (_eventBus.Reader.TryRead(out var evt))
+        // Fire-and-forget: keeps the producer thread hot; each event's
+        // handlers still run sequentially inside its dispatch task.
+        _ = Task.Run(() => ProcessEventAsync(evt.Payload, CancellationToken.None));
+    }
+
+    /// <summary>
+    ///     Public for direct-drive tests that construct the service without
+    ///     wiring through the coordinator's raise notification.
+    /// </summary>
+    public async Task ProcessEventAsync(LearningEvent evt, CancellationToken ct)
+    {
+        _logger.LogDebug("Processing learning event: {Type} from {Source}", evt.Type, evt.Source);
+
+        foreach (var handler in _handlers)
         {
-            if (ct.IsCancellationRequested) break;
+            if (!handler.HandledEventTypes.Contains(evt.Type)) continue;
             try
             {
-                await ProcessEventAsync(evt, ct);
+                await handler.HandleAsync(evt, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -90,29 +90,19 @@ public sealed class LearningBackgroundService : IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing learning event: {Type}", evt.Type);
+                _logger.LogError(ex,
+                    "Handler {Handler} failed for {Type}",
+                    handler.GetType().Name, evt.Type);
             }
         }
-    }
-
-    private async Task ProcessEventAsync(LearningEvent evt, CancellationToken ct)
-    {
-        _logger.LogDebug("Processing learning event: {Type} from {Source}", evt.Type, evt.Source);
-
-        // Find handlers interested in this event type
-        var relevantHandlers = _handlers
-            .Where(h => h.HandledEventTypes.Contains(evt.Type))
-            .ToList();
-
-        foreach (var handler in relevantHandlers) await handler.HandleAsync(evt, ct);
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        try { _subscription?.Dispose(); }
-        catch { /* coordinator already torn down */ }
+        try { _signals.TypedSignalRaised -= _onRaised; }
+        catch { /* sink already torn down */ }
     }
 }
 
@@ -256,17 +246,17 @@ public class InferenceHandler : ILearningEventHandler
 /// </summary>
 public class PatternAccumulatorHandler : ILearningEventHandler
 {
-    private readonly ILearningEventBus _eventBus;
+    private readonly Mostlylucid.Ephemeral.TypedSignalSink<LearningEvent> _signals;
     private readonly object _lock = new();
     private readonly ILogger<PatternAccumulatorHandler> _logger;
     private readonly Dictionary<string, int> _patternCounts = new();
 
     public PatternAccumulatorHandler(
         ILogger<PatternAccumulatorHandler> logger,
-        ILearningEventBus eventBus)
+        Mostlylucid.Ephemeral.TypedSignalSink<LearningEvent> signals)
     {
         _logger = logger;
-        _eventBus = eventBus;
+        _signals = signals;
     }
 
     public IReadOnlySet<LearningEventType> HandledEventTypes => new HashSet<LearningEventType>
@@ -290,14 +280,16 @@ public class PatternAccumulatorHandler : ILearningEventHandler
 
         _logger.LogDebug("Pattern '{Pattern}' seen {Count} times", evt.Pattern, count);
 
-        // Trigger analysis when we've seen the pattern enough times
+        // Trigger analysis when we've seen the pattern enough times.
+        // Re-emitting into the shared sink -- the coordinator that dispatched
+        // us is a consumer of the same sink; no coordinator dependency needed.
         if (count == InferenceTriggers.PatternAnalysisCount)
         {
             _logger.LogInformation(
                 "Pattern '{Pattern}' hit threshold ({Count}), triggering analysis",
                 evt.Pattern, count);
 
-            _eventBus.TryPublish(new LearningEvent
+            var inferenceEvent = new LearningEvent
             {
                 Type = LearningEventType.InferenceRequest,
                 Source = nameof(PatternAccumulatorHandler),
@@ -307,7 +299,9 @@ public class PatternAccumulatorHandler : ILearningEventHandler
                     ["occurrences"] = count,
                     ["trigger"] = "pattern_threshold"
                 }
-            });
+            };
+            var key = LearningSignalKeys.For(inferenceEvent.Type);
+            _signals.Raise(key.Name, inferenceEvent, key: inferenceEvent.Pattern);
         }
 
         return Task.CompletedTask;

@@ -3,9 +3,11 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.Common.Scheduling;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -30,10 +32,22 @@ namespace Mostlylucid.BotDetection.Services;
 /// </summary>
 public class LlmClassificationCoordinator : IDisposable
 {
+    /// <summary>
+    ///     Named key for LLM classification requests raised onto the shared
+    ///     <see cref="TypedSignalSink{LlmClassificationRequest}"/>.
+    ///     Escalators raise against this key; the coordinator's constructor
+    ///     subscribes and forwards each raise into the bounded-channel
+    ///     drain path.
+    /// </summary>
+    public static readonly Ephemeral.SignalKey<LlmClassificationRequest> RequestSignal =
+        new("llm.classification.request");
+
     private readonly Channel<LlmClassificationRequest> _channel;
     private readonly IServiceProvider _serviceProvider;
     private readonly IBotNameSynthesizer? _nameSynthesizer;
-    private readonly ILearningEventBus? _learningBus;
+    private readonly TypedSignalSink<LearningEvent>? _learningSignals;
+    private readonly TypedSignalSink<LlmClassificationRequest>? _requestSignals;
+    private readonly Action<SignalEvent<LlmClassificationRequest>>? _onRequestRaised;
     private readonly ILogger<LlmClassificationCoordinator> _logger;
     private readonly BotDetectionOptions _options;
     private readonly IPatternReputationCache _reputationCache;
@@ -51,7 +65,8 @@ public class LlmClassificationCoordinator : IDisposable
         PatternReputationUpdater updater,
         IOptions<BotDetectionOptions> options,
         ILlmResultCallback? resultCallback = null,
-        ILearningEventBus? learningBus = null,
+        TypedSignalSink<LearningEvent>? learningSignals = null,
+        TypedSignalSink<LlmClassificationRequest>? requestSignals = null,
         IBotNameSynthesizer? nameSynthesizer = null,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
@@ -61,7 +76,8 @@ public class LlmClassificationCoordinator : IDisposable
         _updater = updater;
         _options = options.Value;
         _resultCallback = resultCallback;
-        _learningBus = learningBus;
+        _learningSignals = learningSignals;
+        _requestSignals = requestSignals;
         _nameSynthesizer = nameSynthesizer;
 
         _channel = Channel.CreateBounded<LlmClassificationRequest>(
@@ -82,6 +98,30 @@ public class LlmClassificationCoordinator : IDisposable
                 CostHint.High,
                 OnTickAsync);
         }
+
+        // Signal-native fan-in: subscribe to the shared request sink and
+        // forward every raise into the bounded channel. The bounded channel
+        // stays authoritative for throttling because LLM calls take seconds
+        // and uncontrolled fire-and-forget on TypedSignalRaised would
+        // saturate the LLM provider. Catch-up loop after subscribe covers
+        // raises that happened between init-signal fire and this ctor
+        // completing (the raise that triggered our lazy boot is not
+        // delivered to a subscription added mid-invocation).
+        if (_requestSignals is not null)
+        {
+            _onRequestRaised = OnRequestRaised;
+            _requestSignals.TypedSignalRaised += _onRequestRaised;
+            foreach (var evt in _requestSignals.Sense(e => e.Signal == RequestSignal.Name))
+            {
+                _channel.Writer.TryWrite(evt.Payload);
+            }
+        }
+    }
+
+    private void OnRequestRaised(SignalEvent<LlmClassificationRequest> evt)
+    {
+        if (_disposed != 0) return;
+        _channel.Writer.TryWrite(evt.Payload);
     }
 
     /// <summary>Current number of items waiting in the queue.</summary>
@@ -173,6 +213,11 @@ public class LlmClassificationCoordinator : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        if (_requestSignals is not null && _onRequestRaised is not null)
+        {
+            try { _requestSignals.TypedSignalRaised -= _onRequestRaised; }
+            catch { /* sink already torn down */ }
+        }
         try { _subscription?.Dispose(); }
         catch { /* coordinator already torn down */ }
     }
@@ -322,10 +367,10 @@ public class LlmClassificationCoordinator : IDisposable
             }
         }
 
-        // Publish drift event if this was a drift/confirmation sample
-        if (_learningBus != null && !string.IsNullOrWhiteSpace(description))
+        // Raise pattern-discovered event on the shared learning sink.
+        if (_learningSignals != null && !string.IsNullOrWhiteSpace(description))
         {
-            _learningBus.TryPublish(new LearningEvent
+            var patternEvent = new LearningEvent
             {
                 Type = LearningEventType.PatternDiscovered,
                 Source = nameof(LlmClassificationCoordinator),
@@ -334,10 +379,12 @@ public class LlmClassificationCoordinator : IDisposable
                 Label = llmIsBot,
                 RequestId = request.RequestId,
                 Metadata = new Dictionary<string, object>(aiMetadata)
-            });
+            };
+            var patternKey = LearningSignalKeys.For(patternEvent.Type);
+            _learningSignals.Raise(patternKey.Name, patternEvent, key: patternEvent.RequestId);
         }
 
-        if ((request.IsDriftSample || request.IsConfirmationSample) && _learningBus != null)
+        if ((request.IsDriftSample || request.IsConfirmationSample) && _learningSignals != null)
         {
             var heuristicIsBot = request.HeuristicProbability > 0.5;
             var disagrees = llmIsBot != heuristicIsBot;
@@ -350,7 +397,7 @@ public class LlmClassificationCoordinator : IDisposable
                 ["isConfirmationSample"] = request.IsConfirmationSample
             };
 
-            _learningBus.TryPublish(new LearningEvent
+            var driftEvent = new LearningEvent
             {
                 Type = disagrees
                     ? LearningEventType.FastPathDriftDetected
@@ -362,7 +409,9 @@ public class LlmClassificationCoordinator : IDisposable
                 RequestId = request.RequestId,
                 Features = ExtractNumericSignalFeatures(request.Signals ?? new Dictionary<string, object>()),
                 Metadata = learningMetadata
-            });
+            };
+            var driftKey = LearningSignalKeys.For(driftEvent.Type);
+            _learningSignals.Raise(driftKey.Name, driftEvent, key: driftEvent.RequestId);
 
             if (disagrees)
             {

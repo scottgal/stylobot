@@ -31,6 +31,7 @@ public sealed class BotListUpdateService : IDisposable
     private readonly BotDetectionMetrics? _metrics;
     private readonly BotDetectionOptions _options;
     private readonly ICompiledPatternCache? _patternCache;
+    private readonly Mostlylucid.Ephemeral.TypedSignalSink<BotListUpdatedSignal>? _updateSignals;
     private readonly IDisposable? _subscription;
     private DateTime _firstTickUtc = DateTime.MinValue;
     private DateTime _lastAttemptUtc = DateTime.MinValue;
@@ -45,13 +46,15 @@ public sealed class BotListUpdateService : IDisposable
         IOptions<BotDetectionOptions> options,
         ICompiledPatternCache? patternCache = null,
         BotDetectionMetrics? metrics = null,
-        IScheduleCoordinator? scheduleCoordinator = null)
+        IScheduleCoordinator? scheduleCoordinator = null,
+        Mostlylucid.Ephemeral.TypedSignalSink<BotListUpdatedSignal>? updateSignals = null)
     {
         _database = database;
         _logger = logger;
         _options = options.Value;
         _patternCache = patternCache;
         _metrics = metrics;
+        _updateSignals = updateSignals;
 
         // Optional so existing direct-construction tests keep working.
         if (scheduleCoordinator is not null)
@@ -210,7 +213,7 @@ public sealed class BotListUpdateService : IDisposable
         }
     }
 
-    private async Task PerformUpdateWithRetriesAsync(CancellationToken cancellationToken)
+    internal async Task PerformUpdateWithRetriesAsync(CancellationToken cancellationToken = default)
     {
         var maxRetries = _options.MaxDownloadRetries;
 
@@ -227,8 +230,23 @@ public sealed class BotListUpdateService : IDisposable
                 // Update the compiled pattern cache with new patterns
                 await UpdatePatternCacheAsync(cancellationToken);
 
+                var recoveredFrom = _consecutiveFailures;
                 _lastSuccessfulUpdate = DateTime.UtcNow;
                 _consecutiveFailures = 0;
+
+                // Notify subscribers -- reactive replacement for the
+                // previous "consumers poll IBotListDatabase" pattern.
+                // Task-#65 reference implementation. Optional dep so
+                // hosts that don't wire the sink still get the update
+                // (the sink is a notification bus, not a data channel;
+                // the database write above is the source of truth).
+                _updateSignals?.Raise(
+                    signal: BotListUpdatedSignal.Key.Name,
+                    payload: new BotListUpdatedSignal
+                    {
+                        Timestamp = DateTimeOffset.UtcNow,
+                        RecoveredFromFailures = recoveredFrom,
+                    });
 
                 _logger.LogInformation("Bot list update completed successfully");
                 return;

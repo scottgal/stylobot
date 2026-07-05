@@ -195,7 +195,7 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
-    // Wire the StyloFlow module -- the correct entry point per BotDetectionModule.cs:27.
+    // Wire the StyloFlow module -- the correct entry point per BotDetectionModule.cs.
     // AddBotDetectionModule -> AddStyloFlowModule(new BotDetectionModule(), context)
     //   -> BotDetectionModule.ConfigureServices runs, which:
     //     * loads *.detector.yaml manifests via AddStyloFlowFromAssemblies
@@ -203,14 +203,9 @@ try
     //     * TryAddSingleton core services (IBotDetectionService, CommonUserAgentService,
     //       BrowserVersionService, BotListDatabase)
     //     * calls AddBotDetectionOrchestrator() (registers BotDetectionOrchestrator scoped,
-    //       SignatureResponseCoordinatorCache singleton, IDetectorAtom RequestHydratorAtom,
-    //       EscalatorConfig options)
-    //     * RegisterContributors registers every IContributingDetector as singleton
-    //       (adapter registration for IDetectorAtom lands in Phase 3)
-    //
-    // Phase 2 of the atom-orchestrator realignment: module DI-only. Nothing
-    // in the pipeline resolves the orchestrator yet -- middleware routing lands
-    // in Phase 4.
+    //       IDetectorAtom implementations via AddNativeDetectorAtoms())
+    //     * registers SessionStore + SessionAtom + SessionPersistenceAtom (session-scope
+    //       promotion runs in the action policy pipeline, not inside the orchestrator)
     builder.Services.AddBotDetectionModule();
 
     // StyloExtract action policies: registers extract-markdown / extract-headers /
@@ -344,19 +339,12 @@ try
 
     // Bot Detection middleware - runs on every request.
     //
-    // Config flag BotDetection:UseAtomOrchestrator selects the request path:
-    //   true  -> UseBotDetectionAtoms: runs the request through
-    //            BotDetectionOrchestrator's wave orchestrator (Ephemeral
-    //            DetectorOrchestrator + shared SignalSink / blackboard +
-    //            SignatureEscalatorAtom + SignatureResponseCoordinator lanes).
-    //            Enforcement (LoadShed / PolicyDispatch / PostDetectionAction
-    //            / BlockResponse / ResponsePiiMask) is fully wired under
-    //            Mostlylucid.BotDetection.Enforcement; the atom path now
-    //            blocks the same requests the contributor path does.
-    //   false -> UseBotDetection: the legacy BotDetectionMiddleware +
-    //            BlackboardOrchestrator path. Kept as a safety-net until
-    //            the contributor delete lands (see feat(atoms) plan step 7).
-    // Default: true. Flip to false to reactivate the contributor path.
+    // UseBotDetection runs the request through BotDetectionOrchestrator's wave
+    // orchestrator (Ephemeral DetectorOrchestrator + shared SignalSink). Session-scope
+    // promotion happens in the action policy pipeline via EscalateToSessionActionPolicy;
+    // SessionAtom + SessionPersistenceAtom react off-thread. Enforcement (LoadShed /
+    // PolicyDispatch / PostDetectionAction / BlockResponse / ResponsePiiMask) is wired
+    // under Mostlylucid.BotDetection.Enforcement.
     app.UseBotDetection();
 
     // DetectionPolicyMiddleware: dispatches IActionPolicy entries by name from

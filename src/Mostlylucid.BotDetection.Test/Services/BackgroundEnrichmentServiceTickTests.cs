@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 using Mostlylucid.Common.Scheduling;

@@ -26,8 +26,8 @@ public static class PolicyScopeMatcher
 {
     /// <summary>
     ///     Signal key for the request's HTTP method (e.g. <c>"GET"</c>).
-    ///     Matches the canonical <c>request.method</c> mapping already used
-    ///     by SignatureEscalatorAtom and the escalator config.
+    ///     Canonical <c>request.method</c> mapping shared across the request
+    ///     signal blackboard.
     /// </summary>
     public const string RequestMethodKey = "request.method";
 

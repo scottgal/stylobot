@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Orchestration.Tests.Integration;
@@ -10,7 +9,6 @@ namespace Mostlylucid.BotDetection.Orchestration.Tests.Integration;
 public class DetectionFlowTests
 {
     private readonly InMemoryPatternReputationCache _cache;
-    private readonly LearningEventBus _learningBus;
     private readonly BotDetectionOptions _options;
     private readonly PatternReputationUpdater _updater;
 
@@ -33,8 +31,6 @@ public class DetectionFlowTests
         _cache = new InMemoryPatternReputationCache(
             NullLogger<InMemoryPatternReputationCache>.Instance,
             _updater);
-
-        _learningBus = new LearningEventBus();
     }
 
     [Fact]

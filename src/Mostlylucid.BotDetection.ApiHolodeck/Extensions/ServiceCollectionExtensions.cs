@@ -8,7 +8,7 @@ using Mostlylucid.BotDetection.ApiHolodeck.Contributors;
 using Mostlylucid.BotDetection.ApiHolodeck.Models;
 using Mostlylucid.BotDetection.ApiHolodeck.Services;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.SimulationPacks;
 
 namespace Mostlylucid.BotDetection.ApiHolodeck.Extensions;
@@ -103,9 +103,9 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<IBeaconStore>(sp => sp.GetRequiredService<BeaconStore>());
 
-        // Beacon contributor (detects canary replay from rotated fingerprints)
-        services.AddSingleton<BeaconContributor>();
-        services.AddSingleton<IContributingDetector>(sp => sp.GetRequiredService<BeaconContributor>());
+        // Beacon atom (detects canary replay from rotated fingerprints)
+        services.AddHttpContextAccessor();
+        services.AddDetectorAtom<BeaconAtom>();
 
         return services;
     }
@@ -168,9 +168,9 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<IBeaconStore>(sp => sp.GetRequiredService<BeaconStore>());
 
-        // Beacon contributor (detects canary replay from rotated fingerprints)
-        services.AddSingleton<BeaconContributor>();
-        services.AddSingleton<IContributingDetector>(sp => sp.GetRequiredService<BeaconContributor>());
+        // Beacon atom (detects canary replay from rotated fingerprints)
+        services.AddHttpContextAccessor();
+        services.AddDetectorAtom<BeaconAtom>();
 
         return services;
     }

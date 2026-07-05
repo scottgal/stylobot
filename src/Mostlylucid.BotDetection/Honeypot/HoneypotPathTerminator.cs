@@ -81,8 +81,8 @@ public sealed class HoneypotPathTerminator
             // evidence. Honeypot path detection still flags this request
             // via the dedicated honeypot signal pathway (HoneypotPathTagger
             // → ResponseHoneypotHits in HeuristicDetector + dashboard +
-            // ReputationLane.Honeypot indicator); only the status-code-
-            // derived contribution is suppressed.
+            // SessionAggregate.HoneypotHits); only the status-code-derived
+            // contribution is suppressed.
             context.MarkResponseFromStyloBot();
             return Task.CompletedTask;
         }

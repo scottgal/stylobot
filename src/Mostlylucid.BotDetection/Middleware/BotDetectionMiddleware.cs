@@ -22,6 +22,7 @@ public sealed class BotDetectionMiddleware
     public const string AggregatedEvidenceKey = "BotDetection.AggregatedEvidence";
     public const string BotDetectionResultKey = AggregatedEvidenceKey;
     public const string IsBotKey = "BotDetection.IsBot";
+    public const string BotProbabilityKey = "BotDetection.BotProbability";
     public const string BotConfidenceKey = "BotDetection.BotConfidence";
     public const string BotTypeKey = "BotDetection.BotType";
     public const string BotNameKey = "BotDetection.BotName";

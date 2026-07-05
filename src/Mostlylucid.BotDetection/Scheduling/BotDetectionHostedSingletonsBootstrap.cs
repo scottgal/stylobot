@@ -78,9 +78,12 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         // (ThreatIntelEnrichmentQueue) is its producer side and remains a plain
         // singleton resolved lazily by contributors.
         _services.GetService<ThreatIntelEnrichmentService>();
-        // LLM-bound coordinators subscribe to Tick10s; resolved here so the
-        // subscriptions are live before the first detection event lands.
-        _services.GetService<LlmClassificationCoordinator>();
+        // LlmClassificationCoordinator lazy-boots on the first raise of
+        // LlmClassificationSinkOptions.InitSignal via AddOnInitSignal<T>.
+        // IntentClassificationCoordinator still uses direct enqueue from
+        // IntentAtom (not from an action policy escalator), so it stays
+        // eager-resolved here for the tick subscription; migrating it to
+        // the sink pattern needs the IntentAtom side to change first.
         _services.GetService<IntentClassificationCoordinator>();
         // BotClusterDescriptionService subscribes to BotClusterService.ClustersUpdated
         // at construction; without eager resolution the SignalR cluster-refresh
@@ -99,15 +102,19 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<Identity.FingerprintAbsorptionService>();
         _services.GetService<Identity.BrowserModes.FingerprintModeAbsorptionService>();
         _services.GetService<Identity.BrowserModes.FingerprintRollupRecomputeService>();
-        // BoundedChannelLearningBus subscribes to Tick1s; HP-mode drains
-        // the front-end channel to the inner bus per tick. Resolved via
-        // its concrete type because the ILearningEventBus interface
-        // forwards to a different code path (the inner bus).
-        _services.GetService<BoundedChannelLearningBus>();
-        // LearningBackgroundService subscribes to Tick1s; drains the
-        // ILearningEventBus reader per tick and dispatches each event
-        // to the registered ILearningEventHandlers.
-        _services.GetService<LearningBackgroundService>();
+        // LearningCoordinator + LearningBackgroundService lazy-boot on the
+        // first raise of LearningSignalSinkOptions.InitSignal via
+        // StyloFlow.Orchestration.AddOnInitSignal<T>. No eager resolution here
+        // -- resolving eagerly would defeat the whole point of the primitive
+        // (zero cost until a producer actually escalates). The bootstrap's
+        // InitSignalBootstrap<T> hosted service subscribes to the bus at
+        // Start and resolves the singletons on first raise.
+        // SessionStore is DI-eager-resolved so its cleanup loop starts and
+        // the shared change-stream sink exists before any escalator runs.
+        // SessionAtom + SessionPersistenceAtom lazy-boot on the first
+        // Upsert via AddOnInitSignal<T> against SessionStoreOptions.InitSignal
+        // -- no eager resolution here defeats the primitive.
+        _services.GetService<Mostlylucid.BotDetection.Orchestration.Sessions.SessionStore>();
         // MeterListenerService is only registered when the dashboard's
         // MonitoringPack.Mode is Local; the GetService probe returns null in
         // every other host so this is the safe place to drive eager resolution.

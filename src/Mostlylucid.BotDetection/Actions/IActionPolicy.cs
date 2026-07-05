@@ -133,6 +133,14 @@ public enum ActionType
     /// <summary>Log only, don't actually block (shadow mode)</summary>
     LogOnly,
 
+    /// <summary>
+    ///     Escalate for out-of-band processing (learning fabric, session
+    ///     coordinator, LLM classification queue). The request is not
+    ///     interfered with -- the action policy raises signals / enqueues
+    ///     work and returns <c>Allowed</c>.
+    /// </summary>
+    Escalate,
+
     /// <summary>Custom action type</summary>
     Custom
 }

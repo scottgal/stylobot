@@ -1,33 +1,33 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Moq;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Orchestration.Tests.Unit;
 
 public class DriftDetectionHandlerTests
 {
     private readonly DriftDetectionHandler _handler;
-    private readonly Mock<ILearningEventBus> _mockLearningBus;
+    private readonly TypedSignalSink<LearningEvent> _learningSignals;
     private readonly BotDetectionOptions _options;
     private readonly List<LearningEvent> _publishedEvents;
 
     public DriftDetectionHandlerTests()
     {
         _options = new BotDetectionOptions();
-        _mockLearningBus = new Mock<ILearningEventBus>();
         _publishedEvents = [];
 
-        _mockLearningBus.Setup(x => x.TryPublish(It.IsAny<LearningEvent>()))
-            .Callback<LearningEvent>(e => _publishedEvents.Add(e))
-            .Returns(true);
+        var inner = new SignalSink(maxCapacity: 256, maxAge: TimeSpan.FromMinutes(1));
+        _learningSignals = new TypedSignalSink<LearningEvent>(inner);
+        _learningSignals.TypedSignalRaised += evt => _publishedEvents.Add(evt.Payload);
 
         _handler = new DriftDetectionHandler(
             NullLogger<DriftDetectionHandler>.Instance,
             Options.Create(_options),
-            _mockLearningBus.Object);
+            _learningSignals);
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public class DriftDetectionHandlerTests
         var handler = new DriftDetectionHandler(
             NullLogger<DriftDetectionHandler>.Instance,
             Options.Create(_options),
-            _mockLearningBus.Object);
+            _learningSignals);
 
         // Act
         var uaPatterns = handler.GetLearnedPatterns("UserAgent").ToList();

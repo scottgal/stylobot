@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Learning;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -98,7 +100,7 @@ public class DriftStats
 public class DriftDetectionHandler : ILearningEventHandler
 {
     private readonly ConcurrentDictionary<string, LearnedSignature> _learnedPatterns = new();
-    private readonly ILearningEventBus _learningBus;
+    private readonly TypedSignalSink<LearningEvent> _learningSignals;
     private readonly ILogger<DriftDetectionHandler> _logger;
     private readonly FastPathOptions _options;
 
@@ -112,11 +114,11 @@ public class DriftDetectionHandler : ILearningEventHandler
     public DriftDetectionHandler(
         ILogger<DriftDetectionHandler> logger,
         IOptions<BotDetectionOptions> options,
-        ILearningEventBus learningBus)
+        TypedSignalSink<LearningEvent> learningSignals)
     {
         _logger = logger;
         _options = options.Value.FastPath;
-        _learningBus = learningBus;
+        _learningSignals = learningSignals;
     }
 
     public IReadOnlySet<LearningEventType> HandledEventTypes => new HashSet<LearningEventType>
@@ -288,8 +290,8 @@ public class DriftDetectionHandler : ILearningEventHandler
                 "Fast-path drift detected for {UaHash}: {Rate:P2} disagreement ({Disagreements}/{Total})",
                 uaHash, stats.DisagreementRate, stats.Disagreements, stats.TotalSamples);
 
-            // Emit drift event
-            _learningBus.TryPublish(new LearningEvent
+            // Emit drift event directly onto the shared learning sink.
+            var driftEvent = new LearningEvent
             {
                 Type = LearningEventType.FastPathDriftDetected,
                 Source = nameof(DriftDetectionHandler),
@@ -306,7 +308,9 @@ public class DriftDetectionHandler : ILearningEventHandler
                         ? "remove_from_fast_path"
                         : "lower_confidence_weight"
                 }
-            });
+            };
+            var driftKey = LearningSignalKeys.For(driftEvent.Type);
+            _learningSignals.Raise(driftKey.Name, driftEvent, key: uaHash);
         }
 
         await Task.CompletedTask;
@@ -413,7 +417,7 @@ public class DriftDetectionHandler : ILearningEventHandler
             "Feeding back learned pattern: {Type} = {Pattern} (occurrences={Count}, action={Action}, wasBot={WasBot})",
             sig.SignatureType, sig.Pattern, sig.Occurrences, sig.Action, wasBot);
 
-        _learningBus.TryPublish(new LearningEvent
+        var feedbackEvent = new LearningEvent
         {
             Type = LearningEventType.SignatureFeedback,
             Source = nameof(DriftDetectionHandler),
@@ -432,7 +436,9 @@ public class DriftDetectionHandler : ILearningEventHandler
                 ["lastSeen"] = sig.LastSeen,
                 ["wasBot"] = wasBot
             }
-        });
+        };
+        var feedbackKey = LearningSignalKeys.For(feedbackEvent.Type);
+        _learningSignals.Raise(feedbackKey.Name, feedbackEvent, key: sig.Pattern);
 
         await Task.CompletedTask;
     }

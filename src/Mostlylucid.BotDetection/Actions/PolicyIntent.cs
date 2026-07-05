@@ -48,6 +48,15 @@ public enum PolicyIntent
     ///     that must be solved before the request continues.
     /// </summary>
     Challenge,
+
+    /// <summary>
+    ///     Pass the request through unchanged AND raise a signal / enqueue
+    ///     background work (learning fabric, session coordinator, LLM
+    ///     classification). The escalator carries this intent when it wants
+    ///     the operator to see the escalation on the dashboard chip without
+    ///     the visitor experiencing any interference.
+    /// </summary>
+    Escalate,
 }
 
 /// <summary>
@@ -70,6 +79,7 @@ public static class PolicyIntentExtensions
         ActionType.Challenge => PolicyIntent.Challenge,
         ActionType.LogOnly   => PolicyIntent.Pass,
         ActionType.Redirect  => PolicyIntent.Block,    // redirect-to-honeypot is "refuse + serve fake"
+        ActionType.Escalate  => PolicyIntent.Escalate,
         _                    => PolicyIntent.Throttle, // Custom defaults to the least surprising option
     };
 }

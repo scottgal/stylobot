@@ -1,9 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Mostlylucid.BotDetection.Observability.Events;
-using Mostlylucid.BotDetection.Observability.Signals;
 using Mostlylucid.BotDetection.Orchestration.Telemetry;
 
 namespace Mostlylucid.BotDetection.Observability.Test;
@@ -25,18 +23,6 @@ public class ObservabilityServiceCollectionExtensionsTests
         using var sp = services.BuildServiceProvider();
         sp.GetRequiredService<IDetectionEventPublisher>()
             .Should().BeOfType<SerilogDetectionEventPublisher>();
-    }
-
-    [Fact]
-    public void Registers_BlackboardSignalLogBridge_as_hosted_service()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddStyloBotObservability(EmptyConfig());
-
-        services.Any(d => d.ServiceType == typeof(IHostedService) &&
-                          d.ImplementationType == typeof(BlackboardSignalLogBridge))
-            .Should().BeTrue();
     }
 
     [Fact]

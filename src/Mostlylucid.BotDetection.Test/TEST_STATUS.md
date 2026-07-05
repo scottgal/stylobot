@@ -43,13 +43,13 @@ Several detectors now require additional constructor parameters:
 
 ### ⚠️ Signal Architecture Changes
 
-**SignatureResponseCoordinatorTests.cs**
+**SessionSignatureResponseCoordinatorTests.cs**
 
 - Missing types: `BehavioralLane`, `SpectralLane`, `ReputationLane`, `OperationCompleteSignal`
 - These types were removed or renamed in the new architecture
 - **Count**: ~10 errors
 
-**SignatureEscalatorAtomTests.cs**
+**SessionSignatureEscalatorAtomTests.cs**
 
 - Missing types: `SignalPatternMatcher`, `EscalationRule`, `EscalatorConfig`
 - These types were removed in favor of simpler escalation logic
@@ -97,7 +97,7 @@ Several detectors now require additional constructor parameters:
 
 **Escalation:**
 
-- `EscalationRule`, `EscalatorConfig` → Simplified escalation via `SignatureEscalatorAtom`
+- `EscalationRule`, `EscalatorConfig` → Simplified escalation via `SessionSignatureEscalatorAtom`
 
 **Response Analysis:**
 
