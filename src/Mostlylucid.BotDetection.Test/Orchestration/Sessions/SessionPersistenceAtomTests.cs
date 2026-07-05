@@ -65,15 +65,14 @@ public class SessionPersistenceAtomTests
         atom.Persistence.Raise(SessionPersistenceSignal.SignalName, signal, key: signal.FingerprintId);
     }
 
-    private static async Task WaitForBackground()
+    private static async Task WaitForBackground(SessionPersistenceAtom persistence)
     {
-        // SessionPersistenceAtom fires-and-forgets via Task.Run on the
-        // TypedSignalRaised callback. Yield a couple of times so the
-        // background work observes and completes before assertions run.
-        for (var i = 0; i < 10; i++)
-        {
-            await Task.Delay(20);
-        }
+        // SessionPersistenceAtom serialises writes through a single-reader
+        // drainer channel; FlushAsync spin-waits until every enqueued shift
+        // has been written. Replaces the earlier "yield 10 times with a 20ms
+        // delay" heuristic, which failed under cold thread-pool warm-up
+        // (Multiple_shifts_produce_multiple_writes race).
+        await persistence.FlushAsync(TimeSpan.FromSeconds(5));
     }
 
     // ── Store present ────────────────────────────────────────────────
@@ -86,7 +85,7 @@ public class SessionPersistenceAtomTests
         using var persistence = new SessionPersistenceAtom(atom, store, NullLogger<SessionPersistenceAtom>.Instance);
 
         Raise(atom, NewShift(meanBotProbability: 0.72));
-        await WaitForBackground();
+        await WaitForBackground(persistence);
 
         store.Writes.Should().ContainSingle();
         store.Writes[0].FingerprintId.Should().Be(FingerprintId);
@@ -103,7 +102,7 @@ public class SessionPersistenceAtomTests
         Raise(atom, NewShift(meanBotProbability: 0.5));
         Raise(atom, NewShift(meanBotProbability: 0.6));
         Raise(atom, NewShift(meanBotProbability: 0.7));
-        await WaitForBackground();
+        await WaitForBackground(persistence);
 
         store.Writes.Should().HaveCount(3);
         store.Writes.Select(w => w.BotProbability).Should().Equal(0.5, 0.6, 0.7);
@@ -117,7 +116,7 @@ public class SessionPersistenceAtomTests
         using var persistence = new SessionPersistenceAtom(atom, store, NullLogger<SessionPersistenceAtom>.Instance);
 
         Raise(atom, NewShift(meanBotProbability: 0.96));
-        await WaitForBackground();
+        await WaitForBackground(persistence);
 
         store.Writes.Should().ContainSingle().Which.RiskBand.Should().Be(RiskBand.VeryHigh.ToString(),
             "p >= 0.95 maps to VeryHigh -- matches the orchestrator's mapping");
@@ -134,7 +133,7 @@ public class SessionPersistenceAtomTests
             logger: NullLogger<SessionPersistenceAtom>.Instance);
 
         Raise(atom, NewShift());
-        await WaitForBackground();
+        await WaitForBackground(persistence);
 
         // Nothing to assert positively -- absence of exception is the test.
         // Prove the atom is functional afterwards with a store swap-in-like
@@ -152,12 +151,12 @@ public class SessionPersistenceAtomTests
         var persistence = new SessionPersistenceAtom(atom, store, NullLogger<SessionPersistenceAtom>.Instance);
 
         Raise(atom, NewShift(meanBotProbability: 0.5));
-        await WaitForBackground();
+        await WaitForBackground(persistence);
         store.Writes.Should().ContainSingle();
 
         persistence.Dispose();
         Raise(atom, NewShift(meanBotProbability: 0.9));
-        await WaitForBackground();
+        await WaitForBackground(persistence);
 
         store.Writes.Should().ContainSingle(
             "disposed persistence atom must not enqueue further writes");
