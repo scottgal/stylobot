@@ -1,0 +1,90 @@
+name: HealthEndpoint
+priority: 2
+enabled: true
+description: >
+  Recognises health / readiness / liveness probe paths (e.g. /health, /healthz,
+  /readyz, /ping) and raises request.health_endpoint:true. Downstream classifiers
+  and policy consumers can gate on this signal to apply a neutral posture for
+  known probe traffic without suppressing detection on any other path.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: healthendpoint
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+  concern: routing
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request whose path is compared against the health-endpoint catalog
+
+  required_signals: []
+  optional_signals: []
+
+output:
+  produces:
+    - type: botdetection.signal
+      description: Health-endpoint recognition signal
+
+  signals:
+    - key: request.health_endpoint
+      entity_type: boolean
+      salience: 0.9
+      description: True when the request path matches a configured health / probe endpoint prefix
+
+triggers:
+  requires: []
+  skip_when: []
+
+emits:
+  on_start: []
+
+  on_complete:
+    - key: request.health_endpoint
+      type: bool
+      description: Raised when the request path is a recognised health / readiness / liveness probe path
+
+  on_failure: []
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 16
+  priority: 200
+
+# ============================================
+# DEFAULT CONFIGURATION
+# Override via appsettings.json: BotDetection:Detectors:HealthEndpoint:*
+# ============================================
+defaults:
+  weights:
+    base: 0.0
+
+  confidence:
+    base: 0.0
+
+  timing:
+    timeout_ms: 1   # Path string comparison only
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters: {}
+
+tags:
+  - fast-path
+  - routing
+  - stage-0

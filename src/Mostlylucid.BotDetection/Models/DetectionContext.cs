@@ -2146,6 +2146,14 @@ public static class SignalKeys
     public const string RequestPath = "request.path";
 
     /// <summary>
+    ///     Bool: <c>true</c> when the request path is a recognised health / readiness /
+    ///     liveness probe endpoint (e.g. <c>/health</c>, <c>/healthz</c>, <c>/readyz</c>).
+    ///     Raised by <c>HealthEndpointAtom</c> (Wave 0, Priority 2). Consumers can
+    ///     skip bot-scoring or apply a neutral policy for these paths.
+    /// </summary>
+    public const string HealthEndpoint = "request.health_endpoint";
+
+    /// <summary>
     ///     String: ISO-3166 alpha-2 country code, uppercase (e.g. <c>"US"</c>, <c>"RU"</c>).
     ///     Predicate-friendly alias of <see cref="GeoCountryCode"/> -- exposed under the
     ///     shorter <c>geo.country</c> name the PolicyScope authoring surface uses.

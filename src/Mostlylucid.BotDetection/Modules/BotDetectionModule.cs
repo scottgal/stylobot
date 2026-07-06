@@ -303,6 +303,15 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Simulation pack registry (BDF replay + adversarial sim harness).
         services.TryAddSingleton<SimulationPacks.ISimulationPackRegistry,
             SimulationPacks.SimulationPackLoader>();
+        // Health-endpoint catalog — built once from options; used by HealthEndpointAtom.
+        // Operators configure BotDetection:HealthEndpoints:Paths to extend or replace the
+        // default set of ten Kubernetes / cloud-provider probe paths.
+        services.TryAddSingleton<HealthEndpoints.HealthEndpointCatalog>(sp =>
+        {
+            var opts = sp.GetService<Microsoft.Extensions.Options.IOptions<HealthEndpoints.HealthEndpointOptions>>()
+                       ?.Value ?? HealthEndpoints.HealthEndpointOptions.Default;
+            return new HealthEndpoints.HealthEndpointCatalog(opts);
+        });
         // PII hasher — FOSS default seeds with a fixed key so DI resolves;
         // operators override via their own AddSingleton<PiiHasher>(sp => ...).
         // Commercial (licensing pack) replaces with a JWT-derived key.
