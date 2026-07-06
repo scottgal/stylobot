@@ -46,12 +46,16 @@ namespace Mostlylucid.BotDetection.Enforcement;
 ///         </list>
 ///     </para>
 ///     <para>
-///         The atom-orchestrator path does not yet resolve a per-endpoint
-///         <see cref="Policies.DetectionPolicy"/> or a
-///         <see cref="Attributes.BotPolicyAttribute"/>, so decisions fall
-///         back to the global options (<see cref="BotDetectionOptions.BotThreshold"/>,
-///         <see cref="BotDetectionOptions.MinConfidenceToBlock"/>, etc). Endpoint
-///         policy resolution lands with Step 5 of the enforcement extraction.
+///         A per-endpoint <see cref="Attributes.BotPolicyAttribute"/> on the
+///         matched endpoint overrides the global block bar for that endpoint
+///         only: <see cref="Attributes.BotPolicyAttribute.BlockThreshold"/> and
+///         <see cref="Attributes.BotPolicyAttribute.MinConfidence"/> (when set,
+///         i.e. not -1) replace <see cref="BotDetectionOptions.BotThreshold"/> /
+///         <see cref="BotDetectionOptions.MinConfidenceToBlock"/>, and
+///         <see cref="Attributes.BotPolicyAttribute.BlockStatusCode"/> replaces
+///         the 403. <see cref="HandleAsync"/> reads the attribute and threads
+///         the thresholds into <see cref="ShouldBlock"/>. Per-endpoint
+///         <see cref="Policies.DetectionPolicy"/> resolution is still global.
 ///     </para>
 /// </remarks>
 public sealed class BlockResponseGate
@@ -73,7 +77,10 @@ public sealed class BlockResponseGate
     ///     <see cref="BlockResponseGate"/> for the precedence rules.
     /// </summary>
 #pragma warning disable CS0618 // BotDetectionOptions.BotThreshold / MinConfidenceToBlock are compatibility fallbacks; the deprecation is orthogonal to atom-orchestrator wire-up.
-    public (bool Block, BotBlockAction Action) ShouldBlock(AggregatedEvidence evidence)
+    public (bool Block, BotBlockAction Action) ShouldBlock(
+        AggregatedEvidence evidence,
+        double? endpointBlockThreshold = null,
+        double? endpointMinConfidence = null)
     {
         // DetectionPolicyAction from the evidence wins over threshold-based checks.
         if (evidence.PolicyAction == DetectionPolicyAction.Block)
@@ -92,17 +99,20 @@ public sealed class BlockResponseGate
         if (evidence.EarlyExit && evidence.EarlyExitVerdict == EarlyExitVerdict.VerifiedGoodBot)
             return (false, BotBlockAction.Default);
 
-        // Risk-threshold block. Uses the global BotThreshold as the atom
-        // path's stand-in for policy.ImmediateBlockThreshold until endpoint
-        // policy resolution lands.
-        if (evidence.BotProbability >= _options.BotThreshold)
+        // Risk-threshold block. A per-endpoint BotPolicyAttribute(BlockThreshold=…)
+        // overrides the global BotThreshold, so an endpoint marked permissive
+        // (e.g. BlockThreshold = 0.95 for internal endpoints reachable by edge-case
+        // visitors) is not blocked at the global 0.7. HandleAsync resolves the
+        // attribute and threads it here.
+        var blockThreshold = endpointBlockThreshold ?? _options.BotThreshold;
+        if (evidence.BotProbability >= blockThreshold)
             return (true, BotBlockAction.StatusCode);
 
         // App-wide BlockDetectedBots switch. Respects the same allow-list
         // toggles the contributor middleware honours (search engines /
         // social media / monitoring / tools / other verified bots).
         if (_options.BlockDetectedBots
-            && evidence.BotProbability >= _options.MinConfidenceToBlock)
+            && evidence.BotProbability >= (endpointMinConfidence ?? _options.MinConfidenceToBlock))
         {
             if (BotTypeFilter.IsBotTypeAllowed(
                     evidence.PrimaryBotType,
@@ -134,7 +144,15 @@ public sealed class BlockResponseGate
         AggregatedEvidence evidence,
         string policyName = "default")
     {
-        var (block, action) = ShouldBlock(evidence);
+        // Per-endpoint policy override: a BotPolicyAttribute on the matched endpoint
+        // raises/lowers the block bar for that endpoint only (e.g. an internal
+        // endpoint marked BlockThreshold = 0.95 stays reachable by edge-case
+        // visitors the global 0.7 would refuse).
+        var policy = context.GetEndpoint()?.Metadata.GetMetadata<Attributes.BotPolicyAttribute>();
+        var endpointBlockThreshold = policy is { BlockThreshold: >= 0 } ? policy.BlockThreshold : (double?)null;
+        var endpointMinConfidence = policy is { MinConfidence: >= 0 } ? policy.MinConfidence : (double?)null;
+
+        var (block, action) = ShouldBlock(evidence, endpointBlockThreshold, endpointMinConfidence);
         if (!block)
             return BlockResponseOutcome.Continue;
 
@@ -172,7 +190,9 @@ public sealed class BlockResponseGate
         {
             case BotBlockAction.StatusCode:
             case BotBlockAction.Default:
-                context.Response.StatusCode = 403;
+                // Honour a per-endpoint BotPolicyAttribute(BlockStatusCode=…);
+                // its default is 403, so unmarked endpoints are unchanged.
+                context.Response.StatusCode = policy?.BlockStatusCode ?? 403;
                 context.MarkResponseFromStyloBot();
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(new BlockedResponse(
