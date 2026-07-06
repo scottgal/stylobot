@@ -447,6 +447,14 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
         services.AddOnInitSignal<Orchestration.Sessions.SessionPersistenceAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
+        // Session echo — the two-phase eviction ack subscriber. FOSS default
+        // is the null echo store; the next commit renames Data.ISessionStore
+        // to IDetectionArchive and points ISessionEchoStore at it. Lazy-boots
+        // on the first upsert like the other session atoms.
+        services.TryAddSingleton<Orchestration.Sessions.ISessionEchoStore,
+            Orchestration.Sessions.NullSessionEchoStore>();
+        services.AddOnInitSignal<Orchestration.Sessions.SessionEchoAtom>(
+            Orchestration.Sessions.SessionStoreOptions.InitSignal);
 
         // LLM classification lane: shared request sink fronts the
         // coordinator's bounded channel. Escalators raise onto the sink;
