@@ -1,6 +1,8 @@
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration;
@@ -36,7 +38,8 @@ public static class DetectionLedgerExtensions
         string? actionPolicyName = null,
         bool aiRan = false,
         IReadOnlyDictionary<string, object>? premergedSignals = null,
-        BotDetectionOptions? options = null)
+        BotDetectionOptions? options = null,
+        SignalSink? sink = null)
     {
         var botProbability = ledger.BotProbability;
         var confidence = ledger.Confidence;
@@ -62,8 +65,17 @@ public static class DetectionLedgerExtensions
             ? premergedSignals
             : (IReadOnlyDictionary<string, object>)ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
+        // Sink-first bool reader: atoms (IpAtom etc.) raise signals via sink.Raise
+        // and never populate contribution.Signals, so preSignals built from
+        // ledger.MergedSignals misses all sink-raised booleans in production.
+        // Existing callers that pass premergedSignals directly (tests) continue to
+        // work via the ?? fallback because sink is null in that code path.
+        bool ReadBool(string key) =>
+            sink?.ReadBoolHint(key, fallback: false)
+            ?? (preSignals.TryGetValue(key, out var v) && v is true);
+
         var earlyThreatForBand = ExtractThreatScoreRaw(preSignals);
-        var isConfirmedBadForBand = IsConfirmedBad(preSignals);
+        var isConfirmedBadForBand = IsConfirmedBad(preSignals, sink);
         var sessionCountForBand = ExtractSessionCount(preSignals);
         var intentCategory = preSignals.TryGetValue(SignalKeys.IntentCategory, out var ic) ? ic as string : null;
         // Vendor-IP verification (Commercial-side contributor). bool? semantics:
@@ -111,7 +123,7 @@ public static class DetectionLedgerExtensions
         // identity confidence -- high once vendor-IP or NodeInfo verification has run
         // (positive OR negative -- a confirmed spoofer is also a confident identity
         // judgement), modest while the UA is still merely declared.
-        var declaredBot = preSignals.TryGetValue(SignalKeys.UserAgentIsBot, out var uib) && uib is true;
+        var declaredBot = ReadBool(SignalKeys.UserAgentIsBot);
         if (declaredBot)
         {
             botProbability = 1.0;
@@ -151,8 +163,7 @@ public static class DetectionLedgerExtensions
         // Risk Profile VeryHigh"). Reading IpIsLocal here keeps the override's
         // primary-position-trust semantics intact while routing it through
         // the single Compose() site.
-        var localIpForVerdict = preSignals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalForVerdict)
-                                && ipLocalForVerdict is true;
+        var localIpForVerdict = ReadBool(SignalKeys.IpIsLocal);
         var verdictBotType = localIpForVerdict ? BotType.Internal : ledgerBotType;
 
         // Compose the risk verdict via the single-source-of-truth composer. The
@@ -241,8 +252,7 @@ public static class DetectionLedgerExtensions
         // honeypot path tagger + the hostile actor pipeline still record
         // the bad behaviour to the dashboard; only the action is suppressed
         // for LAN sources.
-        var isLocalIp = preSignals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalRaw)
-                        && ipLocalRaw is true;
+        var isLocalIp = ReadBool(SignalKeys.IpIsLocal);
         var primaryBotType = isLocalIp
             ? BotType.Internal
             : verdict.HostilePinFired
@@ -272,7 +282,7 @@ public static class DetectionLedgerExtensions
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
         {
-            return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals);
+            return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals, sink);
         }
 
         // The orchestrator pools its signal ConcurrentDictionary and clears it
@@ -354,7 +364,8 @@ public static class DetectionLedgerExtensions
         DetectionLedger ledger,
         bool aiRan,
         string? policyName,
-        IReadOnlyDictionary<string, object>? premergedSignals = null)
+        IReadOnlyDictionary<string, object>? premergedSignals = null,
+        SignalSink? sink = null)
     {
         var exitContrib = ledger.EarlyExitContribution!;
         var verdict = ParseEarlyExitVerdict(exitContrib.EarlyExitVerdict);
@@ -391,6 +402,12 @@ public static class DetectionLedgerExtensions
         var earlySignals = premergedSignals != null
             ? new Dictionary<string, object>(premergedSignals)
             : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        // Same sink-first bool reader as in ToAggregatedEvidence: atoms raise
+        // via sink.Raise and never populate earlySignals when premergedSignals is null.
+        bool ReadBool(string key) =>
+            sink?.ReadBoolHint(key, fallback: false)
+            ?? (earlySignals.TryGetValue(key, out var v) && v is true);
 
         var (earlyThreatScore, earlyThreatBand) = ExtractThreatScore(earlySignals);
 
@@ -434,8 +451,8 @@ public static class DetectionLedgerExtensions
         if (verdict is EarlyExitVerdict.VerifiedBadBot)
         {
             var friendlyContrib = FindFriendlyBotContribution(ledger);
-            var isConfirmedBadEarly = IsConfirmedBad(earlySignals);
-            var hostileSignalsPresent = HasHostileSignals(earlySignals, earlyThreatScore);
+            var isConfirmedBadEarly = IsConfirmedBad(earlySignals, sink);
+            var hostileSignalsPresent = HasHostileSignals(earlySignals, earlyThreatScore, sink);
 
             if (friendlyContrib != null && !isConfirmedBadEarly && earlyThreatScore < 0.55)
             {
@@ -487,8 +504,7 @@ public static class DetectionLedgerExtensions
         // LAN itself is compromised the operator has bigger problems than the
         // throttle policy. (See feedback_signals_atoms_pattern + the dashboard
         // Internal-clamp pin in InternalRiskBandClampTests.)
-        if (earlySignals.TryGetValue(SignalKeys.IpIsLocal, out var ipLocalEarly)
-            && ipLocalEarly is true)
+        if (ReadBool(SignalKeys.IpIsLocal))
         {
             primaryBotType = BotType.Internal;
             earlyRiskBand = RiskBand.VeryLow;
@@ -828,11 +844,18 @@ public static class DetectionLedgerExtensions
         };
     }
 
-    private static bool IsConfirmedBad(IReadOnlyDictionary<string, object> signals)
+    private static bool IsConfirmedBad(IReadOnlyDictionary<string, object> signals, SignalSink? sink = null)
     {
+        // ReputationCanAbort is written into contribution.Signals by the reputation
+        // contributor, so the dict read is correct here.
         if (signals.TryGetValue(SignalKeys.ReputationCanAbort, out var canAbort) && canAbort is true)
             return true;
-        if (signals.TryGetValue(SignalKeys.ReputationFastAbortActive, out var abortActive) && abortActive is true)
+        // ReputationFastAbortActive is raised via sink.Raise in production; the dict
+        // fallback preserves existing test callers that pass a premergedSignals dict.
+        bool ReadBool(string key) =>
+            sink?.ReadBoolHint(key, fallback: false)
+            ?? (signals.TryGetValue(key, out var v) && v is true);
+        if (ReadBool(SignalKeys.ReputationFastAbortActive))
             return true;
         return false;
     }
@@ -927,10 +950,15 @@ public static class DetectionLedgerExtensions
     ///     refuses to fire when this returns true so the SecurityToolContributor
     ///     verdict path is left intact for genuinely hostile tools (sqlmap, nikto).
     /// </summary>
-    private static bool HasHostileSignals(IDictionary<string, object> signals, double threatScore)
+    private static bool HasHostileSignals(IDictionary<string, object> signals, double threatScore, SignalSink? sink = null)
     {
         if (threatScore >= 0.55) return true;
-        if (signals.TryGetValue(SignalKeys.SecurityToolDetected, out var st) && st is true)
+        // SecurityToolDetected is raised via sink.Raise in production; the dict
+        // fallback preserves existing test callers that pass a premergedSignals dict.
+        bool ReadBool(string key) =>
+            sink?.ReadBoolHint(key, fallback: false)
+            ?? (signals.TryGetValue(key, out var v) && v is true);
+        if (ReadBool(SignalKeys.SecurityToolDetected))
             return true;
         if (signals.TryGetValue(SignalKeys.HoneypotThreatScore, out var hp))
         {

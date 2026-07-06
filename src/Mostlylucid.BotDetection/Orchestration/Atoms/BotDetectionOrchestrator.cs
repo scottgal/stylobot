@@ -171,7 +171,7 @@ public sealed class BotDetectionOrchestrator : IDisposable
         // Processing time is read from ledger.TotalProcessingTimeMs, which the
         // ephemeral orchestrator stamps during DetectAsync.
         _ = elapsed;
-        return ledger.ToAggregatedEvidence(options: _options);
+        return ledger.ToAggregatedEvidence(options: _options, sink: _signalSink);
     }
 
 
