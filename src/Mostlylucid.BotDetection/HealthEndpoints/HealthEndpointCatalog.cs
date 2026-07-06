@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 
 namespace Mostlylucid.BotDetection.HealthEndpoints;
 
@@ -22,10 +23,10 @@ public sealed class HealthEndpointCatalog
 {
     private readonly PathString[] _prefixes;
 
-    public HealthEndpointCatalog(HealthEndpointOptions options)
+    public HealthEndpointCatalog(IOptions<HealthEndpointOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _prefixes = options.Paths
+        _prefixes = options.Value.Paths
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .Select(p => new PathString(p))
             .ToArray();

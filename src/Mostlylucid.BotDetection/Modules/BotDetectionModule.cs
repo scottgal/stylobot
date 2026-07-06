@@ -305,13 +305,17 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             SimulationPacks.SimulationPackLoader>();
         // Health-endpoint catalog — built once from options; used by HealthEndpointAtom.
         // Operators configure BotDetection:HealthEndpoints:Paths to extend or replace the
-        // default set of ten Kubernetes / cloud-provider probe paths.
-        services.TryAddSingleton<HealthEndpoints.HealthEndpointCatalog>(sp =>
-        {
-            var opts = sp.GetService<Microsoft.Extensions.Options.IOptions<HealthEndpoints.HealthEndpointOptions>>()
-                       ?.Value ?? HealthEndpoints.HealthEndpointOptions.Default;
-            return new HealthEndpoints.HealthEndpointCatalog(opts);
-        });
+        // default set of ten Kubernetes / cloud-provider probe paths. Paths starts empty so
+        // that configuration binding replaces (not appends to) the defaults. PostConfigure
+        // fills the ten standard paths only when the operator has not supplied any.
+        services.AddOptions<HealthEndpoints.HealthEndpointOptions>()
+            .BindConfiguration(HealthEndpoints.HealthEndpointOptions.SectionName)
+            .PostConfigure(opts =>
+            {
+                if (opts.Paths.Count == 0)
+                    opts.Paths.AddRange(HealthEndpoints.HealthEndpointOptions.DefaultPaths);
+            });
+        services.TryAddSingleton<HealthEndpoints.HealthEndpointCatalog>();
         // PII hasher — FOSS default seeds with a fixed key so DI resolves;
         // operators override via their own AddSingleton<PiiHasher>(sp => ...).
         // Commercial (licensing pack) replaces with a JWT-derived key.

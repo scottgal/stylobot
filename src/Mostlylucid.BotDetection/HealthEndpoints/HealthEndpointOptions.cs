@@ -18,10 +18,12 @@ public sealed class HealthEndpointOptions
     /// <summary>
     ///     Path prefixes that identify health / readiness / liveness probes.
     ///     Each entry is matched case-insensitively at segment boundaries by
-    ///     <see cref="HealthEndpointCatalog"/>. Defaults to the ten standard
-    ///     Kubernetes / cloud-provider probe paths.
+    ///     <see cref="HealthEndpointCatalog"/>. When empty after configuration
+    ///     binding, the DI registration fills in <see cref="DefaultPaths"/> via
+    ///     PostConfigure. Providing any value in <c>BotDetection:HealthEndpoints:Paths</c>
+    ///     replaces the defaults entirely.
     /// </summary>
-    public List<string> Paths { get; set; } = new(DefaultPaths);
+    public List<string> Paths { get; set; } = [];
 
     /// <summary>
     ///     The ten well-known health-probe paths used by Kubernetes, Azure,
@@ -42,5 +44,5 @@ public sealed class HealthEndpointOptions
     ];
 
     /// <summary>Returns a new instance pre-populated with <see cref="DefaultPaths"/>.</summary>
-    public static HealthEndpointOptions Default => new();
+    public static HealthEndpointOptions Default => new() { Paths = new(DefaultPaths) };
 }

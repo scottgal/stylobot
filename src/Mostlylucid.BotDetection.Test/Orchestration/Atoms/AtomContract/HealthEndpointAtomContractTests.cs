@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.HealthEndpoints;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -53,7 +54,7 @@ public sealed class HealthEndpointAtomContractTests
 
     private static async Task<IReadOnlyCollection<string>> RaisedKeysAsync(HttpContext http)
     {
-        var catalog = new HealthEndpointCatalog(HealthEndpointOptions.Default);
+        var catalog = new HealthEndpointCatalog(Options.Create(HealthEndpointOptions.Default));
         var atom = new HealthEndpointAtom(
             NullLogger<HealthEndpointAtom>.Instance,
             catalog,
