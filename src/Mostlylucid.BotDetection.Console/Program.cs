@@ -900,7 +900,7 @@ try
     // Persistence stats endpoint. Used by the multi-day soak harness to verify the
     // RequestPersistenceService backpressure sampler actually engages under load.
     // Hand-rolled JSON to stay AOT-friendly. All fields are integers.
-    app.MapGet("/admin/persistence-stats", (RequestPersistenceService svc) =>
+    app.MapGet("/admin/persistence-stats", ([Microsoft.AspNetCore.Mvc.FromServices] RequestPersistenceService svc) =>
     {
         var json = $"{{\"pendingWrites\":{svc.PendingWrites},\"writeStateCount\":{svc.WriteStateCount},\"writtenAlways\":{svc.WrittenAlwaysCount},\"writtenSampledIn\":{svc.WrittenSampledInCount},\"droppedSampledOut\":{svc.DroppedSampledOutCount}}}";
         return Results.Text(json, "application/json");
