@@ -64,11 +64,54 @@ public static class ServiceCollectionExtensions
         Action<BotDetectionOptions>? configure = null)
         => services.AddBotDetection(configure);
 
-    /// <summary>Compat alias.</summary>
+    /// <summary>
+    ///     Ephemeral mode (integration tests, CI, the gateway economy flag): the full
+    ///     detection pipeline with zero SQLite files on disk. Identity, session learning,
+    ///     and weight learning silently degrade; per-request detection runs unchanged.
+    /// </summary>
+    /// <remarks>
+    ///     Three mechanisms cover the SQLite surface of
+    ///     <see cref="AddBotDetection(IServiceCollection, Action{BotDetectionOptions}?)"/>:
+    ///     <list type="bullet">
+    ///         <item><c>Identity.Enabled = false</c> parks the identity layer
+    ///         (fingerprints.db + browser-mode / pool-collision / vec stores), which opens
+    ///         its own files directly and can only degrade without persistence.</item>
+    ///         <item>An empty <c>DatabasePath</c> routes the shared
+    ///         <c>Func&lt;DbConnection&gt;</c> factory (CentroidSequenceStore, AssetHashStore)
+    ///         to <c>file::memory:</c> — no file.</item>
+    ///         <item>The stores that build their own connection string from
+    ///         <c>DatabasePath</c> (and so ignore an empty value) are swapped for their
+    ///         Null / InMemory variants below.</item>
+    ///     </list>
+    ///     Challenge / approval / path-lifecycle / centroid stores already default to
+    ///     Null / InMemory in the module, so they need no swap.
+    /// </remarks>
     public static IServiceCollection AddBotDetectionInMemory(
         this IServiceCollection services,
         Action<BotDetectionOptions>? configure = null)
-        => services.AddBotDetection(configure);
+    {
+        services.AddBotDetection(options =>
+        {
+            options.Identity.Enabled = false;
+            options.DatabasePath = string.Empty;
+            configure?.Invoke(options);
+        });
+
+        // Replace() swaps the TryAdd-registered SQLite descriptor; the concrete SQLite
+        // types stay in the container (some are resolved by name) but no I/O flows
+        // through these interface bindings.
+        services.Replace(ServiceDescriptor.Singleton<Data.IWeightStore, Data.NullWeightStore>());
+        services.Replace(ServiceDescriptor.Singleton<Data.IDetectionArchive, Data.NullDetectionArchive>());
+        // Bot signature catalog: the SQLite BotListDatabase writes patterns +
+        // datacenter-IP ranges to botdetection.db. In-memory holds both lists from the
+        // same IBotListFetcher source with no file.
+        services.Replace(ServiceDescriptor.Singleton<Data.IBotListDatabase>(sp =>
+            new Data.InMemoryBotListDatabase(
+                sp.GetRequiredService<Data.IBotListFetcher>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Data.InMemoryBotListDatabase>>())));
+
+        return services;
+    }
 
     /// <summary>
     ///     Configure bot detection options (post-registration customization).
