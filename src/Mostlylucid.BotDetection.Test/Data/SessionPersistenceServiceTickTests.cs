@@ -23,7 +23,7 @@ namespace Mostlylucid.BotDetection.Test.Data;
 ///         Four facts: subscription shape, tick runs against empty channel,
 ///         dispose releases the subscription + the SessionFinalized event
 ///         handler, and the tick drains the channel by routing each entry
-///         through <see cref="ISessionStore.AddSessionAsync"/>.
+///         through <see cref="IDetectionArchive.AddSessionAsync"/>.
 ///     </para>
 ///     <para>
 ///         Boot init + graceful-shutdown drain moved out to
@@ -156,13 +156,13 @@ public sealed class SessionPersistenceServiceTickTests
     };
 
     /// <summary>
-    ///     Minimal recording <see cref="ISessionStore"/>: captures
+    ///     Minimal recording <see cref="IDetectionArchive"/>: captures
     ///     <see cref="AddSessionAsync"/>, <see cref="UpsertSignatureAsync"/>,
     ///     and <see cref="ResolveEntityAsync"/> calls so the drain test can
     ///     confirm each tick-drained entry was routed through the persistence
-    ///     path. All other ISessionStore members are no-op stubs.
+    ///     path. All other IDetectionArchive members are no-op stubs.
     /// </summary>
-    private sealed class RecordingSessionStore : ISessionStore
+    private sealed class RecordingSessionStore : IDetectionArchive
     {
         public List<PersistedSession> AddedSessions { get; } = new();
         public List<PersistedSignature> UpsertedSignatures { get; } = new();

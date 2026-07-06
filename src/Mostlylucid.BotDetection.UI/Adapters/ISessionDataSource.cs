@@ -8,14 +8,14 @@ namespace Mostlylucid.BotDetection.UI.Adapters;
 ///
 ///     The dashboard middleware checks for this service first. If registered, it
 ///     delegates entirely to the implementation. If not, it falls back to the default
-///     behaviour: reading from the local <c>ISessionStore</c>.
+///     behaviour: reading from the local <c>IDetectionArchive</c>.
 ///
 ///     This enables two deployment topologies without code changes:
 ///     <list type="bullet">
 ///       <item>
 ///         <b>DB topology (commercial default)</b>: both gateway and dashboard share a
 ///         PostgreSQL instance. <c>PostgreSQLSessionStore</c> is registered as
-///         <c>ISessionStore</c> -- no <c>ISessionDataSource</c> needed at all.
+///         <c>IDetectionArchive</c> -- no <c>ISessionDataSource</c> needed at all.
 ///         The gateway writes sessions; the dashboard reads them directly.
 ///       </item>
 ///       <item>

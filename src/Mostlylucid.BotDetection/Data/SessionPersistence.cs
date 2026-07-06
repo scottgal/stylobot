@@ -246,7 +246,7 @@ public sealed record AggregatedBucket
 ///     - SQLite (core, zero-dependency, default)
 ///     - PostgreSQL + pgvector (commercial, for vector similarity at scale)
 /// </summary>
-public interface ISessionStore
+public interface IDetectionArchive
 {
     // === Write path ===
 
@@ -423,10 +423,10 @@ public interface ISessionStore
         List<string> signatures, CancellationToken ct = default);
 
     // === Cross-signature cap enforcement (data guardian, step 3b) ===
-    // Default no-ops so stores without a signatures table (NullSessionStore),
-    // read-only proxies (RemoteSessionStore), and the commercial Postgres store
+    // Default no-ops so stores without a signatures table (NullDetectionArchive),
+    // read-only proxies (RemoteDetectionArchive), and the commercial Postgres store
     // (which gets its own retention guardian) opt out cleanly. Only
-    // SqliteSessionStore overrides these.
+    // SqliteDetectionArchive overrides these.
 
     /// <summary>Total distinct signatures currently stored (for cap enforcement).</summary>
     Task<int> GetSignatureCountAsync(CancellationToken ct = default) => Task.FromResult(0);

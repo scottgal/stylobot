@@ -29,7 +29,7 @@ namespace Mostlylucid.BotDetection.Services;
 /// </summary>
 public sealed class EntityResolutionService : IDisposable
 {
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
     private readonly ILogger<EntityResolutionService> _logger;
 
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(60);
@@ -49,7 +49,7 @@ public sealed class EntityResolutionService : IDisposable
     private int _disposed;
 
     public EntityResolutionService(
-        ISessionStore store,
+        IDetectionArchive store,
         ILogger<EntityResolutionService> logger,
         IScheduleCoordinator coordinator,
         PipelineLoadSensor? loadSensor = null)
@@ -203,9 +203,9 @@ public sealed class EntityResolutionService : IDisposable
         for (var i = 1; i < sessions.Count; i++)
         {
             var prev = sessions[i - 1].Vector is { Length: > 0 }
-                ? SqliteSessionStore.DeserializeVector(sessions[i - 1].Vector) : null;
+                ? SqliteDetectionArchive.DeserializeVector(sessions[i - 1].Vector) : null;
             var curr = sessions[i].Vector is { Length: > 0 }
-                ? SqliteSessionStore.DeserializeVector(sessions[i].Vector) : null;
+                ? SqliteDetectionArchive.DeserializeVector(sessions[i].Vector) : null;
 
             if (prev != null && curr != null)
             {
@@ -256,7 +256,7 @@ public sealed class EntityResolutionService : IDisposable
         var latest = sessions.LastOrDefault();
         if (latest?.Vector is not { Length: > 0 }) return factors;
 
-        var vector = SqliteSessionStore.DeserializeVector(latest.Vector);
+        var vector = SqliteDetectionArchive.DeserializeVector(latest.Vector);
         if (vector == null) return factors;
 
         // Fingerprint dims [118-125]: each non-zero = a resolved factor
@@ -302,7 +302,7 @@ public sealed class EntityResolutionService : IDisposable
             var sessions = await _store.GetSessionsAsync(sig, 1, ct);
             if (sessions.Count == 0 || sessions[0].Vector is not { Length: > 0 }) continue;
 
-            var vector = SqliteSessionStore.DeserializeVector(sessions[0].Vector);
+            var vector = SqliteDetectionArchive.DeserializeVector(sessions[0].Vector);
             if (vector != null) entityVectors[entityId] = vector;
         }
 

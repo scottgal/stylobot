@@ -84,7 +84,7 @@ public class SlimSimilaritySearchBenchmarks
             SelfMaintenance = new SelfMaintenanceOptions { SessionCacheSize = CacheSize }
         });
         _sessSearch = new SlimSessionVectorSearch(
-            new NullSessionStore(), sessOpts,
+            new NullDetectionArchive(), sessOpts,
             NullLogger<SlimSessionVectorSearch>.Instance);
         for (var i = 0; i < CacheSize; i++)
             _sessSearch.AddAsync(RandomVector(rng, dims), $"sess-{i}",
@@ -161,7 +161,7 @@ public class SlimSimilaritySearchBenchmarks
             => Task.CompletedTask;
     }
 
-    private sealed class NullSessionStore : ISessionCentroidStore
+    private sealed class NullDetectionArchive : ISessionCentroidStore
     {
         public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default)
             => Task.CompletedTask;

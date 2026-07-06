@@ -14,12 +14,12 @@ namespace Mostlylucid.BotDetection.Test.Services;
 ///     When distinct signatures exceed <see cref="RetentionOptions.MaxSignatures"/>,
 ///     the guardian evicts the lowest-value signatures by
 ///     <see cref="Storage.DecisionNecessity"/> — resolved-and-harmless first,
-///     uncertain + risky retained. Driven against a real <see cref="SqliteSessionStore"/>
+///     uncertain + risky retained. Driven against a real <see cref="SqliteDetectionArchive"/>
 ///     so the ordering + cascading delete are exercised end-to-end.
 /// </summary>
 public sealed class VectorCompactionServicePhase5Tests : IAsyncLifetime
 {
-    private SqliteSessionStore _store = null!;
+    private SqliteDetectionArchive _store = null!;
     private string _dbDir = null!;
 
     public async Task InitializeAsync()
@@ -30,7 +30,7 @@ public sealed class VectorCompactionServicePhase5Tests : IAsyncLifetime
         {
             DatabasePath = Path.Combine(_dbDir, "botdetection.db")
         });
-        _store = new SqliteSessionStore(NullLogger<SqliteSessionStore>.Instance, opts);
+        _store = new SqliteDetectionArchive(NullLogger<SqliteDetectionArchive>.Instance, opts);
         await _store.InitializeAsync();
     }
 

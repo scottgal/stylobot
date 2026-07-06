@@ -9,10 +9,10 @@ namespace Mostlylucid.BotDetection.Test.Data;
 
 public class CentroidTableSchemaTests : IAsyncLifetime, IDisposable
 {
-    // SqliteSessionStore resolves DatabasePath as a directory and appends sessions.db,
+    // SqliteDetectionArchive resolves DatabasePath as a directory and appends sessions.db,
     // so we use a temp directory rather than a temp file path.
     private readonly string _dbDir;
-    private SqliteSessionStore? _store;
+    private SqliteDetectionArchive? _store;
 
     public CentroidTableSchemaTests()
     {
@@ -26,8 +26,8 @@ public class CentroidTableSchemaTests : IAsyncLifetime, IDisposable
         {
             DatabasePath = Path.Combine(_dbDir, "sessions.db")
         });
-        _store = new SqliteSessionStore(
-            NullLogger<SqliteSessionStore>.Instance,
+        _store = new SqliteDetectionArchive(
+            NullLogger<SqliteDetectionArchive>.Instance,
             options);
         await _store.InitializeAsync();
     }

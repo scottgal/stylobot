@@ -31,7 +31,7 @@ internal sealed class SqliteDashboardStoreFixture : IAsyncDisposable
         _ = await store.GetDetectionsAsync();
 
         // GetTopBotsAsync uses a correlated subquery against the 'sessions' table, which is
-        // normally created by SqliteSessionStore (core package) in the same DB file.
+        // normally created by SqliteDetectionArchive (core package) in the same DB file.
         // Create a stub table so the query does not throw in the isolated test DB.
         await EnsureSessionsTableAsync(DashboardDbPath.GetConnectionString(opts.Value));
 
@@ -40,7 +40,7 @@ internal sealed class SqliteDashboardStoreFixture : IAsyncDisposable
 
     /// <summary>
     ///     Creates a minimal stub of the sessions table expected by <c>GetTopBotsAsync</c>'s
-    ///     correlated subquery. In production the table is owned by SqliteSessionStore; here
+    ///     correlated subquery. In production the table is owned by SqliteDetectionArchive; here
     ///     we only need it to exist so the SQL parser succeeds. No rows are inserted.
     /// </summary>
     private static async Task EnsureSessionsTableAsync(string connectionString)

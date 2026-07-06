@@ -16,19 +16,19 @@ namespace Mostlylucid.BotDetection.Data;
 ///     For larger deployments, the commercial PostgreSQL + pgvector implementation
 ///     provides native HNSW indexing for sub-millisecond vector queries.
 /// </summary>
-public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
+public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
 {
     private readonly string _connectionString;
 
     public string? PersistenceConnectionString => _connectionString;
-    private readonly ILogger<SqliteSessionStore> _logger;
+    private readonly ILogger<SqliteDetectionArchive> _logger;
     private readonly BotDetectionOptions _options;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private Task? _initTask;
     private ISessionVectorSearch? _vectorSearch;
 
-    public SqliteSessionStore(
-        ILogger<SqliteSessionStore> logger,
+    public SqliteDetectionArchive(
+        ILogger<SqliteDetectionArchive> logger,
         IOptions<BotDetectionOptions> options,
         ISessionVectorSearch? vectorSearch = null)
     {

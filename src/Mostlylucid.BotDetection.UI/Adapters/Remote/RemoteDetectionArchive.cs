@@ -8,11 +8,11 @@ namespace Mostlylucid.BotDetection.UI.Adapters.Remote;
 ///     per-signature drill-in. Every write method throws - sessions are the gateway's
 ///     responsibility to compact and persist; the remote viewer never produces them.
 /// </summary>
-internal sealed class RemoteSessionStore : ISessionStore
+internal sealed class RemoteDetectionArchive : IDetectionArchive
 {
     private readonly GatewayApiClient _api;
 
-    public RemoteSessionStore(GatewayApiClient api) => _api = api;
+    public RemoteDetectionArchive(GatewayApiClient api) => _api = api;
 
     public async Task<List<PersistedSession>> GetSessionsAsync(string signature, int limit = 20, CancellationToken ct = default)
     {

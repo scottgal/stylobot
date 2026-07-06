@@ -64,7 +64,7 @@ public interface IChallengeStore
 
 /// <summary>
 ///     SQLite-backed challenge store. Challenges and verification results are persisted
-///     to disk and survive restarts. Follows the same patterns as SqliteSessionStore
+///     to disk and survive restarts. Follows the same patterns as SqliteDetectionArchive
 ///     (WAL mode, SemaphoreSlim write lock, same database directory).
 /// </summary>
 public sealed class SqliteChallengeStore : IChallengeStore, IAsyncDisposable

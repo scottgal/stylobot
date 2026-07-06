@@ -27,7 +27,7 @@ public sealed record DashboardDetectionEvent
     public string? PrimarySignature { get; init; }
 
     /// <summary>
-    ///     Durable visitor handle resolved via <c>ISessionStore.ResolveEntityAsync</c>
+    ///     Durable visitor handle resolved via <c>IDetectionArchive.ResolveEntityAsync</c>
     ///     against <c>entity_edges</c>. PrimarySignature can rotate as IP / UA shift;
     ///     the entity id is allocated once per actor and persists across rotations.
     ///     Drives the entity-keyed dashboard URL (<c>/dashboard/entity/{id}</c>) on

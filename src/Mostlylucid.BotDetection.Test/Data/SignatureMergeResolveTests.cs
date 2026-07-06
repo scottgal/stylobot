@@ -13,7 +13,7 @@ namespace Mostlylucid.BotDetection.Test.Data;
 /// </summary>
 public class SignatureMergeResolveTests : IAsyncLifetime
 {
-    private SqliteSessionStore _store = null!;
+    private SqliteDetectionArchive _store = null!;
     private string _dbDir = null!;
 
     public async Task InitializeAsync()
@@ -22,7 +22,7 @@ public class SignatureMergeResolveTests : IAsyncLifetime
         Directory.CreateDirectory(_dbDir);
         var dbFilePath = Path.Combine(_dbDir, "botdetection.db");
         var opts = Options.Create(new BotDetectionOptions { DatabasePath = dbFilePath });
-        _store = new SqliteSessionStore(NullLogger<SqliteSessionStore>.Instance, opts);
+        _store = new SqliteDetectionArchive(NullLogger<SqliteDetectionArchive>.Instance, opts);
         await _store.InitializeAsync();
     }
 

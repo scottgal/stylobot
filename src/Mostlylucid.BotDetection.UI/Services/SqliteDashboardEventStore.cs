@@ -734,7 +734,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return points;
     }
 
-    // NOTE: This query joins the 'sessions' table created by SqliteSessionStore (core package).
+    // NOTE: This query joins the 'sessions' table created by SqliteDetectionArchive (core package).
     // Both stores share the same database file. The join is intentional; on a fresh DB with no
     // sessions yet, the subquery returns NULL for last_path, which is handled via reader.IsDBNull(12).
     // top_reasons_json is migrated by EnsureInitializedAsync — absent on pre-migration DBs it reads NULL.

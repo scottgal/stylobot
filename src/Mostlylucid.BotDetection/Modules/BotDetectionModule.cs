@@ -448,7 +448,7 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddOnInitSignal<Orchestration.Sessions.SessionPersistenceAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
         // Session echo — the two-phase eviction ack subscriber. FOSS default
-        // is the null echo store; the next commit renames Data.ISessionStore
+        // is the null echo store; the next commit renames Data.IDetectionArchive
         // to IDetectionArchive and points ISessionEchoStore at it. Lazy-boots
         // on the first upsert like the other session atoms.
         services.TryAddSingleton<Orchestration.Sessions.ISessionEchoStore,

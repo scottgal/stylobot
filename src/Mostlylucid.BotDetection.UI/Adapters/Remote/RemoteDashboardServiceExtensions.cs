@@ -62,9 +62,9 @@ public static class RemoteDashboardServiceExtensions
         });
 
         // Remote store registrations - go in BEFORE AddStyloBotDashboard so the TryAdd
-        // fallbacks (SqliteDashboardEventStore, SqliteSessionStore, etc.) skip themselves.
+        // fallbacks (SqliteDashboardEventStore, SqliteDetectionArchive, etc.) skip themselves.
         services.AddSingleton<IDashboardEventStore, RemoteDashboardEventStore>();
-        services.AddSingleton<ISessionStore, RemoteSessionStore>();
+        services.AddSingleton<IDetectionArchive, RemoteDetectionArchive>();
         services.AddSingleton<ISignatureLabelStore, RemoteSignatureLabelStore>();
         services.AddSingleton<IFingerprintApprovalStore, RemoteFingerprintApprovalStore>();
         services.AddSingleton<IPinnedEndpointStore, RemotePinnedEndpointStore>();

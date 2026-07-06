@@ -46,7 +46,7 @@ namespace Mostlylucid.BotDetection.Services;
 /// </summary>
 public sealed class VectorCompactionService : IGuardian
 {
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
     private readonly ISessionVectorSearch? _vectorSearch;
     private readonly RetentionOptions _retention;
     private readonly SelfMaintenanceOptions _selfMaintenance;
@@ -60,7 +60,7 @@ public sealed class VectorCompactionService : IGuardian
     private readonly double _botThreshold;
 
     public VectorCompactionService(
-        ISessionStore store,
+        IDetectionArchive store,
         IOptions<BotDetectionOptions> options,
         ILogger<VectorCompactionService> logger,
         ISignatureCentroidStore signatureCentroidStore,

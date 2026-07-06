@@ -90,8 +90,8 @@ public class VectorCompactionServiceTests
             }
         };
 
-        // Use Moq for the large ISessionStore interface — only the compaction methods need stubs
-        var sessionStoreMock = new Mock<ISessionStore>();
+        // Use Moq for the large IDetectionArchive interface — only the compaction methods need stubs
+        var sessionStoreMock = new Mock<IDetectionArchive>();
         sessionStoreMock
             .Setup(s => s.GetOverflowingSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<(string Signature, int SessionCount)>());

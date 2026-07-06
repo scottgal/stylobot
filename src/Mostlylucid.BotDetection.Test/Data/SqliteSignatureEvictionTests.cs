@@ -9,14 +9,14 @@ using Mostlylucid.BotDetection.Models;
 namespace Mostlylucid.BotDetection.Test.Data;
 
 /// <summary>
-///     Cross-signature cap enforcement primitives on <see cref="SqliteSessionStore"/>
+///     Cross-signature cap enforcement primitives on <see cref="SqliteDetectionArchive"/>
 ///     (data guardian, step 3b): the signature count, the oldest-first priority
 ///     candidate scan, and the cascading delete that the guardian uses to evict
 ///     the lowest-value signatures when the store overflows its cap.
 /// </summary>
 public class SqliteSignatureEvictionTests : IAsyncLifetime
 {
-    private SqliteSessionStore _store = null!;
+    private SqliteDetectionArchive _store = null!;
     private string _dbDir = null!;
     private static readonly int VecDims = SessionVectorizer.Dimensions;
 
@@ -27,7 +27,7 @@ public class SqliteSignatureEvictionTests : IAsyncLifetime
         var dbFilePath = Path.Combine(_dbDir, "botdetection.db");
 
         var opts = Options.Create(new BotDetectionOptions { DatabasePath = dbFilePath });
-        _store = new SqliteSessionStore(NullLogger<SqliteSessionStore>.Instance, opts);
+        _store = new SqliteDetectionArchive(NullLogger<SqliteDetectionArchive>.Instance, opts);
         await _store.InitializeAsync();
     }
 
@@ -148,7 +148,7 @@ public class SqliteSignatureEvictionTests : IAsyncLifetime
             StartedAt = DateTime.UtcNow.AddMinutes(-60 + seq),
             EndedAt = DateTime.UtcNow.AddMinutes(-59 + seq),
             RequestCount = 5,
-            Vector = SqliteSessionStore.SerializeVector(vec),
+            Vector = SqliteDetectionArchive.SerializeVector(vec),
             Maturity = 0.5f,
             DominantState = "PageView",
             IsBot = false,

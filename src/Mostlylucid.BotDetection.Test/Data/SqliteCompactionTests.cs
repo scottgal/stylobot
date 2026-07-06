@@ -9,14 +9,14 @@ using Mostlylucid.BotDetection.Models;
 namespace Mostlylucid.BotDetection.Test.Data;
 
 /// <summary>
-///     Tests for SqliteSessionStore.CompactSignatureSessionsAsync —
+///     Tests for SqliteDetectionArchive.CompactSignatureSessionsAsync —
 ///     specifically the frequency_centroid column write path and the
 ///     CompactionResult.FrequencyCentroid field introduced for cross-session
 ///     rhythm detection.
 /// </summary>
 public class SqliteCompactionTests : IAsyncLifetime
 {
-    private SqliteSessionStore _store = null!;
+    private SqliteDetectionArchive _store = null!;
     private string _dbDir = null!;
     private static readonly int VecDims = SessionVectorizer.Dimensions;
 
@@ -28,7 +28,7 @@ public class SqliteCompactionTests : IAsyncLifetime
         var dbFilePath = Path.Combine(_dbDir, "botdetection.db");
 
         var opts = Options.Create(new BotDetectionOptions { DatabasePath = dbFilePath });
-        _store = new SqliteSessionStore(NullLogger<SqliteSessionStore>.Instance, opts);
+        _store = new SqliteDetectionArchive(NullLogger<SqliteDetectionArchive>.Instance, opts);
         await _store.InitializeAsync();
     }
 
@@ -230,10 +230,10 @@ public class SqliteCompactionTests : IAsyncLifetime
     {
         var seq = Interlocked.Increment(ref _sessionSeq);
         var vec = MakeUnitVector();
-        var vecBytes = SqliteSessionStore.SerializeVector(vec);
+        var vecBytes = SqliteDetectionArchive.SerializeVector(vec);
 
         float[]? fp = fingerprint ?? (hasFp ? new float[8] { 0.5f, 0.1f, 0f, 0f, 0f, 0f, 0f, 0f } : null);
-        byte[]? fpBytes = fp != null ? SqliteSessionStore.SerializeVector(fp) : null;
+        byte[]? fpBytes = fp != null ? SqliteDetectionArchive.SerializeVector(fp) : null;
 
         await _store.AddSessionAsync(RequestScope.Unknown, new PersistedSession
         {
@@ -269,7 +269,7 @@ public class SqliteCompactionTests : IAsyncLifetime
         cmd.Parameters.AddWithValue("@sig", sig);
         var raw = await cmd.ExecuteScalarAsync();
         if (raw is null or DBNull) return null;
-        return SqliteSessionStore.DeserializeVector((byte[])raw);
+        return SqliteDetectionArchive.DeserializeVector((byte[])raw);
     }
 
     private async Task<int> CountSessionsAsync(string sig)
@@ -285,7 +285,7 @@ public class SqliteCompactionTests : IAsyncLifetime
 
     private string GetConnectionString()
     {
-        // Mirrors SqliteSessionStore's internal path construction:
+        // Mirrors SqliteDetectionArchive's internal path construction:
         // basePath = GetDirectoryName(DatabasePath), dbPath = basePath/sessions.db
         var dbPath = Path.Combine(_dbDir, "sessions.db");
         return $"Data Source={dbPath};Cache=Shared";

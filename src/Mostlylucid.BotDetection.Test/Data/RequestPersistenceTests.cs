@@ -8,13 +8,13 @@ namespace Mostlylucid.BotDetection.Test.Data;
 
 public class RequestPersistenceTests
 {
-    private static RequestPersistenceService CreateService(Mock<ISessionStore> storeMock)
+    private static RequestPersistenceService CreateService(Mock<IDetectionArchive> storeMock)
         => new(storeMock.Object, NullLogger<RequestPersistenceService>.Instance);
 
     [Fact]
     public async Task BotRequest_AlwaysEnqueued()
     {
-        var store = new Mock<ISessionStore>();
+        var store = new Mock<IDetectionArchive>();
         store.Setup(s => s.AddRequestBatchAsync(It.IsAny<RequestScope>(), It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
              .Returns(Task.CompletedTask);
 
@@ -34,7 +34,7 @@ public class RequestPersistenceTests
     public async Task LowRiskRequest_WrittenUnderNormalLoad()
     {
         var writtenCount = 0;
-        var store = new Mock<ISessionStore>();
+        var store = new Mock<IDetectionArchive>();
         store.Setup(s => s.AddRequestBatchAsync(It.IsAny<RequestScope>(), It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
              .Callback<RequestScope, IReadOnlyList<PersistedRequest>, CancellationToken>((_, b, _) => writtenCount += b.Count)
              .Returns(Task.CompletedTask);

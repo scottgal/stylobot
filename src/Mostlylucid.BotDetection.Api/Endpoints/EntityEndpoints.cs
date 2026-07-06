@@ -41,7 +41,7 @@ public static class EntityEndpoints
     /// </summary>
     private static async Task<Results<Ok<SingleResponse<string>>, NotFound, ProblemHttpResult>> HandleLookup(
         string primarySignature,
-        [FromServices] ISessionStore? store,
+        [FromServices] IDetectionArchive? store,
         CancellationToken ct = default)
     {
         if (store is null) return ApiEndpointHelpers.StoreUnavailable("Session store");
@@ -55,7 +55,7 @@ public static class EntityEndpoints
 
     private static async Task<Results<Ok<SingleResponse<ResolvedEntity>>, NotFound, ProblemHttpResult>> HandleGet(
         string entityId,
-        [FromServices] ISessionStore? store,
+        [FromServices] IDetectionArchive? store,
         CancellationToken ct = default)
     {
         if (store is null) return ApiEndpointHelpers.StoreUnavailable("Session store");
@@ -66,7 +66,7 @@ public static class EntityEndpoints
 
     private static async Task<Results<Ok<PaginatedResponse<EntityEdge>>, ProblemHttpResult>> HandleEdges(
         string entityId,
-        [FromServices] ISessionStore? store,
+        [FromServices] IDetectionArchive? store,
         CancellationToken ct = default)
     {
         if (store is null) return ApiEndpointHelpers.StoreUnavailable("Session store");

@@ -189,7 +189,7 @@ public sealed class StyloBotForwardedHeadersMiddleware
         // later via EntityResolutionService against persisted session data.
         if (!string.IsNullOrEmpty(primarySig))
         {
-            var sessionStore = context.RequestServices.GetService<Data.ISessionStore>();
+            var sessionStore = context.RequestServices.GetService<Data.IDetectionArchive>();
             if (sessionStore is not null)
             {
                 try

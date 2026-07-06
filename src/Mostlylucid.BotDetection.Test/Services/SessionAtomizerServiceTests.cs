@@ -27,7 +27,7 @@ public sealed class SessionAtomizerServiceTests
     private static SessionAtomizerService NewService(
         RecordingScheduleCoordinator coordinator)
     {
-        var store = new Mock<ISessionStore>(MockBehavior.Loose);
+        var store = new Mock<IDetectionArchive>(MockBehavior.Loose);
         // No unatomized requests -- the atomize pass short-circuits cleanly.
         store.Setup(s => s.GetUnatomizedRequestsAsync(
                 It.IsAny<int>(),
@@ -104,7 +104,7 @@ public sealed class SessionAtomizerServiceTests
     public async Task SessionWrite_UsesCanonicalIsBot_BelowBotFloor()
     {
         var coordinator = new RecordingScheduleCoordinator();
-        var store       = new Mock<ISessionStore>(MockBehavior.Loose);
+        var store       = new Mock<IDetectionArchive>(MockBehavior.Loose);
 
         // Five requests, all avgBot=0.6, well older than the SessionGraceAge (35 min
         // default) so the group is force-flushed at atomize time.
