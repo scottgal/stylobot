@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.HealthEndpoints;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Proxy;
@@ -206,6 +207,13 @@ public class BotDetectionOptions
     ///     initial centroid naming and UA fallback classification.
     /// </summary>
     public Definitions.WellKnownBots.WellKnownBotsOptions WellKnownBots { get; set; } = new();
+
+    /// <summary>
+    ///     Health-endpoint path recognition and probe-shape classifier configuration.
+    ///     Binds at <c>BotDetection:HealthEndpoints</c>. Paths and probe UA families
+    ///     used by <c>HealthEndpointAtom</c> and <c>ProbeShapeClassifier</c>.
+    /// </summary>
+    public HealthEndpointOptions HealthEndpoints { get; set; } = new();
 
     /// <summary>
     ///     When true, detections from local/private IPs are excluded from SignalR broadcasts

@@ -1,4 +1,5 @@
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.HealthEndpoints;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Policies;
@@ -252,8 +253,23 @@ public static class DetectionLedgerExtensions
         // honeypot path tagger + the hostile actor pipeline still record
         // the bad behaviour to the dashboard; only the action is suppressed
         // for LAN sources.
+        //
+        // Health-endpoint shape guard (Task 3): on health-endpoint paths the
+        // classification requires BOTH source trust AND probe shape. "Source
+        // alone" (isLocalIp) is not sufficient on a health path because an
+        // on-network attacker can trivially send a browser request to /health.
+        // Probe shape = positive probe-UA match (kube-probe, curl, etc.) AND
+        // no Sec-Fetch-Mode:navigate signal. For non-health paths, local IP
+        // always grants Internal (unchanged behaviour).
+        var isHealthEndpoint = ReadBool(SignalKeys.HealthEndpoint);
         var isLocalIp = ReadBool(SignalKeys.IpIsLocal);
-        var primaryBotType = isLocalIp
+        var probeUas = options?.HealthEndpoints?.ProbeUserAgents
+                       ?? HealthEndpointOptions.DefaultProbeUserAgents;
+        var isHealthProbe = isHealthEndpoint && isLocalIp
+            && ProbeShapeClassifier.IsProbeShape(preSignals, sink, probeUas);
+        // Non-health-endpoint local traffic: always Internal (unchanged).
+        // Health-endpoint local traffic: requires probe shape (shape guard).
+        var primaryBotType = (isLocalIp && !isHealthEndpoint) || isHealthProbe
             ? BotType.Internal
             : verdict.HostilePinFired
                 ? BotType.MaliciousBot

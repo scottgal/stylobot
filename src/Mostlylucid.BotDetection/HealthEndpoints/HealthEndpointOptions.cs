@@ -45,4 +45,29 @@ public sealed class HealthEndpointOptions
 
     /// <summary>Returns a new instance pre-populated with <see cref="DefaultPaths"/>.</summary>
     public static HealthEndpointOptions Default => new() { Paths = new(DefaultPaths) };
+
+    // ── Probe-shape classifier ──────────────────────────────────────────────
+
+    /// <summary>
+    ///     User-Agent family tokens that identify automated health probes.
+    ///     Matched case-insensitively via <c>string.Contains</c> against the raw UA.
+    ///     Defaults to <see cref="DefaultProbeUserAgents"/> when the operator does
+    ///     not supply a value via <c>BotDetection:HealthEndpoints:ProbeUserAgents</c>.
+    /// </summary>
+    public List<string> ProbeUserAgents { get; set; } = new(DefaultProbeUserAgents);
+
+    /// <summary>
+    ///     The five default probe UA families recognised out of the box:
+    ///     Kubernetes, Go stdlib HTTP client, curl, Wget, and Docker.
+    ///     Operator-supplied <c>BotDetection:HealthEndpoints:ProbeUserAgents</c>
+    ///     replaces this list entirely.
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultProbeUserAgents =
+    [
+        "kube-probe",
+        "Go-http-client",
+        "curl",
+        "wget",
+        "docker",
+    ];
 }
