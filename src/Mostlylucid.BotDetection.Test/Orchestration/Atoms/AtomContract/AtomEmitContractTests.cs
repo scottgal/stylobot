@@ -46,7 +46,10 @@ public sealed class AtomEmitContractTests
     /// </summary>
     private static readonly HashSet<string> NonDeterministicEmitters = new(StringComparer.Ordinal)
     {
-        "FingerprintMatch",
+        // Empty: FingerprintMatch's intermittent identity.fingerprint_observation_count_crossed
+        // was declared in 9a7c6f3f, so all its possible emissions are now declared and the
+        // reverse check passes regardless of which fire on a given run. Re-add an atom here
+        // only if it emits an UNDECLARED key off accumulated shared state (flaky in parallel).
     };
 
     /// <summary>
@@ -59,11 +62,11 @@ public sealed class AtomEmitContractTests
     /// </summary>
     private static readonly Dictionary<string, HashSet<string>> KnownReverseDrift = new(StringComparer.Ordinal)
     {
-        // The 3 original drifts (Http2Fingerprint/ResponseBehavior/TransportProtocol) were
-        // declared manifest-side in c536c485. Time is a fresh drift: its backfilled orphan
-        // manifest (best-effort grep) declares 2 keys but the atom also raises
-        // time.is_business_hours. Flagged to the manifest owner; remove when declared.
-        ["Time"] = new(StringComparer.Ordinal) { "time.is_business_hours" },
+        // BrowserModeClassifier's backfilled manifest (9a7c6f3f, best-effort grep) declares
+        // some identity.* keys but not identity.browser_mode_similarity, which the atom raises.
+        // Surfaced once the atom entered reverse coverage. Flagged to the manifest owner;
+        // remove when declared.
+        ["BrowserModeClassifier"] = new(StringComparer.Ordinal) { "identity.browser_mode_similarity" },
     };
 
     [Fact]

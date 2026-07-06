@@ -33,8 +33,9 @@ public sealed class ManifestParseContractTests
 
     private static readonly HashSet<string> KnownUnparseable = new(StringComparer.Ordinal)
     {
-        "accounttakeover", "browsermodeclassifier", "cookiebehavior", "geochange", "identitychange",
-        "inconsistency", "periodicity", "resourcewaterfall", "stream-abuse", "threatintel",
+        // Empty: the 10 previously-broken manifests were fixed in 9a7c6f3f (61/61 parse now).
+        // The gate fails on ANY unparseable manifest — add an entry only to temporarily
+        // tolerate a known-broken manifest while its fix is pending.
     };
 
     [Fact]
