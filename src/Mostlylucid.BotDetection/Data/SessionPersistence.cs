@@ -246,7 +246,7 @@ public sealed record AggregatedBucket
 ///     - SQLite (core, zero-dependency, default)
 ///     - PostgreSQL + pgvector (commercial, for vector similarity at scale)
 /// </summary>
-public interface ISessionStore
+public interface IDetectionArchive
 {
     // === Write path ===
 
@@ -260,6 +260,20 @@ public interface ISessionStore
     ///     </para>
     /// </summary>
     Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Persist a <see cref="Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho"/>
+    ///     row — the lower-resolution session accounting log written on every
+    ///     TTL / pressure eviction. Called from <c>SessionEchoAtom</c> off the
+    ///     two-phase finalize signal (see
+    ///     <c>Orchestration.Sessions.SessionFinalizingSignal</c>). Complements
+    ///     <see cref="AddSessionAsync"/>: the latter is the opportunistic,
+    ///     priority-gated full-detail write; this is the always-populated
+    ///     summary. Returns the new row ID.
+    /// </summary>
+    Task<long> AddEchoAsync(
+        Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+        CancellationToken ct = default);
 
     /// <summary>
     ///     Upsert a signature (create or update hit counts/stats).
@@ -423,10 +437,10 @@ public interface ISessionStore
         List<string> signatures, CancellationToken ct = default);
 
     // === Cross-signature cap enforcement (data guardian, step 3b) ===
-    // Default no-ops so stores without a signatures table (NullSessionStore),
-    // read-only proxies (RemoteSessionStore), and the commercial Postgres store
+    // Default no-ops so stores without a signatures table (NullDetectionArchive),
+    // read-only proxies (RemoteDetectionArchive), and the commercial Postgres store
     // (which gets its own retention guardian) opt out cleanly. Only
-    // SqliteSessionStore overrides these.
+    // SqliteDetectionArchive overrides these.
 
     /// <summary>Total distinct signatures currently stored (for cap enforcement).</summary>
     Task<int> GetSignatureCountAsync(CancellationToken ct = default) => Task.FromResult(0);

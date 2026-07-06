@@ -1288,7 +1288,7 @@ public sealed class SignatureAggregate
 
     /// <summary>
     ///     Durable visitor handle resolved by the gateway via
-    ///     <c>ISessionStore.ResolveEntityAsync</c> and carried on the
+    ///     <c>IDetectionArchive.ResolveEntityAsync</c> and carried on the
     ///     <c>DashboardDetectionEvent</c>. Latched on the first non-null we
     ///     see and never overwritten with null -- entity ids do not
     ///     "un-allocate" on a subsequent detection that quorum-exited before

@@ -51,7 +51,7 @@ public sealed class VectorCompactionServiceTickTests
         var opts = new BotDetectionOptions();
         if (interval is { } iv) opts.Retention.CompactionInterval = iv;
 
-        var sessionStore = new Mock<ISessionStore>(MockBehavior.Loose);
+        var sessionStore = new Mock<IDetectionArchive>(MockBehavior.Loose);
         sessionStore
             .Setup(s => s.GetOverflowingSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(overflowing);

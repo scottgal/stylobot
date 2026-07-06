@@ -705,7 +705,7 @@ public static class SignalKeys
     ///     the durable entity handle. Multiple primary signatures rotate behind
     ///     one entity id; behavioural-similarity merges retroactively unify ids.
     ///     This is the identifier the dashboard URL surface uses. Computed by
-    ///     <c>ISessionStore.ResolveEntityAsync(primarySignature)</c> -- exact-key
+    ///     <c>IDetectionArchive.ResolveEntityAsync(primarySignature)</c> -- exact-key
     ///     lookup wins fast; first-encounter allocates a fresh entity.
     /// </summary>
     public const string EntityId = "entity.id";

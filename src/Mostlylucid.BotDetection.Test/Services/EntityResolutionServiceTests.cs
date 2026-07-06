@@ -21,9 +21,9 @@ public sealed class EntityResolutionServiceTests
 {
     private static EntityResolutionService NewService(
         RecordingScheduleCoordinator coordinator,
-        Mock<ISessionStore>? storeOverride = null)
+        Mock<IDetectionArchive>? storeOverride = null)
     {
-        var store = storeOverride ?? new Mock<ISessionStore>(MockBehavior.Loose);
+        var store = storeOverride ?? new Mock<IDetectionArchive>(MockBehavior.Loose);
         // GetActiveEntityIdsAsync returning an empty list is the simplest
         // path -- the tick handler iterates nothing and returns cleanly.
         store.Setup(s => s.GetActiveEntityIdsAsync(

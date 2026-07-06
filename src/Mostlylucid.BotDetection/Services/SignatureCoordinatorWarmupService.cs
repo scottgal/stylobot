@@ -15,14 +15,14 @@ namespace Mostlylucid.BotDetection.Services;
 /// </summary>
 public sealed class SignatureCoordinatorWarmupService : BackgroundService
 {
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
     private readonly SignatureCoordinator _signatureCoordinator;
     private readonly MarkovTracker? _markovTracker;
     private readonly BotDetectionOptions _options;
     private readonly ILogger<SignatureCoordinatorWarmupService> _logger;
 
     public SignatureCoordinatorWarmupService(
-        ISessionStore store,
+        IDetectionArchive store,
         SignatureCoordinator signatureCoordinator,
         IOptions<BotDetectionOptions> options,
         ILogger<SignatureCoordinatorWarmupService> logger,

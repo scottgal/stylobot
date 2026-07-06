@@ -25,7 +25,7 @@ public static class SessionEndpoints
     }
 
     private static async Task<Results<Ok<PaginatedResponse<PersistedSession>>, ProblemHttpResult>> HandleRecent(
-        [FromServices] ISessionStore? store,
+        [FromServices] IDetectionArchive? store,
         int limit = 50,
         bool? isBot = null,
         string? since = null,
@@ -46,7 +46,7 @@ public static class SessionEndpoints
 
     private static async Task<Results<Ok<PaginatedResponse<PersistedSession>>, ProblemHttpResult>> HandleBySignature(
         string signature,
-        [FromServices] ISessionStore? store,
+        [FromServices] IDetectionArchive? store,
         int limit = 20,
         CancellationToken ct = default)
     {

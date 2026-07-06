@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Data;
 /// </summary>
 public sealed class RequestPersistenceService : IAsyncDisposable
 {
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
     private readonly ILogger<RequestPersistenceService> _logger;
 
     // Per-signature write-count state for LFU sampling decisions
@@ -33,7 +33,7 @@ public sealed class RequestPersistenceService : IAsyncDisposable
     private long _droppedSampledOut;
 
     public RequestPersistenceService(
-        ISessionStore store,
+        IDetectionArchive store,
         ILogger<RequestPersistenceService> logger)
     {
         _store = store;

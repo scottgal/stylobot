@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
@@ -160,99 +161,17 @@ public sealed class BotDetectionOrchestrator : IDisposable
     /// </summary>
     private AggregatedEvidence ToAggregatedEvidence(DetectionLedger ledger, TimeSpan elapsed)
     {
-        // Determine risk band from probability
-        var riskBand = ledger.BotProbability switch
-        {
-            >= 0.95 => RiskBand.VeryHigh,
-            >= 0.80 => RiskBand.High,
-            >= 0.60 => RiskBand.Medium,
-            >= 0.40 => RiskBand.Elevated,
-            >= 0.20 => RiskBand.Low,
-            _ => RiskBand.VeryLow
-        };
-
-        // Check for early exit verdicts
-        EarlyExitVerdict? earlyExitVerdict = null;
-        if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
-        {
-            earlyExitVerdict = ledger.EarlyExitContribution.EarlyExitVerdict switch
-            {
-                "VerifiedBadBot" => EarlyExitVerdict.VerifiedBadBot,
-                "VerifiedGoodBot" => EarlyExitVerdict.VerifiedGoodBot,
-                "Whitelisted" => EarlyExitVerdict.Whitelisted,
-                "Blacklisted" => EarlyExitVerdict.Blacklisted,
-                _ => null
-            };
-            riskBand = RiskBand.Verified;
-        }
-
-        // Parse bot type if present
-        BotType? primaryBotType = null;
-        if (!string.IsNullOrEmpty(ledger.BotType) &&
-            Enum.TryParse<BotType>(ledger.BotType, true, out var parsed))
-        {
-            primaryBotType = parsed;
-        }
-
-        // Resolve PrimaryBotName via the same priority order the BlackboardOrchestrator
-        // path uses (DetectionLedgerExtensions.ResolveDisplayName): matcher-set
-        // IdentityDisplayName signal first, then ledger.BotName fallback, then
-        // FingerprintNameComposer.Compose for human-shape UA-only requests.
-        var primaryBotName = ResolveDisplayName(ledger.MergedSignals, ledger.BotName);
-
-        // Verdict-honest override: when the verdict says bot but the resolved name
-        // came from a human-browser archetype match (centroid coincidence on a Chrome
-        // XHR / uBlock shape that happens to overlap chrome-desktop or Mastodon),
-        // rewrite to "Unknown Bot {family}". The Ephemeral orchestrator's evidence
-        // build path must agree with the BlackboardOrchestrator path so the BDF
-        // missing-browser-headers case (prob=0.90 named "Chrome Desktop") and the
-        // prod regression on signature fA_cI4MGbTxkwr9-4UsUEg both get verdict-honest
-        // names regardless of which orchestrator is registered in DI.
-        var isActuallyBot = ledger.BotProbability >= 0.5;
-        if (isActuallyBot && IsHumanArchetypeWithoutCatalogClaim(ledger.MergedSignals, primaryBotName))
-        {
-            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(ledger.MergedSignals);
-        }
-
-        return new AggregatedEvidence
-        {
-            Ledger = ledger,
-            BotProbability = ledger.BotProbability,
-            Confidence = ledger.Confidence,
-            RiskBand = riskBand,
-            EarlyExit = ledger.EarlyExit,
-            EarlyExitVerdict = earlyExitVerdict,
-            PrimaryBotType = primaryBotType,
-            PrimaryBotName = primaryBotName,
-            Signals = ledger.MergedSignals,
-            TotalProcessingTimeMs = elapsed.TotalMilliseconds,
-            CategoryBreakdown = ledger.CategoryBreakdown,
-            ContributingDetectors = ledger.ContributingDetectors,
-            FailedDetectors = ledger.FailedDetectors
-        };
-    }
-
-    private static string? ResolveDisplayName(
-        IReadOnlyDictionary<string, object> signals, string? fallback)
-    {
-        var fromSignal = signals.TryGetValue(Models.SignalKeys.IdentityDisplayName, out var v)
-            ? v as string : null;
-        if (!string.IsNullOrEmpty(fromSignal)) return fromSignal;
-        if (!string.IsNullOrEmpty(fallback)) return fallback;
-        return Services.FingerprintNameComposer.Compose(signals);
-    }
-
-    private static bool IsHumanArchetypeWithoutCatalogClaim(
-        IReadOnlyDictionary<string, object> signals, string? resolvedName)
-    {
-        if (string.IsNullOrEmpty(resolvedName)) return false;
-        var hasCatalogClaim = signals.TryGetValue(Models.SignalKeys.UserAgentBotName, out var ubn)
-                              && ubn is string s && !string.IsNullOrEmpty(s);
-        if (hasCatalogClaim) return false;
-        var kind = signals.TryGetValue(Models.SignalKeys.IdentityArchetypeKind, out var k) ? k as string : null;
-        if (kind != "human-browser" && kind != "human-adblocker") return false;
-        var archetypeName = signals.TryGetValue(Models.SignalKeys.IdentityArchetypeName, out var n) ? n as string : null;
-        return !string.IsNullOrEmpty(archetypeName) && string.Equals(archetypeName, resolvedName, StringComparison.Ordinal);
+        // Use the canonical conversion -- the same one the BlackboardOrchestrator
+        // path uses -- so threat score/band, the NonAiMaxProbability clamp, the
+        // risk-verdict composition (HostilePin override / friendly-bot corroboration
+        // / browser-attestation carve-out), the declared-bot override, AND the
+        // verdict-honest name resolution are all applied. The previous hand-rolled
+        // body dropped every one of those (ThreatBand was always None, a
+        // confirmed-bad actor spoofing Googlebot read as GoodBot/Low, etc.).
+        // Processing time is read from ledger.TotalProcessingTimeMs, which the
+        // ephemeral orchestrator stamps during DetectAsync.
+        _ = elapsed;
+        return ledger.ToAggregatedEvidence(options: _options);
     }
 
 
@@ -276,6 +195,13 @@ public static class BotDetectionOrchestratorExtensions
     {
         // Register the orchestrator as scoped (one per request)
         services.AddScoped<BotDetectionOrchestrator>();
+
+        // TimeAtom takes a TimeProvider from DI (falls back to .System only if the
+        // parameter is optional, which it isn't for the DI activator). Without this
+        // registration the container throws "Unable to resolve service for type
+        // System.TimeProvider" activating TimeAtom, crashing every host on the atom
+        // path at boot. TryAdd so a test host binding FakeTimeProvider still wins.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
 
         // Enforcement gates -- extracted from BotDetectionMiddleware so the
         // atom-orchestrator middleware can enforce the same rules without

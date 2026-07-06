@@ -10,15 +10,15 @@ namespace Mostlylucid.BotDetection.Test.Data;
 
 /// <summary>
 ///     Tests for the <c>since</c> parameter on
-///     <see cref="ISessionStore.GetRecentSessionsAsync"/>.
+///     <see cref="IDetectionArchive.GetRecentSessionsAsync"/>.
 ///     Sessions older than the <c>since</c> cutoff must be excluded so
 ///     that the dashboard never displays sessions whose detection events
 ///     have aged out of the seven-day retention window (which would
 ///     produce a 404 on the signature detail page).
 /// </summary>
-public sealed class SqliteSessionStoreSinceFilterTests : IAsyncLifetime
+public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
 {
-    private SqliteSessionStore _store = null!;
+    private SqliteDetectionArchive _store = null!;
     private string _dbDir = null!;
 
     public async Task InitializeAsync()
@@ -27,7 +27,7 @@ public sealed class SqliteSessionStoreSinceFilterTests : IAsyncLifetime
         Directory.CreateDirectory(_dbDir);
         var dbFilePath = Path.Combine(_dbDir, "botdetection.db");
         var opts = Options.Create(new BotDetectionOptions { DatabasePath = dbFilePath });
-        _store = new SqliteSessionStore(NullLogger<SqliteSessionStore>.Instance, opts);
+        _store = new SqliteDetectionArchive(NullLogger<SqliteDetectionArchive>.Instance, opts);
         await _store.InitializeAsync();
     }
 

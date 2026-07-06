@@ -10,7 +10,7 @@ using Mostlylucid.Common.Scheduling;
 namespace Mostlylucid.BotDetection.Data;
 
 /// <summary>
-///     Persists completed sessions to <see cref="ISessionStore"/>. Subscribes
+///     Persists completed sessions to <see cref="IDetectionArchive"/>. Subscribes
 ///     to <see cref="SessionStore.SessionFinalized"/> and writes asynchronously
 ///     via a bounded channel to keep the request pipeline off the SQLite
 ///     write path.
@@ -34,7 +34,7 @@ namespace Mostlylucid.BotDetection.Data;
 /// </summary>
 public sealed class SessionPersistenceService : IDisposable
 {
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
     private readonly SessionStore _sessionStore;
     private readonly ILogger<SessionPersistenceService> _logger;
     private readonly Channel<(SessionSnapshot Snapshot, IReadOnlyList<SessionRequest> Requests)> _channel;
@@ -43,7 +43,7 @@ public sealed class SessionPersistenceService : IDisposable
     private int _disposed;
 
     public SessionPersistenceService(
-        ISessionStore store,
+        IDetectionArchive store,
         SessionStore sessionStore,
         ILogger<SessionPersistenceService> logger,
         IScheduleCoordinator? scheduleCoordinator = null)
@@ -161,7 +161,7 @@ public sealed class SessionPersistenceService : IDisposable
             StartedAt = snapshot.StartedAt.UtcDateTime,
             EndedAt = snapshot.EndedAt.UtcDateTime,
             RequestCount = snapshot.RequestCount,
-            Vector = SqliteSessionStore.SerializeVector(snapshot.Vector),
+            Vector = SqliteDetectionArchive.SerializeVector(snapshot.Vector),
             Maturity = snapshot.Maturity,
             DominantState = snapshot.DominantState.ToString(),
             IsBot = false, // Will be set by the contributor based on final detection
@@ -174,9 +174,9 @@ public sealed class SessionPersistenceService : IDisposable
             TimingEntropy = ComputeTimingEntropy(requests),
             HeaderHashesJson = snapshot.HeaderHashesJson,
             FrequencyFingerprintBlob = snapshot.FrequencyFingerprint != null
-                ? SqliteSessionStore.SerializeVector(snapshot.FrequencyFingerprint) : null,
+                ? SqliteDetectionArchive.SerializeVector(snapshot.FrequencyFingerprint) : null,
             DriftVectorBlob = snapshot.DriftVector != null
-                ? SqliteSessionStore.SerializeVector(snapshot.DriftVector) : null
+                ? SqliteDetectionArchive.SerializeVector(snapshot.DriftVector) : null
         };
 
         // Background persister runs off the request pipeline; the SessionSnapshot
@@ -198,7 +198,7 @@ public sealed class SessionPersistenceService : IDisposable
             BotProbability = 0,
             Confidence = 0,
             RiskBand = "Unknown",
-            RootVector = SqliteSessionStore.SerializeVector(snapshot.Vector),
+            RootVector = SqliteDetectionArchive.SerializeVector(snapshot.Vector),
             RootVectorMaturity = snapshot.Maturity
         };
 
@@ -262,7 +262,7 @@ public sealed class SessionPersistenceService : IDisposable
 /// <summary>
 ///     Boot- and shutdown-time bookend for
 ///     <see cref="SessionPersistenceService"/>. On <see cref="StartAsync"/>
-///     this initializes the underlying <see cref="ISessionStore"/> (SQLite
+///     this initializes the underlying <see cref="IDetectionArchive"/> (SQLite
 ///     schema creation + cold-tier load) BEFORE the persistence service's
 ///     channel starts receiving session-finalize events. On
 ///     <see cref="StopAsync"/> it flushes any active in-memory sessions
@@ -279,13 +279,13 @@ public sealed class SessionPersistenceService : IDisposable
 /// </summary>
 internal sealed class SessionPersistenceLifecycleHostedService : IHostedService
 {
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
     private readonly SessionStore _sessionStore;
     private readonly SessionPersistenceService _persistence;
     private readonly ILogger<SessionPersistenceLifecycleHostedService> _logger;
 
     public SessionPersistenceLifecycleHostedService(
-        ISessionStore store,
+        IDetectionArchive store,
         SessionStore sessionStore,
         SessionPersistenceService persistence,
         ILogger<SessionPersistenceLifecycleHostedService> logger)

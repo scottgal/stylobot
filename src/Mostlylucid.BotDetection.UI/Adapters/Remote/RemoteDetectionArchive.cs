@@ -8,11 +8,11 @@ namespace Mostlylucid.BotDetection.UI.Adapters.Remote;
 ///     per-signature drill-in. Every write method throws - sessions are the gateway's
 ///     responsibility to compact and persist; the remote viewer never produces them.
 /// </summary>
-internal sealed class RemoteSessionStore : ISessionStore
+internal sealed class RemoteDetectionArchive : IDetectionArchive
 {
     private readonly GatewayApiClient _api;
 
-    public RemoteSessionStore(GatewayApiClient api) => _api = api;
+    public RemoteDetectionArchive(GatewayApiClient api) => _api = api;
 
     public async Task<List<PersistedSession>> GetSessionsAsync(string signature, int limit = 20, CancellationToken ct = default)
     {
@@ -34,6 +34,11 @@ internal sealed class RemoteSessionStore : ISessionStore
 
     public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
         => throw new NotSupportedException("Session writes are owned by the gateway, not the remote viewer.");
+
+    public Task<long> AddEchoAsync(
+        Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("Echo writes are owned by the gateway, not the remote viewer.");
 
     public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
         => throw new NotSupportedException("Signature writes are owned by the gateway.");

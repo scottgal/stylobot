@@ -68,7 +68,7 @@ public interface IFingerprintApprovalStore
 
 /// <summary>
 ///     SQLite-backed fingerprint approval store. Zero dependencies, file on disk.
-///     Follows the same patterns as SqliteSessionStore (WAL mode, SemaphoreSlim write lock).
+///     Follows the same patterns as SqliteDetectionArchive (WAL mode, SemaphoreSlim write lock).
 /// </summary>
 public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, IAsyncDisposable
 {

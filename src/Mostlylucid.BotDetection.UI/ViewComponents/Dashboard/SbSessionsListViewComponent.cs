@@ -8,7 +8,7 @@ using Mostlylucid.BotDetection.UI.Services;
 namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
 public class SbSessionsListViewComponent(
-    ISessionStore sessionStore,
+    IDetectionArchive sessionStore,
     // signatureCache is optional: remote-mode dashboard viewer hosts don't
     // register it (detection runs on the gateway; the viewer reads via REST).
     // Hard-required ctor injection would 500 the whole Sessions tab on the
@@ -40,7 +40,7 @@ public class SbSessionsListViewComponent(
         List<Mostlylucid.BotDetection.Data.PersistedSession> allSessions;
         if (!string.IsNullOrEmpty(primarySignature))
         {
-            // Scoped read uses the per-signature path. ISessionStore.GetSessionsAsync
+            // Scoped read uses the per-signature path. IDetectionArchive.GetSessionsAsync
             // returns most-recent-first already; the bot/human filter is a post-
             // filter so the page-size math still applies.
             var scoped = await sessionStore.GetSessionsAsync(primarySignature, fetchCount);

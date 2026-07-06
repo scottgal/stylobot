@@ -49,7 +49,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Mostlylucid.Common\Mostlylucid.Common.csproj" />
+        <PackageReference Include="Mostlylucid.Common" Version="8.0.0-alpha2" />
     </ItemGroup>
     <ItemGroup>
         <None Include=".\icon.png" Pack="true" PackagePath="">

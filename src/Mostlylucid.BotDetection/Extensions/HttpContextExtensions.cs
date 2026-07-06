@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -15,11 +17,42 @@ public static partial class HttpContextExtensions
     ///     Gets the bot detection result from the current request.
     ///     Returns null if bot detection middleware hasn't run.
     /// </summary>
+    private const string MappedResultKey = "BotDetection.MappedResult";
+
     public static BotDetectionResult? GetBotDetectionResult(this HttpContext context)
     {
-        return context.Items.TryGetValue(BotDetectionMiddleware.BotDetectionResultKey, out var result)
-            ? result as BotDetectionResult
-            : null;
+        if (!context.Items.TryGetValue(BotDetectionMiddleware.BotDetectionResultKey, out var stored))
+            return null;
+
+        // Legacy path: a real BotDetectionResult was stored directly.
+        if (stored is BotDetectionResult direct) return direct;
+
+        // Atom-orchestrator path: BotDetectionMiddleware stores an AggregatedEvidence
+        // at this key. The old code did `stored as BotDetectionResult`, which is always
+        // null for AggregatedEvidence -- so context.IsBot()/GetBotType()/ShouldBlock()
+        // all silently returned wrong values (and the dashboard data-API bot-gate was
+        // bypassed). Map it to a BotDetectionResult, cached so repeated calls are cheap.
+        if (stored is AggregatedEvidence evidence)
+        {
+            if (context.Items.TryGetValue(MappedResultKey, out var cached) && cached is BotDetectionResult cr)
+                return cr;
+
+            var botFloor = context.RequestServices?
+                .GetService<IOptions<BotDetectionOptions>>()?.Value.Classification.BotFloor ?? 0.7;
+
+            var mapped = new BotDetectionResult
+            {
+                IsBot = evidence.BotProbability >= botFloor,
+                ConfidenceScore = evidence.BotProbability,
+                BotType = evidence.PrimaryBotType,
+                BotName = evidence.PrimaryBotName,
+                ProcessingTimeMs = evidence.TotalProcessingTimeMs
+            };
+            context.Items[MappedResultKey] = mapped;
+            return mapped;
+        }
+
+        return null;
     }
 
     /// <summary>

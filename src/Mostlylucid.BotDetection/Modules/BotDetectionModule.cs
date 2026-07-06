@@ -257,6 +257,13 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Orchestration.SignatureCoordinator>();
         // ClientSide fingerprint store (browser-side collected metrics).
         services.TryAddSingleton<ClientSide.IBrowserFingerprintStore, ClientSide.BrowserFingerprintStore>();
+        // ClientSide analyzer + token service + metrics, consumed by BrowserFingerprintEndpoint.
+        // These were registered alongside the deleted ClientSideContributor (Step-7 contributor
+        // delete) and dropped with it — leaving the minimal-API endpoint with un-inferrable
+        // parameters, which fails host startup ("Failure to infer one or more parameters").
+        services.TryAddSingleton<ClientSide.IBrowserFingerprintAnalyzer, ClientSide.BrowserFingerprintAnalyzer>();
+        services.TryAddSingleton<ClientSide.IBrowserTokenService, ClientSide.BrowserTokenService>();
+        services.TryAddSingleton<Metrics.BotDetectionMetrics>();
         // Pattern-reputation updater feeds the reputation cache from detection outcomes.
         services.TryAddSingleton<Data.PatternReputationUpdater>();
         // Fingerprint dimension snapshot cache (waveform + similarity input).
@@ -427,6 +434,31 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddOnInitSignal<ILearningCoordinator>(LearningSignalSinkOptions.InitSignal);
         services.AddOnInitSignal<LearningBackgroundService>(LearningSignalSinkOptions.InitSignal);
 
+        // Learning feedback-loop consumers. The Step-7 contributor delete
+        // (1a8d2745) dropped these along with the contributors, but the atom
+        // path still RAISES learning events (EscalateToLearningActionPolicy,
+        // the LLM / intent coordinators) and LearningBackgroundService still
+        // dispatches them to the registered ILearningEventHandler set. Without
+        // these the loop raised into a void and IWeightStore (consumed by
+        // HeuristicDetector + SignatureFeedbackHandler) was unresolved. Every
+        // handler's dependencies are already registered above.
+        services.TryAddSingleton<IWeightStore, SqliteWeightStore>();
+        services.AddSingleton<ILearningEventHandler, InferenceHandler>();
+        services.AddSingleton<ILearningEventHandler, PatternAccumulatorHandler>();
+        services.AddSingleton<ILearningEventHandler, FeedbackHandler>();
+        services.AddSingleton<ILearningEventHandler, DriftDetectionHandler>();
+        services.AddSingleton<ILearningEventHandler, SignatureFeedbackHandler>();
+        services.AddSingleton<ILearningEventHandler, Similarity.SimilarityLearningHandler>();
+        services.AddSingleton<ILearningEventHandler, Similarity.IntentLearningHandler>();
+        // ReputationMaintenanceService is a BackgroundService (periodic
+        // decay / GC / persist of the pattern-reputation cache) AND a learning
+        // handler. No data guardian covers pattern-reputation decay, so its
+        // loop is not redundant. Register once, expose both roles.
+        services.AddSingleton<ReputationMaintenanceService>();
+        services.AddSingleton<ILearningEventHandler>(sp =>
+            sp.GetRequiredService<ReputationMaintenanceService>());
+        services.AddHostedService(sp => sp.GetRequiredService<ReputationMaintenanceService>());
+
         // Session store: shared per-domain, priority-shaped eviction, boot-time.
         // Escalators upsert SessionSample → aggregate; SessionAtom observes
         // Changes and emits persistence signals on fingerprint shift.
@@ -439,6 +471,24 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddOnInitSignal<Orchestration.Sessions.SessionAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
         services.AddOnInitSignal<Orchestration.Sessions.SessionPersistenceAtom>(
+            Orchestration.Sessions.SessionStoreOptions.InitSignal);
+        // Detection archive — the durable session/signature/request archive.
+        // FOSS default is SQLite (zero-dependency, ships in-process). Commercial
+        // Postgres pack replaces via TryAdd-loses at its own Add* site;
+        // AddStyloBotDashboardRemote replaces with RemoteDetectionArchive for
+        // remote-mode dashboards.
+        services.TryAddSingleton<Data.IDetectionArchive, Data.SqliteDetectionArchive>();
+
+        // Session echo — the two-phase eviction ack subscriber. Routes to
+        // whatever IDetectionArchive is registered (SqliteDetectionArchive
+        // by default, PostgreSQLDetectionArchive via commercial pack Replace).
+        // Any host that wires an archive automatically gets echo persistence
+        // flowing through it. Test hosts override with a fake
+        // ISessionEchoStore via a TryAdd that beats this registration to
+        // the punch. Lazy-boots on the first session upsert.
+        services.TryAddSingleton<Orchestration.Sessions.ISessionEchoStore,
+            Orchestration.Sessions.DetectionArchiveEchoStore>();
+        services.AddOnInitSignal<Orchestration.Sessions.SessionEchoAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
 
         // LLM classification lane: shared request sink fronts the

@@ -2246,7 +2246,7 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private async Task ServeSessionsApiAsync(HttpContext context)
     {
-        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
+        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
         if (sessionStore == null)
         {
             context.Response.ContentType = "application/json";
@@ -2311,7 +2311,7 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
+        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
         if (sessionStore == null)
         {
             context.Response.ContentType = "application/json";
@@ -2328,7 +2328,7 @@ public class StyloBotDashboardMiddleware
         // Compute inter-session velocity (behavioral drift between consecutive sessions)
         var sessionVectors = sessions
             .Select(s => s.Vector is { Length: > 0 }
-                ? BotDetection.Data.SqliteSessionStore.DeserializeVector(s.Vector)
+                ? BotDetection.Data.SqliteDetectionArchive.DeserializeVector(s.Vector)
                 : null)
             .ToList();
 
@@ -4844,7 +4844,7 @@ public class StyloBotDashboardMiddleware
         var idStr = context.Request.Query["id"].FirstOrDefault();
         var groupStr = context.Request.Query["group"].FirstOrDefault();
 
-        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
+        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
         if (string.IsNullOrEmpty(sig))
         {
             context.Response.ContentType = "text/html";
@@ -5060,7 +5060,7 @@ public class StyloBotDashboardMiddleware
         }
 
         var decodedSig = Uri.UnescapeDataString(signature);
-        var sessionStore = context.RequestServices.GetService<BotDetection.Data.ISessionStore>();
+        var sessionStore = context.RequestServices.GetService<BotDetection.Data.IDetectionArchive>();
 
         // Bridge signature key spaces (multi-factor → waveform)
         var sessions = sessionStore != null
@@ -5139,7 +5139,7 @@ public class StyloBotDashboardMiddleware
 
         // Pre-compute inter-session velocity vectors
         var vectors = sessions.Select(s => s.Vector is { Length: > 0 }
-            ? BotDetection.Data.SqliteSessionStore.DeserializeVector(s.Vector) : null).ToList();
+            ? BotDetection.Data.SqliteDetectionArchive.DeserializeVector(s.Vector) : null).ToList();
 
         var html = new System.Text.StringBuilder();
         html.Append("<div class=\"overflow-x-auto\"><table class=\"table table-xs w-full\"><thead>");
@@ -5244,7 +5244,7 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var sessionStore = context.RequestServices.GetService<BotDetection.Data.ISessionStore>();
+        var sessionStore = context.RequestServices.GetService<BotDetection.Data.IDetectionArchive>();
         if (sessionStore == null)
         {
             await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Session store unavailable</div>");
@@ -5256,7 +5256,7 @@ public class StyloBotDashboardMiddleware
 
         var entries = raw.Select(s =>
         {
-            var vector = BotDetection.Data.SqliteSessionStore.DeserializeVector(s.Vector);
+            var vector = BotDetection.Data.SqliteDetectionArchive.DeserializeVector(s.Vector);
             var stateFreqs = new float[10];
             if (vector != null && vector.Length >= 110)
                 Array.Copy(vector, 100, stateFreqs, 0, 10);
@@ -5591,7 +5591,7 @@ public class StyloBotDashboardMiddleware
         // because no writer populates signature_merges yet, but the resolver MUST exist
         // upstream so future writers (commercial labelling, manual merges from the
         // dashboard) cause the right behaviour here without any other change.
-        var resolverStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
+        var resolverStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
         if (resolverStore is not null)
         {
             var canonical = await resolverStore.ResolveSignatureAsync(decodedSignature, context.RequestAborted);
@@ -7251,7 +7251,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 
     private async Task<SessionsListModel> BuildSessionsModel(HttpContext context, int page = 1, int pageSize = 25, string? filter = null)
     {
-        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
+        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
         if (sessionStore == null)
         {
             return new SessionsListModel

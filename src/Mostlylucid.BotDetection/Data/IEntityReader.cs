@@ -5,9 +5,9 @@ namespace Mostlylucid.BotDetection.Data;
 ///     (entity-detail route, /dashboard/entity/{id}; URL generation; cache
 ///     keying). Split out so a remote-mode dashboard host can satisfy these
 ///     reads over the gateway's <c>/api/v1/entities/*</c> surface without
-///     dragging in <see cref="ISessionStore"/>'s write methods. Mirrors the
+///     dragging in <see cref="IDetectionArchive"/>'s write methods. Mirrors the
 ///     <see cref="Identity.IFingerprintReader"/> / <c>SqliteFingerprintStore</c>
-///     split: one focused interface, two impls (local wraps ISessionStore;
+///     split: one focused interface, two impls (local wraps IDetectionArchive;
 ///     remote proxies the REST endpoints).
 /// </summary>
 public interface IEntityReader
@@ -38,16 +38,16 @@ public interface IEntityReader
 
 /// <summary>
 ///     Local <see cref="IEntityReader"/> implementation: thin pass-through to the
-///     in-process <see cref="ISessionStore"/>. Registered by
+///     in-process <see cref="IDetectionArchive"/>. Registered by
 ///     <c>AddBotDetection</c> when a session store is available; a remote-mode
 ///     dashboard host overrides this with <c>RemoteEntityReader</c> in
 ///     <c>AddStyloBotDashboardRemote</c>.
 /// </summary>
 internal sealed class LocalEntityReader : IEntityReader
 {
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
 
-    public LocalEntityReader(ISessionStore store) => _store = store;
+    public LocalEntityReader(IDetectionArchive store) => _store = store;
 
     public async Task<string?> LookupEntityIdAsync(string primarySignature, CancellationToken ct = default)
     {

@@ -33,7 +33,7 @@ public sealed class SessionAtomizerService : IDisposable
 {
     private const int BatchLimit = 5000;
 
-    private readonly ISessionStore _store;
+    private readonly IDetectionArchive _store;
     private readonly ILogger<SessionAtomizerService> _logger;
     private readonly IOptionsMonitor<BotDetectionOptions> _options;
     private readonly IDisposable _subscription;
@@ -48,7 +48,7 @@ public sealed class SessionAtomizerService : IDisposable
     private int      MinRequests    => Retention.SessionMinRequests;
 
     public SessionAtomizerService(
-        ISessionStore store,
+        IDetectionArchive store,
         ILogger<SessionAtomizerService> logger,
         IOptionsMonitor<BotDetectionOptions> options,
         IScheduleCoordinator coordinator)
@@ -190,7 +190,7 @@ public sealed class SessionAtomizerService : IDisposable
                     StartedAt            = group.Min(r => r.Timestamp),
                     EndedAt              = group.Max(r => r.Timestamp),
                     RequestCount         = group.Count,
-                    Vector               = SqliteSessionStore.SerializeVector(vector),
+                    Vector               = SqliteDetectionArchive.SerializeVector(vector),
                     Maturity             = maturity,
                     DominantState        = dominant.ToString(),
                     IsBot                = isBot,

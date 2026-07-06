@@ -448,7 +448,7 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<SessionsListModel> BuildSessionsModelAsync(HttpContext context, int page, int pageSize, string? filter)
     {
-        var sessionStore = context.RequestServices.GetService<ISessionStore>();
+        var sessionStore = context.RequestServices.GetService<IDetectionArchive>();
         if (sessionStore == null)
         {
             return new SessionsListModel

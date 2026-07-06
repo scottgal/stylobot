@@ -16,12 +16,17 @@ namespace Mostlylucid.BotDetection.Data;
 ///     that open a direct SQLite connection (e.g. CentroidSequenceStore) skip
 ///     their setup gracefully.
 /// </summary>
-public sealed class NullSessionStore : ISessionStore
+public sealed class NullDetectionArchive : IDetectionArchive
 {
     public string? PersistenceConnectionString => null;
 
     // === Write path ===
     public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
+        => Task.FromResult(0L);
+
+    public Task<long> AddEchoAsync(
+        Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+        CancellationToken ct = default)
         => Task.FromResult(0L);
 
     public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
