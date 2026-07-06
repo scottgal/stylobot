@@ -7,7 +7,7 @@ description: Tracks content request sequences and writes signals for deferred de
 scope:
   sink: botdetection
   coordinator: detection
-  atom: sequence
+  atom: contentsequence
 
 taxonomy:
   kind: sequencer

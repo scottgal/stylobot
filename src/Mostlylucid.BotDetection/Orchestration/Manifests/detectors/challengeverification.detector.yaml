@@ -1,7 +1,10 @@
 name: ChallengeVerificationContributor
 priority: 25
 enabled: true
-scope: request
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: challengeverification
 description: >
   Analyzes proof-of-work challenge solve characteristics as detection signals.
   Reads timing metadata from a previously solved PoW challenge and emits

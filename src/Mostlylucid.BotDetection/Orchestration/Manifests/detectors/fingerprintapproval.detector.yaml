@@ -1,7 +1,10 @@
 name: FingerprintApprovalContributor
 priority: 24
 enabled: true
-scope: request
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: fingerprintapproval
 description: >
   Checks if the current fingerprint has been manually approved and validates
   locked dimension constraints (country, UA, IP range) against live signals.

@@ -81,6 +81,9 @@ emits:
       type: bool
     - key: response.historical_score
       type: double
+    - key: response.coordinator_available
+      type: bool
+      description: True when the ResponseCoordinator was reachable during detection (raised by the atom; declared here to close the reverse-drift gap)
   on_failure:
     - detector.responsebehavior.failed
 

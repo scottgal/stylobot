@@ -8,12 +8,13 @@ description: >
 scope:
   sink: botdetection
   coordinator: detection
-  atom: privacy
+  atom: piiquerystring
 
 taxonomy:
   kind: privacy
   determinism: deterministic
   persistence: ephemeral
+  concern: privacy
 
 defaults:
   weights:

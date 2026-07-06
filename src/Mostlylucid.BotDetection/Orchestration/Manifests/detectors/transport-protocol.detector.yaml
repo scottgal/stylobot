@@ -7,7 +7,7 @@ description: Detects transport protocol (WebSocket, gRPC, GraphQL, SSE) and vali
 scope:
   sink: botdetection
   coordinator: detection
-  atom: transport
+  atom: transportprotocol
 
 taxonomy:
   kind: sensor
@@ -106,6 +106,18 @@ emits:
     - key: transport.protocol
       type: string
       description: Detected transport protocol
+    - key: transport.is_signalr
+      type: bool
+      description: True when the transport is negotiated SignalR (raised by the atom; declared here to close the reverse-drift gap)
+    - key: transport.is_streaming
+      type: bool
+      description: True when the response body is streaming (raised by the atom; declared here to close the reverse-drift gap)
+    - key: transport.protocol_class
+      type: string
+      description: Coarse protocol classification (raised by the atom; declared here to close the reverse-drift gap)
+    - key: transport.transport_class
+      type: string
+      description: Coarse transport classification (raised by the atom; declared here to close the reverse-drift gap)
 
   on_failure:
     - detector.transport.failed

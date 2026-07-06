@@ -8,12 +8,13 @@ description: >
 scope:
   sink: botdetection
   coordinator: detection
-  atom: security
+  atom: cveprobe
 
 taxonomy:
   kind: security
   determinism: deterministic
   persistence: ephemeral
+  concern: security
 
 defaults:
   weights:

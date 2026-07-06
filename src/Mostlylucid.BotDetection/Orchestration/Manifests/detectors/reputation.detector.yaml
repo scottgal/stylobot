@@ -7,7 +7,7 @@ description: Applies reputation bias from learned patterns to scoring (non-fast-
 scope:
   sink: botdetection
   coordinator: detection
-  atom: reputation
+  atom: reputationbias
 
 taxonomy:
   kind: proposer

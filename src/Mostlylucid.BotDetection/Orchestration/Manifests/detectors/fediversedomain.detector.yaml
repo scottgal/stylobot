@@ -1,0 +1,90 @@
+# Fediverse Domain Detector - Recognises verified Fediverse instances via forward-DNS
+# Confirms the source domain resolves back to the request IP (rDNS + forward),
+# and if so latches friendly.domain_verified. Also participates in the
+# VerifiedBot signal namespace so downstream logic treats verified Fedi
+# instances as friendly (Mastodon/Pleroma link-preview fanout etc.).
+name: FediverseDomain
+priority: 5  # Wave 0 - identity/friendly-latch layer
+enabled: true
+description: Verifies whether an incoming request originates from a Fediverse instance whose rDNS + forward-DNS matches the source IP, latching friendly.domain_verified when confirmed
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: fediversedomain
+
+taxonomy:
+  kind: verifier
+  determinism: nondeterministic
+  persistence: ephemeral
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.fediversedomain.started
+  on_complete:
+    - key: fediverse.instance.checked
+      type: bool
+      description: True when the atom actually attempted the forward-DNS check for this request
+    - key: friendly.domain_verified
+      type: bool
+      description: Latched when Fediverse rDNS + forward-DNS matches the source IP; treated as a friendly-domain pin downstream
+    - key: verifiedbot.method
+      type: string
+      description: Method used to reach the verifiedbot verdict (e.g. forward_dns) when the check applied
+    - key: verifiedbot.forward_dns_matched
+      type: bool
+      description: True when forward-DNS lookup matched the source IP
+    - key: verifiedbot.forward_dns_error
+      type: string
+      description: Exception type name when the forward-DNS lookup failed
+  on_failure:
+    - detector.fediversedomain.failed
+
+listens:
+  required: []
+  optional:
+    - request.ip
+    - header.user_agent.present
+
+lane:
+  name: slow
+  max_concurrency: 4
+  priority: 80
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 0.5
+    human_signal: 1.6
+    verified: 2.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.0
+    human_indicated: -0.2
+    strong_signal: 0.8
+    high_threshold: 0.75
+    low_threshold: 0.25
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 800
+    cache_refresh_sec: 300
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  parameters: {}
+
+tags:
+  - wave-0
+  - identity
+  - fediverse
+  - friendly

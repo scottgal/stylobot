@@ -50,6 +50,13 @@ public sealed partial class TaxonomyConfig
     public string Kind { get; set; } = "sensor";
     public string Determinism { get; set; } = "deterministic";
     public string Persistence { get; set; } = "ephemeral";
+
+    /// <summary>
+    /// Optional concern grouping (identity, security, privacy, network, priors, ...).
+    /// Distinct from <see cref="SignalScope.Atom"/>: many detectors can share a concern
+    /// while each remains its own atom. Empty means no explicit concern.
+    /// </summary>
+    public string Concern { get; set; } = "";
 }
 
 /// <summary>Trigger conditions - when should this detector run?</summary>

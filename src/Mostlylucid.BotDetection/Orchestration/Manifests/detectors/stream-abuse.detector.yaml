@@ -7,7 +7,7 @@ description: Detects stream abuse patterns (handshake storms, cross-endpoint mix
 scope:
   sink: botdetection
   coordinator: detection
-  atom: stream
+  atom: streamabuse
 
 taxonomy:
   kind: sensor

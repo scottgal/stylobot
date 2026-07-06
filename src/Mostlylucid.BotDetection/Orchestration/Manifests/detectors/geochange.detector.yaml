@@ -1,8 +1,10 @@
 name: GeoChange
 priority: 16
 enabled: true
-scope: request
-
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: geochange
 taxonomy:
   category: Geographic
   subcategory: DriftDetection

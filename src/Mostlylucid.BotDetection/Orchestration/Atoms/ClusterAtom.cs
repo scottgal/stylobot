@@ -45,7 +45,7 @@ public sealed class ClusterAtom : DetectorAtomBase
         BotClusterService clusterService,
         CountryReputationTracker countryTracker,
         SignatureCoordinator signatureCoordinator)
-        : base(name: "ClusterContributor", category: "Cluster")
+        : base(name: "Cluster", category: "Cluster")
     {
         _logger = logger;
         _configProvider = configProvider;

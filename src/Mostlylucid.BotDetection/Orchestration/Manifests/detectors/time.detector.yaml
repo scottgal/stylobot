@@ -1,0 +1,76 @@
+# Time Detector - Hydrates time-of-day / day-of-week context signals
+# Cheap sensor: derives request timestamp components and raises them so
+# behavioural / periodicity detectors can reason about diurnal patterns.
+name: Time
+priority: 5  # Wave 0 - runs early, cheap
+enabled: true
+description: Hydrates hour-of-day and day-of-week signals from the request timestamp for downstream behavioural/periodicity analysis
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: time
+
+taxonomy:
+  kind: hydrator
+  determinism: deterministic
+  persistence: ephemeral
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.time.started
+  on_complete:
+    - key: time.hour_of_day
+      type: int
+      description: Hour-of-day (0-23) of the request timestamp, in the server's configured timezone
+    - key: time.day_of_week
+      type: string
+      description: Day-of-week identifier of the request timestamp
+  on_failure:
+    - detector.time.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 150
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 0.0
+    human_signal: 0.0
+    verified: 0.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.0
+    human_indicated: 0.0
+    strong_signal: 0.0
+    high_threshold: 0.0
+    low_threshold: 0.0
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 50
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters: {}
+
+tags:
+  - wave-0
+  - hydrator
+  - temporal

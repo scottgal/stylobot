@@ -1,0 +1,76 @@
+# AI Detector - Placeholder for ONNX / LLM-based late-stage risk adjustment
+# Reads current risk + participating detector count from the sink and,
+# above a threshold, adjusts confidence. Does not raise per-signal
+# emissions today; the manifest reflects that.
+name: AI
+priority: 100  # Very late wave - runs after most contributors settle
+enabled: true
+description: Late-stage risk adjuster (currently a placeholder that reads sink evidence and boosts confidence when risk is already high)
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: ai
+
+taxonomy:
+  kind: analyzer
+  determinism: nondeterministic
+  persistence: ephemeral
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.ai.started
+  on_complete: []
+  on_failure:
+    - detector.ai.failed
+
+listens:
+  required: []
+  optional:
+    - identity.*
+    - signature.primary
+
+lane:
+  name: slow
+  max_concurrency: 2
+  priority: 40
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.0
+    human_signal: 1.0
+    verified: 0.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.6
+    human_indicated: 0.0
+    strong_signal: 0.8
+    high_threshold: 0.8
+    low_threshold: 0.5
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 5000
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    high_risk_threshold: 0.8
+    medium_risk_threshold: 0.5
+    high_risk_adjustment: 0.2
+    min_detector_count: 2
+
+tags:
+  - wave-late
+  - placeholder

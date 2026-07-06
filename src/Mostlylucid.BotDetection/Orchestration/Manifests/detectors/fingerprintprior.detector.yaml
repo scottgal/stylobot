@@ -6,12 +6,13 @@ description: Injects the cached fingerprint verdict as a prior contribution.
 scope:
   sink: botdetection
   coordinator: detection
-  atom: priors
+  atom: fingerprintprior
 
 taxonomy:
   kind: bias
   determinism: deterministic
   persistence: ephemeral
+  concern: priors
 
 input:
   accepts:

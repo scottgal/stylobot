@@ -15,12 +15,13 @@ description: Composes the identity feature vector used by the metastable fingerp
 scope:
   sink: botdetection
   coordinator: detection
-  atom: identity
+  atom: identityvector
 
 taxonomy:
   kind: sensor
   determinism: deterministic
   persistence: ephemeral
+  concern: identity
 
 input:
   accepts:

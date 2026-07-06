@@ -1,0 +1,157 @@
+# Request Hydrator - Infrastructure atom that hydrates the SignalSink from HttpContext
+# Priority 0, always runs first, always required. Emits the canonical
+# request.*, ip.*, header.*, ua.*, protocol.*, hydration.* signals that
+# every other detector consumes.
+name: RequestHydrator
+priority: 0  # Always runs first
+enabled: true
+description: Hydrates the SignalSink from the current HttpContext, emitting the canonical request/header/ip/ua/protocol signal family every downstream detector reads from
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: requesthydrator
+
+taxonomy:
+  kind: hydrator
+  determinism: deterministic
+  persistence: ephemeral
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.requesthydrator.started
+  on_complete:
+    - key: hydration.complete
+      type: bool
+      description: Latched once hydration finishes; downstream detectors can gate on this if needed
+    - key: request.method
+      type: string
+      description: HTTP method of the request
+    - key: request.path
+      type: string
+      description: URL path of the request
+    - key: request.scheme
+      type: string
+      description: URL scheme (http/https)
+    - key: request.has_query
+      type: bool
+      description: True when the request has a query string
+    - key: request.header_count
+      type: int
+      description: Number of headers present on the request
+    - key: protocol.is_https
+      type: bool
+      description: True when the request was received over TLS
+    - key: ip.present
+      type: bool
+      description: True when the request has a source IP address
+    - key: ip.missing
+      type: bool
+      description: True when the request has no source IP (upstream stripped it)
+    - key: ip.type
+      type: string
+      description: IP address family (ipv4 or ipv6)
+    - key: ip.is_loopback
+      type: bool
+      description: True when the source IP is a loopback address
+    - key: ip.is_private
+      type: bool
+      description: True when the source IP is in RFC1918 / RFC4193 private space
+    - key: ua.length
+      type: int
+      description: Length of the User-Agent header
+    - key: ua.empty
+      type: bool
+      description: True when the User-Agent header is missing or empty
+    - key: ua.contains_bot_keyword
+      type: bool
+      description: True when the User-Agent contains a known bot keyword
+    - key: ua.is_cli_tool
+      type: bool
+      description: True when the User-Agent matches a known CLI tool pattern (curl/wget/etc.)
+    - key: ua.is_http_library
+      type: bool
+      description: True when the User-Agent matches a known HTTP-library pattern
+    - key: ua.browser
+      type: string
+      description: Broad browser family (chrome/edge/firefox/safari/...) when identifiable
+    - key: ua.os
+      type: string
+      description: Broad OS family (android/ios/linux/mac/windows) when identifiable
+    - key: header.user_agent.present
+      type: bool
+      description: True when the User-Agent header is present
+    - key: header.accept.present
+      type: bool
+      description: True when the Accept header is present
+    - key: header.accept_language.present
+      type: bool
+      description: True when the Accept-Language header is present
+    - key: header.accept_encoding.present
+      type: bool
+      description: True when the Accept-Encoding header is present
+    - key: header.referer.present
+      type: bool
+      description: True when the Referer header is present
+    - key: header.cookie.present
+      type: bool
+      description: True when the Cookie header is present
+    - key: header.dnt.present
+      type: bool
+      description: True when the DNT header is present
+    - key: header.upgrade_insecure.present
+      type: bool
+      description: True when Upgrade-Insecure-Requests is present
+    - key: header.sec_fetch.present
+      type: bool
+      description: True when any Sec-Fetch-* header is present
+    - key: header.client_hints.present
+      type: bool
+      description: True when client-hint headers are present
+  on_failure:
+    - detector.requesthydrator.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 200
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 0.0
+    human_signal: 0.0
+    verified: 0.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.0
+    human_indicated: 0.0
+    strong_signal: 0.0
+    high_threshold: 0.0
+    low_threshold: 0.0
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 200
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters: {}
+
+tags:
+  - infrastructure
+  - hydrator

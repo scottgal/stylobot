@@ -8,12 +8,13 @@ description: >
 scope:
   sink: botdetection
   coordinator: detection
-  atom: network
+  atom: projecthoneypot
 
 taxonomy:
   kind: lookup
   determinism: deterministic
   persistence: ephemeral
+  concern: network
 
 defaults:
   weights:

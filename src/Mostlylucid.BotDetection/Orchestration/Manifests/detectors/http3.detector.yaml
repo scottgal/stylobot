@@ -7,7 +7,7 @@ description: Analyzes QUIC transport parameters, version negotiation, 0-RTT resu
 scope:
   sink: botdetection
   coordinator: detection
-  atom: http3
+  atom: http3fingerprint
 
 taxonomy:
   kind: sensor

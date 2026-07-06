@@ -1,0 +1,80 @@
+# Browser Mode Classifier - Classifies interaction mode (headless, kiosk, real, etc.)
+# Emits identity.browser_mode:<mode> so downstream identity/archetype code can
+# use the classification without re-running the classifier.
+name: BrowserModeClassifier
+priority: 6  # Wave 0 - alongside other identity-shape atoms
+enabled: true
+description: Classifies the interaction mode of the client (real browser vs headless vs automation vs kiosk) into a single labelled bucket
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: browsermodeclassifier
+
+taxonomy:
+  kind: classifier
+  determinism: deterministic
+  persistence: ephemeral
+  concern: identity
+
+triggers:
+  requires:
+    - ua.family
+  mode: any
+
+emits:
+  on_start:
+    - detector.browsermodeclassifier.started
+  on_complete:
+    - key: identity.browser_mode
+      type: string
+      description: Classified interaction mode of the client (e.g. real_browser, headless, automation, kiosk); consumed by downstream identity/archetype code
+  on_failure:
+    - detector.browsermodeclassifier.failed
+
+listens:
+  required: []
+  optional:
+    - ua.family
+    - ua.browser
+    - header.client_hints.present
+    - header.sec_fetch.present
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 110
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.5
+    human_signal: 1.0
+    verified: 1.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.7
+    human_indicated: -0.1
+    strong_signal: 0.85
+    high_threshold: 0.75
+    low_threshold: 0.25
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 200
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  parameters: {}
+
+tags:
+  - wave-0
+  - identity
+  - classifier

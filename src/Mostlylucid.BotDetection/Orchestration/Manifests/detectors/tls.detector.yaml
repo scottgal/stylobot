@@ -7,7 +7,7 @@ description: Analyzes TLS fingerprints (JA3/JA4) to detect automated clients
 scope:
   sink: botdetection
   coordinator: detection
-  atom: tls
+  atom: tlsfingerprint
 
 taxonomy:
   kind: sensor

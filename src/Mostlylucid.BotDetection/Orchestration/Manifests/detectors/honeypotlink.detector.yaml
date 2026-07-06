@@ -1,0 +1,92 @@
+# Honeypot Link Detector - Matches request path against tiered honeypot patterns
+# When a request path matches a tier-1 (obvious trap) or tier-2 (suspicious)
+# honeypot pattern, raises tier/matched-pattern/normalized-path signals and
+# a graduated intent.threat_score contribution.
+name: HoneypotLink
+priority: 5  # Wave 0 - runs early so tags survive short-circuit
+enabled: true
+description: Matches request path against tier-1 and tier-2 honeypot patterns, raising honeypot.* signals and a threat-score contribution when the path is a known trap
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: honeypotlink
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.honeypotlink.started
+  on_complete:
+    - key: honeypot.tier1_hit
+      type: bool
+      description: Path matched a tier-1 honeypot pattern (obvious scanner/probe surface)
+    - key: honeypot.tier2_hit
+      type: bool
+      description: Path matched a tier-2 honeypot pattern (softer signal, requires corroboration)
+    - key: honeypot.tier
+      type: int
+      description: Numeric tier (1 or 2) of the strongest matched honeypot pattern
+    - key: honeypot.matched_pattern
+      type: string
+      description: The specific honeypot pattern that matched
+    - key: honeypot.normalized_path
+      type: string
+      description: The path after normalisation, used for pattern matching
+    - key: intent.threat_score
+      type: float
+      description: Threat-score contribution from the honeypot hit (tier-dependent)
+  on_failure:
+    - detector.honeypotlink.failed
+
+listens:
+  required: []
+  optional:
+    - request.path
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 130
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 2.5
+    human_signal: 0.0
+    verified: 0.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.95
+    human_indicated: 0.0
+    strong_signal: 0.98
+    high_threshold: 0.9
+    low_threshold: 0.4
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 100
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    tier1_threat_score: 0.95
+    tier2_threat_score: 0.65
+
+tags:
+  - wave-0
+  - honeypot
+  - security

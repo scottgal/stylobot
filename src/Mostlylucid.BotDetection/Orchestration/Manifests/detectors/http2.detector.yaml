@@ -7,7 +7,7 @@ description: Analyzes HTTP/2 settings frames, priorities, and HPACK patterns for
 scope:
   sink: botdetection
   coordinator: detection
-  atom: http2
+  atom: http2fingerprint
 
 taxonomy:
   kind: sensor
@@ -116,6 +116,9 @@ emits:
     - key: h2.is_http2
       type: bool
       description: Connection uses HTTP/2 framing
+    - key: h2.protocol
+      type: string
+      description: HTTP/2 protocol variant negotiated (raised by the atom; declared here to close the reverse-drift gap)
     - key: h2.is_http3
       type: bool
       description: Connection uses HTTP/3 (set here for cross-pivot when the H2 contributor sees the H3 upgrade)

@@ -1,0 +1,92 @@
+# Verified Bot Inline - Fast per-request IP-range verified-bot lookup
+# Runs before the fuller VerifiedBot atom to short-circuit obviously
+# verified traffic (major search-engine + AI-crawler IP ranges) without
+# spending a forward-DNS round trip.
+name: VerifiedBotInline
+priority: 4  # Wave 0 - runs before VerifiedBot (priority 5+)
+enabled: true
+description: Fast inline verified-bot check via IP-range lookup, latching verifiedbot.* signals and friendly.ip_verified so the fuller VerifiedBot atom can short-circuit
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: verifiedbotinline
+
+taxonomy:
+  kind: verifier
+  determinism: deterministic
+  persistence: ephemeral
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.verifiedbotinline.started
+  on_complete:
+    - key: verifiedbot.checked
+      type: bool
+      description: True when the inline lookup ran for this request
+    - key: verifiedbot.confirmed
+      type: bool
+      description: True when the source IP fell in a verified-bot range
+    - key: verifiedbot.method
+      type: string
+      description: Method used to reach the verdict (ip_range for this atom)
+    - key: verifiedbot.name
+      type: string
+      description: Name of the matched verified bot (e.g. Googlebot, Bingbot, GPTBot)
+    - key: verifiedbot.spoofed
+      type: bool
+      description: True when the User-Agent claims verified-bot identity but the IP range doesn't match
+    - key: friendly.ip_verified
+      type: bool
+      description: Latched when the source IP resolves to a friendly / verified-bot range
+  on_failure:
+    - detector.verifiedbotinline.failed
+
+listens:
+  required: []
+  optional:
+    - request.ip
+    - header.user_agent.present
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 130
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 0.2
+    human_signal: 0.0
+    verified: 2.5
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.3
+    human_indicated: 0.0
+    strong_signal: 0.95
+    high_threshold: 0.85
+    low_threshold: 0.2
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 100
+    cache_refresh_sec: 300
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: true
+    can_escalate: false
+
+  parameters: {}
+
+tags:
+  - wave-0
+  - identity
+  - verifiedbot
+  - inline

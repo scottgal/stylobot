@@ -7,7 +7,7 @@ description: Checks reputation cache for confirmed good/bad patterns for instant
 scope:
   sink: botdetection
   coordinator: detection
-  atom: fastpath
+  atom: fastpathreputation
 
 taxonomy:
   kind: gatekeeper  # Controls early exit decisions
