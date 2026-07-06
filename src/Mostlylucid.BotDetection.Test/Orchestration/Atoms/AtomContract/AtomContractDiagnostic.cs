@@ -123,6 +123,36 @@ public sealed class AtomContractDiagnostic
             ? m.Name[..^"Contributor".Length]
             : m.Name;
 
+    [Fact(Skip = "Diagnostic only — remove Skip to report which detector manifests fail VYaml parse.")]
+    public void Report_manifest_parse_failures()
+    {
+        var asm = typeof(DetectorManifest).Assembly;
+        var names = asm.GetManifestResourceNames()
+            .Where(n => n.EndsWith(".detector.yaml", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+
+        int ok = 0, fail = 0;
+        foreach (var n in names)
+        {
+            using var s = asm.GetManifestResourceStream(n)!;
+            using var ms = new MemoryStream();
+            s.CopyTo(ms);
+            try
+            {
+                _ = VYaml.Serialization.YamlSerializer.Deserialize<DetectorManifest>(ms.ToArray());
+                ok++;
+            }
+            catch (Exception ex)
+            {
+                fail++;
+                var shortName = n.Split('.').Reverse().Skip(2).FirstOrDefault() ?? n;
+                _out.WriteLine($"FAIL {shortName}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+            }
+        }
+        _out.WriteLine($"parsed ok: {ok}, failed: {fail}, total: {names.Count}");
+    }
+
     private static List<IDetectorAtom> ResolveAtoms(IServiceProvider provider, out string? error)
     {
         error = null;
