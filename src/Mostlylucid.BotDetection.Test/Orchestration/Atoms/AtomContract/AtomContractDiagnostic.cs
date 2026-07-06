@@ -58,6 +58,7 @@ public sealed class AtomContractDiagnostic
 
         var lines = new List<string> { $"# Atom contract drift report ({atoms.Count} atoms resolved)" };
         if (resolveError is not null) lines.Add($"RESOLUTION ERROR (partial list): {resolveError}");
+        lines.Add($"LOADED MANIFEST KEYS: {byAtomKey.Count} (of {atoms.Count} atoms); un-loaded manifest files are orphans below");
 
         var noManifest = new List<string>();
         var reverseDrift = new List<string>();  // observed-not-declared (reliable)

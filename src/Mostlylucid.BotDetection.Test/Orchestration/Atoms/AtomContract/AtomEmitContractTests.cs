@@ -59,10 +59,11 @@ public sealed class AtomEmitContractTests
     /// </summary>
     private static readonly Dictionary<string, HashSet<string>> KnownReverseDrift = new(StringComparer.Ordinal)
     {
-        ["Http2Fingerprint"] = new(StringComparer.Ordinal) { "h2.protocol" },
-        ["ResponseBehavior"] = new(StringComparer.Ordinal) { "response.coordinator_available" },
-        ["TransportProtocol"] = new(StringComparer.Ordinal)
-            { "transport.is_signalr", "transport.is_streaming", "transport.protocol_class", "transport.transport_class" },
+        // The 3 original drifts (Http2Fingerprint/ResponseBehavior/TransportProtocol) were
+        // declared manifest-side in c536c485. Time is a fresh drift: its backfilled orphan
+        // manifest (best-effort grep) declares 2 keys but the atom also raises
+        // time.is_business_hours. Flagged to the manifest owner; remove when declared.
+        ["Time"] = new(StringComparer.Ordinal) { "time.is_business_hours" },
     };
 
     [Fact]
