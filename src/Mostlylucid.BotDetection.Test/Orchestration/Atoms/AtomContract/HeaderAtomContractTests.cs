@@ -106,27 +106,5 @@ public sealed class HeaderAtomContractTests
         h["Sec-WebSocket-Key"] = "dGhlIHNhbXBsZSBub25jZQ==";
         return http;
     }
-
-    private sealed class StaticHttpContextAccessor(HttpContext context) : IHttpContextAccessor
-    {
-        public HttpContext? HttpContext { get; set; } = context;
-    }
-
-    /// <summary>Returns the caller-supplied default for every lookup — the atom exercises
-    /// its code-default behaviour, which is all the emit contract cares about.</summary>
-    private sealed class StubDetectorConfigProvider : IDetectorConfigProvider
-    {
-        public DetectorManifest? GetManifest(string detectorName) => null;
-        public DetectorDefaults GetDefaults(string detectorName) => new();
-        public T GetParameter<T>(string detectorName, string parameterName, T defaultValue) => defaultValue;
-
-        public Task<T> GetParameterAsync<T>(string detectorName, string parameterName,
-            ConfigResolutionContext context, T defaultValue, CancellationToken ct = default)
-            => Task.FromResult(defaultValue);
-
-        public void InvalidateCache(string? detectorName = null) { }
-
-        public IReadOnlyDictionary<string, DetectorManifest> GetAllManifests()
-            => new Dictionary<string, DetectorManifest>();
-    }
+    // StaticHttpContextAccessor + StubDetectorConfigProvider live in AtomContractTestStubs.cs (shared).
 }
