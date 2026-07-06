@@ -113,9 +113,11 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 ### Detector Benchmark Numbers
 
-Measured via YAML-driven BenchmarkDotNet harness (`Mostlylucid.BotDetection.Benchmarks/Scenarios/*.benchmark.yaml`). Run: `dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*DetectorBenchmarkRunner*'`
+The per-detector table below is the **pre-atom-refactor baseline** (Apple M5 arm64, .NET 10), from the `DetectorBenchmarkRunner` harness that was removed with the contributor pipeline in the atom refactor (`cbf0c564`); it is kept as a per-detector cost reference. The current harness is the hot-path micro-benchmarks (`*HotPath*`, `*SessionVector*`, `*SlimSimilarity*`) plus the end-to-end pipeline:
 
-Benchmarks run on Apple M5 (arm64), .NET 10. Numbers are per-scenario means from the full `DetectorBenchmarkRunner` pipeline (all contributors active, in-process, warm cache).
+```bash
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*Harness.PipelineBenchmarkRunner*'
+```
 
 | Detector | Scenario | Mean | Allocated |
 |----------|----------|------|-----------|
@@ -146,6 +148,21 @@ Benchmarks run on Apple M5 (arm64), .NET 10. Numbers are per-scenario means from
 | Haxxor | Clean request | 198 ns | **0 B** |
 | UserAgent | Googlebot | 13,272 ns | 2,568 B |
 | UserAgent | Chrome (full pipeline) | 104,821 ns | 1,817 B |
+
+**End-to-end pipeline + hot paths (AMD Ryzen 9 9950X, .NET 10, 2026-07-06).** Measured by `PipelineBenchmarkRunner` (full `BotDetectionOrchestrator.DetectAsync` per request, the live middleware path) and the hot-path micro-benchmarks:
+
+| Path | Mean | Allocated |
+|------|------|-----------|
+| Full pipeline: human browsing (Chrome) | 100.3 µs | 217 KB |
+| Full pipeline: obvious bot (curl) | 99.1 µs | 216 KB |
+| Full pipeline: AI scraper (GPTBot) | 121 µs (noisy) | 216 KB |
+| Identity match: WeightedCosine L1 confirm | 14.8 ns | **0 B** |
+| Identity match: WeightedCosine L2 walk (TopK=5) | 76 ns | **0 B** |
+| Markov: RecordTransition (per-request) | 4,181 ns | 10,136 B |
+| SessionVector: cosine similarity (118-dim) | 52 ns | **0 B** |
+| SlimSimilarity: FindSimilar top5 (2000 cached vectors) | 131 µs | 224 B |
+
+Full pipeline is **~100 µs/request** (sub-ms; the fast-path claim holds end to end), with **~216 KB/request** dominated by per-request orchestrator construction (`GetServices<IDetectorAtom>()` + registering ~60 atoms each request, which production also pays — the pooling lever if RPS-scale GC pressure appears). The identity/Markov/vector hot paths are ns-to-low-µs and mostly zero-alloc; `SlimSimilarity.FindSimilar*` is an O(N) linear scan (sub-ms to ~2000 cached vectors, then the commercial pgvector/HNSW path).
 
 **Notes:** `UserAgent_Googlebot` (13 µs) and `UserAgent_HumanChrome` (105 µs) reflect the full orchestration pipeline (all 57 contributors), not just the UA detector. `Behavioral_Normal` (9.6 µs) allocates more due to feature vector computation. The `WellKnownBotIndex` scan (~635 arcjet patterns: SIMD `SearchValues` pre-filter + `string.Contains` for the ~81% pure-literal patterns, real `Regex` only for the remaining ~19%) is cached via `BoundedCache<string, WellKnownBotMatch?>` so repeat UAs hit O(1) — the three-tier scan only runs on the first occurrence of each unique UA string.
 
@@ -467,12 +484,15 @@ Core interfaces in `Mostlylucid.BotDetection/SimulationPacks/`: `IHolodeckRespon
 
 ### Benchmark Harness
 
-YAML-driven BenchmarkDotNet harness in `Mostlylucid.BotDetection.Benchmarks/Scenarios/*.benchmark.yaml`.
+BenchmarkDotNet harness (`BenchmarkSwitcher`, standard CLI args). The end-to-end `PipelineBenchmarkRunner` is driven by `Mostlylucid.BotDetection.Benchmarks/Scenarios/*.benchmark.yaml` (the `detector: _pipeline` scenarios); the hot-path micro-benchmarks are code-defined.
 
 ```bash
-dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*DetectorBenchmarkRunner*'
-dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --list-scenarios
-dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --regression  # CI mode
+# Full detection pipeline (per-request, all atoms) over the _pipeline scenarios
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*Harness.PipelineBenchmarkRunner*'
+# Hot-path micro-benchmarks (identity match, Markov, session vector, similarity search)
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*HotPath*' '*SessionVector*' '*SlimSimilarity*'
+# List all benchmarks
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --list flat
 ```
 
 ## Production Architecture
