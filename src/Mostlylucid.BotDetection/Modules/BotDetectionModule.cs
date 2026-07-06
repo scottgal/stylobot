@@ -106,6 +106,29 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Orchestration.Manifests.IDetectorConfigProvider,
             Orchestration.Manifests.DetectorConfigProvider>();
 
+        // FOSS config subsystem — dropped by the Step-7 contributor delete (1a8d2745)
+        // with the contributors, but every class survived. The dashboard's
+        // Configuration tab resolves IConfigEditorService; its Razor partial is typed
+        // to ConfigurationEditorModel, so when the service is missing the shell falls
+        // through to that partial with the wrong model and the route 500s.
+        // FileSystemConfigurationOverrideSource watches {ContentRoot}/stylobot-config
+        // for YAML/JSON edits (hot-reload); ConfigurationWatcher invalidates the config
+        // cache when any override source changes; ConfigEditorService reads embedded
+        // manifests + overrides for the tab. Lambda registration keeps IHostEnvironment
+        // optional so plain-ServiceCollection test fixtures can still resolve it.
+        services.TryAddSingleton(sp => new Orchestration.Manifests.FileSystemConfigurationOverrideSource(
+            sp.GetRequiredService<Orchestration.Manifests.DetectorManifestLoader>(),
+            sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Orchestration.Manifests.FileSystemConfigurationOverrideSource>>()));
+        services.AddSingleton<Orchestration.Manifests.IConfigurationOverrideSource>(sp =>
+            sp.GetRequiredService<Orchestration.Manifests.FileSystemConfigurationOverrideSource>());
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Orchestration.Manifests.FileSystemConfigurationOverrideSource>());
+        services.AddHostedService<Orchestration.Manifests.ConfigurationWatcher>();
+        services.TryAddSingleton<Orchestration.Manifests.ConfigEditorService>();
+        services.TryAddSingleton<Orchestration.Manifests.IConfigEditorService>(
+            sp => sp.GetRequiredService<Orchestration.Manifests.ConfigEditorService>());
+
         // Detection event publisher — Null default so DetectionBroadcastMiddleware
         // (mounted unconditionally by the dashboard middleware chain) can resolve
         // even when observability isn't configured. AddStyloBotObservability

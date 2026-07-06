@@ -242,6 +242,16 @@
                 ViewBag.CspNonce = Model.CspNonce;
                 @await Html.PartialAsync(match.PartialPath, Model.Configuration)
             }
+            else if (rowRef.Area == "configuration")
+            {
+                @* Configuration editor service isn't registered (trimmed / remote-viewer
+                   host). _ConfigurationEditor.cshtml is typed to ConfigurationEditorModel,
+                   so we must NOT fall through to the generic partial with the shell model. *@
+                <div class="rounded-xl border p-6 text-sm text-base-content/60"
+                     style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    The configuration editor isn't available in this deployment.
+                </div>
+            }
             else if (rowRef.Area == "compliance" && Model.Compliance is not null)
             {
                 @await Html.PartialAsync(match.PartialPath, Model.Compliance)
