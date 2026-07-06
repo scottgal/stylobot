@@ -25,23 +25,35 @@ Recognize health-endpoint requests, then branch on caller source using signals t
 - `BotDetection:HealthEndpoints` config (default list: `/health /healthz /livez /readyz /ready /live /ping /status /alive /admin/alive`), a `HealthEndpointCatalog` (path-set matcher).
 - A cheap Wave-0 recognizer raises `request.health_endpoint` when the request path matches. New `SignalKeys.HealthEndpoint`.
 
-### 2. Source-aware classification (the core fix)
-When `request.health_endpoint` is set, branch on existing source signals:
-- **Expected source** — loopback / RFC1918 (`NetworkHelper.IsLocalIp`, already surfaced as `IpIsLocal` by `IpAtom` at `Orchestration/Atoms/IpAtom.cs:129`), configured `TransportTrust:TrustedProxyIps` (`Proxy/TransportHeaderTrust.cs`), and the gateway's own Part-3 probe → classify **`BotType.Internal`**, action **allow/pass** (reuse the existing Internal→`logonly` lane).
-  - **Root-cause step (do first):** a loopback `curl /health` currently resolves as `Tool`→throttle, *not* Internal. Before adding anything, trace why the existing `IpIsLocal ? BotType.Internal` promotion (`Orchestration/DetectionLedgerExtensions.cs:244`) doesn't win: either `IpIsLocal` isn't set for the connection in the verify/container path, or the `Tool`-type action in `Enforcement/PostDetectionActionGate.cs` overrides the Internal→`logonly` mapping. Make the health-endpoint+expected-source case authoritative in the action precedence (`PostDetectionActionGate` / `BlockResponseGate.ShouldBlock`).
-- **Unexpected/external source** → do **not** exempt: stay in detection, raise `health.endpoint_recon` (new `SignalKeys`), rate-limit, surface on the dashboard. External enumeration stays suspicious.
+### 2a. Root-cause fix (do FIRST — confirmed by overview, broader than /health)
+A loopback `curl /health` currently resolves as `Tool`→throttle, not Internal, because the `IpIsLocal ? BotType.Internal` promotion (`Orchestration/DetectionLedgerExtensions.cs:244`) never fires. **Confirmed root cause:** `ledger.MergedSignals` (Ephemeral 2.8.1 `DetectionLedger.cs:136-150`) is built exclusively from `contribution.Signals`; `IpAtom.cs:131` only calls `sink.Raise($"{IpIsLocal}:true")` and never populates `contribution.Signals`, so the signal lives only in the `SignalSink`. `preSignals.TryGetValue(IpIsLocal,…)` fails on **missing key**, `is true` never runs, promotion is dead. **Five sibling checks are dead the same way** (all sink-only, read via `is true` on `preSignals`): `UserAgentIsBot`/declaredBot (`:114`), `IpIsLocal` (`:154`, `:490`), `ReputationFastAbortActive` (`:835`), `SecurityToolDetected` (`:933`). Tests miss it because test callers pass `premergedSignals` with hand-built boxed bools.
+
+**Fix (overview-blessed, atomic for all six):** thread the request `SignalSink` into `ToAggregatedEvidence` (add optional `SignalSink? sink = null`; `BotDetectionOrchestrator.cs:111/174` has it) and replace each `preSignals.TryGetValue(k,…) && v is true` with `sink?.ReadBoolHint(k, fallback:false) ?? false` (`Orchestration/Atoms/SignalHintExtensions.cs:23`). Do NOT mirror the signal into `contribution.Signals` per-atom (workaround; five other signals read the same broken way — fix the reader). `premergedSignals`-passing test callers keep working. **Rollout note:** the five siblings start firing in prod for the first time (e.g. the `DeclaredBot` verdict-honest override at `:114`); eyeball staging after landing — guarded rollout nice-to-have, not blocking.
+
+### 2b. Shape-AND-source classification (the core fix)
+When `request.health_endpoint` is set, classify **positively on probe shape AND expected source** (per overview/feature: source gates, shape confirms — a trusted-source IP alone is not sufficient, or an on-network attacker hitting `/health` gets a free Allow):
+- **Expected source** — loopback / RFC1918 read from the **sink** via `ReadBoolHint(IpIsLocal)` (NOT `MergedSignals`, or we rebuild the bug above), configured `TransportTrust:TrustedProxyIps` (`Proxy/TransportHeaderTrust.cs`), and the gateway's own Part-3 probe. **AND**
+- **Probe shape** — a positive match on probe UA family (`kube-probe`, `Go-http-client`, `curl`, `wget`, `docker`) + minimal HTTP semantics (no browser `Sec-Fetch-*`/`Accept: text/html` navigation shape). A browser-shaped request from a trusted IP does NOT qualify.
+- Both hold → classify **`BotType.Internal`**, name **"Health Probe"**, action **allow/pass** (reuse the existing Internal→`logonly` lane, now live after 2a).
+- **Otherwise** (external source, or trusted source but non-probe shape) → do **not** exempt: stay in detection, raise `health.endpoint_recon` (new `SignalKeys`), and **feed `intent.threat_score`** — a small nudge into the intent pool that `ProjectHoneypotAtom`/`HoneypotLinkAtom`/`EndpointHistoryAtom` feed (mirror their magnitude), so co-occurring recon on the same source amplifies the verdict, not just per-path rate-limit.
 
 ### 3. Naming
 `Services/FingerprintNameComposer.Compose` short-circuits to **"Health Probe"** when `request.health_endpoint` + expected-source (before the Priority-1 claim extraction), so the dashboard names it instead of "curl". Survives name hysteresis.
 
 ### 4. Home as a default policy
-- Extend `EndpointPolicyRule` (`EndpointPolicies/EndpointPolicyOptions.cs`) with a **`Source` matcher** (`internal` | `external` | `any`, default `any`) + wire it through `ConfigEndpointPolicyResolver.Match` (`EndpointPolicies/IEndpointPolicyResolver.cs`). This lets the source-awareness be expressed *as policy* (the "source-aware default EndpointPolicy" the spec asks for), operator-overridable.
-- Seed a built-in default rule set for the health paths (internal→allow, external→recon/rate-limit). Commercial per-domain override rides the existing `IEndpointPolicyResolver`.
+- Extend `EndpointPolicyRule` (`EndpointPolicies/EndpointPolicyOptions.cs`) with a **`Source` matcher** (`internal` | `external` | `any`, default `any`) + wire it through `ConfigEndpointPolicyResolver.Match` (`EndpointPolicies/IEndpointPolicyResolver.cs`). `Source` is part of the **public** `EndpointPolicyRule` shape the resolver returns, so commercial per-domain health policies can be source-aware too (feature ask). Options-driven per `feedback_all_settings_configurable`: expected-source = loopback + a config list of CIDRs / UA-family matchers, so cluster/k8s topologies extend without a rebuild.
+- Seed a built-in default rule set for the health paths (internal+probe-shape→allow, else→recon+threat_score+rate-limit), but keep it **overridable** (last-writer-per-domain wins; not hard-coded ahead of resolution — feature ask). Commercial per-domain override rides the existing `IEndpointPolicyResolver`. Ping feature to update the topology doc's EndpointPolicy references when the rule shape changes.
 
 ### Testing (Part 1)
-- Unit: catalog path-match; source branch (loopback/RFC1918/trusted-proxy → Internal/allow; public → recon+detect); naming → "Health Probe"; `EndpointPolicyRule.Source` matcher.
-- Integration: loopback `curl /health` → 200, classified `Internal`/"Health Probe"; external `curl /health` → stays detected + `health_endpoint_recon`.
-- Regression: re-run `src/Mostlylucid.BotDetection.Console/verify-aot.sh` → check #7 (`/health` healthy) green; full test suite green.
+- **Root-cause fix (2a):** unit test proving the six `is true` checks now fire off sink signals through the production `ToAggregatedEvidence` path (no `premergedSignals` passed) — e.g. a sink with `IpIsLocal:true` yields `isLocalIp=true`; likewise `SecurityToolDetected`, declaredBot. This is the test the current suite lacks (it bypasses via `premergedSignals`).
+- Unit: catalog path-match; shape-AND-source branch; naming → "Health Probe"; `EndpointPolicyRule.Source` matcher.
+- Integration acceptance (feature owns end-to-end):
+  1. Loopback/Docker `curl -f /health` (probe shape + local source) → **200, `Internal`/"Health Probe"**.
+  2. Real k8s HTTP liveness probe (`kube-probe` UA) → 200 Internal (tcpSocket probes already immune; this fixes the HTTP path).
+  3. **Shape guard:** a browser-shaped request (`Sec-Fetch-*`, `Accept: text/html`) to `/health` from a trusted-source IP is **NOT** auto-allowed as Health Probe — proves shape+source, not source-only.
+  4. External `curl /health` → stays detected + `health.endpoint_recon`, and **nudges `intent.threat_score`** (verify co-occurring recon on the same source amplifies the bot verdict, not just per-path rate-limit).
+  5. **No stat pollution:** the Health Probe (BotType `Internal`) is excluded from dashboard widget totals (ties #34) — verify it doesn't inflate traffic counts.
+- Regression: re-run `src/Mostlylucid.BotDetection.Console/verify-aot.sh` → check #7 (`/health` healthy) green; full test suite green; eyeball staging for the newly-live sibling checks (2a rollout note).
 
 ## Part 2 — upstream health-endpoint discovery (DEFERRED; tracked)
 
