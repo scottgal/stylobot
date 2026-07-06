@@ -14,8 +14,6 @@
         <PackageTags>geolocation;geo-routing;middleware;aspnetcore;ip-location;country</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Description>
-            DEPRECATION NOTICE: This package will be renamed to 'stylobot.geodetection' on June 1 2025. See https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md
-
             Geographic location detection and routing middleware for ASP.NET Core applications with country-based routing and IP geolocation.
         </Description>
         <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>

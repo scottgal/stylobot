@@ -14,9 +14,7 @@
         <PackageTags>bot-detection;middleware;aspnetcore;security;crawler;web</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Description>
-            DEPRECATION NOTICE: This package will be renamed to 'stylobot' on June 1 2025. Version 7.0 will publish under the new name with a Stylobot.* namespace. See https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md
-
-            Bot detection middleware for ASP.NET Core applications with behavioral analysis, header inspection, IP-based detection, and optional LLM-based classification.
+            Enterprise bot detection and anonymous entity resolution for ASP.NET Core — the detection engine behind StyloBot (https://stylo.bot). Probabilistic and behavioural, not just User-Agent matching: UA/header/IP analysis, JA3/JA4/HTTP2/QUIC/TCP-IP fingerprinting, Leiden cluster discovery, 129-dim Markov session vectors, metastable fingerprint identity, and optional LLM classification. Zero-PII (HMAC-SHA256), SQLite-backed, single-call UseStyloBot() setup.
         </Description>
         <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>
         <TargetFrameworks>net10.0</TargetFrameworks>
