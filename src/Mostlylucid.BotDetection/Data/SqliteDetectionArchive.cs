@@ -267,7 +267,9 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
             cmd.Parameters.AddWithValue("@conf", echo.LatestConfidence);
             cmd.Parameters.AddWithValue("@hp", echo.HoneypotHits);
             cmd.Parameters.AddWithValue("@statusJson",
-                System.Text.Json.JsonSerializer.Serialize(echo.UpstreamStatusCounts));
+                System.Text.Json.JsonSerializer.Serialize(
+                    new Dictionary<int, int>(echo.UpstreamStatusCounts),
+                    BotDetectionJsonSerializerContext.Default.DictionaryInt32Int32));
             cmd.Parameters.AddWithValue("@clientType", (object?)echo.DominantClientType ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@priority", echo.RetentionPriority);
             cmd.Parameters.AddWithValue("@reason", (int)echo.FinalizeReason);

@@ -42,6 +42,7 @@ namespace Mostlylucid.BotDetection.Data;
 [JsonSerializable(typeof(CentroidSequence))]
 [JsonSerializable(typeof(Dictionary<string, int>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(Dictionary<int, int>))]
 [JsonSerializable(typeof(JsonElement[]))]
 [JsonSerializable(typeof(double[]))]
 internal partial class BotDetectionJsonSerializerContext : JsonSerializerContext
