@@ -192,6 +192,11 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Anchor index: brute-force is the FOSS default (no sqlite-vec dep);
         // commercial swaps to SqliteVec via TryAdd-loses in the Postgres pack.
         services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.BruteForceIdentityAnchorIndex>();
+        // Self-register the concrete brute-force KNN builder so any downstream pack that
+        // swaps IKnnGraphBuilder for a resolver whose fallback is BruteForceKnnGraphBuilder
+        // can resolve it from DI (it was declared but never registered; the Postgres pack
+        // had to work around the gap). Stateless, safe to always have available.
+        services.TryAddSingleton<Clustering.Knn.BruteForceKnnGraphBuilder>();
         // Browser-mode seed source: YAML-loaded catalogue is the FOSS default;
         // HardcodedBrowserModeSeedSource fallback is for tests.
         services.TryAddSingleton<Identity.BrowserModes.IBrowserModeSeedSource,
