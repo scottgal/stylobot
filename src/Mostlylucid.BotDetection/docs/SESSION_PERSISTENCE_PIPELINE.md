@@ -143,6 +143,120 @@ services.AddOnInitSignal<Orchestration.Sessions.SessionEchoAtom>(
 
 ---
 
+## READ THIS BEFORE RE-ADDING SERVICE REGISTRATIONS
+
+**Please don't grep for "missing" `TryAddSingleton` and add them back mechanically.** Step 7 (the contributor purge) dropped a lot of registrations, and a big chunk of this session's earlier work was going through and putting them back correctly. Some things you see unregistered *should* stay unregistered. Some things were re-registered under a different code path.
+
+### Already re-registered this session (don't add duplicates)
+
+If you see these referenced but not obviously registered — they're wired. Search `Modules/BotDetectionModule.cs`.
+
+Infrastructure:
+- `IScheduleCoordinator` → `ScheduleCoordinator` + `ScheduleCoordinatorWatchdog` (hosted)
+- `IHttpContextAccessor` (via `AddHttpContextAccessor()`)
+- `Func<System.Data.Common.DbConnection>` (SQLite factory)
+- `AddPolicyDispatcher()` called inside the module
+- `AddHttpClient()` + `AddMemoryCache()`
+- `BotDetectionHostedSingletonsBootstrap` (hosted, eager-resolves all singleton subscribers)
+
+Action policies:
+- `IActionPolicyRegistry` → `ActionPolicyRegistry`
+- Five `IActionPolicyFactory` impls (LogOnly / Block / Challenge / Throttle / Redirect)
+- `EscalateActionPolicyFactory` (one factory keyed on `ActionType.Escalate`; reads `options["Target"]` = learning|session|llm to dispatch)
+
+Manifest / config:
+- `DetectorManifestLoader`
+- `IDetectorConfigProvider` → `DetectorConfigProvider`
+
+Store defaults (FOSS SQLite / null / config-driven variants; commercial packs Replace):
+- `IDetectionArchive` → `SqliteDetectionArchive` **(this session)**
+- `IBotListDatabase` → `BotListDatabase`, `IBotListFetcher` → `BotListFetcher`
+- `IChallengeStore` → `InMemoryChallengeStore`
+- `IFingerprintApprovalStore` → `NullFingerprintApprovalStore`
+- `IPatternReputationCache` → `InMemoryPatternReputationCache`
+- `IHoneypotExemptStore` → `ConfigHoneypotExemptStore`
+- `IPathLifecycleStore` → `NullPathLifecycleStore`
+- `IFingerprintStore` → `SqliteFingerprintStore`
+- `IFingerprintBrowserModeStore` → `SqliteFingerprintBrowserModeStore`
+- `IFingerprintPoolCollisionTracker` → `SqlitePoolCollisionStore`
+- `ISignatureCentroidStore` → `NullSignatureCentroidStore`
+- `IIntentCentroidStore` → `NullIntentCentroidStore`
+- `ICveFingerprintMatcher` → `NullCveFingerprintMatcher`
+- `IIdentityAnchorIndex` → `BruteForceIdentityAnchorIndex`
+- `IThreatIntelCoordinator` → `ThreatIntelCoordinator` + 4 offline providers + refresh service (hosted)
+- `IApiKeyStore` → `InMemoryApiKeyStore` (registered inside `AddStyloBotApi`)
+- `IDetectionEventPublisher` → `NullDetectionEventPublisher`
+- `DomainEntitlementValidator` (commercial — registered inside `AddStyloBotCommercialPlugin`)
+
+Identity subsystem:
+- `IdentityVectorLayout` / `IdentityVectorEncoder` / `EncoderResultCache` / `HeaderHashCollector`
+- `IdentityArchetypeRegistry` / `IdentityGlobalWeightsCache`
+- `IdentityProcessingCoordinator`
+- Browser modes: `ModeCentroidCatalogue` / `ModeCentroidClassifier` (materialised at boot via `LoadAsync().GetAwaiter().GetResult()`) / `IBrowserModeResolver` → `CentroidBrowserModeResolver` / `IBrowserModeSeedSource` → `YamlBrowserModeSeedSource`
+
+Services / support:
+- `IBrowserVersionService` → `BrowserVersionService`
+- `IDnsResolver` → `SystemDnsResolver`
+- `IFediverseDomainVerifier` → `FediverseDomainVerifier`
+- `VerifiedBotRegistry`, `ProjectHoneypotLookupService`, `UaProfileStore`, `CountryReputationTracker`, `ReactiveSignalTracker`
+- `Services.SequenceContextStore`, `Services.CentroidSequenceStore`, `Services.EndpointDivergenceTracker`
+- `Services.BotClusterService` (hosted)
+- `Analysis.SessionStore` — legacy sliding-vector window (this **is** registered; SessionVectorAtom needs it)
+- `Analysis.DeploymentNormTracker`
+- `ClientSide.FingerprintPopulationTracker` + `IBrowserFingerprintStore` → `BrowserFingerprintStore`
+- Similarity: `FeatureVectorizer` / `IntentVectorizer` / `IIntentSimilaritySearch` → `SlimIntentSearch` / `ISignatureSimilaritySearch` → `SlimSignatureSimilaritySearch`
+- Legacy detectors still consumed by 4 atoms: `HeuristicDetector`, `VersionAgeDetector`, `BehavioralDetector`, `ClientSideDetector`
+- `Orchestration.SignatureCoordinator` (+ options)
+- `Orchestration.Atoms.WaveformHistoryStore` / `FingerprintDimSnapshotCache`
+- `Dashboard.MultiFactorSignatureService`
+- `Data.PatternReputationUpdater`
+- `SimulationPacks.ISimulationPackRegistry` → `SimulationPackLoader`
+- `Privacy.PiiHasher` (fixed FOSS-default key; operator overrides via own `AddSingleton`)
+
+Session fabric:
+- `SessionStore` (the new one, `Orchestration.Sessions.SessionStore`)
+- `SessionAtom` + `SessionPersistenceAtom` + `SessionEchoAtom` all wired via `AddOnInitSignal` against `SessionStoreOptions.InitSignal`
+- `ISessionEchoStore` → `DetectionArchiveEchoStore`
+
+Learning fabric:
+- `TypedSignalSink<LearningEvent>` (fires the init signal on first raise via `IInitSignalBus`)
+- `ILearningCoordinator` → `LearningCoordinator` + `LearningBackgroundService` (both via `AddOnInitSignal`)
+
+LLM classification:
+- `TypedSignalSink<LlmClassificationRequest>` (init-signal aware)
+- `LlmClassificationCoordinator` via `AddOnInitSignal`
+
+Escalators (as `IActionPolicy` factories, keyed by `ActionType.Escalate`; per-instance via the combined `EscalateActionPolicyFactory`):
+- `EscalateToLearningActionPolicy`
+- `EscalateToSessionActionPolicy`
+- `EscalateToLlmActionPolicy`
+
+### Intentionally absent — DO NOT re-add without a design conversation
+
+- **`Data.SessionPersistenceService`.** Dead code — see next section. Adding this back means "silently restart the CLR-event bridge without a design decision", which is exactly the thing you were brought in to think about.
+- **`SessionPersistenceServiceLifecycleHost`** (companion type inside `SessionPersistenceService.cs`). Same story.
+- **Old `IContributingDetector` / `BlackboardOrchestrator` / `IFoundationContributor` / `BlackboardState`.** Purged in Step 7. Gone for good. If you see references in comments or docs, those are stale.
+- **`SessionVectorContributor`.** Replaced by `SessionVectorAtom`. Contributor gone.
+
+### The pattern that keeps catching people
+
+A lot of "why isn't this registered?" cases in this codebase turn out to be:
+
+1. **Step-7 casualty** — the delete-59-contributors commit accidentally dropped a `services.TryAddSingleton<T>()` alongside a contributor's registration. Fix: add it back to `BotDetectionModule`.
+2. **Dead code that predates Step 7** — registration was already missing, nothing was calling `GetService` hard-required, and the tree kept compiling because the type was only pulled via `_services.GetService<T>()` (soft lookup) which returns null. Fix: don't add it back; delete the dead code.
+
+Distinguishing the two: if a required-service ctor takes the type as non-nullable, or if a middleware pipeline takes it as a positional arg → Step-7 casualty, add it back. If only `GetService<T>()` (soft) references exist, or only test files reference it → probably dead code.
+
+`SessionPersistenceService` is in the second category. Verify before you decide:
+
+```bash
+grep -rn "SessionPersistenceService" --include="*.cs" src/ | grep -v Test | grep -v "GetService<"
+```
+
+Should return zero hard references outside `SessionPersistenceService.cs` itself and one line in `BotDetectionHostedSingletonsBootstrap.cs` that uses the soft `GetService<>` (null-tolerant) form.
+
+---
+
 ## What's dead (for follow-up)
 
 `Data.SessionPersistenceService` (315 lines) is **never registered in DI** anywhere:
