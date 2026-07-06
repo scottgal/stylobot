@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Mostlylucid.Atoms.Ephemeral;
+using Mostlylucid.Ephemeral.Atoms.Llm;
 using Mostlylucid.BotDetection.Identity;
 
 namespace Mostlylucid.BotDetection.Services.Llm;

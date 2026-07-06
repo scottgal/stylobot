@@ -23,7 +23,7 @@
              common-v git tag (the publish workflow creates one on the fly), so
              without this MinVer defaults local/CI builds to a 1.0.0-era version.
              That leaves the local Common assembly below 8.0.0.0, which the
-             Mostlylucid.Atoms.Ephemeral package (compiled against the published
+             Mostlylucid.Ephemeral.Atoms.Llm package (compiled against the published
              Common 8.0.0-alpha2 -> assembly 8.0.0.0) cannot bind to at runtime,
              crashing any host that resolves the LLM coordinator. -->
         <MinVerMinimumMajorMinor>8.0</MinVerMinimumMajorMinor>

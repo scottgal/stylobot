@@ -7,7 +7,7 @@ using Mostlylucid.BotDetection.Modules;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Services.Llm;
 using Mostlylucid.BotDetection.Telemetry;
-using Mostlylucid.Atoms.Ephemeral;
+using Mostlylucid.Ephemeral.Atoms.Llm;
 using Mostlylucid.Common.Scheduling;
 
 namespace Mostlylucid.BotDetection.Extensions;

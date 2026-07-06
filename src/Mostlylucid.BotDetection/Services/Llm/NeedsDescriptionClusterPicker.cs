@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Mostlylucid.Atoms.Ephemeral;
+using Mostlylucid.Ephemeral.Atoms.Llm;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Services.Llm;

@@ -1,4 +1,4 @@
-using Mostlylucid.Atoms.Ephemeral;
+using Mostlylucid.Ephemeral.Atoms.Llm;
 
 namespace Mostlylucid.BotDetection.Services.Llm;
 

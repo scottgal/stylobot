@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Mostlylucid.Atoms.Ephemeral;
+using Mostlylucid.Ephemeral.Atoms.Llm;
 
 namespace Mostlylucid.BotDetection.Services.Llm;
 
