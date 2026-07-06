@@ -8,21 +8,23 @@ using OllamaSharp;
 namespace Mostlylucid.BotDetection.Test.Integration;
 
 /// <summary>
-///     Long-running integration tests that use Ollama (ministral:8b) to generate
-///     synthetic bot and human user-agent strings, then verify the detection system
-///     correctly classifies them.
-///     These tests require:
-///     - Ollama running locally on http://localhost:11434
-///     - The ministral:8b model installed (ollama pull ministral:8b)
-///     Run with: dotnet test --filter "Category=LongRunning"
+///     Long-running integration tests that use a local LLM (default gemma4:e2b, the model
+///     the Demo runs) to generate synthetic bot and human user-agent strings, then verify the
+///     detection system classifies them. They double as a model-quality probe: point them at a
+///     candidate model to measure how well detection catches its generated bots.
+///     Endpoint and model are overridable: STYLOBOT_OLLAMA_URL / STYLOBOT_OLLAMA_MODEL.
+///     When Ollama (or the configured model) is not reachable the runtime Skip guard no-ops the
+///     test, so they stay green in CI without a local LLM.
+///     To run: ensure Ollama is up with the model pulled (ollama pull gemma4:e2b), then
+///     dotnet test --filter "Category=Ollama".
 /// </summary>
 [Trait("Category", "Integration")]
 [Trait("Category", "LongRunning")]
 [Trait("Category", "Ollama")]
 public class OllamaGeneratedBotTests : IAsyncLifetime
 {
-    private const string OllamaEndpoint = "http://localhost:11434";
-    private const string OllamaModel = "ministral-3:8b";
+    private static readonly string OllamaEndpoint = Environment.GetEnvironmentVariable("STYLOBOT_OLLAMA_URL") ?? "http://localhost:11434";
+    private static readonly string OllamaModel = Environment.GetEnvironmentVariable("STYLOBOT_OLLAMA_MODEL") ?? "gemma4:e2b";
     private const int GenerationTimeoutMs = 30000;
     private readonly HttpClient _httpClient = new();
     private List<string> _downloadedBotPatterns = new();
@@ -90,10 +92,10 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #region Adversarial Tests
 
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
+    [Fact]
     public async Task Ollama_GeneratesEvasiveBots_TestsDetectionRobustness()
     {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
+        if (Skip.If(!_ollamaAvailable, $"Ollama not available or model {OllamaModel} not installed")) return;
 
         // Arrange - Generate bot UAs designed to evade detection
         var evasiveBots = new List<string>();
@@ -124,10 +126,10 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #region Bulk Generation Tests
 
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
+    [Fact]
     public async Task Ollama_BulkGenerateBotUserAgents_50Samples()
     {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
+        if (Skip.If(!_ollamaAvailable, $"Ollama not available or model {OllamaModel} not installed")) return;
 
         // Arrange
         var samples = new List<(string UserAgent, string Type, bool Detected)>();
@@ -181,10 +183,10 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #region Bot User-Agent Generation Tests
 
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
+    [Fact]
     public async Task Ollama_GeneratesBotUserAgents_ThatAreDetectedAsBots()
     {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
+        if (Skip.If(!_ollamaAvailable, $"Ollama not available or model {OllamaModel} not installed")) return;
 
         // Arrange
         var generatedBots = new List<string>();
@@ -213,10 +215,10 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
             $"Undetected: {string.Join(", ", detectionResults.Where(r => !r.Detected).Select(r => r.UserAgent))}");
     }
 
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
+    [Fact]
     public async Task Ollama_GeneratesHumanUserAgents_ThatAreNotDetectedAsBots()
     {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
+        if (Skip.If(!_ollamaAvailable, $"Ollama not available or model {OllamaModel} not installed")) return;
 
         // Arrange
         var generatedHumans = new List<string>();
@@ -245,10 +247,10 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
             $"False positives: {string.Join(", ", detectionResults.Where(r => r.Detected).Select(r => r.UserAgent))}");
     }
 
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
+    [Fact]
     public async Task Ollama_GeneratesVariedBotTypes()
     {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
+        if (Skip.If(!_ollamaAvailable, $"Ollama not available or model {OllamaModel} not installed")) return;
 
         // Arrange
         var botTypes = new[] { "scraper", "crawler", "search engine", "monitoring", "http client library" };
