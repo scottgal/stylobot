@@ -11,6 +11,11 @@
 
     <ItemGroup>
         <PackageReference Include="BenchmarkDotNet" Version="0.15.8"/>
+        <!-- Reflection-based YAML for the benchmark-scenario loader. The core moved to
+             VYaml (source-gen, AOT), but YamlDotNet is still transitively present via
+             StyloFlow.Core; pin it explicitly (matching that version) so the loose scenario
+             model (object-valued signal dict) has a stable deserialiser. Dev-only, not AOT. -->
+        <PackageReference Include="YamlDotNet" Version="16.3.0"/>
     </ItemGroup>
 
     <ItemGroup>
