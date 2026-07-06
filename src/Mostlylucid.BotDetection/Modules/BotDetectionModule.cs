@@ -434,6 +434,31 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddOnInitSignal<ILearningCoordinator>(LearningSignalSinkOptions.InitSignal);
         services.AddOnInitSignal<LearningBackgroundService>(LearningSignalSinkOptions.InitSignal);
 
+        // Learning feedback-loop consumers. The Step-7 contributor delete
+        // (1a8d2745) dropped these along with the contributors, but the atom
+        // path still RAISES learning events (EscalateToLearningActionPolicy,
+        // the LLM / intent coordinators) and LearningBackgroundService still
+        // dispatches them to the registered ILearningEventHandler set. Without
+        // these the loop raised into a void and IWeightStore (consumed by
+        // HeuristicDetector + SignatureFeedbackHandler) was unresolved. Every
+        // handler's dependencies are already registered above.
+        services.TryAddSingleton<IWeightStore, SqliteWeightStore>();
+        services.AddSingleton<ILearningEventHandler, InferenceHandler>();
+        services.AddSingleton<ILearningEventHandler, PatternAccumulatorHandler>();
+        services.AddSingleton<ILearningEventHandler, FeedbackHandler>();
+        services.AddSingleton<ILearningEventHandler, DriftDetectionHandler>();
+        services.AddSingleton<ILearningEventHandler, SignatureFeedbackHandler>();
+        services.AddSingleton<ILearningEventHandler, Similarity.SimilarityLearningHandler>();
+        services.AddSingleton<ILearningEventHandler, Similarity.IntentLearningHandler>();
+        // ReputationMaintenanceService is a BackgroundService (periodic
+        // decay / GC / persist of the pattern-reputation cache) AND a learning
+        // handler. No data guardian covers pattern-reputation decay, so its
+        // loop is not redundant. Register once, expose both roles.
+        services.AddSingleton<ReputationMaintenanceService>();
+        services.AddSingleton<ILearningEventHandler>(sp =>
+            sp.GetRequiredService<ReputationMaintenanceService>());
+        services.AddHostedService(sp => sp.GetRequiredService<ReputationMaintenanceService>());
+
         // Session store: shared per-domain, priority-shaped eviction, boot-time.
         // Escalators upsert SessionSample → aggregate; SessionAtom observes
         // Changes and emits persistence signals on fingerprint shift.
