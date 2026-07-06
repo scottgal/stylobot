@@ -472,12 +472,22 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
         services.AddOnInitSignal<Orchestration.Sessions.SessionPersistenceAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
-        // Session echo — the two-phase eviction ack subscriber. FOSS default
-        // is the null echo store; the next commit renames Data.IDetectionArchive
-        // to IDetectionArchive and points ISessionEchoStore at it. Lazy-boots
-        // on the first upsert like the other session atoms.
+        // Detection archive — the durable session/signature/request archive.
+        // FOSS default is SQLite (zero-dependency, ships in-process). Commercial
+        // Postgres pack replaces via TryAdd-loses at its own Add* site;
+        // AddStyloBotDashboardRemote replaces with RemoteDetectionArchive for
+        // remote-mode dashboards.
+        services.TryAddSingleton<Data.IDetectionArchive, Data.SqliteDetectionArchive>();
+
+        // Session echo — the two-phase eviction ack subscriber. Routes to
+        // whatever IDetectionArchive is registered (SqliteDetectionArchive
+        // by default, PostgreSQLDetectionArchive via commercial pack Replace).
+        // Any host that wires an archive automatically gets echo persistence
+        // flowing through it. Test hosts override with a fake
+        // ISessionEchoStore via a TryAdd that beats this registration to
+        // the punch. Lazy-boots on the first session upsert.
         services.TryAddSingleton<Orchestration.Sessions.ISessionEchoStore,
-            Orchestration.Sessions.NullSessionEchoStore>();
+            Orchestration.Sessions.DetectionArchiveEchoStore>();
         services.AddOnInitSignal<Orchestration.Sessions.SessionEchoAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
 

@@ -262,6 +262,20 @@ public interface IDetectionArchive
     Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default);
 
     /// <summary>
+    ///     Persist a <see cref="Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho"/>
+    ///     row — the lower-resolution session accounting log written on every
+    ///     TTL / pressure eviction. Called from <c>SessionEchoAtom</c> off the
+    ///     two-phase finalize signal (see
+    ///     <c>Orchestration.Sessions.SessionFinalizingSignal</c>). Complements
+    ///     <see cref="AddSessionAsync"/>: the latter is the opportunistic,
+    ///     priority-gated full-detail write; this is the always-populated
+    ///     summary. Returns the new row ID.
+    /// </summary>
+    Task<long> AddEchoAsync(
+        Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+        CancellationToken ct = default);
+
+    /// <summary>
     ///     Upsert a signature (create or update hit counts/stats).
     ///     <para>
     ///         <paramref name="scope"/> refreshes the last-seen (domain, host)

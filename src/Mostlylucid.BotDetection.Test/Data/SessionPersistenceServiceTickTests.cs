@@ -176,6 +176,11 @@ public sealed class SessionPersistenceServiceTickTests
             return Task.FromResult((long)AddedSessions.Count);
         }
 
+        public Task<long> AddEchoAsync(
+            Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+            CancellationToken ct = default)
+            => Task.FromResult(0L);
+
         public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
         {
             UpsertedSignatures.Add(signature);

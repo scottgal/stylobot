@@ -52,6 +52,16 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
         cmd.CommandText = Schema.SchemaLoader.Load("session_store");
         await cmd.ExecuteNonQueryAsync(ct);
 
+        // Session accounting log table (task-#23 signal-driven persistence).
+        // Written by SessionEchoAtom subscribing to SessionStore.Lifecycle;
+        // idempotent CREATE IF NOT EXISTS so the schema comes in on first
+        // boot and stays a no-op on subsequent boots.
+        await using (var echoCmd = conn.CreateCommand())
+        {
+            echoCmd.CommandText = Schema.SchemaLoader.Load("session_echoes");
+            await echoCmd.ExecuteNonQueryAsync(ct);
+        }
+
         // Schema migration: add columns introduced after initial release.
         // ALTER TABLE ADD COLUMN is idempotent in the sense that we catch duplicate-column errors.
         await MigrateAddColumnAsync(conn, "sessions", "frequency_fingerprint", "BLOB", ct);
@@ -213,12 +223,63 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
 
             await cmd.ExecuteNonQueryAsync(ct);
             cmd.CommandText = "SELECT last_insert_rowid()";
-            return (long)(await cmd.ExecuteScalarAsync(ct))!;
+            var newId = (long)(await cmd.ExecuteScalarAsync(ct))!;
+            return newId;
         }
         finally
         {
             _writeLock.Release();
             FeedSessionVectorToHnsw(session);
+        }
+    }
+
+    public async Task<long> AddEchoAsync(
+        Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+        CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO session_echoes (
+                    fingerprint_id, site_id, started_at, ended_at,
+                    sample_count, mean_bot_probability, max_bot_probability,
+                    latest_confidence, honeypot_hits, upstream_status_counts,
+                    dominant_client_type, retention_priority, finalize_reason, echoed_at
+                ) VALUES (
+                    @fp, @site, @started, @ended,
+                    @samples, @meanP, @maxP,
+                    @conf, @hp, @statusJson,
+                    @clientType, @priority, @reason, @echoedAt
+                )
+            """;
+            cmd.Parameters.AddWithValue("@fp", echo.FingerprintId);
+            cmd.Parameters.AddWithValue("@site", echo.SiteId);
+            cmd.Parameters.AddWithValue("@started", echo.StartedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("@ended", echo.EndedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("@samples", echo.SampleCount);
+            cmd.Parameters.AddWithValue("@meanP", echo.MeanBotProbability);
+            cmd.Parameters.AddWithValue("@maxP", echo.MaxBotProbability);
+            cmd.Parameters.AddWithValue("@conf", echo.LatestConfidence);
+            cmd.Parameters.AddWithValue("@hp", echo.HoneypotHits);
+            cmd.Parameters.AddWithValue("@statusJson",
+                System.Text.Json.JsonSerializer.Serialize(echo.UpstreamStatusCounts));
+            cmd.Parameters.AddWithValue("@clientType", (object?)echo.DominantClientType ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@priority", echo.RetentionPriority);
+            cmd.Parameters.AddWithValue("@reason", (int)echo.FinalizeReason);
+            cmd.Parameters.AddWithValue("@echoedAt", echo.EchoedAt.ToString("O"));
+
+            await cmd.ExecuteNonQueryAsync(ct);
+            cmd.CommandText = "SELECT last_insert_rowid()";
+            return (long)(await cmd.ExecuteScalarAsync(ct))!;
+        }
+        finally
+        {
+            _writeLock.Release();
         }
     }
 

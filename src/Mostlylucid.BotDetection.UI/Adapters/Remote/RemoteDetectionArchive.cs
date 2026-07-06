@@ -35,6 +35,11 @@ internal sealed class RemoteDetectionArchive : IDetectionArchive
     public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
         => throw new NotSupportedException("Session writes are owned by the gateway, not the remote viewer.");
 
+    public Task<long> AddEchoAsync(
+        Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("Echo writes are owned by the gateway, not the remote viewer.");
+
     public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
         => throw new NotSupportedException("Signature writes are owned by the gateway.");
 

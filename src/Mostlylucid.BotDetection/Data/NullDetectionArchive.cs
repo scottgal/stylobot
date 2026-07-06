@@ -24,6 +24,11 @@ public sealed class NullDetectionArchive : IDetectionArchive
     public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
         => Task.FromResult(0L);
 
+    public Task<long> AddEchoAsync(
+        Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo,
+        CancellationToken ct = default)
+        => Task.FromResult(0L);
+
     public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
         => Task.CompletedTask;
 

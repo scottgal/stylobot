@@ -103,3 +103,27 @@ public sealed class NullSessionEchoStore : ISessionEchoStore
     public Task AddEchoAsync(SessionEcho echo, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 }
+
+/// <summary>
+///     Default FOSS impl that delegates to
+///     <see cref="Data.IDetectionArchive.AddEchoAsync"/>. Registered by
+///     <c>BotDetectionModule</c> so any host wiring an archive
+///     (SqliteDetectionArchive by default; PostgreSQLDetectionArchive from
+///     the commercial pack) automatically gets echoes flowing through it.
+///     Tests that want an in-memory capture can register a fake
+///     <see cref="ISessionEchoStore"/> via TryAdd-wins semantics.
+/// </summary>
+public sealed class DetectionArchiveEchoStore : ISessionEchoStore
+{
+    private readonly Data.IDetectionArchive _archive;
+
+    public DetectionArchiveEchoStore(Data.IDetectionArchive archive)
+    {
+        _archive = archive ?? throw new ArgumentNullException(nameof(archive));
+    }
+
+    public async Task AddEchoAsync(SessionEcho echo, CancellationToken cancellationToken = default)
+    {
+        await _archive.AddEchoAsync(echo, cancellationToken).ConfigureAwait(false);
+    }
+}
