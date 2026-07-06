@@ -298,7 +298,7 @@ public static class DetectionLedgerExtensions
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
         {
-            return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals, sink);
+            return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals, sink, options);
         }
 
         // The orchestrator pools its signal ConcurrentDictionary and clears it
@@ -381,7 +381,8 @@ public static class DetectionLedgerExtensions
         bool aiRan,
         string? policyName,
         IReadOnlyDictionary<string, object>? premergedSignals = null,
-        SignalSink? sink = null)
+        SignalSink? sink = null,
+        BotDetectionOptions? options = null)
     {
         var exitContrib = ledger.EarlyExitContribution!;
         var verdict = ParseEarlyExitVerdict(exitContrib.EarlyExitVerdict);
@@ -520,11 +521,24 @@ public static class DetectionLedgerExtensions
         // LAN itself is compromised the operator has bigger problems than the
         // throttle policy. (See feedback_signals_atoms_pattern + the dashboard
         // Internal-clamp pin in InternalRiskBandClampTests.)
+        //
+        // Health-endpoint shape guard (Task 3, early-exit parity): mirrors the
+        // main-path guard in ToAggregatedEvidence. On a health-endpoint path the
+        // Internal clamp requires BOTH local IP AND probe shape; source alone is
+        // not sufficient. Non-health local traffic is clamped unconditionally as
+        // before.
         if (ReadBool(SignalKeys.IpIsLocal))
         {
-            primaryBotType = BotType.Internal;
-            earlyRiskBand = RiskBand.VeryLow;
-            earlyRiskJustification = "Internal network traffic (network-trusted; early-exit path)";
+            var earlyIsHealthEndpoint = ReadBool(SignalKeys.HealthEndpoint);
+            var earlyProbeUas = options?.HealthEndpoints?.ProbeUserAgents
+                                ?? HealthEndpointOptions.DefaultProbeUserAgents;
+            if (!earlyIsHealthEndpoint
+                || ProbeShapeClassifier.IsProbeShape(earlySignals, sink, earlyProbeUas))
+            {
+                primaryBotType = BotType.Internal;
+                earlyRiskBand = RiskBand.VeryLow;
+                earlyRiskJustification = "Internal network traffic (network-trusted; early-exit path)";
+            }
         }
 
         if (!string.IsNullOrEmpty(earlyRiskJustification))

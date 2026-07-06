@@ -66,6 +66,9 @@ public static class ProbeShapeClassifier
 
         // Browser-navigation shape guard: Sec-Fetch-Mode == "navigate" is a
         // definitive browser-document-navigation signal. No health probe sends this.
+        // Note: Accept: text/html would be a useful second exclusion here, but
+        // the signal pipeline exposes only header.has_accept (bool), not the Accept
+        // header value. Sec-Fetch-Mode:navigate is the reliable browser-nav signal.
         var secFetchMode = sink?.ReadHint(SignalKeys.HeaderSecFetchMode)
                            ?? (signals.TryGetValue(SignalKeys.HeaderSecFetchMode, out var sfmV)
                                ? sfmV as string

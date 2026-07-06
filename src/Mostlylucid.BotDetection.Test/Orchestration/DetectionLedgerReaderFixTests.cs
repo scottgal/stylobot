@@ -125,4 +125,71 @@ public sealed class DetectionLedgerReaderFixTests
         // even from a loopback IP. Shape confirms the classification, source alone does not.
         Assert.NotEqual(BotType.Internal, evidence.PrimaryBotType);
     }
+
+    /// <summary>
+    ///     Task 3 sink path -- production probe UA exercised through the real sink.
+    ///     IpIsLocal + HealthEndpoint + probe UA raised via sink.Raise (not premergedSignals)
+    ///     must classify as <see cref="BotType.Internal"/>. Proves that HealthEndpointAtom
+    ///     signals round-trip correctly through <c>ToAggregatedEvidence</c> when no
+    ///     premergedSignals dict is provided.
+    /// </summary>
+    [Fact]
+    public void HealthProbe_SinkPath_ProbeUA_ClassifiesAsInternal()
+    {
+        var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
+        sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
+        // ua.raw is the key read by ProbeShapeClassifier.IsProbeShape via sink.ReadHint.
+        sink.Raise($"{SignalKeys.UserAgent}:curl/8.5.0", "ua");
+
+        var ledger = new DetectionLedger("test-health-probe-sink-path");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = 0.85,
+            Weight = 1.0,
+            BotType = BotType.Tool.ToString(),
+            Reason = "curl/8.5.0 - tool UA",
+        });
+
+        // No premergedSignals: exercises the production sink path.
+        var evidence = ledger.ToAggregatedEvidence(
+            options: new BotDetectionOptions(),
+            sink: sink);
+
+        Assert.Equal(BotType.Internal, evidence.PrimaryBotType);
+    }
+
+    /// <summary>
+    ///     Task 3 sink path shape guard -- browser navigation raised via sink.Raise.
+    ///     IpIsLocal + HealthEndpoint + Sec-Fetch-Mode:navigate via sink must NOT yield
+    ///     <see cref="BotType.Internal"/>, proving the shape guard works on the sink path.
+    /// </summary>
+    [Fact]
+    public void HealthProbe_SinkPath_BrowserNavigation_NotInternal()
+    {
+        var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
+        sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
+        sink.Raise($"{SignalKeys.UserAgent}:Mozilla/5.0 (Windows NT 10.0) Chrome/120", "ua");
+        sink.Raise($"{SignalKeys.HeaderSecFetchMode}:navigate", "sfm");
+
+        var ledger = new DetectionLedger("test-health-probe-sink-shape-guard");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = 0.1,
+            Weight = 1.0,
+            Reason = "Chrome browser UA",
+        });
+
+        // No premergedSignals: exercises the production sink path.
+        var evidence = ledger.ToAggregatedEvidence(
+            options: new BotDetectionOptions(),
+            sink: sink);
+
+        Assert.NotEqual(BotType.Internal, evidence.PrimaryBotType);
+    }
 }
