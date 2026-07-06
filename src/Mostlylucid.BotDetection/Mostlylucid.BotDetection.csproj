@@ -84,7 +84,7 @@
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.6.4" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.6.4" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Batching" Version="2.6.4" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Llm" Version="2.8.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Llm" Version="2.8.1" />
         <PackageReference Include="HNSW" Version="26.6.1848" />
         <PackageReference Include="System.Numerics.Tensors" Version="10.0.9" />
         <!-- NSec.Cryptography: native Ed25519 / X25519 / ChaCha20-Poly1305 -->
