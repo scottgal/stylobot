@@ -58,8 +58,8 @@ output:
 
 triggers:
   requires:
-    - transport.protocol
-    - signature.primary
+    - signal: transport.protocol
+    - signal: signature.primary
   skip_when:
     - detection.early_exit
 

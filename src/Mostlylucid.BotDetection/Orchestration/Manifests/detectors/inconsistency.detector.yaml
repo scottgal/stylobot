@@ -53,7 +53,7 @@ output:
 
 triggers:
   requires:
-    - detection.useragent  # Needs UA signal to check inconsistencies
+    - signal: detection.useragent  # Needs UA signal to check inconsistencies
   skip_when:
     - detection.early_exit
 

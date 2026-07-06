@@ -19,7 +19,7 @@ taxonomy:
 
 triggers:
   requires:
-    - ua.family
+    - signal: ua.family
   mode: any
 
 emits:

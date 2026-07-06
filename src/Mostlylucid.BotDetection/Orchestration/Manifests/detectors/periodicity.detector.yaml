@@ -71,7 +71,7 @@ output:
       salience: 0.75
       description: Convenience boolean for hour_entropy < 1.5 AND history >= 20 - tells transition rules "this signature is temporally concentrated" without re-doing the math.
 
-triggers: []
+triggers: {}
 
 emits:
   on_complete:

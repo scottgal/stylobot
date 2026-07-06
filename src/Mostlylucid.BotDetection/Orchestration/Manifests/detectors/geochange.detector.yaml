@@ -23,7 +23,7 @@ output:
 
 triggers:
   requires:
-    - geo.country_code
+    - signal: geo.country_code
 
 emits:
   signals:

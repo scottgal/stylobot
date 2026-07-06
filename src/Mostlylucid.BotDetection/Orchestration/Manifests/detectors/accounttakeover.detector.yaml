@@ -50,8 +50,8 @@ output:
 
 triggers:
   requires:
-    - ua.family
-    - signature.primary
+    - signal: ua.family
+    - signal: signature.primary
   mode: any  # Any of the triggers is sufficient
 
 emits:

@@ -80,7 +80,9 @@ output:
       description: Human-readable summary of what changed - e.g. "country US -> RU; UA family Chrome -> python-requests". Empty when nothing changed; drives dashboard chips and log messages.
 
 triggers:
-  - signal_exists: identity.fingerprint_id
+  requires:
+    - signal: identity.fingerprint_id
+      description: Runs after FingerprintMatch has resolved the request to a fingerprint
 
 emits:
   on_complete:

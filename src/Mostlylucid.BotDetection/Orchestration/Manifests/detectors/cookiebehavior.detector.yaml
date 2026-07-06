@@ -36,7 +36,7 @@ output:
     - cookie.count
     - cookie.ignored
 
-triggers: []
+triggers: {}
 
 defaults:
   weights:

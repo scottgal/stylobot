@@ -39,7 +39,7 @@ output:
     - resource.font_requested
     - resource.favicon_requested
 
-triggers: []
+triggers: {}
 
 defaults:
   weights:

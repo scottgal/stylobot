@@ -1,4 +1,6 @@
 using System.Reflection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -11,6 +13,12 @@ public sealed class DetectorManifestLoader
 {
     private readonly Dictionary<string, DetectorManifest> _detectorManifests = new();
     private readonly Dictionary<string, PipelineManifest> _pipelineManifests = new();
+    private readonly ILogger<DetectorManifestLoader> _logger;
+
+    public DetectorManifestLoader(ILogger<DetectorManifestLoader>? logger = null)
+    {
+        _logger = logger ?? NullLogger<DetectorManifestLoader>.Instance;
+    }
 
     /// <summary>
     /// Load all detector manifests from embedded resources.
@@ -34,9 +42,9 @@ public sealed class DetectorManifestLoader
                 LoadPipelineFromResource(assembly, resourceName);
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Silently handle any errors during manifest loading
+            _logger.LogError(ex, "Manifest enumeration failed; loaded {DetectorCount} detectors, {PipelineCount} pipelines before the error", _detectorManifests.Count, _pipelineManifests.Count);
         }
 
         return _detectorManifests;
@@ -58,9 +66,9 @@ public sealed class DetectorManifestLoader
                 _detectorManifests[manifest.Name] = manifest;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Silently skip manifests that fail to parse
+            _logger.LogError(ex, "Failed to parse detector manifest {ResourceName}; skipping (fix the manifest and rerun)", resourceName);
         }
     }
 
@@ -80,9 +88,9 @@ public sealed class DetectorManifestLoader
                 _pipelineManifests[manifest.Name] = manifest;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Silently skip manifests that fail to parse
+            _logger.LogError(ex, "Failed to parse pipeline manifest {ResourceName}; skipping (fix the manifest and rerun)", resourceName);
         }
     }
 

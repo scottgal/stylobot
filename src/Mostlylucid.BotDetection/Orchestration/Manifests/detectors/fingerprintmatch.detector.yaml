@@ -158,6 +158,9 @@ emits:
     - key: identity.fingerprint_first_seen
       type: string
       description: ISO-8601 timestamp of first observation for the resolved fingerprint (raised by the atom; declared here to close the reverse-drift gap)
+    - key: identity.fingerprint_observation_count_crossed
+      type: bool
+      description: Intermittent - latched when the fingerprint's observation count crosses one of the configured milestone thresholds (raised by the atom; declared here to close the reverse-drift gap)
     - key: identity.fingerprint_l1
       type: bool
       description: True when Pass 1 (IP+UA point lookup) was confirmed

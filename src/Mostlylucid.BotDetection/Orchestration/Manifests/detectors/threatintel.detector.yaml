@@ -62,17 +62,36 @@ output:
       description: CVE id when CISA KEV matched an extracted CVE
 
 emits:
-  - threatintel.score
-  - threatintel.classifications
-  - threatintel.providers_hit
-  - threatintel.tor
-  - threatintel.kev_match
-  - intel.classes              # semicolon-joined IntelligenceSignalClass names
-  - intel.hard_gate            # intel hit + sensitive endpoint (one bool for transitions)
-  - endpoint.risk              # Static | Normal | Sensitive
-  - endpoint.risk_sensitive    # bool shortcut
+  on_complete:
+    - key: threatintel.score
+      type: double
+      description: Composite threat-intel confidence score (0..1) across providers
+    - key: threatintel.classifications
+      type: string
+      description: Comma-joined provider classifications for the source IP
+    - key: threatintel.providers_hit
+      type: string
+      description: Comma-joined names of providers that returned a hit
+    - key: threatintel.tor
+      type: bool
+      description: True if any provider classified the IP as a Tor exit
+    - key: threatintel.kev_match
+      type: string
+      description: CVE id when CISA KEV matched an extracted CVE
+    - key: intel.classes
+      type: string
+      description: Semicolon-joined IntelligenceSignalClass names
+    - key: intel.hard_gate
+      type: bool
+      description: Intel hit AND sensitive endpoint - single boolean for transitions
+    - key: endpoint.risk
+      type: string
+      description: Endpoint risk band (Static | Normal | Sensitive)
+    - key: endpoint.risk_sensitive
+      type: bool
+      description: Convenience boolean for endpoint.risk == Sensitive
 
-triggers: []  # Wave 0; no signal triggers
+triggers: {}  # Wave 0; no signal triggers
 
 defaults:
   weights:
