@@ -243,9 +243,18 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Bind upstream health monitor options from configuration.
-    /// Monitor services are registered by downstream tasks.
+    /// Bind upstream health monitor options from configuration and register
+    /// <see cref="IUpstreamHealthEndpointDiscovery"/> and
+    /// <see cref="UpstreamHealthProbeService"/> as singletons.
     /// </summary>
+    /// <remarks>
+    /// Uses a named <c>"upstream-health-probe"</c> <see cref="HttpClient"/> with
+    /// <c>Timeout = InfiniteTimeSpan</c> so the per-probe
+    /// <see cref="CancellationTokenSource"/> is the sole timeout authority.
+    /// The probe service subscribes to <see cref="Mostlylucid.Common.Scheduling.TickCadence.Tick1m"/>
+    /// in its constructor (when <c>Enabled</c> is true), so
+    /// <see cref="GatewayHostedSingletonsBootstrap"/> resolves it eagerly at startup.
+    /// </remarks>
     public static IServiceCollection AddUpstreamHealthMonitor(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -257,6 +266,33 @@ public static class ServiceCollectionExtensions
         // This ensures that unconfigured instances get the full 9-path default,
         // while operator overrides replace (not append) the default.
         services.PostConfigure<UpstreamHealthMonitorOptions>(opts => opts.ApplyDefaults());
+
+        // Named client with infinite timeout: per-probe CancellationTokenSource
+        // fires after ProbeTimeoutMs, so the HttpClient timeout must not race it.
+        services.AddHttpClient("upstream-health-probe",
+            c => c.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
+
+        // Endpoint discovery singleton: wraps the named client.
+        services.AddSingleton<IUpstreamHealthEndpointDiscovery>(sp =>
+            new UpstreamHealthEndpointDiscovery(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("upstream-health-probe"),
+                sp.GetRequiredService<IOptions<UpstreamHealthMonitorOptions>>(),
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<ILogger<UpstreamHealthEndpointDiscovery>>()));
+
+        // Probe service singleton: subscribes to Tick1m in its ctor when Enabled.
+        // IScheduleCoordinator is optional (GetService) so the service can be
+        // constructed in test fixtures without a real coordinator.
+        services.AddSingleton<UpstreamHealthProbeService>(sp =>
+            new UpstreamHealthProbeService(
+                sp.GetRequiredService<IUpstreamHealthEndpointDiscovery>(),
+                sp.GetRequiredService<Mostlylucid.BotDetection.RateLimit.IActiveUpstreamProbeState>(),
+                sp.GetRequiredService<IOptions<UpstreamHealthMonitorOptions>>(),
+                sp.GetRequiredService<Yarp.ReverseProxy.Configuration.IProxyConfigProvider>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("upstream-health-probe"),
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<ILogger<UpstreamHealthProbeService>>(),
+                sp.GetService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>()));
 
         return services;
     }
