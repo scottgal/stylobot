@@ -27,6 +27,7 @@ public sealed class AllowActionPolicy : IActionPolicy
     public string Name => "allow";
 
     /// <inheritdoc />
+    // LogOnly maps to PolicyIntent.Pass: an allow policy lets the request through, not hold it for logging.
     public ActionType ActionType => ActionType.LogOnly;
 
     /// <inheritdoc />

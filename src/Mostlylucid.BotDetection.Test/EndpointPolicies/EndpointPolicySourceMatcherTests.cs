@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.EndpointPolicies;
 using Mostlylucid.BotDetection.HealthEndpoints;
+using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Test.EndpointPolicies;
 
@@ -193,6 +194,69 @@ public class EndpointPolicySourceMatcherTests
         // falls through to the default allow rule.
         var intMatch = r.Match(Req("GET", "/health", loopback: true));
         Assert.Equal("allow", intMatch?.ActionPolicyName);
+    }
+
+    // ---- Source = internal + TrustedProxyIps CIDR matching ----------------
+
+    private static ConfigEndpointPolicyResolver BuildWithTrustedIps(
+        IEnumerable<string> trustedProxyIps,
+        params EndpointPolicyRule[] rules)
+    {
+        var policyOpts = new EndpointPolicyOptions { Rules = rules.ToList() };
+        var botOpts = new BotDetectionOptions();
+        botOpts.TransportTrust.TrustedProxyIps.AddRange(trustedProxyIps);
+        return new ConfigEndpointPolicyResolver(
+            new TestMonitor<EndpointPolicyOptions>(policyOpts),
+            NullLogger<ConfigEndpointPolicyResolver>.Instance,
+            modes: null,
+            botOptions: new TestMonitor<BotDetectionOptions>(botOpts));
+    }
+
+    [Fact]
+    public void Source_Internal_MatchesTrustedProxyCidr()
+    {
+        // Peer 10.100.0.5 falls inside the /24 CIDR configured as a trusted proxy.
+        var r = BuildWithTrustedIps(
+            ["10.100.0.0/24"],
+            new EndpointPolicyRule { Path = "/health*", Source = "internal", Action = "allow" });
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = "/health";
+        ctx.Connection.RemoteIpAddress = IPAddress.Parse("10.100.0.5");
+        Assert.NotNull(r.Match(ctx));
+    }
+
+    [Fact]
+    public void Source_Internal_DoesNotMatchOutsideTrustedCidr()
+    {
+        // Peer 10.100.1.5 is outside the /24 and is not loopback or RFC-1918 private
+        // (NetworkHelper.IsLocalIp would still catch RFC-1918 — use a public IP for clarity).
+        var r = BuildWithTrustedIps(
+            ["10.100.0.0/24"],
+            new EndpointPolicyRule { Path = "/health*", Source = "internal", Action = "allow" });
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = "/health";
+        ctx.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.99"); // TEST-NET-3 public
+        Assert.Null(r.Match(ctx));
+    }
+
+    [Fact]
+    public void Source_Internal_MatchesMappedIpv4PeerAgainstIpv4Entry()
+    {
+        // Kestrel dual-stack may present 10.0.0.1 as ::ffff:10.0.0.1.
+        // The CIDR check must unmap before comparing.
+        var r = BuildWithTrustedIps(
+            ["10.0.0.1"],
+            new EndpointPolicyRule { Path = "/health*", Source = "internal", Action = "allow" });
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = "/health";
+        ctx.Connection.RemoteIpAddress = IPAddress.Parse("::ffff:10.0.0.1");
+        Assert.NotNull(r.Match(ctx));
     }
 
     // ---- Helpers -------------------------------------------------------

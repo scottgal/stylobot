@@ -200,11 +200,30 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
 
         if (_botOptions is null) return false;
 
-        var peerStr = peer?.ToString();
-        if (string.IsNullOrEmpty(peerStr)) return false;
+        if (peer is null) return false;
 
         var trustedIps = _botOptions.CurrentValue.TransportTrust.TrustedProxyIps;
-        return trustedIps.Count > 0 && trustedIps.Contains(peerStr, StringComparer.OrdinalIgnoreCase);
+        if (trustedIps.Count == 0) return false;
+
+        // Dual-stack Kestrel can present an IPv4 peer as an IPv4-mapped IPv6 address
+        // (::ffff:a.b.c.d). Unmap it so IPv4 CIDR allowlist entries compare like-for-like
+        // (CidrHelper requires matching address families), otherwise a trusted IPv4 proxy
+        // would not match. Mirrors TransportHeaderTrust.Decide lines 59-74.
+        if (peer!.IsIPv4MappedToIPv6)
+            peer = peer.MapToIPv4();
+
+        foreach (var entry in trustedIps)
+        {
+            var cidr = entry;
+            if (!cidr.Contains('/') && System.Net.IPAddress.TryParse(cidr, out var single))
+                cidr = single.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                    ? cidr + "/128"
+                    : cidr + "/32";
+            if (CidrHelper.IsInSubnet(peer, cidr))
+                return true;
+        }
+
+        return false;
     }
 
     private static SourceFilter? CompileSource(string? source)
