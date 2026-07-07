@@ -253,27 +253,23 @@ public class SqliteCentroidWriterTests : IAsyncLifetime, IDisposable
         Assert.Equal(0L, writer.DroppedCount);
     }
 
-    // ── (f) Channel flood: DropOldest semantics hold under sustained load ─────
+    // ── (f) Channel flood: itemDropped callback counts DropOldest evictions ──────
 
     [Fact]
     public async Task DroppedCount_UnderFlood_Increments()
     {
-        // BoundedChannelFullMode.DropOldest causes TryWrite to always return true:
-        // the channel silently ejects the oldest queued item to make room, so the
-        // _dropped counter (which only fires when TryWrite returns false) stays at 0.
-        // The code itself says "DropOldest guarantees TryWrite always returns true;
-        // the increment is belt-and-braces for future channel-mode changes."
+        // With BoundedChannelFullMode.DropOldest and capacity=1, the channel evicts
+        // the oldest item each time a new one is written while full.  TryWrite always
+        // returns true so a counter gated on its return value stays 0.  The fix is the
+        // itemDropped callback passed to Channel.CreateBounded: the channel invokes it
+        // for every eviction, so DroppedCount now reflects real drops.
         //
-        // Therefore this test validates the actual DropOldest semantics:
-        //   - QueueDepth never exceeds ChannelCapacity even when flooded.
-        //   - DroppedCount stays 0 (channel overflow is handled silently, not counted).
-        //   - The channel is still functional after flooding (a good message lands).
-        //
-        // A bad connection string stalls the drain so the channel fills reliably.
+        // A stalled drain (bad connection string -> SqliteException -> reconnect backoff)
+        // keeps the single slot occupied so subsequent writes trigger evictions.
         const string badConnString = "Data Source=/tmp/__centroid_flood_test__.db";
 
-        // Delete any leftover from a prior run so OpenAsync reliably sees a fresh DB
-        // without the required tables, causing every write to fail and the drain to stall.
+        // Delete any leftover from a prior run so the DB starts without the required
+        // tables, causing every write to throw and the drain to stall in backoff.
         if (File.Exists("/tmp/__centroid_flood_test__.db"))
             File.Delete("/tmp/__centroid_flood_test__.db");
 
@@ -281,7 +277,7 @@ public class SqliteCentroidWriterTests : IAsyncLifetime, IDisposable
         {
             ChannelCapacity = 1,
             DropLogCadence = TimeSpan.FromMinutes(1),
-            ReconnectBackoff = TimeSpan.FromMilliseconds(10),
+            ReconnectBackoff = TimeSpan.FromMilliseconds(50),
         });
         using var writer = new SqliteCentroidWriter(
             badConnString,
@@ -291,20 +287,27 @@ public class SqliteCentroidWriterTests : IAsyncLifetime, IDisposable
             opts,
             NullLogger<SqliteCentroidWriter>.Instance);
 
-        // Flood: enqueue 20 messages synchronously into a capacity-1 channel.
-        // With DropOldest each new write succeeds; the previously queued item is silently
-        // ejected.  The drain is stalled (SqliteException on missing tables) so the
-        // channel remains full between writes.
-        for (var i = 0; i < 20; i++)
+        // Flood: enqueue 50 messages into a capacity-1 channel with a stalled drain.
+        // Each enqueue after the first evicts the currently-queued item, firing the
+        // itemDropped callback and incrementing DroppedCount.
+        for (var i = 0; i < 50; i++)
         {
             writer.Enqueue(new CentroidWriteMessage.SignatureCentroidWrite(
                 $"flood_{i}", new float[] { (float)i }, true, 0.9));
+            // Small yield so the drain can attempt (and fail) the first item,
+            // freeing the slot for DropOldest to fill+evict on subsequent writes.
+            if (i == 0) await Task.Delay(20);
         }
 
-        // DroppedCount must be 0: DropOldest never makes TryWrite return false.
-        Assert.Equal(0L, writer.DroppedCount);
+        // Poll up to 2s: DroppedCount must be > 0.
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        while (writer.DroppedCount == 0 && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(20);
 
-        // QueueDepth must not exceed the channel capacity of 1.
+        Assert.True(writer.DroppedCount > 0,
+            $"Expected DroppedCount > 0 after flood but got {writer.DroppedCount}");
+
+        // QueueDepth must not exceed channel capacity.
         Assert.True(writer.QueueDepth <= 1,
             $"QueueDepth {writer.QueueDepth} exceeded ChannelCapacity 1 under DropOldest");
     }

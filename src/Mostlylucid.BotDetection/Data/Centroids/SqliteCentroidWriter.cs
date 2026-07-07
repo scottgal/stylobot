@@ -50,7 +50,8 @@ public sealed class SqliteCentroidWriter : ICentroidWriter, IDisposable
                 FullMode    = BoundedChannelFullMode.DropOldest,
                 SingleReader = true,
                 SingleWriter = false,
-            });
+            },
+            itemDropped: _ => Interlocked.Increment(ref _dropped));
 
         _cts     = new CancellationTokenSource();
         _drainer = Task.Run(() => DrainAsync(_cts.Token));
@@ -59,14 +60,13 @@ public sealed class SqliteCentroidWriter : ICentroidWriter, IDisposable
     // ── ICentroidWriter ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Non-blocking enqueue. DropOldest guarantees TryWrite always returns true;
-    /// the increment is belt-and-braces for future channel-mode changes.
+    /// Non-blocking enqueue. Drop counting is owned by the itemDropped callback
+    /// passed to Channel.CreateBounded so DropOldest evictions are counted correctly.
     /// </summary>
     public void Enqueue(CentroidWriteMessage message)
     {
         if (_disposed != 0) return;
-        if (!_channel.Writer.TryWrite(message))
-            Interlocked.Increment(ref _dropped);
+        _channel.Writer.TryWrite(message);
     }
 
     public int QueueDepth  => _channel.Reader.Count;
