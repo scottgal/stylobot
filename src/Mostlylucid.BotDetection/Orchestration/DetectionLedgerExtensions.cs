@@ -304,6 +304,7 @@ public static class DetectionLedgerExtensions
         // via sink.Raise and never appears in preSignals. FingerprintNameComposer
         // is NOT the right site: its preSignals dict never contains health_endpoint
         // (sink-only signal), so a short-circuit there would silently never fire.
+        // Note: this assignment is dead on the early-exit path; CreateEarlyExitResult resolves its own primaryBotName independently.
         if (isHealthProbe)
             primaryBotName = Services.FingerprintNameComposer.HealthProbeName;
 

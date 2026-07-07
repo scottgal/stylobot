@@ -68,6 +68,79 @@ public sealed class FingerprintNameComposerHealthProbeTests
     }
 
     /// <summary>
+    ///     Early-exit path. When FastPathReputation fires TriggerEarlyExit=true and
+    ///     the sink carries IpIsLocal + HealthEndpoint + probe UA, the early-exit
+    ///     parity arm in CreateEarlyExitResult must set PrimaryBotName ==
+    ///     <see cref="FingerprintNameComposer.HealthProbeName"/>.
+    ///
+    ///     Exercises the early-exit code path that ToAggregatedEvidence's
+    ///     main-path assignment cannot reach (the main assignment is dead once
+    ///     ledger.EarlyExit is true).
+    /// </summary>
+    [Fact]
+    public void HealthProbe_EarlyExitPath_ProbeUA_NamedHealthProbe()
+    {
+        var ledger = new DetectionLedger("test-health-probe-early-exit");
+        // Mimics a FastPathReputation early-exit (the most common early-exit trigger).
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "FastPathReputation",
+            Category = "Reputation",
+            ConfidenceDelta = 1.0,
+            Weight = 3.0,
+            Reason = "IP seen 50 times",
+            TriggerEarlyExit = true,
+            EarlyExitVerdict = nameof(EarlyExitVerdict.VerifiedBadBot)
+        });
+
+        var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
+        sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
+        sink.Raise($"{SignalKeys.UserAgent}:curl/8.5.0", "ua");
+
+        var evidence = ledger.ToAggregatedEvidence(
+            options: new BotDetectionOptions(),
+            sink: sink);
+
+        Assert.True(evidence.EarlyExit, "Early-exit path must be taken");
+        Assert.Equal(BotType.Internal, evidence.PrimaryBotType);
+        Assert.Equal(FingerprintNameComposer.HealthProbeName, evidence.PrimaryBotName);
+    }
+
+    /// <summary>
+    ///     Early-exit negative case. Local IP with no HealthEndpoint signal
+    ///     (non-health LAN traffic, e.g. a curl script that hits an API path)
+    ///     must NOT receive the "Health Probe" name even on the early-exit path.
+    /// </summary>
+    [Fact]
+    public void HealthProbe_EarlyExitPath_LocalIpNoHealthEndpoint_NotNamedHealthProbe()
+    {
+        var ledger = new DetectionLedger("test-health-probe-early-exit-negative");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "FastPathReputation",
+            Category = "Reputation",
+            ConfidenceDelta = 1.0,
+            Weight = 3.0,
+            Reason = "IP seen 50 times",
+            TriggerEarlyExit = true,
+            EarlyExitVerdict = nameof(EarlyExitVerdict.VerifiedBadBot)
+        });
+
+        var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
+        sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        // No HealthEndpoint signal raised.
+
+        var evidence = ledger.ToAggregatedEvidence(
+            options: new BotDetectionOptions(),
+            sink: sink);
+
+        Assert.True(evidence.EarlyExit, "Early-exit path must be taken");
+        Assert.Equal(BotType.Internal, evidence.PrimaryBotType);
+        Assert.NotEqual(FingerprintNameComposer.HealthProbeName, evidence.PrimaryBotName);
+    }
+
+    /// <summary>
     ///     Shape-guard negative case. Loopback + browser-navigation shape + health
     ///     endpoint must NOT yield PrimaryBotName == "Health Probe": the shape guard
     ///     (Sec-Fetch-Mode: navigate) rejects the probe classification, so the
