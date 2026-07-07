@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.HealthEndpoints;
@@ -59,22 +58,20 @@ public sealed class HealthEndpointReconAtom : DetectorAtomBase
     /// </summary>
     public const double ReconNudge = 0.35;
 
+    private static readonly IReadOnlyDictionary<string, object> EmptySignals =
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, object>(
+            new Dictionary<string, object>());
+
     private readonly ILogger<HealthEndpointReconAtom> _logger;
-    private readonly HealthEndpointCatalog _catalog;
     private readonly IOptions<HealthEndpointOptions> _healthOptions;
-    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public HealthEndpointReconAtom(
         ILogger<HealthEndpointReconAtom> logger,
-        HealthEndpointCatalog catalog,
-        IOptions<HealthEndpointOptions> healthOptions,
-        IHttpContextAccessor httpContextAccessor)
+        IOptions<HealthEndpointOptions> healthOptions)
         : base(name: "HealthEndpointRecon", category: "Request")
     {
         _logger = logger;
-        _catalog = catalog;
         _healthOptions = healthOptions;
-        _httpContextAccessor = httpContextAccessor;
     }
 
     /// <summary>
@@ -104,7 +101,7 @@ public sealed class HealthEndpointReconAtom : DetectorAtomBase
         var isLocal = sink.ReadBoolHint(SignalKeys.IpIsLocal);
         var probeUas = _healthOptions.Value.ProbeUserAgents;
         var isProbeShape = ProbeShapeClassifier.IsProbeShape(
-            signals: new Dictionary<string, object>(),
+            signals: EmptySignals,
             sink: sink,
             probeUserAgents: probeUas);
 

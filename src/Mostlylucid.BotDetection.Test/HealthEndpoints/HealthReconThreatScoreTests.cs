@@ -28,13 +28,10 @@ public sealed class HealthReconThreatScoreTests
 
     private static HealthEndpointReconAtom BuildAtom(HttpContext context)
     {
-        var catalog = new HealthEndpointCatalog(Options.Create(HealthEndpointOptions.Default));
         var options = Options.Create(HealthEndpointOptions.Default);
         return new HealthEndpointReconAtom(
             NullLogger<HealthEndpointReconAtom>.Instance,
-            catalog,
-            options,
-            new StaticHttpContextAccessor(context));
+            options);
     }
 
     private static SignalSink PreSeededSink(bool healthEndpoint, bool ipIsLocal, string? ua = null, string? secFetchMode = null)

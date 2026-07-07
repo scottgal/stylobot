@@ -70,9 +70,6 @@ defaults:
     can_early_exit: false
     can_escalate: false
 
-  parameters:
-    recon_nudge: 0.35
-
 tags:
   - fast-path
   - security
