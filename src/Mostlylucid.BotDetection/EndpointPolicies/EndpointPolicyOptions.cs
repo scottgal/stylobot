@@ -87,7 +87,29 @@ public sealed class EndpointPolicyRule
     /// </summary>
     public List<string>? ModeIn { get; set; }
 
-    /// <summary>Named action policy to dispatch on match (block / throttle-stealth / challenge / logonly).</summary>
+    /// <summary>
+    ///     Caller-source filter. Controls which origin class the rule applies to:
+    ///     <list type="bullet">
+    ///         <item><c>internal</c> — loopback (127.0.0.1, ::1) and RFC-1918
+    ///             private-network peers only. Useful for health probes that
+    ///             should only be reachable from within the cluster or via a
+    ///             trusted proxy.</item>
+    ///         <item><c>external</c> — public-origin callers only (any IP that
+    ///             is NOT loopback or RFC-1918). Useful for blocking paths that
+    ///             should never be publicly accessible.</item>
+    ///         <item><c>any</c> or null — no source filter; the rule matches
+    ///             regardless of caller origin. This is the default and preserves
+    ///             the behaviour of all existing rules.</item>
+    ///     </list>
+    ///     The determination is made from
+    ///     <see cref="Microsoft.AspNetCore.Http.ConnectionInfo.RemoteIpAddress"/>
+    ///     via <c>NetworkHelper.IsLocalIp</c>, plus the configured
+    ///     <c>BotDetection:TransportTrust:TrustedProxyIps</c> allowlist when the
+    ///     resolver has access to bot-detection options.
+    /// </summary>
+    public string? Source { get; set; }
+
+    /// <summary>Named action policy to dispatch on match (block / throttle-stealth / challenge / logonly / allow).</summary>
     public string Action { get; set; } = "";
 
     /// <summary>Optional HTTP status code for block actions. Default depends on the action.</summary>

@@ -342,7 +342,7 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         Policies.Dispatch.PolicyDispatchServiceExtensions.AddPolicyDispatcher(services);
 
         // Action policies (block / challenge / throttle / rate-limit / redirect
-        // / log-only / silent-drop / sticky-deny / escalate-to-*). Registered
+        // / log-only / silent-drop / sticky-deny / escalate-to-* / allow). Registered
         // as IActionPolicy so ActionPolicyRegistry's ctor IEnumerable<IActionPolicy>
         // (additionalPolicies) picks them up alongside factory-materialised
         // policies from BotDetectionOptions.
@@ -357,6 +357,42 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // so only one factory per type). options["Target"] = learning | session
         // | llm picks the concrete class. See EscalateActionPolicyFactory.
         services.AddSingleton<Actions.IActionPolicyFactory, Actions.EscalateActionPolicyFactory>();
+        // Allow: pass-through policy used by endpoint-policy rules that
+        // explicitly allow a request class (e.g. internal health probes).
+        // Detection still runs; only the pre-detection endpoint gate is satisfied.
+        services.AddSingleton<Actions.IActionPolicy>(Actions.AllowActionPolicy.Instance);
+
+        // Endpoint-policy options: bind from config then append built-in default
+        // health-probe rules at the END so operator-declared rules take precedence
+        // via first-match-wins. The defaults allow internal-source callers through
+        // on the ten well-known health paths without blocking or delaying them.
+        // This is the only registration of EndpointPolicyOptions; ConfigEndpointPolicyResolver
+        // reads it via IOptionsMonitor so operator appsettings overrides are picked up
+        // on the next Recompile without a process restart.
+        services.AddOptions<EndpointPolicies.EndpointPolicyOptions>()
+            .BindConfiguration(EndpointPolicies.EndpointPolicyOptions.SectionName)
+            .PostConfigure(opts =>
+            {
+                foreach (var path in HealthEndpoints.HealthEndpointOptions.DefaultPaths)
+                {
+                    opts.Rules.Add(new EndpointPolicies.EndpointPolicyRule
+                    {
+                        Path = path,
+                        Source = "internal",
+                        Action = "allow",
+                        Reason = "health-probe-default"
+                    });
+                }
+            });
+        // Endpoint-policy resolver: maps IOptionsMonitor<EndpointPolicyOptions> to
+        // a compiled rule list. Optional IOptionsMonitor<BotDetectionOptions> enables
+        // the TrustedProxyIps check in the Source matcher.
+        services.TryAddSingleton<EndpointPolicies.IEndpointPolicyResolver>(sp =>
+            new EndpointPolicies.ConfigEndpointPolicyResolver(
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<EndpointPolicies.EndpointPolicyOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<EndpointPolicies.ConfigEndpointPolicyResolver>>(),
+                sp.GetService<Identity.BrowserModes.IBrowserModeResolver>(),
+                sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Models.BotDetectionOptions>>()));
 
         // Register contributors as detector atoms (adapt existing contributors)
         RegisterContributors(services, context);

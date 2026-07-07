@@ -2,7 +2,9 @@ using System.Collections.Frozen;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Identity.BrowserModes;
+using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.EndpointPolicies;
 
@@ -27,11 +29,15 @@ public sealed record EndpointPolicyMatch(
     int? StatusCode,
     string? Reason);
 
+/// <summary>Compiled source filter for <see cref="EndpointPolicyRule.Source"/>.</summary>
+internal enum SourceFilter { Internal, External }
+
 internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
 {
     private readonly IOptionsMonitor<EndpointPolicyOptions> _options;
     private readonly ILogger<ConfigEndpointPolicyResolver> _logger;
     private readonly IBrowserModeResolver? _modes;
+    private readonly IOptionsMonitor<BotDetectionOptions>? _botOptions;
 
     // Compiled matchers in declaration order. Recomputed when options
     // change (cheap; rule list is small).
@@ -41,7 +47,8 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
     public ConfigEndpointPolicyResolver(
         IOptionsMonitor<EndpointPolicyOptions> options,
         ILogger<ConfigEndpointPolicyResolver> logger,
-        IBrowserModeResolver? modes = null)
+        IBrowserModeResolver? modes = null,
+        IOptionsMonitor<BotDetectionOptions>? botOptions = null)
     {
         _options = options;
         _logger = logger;
@@ -50,6 +57,10 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         // rules with mode_in: but no resolver fail closed (no match) and
         // log on compile so the misconfiguration is loud at startup.
         _modes = modes;
+        // Optional bot-options gives access to TransportTrust.TrustedProxyIps.
+        // When absent (tests, minimal hosts) only loopback/RFC-1918 are
+        // treated as internal — the safe / conservative default.
+        _botOptions = botOptions;
         Recompile(options.CurrentValue);
         options.OnChange(Recompile);
     }
@@ -69,6 +80,9 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         string? transport = null;
         string? protocolVersion = null;
         string? browserMode = null;
+
+        // Lazily computed — only evaluated when at least one rule needs it.
+        bool? callerIsLocal = null;
 
         foreach (var compiled in _compiled)
         {
@@ -100,12 +114,23 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                 browserMode ??= _modes.Resolve(context);
                 if (!modes.Contains(browserMode)) continue;
             }
+            if (compiled.SourceFilter is { } sf)
+            {
+                // Source matcher runs pre-detection from raw HttpContext because
+                // EndpointPolicyMiddleware fires before BotDetectionMiddleware —
+                // the SignalSink has not been populated yet. We derive local/trusted
+                // directly from the connection peer IP (NetworkHelper.IsLocalIp)
+                // plus the optional TrustedProxyIps allowlist from BotDetectionOptions.
+                callerIsLocal ??= IsLocalOrTrustedCaller(context);
+                if (sf == SourceFilter.Internal && !callerIsLocal.Value) continue;
+                if (sf == SourceFilter.External && callerIsLocal.Value) continue;
+            }
 
             return new EndpointPolicyMatch(
-                compiled.Source,
-                compiled.Source.Action,
-                compiled.Source.StatusCode,
-                compiled.Source.Reason);
+                compiled.Rule,
+                compiled.Rule.Action,
+                compiled.Rule.StatusCode,
+                compiled.Rule.Reason);
         }
 
         return null;
@@ -142,6 +167,8 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                     rule.Host, rule.Path);
             }
 
+            var sourceFilter = CompileSource(rule.Source);
+
             list.Add(new CompiledRule(
                 rule,
                 CompileHost(rule.Host),
@@ -149,11 +176,44 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                 CompilePath(rule.Path),
                 NormaliseAny(rule.Transport),
                 NormaliseAny(rule.ProtocolVersion),
-                modeIn));
+                modeIn,
+                sourceFilter));
         }
         _compiled = list.ToArray();
 
         _logger.LogInformation("EndpointPolicy resolver compiled {Count} rule(s)", _compiled.Length);
+    }
+
+    /// <summary>
+    ///     Derives whether the caller is local or trusted. Called pre-detection
+    ///     because <c>EndpointPolicyMiddleware</c> runs before <c>BotDetectionMiddleware</c>
+    ///     — the SignalSink is not yet populated at this point. The check uses the
+    ///     raw <see cref="Microsoft.AspNetCore.Http.ConnectionInfo.RemoteIpAddress"/>
+    ///     via <see cref="NetworkHelper.IsLocalIp"/>, supplemented by the configured
+    ///     <c>BotDetection:TransportTrust:TrustedProxyIps</c> allowlist when
+    ///     <see cref="_botOptions"/> is available.
+    /// </summary>
+    private bool IsLocalOrTrustedCaller(HttpContext context)
+    {
+        var peer = context.Connection.RemoteIpAddress;
+        if (NetworkHelper.IsLocalIp(peer)) return true;
+
+        if (_botOptions is null) return false;
+
+        var peerStr = peer?.ToString();
+        if (string.IsNullOrEmpty(peerStr)) return false;
+
+        var trustedIps = _botOptions.CurrentValue.TransportTrust.TrustedProxyIps;
+        return trustedIps.Count > 0 && trustedIps.Contains(peerStr, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static SourceFilter? CompileSource(string? source)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return null;
+        if (source.Equals("any", StringComparison.OrdinalIgnoreCase)) return null;
+        if (source.Equals("internal", StringComparison.OrdinalIgnoreCase)) return SourceFilter.Internal;
+        if (source.Equals("external", StringComparison.OrdinalIgnoreCase)) return SourceFilter.External;
+        return null; // Unknown values default to wildcard (same as "any").
     }
 
     private static string? NormaliseMethod(string? value)
@@ -194,13 +254,14 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
     }
 
     private sealed record CompiledRule(
-        EndpointPolicyRule Source,
+        EndpointPolicyRule Rule,
         HostMatcher? HostMatcher,
         string? Method,
         PathMatcher? PathMatcher,
         string? Transport,
         string? ProtocolVersion,
-        FrozenSet<string>? ModeIn);
+        FrozenSet<string>? ModeIn,
+        SourceFilter? SourceFilter = null);
 
     private sealed class HostMatcher
     {
