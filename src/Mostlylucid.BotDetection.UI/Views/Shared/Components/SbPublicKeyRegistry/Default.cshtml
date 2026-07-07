@@ -1,0 +1,113 @@
+@using Mostlylucid.BotDetection.UI.ViewComponents
+@model PublicKeyRegistryViewModel
+@*
+    Web Bot Auth public-key registry widget. SSR-first: rendered on first paint,
+    refreshed via the centralised freshness beacon (data-sb-depends="public-keys")
+    fired by PublicKeyRegistryBeaconBroadcaster on each hourly manifest refresh.
+    No timed polling per [[feedback_ssr_signalr_pattern]]. Colours are
+    informational (info/neutral); a key past its NotAfter shows a warning badge
+    per [[project_dashboard_color_semantics]].
+*@
+<div class="card bg-base-100 border border-base-300" data-sb-depends="public-keys">
+    <div class="card-body p-3 space-y-2">
+        <div class="flex items-center justify-between gap-2">
+            <div class="text-sm font-semibold flex items-center gap-2">
+                <span class="inline-block w-2 h-2 rounded-full @(Model.IsEnabled ? "bg-info" : "bg-base-300") shrink-0"></span>
+                Web Bot Auth keys
+            </div>
+            @if (!Model.IsUnavailable)
+            {
+                <div class="text-xs text-base-content/60">
+                    @if (Model.LastRefreshedUtc is { } refreshed)
+                    {
+                        <span>refreshed @refreshed.UtcDateTime.ToString("u")</span>
+                    }
+                    else
+                    {
+                        <span>never fetched</span>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (Model.IsUnavailable)
+        {
+            <div class="text-sm text-base-content/60 py-2">
+                Registry not available on this host.
+            </div>
+        }
+        else if (Model.Keys.Count == 0)
+        {
+            <div class="text-sm text-base-content/60 py-2">
+                @if (!Model.IsEnabled)
+                {
+                    <span>Disabled. Set <code class="text-xs">BotDetection:PublicKeyRegistry:Enabled</code> to load keys.</span>
+                }
+                else if (string.IsNullOrWhiteSpace(Model.ManifestUrl))
+                {
+                    <span>No keys yet — configure a manifest URL or manual keys.</span>
+                }
+                else
+                {
+                    <span>No keys loaded yet from the manifest.</span>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="flex items-center gap-2 text-xs text-base-content/60">
+                <span class="badge badge-sm badge-info badge-outline">@Model.Keys.Count key@(Model.Keys.Count == 1 ? "" : "s")</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="table table-xs">
+                    <thead>
+                        <tr>
+                            <th>Agent</th>
+                            <th>Key ID</th>
+                            <th>Algorithm</th>
+                            <th>Expiry</th>
+                            <th>Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var key in Model.Keys)
+                        {
+                            var expired = key.NotAfter is { } na && na < DateTimeOffset.UtcNow;
+                            <tr>
+                                <td class="font-medium">@key.AgentName</td>
+                                <td><code class="text-xs">@key.KeyId</code></td>
+                                <td class="text-xs">@key.Algorithm</td>
+                                <td class="text-xs">
+                                    @if (key.NotAfter is { } notAfter)
+                                    {
+                                        <span class="@(expired ? "text-warning" : "text-base-content/70")">
+                                            @notAfter.UtcDateTime.ToString("yyyy-MM-dd")
+                                            @if (expired)
+                                            {
+                                                <span class="badge badge-xs badge-warning badge-outline ml-1">expired</span>
+                                            }
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-base-content/40">—</span>
+                                    }
+                                </td>
+                                <td class="text-xs">
+                                    @if (string.Equals(key.Source, "manual", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="badge badge-xs badge-ghost">manual</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-base-content/50 truncate max-w-[16rem] inline-block align-bottom" title="@key.Source">@key.Source</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>

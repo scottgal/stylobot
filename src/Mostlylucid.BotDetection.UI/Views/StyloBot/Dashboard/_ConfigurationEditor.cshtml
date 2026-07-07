@@ -33,6 +33,13 @@
    in remote-mode hosts with no detection runtime. *@
 @await Component.InvokeAsync("SbGuardians")
 
+@* Web Bot Auth public-key registry: known-agent signing keys + last manifest
+   refresh. Read-only FOSS surface; SSR-first, refreshed via the "public-keys"
+   freshness beacon. Graceful "unavailable" state on remote-mode hosts. *@
+<div class="mt-4">
+    @await Component.InvokeAsync("SbPublicKeyRegistry")
+</div>
+
 @* FOSS: read-only, server-rendered, server-highlighted. Left rail lists effective-
    config sections and detectors. Right panel shows YAML or JSON for the active
    item, fetched as an HTMX fragment. Zero CDN dependencies; works under the
