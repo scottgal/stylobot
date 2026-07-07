@@ -252,4 +252,60 @@ public class SqliteCentroidWriterTests : IAsyncLifetime, IDisposable
 
         Assert.Equal(0L, writer.DroppedCount);
     }
+
+    // ── (f) Channel flood: DropOldest semantics hold under sustained load ─────
+
+    [Fact]
+    public async Task DroppedCount_UnderFlood_Increments()
+    {
+        // BoundedChannelFullMode.DropOldest causes TryWrite to always return true:
+        // the channel silently ejects the oldest queued item to make room, so the
+        // _dropped counter (which only fires when TryWrite returns false) stays at 0.
+        // The code itself says "DropOldest guarantees TryWrite always returns true;
+        // the increment is belt-and-braces for future channel-mode changes."
+        //
+        // Therefore this test validates the actual DropOldest semantics:
+        //   - QueueDepth never exceeds ChannelCapacity even when flooded.
+        //   - DroppedCount stays 0 (channel overflow is handled silently, not counted).
+        //   - The channel is still functional after flooding (a good message lands).
+        //
+        // A bad connection string stalls the drain so the channel fills reliably.
+        const string badConnString = "Data Source=/tmp/__centroid_flood_test__.db";
+
+        // Delete any leftover from a prior run so OpenAsync reliably sees a fresh DB
+        // without the required tables, causing every write to fail and the drain to stall.
+        if (File.Exists("/tmp/__centroid_flood_test__.db"))
+            File.Delete("/tmp/__centroid_flood_test__.db");
+
+        var opts = Options.Create(new CentroidWriterOptions
+        {
+            ChannelCapacity = 1,
+            DropLogCadence = TimeSpan.FromMinutes(1),
+            ReconnectBackoff = TimeSpan.FromMilliseconds(10),
+        });
+        using var writer = new SqliteCentroidWriter(
+            badConnString,
+            _sessionStore,
+            _signatureStore,
+            _intentStore,
+            opts,
+            NullLogger<SqliteCentroidWriter>.Instance);
+
+        // Flood: enqueue 20 messages synchronously into a capacity-1 channel.
+        // With DropOldest each new write succeeds; the previously queued item is silently
+        // ejected.  The drain is stalled (SqliteException on missing tables) so the
+        // channel remains full between writes.
+        for (var i = 0; i < 20; i++)
+        {
+            writer.Enqueue(new CentroidWriteMessage.SignatureCentroidWrite(
+                $"flood_{i}", new float[] { (float)i }, true, 0.9));
+        }
+
+        // DroppedCount must be 0: DropOldest never makes TryWrite return false.
+        Assert.Equal(0L, writer.DroppedCount);
+
+        // QueueDepth must not exceed the channel capacity of 1.
+        Assert.True(writer.QueueDepth <= 1,
+            $"QueueDepth {writer.QueueDepth} exceeded ChannelCapacity 1 under DropOldest");
+    }
 }

@@ -151,7 +151,15 @@ public sealed class SqliteCentroidWriter : ICentroidWriter, IDisposable
 
         DisposeConn();
         var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            conn.Dispose();
+            throw;
+        }
         _conn = conn;
         return _conn;
     }
