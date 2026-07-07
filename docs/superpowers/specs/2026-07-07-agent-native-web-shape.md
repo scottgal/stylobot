@@ -10,7 +10,7 @@
 | Feature | Ephemeral layer | StyloFlow layer | Pack layer |
 |---|---|---|---|
 | **RFC 9421 verify** (Web Bot Auth) | New `WebBotAuthAtom` (Verifier taxonomy) writes `identity.verified_bot_signed:true` + `identity.verified_bot_name:<name>` + `identity.verified_bot_key_id`. `PublicKeyRegistryAtom` (Coordinator taxonomy) holds known-agent keys, refreshed on a ScheduleCoordinator tick. | Manifest at `Manifests/detectors/webbotauth.detector.yaml` declares emits and reads `well_known_keys.refresh_hours` from `Options`. | Ships in FOSS `Mostlylucid.BotDetection` — verification is a first-class detection capability, not a paid-only feature. Same tier as `VerifiedBotAtom`. |
-| **Capability tokens** (`Authorization: License`) | New `CapabilityTokenAtom` (Verifier taxonomy) parses the header, verifies signature via existing `StyloFlow.Licensing.ISignatureValidator`, writes `auth.capability_token_valid:bool` + `auth.capability_claims:<serialized>`. | Manifest declares emits and reads issuer trust-anchor list from `Options`. Existing `IActionPolicy` dispatches on token verdict → 401 / 402 / passthrough. | Ships in FOSS. Verifier is a primitive; policy on top of it (allow/require/etc.) is per-endpoint via `EndpointPolicy` and per-domain via the commercial `Domains.Ui` pack. |
+| **Capability tokens** (`Authorization: License`) | New `CapabilityTokenAtom` (Verifier taxonomy — **commercial**) parses the `Authorization: License` header, calls the FOSS generic `ITokenVerifier` (`TokenKind.SignedBearerToken`) with StyloFlow claim-name knobs, writes `auth.capability_token_valid:bool` + `auth.capability_claims:<serialized>`. FOSS owns the generic signed-token verifier only; the license *meaning* (scheme name, tier claims, vendor trust root) is commercial. | Manifest is a commercial manifest declaring emits and reading issuer trust-anchor list from `Options`. Existing `IActionPolicy` dispatches on token verdict → 401 / 402 / passthrough. | **Commercial.** FOSS ships only the licensing-agnostic verifier primitive. Per operator directive: FOSS carries zero licensing knowledge. |
 | **Agent markdown serving** | No new atom needed on the read side — reuses `identity.verified_bot_signed` + `identity.verified_bot_name`. Response side needs a new `ResponseTransformCoordinator` (single instance, dispatches to per-content-type transformers). | New manifest kind: `Manifests/response-transforms/*.yaml`. Declares "when signal X is present, apply transformer Y to content-type Z". Loaded by the coordinator at boot. | Ships as its own sfpkg-distributable: **`Mostlylucid.BotDetection.AgentContent`**. Contains the HTML→Markdown transformer, the sitemap-driven `/llms.txt` synthesizer, and the manifest schema. Optional pack; not part of the default gateway image. |
 
 ## Shared primitives the three features need
@@ -24,11 +24,11 @@ The features share three new primitives. Build these once, in this order — eve
    - Same shape as `ThreatIntelStore` — well-known distribution point, durable snapshot, ephemeral in-memory index.
    - **This is the foundation for RFC 9421 verify. It ships first.**
 
-2. **`ITokenVerifier` abstraction** (FOSS core).
-   - Interface: `ITokenVerifier.Verify(token, issuerTrustAnchors) -> TokenVerdict`.
-   - Two implementations at first: RFC 9421 HTTP Message Signatures, and StyloFlow license capability tokens. Both are `sig + claims + expiry` shapes — one abstraction over both is cheap and prevents parallel crypto pipelines.
-   - Uses only `System.Security.Cryptography` primitives. No third-party JOSE library — we've already argued this elsewhere.
-   - **Feeds both WebBotAuthAtom and CapabilityTokenAtom.**
+2. **`ITokenVerifier` abstraction** (FOSS core, **licensing-agnostic**).
+   - Interface: `ITokenVerifier.Verify(token, trustAnchors) -> TokenVerdict`.
+   - Two implementations at first: RFC 9421 HTTP Message Signatures, and a generic **signed bearer token** (canonical-JSON + Ed25519 signature). Both are `sig + claims + expiry` shapes — one abstraction over both is cheap and prevents parallel crypto pipelines. **The "signed bearer token" impl has no knowledge that a consumer is verifying a license.** The commercial CapabilityTokenAtom points the configurable claim-name knobs at StyloFlow's convention; FOSS itself never mentions "license".
+   - Uses only `System.Security.Cryptography` + NSec primitives. No third-party JOSE library, no dependency on `Mostlylucid.StyloFlow.Licensing`.
+   - **Feeds WebBotAuthAtom (FOSS) directly, and the commercial CapabilityTokenAtom via configuration.**
 
 3. **`ResponseTransformCoordinator`** (new pack, opt-in).
    - Middleware that runs POST-detection, PRE-response-body-write.
@@ -55,7 +55,7 @@ Each agent gets its own spec to write. To parallelize without collision:
 | **Public-key-registry agent** | `PublicKeyRegistry`, `PublicKeyRegistryAtom`, the JSON manifest schema, the scheduled-refresh coordinator, dashboard visibility for the current key set + last refresh. | Nothing prior. Foundation. | FOSS |
 | **Token-verifier agent** | `ITokenVerifier`, the RFC 9421 impl, the license-capability-token impl, unit tests, error taxonomy. | Public-key-registry (for RFC 9421 key resolution). | FOSS |
 | **WebBotAuthAtom agent** | `WebBotAuthAtom` (Verifier taxonomy), its manifest, verdict-honest override plumbing so a valid signature promotes to `BotType.VerifiedBot` with a named identity, integration into `identity.verified_bot_name` consumer chain. | Public-key-registry + Token-verifier. | FOSS |
-| **CapabilityTokenAtom agent** | `CapabilityTokenAtom`, its manifest, action-policy dispatch on `auth.capability_token_valid`, per-EndpointPolicy `RequiresCapability:<claim>` rule. | Token-verifier. | FOSS |
+| **CapabilityTokenAtom agent** | `CapabilityTokenAtom` (parses `Authorization: License`, calls FOSS `ITokenVerifier` with StyloFlow claim-name knobs), its commercial manifest, action-policy dispatch on `auth.capability_token_valid`, `RequiresCapabilityRuleExtension : IEndpointPolicyRuleExtension` (commercial matcher). | FOSS Token-verifier + FOSS `IEndpointPolicyRuleExtension` seam (C4a — wba-foundation adds). | **Commercial** |
 | **AgentContent pack agent** | The `Mostlylucid.BotDetection.AgentContent` pack: `ResponseTransformCoordinator`, `IResponseTransformer`, HTML→Markdown transformer, `/llms.txt` synthesizer from sitemap, `response-transforms/*.yaml` manifest schema. | Nothing on the ephemeral side (reads existing sink signals). Depends on WebBotAuthAtom producing `identity.verified_bot_signed`. | New sfpkg |
 | **Commercial-UI agent** (feature agent, existing) | Dashboard surfaces: registered public keys view, capability token issuer + claim editor, per-response-transform rule editor. | All four above. Ships as commercial dashboard packs. | Commercial |
 
@@ -105,7 +105,7 @@ public sealed record PublicKeyEntry(
 - Refresh is coordinator-driven, not per-request. Never blocks a request thread on IO.
 - `Snapshot()` returns a stable list — no locking on the caller side. Coordinator swaps under a lock, readers see immutable snapshots.
 
-### C2. `ITokenVerifier` + `TokenVerdict` (Token-verifier agent owns)
+### C2. `ITokenVerifier` + `TokenVerdict` (Token-verifier agent owns) — GENERIC, ZERO LICENSING KNOWLEDGE
 
 ```csharp
 namespace Mostlylucid.BotDetection.Auth;
@@ -116,8 +116,8 @@ public interface ITokenVerifier
 }
 
 public readonly record struct TokenInput(
-    TokenKind Kind,               // Rfc9421HttpSignature | LicenseCapability
-    string RawValue,              // full signature-input+signature block for 9421; base64 blob for capability
+    TokenKind Kind,               // Rfc9421HttpSignature | SignedBearerToken
+    string RawValue,              // full signature-input+signature block for 9421; base64(canonical-JSON) for signed bearer
     IReadOnlyDictionary<string, string> CoveredHeaders,   // request headers covered by the signature (9421 only)
     string RequestMethod,
     string RequestPath);
@@ -125,21 +125,26 @@ public readonly record struct TokenInput(
 public sealed record TokenVerdict(
     TokenOutcome Outcome,         // Valid | InvalidSignature | Expired | UnknownKey | Malformed | MissingKey
     string? KeyId,                // populated when at least the header parsed
-    string? SubjectName,          // AgentName for 9421 (from PublicKeyRegistry); IssuedTo for capability
-    IReadOnlyDictionary<string, string>? Claims,   // capability claims OR the 9421 signature parameters
+    string? SubjectName,          // AgentName for 9421 (from PublicKeyRegistry); value of SignedTokenSubjectClaim for bearer
+    IReadOnlyDictionary<string, string>? Claims,   // raw claim map (bearer) OR the 9421 signature parameters
     TimeSpan Elapsed);            // verify-time — feeds the dashboard latency panel
 
-public enum TokenKind    { Rfc9421HttpSignature, LicenseCapability }
+public enum TokenKind    { Rfc9421HttpSignature, SignedBearerToken }
 public enum TokenOutcome { Valid, InvalidSignature, Expired, UnknownKey, Malformed, MissingKey }
 ```
 
-- One verifier, two `TokenKind`s. The 9421 impl resolves keys via `IPublicKeyRegistry`; the capability impl resolves via `Mostlylucid.BotDetection.Auth.ISignatureValidator` — a FOSS-side seam with a default `Ed25519SignatureValidator` implementation using NSec (already referenced by FOSS core). Do NOT add a FOSS dependency on `StyloFlow.Licensing`; commercial licensing can supply its own `ISignatureValidator` binding to the vendor trust root later, same interface. The default impl replicates `LicenseSigningService.GetSignableContent`'s canonical-content scheme (sorted keys, exclude "signature", non-indented) so tokens minted by the existing licensing pipeline verify byte-for-byte.
-- Capability trust anchors live on `TokenVerifierOptions.CapabilityTrustAnchors` (list of `{ base64PublicKey, label }`) — with the verifier, not the atom. `CapabilityTokenOptions` (owned by the caps-atom agent) holds policy config (LogOnly mode, claim→action maps) but never trust anchors.
+- One verifier, two `TokenKind`s. The 9421 impl resolves keys via `IPublicKeyRegistry`; the **SignedBearerToken** impl (internal name `SignedTokenVerifier`) reads a base64-encoded canonical-JSON blob + signature and verifies against `TokenVerifierOptions.TrustAnchors`. It surfaces the raw claim map only — it does NOT interpret "tier", "entitlement", "license", or "Authorization: License". Those concepts do not exist in FOSS.
+- Signature/subject/expiry claim NAMES are configurable via `TokenVerifierOptions.SignedTokenSignatureField` (default `"signature"`), `SignedTokenSubjectClaim` (default `"sub"`), `SignedTokenExpiryClaim` (default `"exp"`). A commercial license consumer points these at StyloFlow's convention (`signature` / `issuedTo` / `expiry`) via configuration; FOSS ships the RFC-default names.
+- Signature validation uses `Mostlylucid.BotDetection.Auth.ISignatureValidator` — a FOSS-side seam with a default `Ed25519SignatureValidator` implementation using NSec (already referenced by FOSS core). **FOSS has NO dependency on `Mostlylucid.StyloFlow.Licensing`** — that's the hard operator boundary this seam exists for. Commercial licensing binds its own `ISignatureValidator` implementation (or reuses the default) pointing at the vendor trust root.
+- The default impl's canonical-content scheme (sorted keys, exclude the signature field, non-indented JSON) matches what `LicenseSigningService.GetSignableContent` in commercial produces — a byte-for-byte compat test lives in the **commercial** repo (`Stylobot.Commercial.LicenseGen.Tests`), not FOSS.
+- Trust anchors (`TrustAnchor { base64PublicKey, label }`) live on `TokenVerifierOptions.TrustAnchors` — with the verifier, not the atom. The commercial `CapabilityTokenAtom` may hold policy config (LogOnly mode, claim→action maps) on its own commercial Options class, but never trust anchors.
 - Verifier is a singleton, pure function of inputs — no per-request state, no IO. `Elapsed` measured internally so the caller can't fake it.
 
-### C3. Signal keys the atoms write (WebBotAuthAtom + CapabilityTokenAtom agents own)
+### C3. Signal keys the atoms write
 
 Sink keys are the API for downstream atoms and action policies. Locked here — any consumer reads via `sink.ReadHint(...)` / `sink.ReadBoolHint(...)`.
+
+**FOSS-owned (WebBotAuthAtom agent):**
 
 ```csharp
 namespace Mostlylucid.BotDetection.Models;
@@ -152,8 +157,16 @@ public static partial class SignalKeys
     public const string VerifiedBotKeyId     = "identity.verified_bot_key_id";      // string
     public const string VerifiedBotAlgorithm = "identity.verified_bot_algorithm";   // string
     public const string SignatureVerdict     = "identity.signature_verdict";        // TokenOutcome as string
+}
+```
 
-    // CapabilityTokenAtom
+**Commercial-owned (CapabilityTokenAtom agent — string values locked so downstream consumers are stable):**
+
+```csharp
+// Lives in commercial (e.g. Stylobot.Commercial.Licensing.CapabilityAtom.CapabilitySignalKeys).
+// Values are frozen here to prevent drift.
+public static class CapabilitySignalKeys
+{
     public const string CapabilityTokenValid    = "auth.capability_token_valid";    // bool
     public const string CapabilityTokenSubject  = "auth.capability_token_subject";  // string
     public const string CapabilityClaims        = "auth.capability_claims";         // JSON string of claim map
@@ -161,23 +174,55 @@ public static partial class SignalKeys
 }
 ```
 
-- Manifests declare these in `emits.on_complete` per the existing manifest schema — no new manifest shape.
+- Manifests declare these in `emits.on_complete` per the existing manifest schema — no new manifest shape. Commercial atoms publish their manifest under the commercial repo's manifest tree.
 - Seeds the `verified-<botname>` centroid via `IdentityArchetypeRegistry` — WebBotAuthAtom nudges but does not clobber archetype match.
 
-### C4. `EndpointPolicy` extensions (CapabilityTokenAtom agent owns the rule matcher)
+### C4. `EndpointPolicy` extensibility seam (FOSS) + `RequiresCapability` matcher (commercial)
 
-```yaml
-# Manifests/detectors/... unchanged.
-# New EndpointPolicy rule shape (additive):
-- path: "/api/premium/**"
-  requiresCapability:                   # NEW field, optional
-    claim: "stylobot.tier"
-    value: "enterprise"                 # any of Value / OneOf / MinTier
-  onMissing: 401                        # 401 | 402 | passthrough (per modpagespeed's 401/402/pass semantic)
-  onInvalid: 402
+Two-part change, licensing-agnostic FOSS seam + license-specific commercial matcher.
+
+**C4a — FOSS-side seam (wba-foundation to add — grep confirmed no seam exists today; `ConfigEndpointPolicyResolver.Match()` is hard-coded).**
+
+```csharp
+namespace Mostlylucid.BotDetection.EndpointPolicy;
+
+/// <summary>
+/// External-package hook for contributing named policy-rule matchers.
+/// FOSS knows nothing about the matcher's semantics — only its name and pass/fail vote.
+/// </summary>
+public interface IEndpointPolicyRuleExtension
+{
+    /// <summary>YAML key this extension binds to (e.g. "requiresCapability").</summary>
+    string RuleName { get; }
+
+    /// <summary>Evaluate the rule payload for this request. Return true = rule satisfied.</summary>
+    bool Matches(EndpointPolicyExtensionContext context);
+}
+
+public readonly record struct EndpointPolicyExtensionContext(
+    HttpContext HttpContext,
+    SignalSink Sink,                            // extension reads signals written earlier in the pipeline
+    IReadOnlyDictionary<string, object?> RulePayload);  // the YAML sub-tree under RuleName
 ```
 
-- Same `EndpointPolicyResolver` seam feature agent is extending for the health-endpoint `Source` matcher — one composition point, two additive rule kinds. Coordinate with feature agent so both land against the same resolver.
+- `EndpointPolicyRule` gains an `Extensions: Dictionary<string, object?>` field. YAML keys not baked into the compiled matchers land here.
+- `ConfigEndpointPolicyResolver.Match()` after all baked-in checks, iterates registered `IEndpointPolicyRuleExtension` instances; for each `RuleName` present in `rule.Extensions`, calls `Matches`. A `false` from any extension = rule does not match this rule row (fall through to the next rule).
+- FOSS ships zero extensions itself. The seam is licensing-agnostic.
+
+**C4b — commercial `RequiresCapability` matcher.**
+
+```yaml
+# Commercial config, additive YAML under an existing EndpointPolicyRule:
+- path: "/api/premium/**"
+  requiresCapability:                   # commercial extension key
+    claim: "stylobot.tier"
+    value: "enterprise"                 # any of Value / OneOf / MinTier
+    onMissing: 401                      # 401 | 402 | passthrough (per modpagespeed's 401/402/pass semantic)
+    onInvalid: 402
+```
+
+- Commercial package registers `RequiresCapabilityRuleExtension : IEndpointPolicyRuleExtension` (RuleName = `"requiresCapability"`). It reads the parsed capability from the sink (written by the commercial `CapabilityTokenAtom` earlier in the pipeline) and votes match/no-match. On no-match, the atom's action-policy dispatch takes care of the 401/402 status (matcher just gates the rule row).
+- Coordinate the seam design with the feature/foss agent — the health-endpoint `Source` matcher discussion (see `feature-review-health-endpoint-design.md`) may land as a baked-in `Source` field OR as the first user of this same extension seam. Prefer baked-in for `Source` (universal concept), use the extension seam for anything license-flavored.
 
 ### C5. `IResponseTransformer` (AgentContent pack agent owns)
 
@@ -242,8 +287,10 @@ metrics:
 // FOSS
 Mostlylucid.BotDetection.WebBotAuth.PublicKeyRegistryOptions
 Mostlylucid.BotDetection.WebBotAuth.WebBotAuthOptions
-Mostlylucid.BotDetection.Auth.TokenVerifierOptions
-Mostlylucid.BotDetection.Auth.CapabilityTokenOptions
+Mostlylucid.BotDetection.Auth.TokenVerifierOptions               // TrustAnchors + SignedTokenSignatureField/SubjectClaim/ExpiryClaim knobs
+
+// Commercial (owned by CapabilityTokenAtom agent — configures the FOSS verifier for StyloFlow claim names)
+Stylobot.Commercial.Licensing.CapabilityAtom.CapabilityTokenOptions
 
 // AgentContent pack
 Mostlylucid.BotDetection.AgentContent.ResponseTransformOptions
@@ -256,15 +303,17 @@ Every knob per `feedback_all_settings_configurable` lives on one of these. No `I
 
 Per `reference_stylobot_intended_architecture`, every new type gets a taxonomy label. Locked here so nobody accidentally builds a Sensor where a Verifier belongs.
 
-| New type | Taxonomy |
-|---|---|
-| `PublicKeyRegistry` service | Coordinator |
-| `PublicKeyRegistryAtom` (durability wrapper) | Escalator |
-| `WebBotAuthAtom` | Verifier |
-| `CapabilityTokenAtom` | Verifier |
-| `ITokenVerifier` implementations | Molecule (stateless, pure) |
-| `IResponseTransformer` implementations | Molecule |
-| `ResponseTransformCoordinator` middleware | Coordinator |
+| New type | Taxonomy | Ships in |
+|---|---|---|
+| `PublicKeyRegistry` service | Coordinator | FOSS |
+| `PublicKeyRegistryAtom` (durability wrapper) | Escalator | FOSS |
+| `WebBotAuthAtom` | Verifier | FOSS |
+| `CapabilityTokenAtom` | Verifier | **Commercial** |
+| `ITokenVerifier` implementations (`Rfc9421Verifier`, `SignedTokenVerifier`) | Molecule (stateless, pure) | FOSS |
+| `IEndpointPolicyRuleExtension` seam | Extension seam | FOSS |
+| `RequiresCapabilityRuleExtension` | Guard | **Commercial** |
+| `IResponseTransformer` implementations | Molecule | AgentContent pack |
+| `ResponseTransformCoordinator` middleware | Coordinator | AgentContent pack |
 
 ## What this shape deliberately does NOT specify
 
