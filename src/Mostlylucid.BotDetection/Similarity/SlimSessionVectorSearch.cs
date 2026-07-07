@@ -14,8 +14,9 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     LOH growth. No file I/O on the hot path.
 ///
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking SIMD cosine scan over the hot cache.
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then fires a
-///     background Task to upsert the centroid row to SQLite.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then enqueues
+///     an LFU-sampled <see cref="Data.Centroids.CentroidWriteMessage"/> to <see cref="ICentroidWriter"/>
+///     for single-writer drain to SQLite. Non-blocking; no per-add Task.Run.
 /// </summary>
 public sealed class SlimSessionVectorSearch : ISessionVectorSearch
 {

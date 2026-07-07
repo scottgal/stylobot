@@ -13,8 +13,9 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking TryGet on the hot cache then
 ///     SIMD cosine similarity. No SQLite I/O on the hot path.
 ///
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then fires
-///     a background Task to upsert the centroid to SQLite.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then enqueues
+///     an LFU-sampled <see cref="Data.Centroids.CentroidWriteMessage"/> to <see cref="ICentroidWriter"/>
+///     for single-writer drain to SQLite. Non-blocking; no per-add Task.Run.
 /// </summary>
 public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
 {

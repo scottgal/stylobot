@@ -14,8 +14,9 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking scan of the hot cache with
 ///     SIMD cosine similarity. No SQLite I/O on the hot path.
 ///
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then fires
-///     a background Task to upsert the intent centroid to SQLite.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then enqueues
+///     an LFU-sampled <see cref="Data.Centroids.CentroidWriteMessage"/> to <see cref="ICentroidWriter"/>
+///     for single-writer drain to SQLite. Non-blocking; no per-add Task.Run.
 /// </summary>
 public sealed class SlimIntentSearch : IIntentSimilaritySearch
 {
@@ -92,11 +93,13 @@ public sealed class SlimIntentSearch : IIntentSimilaritySearch
         // Write to hot cache immediately (fast path)
         _cache.Set(signatureId, new CacheEntry(vector, threatScore, intentCategory));
 
-        // LFU-sampled synchronous enqueue: intent adds are not probability-gated so
-        // retention relies on threat score. High-threat entries are retained; low-threat
-        // browsing is shed first. Non-blocking: no Task.Run.
+        // LFU-sampled synchronous enqueue: intent adds carry no per-sig bot probability,
+        // so necessity is driven purely by threatScore. Passing botProbability=0.0 makes
+        // Uncertainty(0.0, threshold=0.70) negligible (~3e-10), reducing Value to
+        // threat * recency. Low-threat browsing is shed first; high-threat entries persist.
+        // Non-blocking: no Task.Run.
         var necessity = DecisionNecessity.Value(
-            botProbability: 0.5,       // intent adds carry no per-sig probability
+            botProbability: 0.0,       // uncertainty term negligible; necessity reduces to threat x recency
             threat: threatScore,
             ageSeconds: 0,
             threshold: _centroidOpts.DecisionThreshold,

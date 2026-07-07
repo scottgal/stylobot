@@ -21,11 +21,10 @@ namespace Mostlylucid.BotDetection.Test.Similarity;
 ///     -- SlimSignature + SlimSession:  default SamplingThreshold=0.05 / DecisionThreshold=0.70
 ///        HIGH: borderline bot (probability near 0.70)  -> necessity near 1.0
 ///        LOW:  confident-not-bot (probability=0.01, wasBot=false) -> necessity ~6e-10
-///     -- SlimIntent: botProbability is fixed at 0.5 (intent adds are not prob-gated),
-///        uncertainty alone = 0.169 which is already above the default 0.05 threshold.
-///        To make the LOW case deterministic the LOW test uses SamplingThreshold=0.25.
-///        DecisionNecessity.Value(0.5, 0.0, 0, 0.70, 604800) = 0.169 < 0.25 (NOT enqueued).
-///        DecisionNecessity.Value(0.5, 0.9, 0, 0.70, 604800) = 0.917 >= 0.05  (enqueued).
+///     -- SlimIntent: botProbability is fixed at 0.0 so Uncertainty(0.0, 0.70) ~3e-10 (negligible);
+///        necessity reduces to threat * recency. Default SamplingThreshold=0.05 is sufficient.
+///        DecisionNecessity.Value(0.0, 0.0, 0, 0.70, 604800) ~0 < 0.05  (NOT enqueued).
+///        DecisionNecessity.Value(0.0, 0.9, 0, 0.70, 604800) ~0.9 >= 0.05 (enqueued).
 /// </summary>
 public class SlimSearchEnqueueTests
 {
@@ -107,7 +106,9 @@ public class SlimSearchEnqueueTests
     [Fact]
     public async Task Signature_AddAsync_EnqueuesOnCallingThread()
     {
-        // Verify no Task.Run: Enqueue must execute on the same thread as the caller
+        // Verify no Task.Run: Enqueue must execute on the same thread as the caller.
+        // await Task.CompletedTask keeps the continuation on the calling thread in the
+        // xUnit sync context; a Task.Run persist would have captured a different thread id.
         var writer = new FakeCentroidWriter();
         var sut = BuildSig(writer);
         var vector = new float[] { 1f, 0f, 0f };
@@ -138,7 +139,7 @@ public class SlimSearchEnqueueTests
     public async Task Intent_HighNecessity_EnqueuesIntentCentroidWrite()
     {
         // HIGH: threatScore=0.9 with default opts (SamplingThreshold=0.05)
-        // DecisionNecessity.Value(0.5, 0.9, 0, 0.70, 604800) = 0.917 >= 0.05
+        // DecisionNecessity.Value(0.0, 0.9, 0, 0.70, 604800) ~0.9 >= 0.05
         var writer = new FakeCentroidWriter();
         var sut = BuildIntent(writer);
         var vector = new float[] { 1f, 0f, 0f };
@@ -155,12 +156,12 @@ public class SlimSearchEnqueueTests
     [Fact]
     public async Task Intent_LowNecessity_DoesNotEnqueue()
     {
-        // LOW: threatScore=0.0 with raised SamplingThreshold=0.25
-        // DecisionNecessity.Value(0.5, 0.0, 0, 0.70, 604800) = 0.169 < 0.25 (sampled out)
-        // Note: with default threshold 0.05 the uncertainty alone (0.169) would pass;
-        // a higher SamplingThreshold is used here to create a deterministic low-necessity case.
+        // LOW: threatScore=0.0 with default opts (SamplingThreshold=0.05)
+        // DecisionNecessity.Value(0.0, 0.0, 0, 0.70, 604800) ~0 < 0.05 (sampled out)
+        // botProbability=0.0 makes Uncertainty negligible (~3e-10); necessity reduces to
+        // threat * recency = 0.0 * 1.0 = 0 -- no raised threshold workaround needed.
         var writer = new FakeCentroidWriter();
-        var sut = BuildIntent(writer, HighThresholdOpts(samplingThreshold: 0.25));
+        var sut = BuildIntent(writer);
         var vector = new float[] { 0f, 1f, 0f };
 
         await sut.AddAsync(vector, "intent-low", threatScore: 0.0, intentCategory: "browsing");
