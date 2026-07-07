@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Health;
 using Xunit;
 
@@ -16,6 +17,7 @@ public class UpstreamHealthMonitorOptionsTests
     public void DefaultValues_AreCorrect()
     {
         var options = new UpstreamHealthMonitorOptions();
+        options.ApplyDefaults();
 
         options.Enabled.Should().BeFalse();
         options.ProbeIntervalSeconds.Should().Be(60);
@@ -61,9 +63,9 @@ public class UpstreamHealthMonitorOptionsTests
     [Fact]
     public void ConfigBinding_CustomCandidatePaths_ReflectsConfigValue()
     {
-        // .NET config binder appends index-keyed list entries to any pre-initialized
-        // List<string> rather than replacing it, so specifying CandidatePaths:0=/hc
-        // results in the 9-path default list plus the config-supplied "/hc".
+        // When CandidatePaths is configured via array indices, the binder replaces
+        // the array entirely. This test verifies that specifying CandidatePaths:0=/hc
+        // results in a single-element array, not a union with the defaults.
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -73,14 +75,37 @@ public class UpstreamHealthMonitorOptionsTests
             .Build();
 
         var services = new ServiceCollection();
-        services.Configure<UpstreamHealthMonitorOptions>(
-            config.GetSection(UpstreamHealthMonitorOptions.SectionName));
+        services.AddUpstreamHealthMonitor(config);
 
         var sp = services.BuildServiceProvider();
         var opts = sp.GetRequiredService<IOptions<UpstreamHealthMonitorOptions>>().Value;
 
         opts.Enabled.Should().BeTrue();
+        opts.CandidatePaths.Should().HaveCount(1);
         opts.CandidatePaths.Should().Contain("/hc");
+    }
+
+    [Fact]
+    public void ConfigBinding_UnconfiguredPaths_UsesDefaults()
+    {
+        // When CandidatePaths is not configured, PostConfigure applies the 9-path default.
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["BotDetection:UpstreamHealth:Enabled"] = "true",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddUpstreamHealthMonitor(config);
+
+        var sp = services.BuildServiceProvider();
+        var opts = sp.GetRequiredService<IOptions<UpstreamHealthMonitorOptions>>().Value;
+
+        opts.Enabled.Should().BeTrue();
+        opts.CandidatePaths.Should().HaveCount(9);
+        opts.CandidatePaths.Should().Contain("/health");
+        opts.CandidatePaths.Should().Contain("/healthz");
     }
 
     [Fact]

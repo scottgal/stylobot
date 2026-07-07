@@ -244,7 +244,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Bind upstream health monitor options from configuration.
-    /// Services are always registered; the monitor self-disables when Enabled=false.
+    /// Monitor services are registered by downstream tasks.
     /// </summary>
     public static IServiceCollection AddUpstreamHealthMonitor(
         this IServiceCollection services,
@@ -252,6 +252,11 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<UpstreamHealthMonitorOptions>(
             configuration.GetSection(UpstreamHealthMonitorOptions.SectionName));
+
+        // Apply default candidate paths if none were configured.
+        // This ensures that unconfigured instances get the full 9-path default,
+        // while operator overrides replace (not append) the default.
+        services.PostConfigure<UpstreamHealthMonitorOptions>(opts => opts.ApplyDefaults());
 
         return services;
     }

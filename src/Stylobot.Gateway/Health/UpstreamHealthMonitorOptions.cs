@@ -9,16 +9,9 @@ public class UpstreamHealthMonitorOptions
     public const string SectionName = "BotDetection:UpstreamHealth";
 
     /// <summary>
-    /// Whether active upstream health probing is enabled.
-    /// Default: false (opt-in).
+    /// Default candidate paths for health endpoint discovery.
     /// </summary>
-    public bool Enabled { get; set; } = false;
-
-    /// <summary>
-    /// Ordered candidate paths probed on each upstream to discover a health endpoint.
-    /// Operator-overridable; first path that returns 2xx wins.
-    /// </summary>
-    public List<string> CandidatePaths { get; set; } =
+    private static readonly string[] DefaultCandidatePaths =
     [
         "/health",
         "/healthz",
@@ -32,6 +25,19 @@ public class UpstreamHealthMonitorOptions
     ];
 
     /// <summary>
+    /// Whether active upstream health probing is enabled.
+    /// Default: false (opt-in).
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// Ordered candidate paths probed on each upstream to discover a health endpoint.
+    /// Operator-overridable; first path that returns 2xx wins.
+    /// When overridden via configuration, replaces the default list.
+    /// </summary>
+    public string[] CandidatePaths { get; set; } = [];
+
+    /// <summary>
     /// How often (in seconds) each discovered upstream health endpoint is probed.
     /// Default: 60.
     /// </summary>
@@ -42,4 +48,16 @@ public class UpstreamHealthMonitorOptions
     /// Default: 2000.
     /// </summary>
     public int ProbeTimeoutMs { get; set; } = 2000;
+
+    /// <summary>
+    /// Apply default candidate paths if none were configured.
+    /// Called by PostConfigure during options binding.
+    /// </summary>
+    public void ApplyDefaults()
+    {
+        if (CandidatePaths.Length == 0)
+        {
+            CandidatePaths = DefaultCandidatePaths;
+        }
+    }
 }
