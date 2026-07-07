@@ -200,7 +200,7 @@ public class LearnedSignal
 ///     Well-known signal keys for cross-detector communication.
 ///     This is a partial class - additional keys may be defined in other files.
 /// </summary>
-public static class SignalKeys
+public static partial class SignalKeys
 {
     // Stage 0 signals (raw detection)
 
