@@ -130,6 +130,32 @@ public sealed class InternalStatExclusionTests
     };
 
     /// <summary>
+    ///     Produces a human detection whose <c>BotType</c> is <see langword="null"/>.
+    ///     The INSERT in <see cref="SqliteDashboardEventStore.AddDetectionAsync"/> writes
+    ///     <c>DBNull.Value</c> for a null <c>BotType</c>, so the row lands in the
+    ///     <c>detections</c> table with a SQL NULL <c>bot_type</c> column.
+    ///
+    ///     This mirrors how real human traffic is persisted: bots get a string type
+    ///     (e.g. "SearchEngine"), humans have no type and the column is NULL.
+    /// </summary>
+    private static DashboardDetectionEvent MakeNullTypeSqlDetection(
+        string sig, DateTime? at = null) => new()
+    {
+        RequestId        = Guid.NewGuid().ToString("N")[..12],
+        Timestamp        = at ?? DateTime.UtcNow,
+        IsBot            = false,
+        BotProbability   = 0.05,
+        BotType          = null,   // persists as SQL NULL via (object?)detection.BotType ?? DBNull.Value
+        BotName          = null,
+        RiskBand         = "Low",
+        Confidence       = 0.9,
+        Method           = "GET",
+        Path             = "/",
+        StatusCode       = 200,
+        PrimarySignature = sig,
+    };
+
+    /// <summary>
     ///     GetSummaryAsync must exclude Internal detections from TotalRequests /
     ///     BotRequests / HumanRequests (the Traffic-strip KPIs).
     /// </summary>
@@ -208,6 +234,56 @@ public sealed class InternalStatExclusionTests
         await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95, at: now.AddMinutes(-5)));
         await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-human", "Human",        isBot: false, probability: 0.05, at: now.AddMinutes(-5)));
 
+        var series = await fx.Store.GetTimeSeriesAsync(
+            startTime:  now.AddHours(-1),
+            endTime:    now.AddHours(1),
+            bucketSize: TimeSpan.FromHours(2));
+
+        var totalAcrossBuckets = series.Sum(p => p.TotalCount);
+        Assert.Equal(2, totalAcrossBuckets);
+    }
+
+    /// <summary>
+    ///     Guards the IS NOT vs != trap: human traffic is persisted with a SQL NULL
+    ///     <c>bot_type</c> column. The fix uses <c>bot_type IS NOT 'Internal'</c> so
+    ///     NULL rows evaluate to TRUE and are INCLUDED. If someone replaces <c>IS NOT</c>
+    ///     with <c>!=</c> or <c>&lt;&gt;</c>, NULL comparisons return NULL (not TRUE)
+    ///     and all human traffic silently vanishes from Summary and Timeseries while
+    ///     the rest of the suite remains green.
+    ///
+    ///     Three detections are inserted: one Internal (excluded), one Tool bot
+    ///     (included), and one with a NULL <c>bot_type</c> representing a human visitor
+    ///     (must also be INCLUDED). Expected totals are 2 for both GetSummaryAsync and
+    ///     GetTimeSeriesAsync.
+    /// </summary>
+    [Fact]
+    public async Task NullBotType_HumanTraffic_NotDroppedFromSummaryOrTimeseries()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("null-bot-type-human");
+
+        var now = DateTime.UtcNow;
+
+        // Internal health probe - must be excluded from totals.
+        await fx.Store.AddDetectionAsync(MakeSqlDetection(
+            "sig-probe", "Internal", isBot: false, probability: 0.05, at: now.AddMinutes(-5)));
+
+        // Tool bot with a non-null BotType - must be included.
+        await fx.Store.AddDetectionAsync(MakeSqlDetection(
+            "sig-bot", "Tool", isBot: true, probability: 0.92, at: now.AddMinutes(-5)));
+
+        // Human visitor: BotType is null, so the INSERT writes DBNull.Value (SQL NULL).
+        // IS NOT 'Internal' -> NULL IS NOT 'Internal' -> TRUE -> row is included.
+        // != 'Internal'     -> NULL != 'Internal'     -> NULL -> row is dropped (the bug).
+        await fx.Store.AddDetectionAsync(MakeNullTypeSqlDetection("sig-human", at: now.AddMinutes(-5)));
+
+        // Summary: Internal excluded, Tool + null-human included -> total 2.
+        var summary = await fx.Store.GetSummaryAsync(
+            startTime: now.AddHours(-1),
+            endTime:   now.AddHours(1));
+
+        Assert.Equal(2, summary.TotalRequests);
+
+        // Timeseries: same expectation across bucket totals.
         var series = await fx.Store.GetTimeSeriesAsync(
             startTime:  now.AddHours(-1),
             endTime:    now.AddHours(1),
