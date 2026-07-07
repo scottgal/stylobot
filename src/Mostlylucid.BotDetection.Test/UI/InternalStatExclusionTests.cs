@@ -6,25 +6,18 @@ using Xunit;
 namespace Mostlylucid.BotDetection.Test.UI;
 
 /// <summary>
-///     Acceptance tests for Task 7, Step 3: stat exclusion #34.
+///     Acceptance tests for Task 7, Step 3 (#34 stat-exclusion gap).
 ///
-///     <see cref="SignatureAggregateCache.GetCounts"/> must exclude
-///     <see cref="BotType.Internal"/> entries (health probes, loopback traffic,
-///     docker-bridge self-traffic) from the All / Bots / Humans counts that
-///     drive the dashboard visitor-count chips.
+///     Two surfaces are covered:
 ///
-///     The exclusion was introduced when Internal was first added to the widget
-///     model (see SbWidgetBatchMiddleware.BuildTopBotsModel). This test pins the
-///     contract: a health-probe row does NOT inflate the All chip, but IS
-///     surfaced under the dedicated Internal chip count.
+///     1. <see cref="SignatureAggregateCache.GetCounts"/> (in-memory) - excludes
+///        <see cref="BotType.Internal"/> from All / Bots / Humans chips.
 ///
-///     NOTE (#34 gap): <c>SqliteDashboardEventStore.GetSummaryAsync</c> and
-///     <c>GetTimeSeriesAsync</c> do NOT yet filter <c>bot_type = 'Internal'</c>
-///     from the <c>detections</c> table query, so health-probe requests inflate
-///     TotalRequests in the Traffic chart and Summary strip. That is a separate
-///     gap recorded in the task-7-report.md concerns section; it is not fixed here
-///     because the controller must decide the approach (SQL predicate vs.
-///     application-layer filter). See task-7-report.md for the exact call sites.
+///     2. <see cref="SqliteDashboardEventStore.GetSummaryAsync"/> and
+///        <see cref="SqliteDashboardEventStore.GetTimeSeriesAsync"/> (SQL) - the
+///        <c>detections</c> table query now carries <c>AND bot_type IS NOT 'Internal'</c>
+///        so health-probe / LAN traffic does not inflate TotalRequests in the
+///        Traffic chart and Summary strip.
 /// </summary>
 public sealed class InternalStatExclusionTests
 {
@@ -115,5 +108,112 @@ public sealed class InternalStatExclusionTests
         Assert.Equal(2, counts.Bots);
         Assert.Equal(1, counts.Humans);
         Assert.Equal(0, counts.Internal);
+    }
+
+    // ── SQL-level exclusion (#34 fix): GetSummaryAsync + GetTimeSeriesAsync ──
+
+    private static DashboardDetectionEvent MakeSqlDetection(
+        string sig, string botType, bool isBot, double probability, DateTime? at = null) => new()
+    {
+        RequestId      = Guid.NewGuid().ToString("N")[..12],
+        Timestamp      = at ?? DateTime.UtcNow,
+        IsBot          = isBot,
+        BotProbability = probability,
+        BotType        = botType,
+        BotName        = botType == "Internal" ? "Health Probe" : "Test Bot",
+        RiskBand       = isBot ? "High" : "Low",
+        Confidence     = 0.9,
+        Method         = "GET",
+        Path           = "/health",
+        StatusCode     = 200,
+        PrimarySignature = sig,
+    };
+
+    /// <summary>
+    ///     GetSummaryAsync must exclude Internal detections from TotalRequests /
+    ///     BotRequests / HumanRequests (the Traffic-strip KPIs).
+    /// </summary>
+    [Fact]
+    public async Task GetSummaryAsync_ExcludesInternal_FromTotalRequests()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("summary-internal-excl");
+
+        // One health probe (Internal), one public bot.
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95));
+
+        var summary = await fx.Store.GetSummaryAsync(
+            startTime: DateTime.UtcNow.AddHours(-1),
+            endTime:   DateTime.UtcNow.AddHours(1));
+
+        // Only the public bot must appear.
+        Assert.Equal(1, summary.TotalRequests);
+        Assert.Equal(1, summary.BotRequests);
+        Assert.Equal(0, summary.HumanRequests);
+    }
+
+    /// <summary>
+    ///     GetSummaryAsync must not accidentally drop non-Internal traffic when
+    ///     there are no Internal rows in the window (regression guard).
+    /// </summary>
+    [Fact]
+    public async Task GetSummaryAsync_NoInternal_TotalEqualsAllRows()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("summary-no-internal");
+
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-human", "Human",        isBot: false, probability: 0.05));
+
+        var summary = await fx.Store.GetSummaryAsync(
+            startTime: DateTime.UtcNow.AddHours(-1),
+            endTime:   DateTime.UtcNow.AddHours(1));
+
+        Assert.Equal(2, summary.TotalRequests);
+    }
+
+    /// <summary>
+    ///     GetTimeSeriesAsync bucket totals must not count Internal detections.
+    /// </summary>
+    [Fact]
+    public async Task GetTimeSeriesAsync_ExcludesInternal_FromBucketTotals()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("timeseries-internal-excl");
+
+        var now = DateTime.UtcNow;
+        // One Internal, one public bot — both in the query window.
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05, at: now.AddMinutes(-5)));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95, at: now.AddMinutes(-5)));
+
+        var series = await fx.Store.GetTimeSeriesAsync(
+            startTime:  now.AddHours(-1),
+            endTime:    now.AddHours(1),
+            bucketSize: TimeSpan.FromHours(2));
+
+        var totalAcrossBuckets = series.Sum(p => p.TotalCount);
+
+        // Only the public bot row must be counted.
+        Assert.Equal(1, totalAcrossBuckets);
+    }
+
+    /// <summary>
+    ///     GetTimeSeriesAsync must not drop non-Internal traffic when there are
+    ///     no Internal rows (regression guard).
+    /// </summary>
+    [Fact]
+    public async Task GetTimeSeriesAsync_NoInternal_TotalEqualsAllRows()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("timeseries-no-internal");
+
+        var now = DateTime.UtcNow;
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95, at: now.AddMinutes(-5)));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-human", "Human",        isBot: false, probability: 0.05, at: now.AddMinutes(-5)));
+
+        var series = await fx.Store.GetTimeSeriesAsync(
+            startTime:  now.AddHours(-1),
+            endTime:    now.AddHours(1),
+            bucketSize: TimeSpan.FromHours(2));
+
+        var totalAcrossBuckets = series.Sum(p => p.TotalCount);
+        Assert.Equal(2, totalAcrossBuckets);
     }
 }

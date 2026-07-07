@@ -538,7 +538,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     AVG(processing_time_ms) AS avg_ms,
                     MAX(processing_time_ms) AS max_ms
                 FROM detections
-                WHERE timestamp >= @since{untilClause}{audiencePredicate}{domainPredicate}
+                WHERE timestamp >= @since{untilClause} AND bot_type IS NOT 'Internal'{audiencePredicate}{domainPredicate}
                 """;
             cmd.Parameters.AddWithValue("@since", sinceStr);
             cmd.Parameters.AddWithValue("@botFloor", _botFloor);
@@ -671,7 +671,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 AVG(processing_time_ms) AS avg_ms,
                 MAX(processing_time_ms) AS max_ms
             FROM detections
-            WHERE timestamp >= @start AND timestamp < @end{audiencePredicate}{domainPredicate}
+            WHERE timestamp >= @start AND timestamp < @end AND bot_type IS NOT 'Internal'{audiencePredicate}{domainPredicate}
             GROUP BY bucket
             ORDER BY bucket
             """;
