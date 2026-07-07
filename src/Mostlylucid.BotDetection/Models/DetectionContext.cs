@@ -2154,6 +2154,15 @@ public static class SignalKeys
     public const string HealthEndpoint = "request.health_endpoint";
 
     /// <summary>
+    ///     Bool: <c>true</c> when a health / readiness / liveness probe endpoint is hit by a
+    ///     request that is NOT a legitimate expected probe (external source, or trusted source
+    ///     with a browser-navigation shape). Raised by <c>HealthEndpointReconAtom</c>
+    ///     (Priority 16, after IpAtom). Co-occurrence with other threat signals amplifies
+    ///     the <c>intent.threat_score</c> nudge via <see cref="IntentThreatScore"/>.
+    /// </summary>
+    public const string HealthEndpointRecon = "health.endpoint_recon";
+
+    /// <summary>
     ///     String: ISO-3166 alpha-2 country code, uppercase (e.g. <c>"US"</c>, <c>"RU"</c>).
     ///     Predicate-friendly alias of <see cref="GeoCountryCode"/> -- exposed under the
     ///     shorter <c>geo.country</c> name the PolicyScope authoring surface uses.

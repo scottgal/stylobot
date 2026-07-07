@@ -1,0 +1,80 @@
+name: HealthEndpointRecon
+priority: 16
+enabled: true
+description: >
+  Detects reconnaissance on health / readiness / liveness probe endpoints. When a
+  request hits a recognised health path but is NOT a legitimate probe (external source,
+  or local source with browser-navigation shape), this atom raises
+  health.endpoint_recon:true and nudges intent.threat_score so that co-occurring recon
+  signals on the same source amplify the overall bot verdict.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: healthendpointrecon
+
+taxonomy:
+  kind: constrainer
+  determinism: deterministic
+  persistence: ephemeral
+  concern: threat
+
+triggers:
+  requires: []
+  skip_when: []
+
+emits:
+  on_start: []
+
+  on_complete:
+    - key: health.endpoint_recon
+      type: bool
+      description: Raised when the health endpoint hit is classified as reconnaissance
+    - key: intent.threat_score
+      type: float
+      description: Threat-score nudge (0.35) emitted alongside health.endpoint_recon
+
+  on_failure: []
+
+listens:
+  required:
+    - request.health_endpoint
+  optional:
+    - ip.is_local
+    - ua.raw
+    - header.sec_fetch_mode
+
+lane:
+  name: fast
+  max_concurrency: 16
+  priority: 180
+
+# ============================================
+# DEFAULT CONFIGURATION
+# Override via appsettings.json: BotDetection:Detectors:HealthEndpointRecon:*
+# ============================================
+defaults:
+  weights:
+    base: 0.0
+
+  confidence:
+    base: 0.0
+
+  timing:
+    timeout_ms: 1
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    recon_nudge: 0.35
+
+tags:
+  - fast-path
+  - security
+  - stage-0
+  - health-probe

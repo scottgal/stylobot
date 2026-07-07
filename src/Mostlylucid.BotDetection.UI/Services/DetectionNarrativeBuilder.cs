@@ -60,7 +60,8 @@ public static class DetectionNarrativeBuilder
         ["ReactivePattern"] = "retry behavior analysis",
         ["ClaimedIdentity"] = "UA behavioral profile consistency",
         ["FingerprintMatch"] = "metastable identity match",
-        ["HealthEndpoint"] = "health probe path recognition"
+        ["HealthEndpoint"] = "health probe path recognition",
+        ["HealthEndpointRecon"] = "health endpoint reconnaissance detection"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -115,7 +116,8 @@ public static class DetectionNarrativeBuilder
         ["ReactivePattern"] = "Behavioral",
         ["ClaimedIdentity"] = "Identity",
         ["FingerprintMatch"] = "Identity",
-        ["HealthEndpoint"] = "Request"
+        ["HealthEndpoint"] = "Request",
+        ["HealthEndpointRecon"] = "Security"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)
