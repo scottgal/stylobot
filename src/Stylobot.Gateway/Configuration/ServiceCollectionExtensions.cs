@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Serilog;
 using Stylobot.Gateway.Data;
+using Stylobot.Gateway.Health;
 using Stylobot.Gateway.Services;
 using Stylobot.Gateway.Transforms;
 using Yarp.ReverseProxy.Configuration;
@@ -237,6 +238,20 @@ public static class ServiceCollectionExtensions
         // at boot so the subscription is live before the first tick.
         services.AddSingleton<ProfileAnalysisWorker>();
         services.AddHostedService<GatewayHostedSingletonsBootstrap>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Bind upstream health monitor options from configuration.
+    /// Services are always registered; the monitor self-disables when Enabled=false.
+    /// </summary>
+    public static IServiceCollection AddUpstreamHealthMonitor(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<UpstreamHealthMonitorOptions>(
+            configuration.GetSection(UpstreamHealthMonitorOptions.SectionName));
 
         return services;
     }
