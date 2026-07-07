@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Centroids;
+using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Storage;
 
@@ -14,9 +14,11 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     LOH growth. No file I/O on the hot path.
 ///
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking SIMD cosine scan over the hot cache.
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then enqueues
-///     an LFU-sampled <see cref="Data.Centroids.CentroidWriteMessage"/> to <see cref="ICentroidWriter"/>
-///     for single-writer drain to SQLite. Non-blocking; no per-add Task.Run.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then calls
+///     <see cref="ISessionCentroidStore.RecordSession"/> (non-blocking, on the calling thread)
+///     to queue a write-behind persist to SQLite via the store's <c>WriteBehindLfuStore</c> drain.
+///     No sampling gate at the call site — the store's <c>ColdnessScore</c> eviction IS the
+///     prioritization (certain-harmless sessions shed first under memory pressure).
 /// </summary>
 public sealed class SlimSessionVectorSearch : ISessionVectorSearch
 {
@@ -29,18 +31,15 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
     private static readonly int ExpectedDimensions = SessionVectorizer.Dimensions;
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly ICentroidWriter _centroidWriter;
-    private readonly CentroidWriterOptions _centroidOpts;
+    private readonly ISessionCentroidStore _sessionCentroidStore;
     private readonly ILogger<SlimSessionVectorSearch> _logger;
 
     public SlimSessionVectorSearch(
         IOptions<BotDetectionOptions> options,
-        ICentroidWriter centroidWriter,
-        IOptions<CentroidWriterOptions> centroidOptions,
+        ISessionCentroidStore sessionCentroidStore,
         ILogger<SlimSessionVectorSearch> logger)
     {
-        _centroidWriter = centroidWriter;
-        _centroidOpts = centroidOptions.Value;
+        _sessionCentroidStore = sessionCentroidStore;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.SessionCacheSize;
@@ -115,8 +114,9 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
         // Write to hot cache immediately
         _cache.Set(signature, new CacheEntry(vector, isBot, botProbability, meta), isBot: isBot);
 
-        // LFU-sampled synchronous enqueue: borderline or high-threat sessions are worth
-        // persisting; certain-and-harmless sessions are shed first. Non-blocking: no Task.Run.
+        // Non-blocking write-behind: the store's WriteBehindLfuStore drain handles
+        // batching + SQLite persistence. ColdnessScore eviction sheds
+        // certain-harmless sessions first so no sampling gate is needed here.
         var row = new SessionCentroidRow
         {
             SignatureId = signature,
@@ -126,14 +126,7 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
             IsBot = isBot,
             BotProbability = botProbability
         };
-        var necessity = DecisionNecessity.Value(
-            botProbability: botProbability,
-            threat: isBot ? botProbability : 0.0,
-            ageSeconds: 0,
-            threshold: _centroidOpts.DecisionThreshold,
-            halfLifeSeconds: _centroidOpts.DecisionHalfLifeSeconds);
-        if (necessity >= _centroidOpts.SamplingThreshold)
-            _centroidWriter.Enqueue(new CentroidWriteMessage.SessionCentroidWrite(row));
+        _sessionCentroidStore.RecordSession(row);
 
         return Task.CompletedTask;
     }

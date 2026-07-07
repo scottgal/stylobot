@@ -121,40 +121,29 @@ public sealed class SqliteIntentCentroidStore
         RecordIntent(signatureId, vector, threatScore, intentCategory);
         try
         {
-            await using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync(ct);
-            await UpsertIntentDirectAsync(conn, signatureId, vector, threatScore, intentCategory, ct);
+            await _writeLock.WaitAsync(ct);
+            try
+            {
+                await using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync(ct);
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = """
+                    INSERT INTO intent_centroids (signature_id, vector, threat_score, intent_category, updated_at)
+                    VALUES (@sig, @vec, @ts_score, @cat, @ts)
+                    ON CONFLICT(signature_id) DO UPDATE SET
+                        vector=excluded.vector, threat_score=excluded.threat_score,
+                        intent_category=excluded.intent_category, updated_at=excluded.updated_at;
+                    """;
+                cmd.Parameters.AddWithValue("@sig",      signatureId);
+                cmd.Parameters.AddWithValue("@vec",      CentroidFloatPacker.Pack(vector));
+                cmd.Parameters.AddWithValue("@ts_score", threatScore);
+                cmd.Parameters.AddWithValue("@cat",      intentCategory);
+                cmd.Parameters.AddWithValue("@ts",       DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            finally { _writeLock.Release(); }
         }
         catch (Exception ex) { _logger.LogWarning(ex, "UpsertIntent direct write failed for {Sig}", signatureId); }
-    }
-
-    /// <summary>Shared-connection overload; kept for <c>SqliteCentroidWriter</c> back-compat (Task B deletion).</summary>
-    public async Task UpsertIntentAsync(
-        SqliteConnection conn, string signatureId, float[] vector, double threatScore,
-        string intentCategory, CancellationToken ct = default)
-    {
-        RecordIntent(signatureId, vector, threatScore, intentCategory);
-        await UpsertIntentDirectAsync(conn, signatureId, vector, threatScore, intentCategory, ct);
-    }
-
-    private static async Task UpsertIntentDirectAsync(
-        SqliteConnection conn, string signatureId, float[] vector, double threatScore,
-        string intentCategory, CancellationToken ct)
-    {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO intent_centroids (signature_id, vector, threat_score, intent_category, updated_at)
-            VALUES (@sig, @vec, @ts_score, @cat, @ts)
-            ON CONFLICT(signature_id) DO UPDATE SET
-                vector=excluded.vector, threat_score=excluded.threat_score,
-                intent_category=excluded.intent_category, updated_at=excluded.updated_at;
-            """;
-        cmd.Parameters.AddWithValue("@sig",      signatureId);
-        cmd.Parameters.AddWithValue("@vec",      CentroidFloatPacker.Pack(vector));
-        cmd.Parameters.AddWithValue("@ts_score", threatScore);
-        cmd.Parameters.AddWithValue("@cat",      intentCategory);
-        cmd.Parameters.AddWithValue("@ts",       DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task<IReadOnlyList<IntentCentroidRow>> GetRecentIntentsAsync(

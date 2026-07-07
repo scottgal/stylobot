@@ -252,13 +252,6 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Data.Contracts.ISignatureCentroidStore, Data.NullSignatureCentroidStore>();
         services.TryAddSingleton<Data.Contracts.IIntentCentroidStore, Data.NullIntentCentroidStore>();
         services.TryAddSingleton<Data.Contracts.ISessionCentroidStore, Data.NullSessionCentroidStore>();
-        // Single-writer centroid drain — queues Slim* AddAsync enqueues and drains
-        // them serially to SQLite. NullCentroidWriter is the FOSS default (no SQLite
-        // writes); production wires SqliteCentroidWriter (or a commercial replacement)
-        // via explicit AddSingleton before calling AddBotDetection.
-        services.AddOptions<Data.Centroids.CentroidWriterOptions>()
-            .BindConfiguration(Data.Centroids.CentroidWriterOptions.SectionName);
-        services.TryAddSingleton<Data.Centroids.ICentroidWriter, Data.Centroids.NullCentroidWriter>();
         // Identity archetype registry (loaded from embedded YAML archetypes).
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
         // SequenceContextStore — per-fingerprint sliding sequence of request

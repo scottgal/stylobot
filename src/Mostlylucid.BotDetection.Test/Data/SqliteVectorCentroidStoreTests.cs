@@ -37,7 +37,6 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime
             CREATE TABLE IF NOT EXISTS signature_centroids (
                 signature_id TEXT PRIMARY KEY, vector BLOB NOT NULL,
                 was_bot INTEGER NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 0.5,
-                access_count INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS session_centroids (
                 signature_id TEXT PRIMARY KEY, vector BLOB NOT NULL,
@@ -87,18 +86,6 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime
         var entry = rows.Single(r => r.SignatureId == "sig2");
         Assert.True(entry.WasBot);
         Assert.Equal(2, entry.Vector.Length);
-    }
-
-    [Fact]
-    public async Task UpsertSignature_IncrementsAccessCount()
-    {
-        await _signatureStore.UpsertSignatureAsync("sig_ac", new float[] { 1f }, wasBot: false, confidence: 0.5);
-        await _signatureStore.UpsertSignatureAsync("sig_ac", new float[] { 1f }, wasBot: false, confidence: 0.5);
-        await _signatureStore.UpsertSignatureAsync("sig_ac", new float[] { 1f }, wasBot: false, confidence: 0.5);
-
-        var rows = await _signatureStore.GetRecentSignaturesAsync(10);
-        var entry = rows.Single(r => r.SignatureId == "sig_ac");
-        Assert.Equal(3, entry.AccessCount);
     }
 
     [Fact]

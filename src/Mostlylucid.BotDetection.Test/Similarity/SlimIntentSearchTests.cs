@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Data.Centroids;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -16,8 +16,7 @@ public class SlimIntentSearchTests
         });
         return new SlimIntentSearch(
             options,
-            new NullCentroidWriter(),
-            Options.Create(new CentroidWriterOptions()),
+            new NullIntentCentroidStore(),
             NullLogger<SlimIntentSearch>.Instance);
     }
 

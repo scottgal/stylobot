@@ -127,48 +127,40 @@ public sealed class SqliteSessionCentroidStore
         RecordSession(row);
         try
         {
-            await using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync(ct);
-            await UpsertSessionDirectAsync(conn, row, ct);
+            await _writeLock.WaitAsync(ct);
+            try
+            {
+                await using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync(ct);
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = """
+                    INSERT INTO session_centroids
+                        (signature_id, vector, velocity_vector, variance_vector, freq_fingerprint,
+                         cluster_id, compression_level, is_bot, bot_probability, priority, updated_at)
+                    VALUES (@sig,@vec,@vel,@var,@freq,@cid,@lvl,@bot,@prob,@pri,@ts)
+                    ON CONFLICT(signature_id) DO UPDATE SET
+                        vector=excluded.vector, velocity_vector=excluded.velocity_vector,
+                        variance_vector=excluded.variance_vector, freq_fingerprint=excluded.freq_fingerprint,
+                        cluster_id=excluded.cluster_id, compression_level=excluded.compression_level,
+                        is_bot=excluded.is_bot, bot_probability=excluded.bot_probability,
+                        priority=excluded.priority, updated_at=excluded.updated_at;
+                    """;
+                cmd.Parameters.AddWithValue("@sig",  row.SignatureId);
+                cmd.Parameters.AddWithValue("@vec",  CentroidFloatPacker.Pack(row.Vector));
+                cmd.Parameters.AddWithValue("@vel",  row.VelocityVector  != null ? (object)CentroidFloatPacker.Pack(row.VelocityVector)  : DBNull.Value);
+                cmd.Parameters.AddWithValue("@var",  row.VarianceVector  != null ? (object)CentroidFloatPacker.Pack(row.VarianceVector)  : DBNull.Value);
+                cmd.Parameters.AddWithValue("@freq", row.FreqFingerprint != null ? (object)CentroidFloatPacker.Pack(row.FreqFingerprint) : DBNull.Value);
+                cmd.Parameters.AddWithValue("@cid",  (object?)row.ClusterId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@lvl",  row.CompressionLevel);
+                cmd.Parameters.AddWithValue("@bot",  row.IsBot ? 1 : 0);
+                cmd.Parameters.AddWithValue("@prob", row.BotProbability);
+                cmd.Parameters.AddWithValue("@pri",  row.Priority);
+                cmd.Parameters.AddWithValue("@ts",   DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            finally { _writeLock.Release(); }
         }
         catch (Exception ex) { _logger.LogWarning(ex, "UpsertSession direct write failed for {Sig}", row.SignatureId); }
-    }
-
-    /// <summary>Shared-connection overload; kept for <c>SqliteCentroidWriter</c> back-compat (Task B deletion).</summary>
-    public async Task UpsertSessionAsync(SqliteConnection conn, SessionCentroidRow row, CancellationToken ct = default)
-    {
-        RecordSession(row);
-        await UpsertSessionDirectAsync(conn, row, ct);
-    }
-
-    private static async Task UpsertSessionDirectAsync(
-        SqliteConnection conn, SessionCentroidRow row, CancellationToken ct)
-    {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO session_centroids
-                (signature_id, vector, velocity_vector, variance_vector, freq_fingerprint,
-                 cluster_id, compression_level, is_bot, bot_probability, priority, updated_at)
-            VALUES (@sig,@vec,@vel,@var,@freq,@cid,@lvl,@bot,@prob,@pri,@ts)
-            ON CONFLICT(signature_id) DO UPDATE SET
-                vector=excluded.vector, velocity_vector=excluded.velocity_vector,
-                variance_vector=excluded.variance_vector, freq_fingerprint=excluded.freq_fingerprint,
-                cluster_id=excluded.cluster_id, compression_level=excluded.compression_level,
-                is_bot=excluded.is_bot, bot_probability=excluded.bot_probability,
-                priority=excluded.priority, updated_at=excluded.updated_at;
-            """;
-        cmd.Parameters.AddWithValue("@sig",  row.SignatureId);
-        cmd.Parameters.AddWithValue("@vec",  CentroidFloatPacker.Pack(row.Vector));
-        cmd.Parameters.AddWithValue("@vel",  row.VelocityVector  != null ? (object)CentroidFloatPacker.Pack(row.VelocityVector)  : DBNull.Value);
-        cmd.Parameters.AddWithValue("@var",  row.VarianceVector  != null ? (object)CentroidFloatPacker.Pack(row.VarianceVector)  : DBNull.Value);
-        cmd.Parameters.AddWithValue("@freq", row.FreqFingerprint != null ? (object)CentroidFloatPacker.Pack(row.FreqFingerprint) : DBNull.Value);
-        cmd.Parameters.AddWithValue("@cid",  (object?)row.ClusterId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@lvl",  row.CompressionLevel);
-        cmd.Parameters.AddWithValue("@bot",  row.IsBot ? 1 : 0);
-        cmd.Parameters.AddWithValue("@prob", row.BotProbability);
-        cmd.Parameters.AddWithValue("@pri",  row.Priority);
-        cmd.Parameters.AddWithValue("@ts",   DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(

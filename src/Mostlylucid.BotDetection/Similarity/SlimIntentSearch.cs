@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Data.Centroids;
+using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Storage;
 
@@ -14,9 +14,11 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking scan of the hot cache with
 ///     SIMD cosine similarity. No SQLite I/O on the hot path.
 ///
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then enqueues
-///     an LFU-sampled <see cref="Data.Centroids.CentroidWriteMessage"/> to <see cref="ICentroidWriter"/>
-///     for single-writer drain to SQLite. Non-blocking; no per-add Task.Run.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then calls
+///     <see cref="IIntentCentroidStore.RecordIntent"/> (non-blocking, on the calling thread)
+///     to queue a write-behind persist to SQLite via the store's <c>WriteBehindLfuStore</c> drain.
+///     No sampling gate at the call site — the store's <c>ColdnessScore</c> eviction IS the
+///     prioritization (threat-driven: low-threat browsing shed first under memory pressure).
 /// </summary>
 public sealed class SlimIntentSearch : IIntentSimilaritySearch
 {
@@ -24,18 +26,15 @@ public sealed class SlimIntentSearch : IIntentSimilaritySearch
     private sealed record CacheEntry(float[] Vector, double ThreatScore, string IntentCategory);
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly ICentroidWriter _centroidWriter;
-    private readonly CentroidWriterOptions _centroidOpts;
+    private readonly IIntentCentroidStore _intentCentroidStore;
     private readonly ILogger<SlimIntentSearch> _logger;
 
     public SlimIntentSearch(
         IOptions<BotDetectionOptions> options,
-        ICentroidWriter centroidWriter,
-        IOptions<CentroidWriterOptions> centroidOptions,
+        IIntentCentroidStore intentCentroidStore,
         ILogger<SlimIntentSearch> logger)
     {
-        _centroidWriter = centroidWriter;
-        _centroidOpts = centroidOptions.Value;
+        _intentCentroidStore = intentCentroidStore;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.IntentCacheSize;
@@ -93,20 +92,10 @@ public sealed class SlimIntentSearch : IIntentSimilaritySearch
         // Write to hot cache immediately (fast path)
         _cache.Set(signatureId, new CacheEntry(vector, threatScore, intentCategory));
 
-        // LFU-sampled synchronous enqueue: intent adds carry no per-sig bot probability,
-        // so necessity is driven purely by threatScore. Passing botProbability=0.0 makes
-        // Uncertainty(0.0, threshold=0.70) negligible (~3e-10), reducing Value to
-        // threat * recency. Low-threat browsing is shed first; high-threat entries persist.
-        // Non-blocking: no Task.Run.
-        var necessity = DecisionNecessity.Value(
-            botProbability: 0.0,       // uncertainty term negligible; necessity reduces to threat x recency
-            threat: threatScore,
-            ageSeconds: 0,
-            threshold: _centroidOpts.DecisionThreshold,
-            halfLifeSeconds: _centroidOpts.DecisionHalfLifeSeconds);
-        if (necessity >= _centroidOpts.SamplingThreshold)
-            _centroidWriter.Enqueue(new CentroidWriteMessage.IntentCentroidWrite(
-                signatureId, vector, threatScore, intentCategory));
+        // Non-blocking write-behind: the store's WriteBehindLfuStore drain handles
+        // batching + SQLite persistence. ColdnessScore is threat-driven (botProbability=0.0)
+        // so low-threat browsing is shed first under memory pressure — no sampling gate needed here.
+        _intentCentroidStore.RecordIntent(signatureId, vector, threatScore, intentCategory);
 
         return Task.CompletedTask;
     }

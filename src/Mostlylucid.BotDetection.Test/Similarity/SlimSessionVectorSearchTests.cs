@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Centroids;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -28,8 +27,7 @@ public class SlimSessionVectorSearchTests
         });
         return new SlimSessionVectorSearch(
             options,
-            new NullCentroidWriter(),
-            Options.Create(new CentroidWriterOptions()),
+            new NullSessionCentroidStore(),
             NullLogger<SlimSessionVectorSearch>.Instance);
     }
 
