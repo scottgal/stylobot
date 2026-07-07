@@ -72,7 +72,7 @@ public class SlimSimilaritySearchBenchmarks
             SelfMaintenance = new SelfMaintenanceOptions { SignatureCacheSize = CacheSize }
         });
         _sigSearch = new SlimSignatureSimilaritySearch(
-            new NullSignatureStore(), sigOpts,
+            sigOpts, new NullSignatureCentroidStore(),
             NullLogger<SlimSignatureSimilaritySearch>.Instance);
         for (var i = 0; i < CacheSize; i++)
             _sigSearch.AddAsync(RandomVector(rng, dims), $"sig-{i}",
@@ -84,7 +84,7 @@ public class SlimSimilaritySearchBenchmarks
             SelfMaintenance = new SelfMaintenanceOptions { SessionCacheSize = CacheSize }
         });
         _sessSearch = new SlimSessionVectorSearch(
-            new NullDetectionArchive(), sessOpts,
+            sessOpts, new NullSessionCentroidStore(),
             NullLogger<SlimSessionVectorSearch>.Instance);
         for (var i = 0; i < CacheSize; i++)
             _sessSearch.AddAsync(RandomVector(rng, dims), $"sess-{i}",
@@ -148,26 +148,5 @@ public class SlimSimilaritySearchBenchmarks
         for (var i = 0; i < dims; i++)
             v[i] = (float)(rng.NextDouble() * 2 - 1);
         return v;
-    }
-
-    // Null centroid stores — no SQLite I/O in benchmarks
-    private sealed class NullSignatureStore : ISignatureCentroidStore
-    {
-        public Task UpsertSignatureAsync(string id, float[] v, bool wasBot, double conf, CancellationToken ct = default)
-            => Task.CompletedTask;
-        public Task<IReadOnlyList<SignatureCentroidRow>> GetRecentSignaturesAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SignatureCentroidRow>>([]);
-        public Task PruneSignaturesOlderThanAsync(long cutoff, CancellationToken ct = default)
-            => Task.CompletedTask;
-    }
-
-    private sealed class NullDetectionArchive : ISessionCentroidStore
-    {
-        public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default)
-            => Task.CompletedTask;
-        public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SessionCentroidRow>>([]);
-        public Task PruneSessionsOlderThanAsync(long cutoff, CancellationToken ct = default)
-            => Task.CompletedTask;
     }
 }
