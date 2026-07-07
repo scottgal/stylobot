@@ -1,0 +1,139 @@
+using FluentAssertions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+using Mostlylucid.BotDetection.Auth;
+
+namespace Mostlylucid.BotDetection.Test.Auth;
+
+/// <summary>
+///     Unit tests for <see cref="CapabilityTokenVerifier"/> — verifies
+///     <c>Authorization: License</c> tokens (base64 of a signed license JSON)
+///     against the configured trust anchors, then checks expiry. Covers the locked
+///     taxonomy for the capability token kind.
+/// </summary>
+public sealed class CapabilityTokenVerifierTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 7, 7, 12, 0, 0, TimeSpan.Zero);
+
+    private readonly byte[] _pub;
+    private readonly byte[] _priv;
+    private readonly FakeTimeProvider _time = new(Now);
+
+    public CapabilityTokenVerifierTests()
+    {
+        (_pub, _priv) = CryptoTestHelpers.NewEd25519KeyPair();
+    }
+
+    private CapabilityTokenVerifier Make(params CapabilityTrustAnchor[] anchors)
+    {
+        var opts = new TokenVerifierOptions { CapabilityTrustAnchors = anchors.ToList() };
+        return new CapabilityTokenVerifier(new CryptoSignatureValidator(), Options.Create(opts), _time);
+    }
+
+    private CapabilityTrustAnchor Anchor(byte[]? pub = null, string name = "StyloFlow")
+        => new() { Name = name, PublicKey = Convert.ToBase64String(pub ?? _pub), Algorithm = "ed25519" };
+
+    private Dictionary<string, string> Claims(DateTimeOffset expiry) => new()
+    {
+        ["licenseId"] = "lic-123",
+        ["issuedTo"] = "Acme Corp",
+        ["tier"] = "enterprise",
+        ["expiry"] = expiry.ToString("O")
+    };
+
+    private static TokenInput Input(string rawValue)
+        => new(TokenKind.LicenseCapability, rawValue,
+            new Dictionary<string, string>(), "GET", "/api/premium");
+
+    // ── Valid ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Valid_capability_token_verifies()
+    {
+        var raw = CapabilityTokenTestMinter.Mint(Claims(Now.AddDays(30)), _priv);
+
+        var verdict = Make(Anchor()).Verify(Input(raw));
+
+        verdict.Outcome.Should().Be(TokenOutcome.Valid);
+        verdict.SubjectName.Should().Be("Acme Corp");
+        verdict.Claims.Should().ContainKey("tier").WhoseValue.Should().Be("enterprise");
+    }
+
+    [Fact]
+    public void Multiple_anchors_one_match_is_valid()
+    {
+        var (otherPub, _) = CryptoTestHelpers.NewEd25519KeyPair();
+        var raw = CapabilityTokenTestMinter.Mint(Claims(Now.AddDays(30)), _priv);
+
+        var verdict = Make(Anchor(otherPub, "Wrong"), Anchor(_pub, "Right")).Verify(Input(raw));
+
+        verdict.Outcome.Should().Be(TokenOutcome.Valid);
+    }
+
+    // ── Expired ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Expired_capability_token_is_Expired()
+    {
+        var raw = CapabilityTokenTestMinter.Mint(Claims(Now.AddDays(-1)), _priv);
+
+        Make(Anchor()).Verify(Input(raw)).Outcome.Should().Be(TokenOutcome.Expired);
+    }
+
+    // ── MissingKey ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void No_trust_anchors_is_MissingKey()
+    {
+        var raw = CapabilityTokenTestMinter.Mint(Claims(Now.AddDays(30)), _priv);
+
+        Make().Verify(Input(raw)).Outcome.Should().Be(TokenOutcome.MissingKey);
+    }
+
+    // ── InvalidSignature ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void Wrong_anchor_key_is_InvalidSignature()
+    {
+        var (otherPub, _) = CryptoTestHelpers.NewEd25519KeyPair();
+        var raw = CapabilityTokenTestMinter.Mint(Claims(Now.AddDays(30)), _priv);
+
+        Make(Anchor(otherPub)).Verify(Input(raw)).Outcome.Should().Be(TokenOutcome.InvalidSignature);
+    }
+
+    [Fact]
+    public void Tampered_claim_is_InvalidSignature()
+    {
+        // Sign a token, then change a claim in the JSON before base64 so the
+        // canonical content no longer matches the signature.
+        var signed = CapabilityTokenTestMinter.SignedJson(Claims(Now.AddDays(30)), _priv);
+        var tampered = signed.Replace("enterprise", "startup");
+        var raw = CapabilityTokenTestMinter.ToBase64(tampered);
+
+        Make(Anchor()).Verify(Input(raw)).Outcome.Should().Be(TokenOutcome.InvalidSignature);
+    }
+
+    // ── Malformed ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Not_base64_is_Malformed()
+    {
+        Make(Anchor()).Verify(Input("!!! not base64 !!!")).Outcome.Should().Be(TokenOutcome.Malformed);
+    }
+
+    [Fact]
+    public void Base64_of_non_json_is_Malformed()
+    {
+        var raw = CapabilityTokenTestMinter.ToBase64("this is not json");
+
+        Make(Anchor()).Verify(Input(raw)).Outcome.Should().Be(TokenOutcome.Malformed);
+    }
+
+    [Fact]
+    public void Json_without_signature_field_is_Malformed()
+    {
+        var raw = CapabilityTokenTestMinter.ToBase64("{\"issuedTo\":\"Acme\",\"tier\":\"enterprise\"}");
+
+        Make(Anchor()).Verify(Input(raw)).Outcome.Should().Be(TokenOutcome.Malformed);
+    }
+}
