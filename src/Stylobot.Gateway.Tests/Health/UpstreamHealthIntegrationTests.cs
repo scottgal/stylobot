@@ -96,7 +96,7 @@ public class UpstreamHealthIntegrationTests : IDisposable
         // Shared probe state: probe service writes, gate reads.
         var probeState = new ActiveUpstreamProbeState();
 
-        // Passive atom — separate lane. Must stay at TotalSamples=0 after a tick.
+        // Passive atom -- separate lane. Must stay at TotalSamples=0 after a tick.
         using var atom = new DegradationAtom();
 
         // Gate with IOptions overload (DI default path).

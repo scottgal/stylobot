@@ -1,9 +1,12 @@
+using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.RateLimit;
 using Serilog;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Health;
@@ -267,10 +270,22 @@ public static class ServiceCollectionExtensions
         // while operator overrides replace (not append) the default.
         services.PostConfigure<UpstreamHealthMonitorOptions>(opts => opts.ApplyDefaults());
 
+        // Own the IActiveUpstreamProbeState registration so AddUpstreamHealthMonitor
+        // is self-contained and does not depend on AddBotDetectionTelemetry having
+        // been called first. TryAddSingleton is idempotent with the core telemetry
+        // registration: first-wins, harmless.
+        services.TryAddSingleton<IActiveUpstreamProbeState, ActiveUpstreamProbeState>();
+
         // Named client with infinite timeout: per-probe CancellationTokenSource
         // fires after ProbeTimeoutMs, so the HttpClient timeout must not race it.
+        // PooledConnectionLifetime bounds the handler so DNS changes (rolling deploy,
+        // blue/green cutover) propagate without restarting the gateway.
         services.AddHttpClient("upstream-health-probe",
-            c => c.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
+                c => c.Timeout = System.Threading.Timeout.InfiniteTimeSpan)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            });
 
         // Endpoint discovery singleton: wraps the named client.
         services.AddSingleton<IUpstreamHealthEndpointDiscovery>(sp =>

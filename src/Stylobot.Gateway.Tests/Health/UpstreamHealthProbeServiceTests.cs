@@ -282,6 +282,46 @@ public class UpstreamHealthProbeServiceTests : IDisposable
             Times.Never());
     }
 
+    // ── Test (f): ProbeIntervalSeconds throttle: skip within window, fire after ──
+
+    [Fact]
+    public async Task OnTickAsync_Respects_ProbeIntervalSeconds_Throttle()
+    {
+        var discovery = new Mock<IUpstreamHealthEndpointDiscovery>();
+        discovery
+            .Setup(d => d.GetCached("c1"))
+            .Returns(new DiscoveredHealthEndpoint("/health", null, DateTimeOffset.UtcNow));
+
+        var probeState = new ActiveUpstreamProbeState();
+        var proxy = MakeProxyConfig(("c1", "primary", "http://upstream:5000"));
+
+        var callCount = 0;
+        var sut = CreateSut(
+            discovery.Object,
+            probeState,
+            proxy,
+            _ =>
+            {
+                callCount++;
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            },
+            probeIntervalSeconds: 60);
+
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        // First tick: no prior probe, should fire.
+        await sut.OnTickAsync(t0, CancellationToken.None);
+        callCount.Should().Be(1, "first tick must always probe");
+
+        // Second tick at t0+30s: within the 60s interval, must be skipped.
+        await sut.OnTickAsync(t0.AddSeconds(30), CancellationToken.None);
+        callCount.Should().Be(1, "tick within ProbeIntervalSeconds must be skipped");
+
+        // Third tick at t0+61s: past the interval, must probe again.
+        await sut.OnTickAsync(t0.AddSeconds(61), CancellationToken.None);
+        callCount.Should().Be(2, "tick after ProbeIntervalSeconds must fire again");
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond)
