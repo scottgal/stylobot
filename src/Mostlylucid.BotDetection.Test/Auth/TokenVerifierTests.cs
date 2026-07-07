@@ -30,14 +30,14 @@ public sealed class TokenVerifierTests
     public void Dispatches_to_the_strategy_matching_the_input_kind()
     {
         var rfc = new FakeKindVerifier(TokenKind.Rfc9421HttpSignature, TokenOutcome.Valid);
-        var cap = new FakeKindVerifier(TokenKind.LicenseCapability, TokenOutcome.Expired);
+        var cap = new FakeKindVerifier(TokenKind.SignedBearerToken, TokenOutcome.Expired);
         var sut = new TokenVerifier([rfc, cap]);
 
         sut.Verify(Input(TokenKind.Rfc9421HttpSignature)).Outcome.Should().Be(TokenOutcome.Valid);
         rfc.Calls.Should().Be(1);
         cap.Calls.Should().Be(0);
 
-        sut.Verify(Input(TokenKind.LicenseCapability)).Outcome.Should().Be(TokenOutcome.Expired);
+        sut.Verify(Input(TokenKind.SignedBearerToken)).Outcome.Should().Be(TokenOutcome.Expired);
         cap.Calls.Should().Be(1);
     }
 

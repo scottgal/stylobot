@@ -3,13 +3,15 @@ namespace Mostlylucid.BotDetection.Auth;
 /// <summary>
 ///     Configuration surface for <see cref="ITokenVerifier"/> (contract C7).
 ///     Holds every knob for both token kinds — RFC 9421 HTTP signatures and
-///     StyloFlow license capability tokens. Bound from
-///     <c>BotDetection:TokenVerifier</c>.
+///     generic signed bearer tokens. Bound from <c>BotDetection:TokenVerifier</c>.
 ///     <para>
-///         Capability trust anchors live here (not on the caps-atom's
-///         <c>CapabilityTokenOptions</c>) so all <i>verification</i> config has a
-///         single home owned by the token-verifier. The caps-atom's options own
-///         <i>policy</i> (default LogOnly mode, claim→action maps), not trust.
+///         The signed-bearer-token knobs are deliberately generic: FOSS knows how
+///         to verify a canonical-JSON-signed token against trust anchors, but not
+///         what the token <i>means</i>. A consumer that layers meaning on top
+///         (e.g. a commercial license atom) points <see cref="SignedTokenSubjectClaim"/>
+///         / <see cref="SignedTokenExpiryClaim"/> at its own claim names and reads
+///         the surfaced claims; trust anchors live here so all <i>verification</i>
+///         config has one home.
 ///     </para>
 /// </summary>
 public sealed class TokenVerifierOptions
@@ -45,26 +47,43 @@ public sealed class TokenVerifierOptions
     /// </summary>
     public List<string> AllowedAlgorithms { get; set; } = [];
 
-    // ── License capability tokens ───────────────────────────────────────────
+    // ── Signed bearer tokens ────────────────────────────────────────────────
 
     /// <summary>
-    ///     Trusted issuer public keys for <c>Authorization: License</c> capability
-    ///     tokens. A token is Valid only if one of these keys verifies its
-    ///     signature. Empty = no anchors configured → every capability token
-    ///     resolves to <c>MissingKey</c>.
+    ///     Trusted issuer public keys for signed bearer tokens. A token is Valid
+    ///     only if one of these keys verifies its signature. Empty = no anchors
+    ///     configured → every signed bearer token resolves to <c>MissingKey</c>.
     /// </summary>
-    public List<CapabilityTrustAnchor> CapabilityTrustAnchors { get; set; } = [];
+    public List<TokenTrustAnchor> TrustAnchors { get; set; } = [];
+
+    /// <summary>
+    ///     The JSON field that carries the base64 signature (and is excluded from
+    ///     the canonical signable content). Default <c>signature</c>.
+    /// </summary>
+    public string SignedTokenSignatureField { get; set; } = "signature";
+
+    /// <summary>
+    ///     The claim whose value is surfaced as <see cref="TokenVerdict.SubjectName"/>.
+    ///     Default <c>sub</c> (a consumer with its own convention overrides it).
+    /// </summary>
+    public string SignedTokenSubjectClaim { get; set; } = "sub";
+
+    /// <summary>
+    ///     The claim checked for expiry (ISO-8601 string or Unix seconds). Absent
+    ///     from the token = no expiry. Default <c>exp</c>.
+    /// </summary>
+    public string SignedTokenExpiryClaim { get; set; } = "exp";
 }
 
-/// <summary>A trusted capability-token issuer key.</summary>
-public sealed class CapabilityTrustAnchor
+/// <summary>A trusted signed-bearer-token issuer key.</summary>
+public sealed class TokenTrustAnchor
 {
     /// <summary>Friendly issuer name — surfaced as the verdict subject fallback and in the dashboard.</summary>
     public string Name { get; set; } = "";
 
-    /// <summary>Base64 Ed25519 public key of the issuer (matches StyloFlow.Licensing key format).</summary>
+    /// <summary>Base64 public key of the issuer.</summary>
     public string PublicKey { get; set; } = "";
 
-    /// <summary>Signature algorithm. Default <c>ed25519</c> (StyloFlow license tokens are Ed25519).</summary>
+    /// <summary>Signature algorithm. Default <c>ed25519</c>.</summary>
     public string Algorithm { get; set; } = "ed25519";
 }

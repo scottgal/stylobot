@@ -30,7 +30,7 @@ public static class WebBotAuthServiceCollectionExtensions
         // ── Token verifier (C2) + crypto validator ────────────────────────────
         services.TryAddSingleton<ISignatureValidator, CryptoSignatureValidator>();
         services.AddSingleton<ITokenKindVerifier, Rfc9421SignatureVerifier>();
-        services.AddSingleton<ITokenKindVerifier, CapabilityTokenVerifier>();
+        services.AddSingleton<ITokenKindVerifier, SignedTokenVerifier>();
         // TokenVerifier's constructor is internal (composite dispatcher); build it
         // via a factory so the container doesn't need a public constructor.
         services.TryAddSingleton<ITokenVerifier>(sp => new TokenVerifier(sp.GetServices<ITokenKindVerifier>()));

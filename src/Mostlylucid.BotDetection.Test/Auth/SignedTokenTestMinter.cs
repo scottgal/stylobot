@@ -4,14 +4,16 @@ using System.Text.Json;
 namespace Mostlylucid.BotDetection.Test.Auth;
 
 /// <summary>
-///     Mints StyloFlow-style license capability tokens for the tests. Replicates
-///     the canonical-content scheme of <c>StyloFlow.Licensing.LicenseSigningService</c>
-///     (sorted keys, signature field excluded, non-indented) so a token this
-///     produces would also verify under the real signer — and vice-versa. The wire
-///     form is base64 of the signed JSON (the value of <c>Authorization: License</c>).
+///     Mints canonical-JSON-signed bearer tokens for the tests. The signable
+///     content is the canonical JSON (sorted keys, the <c>signature</c> field
+///     excluded, non-indented); the wire form is base64 of the signed JSON. A
+///     consumer that layers meaning on the claims (a license, an entitlement, …)
+///     mints the same shape with its own claim names — the verifier is agnostic.
 /// </summary>
-internal static class CapabilityTokenTestMinter
+internal static class SignedTokenTestMinter
 {
+    private const string SignatureField = "signature";
+
     /// <summary>Builds the canonical signable content: sorted string fields, signature excluded.</summary>
     public static string Canonical(IReadOnlyDictionary<string, string> fields)
     {
@@ -19,7 +21,7 @@ internal static class CapabilityTokenTestMinter
         using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false }))
         {
             w.WriteStartObject();
-            foreach (var kv in fields.Where(f => f.Key != "signature").OrderBy(f => f.Key, StringComparer.Ordinal))
+            foreach (var kv in fields.Where(f => f.Key != SignatureField).OrderBy(f => f.Key, StringComparer.Ordinal))
                 w.WriteString(kv.Key, kv.Value);
             w.WriteEndObject();
         }
@@ -38,14 +40,14 @@ internal static class CapabilityTokenTestMinter
         {
             w.WriteStartObject();
             foreach (var kv in fields) w.WriteString(kv.Key, kv.Value);
-            w.WriteString("signature", signature);
+            w.WriteString(SignatureField, signature);
             w.WriteEndObject();
         }
 
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    /// <summary>The full <c>Authorization: License</c> value — base64 of the signed JSON.</summary>
+    /// <summary>The full bearer-token value — base64 of the signed JSON.</summary>
     public static string Mint(IReadOnlyDictionary<string, string> fields, byte[] rawPrivateKey)
         => Convert.ToBase64String(Encoding.UTF8.GetBytes(SignedJson(fields, rawPrivateKey)));
 

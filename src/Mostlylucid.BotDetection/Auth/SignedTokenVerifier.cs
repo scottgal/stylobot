@@ -5,20 +5,27 @@ using Microsoft.Extensions.Options;
 namespace Mostlylucid.BotDetection.Auth;
 
 /// <summary>
-///     Verifies StyloFlow license capability tokens carried in
-///     <c>Authorization: License &lt;token&gt;</c>, where <c>&lt;token&gt;</c> is
-///     base64 of the signed license JSON. Verifies the Ed25519 signature against
-///     the configured trust anchors (canonical content = sorted keys, signature
-///     excluded — matching <c>LicenseSigningService</c>), then checks expiry.
+///     Verifies a generic signed bearer token — base64 of a JSON document whose
+///     signature lives in a configured field (default <c>signature</c>) over the
+///     canonical content (sorted keys, signature field excluded, non-indented).
+///     Verifies the Ed25519/ECDSA signature against the configured trust anchors,
+///     then checks an optional expiry claim, and surfaces every claim raw.
 ///     Stateless (Molecule).
+///     <para>
+///         FOSS carries no knowledge of what the token means — a consumer that
+///         treats it as a license, an entitlement, or anything else interprets the
+///         surfaced <see cref="TokenVerdict.Claims"/> itself. The subject / expiry
+///         claim names and the signature field are configurable so any convention
+///         can be verified.
+///     </para>
 /// </summary>
-internal sealed class CapabilityTokenVerifier : ITokenKindVerifier
+internal sealed class SignedTokenVerifier : ITokenKindVerifier
 {
     private readonly ISignatureValidator _crypto;
     private readonly IOptions<TokenVerifierOptions> _options;
     private readonly TimeProvider _time;
 
-    public CapabilityTokenVerifier(
+    public SignedTokenVerifier(
         ISignatureValidator crypto,
         IOptions<TokenVerifierOptions> options,
         TimeProvider? timeProvider = null)
@@ -28,18 +35,21 @@ internal sealed class CapabilityTokenVerifier : ITokenKindVerifier
         _time = timeProvider ?? TimeProvider.System;
     }
 
-    public TokenKind Kind => TokenKind.LicenseCapability;
+    public TokenKind Kind => TokenKind.SignedBearerToken;
 
     public TokenVerdict Verify(TokenInput input)
     {
         var started = _time.GetTimestamp();
         var opts = _options.Value;
+        var signatureField = string.IsNullOrWhiteSpace(opts.SignedTokenSignatureField)
+            ? "signature"
+            : opts.SignedTokenSignatureField;
 
         TokenVerdict Verdict(TokenOutcome outcome, string? subject = null,
             IReadOnlyDictionary<string, string>? claims = null)
             => new(outcome, null, subject, claims, _time.GetElapsedTime(started));
 
-        // 1. base64 → license JSON.
+        // 1. base64 → JSON.
         byte[] jsonBytes;
         try { jsonBytes = Convert.FromBase64String(input.RawValue.Trim()); }
         catch (FormatException) { return Verdict(TokenOutcome.Malformed); }
@@ -52,8 +62,8 @@ internal sealed class CapabilityTokenVerifier : ITokenKindVerifier
         {
             if (doc.RootElement.ValueKind != JsonValueKind.Object) return Verdict(TokenOutcome.Malformed);
 
-            // 2. The token must carry a base64 signature field.
-            if (!doc.RootElement.TryGetProperty("signature", out var sigProp) ||
+            // 2. The token must carry a base64 signature in the configured field.
+            if (!doc.RootElement.TryGetProperty(signatureField, out var sigProp) ||
                 sigProp.ValueKind != JsonValueKind.String)
                 return Verdict(TokenOutcome.Malformed);
             var sigB64 = sigProp.GetString();
@@ -62,18 +72,18 @@ internal sealed class CapabilityTokenVerifier : ITokenKindVerifier
             try { signature = Convert.FromBase64String(sigB64); }
             catch (FormatException) { return Verdict(TokenOutcome.Malformed); }
 
-            var claims = ExtractClaims(doc.RootElement);
-            var subject = claims.TryGetValue("issuedTo", out var issuedTo) ? issuedTo : null;
+            var claims = ExtractClaims(doc.RootElement, signatureField);
+            var subject = claims.TryGetValue(opts.SignedTokenSubjectClaim, out var s) ? s : null;
 
             // 3. No configured issuer keys → nothing can be trusted.
-            if (opts.CapabilityTrustAnchors.Count == 0)
+            if (opts.TrustAnchors.Count == 0)
                 return Verdict(TokenOutcome.MissingKey, subject, claims);
 
             // 4. Verify against each anchor; first match wins.
-            var data = Encoding.UTF8.GetBytes(CanonicalContent(doc.RootElement));
+            var data = Encoding.UTF8.GetBytes(CanonicalContent(doc.RootElement, signatureField));
             string? anchorName = null;
             var verified = false;
-            foreach (var anchor in opts.CapabilityTrustAnchors)
+            foreach (var anchor in opts.TrustAnchors)
             {
                 byte[] pub;
                 try { pub = Convert.FromBase64String(anchor.PublicKey); }
@@ -100,13 +110,14 @@ internal sealed class CapabilityTokenVerifier : ITokenKindVerifier
     }
 
     /// <summary>
-    ///     Canonical signable content: sorted keys, signature field excluded,
-    ///     non-indented. Byte-identical to <c>LicenseSigningService.GetSignableContent</c>.
+    ///     Canonical signable content: sorted keys, the signature field excluded,
+    ///     non-indented. A signer produces the same bytes to sign; the verifier
+    ///     rebuilds them to check.
     /// </summary>
-    private static string CanonicalContent(JsonElement root)
+    private static string CanonicalContent(JsonElement root, string signatureField)
     {
         var sorted = root.EnumerateObject()
-            .Where(p => p.Name != "signature")
+            .Where(p => p.Name != signatureField)
             .OrderBy(p => p.Name, StringComparer.Ordinal);
 
         using var stream = new MemoryStream();
@@ -120,12 +131,12 @@ internal sealed class CapabilityTokenVerifier : ITokenKindVerifier
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    private static Dictionary<string, string> ExtractClaims(JsonElement root)
+    private static Dictionary<string, string> ExtractClaims(JsonElement root, string signatureField)
     {
         var claims = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var prop in root.EnumerateObject())
         {
-            if (prop.Name == "signature") continue;
+            if (prop.Name == signatureField) continue;
             claims[prop.Name] = prop.Value.ValueKind switch
             {
                 JsonValueKind.String => prop.Value.GetString() ?? "",
@@ -141,7 +152,8 @@ internal sealed class CapabilityTokenVerifier : ITokenKindVerifier
 
     private bool IsExpired(JsonElement root, TokenVerifierOptions opts)
     {
-        if (!root.TryGetProperty("expiry", out var expiryProp)) return false;
+        if (string.IsNullOrWhiteSpace(opts.SignedTokenExpiryClaim)) return false;
+        if (!root.TryGetProperty(opts.SignedTokenExpiryClaim, out var expiryProp)) return false;
 
         DateTimeOffset expiresAt;
         switch (expiryProp.ValueKind)
