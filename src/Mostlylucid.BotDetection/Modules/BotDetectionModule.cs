@@ -245,13 +245,27 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Client-side fingerprint population tracker (browser fingerprint
         // observed-value distribution).
         services.TryAddSingleton<ClientSide.FingerprintPopulationTracker>();
-        // Centroid stores — FOSS defaults use in-memory / SQLite paths.
-        // NullSignatureCentroidStore keeps a fresh install boot-fast; hosts
-        // that want durability wire SqliteSignatureCentroidStore explicitly
-        // via TryAdd-loses replacement.
-        services.TryAddSingleton<Data.Contracts.ISignatureCentroidStore, Data.NullSignatureCentroidStore>();
-        services.TryAddSingleton<Data.Contracts.IIntentCentroidStore, Data.NullIntentCentroidStore>();
-        services.TryAddSingleton<Data.Contracts.ISessionCentroidStore, Data.NullSessionCentroidStore>();
+        // Centroid stores: real WriteBehindLfuStore SQLite stores are the FOSS default.
+        // The concrete class is registered first so both the interface binding and
+        // StoreInitService<T> resolve to the same singleton. StoreInitService creates
+        // the table schema at host startup AND eagerly resolves the store, which starts
+        // the drain loop (WriteBehindLfuStore ctor). AddBotDetectionInMemory replaces
+        // the interface bindings with their Null variants via services.Replace so
+        // Slim* and SessionVectorWarmupService see no-op stores in ephemeral mode.
+        services.TryAddSingleton<Data.SqliteSignatureCentroidStore>();
+        services.TryAddSingleton<Data.Contracts.ISignatureCentroidStore>(
+            sp => sp.GetRequiredService<Data.SqliteSignatureCentroidStore>());
+        services.AddHostedService<Storage.StoreInitService<Data.SqliteSignatureCentroidStore>>();
+
+        services.TryAddSingleton<Data.SqliteSessionCentroidStore>();
+        services.TryAddSingleton<Data.Contracts.ISessionCentroidStore>(
+            sp => sp.GetRequiredService<Data.SqliteSessionCentroidStore>());
+        services.AddHostedService<Storage.StoreInitService<Data.SqliteSessionCentroidStore>>();
+
+        services.TryAddSingleton<Data.SqliteIntentCentroidStore>();
+        services.TryAddSingleton<Data.Contracts.IIntentCentroidStore>(
+            sp => sp.GetRequiredService<Data.SqliteIntentCentroidStore>());
+        services.AddHostedService<Storage.StoreInitService<Data.SqliteIntentCentroidStore>>();
         // Identity archetype registry (loaded from embedded YAML archetypes).
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
         // SequenceContextStore — per-fingerprint sliding sequence of request
