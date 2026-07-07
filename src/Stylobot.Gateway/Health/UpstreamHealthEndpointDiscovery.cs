@@ -88,11 +88,11 @@ public sealed class UpstreamHealthEndpointDiscovery : IUpstreamHealthEndpointDis
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 // Per-probe timeout or transient error: skip this candidate.
-                _logger.LogDebug(ex, "Probe failed for {Url} — trying next candidate", url);
+                _logger.LogDebug(ex, "Probe failed for {Url}; trying next candidate", url);
             }
         }
 
-        _logger.LogDebug("No health endpoint found for cluster {ClusterId} — all candidates exhausted", clusterId);
+        _logger.LogDebug("No health endpoint found for cluster {ClusterId}: all candidates exhausted", clusterId);
         return null;
     }
 

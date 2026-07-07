@@ -162,6 +162,61 @@ public class UpstreamHealthEndpointDiscoveryTests : IDisposable
         sut.GetCached("c5").Should().BeNull();
     }
 
+    // ── Test 6: merge-not-clobber: DiscoverAsync preserves sibling metadata ──
+
+    [Fact]
+    public async Task DiscoverAsync_Merges_HealthEndpoint_Preserving_Existing_MetadataJson_Keys()
+    {
+        // Seed DB with a cluster having existing metadata.
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            var cluster = new ClusterEntity
+            {
+                ClusterId = "c6",
+                MetadataJson = "{\"existing\":\"value\"}"
+            };
+            db.Clusters.Add(cluster);
+            await db.SaveChangesAsync();
+        }
+
+        // Create SUT with a handler that returns 200 on /healthz.
+        var sut = CreateSut(req =>
+            req.RequestUri!.AbsolutePath == "/healthz"
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                : new HttpResponseMessage(HttpStatusCode.NotFound),
+            candidatePaths: ["/health", "/healthz"]);
+
+        // Discover and persist.
+        var result = await sut.DiscoverAsync("c6", "http://upstream", CancellationToken.None);
+        result.Should().NotBeNull();
+        result!.Path.Should().Be("/healthz");
+
+        // Read the raw JSON from the DB.
+        string? rawJson;
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            var persisted = await db.Clusters.FindAsync(new object[] { "c6" }, CancellationToken.None);
+            rawJson = persisted?.MetadataJson;
+        }
+
+        // Assert both keys are present by parsing and checking the structure.
+        rawJson.Should().NotBeNullOrEmpty();
+        var root = System.Text.Json.Nodes.JsonNode.Parse(rawJson)?.AsObject();
+        root.Should().NotBeNull();
+
+        // Check that "existing" key and value are preserved.
+        root!["existing"].Should().NotBeNull();
+        root["existing"]!.GetValue<string>().Should().Be("value");
+
+        // Check that "healthEndpoint" key exists and has the expected structure.
+        root["healthEndpoint"].Should().NotBeNull();
+        var heObj = root["healthEndpoint"]!.AsObject();
+        heObj["path"].Should().NotBeNull();
+        heObj["path"]!.GetValue<string>().Should().Be("/healthz");
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     private sealed class StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> respond)
