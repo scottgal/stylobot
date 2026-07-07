@@ -54,8 +54,7 @@ Each agent gets its own spec to write. To parallelize without collision:
 |---|---|---|---|
 | **Public-key-registry agent** | `PublicKeyRegistry`, `PublicKeyRegistryAtom`, the JSON manifest schema, the scheduled-refresh coordinator, dashboard visibility for the current key set + last refresh. | Nothing prior. Foundation. | FOSS |
 | **Token-verifier agent** | `ITokenVerifier`, the RFC 9421 impl, the license-capability-token impl, unit tests, error taxonomy. | Public-key-registry (for RFC 9421 key resolution). | FOSS |
-| **WebBotAuthAtom agent** | `WebBotAuthAtom` (Extractor taxonomy — per-request, header parse only). Emits `webbotauth.keyid` / `webbotauth.signature` / `webbotauth.base` raw signals. Does NOT call the verifier. | Nothing prior on the verify side; foundation of the two-stage design. | FOSS |
-| **WebBotAuthApprovalAtom agent** (foss) | `WebBotAuthApprovalAtom` (Verifier + Coordinator taxonomy — session-scoped verify-once cache). Subscribes to Stage 1 signals; calls `ITokenVerifier.Verify` once per (session, keyid, signature); caches verdict on session-scoped atom state; emits `identity.verified_bot_*` C3 output signals; integration into `identity.verified_bot_name` consumer chain. | Public-key-registry + Token-verifier + WebBotAuthAtom's Stage 1 signals. | FOSS |
+| **WebBotAuthApprovalAtom agent** (foss) | Single atom `WebBotAuthApprovalAtom` (Verifier + Coordinator, singleton). Reads WBA headers directly, verify-once per (session, keyid) against `SessionAggregate.WebBotAuthVerdict`, emits beacon `webbotauth.presented` + resolved `identity.verified_bot_*` C3 outputs. Extends `SessionAggregate` with a `WebBotAuthCachedVerdict` slot. Integration into `identity.verified_bot_name` consumer chain. | Public-key-registry + Token-verifier + `SessionStore`. | FOSS |
 | **CapabilityTokenAtom agent** | `CapabilityTokenAtom` (parses `Authorization: License`, calls FOSS `ITokenVerifier` with StyloFlow claim-name knobs), its commercial manifest, action-policy dispatch on `auth.capability_token_valid`, `RequiresCapabilityRuleExtension : IEndpointPolicyRuleExtension` (commercial matcher). | FOSS Token-verifier + FOSS `IEndpointPolicyRuleExtension` seam (C4a — wba-foundation adds). | **Commercial** |
 | **AgentContent pack agent** | The `Mostlylucid.BotDetection.AgentContent` pack: `ResponseTransformCoordinator`, `IResponseTransformer`, HTML→Markdown transformer, `/llms.txt` synthesizer from sitemap, `response-transforms/*.yaml` manifest schema. | Nothing on the ephemeral side (reads existing sink signals). Depends on WebBotAuthAtom producing `identity.verified_bot_signed`. | New sfpkg |
 | **Commercial-UI agent** (feature agent, existing) | Dashboard surfaces: registered public keys view, capability token issuer + claim editor, per-response-transform rule editor. | All four above. Ships as commercial dashboard packs. | Commercial |
@@ -141,47 +140,57 @@ public enum TokenOutcome { Valid, InvalidSignature, Expired, UnknownKey, Malform
 - Trust anchors (`TrustAnchor { base64PublicKey, label }`) live on `TokenVerifierOptions.TrustAnchors` — with the verifier, not the atom. The commercial `CapabilityTokenAtom` may hold policy config (LogOnly mode, claim→action maps) on its own commercial Options class, but never trust anchors.
 - Verifier is a singleton, pure function of inputs — no per-request state, no IO. `Elapsed` measured internally so the caller can't fake it.
 
-### C3. Signal keys the atoms write — TWO-STAGE (extraction + verify-once session-cache)
+### C3. Signal keys the atoms write — ONE ATOM, beacon on sink, verdict on SessionAggregate
 
 Sink keys are the API for downstream atoms and action policies. Locked here — any consumer reads via `sink.ReadHint(...)` / `sink.ReadBoolHint(...)`.
 
-Verify is expensive (~21μs Ed25519, ~85μs ECDSA-P256 per foss's `00e4a053` bench — dominated by per-call key import). Doing it per-request is waste on session-stable identities. The two-atom shape amortizes verify across the session lifetime — verify-once per (session, keyid, signature) tuple; subsequent same-session, same-key requests read cached verdict.
+Verify is expensive (~21μs Ed25519, ~85μs ECDSA-P256 per foss's `00e4a053` bench — dominated by per-call key import). Doing it per-request is waste on session-stable identities. Solution: verify-once per session per keyid; cache the verdict on the canonical per-session state.
 
-**Stage 1 — WebBotAuthAtom (FOSS, wba-atom agent owns) — Extractor taxonomy, per-request.**
+**Two operator-directed invariants shape this design:**
 
-Reads `Signature` + `Signature-Input` headers, extracts the raw signature material, emits three input signals for Stage 2 to consume. Does NOT call `ITokenVerifier`.
+1. **Sink is presumed INSECURE (zero-PII).** Auth material — bearer tokens, signature blobs, base strings — MUST NOT land on the sink. Downstream sink readers (dashboard, logs, exports, other atoms) are broadcast targets; even public-in-transit RFC 9421 signature material shouldn't leak there. Sink carries only a non-sensitive BEACON and the RESOLVED output signals.
+2. **Atoms are stateless singletons.** `services.AddSingleton<IDetectorAtom, X>()` — one instance serves all sessions concurrently. Session-scoped state lives on `SessionStore.Aggregates` (`SessionStore.cs:376`, `ConcurrentDictionary<sessionId, SessionAggregate>`, session-lifetime, discarded at session-boundary). A private field on an atom or a `ConcurrentDictionary<sessionId, verdict>` on the atom IS the parasitic-store class the operator ruled out.
 
-```csharp
-public static partial class SignalKeys
-{
-    // WebBotAuthAtom — raw header extraction, per-request, emitted BEFORE verify
-    public const string WebBotAuthKeyId     = "webbotauth.keyid";       // string — 9421 keyid param
-    public const string WebBotAuthSignature = "webbotauth.signature";   // string — the signature bytes (base64)
-    public const string WebBotAuthBase      = "webbotauth.base";        // string — reconstructed base string for verify
-}
-```
+**One atom — `WebBotAuthApprovalAtom` (FOSS, foss agent owns) — Verifier + Coordinator taxonomy, singleton.**
 
-**Stage 2 — WebBotAuthApprovalAtom (FOSS, foss agent owns) — Verifier + Coordinator taxonomy, SESSION-SCOPED.**
-
-Subscribes to Stage 1's signals. On first sight of a (keyid, signature) tuple within a session, calls `ITokenVerifier.Verify` ONCE; caches the verdict + resolved subject on its own session-scoped atom state; emits the identity signals below. On subsequent same-session requests where cached (keyid, signature) matches current, re-emits from cache — NO re-verify.
+Runs per-request. Reads `Signature` + `Signature-Input` HTTP headers directly (no cross-atom raw-material handoff). Looks up caller's `SessionAggregate.WebBotAuthVerdict` slot. On first sight per (session, keyid), calls `ITokenVerifier.Verify` once; caches (keyid, verdict, subject, algorithm) on the SessionAggregate. On subsequent same-session same-keyid requests, uses cached verdict — no re-verify. Session L1 identity (UA/IP HMAC session-stable per `reference_session_layer_and_fingerprint_levels`) is the outer trust window; keyid is the inner check-if-changed key.
 
 ```csharp
 public static partial class SignalKeys
 {
-    // WebBotAuthApprovalAtom — session-cached verdict output, downstream consumers read these
+    // Beacon — carries NO auth material. Bool: "WBA headers were structurally present on this request."
+    public const string WebBotAuthPresented = "webbotauth.presented";                // bool
+
+    // Resolved output — emitted from cached OR fresh verdict, downstream consumers read these
     public const string VerifiedBotSigned    = "identity.verified_bot_signed";      // bool
     public const string VerifiedBotName      = "identity.verified_bot_name";        // string, e.g. "GPTBot"
-    public const string VerifiedBotKeyId     = "identity.verified_bot_key_id";      // string
+    public const string VerifiedBotKeyId     = "identity.verified_bot_key_id";      // string — public identifier, not sensitive
     public const string VerifiedBotAlgorithm = "identity.verified_bot_algorithm";   // string
     public const string SignatureVerdict     = "identity.signature_verdict";        // TokenOutcome as string
 }
 ```
 
-- **Session-scope + expiry.** Cached verdict lives on the WebBotAuthApprovalAtom's session-scoped state. Expires with the session boundary — no explicit TTL knob. Same lifecycle as any session-scoped atom container (see `reference_session_layer_and_fingerprint_levels`).
-- **Check-if-changed key.** The tuple `(cached_keyid, cached_signature)` vs `(current webbotauth.keyid, current webbotauth.signature)`. Match = use cache; mismatch (or first sight) = call verifier + update cache. Session identity (L1 UA/IP HMAC) is the outer scope; keyid+signature is the inner scope.
-- **Not `IFingerprintApprovalStore`.** That store is durable / operator-granted. Session-ephemeral WBA approvals are a distinct lane — new session-scoped atom state, not a store insert.
-- **No parasitic import cache.** Do NOT add a per-key import cache in `PublicKeyRegistry` or `CryptoSignatureValidator`. The session-verify amortization IS the perf answer; per-key caching would be a parasitic store (killed by operator).
-- **Nudges centroids, doesn't clobber.** `IdentityArchetypeRegistry` seeds `verified-<botname>` centroid on ApprovalAtom output; no archetype short-circuit.
+**SessionAggregate extension (foss adds):**
+
+```csharp
+// on SessionAggregate — session-lifetime, discarded at session boundary
+public WebBotAuthCachedVerdict? WebBotAuthVerdict { get; set; }
+
+public sealed record WebBotAuthCachedVerdict(
+    string KeyId,            // public identifier; NOT the signature or base string
+    TokenOutcome Verdict,
+    string? SubjectName,     // resolved bot name (e.g. "GPTBot")
+    string? Algorithm);      // resolved alg (e.g. "ed25519")
+```
+
+- **NO raw signature or base string on SessionAggregate.** Session state should not hold auth-material blobs; verify is done once + resolved metadata cached. Storing raw signature bytes on session state that outlasts the request creates a compliance surface for no correctness benefit.
+- **Check-if-changed key.** Current request's parsed `keyid` (from `Signature-Input` header) vs `SessionAggregate.WebBotAuthVerdict.KeyId`. Match = use cache; mismatch (or no cached verdict) = call verifier + update cache. Same session presenting a different keyid = re-verify.
+- **Session-scope + expiry.** SessionAggregate lifecycle IS the TTL. `SessionStore` discards the aggregate at session boundary; the cached verdict goes with it. No explicit TTL knob.
+- **Sink safety.** ONLY `webbotauth.presented` (bool beacon) + `identity.verified_bot_*` (resolved outputs) touch the sink. Never the raw signature, base string, or full `Signature-Input` header value. This is uniform for BOTH RFC 9421 (public-in-transit but defensive) and the commercial SignedBearerToken case (actually secret) — no per-token-kind judgment calls.
+- **Not `IFingerprintApprovalStore`.** That store is durable / operator-granted. Session-ephemeral WBA approvals are a distinct lane — `SessionAggregate` slot, not a store insert.
+- **No parasitic import cache.** Do NOT add a per-key import cache in `PublicKeyRegistry` or `CryptoSignatureValidator`. The verify-once-per-session amortization IS the perf answer.
+- **Nudges centroids, doesn't clobber.** `IdentityArchetypeRegistry` seeds `verified-<botname>` centroid on the resolved output; no archetype short-circuit.
+- **Session-trust posture.** Per operator directive: once verified within a session, later same-keyid requests trust the earlier verify. This trades one round of crypto against session-hijack-post-verify risk. L1 UA/IP HMAC session stability is the operating assumption that justifies it; if the operator later wants tighter semantics (reverify every N requests), that becomes an Options knob on `WebBotAuthOptions` — leave a hook.
 
 **Commercial-owned (CapabilityTokenAtom agent — string values locked so downstream consumers are stable):**
 
@@ -329,8 +338,7 @@ Per `reference_stylobot_intended_architecture`, every new type gets a taxonomy l
 |---|---|---|
 | `PublicKeyRegistry` service | Coordinator | FOSS |
 | `PublicKeyRegistryAtom` (durability wrapper) | Escalator | FOSS |
-| `WebBotAuthAtom` (Stage 1 — header extraction, per-request) | Extractor | FOSS |
-| `WebBotAuthApprovalAtom` (Stage 2 — verify-once, session-scoped) | Verifier + Coordinator | FOSS |
+| `WebBotAuthApprovalAtom` (single atom — reads headers, verify-once per session, cache on SessionAggregate) | Verifier + Coordinator | FOSS |
 | `CapabilityTokenAtom` | Verifier | **Commercial** |
 | `ITokenVerifier` implementations (`Rfc9421Verifier`, `SignedTokenVerifier`) | Molecule (stateless, pure) | FOSS |
 | `IEndpointPolicyRuleExtension` seam | Extension seam | FOSS |
