@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Modules;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Services.Llm;
 using Mostlylucid.BotDetection.Telemetry;
@@ -146,6 +147,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<BotDetectionSignalMeter>();
         services.TryAddSingleton<BotDetectionInstrumentation>();
+        services.TryAddSingleton<IActiveUpstreamProbeState, ActiveUpstreamProbeState>();
 
         return services;
     }
