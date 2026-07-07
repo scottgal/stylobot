@@ -295,6 +295,18 @@ public static class DetectionLedgerExtensions
             primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(preSignals);
         }
 
+        // Health-probe name override (Task 6). When the request is classified as a
+        // legitimate health probe (loopback/RFC1918 source + probe UA shape on a
+        // health-endpoint path), set the canonical display name. Runs AFTER the
+        // verdict-honest override so any "Unknown Bot" rewrite is superseded.
+        // The isHealthProbe flag is computed via the sink-first ReadBool above, so
+        // this correctly fires on the production path where health_endpoint is raised
+        // via sink.Raise and never appears in preSignals. FingerprintNameComposer
+        // is NOT the right site: its preSignals dict never contains health_endpoint
+        // (sink-only signal), so a short-circuit there would silently never fire.
+        if (isHealthProbe)
+            primaryBotName = Services.FingerprintNameComposer.HealthProbeName;
+
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
         {
@@ -532,12 +544,18 @@ public static class DetectionLedgerExtensions
             var earlyIsHealthEndpoint = ReadBool(SignalKeys.HealthEndpoint);
             var earlyProbeUas = options?.HealthEndpoints?.ProbeUserAgents
                                 ?? HealthEndpointOptions.DefaultProbeUserAgents;
-            if (!earlyIsHealthEndpoint
-                || ProbeShapeClassifier.IsProbeShape(earlySignals, sink, earlyProbeUas))
+            var earlyIsHealthProbe = earlyIsHealthEndpoint
+                                     && ProbeShapeClassifier.IsProbeShape(earlySignals, sink, earlyProbeUas);
+            if (!earlyIsHealthEndpoint || earlyIsHealthProbe)
             {
                 primaryBotType = BotType.Internal;
                 earlyRiskBand = RiskBand.VeryLow;
                 earlyRiskJustification = "Internal network traffic (network-trusted; early-exit path)";
+                // Health-probe name override (Task 6, early-exit parity). Same rule as
+                // the main path: when the request is a confirmed health probe, the
+                // canonical display name takes precedence over the UA-derived name.
+                if (earlyIsHealthProbe)
+                    primaryBotName = Services.FingerprintNameComposer.HealthProbeName;
             }
         }
 

@@ -46,6 +46,19 @@ internal static class FingerprintNameComposer
     public const string SpoofedMarker = " (!)";
 
     /// <summary>
+    ///     Canonical display name for a legitimate automated health probe (kube-probe,
+    ///     curl, Go-http-client, etc.) hitting a health-check endpoint from a trusted
+    ///     source (loopback / RFC1918). Set at the classification site in
+    ///     <see cref="Orchestration.DetectionLedgerExtensions.ToAggregatedEvidence"/>
+    ///     where both the sink-read <c>health_endpoint</c> flag and the
+    ///     <see cref="HealthEndpoints.ProbeShapeClassifier"/> result are already known.
+    ///     Treated as a non-fallback name by <see cref="IsFallback"/>: it contains no
+    ///     "/", is not "analysing", and is not "Unknown ...", so it survives the
+    ///     hysteresis gate and will not be overwritten by a UA-derived fallback.
+    /// </summary>
+    public const string HealthProbeName = "Health Probe";
+
+    /// <summary>
     ///     Compose a display name from request signals.
     ///     <para>
     ///     <paramref name="fingerprintId"/> when present feeds the cold-state Priority 4
