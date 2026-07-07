@@ -36,8 +36,8 @@ export const options = {
       rate: RPS,
       timeUnit: '1s',
       duration: DURATION,
-      preAllocatedVUs: Math.max(50, RPS),
-      maxVUs: RPS * 4,
+      preAllocatedVUs: parseInt(__ENV.PREVU || Math.max(50, RPS)),
+      maxVUs: parseInt(__ENV.MAXVU || (RPS * 4)),  // cap => simulates a server in-flight limit
     },
   },
   thresholds: {

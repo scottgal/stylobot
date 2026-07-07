@@ -122,9 +122,12 @@ public sealed class SqliteSessionCentroidStore
 
     // ── ISessionCentroidStore ──────────────────────────────────────────────
 
+    /// <summary>
+    ///     Synchronous one-shot durable upsert (tests/admin). The hot path uses
+    ///     <see cref="RecordSession"/> (write-behind); do not call this per-request.
+    /// </summary>
     public async Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default)
     {
-        RecordSession(row);
         try
         {
             await _writeLock.WaitAsync(ct);

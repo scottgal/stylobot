@@ -114,11 +114,14 @@ public sealed class SqliteIntentCentroidStore
 
     // ── IIntentCentroidStore ───────────────────────────────────────────────
 
+    /// <summary>
+    ///     Synchronous one-shot durable upsert (tests/admin). The hot path uses
+    ///     <see cref="RecordIntent"/> (write-behind); do not call this per-request.
+    /// </summary>
     public async Task UpsertIntentAsync(
         string signatureId, float[] vector, double threatScore, string intentCategory,
         CancellationToken ct = default)
     {
-        RecordIntent(signatureId, vector, threatScore, intentCategory);
         try
         {
             await _writeLock.WaitAsync(ct);

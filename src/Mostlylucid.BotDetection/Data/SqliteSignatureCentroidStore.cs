@@ -120,15 +120,13 @@ public sealed class SqliteSignatureCentroidStore
     // ── ISignatureCentroidStore ────────────────────────────────────────────
 
     /// <summary>
-    ///     Updates the hot cache immediately via <see cref="RecordSignature"/> and
-    ///     also writes through to SQLite so <see cref="GetRecentSignaturesAsync"/>
-    ///     sees the data without waiting for the drainer.
+    ///     Synchronous one-shot durable upsert (tests/admin). The hot path uses
+    ///     <see cref="RecordSignature"/> (write-behind); do not call this per-request.
     /// </summary>
     public async Task UpsertSignatureAsync(
         string signatureId, float[] vector, bool wasBot, double confidence,
         CancellationToken ct = default)
     {
-        RecordSignature(signatureId, vector, wasBot, confidence);
         try
         {
             await _writeLock.WaitAsync(ct);
