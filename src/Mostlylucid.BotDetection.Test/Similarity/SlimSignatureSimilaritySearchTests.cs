@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Data.Contracts;
-using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Data.Centroids;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -43,18 +42,16 @@ public class BoundedVectorCacheTests
 
 public class SlimSignatureSimilaritySearchTests
 {
-    private static SlimSignatureSimilaritySearch BuildSut(
-        ISignatureCentroidStore? store = null,
-        int cacheSize = 100)
+    private static SlimSignatureSimilaritySearch BuildSut(int cacheSize = 100)
     {
-        var mockStore = store ?? new NoOpCentroidStore();
         var options = Options.Create(new BotDetectionOptions
         {
             SelfMaintenance = { SignatureCacheSize = cacheSize }
         });
         return new SlimSignatureSimilaritySearch(
-            mockStore,
             options,
+            new NullCentroidWriter(),
+            Options.Create(new CentroidWriterOptions()),
             NullLogger<SlimSignatureSimilaritySearch>.Instance);
     }
 
@@ -167,62 +164,6 @@ public class SlimSignatureSimilaritySearchTests
         Assert.Contains(results, r => r.SignatureId == "hot");
     }
 
-    [Fact]
-    public async Task AddAsync_FiresBackgroundSqliteUpsert()
-    {
-        var capturingStore = new CapturingCentroidStore();
-        var sut = BuildSut(store: capturingStore);
-        var vector = new float[] { 1f, 0f };
-
-        await sut.AddAsync(vector, "sig-d", wasBot: true, confidence: 0.85);
-
-        // Give the background task time to complete
-        await Task.Delay(200);
-
-        Assert.Equal(1, capturingStore.UpsertCount);
-        Assert.Equal("sig-d", capturingStore.LastSignatureId);
-        Assert.True(capturingStore.LastWasBot);
-    }
-
-    // ------------------------------------------------------------------
-    // Test helpers
-    // ------------------------------------------------------------------
-
-    private sealed class NoOpCentroidStore : ISignatureCentroidStore
-    {
-        public Task UpsertSignatureAsync(string signatureId, float[] vector, bool wasBot, double confidence,
-            CancellationToken ct = default) => Task.CompletedTask;
-
-        public Task<IReadOnlyList<SignatureCentroidRow>> GetRecentSignaturesAsync(int limit,
-            CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SignatureCentroidRow>>([]);
-
-        public Task PruneSignaturesOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-            => Task.CompletedTask;
-    }
-
-    private sealed class CapturingCentroidStore : ISignatureCentroidStore
-    {
-        public int UpsertCount { get; private set; }
-        public string? LastSignatureId { get; private set; }
-        public bool LastWasBot { get; private set; }
-
-        public Task UpsertSignatureAsync(string signatureId, float[] vector, bool wasBot, double confidence,
-            CancellationToken ct = default)
-        {
-            UpsertCount++;
-            LastSignatureId = signatureId;
-            LastWasBot = wasBot;
-            return Task.CompletedTask;
-        }
-
-        public Task<IReadOnlyList<SignatureCentroidRow>> GetRecentSignaturesAsync(int limit,
-            CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SignatureCentroidRow>>([]);
-
-        public Task PruneSignaturesOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-            => Task.CompletedTask;
-    }
 }
 
 /// <summary>

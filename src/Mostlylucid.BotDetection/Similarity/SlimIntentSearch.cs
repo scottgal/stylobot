@@ -1,7 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Data.Contracts;
+using Mostlylucid.BotDetection.Data.Centroids;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Similarity;
 
@@ -22,15 +23,18 @@ public sealed class SlimIntentSearch : IIntentSimilaritySearch
     private sealed record CacheEntry(float[] Vector, double ThreatScore, string IntentCategory);
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly IIntentCentroidStore _centroidStore;
+    private readonly ICentroidWriter _centroidWriter;
+    private readonly CentroidWriterOptions _centroidOpts;
     private readonly ILogger<SlimIntentSearch> _logger;
 
     public SlimIntentSearch(
-        IIntentCentroidStore centroidStore,
         IOptions<BotDetectionOptions> options,
+        ICentroidWriter centroidWriter,
+        IOptions<CentroidWriterOptions> centroidOptions,
         ILogger<SlimIntentSearch> logger)
     {
-        _centroidStore = centroidStore;
+        _centroidWriter = centroidWriter;
+        _centroidOpts = centroidOptions.Value;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.IntentCacheSize;
@@ -88,19 +92,18 @@ public sealed class SlimIntentSearch : IIntentSimilaritySearch
         // Write to hot cache immediately (fast path)
         _cache.Set(signatureId, new CacheEntry(vector, threatScore, intentCategory));
 
-        // Persist to SQLite in background; never block the caller
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _centroidStore.UpsertIntentAsync(signatureId, vector, threatScore, intentCategory)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Background SQLite upsert failed for intent signature {Id}", signatureId);
-            }
-        });
+        // LFU-sampled synchronous enqueue: intent adds are not probability-gated so
+        // retention relies on threat score. High-threat entries are retained; low-threat
+        // browsing is shed first. Non-blocking: no Task.Run.
+        var necessity = DecisionNecessity.Value(
+            botProbability: 0.5,       // intent adds carry no per-sig probability
+            threat: threatScore,
+            ageSeconds: 0,
+            threshold: _centroidOpts.DecisionThreshold,
+            halfLifeSeconds: _centroidOpts.DecisionHalfLifeSeconds);
+        if (necessity >= _centroidOpts.SamplingThreshold)
+            _centroidWriter.Enqueue(new CentroidWriteMessage.IntentCentroidWrite(
+                signatureId, vector, threatScore, intentCategory));
 
         return Task.CompletedTask;
     }

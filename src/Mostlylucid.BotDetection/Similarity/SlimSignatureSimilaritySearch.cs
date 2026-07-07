@@ -1,7 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Data.Contracts;
+using Mostlylucid.BotDetection.Data.Centroids;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Similarity;
 
@@ -21,15 +22,18 @@ public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
     private sealed record CacheEntry(float[] Vector, bool WasBot, double Confidence);
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly ISignatureCentroidStore _centroidStore;
+    private readonly ICentroidWriter _centroidWriter;
+    private readonly CentroidWriterOptions _centroidOpts;
     private readonly ILogger<SlimSignatureSimilaritySearch> _logger;
 
     public SlimSignatureSimilaritySearch(
-        ISignatureCentroidStore centroidStore,
         IOptions<BotDetectionOptions> options,
+        ICentroidWriter centroidWriter,
+        IOptions<CentroidWriterOptions> centroidOptions,
         ILogger<SlimSignatureSimilaritySearch> logger)
     {
-        _centroidStore = centroidStore;
+        _centroidWriter = centroidWriter;
+        _centroidOpts = centroidOptions.Value;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.SignatureCacheSize;
@@ -88,19 +92,17 @@ public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
         // Write to hot cache immediately (fast path)
         _cache.Set(signatureId, new CacheEntry(vector, wasBot, confidence), isBot: wasBot);
 
-        // Persist to SQLite in background; never block the caller
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _centroidStore.UpsertSignatureAsync(signatureId, vector, wasBot, confidence)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Background SQLite upsert failed for signature {Id}", signatureId);
-            }
-        });
+        // LFU-sampled synchronous enqueue: borderline or high-threat entries are worth
+        // persisting; confident-harmless entries are shed first. Non-blocking: no Task.Run.
+        var necessity = DecisionNecessity.Value(
+            botProbability: confidence,
+            threat: wasBot ? confidence : 0.0,
+            ageSeconds: 0,
+            threshold: _centroidOpts.DecisionThreshold,
+            halfLifeSeconds: _centroidOpts.DecisionHalfLifeSeconds);
+        if (necessity >= _centroidOpts.SamplingThreshold)
+            _centroidWriter.Enqueue(new CentroidWriteMessage.SignatureCentroidWrite(
+                signatureId, vector, wasBot, confidence));
 
         return Task.CompletedTask;
     }

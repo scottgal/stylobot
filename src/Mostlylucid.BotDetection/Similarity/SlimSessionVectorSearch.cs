@@ -2,8 +2,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
+using Mostlylucid.BotDetection.Data.Centroids;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Similarity;
 
@@ -27,15 +28,18 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
     private static readonly int ExpectedDimensions = SessionVectorizer.Dimensions;
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly ISessionCentroidStore _centroidStore;
+    private readonly ICentroidWriter _centroidWriter;
+    private readonly CentroidWriterOptions _centroidOpts;
     private readonly ILogger<SlimSessionVectorSearch> _logger;
 
     public SlimSessionVectorSearch(
-        ISessionCentroidStore centroidStore,
         IOptions<BotDetectionOptions> options,
+        ICentroidWriter centroidWriter,
+        IOptions<CentroidWriterOptions> centroidOptions,
         ILogger<SlimSessionVectorSearch> logger)
     {
-        _centroidStore = centroidStore;
+        _centroidWriter = centroidWriter;
+        _centroidOpts = centroidOptions.Value;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.SessionCacheSize;
@@ -110,27 +114,25 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
         // Write to hot cache immediately
         _cache.Set(signature, new CacheEntry(vector, isBot, botProbability, meta), isBot: isBot);
 
-        // Persist to SQLite in background; never block the caller
-        _ = Task.Run(async () =>
+        // LFU-sampled synchronous enqueue: borderline or high-threat sessions are worth
+        // persisting; certain-and-harmless sessions are shed first. Non-blocking: no Task.Run.
+        var row = new SessionCentroidRow
         {
-            try
-            {
-                var row = new SessionCentroidRow
-                {
-                    SignatureId = signature,
-                    Vector = vector,
-                    VelocityVector = velocityVector,
-                    FreqFingerprint = frequencyFingerprint,
-                    IsBot = isBot,
-                    BotProbability = botProbability
-                };
-                await _centroidStore.UpsertSessionAsync(row).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Background SQLite upsert failed for session {Signature}", signature);
-            }
-        });
+            SignatureId = signature,
+            Vector = vector,
+            VelocityVector = velocityVector,
+            FreqFingerprint = frequencyFingerprint,
+            IsBot = isBot,
+            BotProbability = botProbability
+        };
+        var necessity = DecisionNecessity.Value(
+            botProbability: botProbability,
+            threat: isBot ? botProbability : 0.0,
+            ageSeconds: 0,
+            threshold: _centroidOpts.DecisionThreshold,
+            halfLifeSeconds: _centroidOpts.DecisionHalfLifeSeconds);
+        if (necessity >= _centroidOpts.SamplingThreshold)
+            _centroidWriter.Enqueue(new CentroidWriteMessage.SessionCentroidWrite(row));
 
         return Task.CompletedTask;
     }

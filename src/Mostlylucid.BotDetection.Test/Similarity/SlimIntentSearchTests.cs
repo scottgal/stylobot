@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Data.Contracts;
-using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Data.Centroids;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -9,18 +8,16 @@ namespace Mostlylucid.BotDetection.Test.Similarity;
 
 public class SlimIntentSearchTests
 {
-    private static SlimIntentSearch BuildSut(
-        IIntentCentroidStore? store = null,
-        int cacheSize = 100)
+    private static SlimIntentSearch BuildSut(int cacheSize = 100)
     {
-        var mockStore = store ?? new NoOpIntentStore();
         var options = Options.Create(new BotDetectionOptions
         {
             SelfMaintenance = { IntentCacheSize = cacheSize }
         });
         return new SlimIntentSearch(
-            mockStore,
             options,
+            new NullCentroidWriter(),
+            Options.Create(new CentroidWriterOptions()),
             NullLogger<SlimIntentSearch>.Instance);
     }
 
@@ -67,22 +64,6 @@ public class SlimIntentSearchTests
     }
 
     [Fact]
-    public async Task AddIntent_FiresBackgroundSqliteUpsert()
-    {
-        var capturingStore = new CapturingIntentStore();
-        var sut = BuildSut(store: capturingStore);
-        var vector = new float[] { 1f, 0f };
-
-        await sut.AddAsync(vector, "intent-c", threatScore: 0.9, intentCategory: "attacking");
-
-        // Wait for the background upsert to complete (SemaphoreSlim signal, no arbitrary delay)
-        var signaled = await capturingStore.WaitForUpsertAsync(TimeSpan.FromSeconds(5));
-
-        Assert.True(signaled, "Background SQLite upsert did not fire within 5 seconds");
-        Assert.Equal(1, capturingStore.UpsertCount);
-    }
-
-    [Fact]
     public async Task SaveAsync_IsNoOp_DoesNotThrow()
     {
         var sut = BuildSut();
@@ -119,42 +100,4 @@ public class SlimIntentSearchTests
         Assert.Equal("new-intent", newQuery[0].SignatureId);
     }
 
-    // ------------------------------------------------------------------
-    // Test helpers
-    // ------------------------------------------------------------------
-
-    private sealed class NoOpIntentStore : IIntentCentroidStore
-    {
-        public Task UpsertIntentAsync(string signatureId, float[] vector, double threatScore,
-            string intentCategory, CancellationToken ct = default) => Task.CompletedTask;
-
-        public Task<IReadOnlyList<IntentCentroidRow>> GetRecentIntentsAsync(int limit,
-            CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<IntentCentroidRow>>([]);
-
-        public Task PruneIntentsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-            => Task.CompletedTask;
-    }
-
-    private sealed class CapturingIntentStore : IIntentCentroidStore
-    {
-        private readonly SemaphoreSlim _signal = new(0, 1);
-        public Task<bool> WaitForUpsertAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
-        public int UpsertCount { get; private set; }
-
-        public Task UpsertIntentAsync(string signatureId, float[] vector, double threatScore,
-            string intentCategory, CancellationToken ct = default)
-        {
-            UpsertCount++;
-            _signal.Release();
-            return Task.CompletedTask;
-        }
-
-        public Task<IReadOnlyList<IntentCentroidRow>> GetRecentIntentsAsync(int limit,
-            CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<IntentCentroidRow>>([]);
-
-        public Task PruneIntentsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-            => Task.CompletedTask;
-    }
 }
