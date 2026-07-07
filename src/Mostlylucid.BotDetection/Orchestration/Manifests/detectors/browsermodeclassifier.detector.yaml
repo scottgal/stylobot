@@ -29,6 +29,9 @@ emits:
     - key: identity.browser_mode
       type: string
       description: Classified interaction mode of the client (e.g. real_browser, headless, automation, kiosk); consumed by downstream identity/archetype code
+    - key: identity.browser_mode_similarity
+      type: double
+      description: Cosine similarity of the client's shape to the best-match browser-mode centroid (raised by the atom; declared here to close the reverse-drift gap)
   on_failure:
     - detector.browsermodeclassifier.failed
 
