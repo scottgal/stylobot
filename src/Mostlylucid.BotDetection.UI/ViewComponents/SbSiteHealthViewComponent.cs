@@ -45,10 +45,30 @@ public sealed class SbSiteHealthViewComponent : ViewComponent
                 IsHealthyEmpty: true));
         }
 
+        // Per-VC render budget: cap the store query at 2s so a slow / hanging
+        // gateway path can't block dashboard render. Serial VCs summed under
+        // the render-loop ceiling; timeout degrades to the same empty state
+        // the "no history yet" branch below produces. Matches the pattern
+        // shipped in stylobot-commercial 8989761 across the commercial packs.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+
         var span = ParseWindow(win);
         var now = DateTime.UtcNow;
-        var history = await _store.GetDegradationHistoryAsync(
-            now - span, now, HttpContext.RequestAborted);
+        IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot> history;
+        try
+        {
+            history = await _store.GetDegradationHistoryAsync(now - span, now, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return View("Default", new SiteHealthViewModel(
+                Window: win,
+                LatencyChart: null,
+                ErrorsChart: null,
+                IsHealthyEmpty: true));
+        }
+
         if (history.Count == 0 || SiteHealthChartletBuilder.IsAllHealthy(history))
         {
             return View("Default", new SiteHealthViewModel(
