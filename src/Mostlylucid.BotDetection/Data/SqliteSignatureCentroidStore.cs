@@ -15,28 +15,38 @@ public sealed class SqliteSignatureCentroidStore : ISignatureCentroidStore
         _logger = logger;
     }
 
+    /// <summary>
+    /// Upserts a signature centroid using a caller-owned open connection.
+    /// The caller owns the connection lifetime; this method does not open or close it.
+    /// Exceptions propagate to the caller (no swallowing).
+    /// </summary>
+    public async Task UpsertSignatureAsync(SqliteConnection conn, string signatureId, float[] vector, bool wasBot, double confidence, CancellationToken ct = default)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO signature_centroids (signature_id, vector, was_bot, confidence, access_count, updated_at)
+            VALUES (@sig, @vec, @bot, @conf, 1, @ts)
+            ON CONFLICT(signature_id) DO UPDATE SET
+                vector=excluded.vector, was_bot=excluded.was_bot,
+                confidence=excluded.confidence,
+                access_count=signature_centroids.access_count + 1,
+                updated_at=excluded.updated_at;
+            """;
+        cmd.Parameters.AddWithValue("@sig", signatureId);
+        cmd.Parameters.AddWithValue("@vec", CentroidFloatPacker.Pack(vector));
+        cmd.Parameters.AddWithValue("@bot", wasBot ? 1 : 0);
+        cmd.Parameters.AddWithValue("@conf", confidence);
+        cmd.Parameters.AddWithValue("@ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task UpsertSignatureAsync(string signatureId, float[] vector, bool wasBot, double confidence, CancellationToken ct = default)
     {
         try
         {
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO signature_centroids (signature_id, vector, was_bot, confidence, access_count, updated_at)
-                VALUES (@sig, @vec, @bot, @conf, 1, @ts)
-                ON CONFLICT(signature_id) DO UPDATE SET
-                    vector=excluded.vector, was_bot=excluded.was_bot,
-                    confidence=excluded.confidence,
-                    access_count=signature_centroids.access_count + 1,
-                    updated_at=excluded.updated_at;
-                """;
-            cmd.Parameters.AddWithValue("@sig", signatureId);
-            cmd.Parameters.AddWithValue("@vec", CentroidFloatPacker.Pack(vector));
-            cmd.Parameters.AddWithValue("@bot", wasBot ? 1 : 0);
-            cmd.Parameters.AddWithValue("@conf", confidence);
-            cmd.Parameters.AddWithValue("@ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-            await cmd.ExecuteNonQueryAsync(ct);
+            await UpsertSignatureAsync(conn, signatureId, vector, wasBot, confidence, ct);
         }
         catch (Exception ex) { _logger.LogWarning(ex, "UpsertSignature failed for {Sig}", signatureId); }
     }
