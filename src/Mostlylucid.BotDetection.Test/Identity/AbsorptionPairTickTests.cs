@@ -177,9 +177,18 @@ public sealed class AbsorptionPairTickTests : IDisposable
         var sub = Assert.Single(coord.Subscriptions);
         await sub.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
 
-        // Tick-driven backstop absorbed the row.
-        var pendingAfter = await env.Store.GetUnabsorbedObservationCountAsync(
-            "fp-tick-1", CancellationToken.None);
+        // Tick-driven backstop enqueues the absorb write to the single-writer drainer
+        // channel (fire-and-forget). Poll until the drainer commits it.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        int pendingAfter;
+        do
+        {
+            await Task.Delay(20);
+            pendingAfter = await env.Store.GetUnabsorbedObservationCountAsync(
+                "fp-tick-1", CancellationToken.None);
+        }
+        while (pendingAfter > 0 && DateTime.UtcNow < deadline);
+
         pendingAfter.Should().Be(0);
         sut.BackstopSweepCount.Should().Be(1);
     }

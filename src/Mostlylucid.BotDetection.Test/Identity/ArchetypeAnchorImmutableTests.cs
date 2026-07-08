@@ -106,6 +106,7 @@ public class ArchetypeAnchorImmutableTests : IDisposable
         var newCentroid = new float[dim];
         var newWeights = new float[dim];
         Array.Fill(newWeights, 1.0f);
+        var absorbCountBefore = store.AbsorbWriteCount;
         await store.AbsorbObservationAsync(
             observationId: -1, // no real observation row -- the fp UPDATE is what we're pinning
             fingerprintId: fpId,
@@ -116,6 +117,12 @@ public class ArchetypeAnchorImmutableTests : IDisposable
             newInferredTypeConfidence: 0.92,
             inferredTypeChanged: true,
             ct: CancellationToken.None);
+
+        // AbsorbObservationAsync enqueues to the single-writer drainer channel;
+        // poll until the drainer commits the write before reading back.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (store.AbsorbWriteCount <= absorbCountBefore && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
 
         var drifted = await store.GetFingerprintAsync(fpId);
         drifted.Should().NotBeNull();
