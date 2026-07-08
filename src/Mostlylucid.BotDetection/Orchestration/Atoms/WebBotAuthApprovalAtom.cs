@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -108,33 +110,43 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
         // Cheap keyid parse — avoid full crypto unless keyid changes.
         var presentedKeyId = ParseKeyId(signatureInputHeader);
 
-        // Session store lookup: siteId from Host header, fingerprintId from sink.
-        var fingerprintId = sink.ReadHint(SignalKeys.PrimarySignature);
-        if (string.IsNullOrEmpty(fingerprintId))
-        {
-            // No fingerprint yet — cannot cache or look up. Beacon already fired.
-            _logger.LogDebug("WebBotAuthApproval: no primary signature hint; beacon emitted but skipping cache");
-            return Task.FromResult(None());
-        }
-
-        var siteId = ResolveSiteId(request);
-        var existingAggregate = _sessionStore.TryGet(siteId, fingerprintId);
-
-        // Cache hit: same keyid, same session window — emit from cache.
-        if (existingAggregate?.WebBotAuthVerdict is { } cached &&
-            !string.IsNullOrEmpty(presentedKeyId) &&
-            string.Equals(cached.KeyId, presentedKeyId, StringComparison.Ordinal))
-        {
-            _logger.LogDebug(
-                "WebBotAuthApproval cache hit: fp={FingerprintId} keyid={KeyId} verdict={Verdict}",
-                fingerprintId, cached.KeyId, cached.Verdict);
-
-            EmitFromVerdict(sink, sessionId, cached);
-            return Task.FromResult(None());
-        }
-
-        // Cache miss or keyid changed — build the TokenInput and verify.
+        // Reconstruct the signed material once, and hash it (non-reversible) so
+        // the cache can distinguish a genuine re-presentation of the SAME
+        // signature from a different one that merely reuses the (public) keyid.
         var rawValue = signatureInputHeader + "\n" + signatureHeader;
+        var presentedSignatureHash = ComputeSignatureHash(rawValue);
+
+        // Session partition: siteId from Host header, fingerprintId from sink.
+        // The fingerprint is the CACHE key only — verification never depends on
+        // it, so a request with no primary signature yet is still verified.
+        var fingerprintId = sink.ReadHint(SignalKeys.PrimarySignature);
+        var siteId = ResolveSiteId(request);
+        var canCache = !string.IsNullOrEmpty(fingerprintId);
+
+        // Cache hit: same keyid AND same signature, same session window — emit
+        // from cache, skip crypto. The signature-hash comparison closes a
+        // replay/tamper hole: a request reusing a verified keyid with a
+        // different signature must NOT be served the cached "verified" verdict.
+        if (canCache)
+        {
+            var existingAggregate = _sessionStore.TryGet(siteId, fingerprintId!);
+            if (existingAggregate?.WebBotAuthVerdict is { } cached &&
+                !string.IsNullOrEmpty(presentedKeyId) &&
+                string.Equals(cached.KeyId, presentedKeyId, StringComparison.Ordinal) &&
+                !string.IsNullOrEmpty(cached.SignatureHash) &&
+                string.Equals(cached.SignatureHash, presentedSignatureHash, StringComparison.Ordinal))
+            {
+                _logger.LogDebug(
+                    "WebBotAuthApproval cache hit: fp={FingerprintId} keyid={KeyId} verdict={Verdict}",
+                    fingerprintId, cached.KeyId, cached.Verdict);
+
+                EmitFromVerdict(sink, sessionId, cached);
+                return Task.FromResult(None());
+            }
+        }
+
+        // Cache miss, keyid changed, signature changed, or no fingerprint to key
+        // on — verify. (rawValue already built above.)
 
         // Collect covered headers for the verifier (everything except derived
         // @method/@path which come from TokenInput.RequestMethod/RequestPath).
@@ -168,16 +180,20 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
         // Determine algorithm — from claims if available.
         var algorithm = verdict.Claims is { } c && c.TryGetValue("alg", out var alg) ? alg : null;
 
-        // Build the cached verdict with public metadata only — no raw auth material.
+        // Build the cached verdict with public metadata only — no raw auth
+        // material. SignatureHash is a non-reversible digest, not the signature.
         var verdictKeyId = verdict.KeyId ?? presentedKeyId ?? string.Empty;
         var newCachedVerdict = new WebBotAuthCachedVerdict(
             verdictKeyId,
             verdict.Outcome,
             verdict.SubjectName,
-            algorithm);
+            algorithm,
+            presentedSignatureHash);
 
-        // Write to session aggregate. Creates a stub if no aggregate exists yet.
-        _sessionStore.SetWebBotAuthVerdict(siteId, fingerprintId, newCachedVerdict);
+        // Write to session aggregate only when we have a fingerprint to key the
+        // session window on. Verification + emission are not gated on caching.
+        if (canCache)
+            _sessionStore.SetWebBotAuthVerdict(siteId, fingerprintId!, newCachedVerdict);
 
         // Emit identity signals.
         EmitFromVerdict(sink, sessionId, newCachedVerdict);
@@ -236,6 +252,18 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
 
         if (!string.IsNullOrEmpty(keyId))
             sink.Raise($"{SignalKeys.VerifiedBotKeyId}:{keyId}", sessionId);
+    }
+
+    /// <summary>
+    ///     Computes a non-reversible SHA-256 (hex) digest of the presented
+    ///     signature material. Used only for cache-equality — the digest is
+    ///     never emitted to the sink and cannot be reversed to the signature,
+    ///     so it does not breach the "no raw auth material" invariant.
+    /// </summary>
+    internal static string ComputeSignatureHash(string rawValue)
+    {
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(rawValue));
+        return Convert.ToHexString(digest);
     }
 
     /// <summary>

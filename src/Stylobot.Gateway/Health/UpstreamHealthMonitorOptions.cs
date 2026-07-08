@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Stylobot.Gateway.Health;
 
 /// <summary>
@@ -8,21 +10,39 @@ public class UpstreamHealthMonitorOptions
 {
     public const string SectionName = "BotDetection:UpstreamHealth";
 
-    /// <summary>
-    /// Default candidate paths for health endpoint discovery.
-    /// </summary>
-    private static readonly string[] DefaultCandidatePaths =
-    [
-        "/health",
-        "/healthz",
-        "/livez",
-        "/readyz",
-        "/ready",
-        "/live",
-        "/ping",
-        "/status",
-        "/alive",
-    ];
+    // Default candidate paths live in an embedded resource (data, not a C#
+    // string list) and are read once. Loaded newline-delimited to stay AOT-safe
+    // (no JSON serializer / reflection). Operators replace the whole list via
+    // config; ApplyDefaults only fills in when config supplied none.
+    private static readonly string[] DefaultCandidatePaths = LoadDefaultCandidatePaths();
+
+    private static string[] LoadDefaultCandidatePaths()
+    {
+        var asm = typeof(UpstreamHealthMonitorOptions).Assembly;
+        var name = Array.Find(
+            asm.GetManifestResourceNames(),
+            n => n.EndsWith("upstream-health-candidate-paths.txt", StringComparison.Ordinal));
+
+        if (name is null)
+            return [];
+
+        using var stream = asm.GetManifestResourceStream(name);
+        if (stream is null)
+            return [];
+
+        using var reader = new StreamReader(stream);
+        var paths = new List<string>();
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0 || trimmed[0] == '#')
+                continue;
+            paths.Add(trimmed);
+        }
+
+        return paths.ToArray();
+    }
 
     /// <summary>
     /// Whether active upstream health probing is enabled.

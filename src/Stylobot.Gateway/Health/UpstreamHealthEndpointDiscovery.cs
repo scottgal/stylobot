@@ -70,7 +70,7 @@ public sealed class UpstreamHealthEndpointDiscovery : IUpstreamHealthEndpointDis
                 using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 probeCts.CancelAfter(TimeSpan.FromMilliseconds(_options.ProbeTimeoutMs));
 
-                var response = await _httpClient.GetAsync(url, probeCts.Token);
+                using var response = await _httpClient.GetAsync(url, probeCts.Token);
                 if (response.StatusCode != HttpStatusCode.OK)
                     continue;
 

@@ -24,7 +24,7 @@ The brief spec says `SessionStore.TryGet(sessionId)` (single param). The actual 
 
 ## Archetype seed
 
-**TODO'd** with a note in the atom. The `IdentityArchetypeRegistry.IngestWellKnownBots` takes an enumerable of `(id, displayName, botType)` tuples and is designed for batch catalog ingestion, not per-verification nudges. Wiring a per-request nudge through that API would be a misuse. The correct surface is either a `NudgeArchetype(archetypeId, displayName, botType)` overload or seeding through the existing `WellKnownBotRefreshService` path once the bot name is confirmed. Left as adjudication item per the "Report BLOCKED" guidance.
+**Shipped.** `IdentityArchetypeRegistry.NudgeArchetype(archetypeId, vector, weight)` was added as the correct per-verification surface (rather than misusing the batch `IngestWellKnownBots` catalog-ingestion path). On a `TokenOutcome.Valid` result with a resolved subject name and an available identity vector, the atom nudges the `verified-{SubjectName}` centroid toward the current request's identity vector via bounded EMA. Fail-closed (unknown archetype = no-op) and no-clobber (bounded weight, never a hard replace) are enforced inside `NudgeArchetype`. Covered by `NudgeArchetypeTests` plus the archetype-nudge tests in `WebBotAuthApprovalAtomTests`.
 
 ## Test results
 

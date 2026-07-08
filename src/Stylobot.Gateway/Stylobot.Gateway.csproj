@@ -57,6 +57,10 @@
         <!-- Gateway-local persistence schemas (profile calibration store).
              Loaded at startup via GatewaySchemaLoader. -->
         <EmbeddedResource Include="Data\Schema\*.sql" />
+        <!-- Default health-endpoint candidate paths (data, not code — see
+             UpstreamHealthMonitorOptions.ApplyDefaults). Operator-overridable
+             via config: BotDetection:UpstreamHealth:CandidatePaths. -->
+        <EmbeddedResource Include="Health\upstream-health-candidate-paths.txt" />
     </ItemGroup>
 
     <ItemGroup>

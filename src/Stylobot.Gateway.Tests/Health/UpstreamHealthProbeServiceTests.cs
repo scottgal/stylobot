@@ -180,6 +180,46 @@ public class UpstreamHealthProbeServiceTests : IDisposable
         entity!.Health.Should().Contain("\"status\":\"unhealthy\"");
     }
 
+    // ── Test (b2): host shutdown cancellation stops the loop cleanly ────────
+
+    [Fact]
+    public async Task OnTickAsync_HostShutdownCancellation_StopsLoop_NoBogusUnhealthy()
+    {
+        // Two clusters, both with a discovered endpoint. The probe HTTP call is
+        // cancelled by host shutdown (the tick token is already cancelled).
+        var discovery = new Mock<IUpstreamHealthEndpointDiscovery>();
+        discovery.Setup(d => d.GetCached("c1"))
+            .Returns(new DiscoveredHealthEndpoint("/health", null, DateTimeOffset.UtcNow));
+        discovery.Setup(d => d.GetCached("c2"))
+            .Returns(new DiscoveredHealthEndpoint("/health", null, DateTimeOffset.UtcNow));
+
+        var probeState = new ActiveUpstreamProbeState();
+        var proxy = MakeProxyConfig(
+            ("c1", "primary", "http://upstream1:5000"),
+            ("c2", "primary", "http://upstream2:5000"));
+
+        var sut = CreateSut(
+            discovery.Object,
+            probeState,
+            proxy,
+            _ => throw new OperationCanceledException());
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // Must NOT throw: OnTickAsync treats shutdown as a clean loop exit.
+        Func<Task> act = async () => await sut.OnTickAsync(DateTimeOffset.UtcNow, cts.Token);
+        await act.Should().NotThrowAsync();
+
+        // Shutdown cancellation must NOT be recorded as a bogus "unhealthy"
+        // result for the current cluster, and the loop must stop rather than
+        // continue probing siblings.
+        probeState.Latest("c1").Should().BeNull("shutdown must not record a bogus unhealthy snapshot");
+        probeState.Latest("c2").Should().BeNull("the loop must stop on shutdown, not probe siblings");
+        discovery.Verify(d => d.Invalidate(It.IsAny<string>()), Times.Never(),
+            "shutdown is not a probe failure — discovery must not be invalidated");
+    }
+
     // ── Test (c): uncached cluster triggers DiscoverAsync ───────────────────
 
     [Fact]

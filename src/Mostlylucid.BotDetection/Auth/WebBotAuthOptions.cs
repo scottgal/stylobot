@@ -27,15 +27,26 @@ public sealed class WebBotAuthOptions
 ///         raw signature bytes, no signature base string, no key material.
 ///         The <see cref="KeyId"/> is the public identifier; <see cref="Verdict"/>
 ///         is the outcome enum; <see cref="SubjectName"/> is the agent's
-///         display name from the public key registry.
+///         display name from the public key registry. <see cref="SignatureHash"/>
+///         is a non-reversible digest, not the signature itself.
 ///     </para>
 /// </remarks>
 /// <param name="KeyId">Public key identifier — no raw key material.</param>
 /// <param name="Verdict">Outcome of the most recent verification.</param>
 /// <param name="SubjectName">Agent name from the public key registry, if resolved.</param>
 /// <param name="Algorithm">Algorithm string from the signature parameters, if present.</param>
+/// <param name="SignatureHash">
+///     Non-reversible SHA-256 (hex) digest of the presented signature material
+///     (Signature-Input + Signature). This is NOT raw auth material: the digest
+///     cannot be reversed to the signature. It exists only so the cache can tell
+///     a genuine re-presentation of the SAME signature from a different one that
+///     merely reuses the (public) keyid — a later request reusing a verified
+///     keyid with a tampered/expired/replayed signature is a cache miss and gets
+///     re-verified rather than served the cached "verified" verdict.
+/// </param>
 public sealed record WebBotAuthCachedVerdict(
     string KeyId,
     TokenOutcome Verdict,
     string? SubjectName,
-    string? Algorithm);
+    string? Algorithm,
+    string? SignatureHash = null);
