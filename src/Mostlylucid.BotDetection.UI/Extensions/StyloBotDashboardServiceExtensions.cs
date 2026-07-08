@@ -584,6 +584,31 @@ public static class StyloBotDashboardServiceExtensions
         services.AddScoped<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageComposer,
             Mostlylucid.BotDetection.UI.Dashboard.Composition.DefaultDashboardPageComposer>();
 
+        // Out-of-request content cache: gateway-owned, fresh-by-tick, over the canonical
+        // SlidingCacheAtom. The request path reads through it (cache-first) and the tick
+        // materializer warms hot pages into it. Registered as a SINGLETON (shared across
+        // requests + the materializer) — so its compose factory resolves the SCOPED
+        // composer through a fresh scope per compose (a singleton can't capture a scoped
+        // dependency). The current tick comes from the change cursor.
+        services.AddOptions<Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Materialization.IDashboardContentCache>(sp =>
+        {
+            var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+            var cursor = sp.GetRequiredService<Mostlylucid.BotDetection.UI.Services.IDashboardChangeCursor>();
+            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<
+                Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions>>();
+            return new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardContentCache(
+                compose: async (manifest, window, ct) =>
+                {
+                    using var scope = scopeFactory.CreateScope();
+                    var composer = scope.ServiceProvider
+                        .GetRequiredService<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageComposer>();
+                    return await composer.ComposeAsync(manifest, window, ct);
+                },
+                currentTick: () => cursor.CurrentTick,
+                options: options);
+        });
+
         // Page manifest source: empty by default; Task 3 adds the traffic manifest.
         // TryAdd so a commercial host that seeds its own manifests keeps them.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageManifestSource,

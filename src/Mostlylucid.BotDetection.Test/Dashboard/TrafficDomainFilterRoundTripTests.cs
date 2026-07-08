@@ -95,10 +95,13 @@ public sealed class TrafficDomainFilterRoundTripTests
     {
         var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
         var composer = new DefaultDashboardPageComposer(catalog, store);
+        var contentCache = new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardContentCache(
+            (m, w, ct) => composer.ComposeAsync(m, w, ct), () => 1L,
+            Options.Create(new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions()));
         var manifests = new DefaultDashboardPageManifestSource();
         var controller = new TrafficController(
             store,
-            composer,
+            contentCache,
             manifests,
             Options.Create(new DashboardLayoutOptions()),
             Options.Create(new ThreatsOptions()));

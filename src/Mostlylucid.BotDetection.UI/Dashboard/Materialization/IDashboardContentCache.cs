@@ -18,6 +18,14 @@ public interface IDashboardContentCache
     Task<DashboardPageResult> GetAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct);
 
+    /// <summary>
+    ///     Convenience read at the cache's current tick — the request-path entrypoint,
+    ///     so callers don't need the change cursor. Equivalent to <see cref="GetAsync"/>
+    ///     with the current tick.
+    /// </summary>
+    Task<DashboardPageResult> GetCurrentAsync(
+        DashboardPageManifest manifest, DashboardPageWindow window, CancellationToken ct);
+
     /// <summary>Reads an already-materialized bundle without composing; false on miss.</summary>
     bool TryGet(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, out DashboardPageResult? result);

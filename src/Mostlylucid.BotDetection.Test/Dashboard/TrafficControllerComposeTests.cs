@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Services;
@@ -43,6 +44,14 @@ public sealed class TrafficControllerComposeTests
 
     private static IOptions<ThreatsOptions> DefaultThreatsOptions() =>
         Options.Create(new ThreatsOptions());
+
+    // The controller now reads through the content cache (Task 3). The cache's
+    // factory is the composer, so a cold miss still issues exactly one
+    // ComposeBatchAsync — the "one compose per current window" contract holds,
+    // and repeated reads at the same tick are served from the cache.
+    private static DashboardContentCache ContentCache(DefaultDashboardPageComposer composer, long tick = 1) =>
+        new((m, w, ct) => composer.ComposeAsync(m, w, ct), () => tick,
+            Options.Create(new DashboardMaterializerOptions()));
 
     // ---------- recording store ----------
 
@@ -127,7 +136,7 @@ public sealed class TrafficControllerComposeTests
         var manifests = new DefaultDashboardPageManifestSource();
 
         var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
-            store, composer, manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext(),
@@ -156,7 +165,7 @@ public sealed class TrafficControllerComposeTests
 
         var httpContext = new DefaultHttpContext();
         var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
-            store, composer, manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
         _ = await controller.Index(country: null, botType: null, window: "6h", threat: null, partial: null, default);
@@ -177,7 +186,7 @@ public sealed class TrafficControllerComposeTests
         var manifests = new DefaultDashboardPageManifestSource();
 
         var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
-            store, composer, manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
         _ = await controller.Index(country: null, botType: null, window: "6h", threat: null, partial: null, default);

@@ -47,6 +47,10 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
         => _atom.GetOrComputeAsync(new DashboardContentKey(manifest, window, tick), ct);
 
+    public Task<DashboardPageResult> GetCurrentAsync(
+        DashboardPageManifest manifest, DashboardPageWindow window, CancellationToken ct)
+        => GetAsync(manifest, window, _currentTick(), ct);
+
     public bool TryGet(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, out DashboardPageResult? result)
         => _atom.TryGet(new DashboardContentKey(manifest, window, tick), out result);

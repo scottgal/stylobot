@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
@@ -31,7 +32,7 @@ namespace Mostlylucid.BotDetection.UI.Controllers;
 public sealed class TrafficController : Controller
 {
     private readonly IDashboardEventStore _eventStore;
-    private readonly IDashboardPageComposer _composer;
+    private readonly IDashboardContentCache _contentCache;
     private readonly IDashboardPageManifestSource _manifests;
     private readonly IOptions<DashboardLayoutOptions> _layout;
     private readonly IOptions<ThreatsOptions> _threatsOpts;
@@ -39,7 +40,7 @@ public sealed class TrafficController : Controller
 
     public TrafficController(
         IDashboardEventStore eventStore,
-        IDashboardPageComposer composer,
+        IDashboardContentCache contentCache,
         IDashboardPageManifestSource manifests,
         IOptions<DashboardLayoutOptions> layout,
         IOptions<ThreatsOptions> threatsOpts,
@@ -52,7 +53,7 @@ public sealed class TrafficController : Controller
         // data source here -- kept as a constructor dep so any future fast-path
         // can short-circuit through it without a DI rewire.
         _eventStore = eventStore;
-        _composer = composer;
+        _contentCache = contentCache;
         _manifests = manifests;
         _layout = layout;
         _threatsOpts = threatsOpts;
@@ -118,10 +119,12 @@ public sealed class TrafficController : Controller
         // no filter (fail open, matches the task-spec convention).
         var domainsForQuery = filters.Domains.Count > 0 ? (IReadOnlyList<string>)filters.Domains : null;
 
-        // Current window: compose all five datasets in ONE ComposeBatchAsync call.
-        // The DashboardPageResult is stashed in HttpContext.Items so Task 4's VCs
-        // can read their slice without a self-fetch (spec §3, HttpContext.Items key
-        // "sb.dashboard.pageresult").
+        // Current window: read the materialized page bundle from the content cache
+        // at the current tick. On a cold miss the cache composes once (all five
+        // datasets in ONE ComposeBatchAsync); the tick materializer normally keeps
+        // hot pages warm ahead of this read so no request computes. The result is
+        // stashed in HttpContext.Items so the VCs read their slice without a
+        // self-fetch (HttpContext.Items key "sb.dashboard.pageresult").
         var manifest = _manifests.For("dashboard.traffic")!;
         var pageWindow = new DashboardPageWindow(
             StartTime: startTime,
@@ -131,7 +134,7 @@ public sealed class TrafficController : Controller
             Domains: domainsForQuery,
             TopN: 500,
             BucketMinutes: (int)bucketSize.TotalMinutes);
-        var page = await _composer.ComposeAsync(manifest, pageWindow, ct);
+        var page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
         HttpContext.Items["sb.dashboard.pageresult"] = page;
 
         var topBots = page.BotAggregate ?? new List<DashboardTopBotEntry>();
