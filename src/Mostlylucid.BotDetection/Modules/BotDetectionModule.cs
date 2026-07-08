@@ -106,6 +106,10 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // BotDetection:PublicKeyRegistry:Enabled (default false).
         services.AddWebBotAuth();
 
+        // WebBotAuth approval atom options (knobs live under BotDetection:WebBotAuth).
+        services.AddOptions<Auth.WebBotAuthOptions>()
+            .BindConfiguration("BotDetection:WebBotAuth");
+
         // Manifest loader + config provider back every detector atom's
         // per-manifest weights / thresholds / feature flags. FOSS ships the
         // YAML manifests as embedded resources under Orchestration/Manifests/.

@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Auth;
+
 namespace Mostlylucid.BotDetection.Orchestration.Sessions;
 
 /// <summary>
@@ -70,6 +72,20 @@ public sealed record SessionAggregate
     ///     probability delta is small.
     /// </summary>
     public string? DominantClientType { get; init; }
+
+    /// <summary>
+    ///     Cached Web Bot Auth (RFC 9421) verification result for this session
+    ///     window. Set by <c>WebBotAuthApprovalAtom</c> on the first request
+    ///     that presents a <c>Signature</c> + <c>Signature-Input</c> header
+    ///     pair; reused on subsequent requests in the same window to avoid
+    ///     per-request crypto verification. <c>null</c> when no WBA headers
+    ///     have been seen for this fingerprint.
+    ///
+    ///     Security: contains ONLY public metadata (keyid, outcome, agent name,
+    ///     algorithm). Raw signature bytes and signature base strings are never
+    ///     stored here.
+    /// </summary>
+    public WebBotAuthCachedVerdict? WebBotAuthVerdict { get; init; }
 
     /// <summary>
     ///     Behavioural retention priority for shaped eviction. Higher =
