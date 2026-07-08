@@ -393,6 +393,16 @@ public static class StyloBotDashboardServiceExtensions
                 sp.GetService<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>()));
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();
 
+        // Plan 3 Task 1 -- per-surface tick/version cursor. ONE monotonic
+        // counter shared by all dashboard producers; consumers check
+        // TickFor(surface) to skip already-fresh widgets. Tick advanced on
+        // Tick10s via DashboardChangeCursorTickHook (IHostedService shim,
+        // NOT a BackgroundService per feedback_no_background_services).
+        // TryAdd so a commercial host that replaces the cursor keeps its impl.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardChangeCursor,
+            Mostlylucid.BotDetection.UI.Services.DashboardChangeCursor>();
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DashboardChangeCursorTickHook>();
+
         // #122 -- Centralised dashboard freshness beacon. ONE invalidation
         // channel for every pack-health summary tile (policy stack, AspNet
         // pack, meter stream). Producers publish a surface key; consumers
