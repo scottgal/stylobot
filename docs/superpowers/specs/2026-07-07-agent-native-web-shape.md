@@ -243,6 +243,7 @@ public readonly record struct EndpointPolicyExtensionContext(
 - Extensions MAY stash resolved data in `HttpContext.Items` for downstream consumption (per-request scoped, secure, not sink-broadcast). Downstream detection atoms may then read from `HttpContext.Items` to emit sink signals — that's the atom's job, not the extension's.
 - FOSS ships zero extensions itself. The seam is licensing-agnostic.
 - Fail-closed on extension throw: if `ext.Matches()` throws, log + treat as `false` (rule does not match). Never surface 500 to the caller.
+- **Extension payloads MUST be maps.** `RulePayload` is `IReadOnlyDictionary<string, object?>`. Extensions whose YAML top-level is an array (`requiresCapability: [a, b]`) or scalar (`requiresCapability: enterprise`) are silently skipped by the binder with a Warning log at boot: `"Extension rule payload for '<key>' is not a map; extensions require map payloads. Ignoring."`. This preserves structured-config discipline and matches how extensions actually consume payloads (named fields, not positional lists). If a future extension truly needs a list/scalar top-level, widen the contract explicitly in a follow-up shape doc — do not preemptively broaden `RulePayload` to `object?`.
 
 **C4b — commercial `RequiresCapability` matcher.**
 
