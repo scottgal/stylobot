@@ -67,14 +67,14 @@ public sealed class EscalateToSessionActionPolicy : IActionPolicy
 
     public PolicyIntent Intent => PolicyIntent.Escalate;
 
-    public Task<ActionResult> ExecuteAsync(
+    public async Task<ActionResult> ExecuteAsync(
         HttpContext context,
         AggregatedEvidence evidence,
         CancellationToken cancellationToken = default)
     {
         if (evidence.BotProbability < _options.MinBotProbability)
         {
-            return Task.FromResult(ActionResult.Allowed("Escalation skipped: below threshold"));
+            return ActionResult.Allowed("Escalation skipped: below threshold");
         }
 
         var fingerprintId = ResolveFingerprintId(context, evidence);
@@ -83,7 +83,7 @@ public sealed class EscalateToSessionActionPolicy : IActionPolicy
             _logger?.LogDebug(
                 "EscalateToSession[{Name}] no-op: no fingerprint ID resolved for request",
                 Name);
-            return Task.FromResult(ActionResult.Allowed("Escalation skipped: no fingerprint"));
+            return ActionResult.Allowed("Escalation skipped: no fingerprint");
         }
 
         var siteId = ResolveSiteId(context);
@@ -105,13 +105,13 @@ public sealed class EscalateToSessionActionPolicy : IActionPolicy
             RequestId = context.TraceIdentifier,
         };
 
-        var aggregate = _store.Upsert(sample);
+        var aggregate = await _store.UpsertAsync(sample, cancellationToken).ConfigureAwait(false);
 
         _logger?.LogDebug(
             "Escalated to session[{Name}]: fp={FingerprintId} site={SiteId} sampleCount={Count} mean={Mean:F2}",
             Name, fingerprintId, siteId, aggregate.SampleCount, aggregate.MeanBotProbability);
 
-        return Task.FromResult(ActionResult.Allowed($"Session sample raised: fp={fingerprintId}"));
+        return ActionResult.Allowed($"Session sample raised: fp={fingerprintId}");
     }
 
     private static string? ResolveFingerprintId(HttpContext context, AggregatedEvidence evidence)

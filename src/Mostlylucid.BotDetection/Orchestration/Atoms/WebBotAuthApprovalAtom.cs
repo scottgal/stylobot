@@ -7,6 +7,7 @@ using Mostlylucid.BotDetection.Auth;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Sessions;
+using Mostlylucid.BotDetection.Orchestration.Sessions.Molecules;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -57,13 +58,20 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
     private readonly WebBotAuthOptions _options;
     private readonly IdentityArchetypeRegistry _archetypeRegistry;
 
+    // Slice 2 of the session rearchitecture: when present, the verdict is read
+    // from / written to the signals-native session layer (molecule projection)
+    // instead of the SessionAggregate field. Optional so existing rigs that
+    // construct this atom directly fall back to the legacy aggregate.
+    private readonly SiteCoordinatorRegistry? _siteCoordinators;
+
     public WebBotAuthApprovalAtom(
         ITokenVerifier verifier,
         SessionStore sessionStore,
         IHttpContextAccessor httpContextAccessor,
         ILogger<WebBotAuthApprovalAtom> logger,
         IOptions<WebBotAuthOptions> options,
-        IdentityArchetypeRegistry archetypeRegistry)
+        IdentityArchetypeRegistry archetypeRegistry,
+        SiteCoordinatorRegistry? siteCoordinators = null)
         : base(name: "WebBotAuthApproval", category: "WebBotAuth")
     {
         _verifier = verifier;
@@ -72,6 +80,7 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
         _logger = logger;
         _options = options.Value;
         _archetypeRegistry = archetypeRegistry;
+        _siteCoordinators = siteCoordinators;
     }
 
     public override int Priority => 23;
@@ -129,8 +138,8 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
         // different signature must NOT be served the cached "verified" verdict.
         if (canCache)
         {
-            var existingAggregate = _sessionStore.TryGet(siteId, fingerprintId!);
-            if (existingAggregate?.WebBotAuthVerdict is { } cached &&
+            var cached = ReadCachedVerdict(siteId, fingerprintId!);
+            if (cached is { } &&
                 !string.IsNullOrEmpty(presentedKeyId) &&
                 string.Equals(cached.KeyId, presentedKeyId, StringComparison.Ordinal) &&
                 !string.IsNullOrEmpty(cached.SignatureHash) &&
@@ -190,10 +199,15 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
             algorithm,
             presentedSignatureHash);
 
-        // Write to session aggregate only when we have a fingerprint to key the
-        // session window on. Verification + emission are not gated on caching.
+        // Write the verdict into the session window only when we have a fingerprint
+        // to key on. SetWebBotAuthVerdict writes the WebBotAuthVerdictMolecule signal
+        // synchronously into the same bounded session ReadCachedVerdict projects from,
+        // so the read-after-write cache contract holds. Verification + emission are
+        // not gated on caching.
         if (canCache)
+        {
             _sessionStore.SetWebBotAuthVerdict(siteId, fingerprintId!, newCachedVerdict);
+        }
 
         // Emit identity signals.
         EmitFromVerdict(sink, sessionId, newCachedVerdict);
@@ -219,6 +233,27 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
     }
 
     // ── private helpers ──────────────────────────────────────────────────────
+
+    /// <summary>
+    ///     Reads the current session-window verdict. Slice 2: signals-native
+    ///     first (project it out of the session via
+    ///     <see cref="WebBotAuthVerdictMolecule"/>), falling back to the legacy
+    ///     <c>SessionAggregate.WebBotAuthVerdict</c> when the coordinator isn't
+    ///     wired or the session hasn't captured the verdict yet.
+    /// </summary>
+    private WebBotAuthCachedVerdict? ReadCachedVerdict(string siteId, string fingerprintId)
+    {
+        if (_siteCoordinators is not null
+            && _siteCoordinators.TryGet(siteId, out var coordinator)
+            && coordinator!.TryGetSession(fingerprintId, out var session)
+            && session is not null)
+        {
+            var fromSession = WebBotAuthVerdictMolecule.FromSession(session);
+            if (fromSession is not null) return fromSession;
+        }
+
+        return _sessionStore.TryGet(siteId, fingerprintId)?.WebBotAuthVerdict;
+    }
 
     /// <summary>
     ///     Emits the locked C3 signal set from a cached or freshly-computed verdict.

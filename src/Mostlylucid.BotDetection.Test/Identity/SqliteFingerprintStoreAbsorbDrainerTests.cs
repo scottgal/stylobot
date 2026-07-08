@@ -182,4 +182,45 @@ public sealed class SqliteFingerprintStoreAbsorbDrainerTests : IDisposable
             pending.Should().Be(0, $"fp-concurrent-{i} must have 0 pending observations after drainer flush");
         }
     }
+
+    /// <summary>
+    ///     Read-after-write: once a fingerprint is in the hot read cache,
+    ///     <see cref="SqliteFingerprintStore.AbsorbObservationAsync"/> updates that
+    ///     entry synchronously (the class's write-behind convention, matching
+    ///     <c>UpdateInducedNameAsync</c>), so an immediate
+    ///     <see cref="SqliteFingerprintStore.GetFingerprintAsync"/> reflects the
+    ///     absorbed centroid BEFORE the drainer persists to SQLite. Without this the
+    ///     read sees the stale pre-absorption centroid (the race that reds
+    ///     CentroidLearningLoopTests: absorbed>=1 but centroid never moves).
+    /// </summary>
+    [Fact]
+    public async Task AbsorbObservationAsync_UpdatesHotCacheSynchronously_ReadReflectsNewCentroidBeforeDrain()
+    {
+        var store = await NewStoreAsync();
+        var dim = store.Layout.Dimension;
+        const string fpId = "fp-raw-visibility";
+        await SeedFingerprintAsync(store, fpId); // seeded at origin centroid
+
+        // Warm the hot cache from the canonical row -- InsertFingerprintAsync
+        // deliberately does not cache; the first read populates it. This mirrors what
+        // the absorption service does before it folds.
+        var before = await store.GetFingerprintAsync(fpId);
+        before!.Centroid.Should().OnlyContain(v => v == 0.0f, "seeded at origin");
+
+        // A distinct, non-origin target centroid.
+        var newCentroid = new float[dim];
+        newCentroid[0] = 1.0f;
+        var newWeights = new float[dim];
+        Array.Fill(newWeights, 1.0f);
+
+        await store.AbsorbObservationAsync(
+            observationId: -1, fpId, newCentroid, newMaturity: 5, newWeights);
+
+        // Immediate read -- NO wait for the drainer. Must see the absorbed centroid.
+        var after = await store.GetFingerprintAsync(fpId);
+        after!.Centroid[0].Should().Be(1.0f,
+            "the hot cache must reflect the absorbed centroid synchronously; a read-after-write " +
+            "must not see the stale pre-absorption centroid while the SQLite persist is still behind");
+        after.CentroidMaturity.Should().Be(5);
+    }
 }
