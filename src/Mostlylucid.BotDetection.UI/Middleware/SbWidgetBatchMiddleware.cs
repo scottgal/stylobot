@@ -6,8 +6,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -41,6 +43,11 @@ public sealed class SbWidgetBatchMiddleware
     private readonly ILogger<SbWidgetBatchMiddleware> _logger;
 
     private static readonly TimeSpan WidgetCacheTtl = TimeSpan.FromSeconds(2);
+
+    // Default time window used when no window param is supplied on the update request.
+    // Matches the TrafficController default (6h) so batch-updated widgets use the same
+    // data window as the page they live on.
+    private const int DefaultBatchWindowMinutes = 6 * 60;
 
     public SbWidgetBatchMiddleware(
         RequestDelegate next,
@@ -88,6 +95,13 @@ public sealed class SbWidgetBatchMiddleware
         var widgetList = context.Request.Query["widgets"].FirstOrDefault() ?? "summary";
         var widgets = widgetList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+        // Compose-on-delta: identify which requested widgets are catalog-covered (i.e. the
+        // DashboardWidgetCatalog maps their key to a DatasetKind). For those widgets, issue
+        // ONE ComposeAsync instead of N self-fetches.  The DashboardPageResult is stashed in
+        // HttpContext.Items so the per-widget render helpers can read their slice from it
+        // directly; non-covered widgets fall through to their existing self-fetch unchanged.
+        await TryComposeAndStashAsync(context, widgets, context.RequestAborted);
+
         context.Response.ContentType = "text/html; charset=utf-8";
 
         var sb = new StringBuilder();
@@ -100,6 +114,115 @@ public sealed class SbWidgetBatchMiddleware
 
         await context.Response.WriteAsync(sb.ToString());
     }
+
+    // -------------------------------------------------------------------------
+    // Compose-on-delta: resolve covered widgets, compose once, stash result
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    ///     For the subset of <paramref name="widgets"/> that are catalog-covered,
+    ///     resolves the required <see cref="DatasetKind"/>s, builds a single
+    ///     <see cref="DashboardPageManifest"/>, calls
+    ///     <see cref="IDashboardPageComposer.ComposeAsync"/> exactly once, and
+    ///     stashes the <see cref="DashboardPageResult"/> in
+    ///     <c>HttpContext.Items["sb.dashboard.pageresult"]</c>.
+    ///
+    ///     Non-covered widgets (visitors, sessions, threats, useragents) are
+    ///     unaffected — their render helpers continue to self-fetch.
+    /// </summary>
+    private async Task TryComposeAndStashAsync(
+        HttpContext context,
+        string[] requestedWidgets,
+        CancellationToken ct)
+    {
+        // DashboardWidgetCatalog and IDashboardPageComposer are resolved per-request so
+        // hosts that register only AddStyloBotWidgets (without AddStyloBotDashboard) can
+        // still use the middleware without these services — the compose path is skipped
+        // gracefully, and widgets fall back to their existing self-fetch.
+        var catalog = context.RequestServices.GetService<DashboardWidgetCatalog>();
+        if (catalog is null)
+            return;
+
+        var coveredKeys = requestedWidgets
+            .Where(k => catalog.NeedsFor(k) is not null)
+            .ToArray();
+
+        if (coveredKeys.Length == 0)
+            return;
+
+        // IDashboardPageComposer is scoped (captures a scoped IDashboardEventStore on
+        // Postgres hosts). Resolve per-request from RequestServices, not from ctor.
+        var composer = context.RequestServices.GetService<IDashboardPageComposer>();
+        if (composer is null)
+        {
+            _logger.LogDebug("SbWidgetBatch: IDashboardPageComposer not registered — skipping compose");
+            return;
+        }
+
+        try
+        {
+            var window = BuildBatchWindow(context);
+            var manifest = new DashboardPageManifest("sb.batch.update", coveredKeys);
+            var pageResult = await composer.ComposeAsync(manifest, window, ct);
+            context.Items["sb.dashboard.pageresult"] = pageResult;
+        }
+        catch (Exception ex)
+        {
+            // Compose failure is non-fatal: widgets fall back to their self-fetch.
+            _logger.LogDebug(ex, "SbWidgetBatch: compose failed — falling back to per-widget self-fetch");
+        }
+    }
+
+    /// <summary>
+    ///     Builds a <see cref="DashboardPageWindow"/> from the update request's
+    ///     query params (window, audience, domain). Mirrors how
+    ///     <c>TrafficController.Index</c> constructs its window so batch-updated
+    ///     widgets use the same data slice as the page they live on.
+    /// </summary>
+    private static DashboardPageWindow BuildBatchWindow(HttpContext context)
+    {
+        var q = context.Request.Query;
+
+        var windowToken = q["window"].FirstOrDefault() ?? "6h";
+        var windowMinutes = ParseWindowToken(windowToken);
+        var now = DateTime.UtcNow;
+        var startTime = now.AddMinutes(-windowMinutes);
+
+        var audience = q["audience"].FirstOrDefault()?.Trim().ToLowerInvariant();
+        if (audience is not ("bots" or "humans"))
+            audience = null; // null = all
+
+        var domains = q["domain"]
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        IReadOnlyList<string>? domainsFilter = domains.Length > 0 ? domains : null;
+
+        // Use the same bucket width the TrafficController uses for a comparable window.
+        var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(windowToken);
+
+        return new DashboardPageWindow(
+            StartTime: startTime,
+            EndTime: now,
+            AudienceFilter: audience,
+            ProbMin: null,
+            Domains: domainsFilter,
+            TopN: 500,
+            BucketMinutes: (int)bucketSize.TotalMinutes);
+    }
+
+    private static int ParseWindowToken(string token) => token switch
+    {
+        "15m"         => 15,
+        "60m" or "1h" => 60,
+        "6h"          => 6 * 60,
+        "12h"         => 12 * 60,
+        "24h" or "1d" => 24 * 60,
+        "7d"          => 7 * 24 * 60,
+        "30d"         => 30 * 24 * 60,
+        _             => DefaultBatchWindowMinutes,
+    };
 
     // -------------------------------------------------------------------------
     // Cache + render
@@ -156,8 +279,21 @@ public sealed class SbWidgetBatchMiddleware
         // Honor the audience filter so a humans-only render produces a
         // humans-only KPI strip. Mirrors StyloBotDashboardMiddleware.BuildSummaryStatsModelAsync.
         var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
-        var audienceArg = audienceFilter is "humans" or "bots" ? audienceFilter : null;
-        var summary = await _eventStore.GetSummaryAsync(audienceFilter: audienceArg);
+
+        // If the compose-on-delta path already fetched the summary dataset, use it directly
+        // (zero additional store calls). Fall back to self-fetch when not present (e.g. the
+        // composer is not registered, compose failed, or audience filter needs a targeted query).
+        DashboardSummary? summary = null;
+        var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult?.Summary is { } composedSummary && audienceFilter is not ("humans" or "bots"))
+        {
+            summary = composedSummary;
+        }
+        else
+        {
+            var audienceArg = audienceFilter is "humans" or "bots" ? audienceFilter : null;
+            summary = await _eventStore.GetSummaryAsync(audienceFilter: audienceArg);
+        }
         var model = new SummaryStatsModel { Summary = summary, BasePath = _options.BasePath.TrimEnd('/') };
 
         var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
@@ -206,12 +342,26 @@ public sealed class SbWidgetBatchMiddleware
         var page = WidgetRenderHelpers.QueryPage(q);
         var audienceFilter = (q["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
-        // humans/bots route through the store so the is_bot SQL predicate applies.
-        var data = audienceFilter is "humans" or "bots"
-            ? await _eventStore.GetCountryStatsAsync(100, audienceFilter: audienceFilter)
-            : (_aggregateCache.Current.Countries is { Count: > 0 } cached
+        // Use the composed Geo slice when available (zero additional store calls).
+        // Fall back to the existing cache-first / store path for targeted audience queries
+        // or when the composer is not registered / compose failed.
+        List<DashboardCountryStats> data;
+        var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult?.Geo is { } composedGeo && audienceFilter is not ("humans" or "bots"))
+        {
+            data = composedGeo.ToList();
+        }
+        else if (audienceFilter is "humans" or "bots")
+        {
+            // humans/bots route through the store so the is_bot SQL predicate applies.
+            data = await _eventStore.GetCountryStatsAsync(100, audienceFilter: audienceFilter);
+        }
+        else
+        {
+            data = _aggregateCache.Current.Countries is { Count: > 0 } cached
                 ? cached
-                : await _eventStore.GetCountryStatsAsync(100));
+                : await _eventStore.GetCountryStatsAsync(100);
+        }
         var model = BuildCountriesModel(sortField, sortDir, page, 20, data);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbCountriesList/Default.cshtml", model, context);
@@ -225,15 +375,28 @@ public sealed class SbWidgetBatchMiddleware
         var pageSize = WidgetRenderHelpers.QueryPageSize(q, 25);
         var audienceFilter = (q["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
-        // humans / bots / honeypot all require the store path. honeypot needs
-        // IsHoneypot populated per row by the path classifier; humans / bots need
-        // the SQL is_bot predicate.
+        // Use the composed Endpoints slice when available (zero additional store calls).
+        // Fall back to the existing cache-first / store path for targeted audience queries.
+        List<DashboardEndpointStats> data;
+        var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
         var storeFilters = audienceFilter is "humans" or "bots" or "honeypot";
-        var data = storeFilters
-            ? await _eventStore.GetEndpointStatsAsync(100, audienceFilter: audienceFilter)
-            : (_aggregateCache.Current.Endpoints is { Count: > 0 } cached
+        if (pageResult?.Endpoints is { } composedEndpoints && !storeFilters)
+        {
+            data = composedEndpoints.ToList();
+        }
+        else if (storeFilters)
+        {
+            // humans / bots / honeypot all require the store path. honeypot needs
+            // IsHoneypot populated per row by the path classifier; humans / bots need
+            // the SQL is_bot predicate.
+            data = await _eventStore.GetEndpointStatsAsync(100, audienceFilter: audienceFilter);
+        }
+        else
+        {
+            data = _aggregateCache.Current.Endpoints is { Count: > 0 } cached
                 ? cached
-                : await _eventStore.GetEndpointStatsAsync(100));
+                : await _eventStore.GetEndpointStatsAsync(100);
+        }
         var model = BuildEndpointsModel(sortField, sortDir, page, pageSize, data);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
@@ -275,7 +438,11 @@ public sealed class SbWidgetBatchMiddleware
         var filter = q["filter"].FirstOrDefault() ?? "bots";
         var widgetId = q["widgetId"].FirstOrDefault() ?? routeWidgetId;
         var searchQuery = q["q"].FirstOrDefault();
-        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
+
+        // Use the composed BotAggregate slice when available (zero additional store calls).
+        var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        var composedBots = pageResult?.BotAggregate;
+        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery, composedBots);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbTopBots/Default.cshtml", model, context);
     }
@@ -309,18 +476,29 @@ public sealed class SbWidgetBatchMiddleware
     // Model builders (mirrors private methods in StyloBotDashboardMiddleware)
     // -------------------------------------------------------------------------
 
-    private async Task<TopBotsListModel> BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir, string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
+    private async Task<TopBotsListModel> BuildTopBotsModel(
+        int page, int pageSize, string sortBy, string sortDir,
+        string filter = "bots", string widgetId = "topbots", string? searchQuery = null,
+        IReadOnlyList<DashboardTopBotEntry>? composedBots = null)
     {
-        // Same read-through-event-store pattern as StyloBotDashboardMiddleware.BuildTopBotsModel
-        // (see notes there). Cache stayed as a write-through hot path on the gateway; the
-        // remote-mode dashboard would otherwise pin to startup-warm values forever.
+        // Use the composed BotAggregate when present (supplied by the compose-on-delta path).
+        // Otherwise fall back to the read-through-event-store pattern so the widget renders
+        // correctly even when the composer is not in use (e.g. non-batched direct requests).
         // Unfiltered fetch so the All/Bots/Humans header counts reflect the full distribution
         // -- audience switch is applied client-side.
-        var raw = await _eventStore.GetTopBotsAsync(
-            count: _signatureCache.MaxEntries,
-            startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow,
-            audienceFilter: "all");
+        IReadOnlyList<DashboardTopBotEntry> raw;
+        if (composedBots is not null)
+        {
+            raw = composedBots;
+        }
+        else
+        {
+            raw = await _eventStore.GetTopBotsAsync(
+                count: _signatureCache.MaxEntries,
+                startTime: DateTime.UtcNow.AddHours(-24),
+                endTime: DateTime.UtcNow,
+                audienceFilter: "all");
+        }
         // Internal = network-trusted operator/self traffic (loopback / RFC1918 /
         // docker bridge -> BotType.Internal). Hidden from the All / Bots / Humans
         // chips by default because it's almost always StyloBot Internal hitting
