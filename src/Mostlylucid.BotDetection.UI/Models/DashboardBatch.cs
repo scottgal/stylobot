@@ -1,6 +1,6 @@
 namespace Mostlylucid.BotDetection.UI.Models;
 
-/// <summary>Which aggregate slice a caller wants from <see cref="IDashboardBatch"/>.</summary>
+/// <summary>Which aggregate slice a caller wants from a batched dashboard read.</summary>
 public enum DatasetKind { SummaryStats, TimeBuckets, BotAggregate, GeoBreakdown, EndpointStats }
 
 /// <summary>Specifies one slice of a batched dashboard read.</summary>

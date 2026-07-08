@@ -28,11 +28,11 @@ public static class DashboardEventStoreBatchDefaults
                     summary = await store.GetSummaryAsync(req.StartTime, req.EndTime, req.AudienceFilter, req.Domains);
                     break;
                 case DatasetKind.TimeBuckets:
-                    // GetTimeSeriesAsync requires non-nullable bounds; default to the same 6-hour
-                    // window GetSummaryAsync uses for a null range.
-                    var start = req.StartTime ?? DateTime.UtcNow.AddHours(-6);
-                    var end   = req.EndTime   ?? DateTime.UtcNow;
-                    buckets = await store.GetTimeSeriesAsync(start, end, TimeSpan.FromMinutes(d.BucketMinutes), req.AudienceFilter, req.Domains);
+                    if (req.StartTime is null || req.EndTime is null)
+                        throw new ArgumentException(
+                            "ComposeBatchAsync: a TimeBuckets dataset requires both StartTime and EndTime (a time-series needs a window).",
+                            nameof(req));
+                    buckets = await store.GetTimeSeriesAsync(req.StartTime.Value, req.EndTime.Value, TimeSpan.FromMinutes(d.BucketMinutes), req.AudienceFilter, req.Domains);
                     break;
                 case DatasetKind.BotAggregate:
                     bots = await store.GetTopBotsAsync(d.TopN, req.StartTime, req.EndTime, req.AudienceFilter, req.Domains);

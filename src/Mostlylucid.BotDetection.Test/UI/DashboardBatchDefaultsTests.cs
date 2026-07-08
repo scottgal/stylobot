@@ -25,6 +25,20 @@ public class DashboardBatchDefaultsTests
         Assert.False(fake.GeoCalled);
     }
 
+    [Fact]
+    public async Task TimeBuckets_throws_when_no_time_window()
+    {
+        var fake = new FakeStore();
+        IDashboardEventStore store = fake;
+        var req = new DashboardBatchRequest(
+            StartTime: null, EndTime: null,
+            Datasets: [new DatasetRequest(DatasetKind.TimeBuckets)]);
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => store.ComposeBatchAsync(req, default));
+        Assert.Contains("TimeBuckets", ex.Message);
+        Assert.Contains("StartTime", ex.Message);
+    }
+
     private sealed class FakeStore : IDashboardEventStore
     {
         public bool GeoCalled;
