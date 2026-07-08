@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Auth;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Orchestration.Sessions;
@@ -83,7 +84,8 @@ public sealed class WebBotAuthApprovalAtomTests
         return ctx;
     }
 
-    private WebBotAuthApprovalAtom BuildAtom(DefaultHttpContext ctx, SessionStore store)
+    private WebBotAuthApprovalAtom BuildAtom(DefaultHttpContext ctx, SessionStore store,
+        IdentityArchetypeRegistry? registry = null)
     {
         var accessor = new StaticHttpContextAccessor(ctx);
         return new WebBotAuthApprovalAtom(
@@ -91,7 +93,44 @@ public sealed class WebBotAuthApprovalAtomTests
             store,
             accessor,
             NullLogger<WebBotAuthApprovalAtom>.Instance,
-            Options.Create(new WebBotAuthOptions()));
+            Options.Create(new WebBotAuthOptions()),
+            registry ?? EmptyRegistry());
+    }
+
+    private static IdentityArchetypeRegistry EmptyRegistry()
+    {
+        var reg = new IdentityArchetypeRegistry(
+            NullLogger<IdentityArchetypeRegistry>.Instance,
+            new IdentityVectorEncoder(IdentityVectorLayout.DefaultV1()));
+        reg.Replace(Array.Empty<IdentityArchetype>());
+        return reg;
+    }
+
+    private static IdentityArchetypeRegistry RegistryWith(string archetypeId)
+    {
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        var centroid = new float[dim]; // all-zero start so any nudge is measurable
+        var archetype = new IdentityArchetype
+        {
+            ArchetypeId = archetypeId,
+            Name = archetypeId,
+            ArchetypeKind = "ai-bot",
+            Centroid = centroid,
+            DimensionMask = new float[dim],
+        };
+        var reg = new IdentityArchetypeRegistry(
+            NullLogger<IdentityArchetypeRegistry>.Instance,
+            new IdentityVectorEncoder(IdentityVectorLayout.DefaultV1()));
+        reg.Replace(new[] { archetype });
+        return reg;
+    }
+
+    private static float[] NonZeroVector()
+    {
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        var v = new float[dim];
+        Array.Fill(v, 0.5f);
+        return v;
     }
 
     private TokenVerdict ValidVerdict(string? keyId = KeyId) => new(
@@ -318,5 +357,105 @@ public sealed class WebBotAuthApprovalAtomTests
         // and skips the store lookup since there's no fingerprint key
         sink.Detect(SignalKeys.WebBotAuthPresented).Should().BeTrue("beacon must still fire if headers present");
         contributions.Should().BeEmpty();
+    }
+
+    // ── archetype nudge tests ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Verified_result_nudges_verified_bot_archetype_centroid()
+    {
+        // ARRANGE: seed a registry with the verified-GPTBot archetype (all-zero centroid)
+        const string SubjectName = "GPTBot";
+        var archetypeId = $"verified-{SubjectName}";
+        var registry = RegistryWith(archetypeId);
+        var centroidBefore = (float[])registry.TryGetById(archetypeId)!.Centroid.Clone();
+
+        using var store = NewStore();
+        var rawValue = BuildValidRawValue();
+        var lines = rawValue.Split('\n');
+        var ctx = ContextWithWbaHeaders(lines[0], lines[1]);
+
+        // Place a non-zero identity vector in HttpContext.Items as IdentityVectorAtom would
+        var identityVector = NonZeroVector();
+        ctx.Items[IdentityVectorAtom.VectorKey] = identityVector;
+
+        var sink = SinkWithSignature();
+        _verifierMock.Setup(v => v.Verify(It.IsAny<TokenInput>()))
+            .Returns(new TokenVerdict(TokenOutcome.Valid, KeyId, SubjectName,
+                new Dictionary<string, string> { ["alg"] = "ed25519" }, TimeSpan.Zero));
+
+        var atom = BuildAtom(ctx, store, registry);
+
+        // ACT
+        await atom.DetectAsync(sink, "session-1");
+
+        // ASSERT: centroid moved toward the identity vector
+        var centroidAfter = registry.TryGetById(archetypeId)!.Centroid;
+        centroidAfter.Should().NotEqual(centroidBefore,
+            "a verified result must nudge the archetype centroid toward the observed identity vector");
+        // No-clobber: centroid must not equal the raw vector
+        centroidAfter.Should().NotEqual(identityVector,
+            "the nudge is bounded EMA, not a hard-replace of the centroid");
+    }
+
+    [Fact]
+    public async Task Unverified_result_does_not_nudge_archetype_centroid()
+    {
+        // ARRANGE: seed a registry with the verified-GPTBot archetype
+        const string SubjectName = "GPTBot";
+        var archetypeId = $"verified-{SubjectName}";
+        var registry = RegistryWith(archetypeId);
+        var centroidBefore = (float[])registry.TryGetById(archetypeId)!.Centroid.Clone();
+
+        using var store = NewStore();
+        var rawValue = BuildValidRawValue();
+        var lines = rawValue.Split('\n');
+        var ctx = ContextWithWbaHeaders(lines[0], lines[1]);
+        ctx.Items[IdentityVectorAtom.VectorKey] = NonZeroVector();
+
+        var sink = SinkWithSignature();
+        // Verifier returns Invalid (e.g., expired or wrong key)
+        _verifierMock.Setup(v => v.Verify(It.IsAny<TokenInput>()))
+            .Returns(new TokenVerdict(TokenOutcome.Invalid, KeyId, SubjectName, null, TimeSpan.Zero));
+
+        var atom = BuildAtom(ctx, store, registry);
+
+        // ACT
+        await atom.DetectAsync(sink, "session-1");
+
+        // ASSERT: centroid unchanged
+        registry.TryGetById(archetypeId)!.Centroid.Should().Equal(centroidBefore,
+            "an unverified (invalid) outcome must not nudge the archetype centroid");
+    }
+
+    [Fact]
+    public async Task Nudge_is_skipped_when_identity_vector_is_absent_from_context()
+    {
+        // ARRANGE: verified result but no identity vector in HttpContext.Items
+        const string SubjectName = "GPTBot";
+        var archetypeId = $"verified-{SubjectName}";
+        var registry = RegistryWith(archetypeId);
+        var centroidBefore = (float[])registry.TryGetById(archetypeId)!.Centroid.Clone();
+
+        using var store = NewStore();
+        var rawValue = BuildValidRawValue();
+        var lines = rawValue.Split('\n');
+        var ctx = ContextWithWbaHeaders(lines[0], lines[1]);
+        // Intentionally NOT setting ctx.Items[IdentityVectorAtom.VectorKey]
+
+        var sink = SinkWithSignature();
+        _verifierMock.Setup(v => v.Verify(It.IsAny<TokenInput>()))
+            .Returns(new TokenVerdict(TokenOutcome.Valid, KeyId, SubjectName,
+                new Dictionary<string, string> { ["alg"] = "ed25519" }, TimeSpan.Zero));
+
+        var atom = BuildAtom(ctx, store, registry);
+
+        // ACT — must not throw
+        Func<Task> act = async () => await atom.DetectAsync(sink, "session-1");
+        await act.Should().NotThrowAsync();
+
+        // ASSERT: centroid untouched (no vector available to nudge with)
+        registry.TryGetById(archetypeId)!.Centroid.Should().Equal(centroidBefore,
+            "with no identity vector available the nudge must be skipped rather than using a zero vector");
     }
 }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Auth;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Sessions;
 using Mostlylucid.Ephemeral;
@@ -52,13 +53,15 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<WebBotAuthApprovalAtom> _logger;
     private readonly WebBotAuthOptions _options;
+    private readonly IdentityArchetypeRegistry _archetypeRegistry;
 
     public WebBotAuthApprovalAtom(
         ITokenVerifier verifier,
         SessionStore sessionStore,
         IHttpContextAccessor httpContextAccessor,
         ILogger<WebBotAuthApprovalAtom> logger,
-        IOptions<WebBotAuthOptions> options)
+        IOptions<WebBotAuthOptions> options,
+        IdentityArchetypeRegistry archetypeRegistry)
         : base(name: "WebBotAuthApproval", category: "WebBotAuth")
     {
         _verifier = verifier;
@@ -66,6 +69,7 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
         _options = options.Value;
+        _archetypeRegistry = archetypeRegistry;
     }
 
     public override int Priority => 23;
@@ -178,13 +182,22 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
         // Emit identity signals.
         EmitFromVerdict(sink, sessionId, newCachedVerdict);
 
-        // TODO: archetype seed — wire verified-<botname> archetype nudge via
-        // IdentityArchetypeRegistry once the registry's IngestWellKnownBots API
-        // is confirmed as the right surface for per-request verified-bot nudges.
-        // The registry takes (id, displayName, botType) tuples via IngestWellKnownBots;
-        // a targeted single-entry overload or a separate NudgeArchetype method would
-        // be cleaner for per-verification nudges. Leaving as TODO to avoid guessing
-        // the intended API shape — see project notes for adjudication.
+        // Archetype seed: on a cryptographically verified result, nudge the
+        // verified-<botname> centroid toward the current request's identity
+        // vector so the registry progressively learns the observed shape of
+        // this verified bot. Fail-closed (no archetype = no-op) and no-clobber
+        // (bounded EMA inside NudgeArchetype) -- both are enforced by the registry.
+        if (verdict.Outcome == TokenOutcome.Valid
+            && !string.IsNullOrEmpty(verdict.SubjectName)
+            && context is not null)
+        {
+            var identityVector = IdentityVectorAtom.TryGetVector(context);
+            if (identityVector is not null)
+            {
+                var archetypeId = $"verified-{verdict.SubjectName}";
+                _archetypeRegistry.NudgeArchetype(archetypeId, identityVector.AsMemory());
+            }
+        }
 
         return Task.FromResult(None());
     }

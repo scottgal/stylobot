@@ -142,6 +142,54 @@ public sealed class IdentityArchetypeRegistry
     }
 
     /// <summary>
+    ///     Nudge an existing archetype's centroid toward <paramref name="vector"/>
+    ///     by a bounded exponential moving average step.
+    ///
+    ///     <para><b>Fail-closed:</b> if <paramref name="archetypeId"/> does not exist
+    ///     in the registry the method returns silently. It will never create a new
+    ///     archetype lazily -- arbitrary signals must not be able to invent centroids.</para>
+    ///
+    ///     <para><b>No-clobber:</b> <paramref name="weight"/> is clamped to [0, 0.5]
+    ///     and the update uses bounded EMA
+    ///     (<c>centroid[i] = centroid[i] * (1 - weight) + vector[i] * weight</c>),
+    ///     so the centroid is never hard-replaced by the incoming vector. Dimension
+    ///     mismatch between <paramref name="vector"/> and the existing centroid is
+    ///     also a silent no-op.</para>
+    ///
+    ///     <para>Writes serialized under <c>_writeGate</c> to prevent interleaving
+    ///     with <see cref="Replace"/> and <see cref="IngestWellKnownBots"/>.</para>
+    /// </summary>
+    /// <param name="archetypeId">Archetype identifier (case-insensitive lookup).</param>
+    /// <param name="vector">Observed identity vector to nudge the centroid toward.</param>
+    /// <param name="weight">EMA step weight; clamped to [0, 0.5]. Default 0.05.</param>
+    public void NudgeArchetype(string archetypeId, ReadOnlyMemory<float> vector, double weight = 0.05)
+    {
+        if (string.IsNullOrEmpty(archetypeId)) return;
+
+        lock (_writeGate)
+        {
+            var current = new List<IdentityArchetype>(_archetypes);
+            var idx = current.FindIndex(a =>
+                string.Equals(a.ArchetypeId, archetypeId, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0) return; // fail-closed: unknown archetype -> no-op
+
+            var archetype = current[idx];
+            var centroid = archetype.Centroid;
+            var span = vector.Span;
+
+            if (span.Length != centroid.Length) return; // dimension mismatch -> no-op
+
+            var w = Math.Clamp(weight, 0.0, 0.5);
+            var newCentroid = new float[centroid.Length];
+            for (var i = 0; i < centroid.Length; i++)
+                newCentroid[i] = (float)(centroid[i] * (1.0 - w) + span[i] * w);
+
+            current[idx] = archetype with { Centroid = newCentroid };
+            _archetypes = current;
+        }
+    }
+
+    /// <summary>
     ///     Lookup by archetype id (case-insensitive). Returns null when the id is null, empty,
     ///     or not present in the registry. Used by <see cref="Mostlylucid.BotDetection.Orchestration.ContributingDetectors.FingerprintMatchContributor"/>
     ///     to resolve a matched fingerprint's <c>InferredClientType</c> to a display name
