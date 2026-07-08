@@ -1,0 +1,13 @@
+# Default candidate paths probed on each upstream to discover a health endpoint.
+# One path per line. Blank lines and lines starting with '#' are ignored.
+# Order matters: the first path that returns HTTP 200 wins.
+# Operators override the whole list via config: BotDetection:UpstreamHealth:CandidatePaths.
+/health
+/healthz
+/livez
+/readyz
+/ready
+/live
+/ping
+/status
+/alive

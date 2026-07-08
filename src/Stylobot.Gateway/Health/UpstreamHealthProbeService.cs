@@ -92,6 +92,11 @@ public sealed class UpstreamHealthProbeService : IDisposable
             {
                 await ProbeClusterAsync(cluster, now, ct);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Host shutdown -- stop probing; don't log noise or probe siblings.
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
@@ -132,7 +137,7 @@ public sealed class UpstreamHealthProbeService : IDisposable
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromMilliseconds(_options.Value.ProbeTimeoutMs));
 
-            var response = await _httpClient.GetAsync(url, cts.Token);
+            using var response = await _httpClient.GetAsync(url, cts.Token);
             sw.Stop();
 
             if (response.StatusCode == HttpStatusCode.OK)
@@ -153,6 +158,12 @@ public sealed class UpstreamHealthProbeService : IDisposable
             status = "unhealthy";
             reason = "timeout";
             _discovery.Invalidate(cluster.ClusterId);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Host shutdown -- propagate so OnTickAsync stops the loop cleanly
+            // instead of recording a bogus "unhealthy" result and persisting it.
+            throw;
         }
         catch (Exception ex)
         {
