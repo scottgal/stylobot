@@ -77,19 +77,19 @@
         <PackageReference Include="Mostlylucid.StyloFlow.Core" Version="2.8.1" />
         <PackageReference Include="Mostlylucid.StyloFlow.Retrieval.Core" Version="2.8.1" />
         <!-- Ephemeral: Core signal/coordination infrastructure (NuGet packages) -->
-        <PackageReference Include="Mostlylucid.Ephemeral" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Batching" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Llm" Version="2.8.1" />
+        <PackageReference Include="Mostlylucid.Ephemeral" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Batching" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Llm" Version="2.9.0" />
         <!-- Session rearchitecture (signals + compression): SiteCoordinator composition -->
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Escalator" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Echo" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Data.Sqlite" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy.Coordinator" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Molecules" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Signalaware" Version="2.8.1" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Escalator" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Echo" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Data.Sqlite" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy.Coordinator" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Molecules" Version="2.9.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Signalaware" Version="2.9.0" />
         <PackageReference Include="HNSW" Version="26.6.1848" />
         <PackageReference Include="System.Numerics.Tensors" Version="10.0.9" />
         <!-- NSec.Cryptography: native Ed25519 / X25519 / ChaCha20-Poly1305 -->
