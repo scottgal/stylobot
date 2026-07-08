@@ -45,7 +45,15 @@ public class SbEndpointsListViewComponent(
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
         IReadOnlyList<DashboardEndpointStats> data;
-        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
+        // If the page composer stashed a DashboardPageResult, read the Endpoints slice from
+        // it directly (zero store calls). Otherwise fall through to the existing cache-first /
+        // parameter-driven self-fetch so VCs rendered on non-composer pages still work.
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult?.Endpoints is { } composedEndpoints)
+        {
+            data = composedEndpoints;
+        }
+        else if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
             // Parameter-driven: always bypass cache, query store with the provided args.
             data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience);

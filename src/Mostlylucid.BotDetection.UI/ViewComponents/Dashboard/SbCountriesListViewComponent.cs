@@ -26,7 +26,15 @@ public class SbCountriesListViewComponent(
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
         IReadOnlyList<DashboardCountryStats> data;
-        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
+        // If the page composer stashed a DashboardPageResult, read the Geo slice from it
+        // directly (zero store calls). Otherwise fall through to the existing cache-first /
+        // parameter-driven self-fetch so VCs rendered on non-composer pages still work.
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult?.Geo is { } composedGeo)
+        {
+            data = composedGeo;
+        }
+        else if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
             // Parameter-driven: bypass cache, query store with the provided args.
             data = await eventStore.GetCountryStatsAsync(500, startTime, endTime, audience);
