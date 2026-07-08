@@ -33,21 +33,33 @@ public class SbTopBotsViewComponent(
     {
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
-        // Always read through the event store -- the in-process SignatureAggregateCache
-        // is fresh only on a gateway host (write-through via DetectionBroadcastMiddleware);
-        // on a remote-mode dashboard host it pins to startup-warm values and the widget
-        // shows stale rows forever. Same approach taken in StyloBotDashboardMiddleware.BuildTopBotsModel
-        // and SbWidgetBatchMiddleware.BuildTopBotsModel. Fetching audience=all here gives us
-        // a cross-cutting top-N so the widget header (All / Bots / Humans) reflects reality
-        // and the audience switcher can filter client-side.
-        var rangeStart = startTime ?? DateTime.UtcNow.AddHours(-24);
-        var rangeEnd   = endTime   ?? DateTime.UtcNow;
-        var fetchAudience = string.IsNullOrEmpty(audience) ? "all" : audience;
-        var raw = await eventStore.GetTopBotsAsync(
-            count: signatureCache?.MaxEntries ?? FallbackFetchCount,
-            startTime: rangeStart,
-            endTime: rangeEnd,
-            audienceFilter: fetchAudience);
+        // If the page composer stashed a DashboardPageResult for this request, read the
+        // BotAggregate slice from it directly (zero store calls). Otherwise fall through
+        // to the existing self-fetch so VCs rendered on non-composer pages still work.
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        IReadOnlyList<DashboardTopBotEntry> raw;
+        if (pageResult?.BotAggregate is { } composedBots)
+        {
+            raw = composedBots;
+        }
+        else
+        {
+            // Always read through the event store -- the in-process SignatureAggregateCache
+            // is fresh only on a gateway host (write-through via DetectionBroadcastMiddleware);
+            // on a remote-mode dashboard host it pins to startup-warm values and the widget
+            // shows stale rows forever. Same approach taken in StyloBotDashboardMiddleware.BuildTopBotsModel
+            // and SbWidgetBatchMiddleware.BuildTopBotsModel. Fetching audience=all here gives us
+            // a cross-cutting top-N so the widget header (All / Bots / Humans) reflects reality
+            // and the audience switcher can filter client-side.
+            var rangeStart = startTime ?? DateTime.UtcNow.AddHours(-24);
+            var rangeEnd   = endTime   ?? DateTime.UtcNow;
+            var fetchAudience = string.IsNullOrEmpty(audience) ? "all" : audience;
+            raw = await eventStore.GetTopBotsAsync(
+                count: signatureCache?.MaxEntries ?? FallbackFetchCount,
+                startTime: rangeStart,
+                endTime: rangeEnd,
+                audienceFilter: fetchAudience);
+        }
         // See SbWidgetBatchMiddleware.BuildTopBotsModel for the Internal rationale.
         static bool IsInternal(DashboardTopBotEntry e) =>
             string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase);

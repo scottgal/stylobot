@@ -22,7 +22,12 @@ public class SbSummaryStatsViewComponent(
     public async Task<IViewComponentResult> InvokeAsync(string? audience = null, string? range = null)
     {
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
-        var summary = await eventStore.GetSummaryAsync(startTime, endTime, audience);
+
+        // If the page composer stashed a DashboardPageResult, read the Summary slice from it
+        // directly (zero store calls). Otherwise fall through to the existing self-fetch so
+        // VCs rendered on non-composer pages still work.
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        var summary = pageResult?.Summary ?? await eventStore.GetSummaryAsync(startTime, endTime, audience);
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
