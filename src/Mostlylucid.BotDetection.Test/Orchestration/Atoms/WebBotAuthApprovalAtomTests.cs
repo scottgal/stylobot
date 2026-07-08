@@ -7,6 +7,7 @@ using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Orchestration.Sessions;
+using Mostlylucid.BotDetection.Orchestration.Sessions.Molecules;
 using Mostlylucid.BotDetection.Test.Orchestration.Atoms.AtomContract;
 using Mostlylucid.BotDetection.Test.Auth;
 using Mostlylucid.BotDetection.WebBotAuth;
@@ -85,7 +86,8 @@ public sealed class WebBotAuthApprovalAtomTests
     }
 
     private WebBotAuthApprovalAtom BuildAtom(DefaultHttpContext ctx, SessionStore store,
-        IdentityArchetypeRegistry? registry = null)
+        IdentityArchetypeRegistry? registry = null,
+        SiteCoordinatorRegistry? siteCoordinators = null)
     {
         var accessor = new StaticHttpContextAccessor(ctx);
         return new WebBotAuthApprovalAtom(
@@ -94,7 +96,8 @@ public sealed class WebBotAuthApprovalAtomTests
             accessor,
             NullLogger<WebBotAuthApprovalAtom>.Instance,
             Options.Create(new WebBotAuthOptions()),
-            registry ?? EmptyRegistry());
+            registry ?? EmptyRegistry(),
+            siteCoordinators);
     }
 
     private static IdentityArchetypeRegistry EmptyRegistry()
@@ -410,6 +413,43 @@ public sealed class WebBotAuthApprovalAtomTests
 
         // ASSERT: nothing was written to the session store (no fingerprint key).
         store.TryGet(SiteId, FingerprintId).Should().BeNull("no cache write without a fingerprint key");
+    }
+
+    // ── Slice 2: read verdict via the signals-native session (molecule) ────────
+
+    [Fact]
+    public async Task Slice2_cache_hit_projects_verdict_from_session_not_aggregate()
+    {
+        // Registry with a session carrying the WBA verdict signal; the aggregate is
+        // EMPTY. So a cache hit MUST project from the signals-native session layer
+        // (the reader migration), not the legacy SessionAggregate field.
+        var coordOpts = Options.Create(new SessionCoordinatorOptions { MaxSessions = 100 });
+        await using var registry = new SiteCoordinatorRegistry(
+            coordOpts, NullLogger<SiteCoordinatorRegistry>.Instance);
+
+        var rawValue = BuildValidRawValue();
+        var lines = rawValue.Split('\n');
+        var verdict = new WebBotAuthCachedVerdict(
+            KeyId, TokenOutcome.Valid, "GPTBot", "ed25519",
+            WebBotAuthApprovalAtom.ComputeSignatureHash(rawValue));
+
+        // Seed the SESSION only (no SetWebBotAuthVerdict, so the aggregate stays null).
+        var coord = registry.GetOrCreate(SiteId)!;
+        await coord.ContributeAsync(FingerprintId, new SessionContribution(
+            "wba", DateTimeOffset.UtcNow,
+            new[] { WebBotAuthVerdictMolecule.ToSignal(verdict) }));
+
+        using var store = NewStore();
+        var ctx = ContextWithWbaHeaders(lines[0], lines[1]);
+        var sink = SinkWithSignature();
+        var atom = BuildAtom(ctx, store, registry: null, siteCoordinators: registry);
+
+        await atom.DetectAsync(sink, "session-1");
+
+        // Verifier NOT called: the cache hit was projected from the session molecule.
+        _verifierMock.Verify(v => v.Verify(It.IsAny<TokenInput>()), Times.Never);
+        sink.ReadHint(SignalKeys.VerifiedBotSigned).Should().Be("true");
+        sink.ReadHint(SignalKeys.VerifiedBotKeyId).Should().Be(KeyId);
     }
 
     // ── archetype nudge tests ─────────────────────────────────────────────────
