@@ -1175,11 +1175,39 @@ public class SqliteFingerprintStore : IFingerprintStore
         bool inferredTypeChanged = false,
         CancellationToken ct = default)
     {
+        var now = DateTime.UtcNow;
+
+        // Write-behind convention (mirrors UpdateInducedNameAsync): update the hot
+        // read cache synchronously so a read-after-write via GetFingerprintAsync sees
+        // the absorbed centroid immediately; the SQLite fold lands off-path via the
+        // drainer. Absorb was the one write-behind path that invalidated-after-persist
+        // instead of updating the dict, which left the centroid stale until the async
+        // drain ran (the read-after-write race that reds CentroidLearningLoopTests).
+        if (_fingerprintById.TryGetValue(fingerprintId, out var fp))
+        {
+            var updated = fp with
+            {
+                Centroid = newCentroid,
+                CentroidMaturity = newMaturity,
+                Weights = newWeights,
+            };
+            if (newInferredClientType is not null)
+            {
+                updated = updated with
+                {
+                    InferredClientType = newInferredClientType,
+                    InferredTypeConfidence = newInferredTypeConfidence,
+                    InferredTypeChangedAt = inferredTypeChanged ? now : fp.InferredTypeChangedAt,
+                };
+            }
+            _fingerprintById[fingerprintId] = updated;
+        }
+
         EnsureNameDrainerStarted();
         _nameWriteChannel.Writer.TryWrite(new AbsorbWrite(
             fingerprintId, observationId, newCentroid, newMaturity, newWeights,
             newInferredClientType, newInferredTypeConfidence, inferredTypeChanged,
-            DateTime.UtcNow));
+            now));
         return Task.CompletedTask;
     }
 
@@ -1274,7 +1302,11 @@ public class SqliteFingerprintStore : IFingerprintStore
         }
 
         await tx.CommitAsync().ConfigureAwait(false);
-        InvalidateFingerprintCache(write.FingerprintId);
+        // No cache invalidation here: AbsorbObservationAsync already updated the hot
+        // dict synchronously, so it is authoritative for the read path (same contract
+        // as the name-write drainer, which also leaves the dict untouched). Invalidating
+        // would drop the fresh entry and force a re-read that could race a later in-flight
+        // absorb.
         Interlocked.Increment(ref AbsorbWriteCount);
     }
 
