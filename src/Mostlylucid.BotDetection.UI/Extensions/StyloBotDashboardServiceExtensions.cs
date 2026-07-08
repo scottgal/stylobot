@@ -555,6 +555,23 @@ public static class StyloBotDashboardServiceExtensions
         // Commercial PostgreSQL package overrides via TryAddSingleton.
         services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
 
+        // Widget catalog: reflection scan over loaded assemblies at first use.
+        // Singleton — the catalog is immutable after boot.
+        services.AddSingleton(_ =>
+            Mostlylucid.BotDetection.UI.Dashboard.Composition.DashboardWidgetCatalog.BuildFromLoadedAssemblies());
+
+        // Per-request page composer: maps a DashboardPageManifest → one ComposeBatchAsync.
+        // Scoped so it captures the per-request IDashboardEventStore if one is registered
+        // as scoped (Postgres override path); for the FOSS singleton SQLite store, scoped
+        // resolves cleanly from the singleton scope.
+        services.AddScoped<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageComposer,
+            Mostlylucid.BotDetection.UI.Dashboard.Composition.DefaultDashboardPageComposer>();
+
+        // Page manifest source: empty by default; Task 3 adds the traffic manifest.
+        // TryAdd so a commercial host that seeds its own manifests keeps them.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageManifestSource,
+            Mostlylucid.BotDetection.UI.Dashboard.Composition.DefaultDashboardPageManifestSource>();
+
         // Operator-supplied signature labels (for detector weighting / ground truth).
         // In-memory by default; production hosts can register SQLite / PostgreSQL impls.
         services.TryAddSingleton<ISignatureLabelStore, SqliteSignatureLabelStore>();
