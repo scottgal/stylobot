@@ -195,15 +195,18 @@ public sealed class WebBotAuthApprovalAtomTests
     }
 
     [Fact]
-    public async Task Cache_hit_same_keyid_emits_from_cache_without_calling_verifier()
+    public async Task Cache_hit_same_keyid_and_signature_emits_from_cache_without_calling_verifier()
     {
-        // ARRANGE: pre-seed the aggregate with a cached verdict
+        // ARRANGE: pre-seed the aggregate with a cached verdict whose signature
+        // hash matches the presented signature (genuine re-presentation).
         using var store = NewStore();
-        var cachedVerdict = new WebBotAuthCachedVerdict(KeyId, TokenOutcome.Valid, "GPTBot", "ed25519");
-        store.SetWebBotAuthVerdict(SiteId, FingerprintId, cachedVerdict);
-
         var rawValue = BuildValidRawValue();
         var lines = rawValue.Split('\n');
+        var cachedVerdict = new WebBotAuthCachedVerdict(
+            KeyId, TokenOutcome.Valid, "GPTBot", "ed25519",
+            WebBotAuthApprovalAtom.ComputeSignatureHash(rawValue));
+        store.SetWebBotAuthVerdict(SiteId, FingerprintId, cachedVerdict);
+
         var ctx = ContextWithWbaHeaders(lines[0], lines[1]);
         var sink = SinkWithSignature();
 
@@ -220,6 +223,40 @@ public sealed class WebBotAuthApprovalAtomTests
         sink.ReadHint(SignalKeys.VerifiedBotSigned).Should().Be("true");
         sink.ReadHint(SignalKeys.VerifiedBotKeyId).Should().Be(KeyId);
         sink.ReadHint(SignalKeys.WbaVerifiedBotName).Should().Be("GPTBot");
+    }
+
+    [Fact]
+    public async Task Cache_rejected_when_signature_differs_even_with_same_keyid_reverifies()
+    {
+        // ARRANGE: pre-seed a verdict with the SAME keyid but a DIFFERENT
+        // signature hash. A request reusing the (public) keyid with a different
+        // (tampered/replayed/expired) signature must NOT be served the cached
+        // "verified" verdict — it must re-run crypto.
+        using var store = NewStore();
+        var staleVerdict = new WebBotAuthCachedVerdict(
+            KeyId, TokenOutcome.Valid, "GPTBot", "ed25519",
+            WebBotAuthApprovalAtom.ComputeSignatureHash("a-different-signature-entirely"));
+        store.SetWebBotAuthVerdict(SiteId, FingerprintId, staleVerdict);
+
+        var rawValue = BuildValidRawValue();
+        var lines = rawValue.Split('\n');
+        var ctx = ContextWithWbaHeaders(lines[0], lines[1]);
+        var sink = SinkWithSignature();
+        _verifierMock.Setup(v => v.Verify(It.IsAny<TokenInput>())).Returns(ValidVerdict(KeyId));
+
+        var atom = BuildAtom(ctx, store);
+
+        // ACT
+        await atom.DetectAsync(sink, "session-1");
+
+        // ASSERT: verifier IS called — the signature-hash mismatch defeats the
+        // keyid-only cache hit, closing the replay/tamper hole.
+        _verifierMock.Verify(v => v.Verify(It.IsAny<TokenInput>()), Times.Once);
+
+        // ASSERT: cache updated to the freshly-verified signature hash.
+        var aggregate = store.TryGet(SiteId, FingerprintId);
+        aggregate!.WebBotAuthVerdict!.SignatureHash
+            .Should().Be(WebBotAuthApprovalAtom.ComputeSignatureHash(rawValue));
     }
 
     [Fact]
@@ -328,35 +365,51 @@ public sealed class WebBotAuthApprovalAtomTests
         {
             // Only public metadata allowed — no raw key bytes, no signature bytes
             verdict.KeyId.Should().Be(KeyId); // public identifier only
-            // The verdict record has no field for signature bytes — just assert it
-            // compiles to the sealed record shape with only the four metadata fields.
+
+            // SignatureHash is a non-reversible digest, NOT the signature: it must
+            // never equal the raw base64 signature that was on the wire.
+            verdict.SignatureHash.Should().NotBeNullOrEmpty();
+            verdict.SignatureHash.Should().NotContain(signatureBase64,
+                "SignatureHash must be a non-reversible digest, never the raw signature");
+
+            // The verdict record carries only public metadata + the non-reversible
+            // signature digest — assert the sealed record shape has exactly these.
             var verdictFields = typeof(WebBotAuthCachedVerdict).GetProperties().Select(p => p.Name).ToList();
             verdictFields.Should().BeEquivalentTo(
-                new[] { "KeyId", "Verdict", "SubjectName", "Algorithm" },
-                "WebBotAuthCachedVerdict must only carry public metadata, no raw auth material");
+                new[] { "KeyId", "Verdict", "SubjectName", "Algorithm", "SignatureHash" },
+                "WebBotAuthCachedVerdict must only carry public metadata + a non-reversible digest");
         }
     }
 
     [Fact]
-    public async Task Missing_primary_signature_hint_on_sink_returns_clean_without_beacon()
+    public async Task Missing_primary_signature_still_verifies_and_emits_but_skips_cache()
     {
-        // ARRANGE: sink has NO primary signature hint (atom has nothing to key the session on)
+        // ARRANGE: sink has NO primary signature hint (nothing to key the session
+        // cache on). Verification must NOT be gated on the cache key existing.
         using var store = NewStore();
         var rawValue = BuildValidRawValue();
         var lines = rawValue.Split('\n');
         var ctx = ContextWithWbaHeaders(lines[0], lines[1]);
         // Sink with NO signature hint
         var sink = new SignalSink(maxCapacity: 1000, maxAge: TimeSpan.FromMinutes(1));
+        _verifierMock.Setup(v => v.Verify(It.IsAny<TokenInput>())).Returns(ValidVerdict());
 
         var atom = BuildAtom(ctx, store);
 
         // ACT
         var contributions = await atom.DetectAsync(sink, "session-1");
 
-        // ASSERT: atom still emits the beacon (headers were present) but returns no contributions
-        // and skips the store lookup since there's no fingerprint key
+        // ASSERT: beacon fired, verifier STILL ran, and identity signals emitted
+        // even though there is no fingerprint to cache against.
         sink.Detect(SignalKeys.WebBotAuthPresented).Should().BeTrue("beacon must still fire if headers present");
+        _verifierMock.Verify(v => v.Verify(It.IsAny<TokenInput>()), Times.Once,
+            "verification must run even when no primary signature is available to cache against");
+        sink.ReadHint(SignalKeys.VerifiedBotSigned).Should().Be("true");
+        sink.ReadHint(SignalKeys.VerifiedBotKeyId).Should().Be(KeyId);
         contributions.Should().BeEmpty();
+
+        // ASSERT: nothing was written to the session store (no fingerprint key).
+        store.TryGet(SiteId, FingerprintId).Should().BeNull("no cache write without a fingerprint key");
     }
 
     // ── archetype nudge tests ─────────────────────────────────────────────────
