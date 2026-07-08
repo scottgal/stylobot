@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Orchestration.Sessions;
+using Mostlylucid.BotDetection.Orchestration.Sessions.Molecules;
 
 namespace Mostlylucid.BotDetection.Test.Orchestration.Sessions;
 
@@ -103,5 +104,52 @@ public sealed class SiteCoordinatorTests
 
         session.Should().NotBeNull("the aggregate Upsert must dual-write into the signals-native session layer");
         session!.ContributionCount.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Bridge_emits_session_metrics_projectable_by_molecule()
+    {
+        var coordOpts = Options.Create(new SessionCoordinatorOptions { MaxSessions = 100 });
+        await using var registry = new SiteCoordinatorRegistry(coordOpts, NullLogger<SiteCoordinatorRegistry>.Instance);
+
+        using var store = new SessionStore(
+            Options.Create(new SessionStoreOptions { CleanupInterval = TimeSpan.FromHours(1) }),
+            NullLogger<SessionStore>.Instance,
+            initSignalBus: null,
+            siteCoordinators: registry);
+
+        store.Upsert(new SessionSample
+        {
+            SiteId = "example.com",
+            FingerprintId = "fp-1",
+            Timestamp = DateTimeOffset.UtcNow,
+            BotProbability = 0.87,
+            Confidence = 0.6,
+            StatusCode = 403,
+            FromUpstream = false,
+            Honeypot = true,
+        });
+
+        // Poll the fire-and-forget bridge until the metrics snapshot projects.
+        SessionMetrics? metrics = null;
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (registry.TryGet("example.com", out var coord)
+                && coord!.TryGetSession("fp-1", out var session)
+                && session is not null)
+            {
+                metrics = SessionMetricsMolecule.FromSession(session);
+                if (metrics is not null) break;
+            }
+            await Task.Delay(20);
+        }
+
+        metrics.Should().NotBeNull("the bridge emits a session.metrics snapshot the molecule can project");
+        metrics!.SampleCount.Should().Be(1);
+        metrics.MeanBotProbability.Should().BeApproximately(0.87, 1e-9);
+        metrics.MaxBotProbability.Should().BeApproximately(0.87, 1e-9);
+        metrics.LatestConfidence.Should().BeApproximately(0.6, 1e-9);
+        metrics.HoneypotHits.Should().Be(1);
     }
 }

@@ -189,12 +189,7 @@ public sealed class SessionStore : IDisposable
             new SessionContribution(
                 RequestId: sample.RequestId ?? $"{sample.FingerprintId}:{updated.SampleCount}",
                 At: sample.Timestamp,
-                Signals: new[]
-                {
-                    $"bot_probability:{sample.BotProbability.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
-                    $"status:{sample.StatusCode}",
-                    sample.Honeypot ? "honeypot:true" : "honeypot:false",
-                }));
+                Signals: new[] { Molecules.SessionMetricsMolecule.ToSignal(updated) }));
 
         return updated;
     }
