@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Modules;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Services.Llm;
 using Mostlylucid.BotDetection.Telemetry;
@@ -83,8 +84,20 @@ public static class ServiceCollectionExtensions
     ///         <c>DatabasePath</c> (and so ignore an empty value) are swapped for their
     ///         Null / InMemory variants below.</item>
     ///     </list>
-    ///     Challenge / approval / path-lifecycle / centroid stores already default to
-    ///     Null / InMemory in the module, so they need no swap.
+    ///     Challenge / approval / and path-lifecycle stores already default to
+    ///     Null / InMemory in the module, so they need no swap. Centroid stores
+    ///     are now wired as real SQLite stores by default (Task C); the three
+    ///     interface bindings are swapped to Null variants below so Slim* and
+    ///     SessionVectorWarmupService see no-op stores in ephemeral mode.
+    ///     <para>
+    ///     Lenient pattern (same as PoolCollisionStore): only the interface
+    ///     bindings are replaced; the concrete stores and their
+    ///     StoreInitService&lt;T&gt; hosted services remain in the container but
+    ///     are never reached via the interface paths that matter for detection.
+    ///     In a full host these concrete stores will still create their own
+    ///     *.db files at startup -- a known-acceptable gap mirrored by
+    ///     SqlitePoolCollisionStore's treatment.
+    ///     </para>
     /// </remarks>
     public static IServiceCollection AddBotDetectionInMemory(
         this IServiceCollection services,
@@ -109,6 +122,14 @@ public static class ServiceCollectionExtensions
             new Data.InMemoryBotListDatabase(
                 sp.GetRequiredService<Data.IBotListFetcher>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Data.InMemoryBotListDatabase>>())));
+        // Centroid stores: the module now wires real SQLite WriteBehindLfuStore stores
+        // as the FOSS default (Task C). Swap back to Null variants here so Slim* and
+        // SessionVectorWarmupService receive no-op stores in ephemeral mode and no
+        // centroid *.db files are touched by detection paths. The concrete stores and
+        // their StoreInitService<T> hosted services remain in DI (lenient pattern).
+        services.Replace(ServiceDescriptor.Singleton<Data.Contracts.ISignatureCentroidStore, Data.NullSignatureCentroidStore>());
+        services.Replace(ServiceDescriptor.Singleton<Data.Contracts.ISessionCentroidStore, Data.NullSessionCentroidStore>());
+        services.Replace(ServiceDescriptor.Singleton<Data.Contracts.IIntentCentroidStore, Data.NullIntentCentroidStore>());
 
         return services;
     }
@@ -146,6 +167,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<BotDetectionSignalMeter>();
         services.TryAddSingleton<BotDetectionInstrumentation>();
+        services.TryAddSingleton<IActiveUpstreamProbeState, ActiveUpstreamProbeState>();
 
         return services;
     }

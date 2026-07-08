@@ -39,11 +39,16 @@ public sealed class UpstreamHealthGate
 {
     private readonly DegradationAtom _atom;
     private readonly IOptionsMonitor<UpstreamHealthOptions> _options;
+    private readonly IActiveUpstreamProbeState? _probeState;
 
-    public UpstreamHealthGate(DegradationAtom atom, IOptions<UpstreamHealthOptions> options)
+    public UpstreamHealthGate(
+        DegradationAtom atom,
+        IOptions<UpstreamHealthOptions> options,
+        IActiveUpstreamProbeState? probeState = null)
     {
         _atom = atom ?? throw new ArgumentNullException(nameof(atom));
         _options = new StaticMonitor(options?.Value ?? new UpstreamHealthOptions());
+        _probeState = probeState;
     }
 
     /// <summary>
@@ -54,41 +59,71 @@ public sealed class UpstreamHealthGate
     /// </summary>
     public static UpstreamHealthGate WithMonitor(
         DegradationAtom atom,
-        IOptionsMonitor<UpstreamHealthOptions> options)
+        IOptionsMonitor<UpstreamHealthOptions> options,
+        IActiveUpstreamProbeState? probeState = null)
     {
         ArgumentNullException.ThrowIfNull(atom);
         ArgumentNullException.ThrowIfNull(options);
-        return new UpstreamHealthGate(atom, options);
+        return new UpstreamHealthGate(atom, options, probeState);
     }
 
-    private UpstreamHealthGate(DegradationAtom atom, IOptionsMonitor<UpstreamHealthOptions> options)
+    private UpstreamHealthGate(
+        DegradationAtom atom,
+        IOptionsMonitor<UpstreamHealthOptions> options,
+        IActiveUpstreamProbeState? probeState)
     {
         _atom = atom;
         _options = options;
+        _probeState = probeState;
     }
 
     /// <summary>
     ///     Returns <c>true</c> when upstream looks healthy and
     ///     status-derived bot signals should fire normally; returns
-    ///     <c>false</c> only when both (a) we have enough samples to
-    ///     decide and (b) either the 5xx or 4xx EMA crosses its
-    ///     configured threshold.
+    ///     <c>false</c> only when upstream is confirmed unhealthy by
+    ///     passive EWMA (once enough samples exist) or by the active probe
+    ///     (during cold-start or idle windows).
     /// </summary>
+    /// <remarks>
+    ///     Composite logic: passive <see cref="DegradationAtom"/> data is
+    ///     authoritative when it has accumulated at least
+    ///     <see cref="UpstreamHealthOptions.MinSampleCount"/> samples.
+    ///     When passive data is sufficient, the 5xx/4xx EMA thresholds decide
+    ///     and active probe results are intentionally ignored -- a confirmed
+    ///     outage must not be diluted by a probe that happened to succeed
+    ///     moments before the cascade. When passive data is insufficient
+    ///     (cold-start or idle gap), <see cref="IActiveUpstreamProbeState.AggregateHealthy"/>
+    ///     fills the gap: one known-unhealthy upstream makes the whole gate
+    ///     report unhealthy. This pessimism is correct because the gate
+    ///     controls whether <see cref="Orchestration.Atoms.ClaimedIdentityAtom"/>,
+    ///     <see cref="Detectors.HeuristicDetector"/>, the response-status
+    ///     boost, 404 scan-pattern contributor, reputation lane error
+    ///     indicators, heuristic 404 weights, and the Markov NotFound
+    ///     transition treat response status codes as bot evidence. Any
+    ///     upstream degradation makes those signals unreliable, so
+    ///     pessimism prevents false bot attributions during outage windows.
+    ///     If no active state is injected (<c>null</c>), the gate preserves
+    ///     the original unconditional cold-start-true behaviour.
+    /// </remarks>
     public bool IsUpstreamHealthy()
     {
         var opts = _options.CurrentValue;
-        if (_atom.TotalSamples < opts.MinSampleCount)
+        if (_atom.TotalSamples >= opts.MinSampleCount)
+        {
+            // Passive has enough samples: passive decides (unchanged existing verdict).
+            var rate5xx = _atom.GetSignalValue(DegradationAtom.Error5xxRate);
+            if (rate5xx > opts.Unhealthy5xxThreshold)
+                return false;
+
+            var rate4xx = _atom.GetSignalValue(DegradationAtom.Error4xxRate);
+            if (rate4xx > opts.Unhealthy4xxThreshold)
+                return false;
+
             return true;
+        }
 
-        var rate5xx = _atom.GetSignalValue(DegradationAtom.Error5xxRate);
-        if (rate5xx > opts.Unhealthy5xxThreshold)
-            return false;
-
-        var rate4xx = _atom.GetSignalValue(DegradationAtom.Error4xxRate);
-        if (rate4xx > opts.Unhealthy4xxThreshold)
-            return false;
-
-        return true;
+        // Passive data-starved (cold-start / idle): active fills the gap.
+        return _probeState?.AggregateHealthy() ?? true;
     }
 
     private sealed class StaticMonitor : IOptionsMonitor<UpstreamHealthOptions>

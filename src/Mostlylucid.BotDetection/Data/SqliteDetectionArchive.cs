@@ -76,7 +76,7 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
         await MigrateAddColumnAsync(conn, "signatures", "host", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "requests", "domain", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "requests", "host", "TEXT", ct);
-        await MigrateAddColumnAsync(conn, "signature_centroids", "access_count", "INTEGER NOT NULL DEFAULT 0", ct);
+
 
         // Multi-domain composite indexes. Filter-by-domain / filter-by-host dashboard
         // reads scan (domain|host, <time-or-key>) so the leading column narrows the

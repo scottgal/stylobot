@@ -4,6 +4,7 @@ using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Similarity;
 
@@ -13,8 +14,11 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     LOH growth. No file I/O on the hot path.
 ///
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking SIMD cosine scan over the hot cache.
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then fires a
-///     background Task to upsert the centroid row to SQLite.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then calls
+///     <see cref="ISessionCentroidStore.RecordSession"/> (non-blocking, on the calling thread)
+///     to queue a write-behind persist to SQLite via the store's <c>WriteBehindLfuStore</c> drain.
+///     No sampling gate at the call site — the store's <c>ColdnessScore</c> eviction IS the
+///     prioritization (certain-harmless sessions shed first under memory pressure).
 /// </summary>
 public sealed class SlimSessionVectorSearch : ISessionVectorSearch
 {
@@ -27,15 +31,15 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
     private static readonly int ExpectedDimensions = SessionVectorizer.Dimensions;
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly ISessionCentroidStore _centroidStore;
+    private readonly ISessionCentroidStore _sessionCentroidStore;
     private readonly ILogger<SlimSessionVectorSearch> _logger;
 
     public SlimSessionVectorSearch(
-        ISessionCentroidStore centroidStore,
         IOptions<BotDetectionOptions> options,
+        ISessionCentroidStore sessionCentroidStore,
         ILogger<SlimSessionVectorSearch> logger)
     {
-        _centroidStore = centroidStore;
+        _sessionCentroidStore = sessionCentroidStore;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.SessionCacheSize;
@@ -110,27 +114,19 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
         // Write to hot cache immediately
         _cache.Set(signature, new CacheEntry(vector, isBot, botProbability, meta), isBot: isBot);
 
-        // Persist to SQLite in background; never block the caller
-        _ = Task.Run(async () =>
+        // Non-blocking write-behind: the store's WriteBehindLfuStore drain handles
+        // batching + SQLite persistence. ColdnessScore eviction sheds
+        // certain-harmless sessions first so no sampling gate is needed here.
+        var row = new SessionCentroidRow
         {
-            try
-            {
-                var row = new SessionCentroidRow
-                {
-                    SignatureId = signature,
-                    Vector = vector,
-                    VelocityVector = velocityVector,
-                    FreqFingerprint = frequencyFingerprint,
-                    IsBot = isBot,
-                    BotProbability = botProbability
-                };
-                await _centroidStore.UpsertSessionAsync(row).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Background SQLite upsert failed for session {Signature}", signature);
-            }
-        });
+            SignatureId = signature,
+            Vector = vector,
+            VelocityVector = velocityVector,
+            FreqFingerprint = frequencyFingerprint,
+            IsBot = isBot,
+            BotProbability = botProbability
+        };
+        _sessionCentroidStore.RecordSession(row);
 
         return Task.CompletedTask;
     }
