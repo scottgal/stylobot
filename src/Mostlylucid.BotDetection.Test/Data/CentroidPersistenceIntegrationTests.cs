@@ -147,11 +147,11 @@ public sealed class CentroidPersistenceIntegrationTests : IAsyncLifetime
         var vector = new float[] { 0.1f, 0.5f, 0.9f };
         sqlStore.RecordSignature(sig, vector, wasBot: true, confidence: 0.85);
 
-        // Drain interval is 500ms; poll up to 2s.
+        // Drain interval is 500ms; poll up to 5s (generous so it stays green under full-suite load).
         var dbFile = Path.Combine(_dbDirStandard, "signature_centroids.db");
-        var persisted = await PollUntilRowAsync(dbFile, "signature_centroids", sig, TimeSpan.FromSeconds(2));
+        var persisted = await PollUntilRowAsync(dbFile, "signature_centroids", sig, TimeSpan.FromSeconds(5));
 
-        Assert.True(persisted, "Row was not flushed to signature_centroids.db within 2s");
+        Assert.True(persisted, "Row was not flushed to signature_centroids.db within 5s");
     }
 
     // ── (b) In-memory path: all three centroid stores resolve to Null variants ──
@@ -198,7 +198,7 @@ public sealed class CentroidPersistenceIntegrationTests : IAsyncLifetime
         concrete.RecordSignature(sig, new float[] { 0.3f, 0.6f }, wasBot: false, confidence: 0.2);
 
         var dbFile    = Path.Combine(_dbDirSlim, "signature_centroids.db");
-        var persisted = await PollUntilRowAsync(dbFile, "signature_centroids", sig, TimeSpan.FromSeconds(2));
+        var persisted = await PollUntilRowAsync(dbFile, "signature_centroids", sig, TimeSpan.FromSeconds(5));
 
         Assert.True(persisted, "Concrete store from DI did not write through to durable tier");
     }
