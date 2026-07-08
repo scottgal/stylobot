@@ -26,7 +26,7 @@ public enum DashboardLiveFeedType
 ///             "Type": "rest",
 ///             "Url":  "https://gateway.internal:8080",
 ///             "ApiKey": "SB-...",
-///             "TimeoutSeconds": 30
+///             "TimeoutSeconds": 10
 ///         },
 ///         "Live": {
 ///             "Type": "signalr",
@@ -52,8 +52,17 @@ public sealed class DashboardSourcePullOptions
     /// <summary>API key sent as <c>X-SB-Api-Key</c>. Required when <see cref="Type"/> = Rest.</summary>
     public string? ApiKey { get; set; }
 
-    /// <summary>HTTP request timeout for each gateway call. LAN deployments fine with 30s; WAN may need longer.</summary>
-    public int TimeoutSeconds { get; set; } = 30;
+    /// <summary>
+    ///     HTTP request timeout for each gateway <c>/api/v1/*</c> pull. This is the
+    ///     ceiling on how long a dashboard page will wait for one aggregate before the
+    ///     remote client fails soft (GatewayApiClient catches the timeout and returns
+    ///     an empty result, so the page still renders). Kept short because a dashboard
+    ///     read that takes longer than this is pathological (a cold / unindexed durable
+    ///     aggregate, or a stalled gateway) - waiting 30s to render an empty page is the
+    ///     bug this fixes. Legit reads are single-digit seconds; raise it for a
+    ///     genuinely high-latency WAN link. Default 10s.
+    /// </summary>
+    public int TimeoutSeconds { get; set; } = 10;
 }
 
 public sealed class DashboardSourceLiveOptions
