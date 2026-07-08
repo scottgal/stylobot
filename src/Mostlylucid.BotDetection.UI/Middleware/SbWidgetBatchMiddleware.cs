@@ -130,41 +130,59 @@ public sealed class SbWidgetBatchMiddleware
     ///     Non-covered widgets (visitors, sessions, threats, useragents) are
     ///     unaffected — their render helpers continue to self-fetch.
     /// </summary>
+    // Widget instance key -> DatasetKind. Mirrors the RenderWidgetAsync dispatch so
+    // compose-on-delta covers the SAME widget keys the views actually emit (the <sb-*>
+    // tag-helper instance ids like "overview-topbots"), NOT the VC-attribute keys. The
+    // VC-attribute DashboardWidgetCatalog only covers <vc:> ViewComponents; the traffic
+    // page's widgets are tag-helper widgets, so we key compose-on-delta off this map.
+    // Widgets with no entry (visitors, sessions, useragents, threats) aren't
+    // composer-covered and fall back to their existing self-fetch.
+    private static readonly Dictionary<string, DatasetKind> WidgetDatasetKinds =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["summary"] = DatasetKind.SummaryStats,
+            ["time-chart"] = DatasetKind.TimeBuckets,
+            ["countries"] = DatasetKind.GeoBreakdown,
+            ["endpoints"] = DatasetKind.EndpointStats,
+            ["topbots"] = DatasetKind.BotAggregate,
+            ["top-bots"] = DatasetKind.BotAggregate,
+            ["top-visitors"] = DatasetKind.BotAggregate,
+            ["live-visitors"] = DatasetKind.BotAggregate,
+            ["live-activity"] = DatasetKind.BotAggregate,
+            ["overview-topbots"] = DatasetKind.BotAggregate,
+        };
+
     private async Task TryComposeAndStashAsync(
         HttpContext context,
         string[] requestedWidgets,
         CancellationToken ct)
     {
-        // DashboardWidgetCatalog and IDashboardPageComposer are resolved per-request so
-        // hosts that register only AddStyloBotWidgets (without AddStyloBotDashboard) can
-        // still use the middleware without these services — the compose path is skipped
-        // gracefully, and widgets fall back to their existing self-fetch.
-        var catalog = context.RequestServices.GetService<DashboardWidgetCatalog>();
-        if (catalog is null)
-            return;
-
-        var coveredKeys = requestedWidgets
-            .Where(k => catalog.NeedsFor(k) is not null)
+        // Map requested widget instance keys -> DatasetKinds via the middleware's own
+        // dispatch map (the runtime key namespace). Only the covered kinds are fetched;
+        // uncovered widgets self-fetch as before.
+        var kinds = requestedWidgets
+            .Select(k => WidgetDatasetKinds.TryGetValue(k, out var dk) ? (DatasetKind?)dk : null)
+            .Where(dk => dk is not null)
+            .Select(dk => dk!.Value)
+            .Distinct()
             .ToArray();
 
-        if (coveredKeys.Length == 0)
-            return;
-
-        // IDashboardPageComposer is scoped (captures a scoped IDashboardEventStore on
-        // Postgres hosts). Resolve per-request from RequestServices, not from ctor.
-        var composer = context.RequestServices.GetService<IDashboardPageComposer>();
-        if (composer is null)
-        {
-            _logger.LogDebug("SbWidgetBatch: IDashboardPageComposer not registered — skipping compose");
-            return;
-        }
+        if (kinds.Length == 0)
+            return; // nothing composer-covered in this batch
 
         try
         {
             var window = BuildBatchWindow(context);
-            var manifest = new DashboardPageManifest("sb.batch.update", coveredKeys);
-            var pageResult = await composer.ComposeAsync(manifest, window, ct);
-            context.Items["sb.dashboard.pageresult"] = pageResult;
+            var datasets = kinds
+                .Select(k => new DatasetRequest(k, window.TopN, window.BucketMinutes))
+                .ToList();
+            var request = new DashboardBatchRequest(
+                window.StartTime, window.EndTime, datasets,
+                window.AudienceFilter, window.ProbMin, window.Domains);
+            // One batched read (single-scan on Postgres, fan-out elsewhere), stashed so
+            // the per-widget render helpers read their slice instead of self-fetching.
+            var bundle = await _eventStore.ComposeBatchAsync(request, ct);
+            context.Items["sb.dashboard.pageresult"] = new DashboardPageResult(bundle);
         }
         catch (Exception ex)
         {
@@ -258,7 +276,7 @@ public sealed class SbWidgetBatchMiddleware
                 "endpoints" => await RenderEndpointsAsync(context, q),
                 "useragents" => await RenderUserAgentsAsync(context, q),
                 "sessions" => await RenderSessionsAsync(context, q),
-                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderTopBotsAsync(context, q, widgetId),
+                "topbots" or "top-visitors" or "live-visitors" or "live-activity" or "overview-topbots" => await RenderTopBotsAsync(context, q, widgetId),
                 "threats" => await RenderThreatsAsync(context, q),
                 _ => ""
             };
