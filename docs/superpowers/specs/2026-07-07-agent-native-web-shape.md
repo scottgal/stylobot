@@ -212,7 +212,9 @@ public static class CapabilitySignalKeys
 
 Two-part change, licensing-agnostic FOSS seam + license-specific commercial matcher.
 
-**C4a — FOSS-side seam (wba-foundation to add — grep confirmed no seam exists today; `ConfigEndpointPolicyResolver.Match()` is hard-coded).**
+**C4a — FOSS-side seam (foss agent to add — grep confirmed no seam exists today; `ConfigEndpointPolicyResolver.Match()` is hard-coded).**
+
+**Critical ordering constraint (foss verified):** `EndpointPolicyMiddleware.cs:52` calls `_resolver.Match(context)` in middleware, **PRE-detection**. `ConfigEndpointPolicyResolver.Match(HttpContext)` documents at lines 119-121 + 190: "the SignalSink has not been populated yet." Atoms run DURING detection and populate the sink AFTER the middleware's Match phase. So an extension reading the sink at Match time sees empty. **Extensions self-contain — parse from HttpContext directly, verify via injected services, do not read the sink.** Same lesson as C3: the sink is not an atom-to-atom transport.
 
 ```csharp
 namespace Mostlylucid.BotDetection.EndpointPolicy;
@@ -231,14 +233,16 @@ public interface IEndpointPolicyRuleExtension
 }
 
 public readonly record struct EndpointPolicyExtensionContext(
-    HttpContext HttpContext,
-    SignalSink Sink,                            // extension reads signals written earlier in the pipeline
+    HttpContext HttpContext,                            // headers, path, method — extension parses directly
     IReadOnlyDictionary<string, object?> RulePayload);  // the YAML sub-tree under RuleName
 ```
 
 - `EndpointPolicyRule` gains an `Extensions: Dictionary<string, object?>` field. YAML keys not baked into the compiled matchers land here.
 - `ConfigEndpointPolicyResolver.Match()` after all baked-in checks, iterates registered `IEndpointPolicyRuleExtension` instances; for each `RuleName` present in `rule.Extensions`, calls `Matches`. A `false` from any extension = rule does not match this rule row (fall through to the next rule).
+- Extensions receive **HttpContext only** — no SignalSink. Extensions parse what they need from headers/path/method + verify via their own DI-injected services (`ITokenVerifier`, etc). Self-contained; no ordering dependency on detection atoms.
+- Extensions MAY stash resolved data in `HttpContext.Items` for downstream consumption (per-request scoped, secure, not sink-broadcast). Downstream detection atoms may then read from `HttpContext.Items` to emit sink signals — that's the atom's job, not the extension's.
 - FOSS ships zero extensions itself. The seam is licensing-agnostic.
+- Fail-closed on extension throw: if `ext.Matches()` throws, log + treat as `false` (rule does not match). Never surface 500 to the caller.
 
 **C4b — commercial `RequiresCapability` matcher.**
 
@@ -252,8 +256,15 @@ public readonly record struct EndpointPolicyExtensionContext(
     onInvalid: 402
 ```
 
-- Commercial package registers `RequiresCapabilityRuleExtension : IEndpointPolicyRuleExtension` (RuleName = `"requiresCapability"`). It reads the parsed capability from the sink (written by the commercial `CapabilityTokenAtom` earlier in the pipeline) and votes match/no-match. On no-match, the atom's action-policy dispatch takes care of the 401/402 status (matcher just gates the rule row).
-- Coordinate the seam design with the feature/foss agent — the health-endpoint `Source` matcher discussion (see `feature-review-health-endpoint-design.md`) may land as a baked-in `Source` field OR as the first user of this same extension seam. Prefer baked-in for `Source` (universal concept), use the extension seam for anything license-flavored.
+**Extension self-verifies (no sink dependency):**
+
+- Commercial package registers `RequiresCapabilityRuleExtension : IEndpointPolicyRuleExtension` (RuleName = `"requiresCapability"`).
+- Reads `Authorization: License <token>` from `context.HttpContext.Request.Headers` directly (same shape as WBA's `Signature-Input` — on the wire, no cross-atom transport).
+- Calls DI-injected `ITokenVerifier.Verify(new TokenInput { Kind = SignedBearerToken, RawValue = token, ... })`.
+- Compares verdict.Claims against `RulePayload["claim"]` / `RulePayload["value"]` / etc.
+- Votes match/no-match. On no-match, the `onMissing` / `onInvalid` YAML dictates the 401/402/passthrough status.
+- Optional: extension may stash `TokenVerdict` in `HttpContext.Items[CapabilityTokenKey]` for downstream commercial atoms to emit sink signals from. If a commercial `CapabilityTokenAtom` exists during detection, it reads the stashed verdict + emits the `auth.capability_*` C3 sink signals. Extension-alone works if downstream signals aren't needed.
+- Coordinate the seam design with the foss agent — the health-endpoint `Source` matcher (`92888df1`) already baked in as a first-class field. This seam is for license-flavored (or otherwise non-universal) matchers only.
 
 ### C5. `IResponseTransformer` (AgentContent pack agent owns)
 
