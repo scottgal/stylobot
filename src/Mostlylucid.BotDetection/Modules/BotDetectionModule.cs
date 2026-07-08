@@ -397,6 +397,12 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // on the next Recompile without a process restart.
         services.AddOptions<EndpointPolicies.EndpointPolicyOptions>()
             .BindConfiguration(EndpointPolicies.EndpointPolicyOptions.SectionName)
+            // Recover operator config keys that aren't baked-in matchers into
+            // rule.Extensions so external IEndpointPolicyRuleExtension matchers
+            // (commercial) can consume them. Runs before the health-default
+            // append below so it only walks config-declared rules.
+            .PostConfigure<Microsoft.Extensions.Configuration.IConfiguration>(
+                EndpointPolicies.EndpointPolicyRuleExtensionsBinder.Collect)
             .PostConfigure(opts =>
             {
                 foreach (var path in HealthEndpoints.HealthEndpointOptions.DefaultPaths)
@@ -418,7 +424,10 @@ public sealed class BotDetectionModule : IStyloflowWebModule
                 sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<EndpointPolicies.EndpointPolicyOptions>>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<EndpointPolicies.ConfigEndpointPolicyResolver>>(),
                 sp.GetService<Identity.BrowserModes.IBrowserModeResolver>(),
-                sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Models.BotDetectionOptions>>()));
+                sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Models.BotDetectionOptions>>(),
+                // Zero extensions in FOSS: GetServices returns empty and the seam
+                // stays inert. Commercial packages register their own matchers.
+                sp.GetServices<EndpointPolicies.IEndpointPolicyRuleExtension>()));
 
         // Register contributors as detector atoms (adapt existing contributors)
         RegisterContributors(services, context);
