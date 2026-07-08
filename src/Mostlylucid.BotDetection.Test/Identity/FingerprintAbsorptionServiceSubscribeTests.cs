@@ -147,15 +147,25 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
             for (var i = 0; i < 10; i++)
                 await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
 
-            // Wait debounce + 400ms buffer.
-            await Task.Delay(600, CancellationToken.None);
+            // Poll until absorbed rather than a fixed sleep: the debounced run fires
+            // ~200ms after the last observation, then the drainer must persist all 10
+            // writes. Under heavy parallel CI load that exceeds a fixed 600ms budget
+            // (the poll-not-sleep deflake pattern, mirroring
+            // ObservationAppended_TriggersAbsorptionWithinDebounce). 10 s hard ceiling.
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            int pending;
+            do
+            {
+                await Task.Delay(50, CancellationToken.None);
+                pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
+            }
+            while (pending > 0 && DateTime.UtcNow < deadline);
 
-            // Absorption should have run; counter should show all observations absorbed.
-            var pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
             Assert.Equal(0, pending);
 
             // The per-fp absorption counter must be exactly 1, not 10.
-            // This is the key contract: debounce collapses the burst.
+            // This is the key contract: debounce collapses the burst (unaffected by
+            // how long the async persist takes, so polling does not weaken it).
             Assert.Equal(1, service.EventDrivenAbsorptionCount);
         }
         finally
