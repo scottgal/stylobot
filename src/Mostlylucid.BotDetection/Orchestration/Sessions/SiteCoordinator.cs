@@ -118,11 +118,14 @@ public sealed class Session
 ///     no partitioned dict-of-dicts, no 30-second cleanup sweep, no bytes-estimate.
 /// </summary>
 /// <remarks>
-///     Slice 1 of the session rearchitecture: this stands ALONGSIDE the existing
-///     <c>SessionStore</c>. Readers do not migrate yet; the bridge dual-writes
-///     contributions here so the ephemeral path accumulates in parallel. The
-///     importance-based retention scorer and the summarize→escalator→durable path
-///     land in later slices; Slice 1 uses a flat retention stub.
+///     This is the bounded backing store for <see cref="SessionStore"/>: every
+///     upsert and read routes through the site's session sliding cache, so the
+///     per-fingerprint aggregate is reconstructed on demand from a bounded session
+///     rather than held in an unbounded per-site dictionary. The importance-based
+///     retention scorer and the on-eviction summarize→durable path (which needs a
+///     <c>SlidingCacheAtom.onEvict</c> callback) land in a later slice; today the
+///     coordinator uses a flat retention stub and on-change persistence flows via
+///     <see cref="SessionStore.Changes"/>.
 /// </remarks>
 public sealed class SiteCoordinator : IAsyncDisposable
 {
@@ -162,6 +165,14 @@ public sealed class SiteCoordinator : IAsyncDisposable
         var session = await _sessions.GetOrComputeAsync(fingerprintId, ct).ConfigureAwait(false);
         session.Contribute(contribution);
     }
+
+    /// <summary>
+    ///     Gets the live session for a fingerprint, creating it on first contact.
+    ///     Resets the session's sliding expiration. Used by the store to
+    ///     reconstruct + merge the aggregate against the bounded session.
+    /// </summary>
+    public Task<Session> GetOrCreateSessionAsync(string fingerprintId, CancellationToken ct = default)
+        => _sessions.GetOrComputeAsync(fingerprintId, ct);
 
     /// <summary>Reads the current session for a fingerprint without creating one.</summary>
     public bool TryGetSession(string fingerprintId, out Session? session)

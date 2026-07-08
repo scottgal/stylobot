@@ -107,7 +107,7 @@ public sealed class SiteCoordinatorTests
     }
 
     [Fact]
-    public async Task Bridge_emits_session_metrics_projectable_by_molecule()
+    public async Task Upsert_emits_aggregate_snapshot_projectable_by_molecule()
     {
         var coordOpts = Options.Create(new SessionCoordinatorOptions { MaxSessions = 100 });
         await using var registry = new SiteCoordinatorRegistry(coordOpts, NullLogger<SiteCoordinatorRegistry>.Instance);
@@ -130,8 +130,9 @@ public sealed class SiteCoordinatorTests
             Honeypot = true,
         });
 
-        // Poll the fire-and-forget bridge until the metrics snapshot projects.
-        SessionMetrics? metrics = null;
+        // Upsert writes the full aggregate snapshot into the bounded session;
+        // the molecule reconstructs it on read (no stored aggregate object).
+        SessionAggregate? aggregate = null;
         var deadline = DateTime.UtcNow.AddSeconds(3);
         while (DateTime.UtcNow < deadline)
         {
@@ -139,17 +140,17 @@ public sealed class SiteCoordinatorTests
                 && coord!.TryGetSession("fp-1", out var session)
                 && session is not null)
             {
-                metrics = SessionMetricsMolecule.FromSession(session);
-                if (metrics is not null) break;
+                aggregate = SessionAggregateMolecule.FromSession(session, "fp-1", "example.com");
+                if (aggregate is not null) break;
             }
             await Task.Delay(20);
         }
 
-        metrics.Should().NotBeNull("the bridge emits a session.metrics snapshot the molecule can project");
-        metrics!.SampleCount.Should().Be(1);
-        metrics.MeanBotProbability.Should().BeApproximately(0.87, 1e-9);
-        metrics.MaxBotProbability.Should().BeApproximately(0.87, 1e-9);
-        metrics.LatestConfidence.Should().BeApproximately(0.6, 1e-9);
-        metrics.HoneypotHits.Should().Be(1);
+        aggregate.Should().NotBeNull("Upsert writes a session.aggregate snapshot the molecule can project");
+        aggregate!.SampleCount.Should().Be(1);
+        aggregate.MeanBotProbability.Should().BeApproximately(0.87, 1e-9);
+        aggregate.MaxBotProbability.Should().BeApproximately(0.87, 1e-9);
+        aggregate.LatestConfidence.Should().BeApproximately(0.6, 1e-9);
+        aggregate.HoneypotHits.Should().Be(1);
     }
 }

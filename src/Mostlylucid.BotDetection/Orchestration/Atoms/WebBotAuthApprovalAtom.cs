@@ -199,22 +199,14 @@ public sealed class WebBotAuthApprovalAtom : DetectorAtomBase
             algorithm,
             presentedSignatureHash);
 
-        // Write to session aggregate only when we have a fingerprint to key the
-        // session window on. Verification + emission are not gated on caching.
+        // Write the verdict into the session window only when we have a fingerprint
+        // to key on. SetWebBotAuthVerdict writes the WebBotAuthVerdictMolecule signal
+        // synchronously into the same bounded session ReadCachedVerdict projects from,
+        // so the read-after-write cache contract holds. Verification + emission are
+        // not gated on caching.
         if (canCache)
         {
             _sessionStore.SetWebBotAuthVerdict(siteId, fingerprintId!, newCachedVerdict);
-
-            // Slice 2: also emit the verdict as a session signal so the reader can
-            // project it from the signals-native layer (WebBotAuthVerdictMolecule).
-            // Additive; the aggregate above stays the synchronous authoritative copy.
-            _siteCoordinators?.Contribute(
-                siteId,
-                fingerprintId!,
-                new SessionContribution(
-                    RequestId: $"wba:{fingerprintId}:{presentedKeyId}",
-                    At: DateTimeOffset.UtcNow,
-                    Signals: new[] { WebBotAuthVerdictMolecule.ToSignal(newCachedVerdict) }));
         }
 
         // Emit identity signals.

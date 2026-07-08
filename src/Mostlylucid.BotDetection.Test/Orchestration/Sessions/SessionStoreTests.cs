@@ -71,9 +71,10 @@ public class SessionStoreTests
         store.Upsert(NewSample(fingerprintId: "fp-1", siteId: "site-a"));
         store.Upsert(NewSample(fingerprintId: "fp-1", siteId: "site-b"));
 
-        store.SnapshotSite("site-a").Should().HaveCount(1);
-        store.SnapshotSite("site-b").Should().HaveCount(1,
+        store.TryGet("site-a", "fp-1").Should().NotBeNull();
+        store.TryGet("site-b", "fp-1").Should().NotBeNull(
             "same fingerprint on a different site must land in its own partition");
+        store.TryGet("site-a", "fp-1")!.SiteId.Should().Be("site-a");
     }
 
     [Fact]
@@ -107,10 +108,10 @@ public class SessionStoreTests
     }
 
     [Fact]
-    public void SnapshotSite_returns_empty_for_unknown_site()
+    public void TryGet_returns_null_for_unknown_site_with_no_sessions()
     {
         using var store = NewStore();
-        store.SnapshotSite("nowhere").Should().BeEmpty();
+        store.TryGet("nowhere", "fp-any").Should().BeNull();
     }
 
     [Fact]

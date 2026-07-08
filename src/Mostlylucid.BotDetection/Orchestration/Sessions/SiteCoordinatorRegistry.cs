@@ -6,9 +6,10 @@ namespace Mostlylucid.BotDetection.Orchestration.Sessions;
 
 /// <summary>
 ///     Holds one <see cref="SiteCoordinator"/> per site (domain), created lazily.
-///     Singleton. This is the entry point for the signals-native session layer:
-///     the request/aggregate path dual-writes contributions here (Slice 1 bridge)
-///     while readers still consume the legacy <c>SessionStore</c>.
+///     Singleton. This is the bounded backing store for the signals-native session
+///     layer: <see cref="SessionStore"/> routes every upsert and read through here,
+///     so the aggregate is reconstructed from a bounded session rather than held in
+///     an unbounded per-site dictionary.
 /// </summary>
 /// <remarks>
 ///     Bounded on BOTH axes: the number of sites is capped by
@@ -55,11 +56,11 @@ public sealed class SiteCoordinatorRegistry : IAsyncDisposable
         => _coordinators.TryGetValue(siteId, out coordinator);
 
     /// <summary>
-    ///     Slice 1 bridge: fire-and-forget dual-write of a request contribution
-    ///     into the site's session. Non-blocking on the caller (the hot request
-    ///     path); bounded by the coordinator's session cache; exceptions are
-    ///     swallowed because this path is additive (the aggregate path is
-    ///     authoritative until readers migrate in later slices).
+    ///     Fire-and-forget write of a request contribution into the site's session.
+    ///     Non-blocking on the caller (the hot request path); bounded by the
+    ///     coordinator's session cache; exceptions are swallowed. Used for
+    ///     out-of-band metadata writes (e.g. the Web Bot Auth verdict) that must
+    ///     not raise on the aggregate change stream.
     /// </summary>
     public void Contribute(string siteId, string fingerprintId, SessionContribution contribution)
     {
