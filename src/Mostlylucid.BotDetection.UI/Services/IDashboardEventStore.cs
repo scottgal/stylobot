@@ -151,6 +151,19 @@ public interface IDashboardEventStore
     Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default);
 
     /// <summary>
+    ///     Fetch every widget's data for a page in a single call.
+    ///     Only the <see cref="Models.DatasetKind"/>s listed in
+    ///     <paramref name="request"/>.<see cref="Models.DashboardBatchRequest.Datasets"/> are fetched;
+    ///     the corresponding bundle properties are null for any kind not requested.
+    ///     Default implementation fans out to the existing per-widget <c>Get*Async</c>
+    ///     methods via <see cref="DashboardEventStoreBatchDefaults.FanOutAsync"/>;
+    ///     Postgres overrides with a single windowed-CTE scan.
+    /// </summary>
+    Task<Models.DashboardDatasetBundle> ComposeBatchAsync(
+        Models.DashboardBatchRequest request, CancellationToken ct = default)
+        => DashboardEventStoreBatchDefaults.FanOutAsync(this, request, ct);
+
+    /// <summary>
     ///     Append a single <see cref="DegradationSnapshot"/> sampled from
     ///     <see cref="DegradationAtom"/> at <c>ScheduleCoordinator.Tick10s</c>.
     ///     Persists across restart per <c>feedback_no_inmemory_stores</c> --
