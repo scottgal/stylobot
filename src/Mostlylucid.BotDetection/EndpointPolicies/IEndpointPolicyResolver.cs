@@ -39,6 +39,13 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
     private readonly IBrowserModeResolver? _modes;
     private readonly IOptionsMonitor<BotDetectionOptions>? _botOptions;
 
+    // Registered external rule matchers, deduped by RuleName (last wins).
+    // Empty for the FOSS core product, which ships zero extensions.
+    private readonly IEndpointPolicyRuleExtension[] _extensions;
+
+    private static readonly IReadOnlyDictionary<string, object?> EmptyPayload =
+        new Dictionary<string, object?>();
+
     // Compiled matchers in declaration order. Recomputed when options
     // change (cheap; rule list is small).
     private CompiledRule[] _compiled = Array.Empty<CompiledRule>();
@@ -48,10 +55,12 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         IOptionsMonitor<EndpointPolicyOptions> options,
         ILogger<ConfigEndpointPolicyResolver> logger,
         IBrowserModeResolver? modes = null,
-        IOptionsMonitor<BotDetectionOptions>? botOptions = null)
+        IOptionsMonitor<BotDetectionOptions>? botOptions = null,
+        IEnumerable<IEndpointPolicyRuleExtension>? extensions = null)
     {
         _options = options;
         _logger = logger;
+        _extensions = BuildExtensionTable(extensions, logger);
         // Optional so existing test rigs that don't register the BrowserMode
         // resolver keep working — rules without mode_in: skip the lookup,
         // rules with mode_in: but no resolver fail closed (no match) and
@@ -126,6 +135,15 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                 if (sf == SourceFilter.External && callerIsLocal.Value) continue;
             }
 
+            // External matcher seam (C4a). After all baked-in fields match,
+            // consult any registered extension whose RuleName appears in this
+            // rule's Extensions. A false (or fail-closed) vote drops the rule.
+            // Inert for FOSS: _extensions is empty and rules have no Extensions.
+            if (_extensions.Length > 0
+                && compiled.Rule.Extensions.Count > 0
+                && !ExtensionsMatch(compiled.Rule, context))
+                continue;
+
             return new EndpointPolicyMatch(
                 compiled.Rule,
                 compiled.Rule.Action,
@@ -134,6 +152,62 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     Evaluates every registered extension whose <see cref="IEndpointPolicyRuleExtension.RuleName"/>
+    ///     is present in the rule's <see cref="EndpointPolicyRule.Extensions"/>.
+    ///     Returns false as soon as one votes no-match; a throwing extension is
+    ///     treated as no-match (fail-closed) and never surfaces to the caller.
+    /// </summary>
+    private bool ExtensionsMatch(EndpointPolicyRule rule, HttpContext context)
+    {
+        foreach (var ext in _extensions)
+        {
+            if (!rule.Extensions.TryGetValue(ext.RuleName, out var payloadObj))
+                continue;
+
+            var payload = payloadObj as IReadOnlyDictionary<string, object?> ?? EmptyPayload;
+
+            bool matched;
+            try
+            {
+                matched = ext.Matches(new EndpointPolicyExtensionContext(context, payload));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "EndpointPolicy extension '{RuleName}' threw; treating rule as non-match (host={Host}, path={Path})",
+                    ext.RuleName, rule.Host, rule.Path);
+                matched = false; // fail-closed
+            }
+
+            if (!matched) return false;
+        }
+
+        return true;
+    }
+
+    private static IEndpointPolicyRuleExtension[] BuildExtensionTable(
+        IEnumerable<IEndpointPolicyRuleExtension>? extensions,
+        ILogger logger)
+    {
+        if (extensions is null) return Array.Empty<IEndpointPolicyRuleExtension>();
+
+        // Dedupe by RuleName, last registration wins (a duplicate is a
+        // misconfiguration; log loudly but proceed).
+        var byName = new Dictionary<string, IEndpointPolicyRuleExtension>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ext in extensions)
+        {
+            if (string.IsNullOrWhiteSpace(ext.RuleName)) continue;
+            if (byName.ContainsKey(ext.RuleName))
+                logger.LogWarning(
+                    "Duplicate IEndpointPolicyRuleExtension registered for RuleName '{RuleName}'; last registration wins",
+                    ext.RuleName);
+            byName[ext.RuleName] = ext;
+        }
+
+        return byName.Values.ToArray();
     }
 
     private void Recompile(EndpointPolicyOptions options, string? _ = null)

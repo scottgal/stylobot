@@ -117,4 +117,19 @@ public sealed class EndpointPolicyRule
 
     /// <summary>Optional reason -- surfaced in logs + dashboard.</summary>
     public string? Reason { get; set; }
+
+    /// <summary>
+    ///     Operator YAML keys that are NOT baked-in matchers (Host / Method /
+    ///     Path / Transport / ProtocolVersion / ModeIn / Source / Action /
+    ///     StatusCode / Reason) are collected here by
+    ///     <see cref="EndpointPolicyRuleExtensionsBinder"/>, keyed by the YAML
+    ///     key, with the value being the parsed sub-tree
+    ///     (<see cref="IReadOnlyDictionary{TKey,TValue}"/> / list / scalar). An
+    ///     external <see cref="IEndpointPolicyRuleExtension"/> whose
+    ///     <see cref="IEndpointPolicyRuleExtension.RuleName"/> matches a key is
+    ///     consulted as an additional match condition at resolve time. The core
+    ///     FOSS product ships zero extensions, so this is always empty and inert
+    ///     for it; commercial packages register matchers that consume it.
+    /// </summary>
+    public Dictionary<string, object?> Extensions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
