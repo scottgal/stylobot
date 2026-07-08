@@ -217,7 +217,7 @@ Two-part change, licensing-agnostic FOSS seam + license-specific commercial matc
 **Critical ordering constraint (foss verified):** `EndpointPolicyMiddleware.cs:52` calls `_resolver.Match(context)` in middleware, **PRE-detection**. `ConfigEndpointPolicyResolver.Match(HttpContext)` documents at lines 119-121 + 190: "the SignalSink has not been populated yet." Atoms run DURING detection and populate the sink AFTER the middleware's Match phase. So an extension reading the sink at Match time sees empty. **Extensions self-contain — parse from HttpContext directly, verify via injected services, do not read the sink.** Same lesson as C3: the sink is not an atom-to-atom transport.
 
 ```csharp
-namespace Mostlylucid.BotDetection.EndpointPolicy;
+namespace Mostlylucid.BotDetection.EndpointPolicies;   // plural — matches IEndpointPolicyResolver / EndpointPolicyRule live at this namespace
 
 /// <summary>
 /// External-package hook for contributing named policy-rule matchers.
