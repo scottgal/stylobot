@@ -35,7 +35,7 @@ public sealed class SiteCoordinatorTests
     }
 
     [Fact]
-    public async Task Same_fingerprint_accumulates_contributions_in_one_session()
+    public async Task Same_fingerprint_same_kind_collapses_to_latest_in_one_session()
     {
         var opts = new SessionCoordinatorOptions { MaxSessions = 100 };
         await using var coord = new SiteCoordinator("example.com", opts);
@@ -44,8 +44,28 @@ public sealed class SiteCoordinatorTests
             await coord.ContributeAsync("fp-1", Contribution(i));
 
         coord.TryGetSession("fp-1", out var session).Should().BeTrue();
-        session!.ContributionCount.Should().Be(5, "requests for one fingerprint accumulate in one session");
-        coord.SessionCount.Should().Be(1);
+        coord.SessionCount.Should().Be(1, "all requests for one fingerprint land in one session");
+        // Bounded by construction: five same-kind contributions collapse to the latest,
+        // so the session does not grow with request count (the memory-pressure guarantee).
+        session!.ContributionCount.Should().Be(1, "same-kind contributions retain only the latest");
+        session.SnapshotContributions().Should().ContainSingle()
+            .Which.RequestId.Should().Be("req-4", "the latest same-kind contribution wins");
+    }
+
+    [Fact]
+    public async Task Distinct_signal_kinds_are_retained_separately()
+    {
+        var opts = new SessionCoordinatorOptions { MaxSessions = 100 };
+        await using var coord = new SiteCoordinator("example.com", opts);
+
+        await coord.ContributeAsync("fp-1",
+            new SessionContribution("r1", DateTimeOffset.UtcNow, new[] { "session.aggregate:snapshot" }));
+        await coord.ContributeAsync("fp-1",
+            new SessionContribution("r2", DateTimeOffset.UtcNow, new[] { "webbotauth.verdict:v" }));
+
+        coord.TryGetSession("fp-1", out var session).Should().BeTrue();
+        session!.ContributionCount.Should().Be(2,
+            "different signal kinds (aggregate + verdict) are kept independently, not collapsed");
     }
 
     [Fact]

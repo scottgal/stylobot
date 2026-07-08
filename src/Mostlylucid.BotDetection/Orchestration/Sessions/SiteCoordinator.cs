@@ -63,7 +63,16 @@ public sealed record SessionContribution(
 public sealed class Session
 {
     private readonly object _gate = new();
-    private readonly List<SessionContribution> _contributions = new();
+
+    // Bounded by construction: the latest contribution per signal KIND (the key
+    // prefix before ':' in the contribution's signal, e.g. "session.aggregate" or
+    // "webbotauth.verdict"). The projection molecules read the LATEST contribution of
+    // their prefix, so retaining full request history is both pointless and unbounded:
+    // a single hot fingerprint would grow the list without limit within its window,
+    // undermining the memory-pressure bound and turning every molecule read into an
+    // O(n) scan. Keeping latest-per-kind is O(distinct kinds) = O(1).
+    private readonly Dictionary<string, SessionContribution> _latestByKind =
+        new(StringComparer.Ordinal);
 
     public Session(string sessionKey)
     {
@@ -79,34 +88,51 @@ public sealed class Session
 
     public DateTimeOffset LastActivityAt { get; private set; }
 
-    /// <summary>Files a request's useful contribution into this session.</summary>
+    /// <summary>
+    ///     Files a request's contribution, collapsing to the latest per signal kind.
+    ///     Latest-by-time wins (matching the molecules' projection) so an out-of-order
+    ///     write cannot overwrite a newer snapshot.
+    /// </summary>
     public void Contribute(SessionContribution contribution)
     {
         lock (_gate)
         {
-            _contributions.Add(contribution);
+            var kind = KindOf(contribution);
+            if (!_latestByKind.TryGetValue(kind, out var existing) || contribution.At >= existing.At)
+                _latestByKind[kind] = contribution;
             LastActivityAt = DateTimeOffset.UtcNow;
         }
     }
 
-    /// <summary>Point-in-time snapshot of the contributing requests (for projection).</summary>
+    /// <summary>Latest contribution per signal kind (what the molecules project from).</summary>
     public IReadOnlyList<SessionContribution> SnapshotContributions()
     {
         lock (_gate)
         {
-            return _contributions.ToArray();
+            return _latestByKind.Values.ToArray();
         }
     }
 
+    /// <summary>Distinct signal kinds retained (bounded), NOT the lifetime request count.</summary>
     public int ContributionCount
     {
         get
         {
             lock (_gate)
             {
-                return _contributions.Count;
+                return _latestByKind.Count;
             }
         }
+    }
+
+    // The kind is the signal key's prefix before its first ':' (the molecules key on
+    // the same prefix). Contributions carry a single signal in practice; use the first.
+    private static string KindOf(SessionContribution contribution)
+    {
+        if (contribution.Signals.Count == 0) return string.Empty;
+        var signal = contribution.Signals[0];
+        var idx = signal.IndexOf(':');
+        return idx > 0 ? signal[..idx] : signal;
     }
 }
 
