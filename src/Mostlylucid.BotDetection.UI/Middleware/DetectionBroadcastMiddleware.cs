@@ -136,9 +136,17 @@ public partial class DetectionBroadcastMiddleware
         IOptions<StyloBotDashboardOptions> dashboardOptionsAccessor,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
-        IDashboardChangeCursor? cursor = null,
         IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null)
     {
+        // Resolve the change cursor from the request scope, NOT as an InvokeAsync
+        // parameter. ASP.NET convention-based middleware resolves every InvokeAsync
+        // parameter via GetRequiredService -- nullability and default values are ignored
+        // -- so an "optional" cursor param throws (HTTP 500) on any host that does not
+        // register it (the lean gateway dashboard path does not). GetService keeps it
+        // genuinely optional: null on a host without a cursor, so the cursor?.Bump(...)
+        // calls below no-op, which is the intended behaviour where no dashboard freshness
+        // feed is served.
+        var cursor = context.RequestServices.GetService<IDashboardChangeCursor>();
         // Build the detection from context.Items (populated by UseBotDetection earlier in
         // the pipeline) BEFORE proxying downstream. The in-memory cache update has to
         // land before _next so the downstream render -- which may turn around and hit

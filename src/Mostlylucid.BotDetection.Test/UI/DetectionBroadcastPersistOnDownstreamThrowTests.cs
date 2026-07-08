@@ -218,6 +218,23 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
                 CancellationToken ct = default) => throw new NotImplementedException();
     }
 
+    [Fact]
+    public void InvokeAsync_does_not_declare_IDashboardChangeCursor_parameter()
+    {
+        // Regression (#47 / Plan 3 gateway 500): ASP.NET convention-based middleware
+        // resolves EVERY InvokeAsync parameter via GetRequiredService -- nullability and
+        // default values are ignored -- so an "optional" service parameter throws on any
+        // host that does not register it (the lean gateway dashboard path did not register
+        // IDashboardChangeCursor -> 500 on every request). The cursor must be resolved from
+        // RequestServices via GetService INSIDE InvokeAsync, never declared as a parameter.
+        typeof(DetectionBroadcastMiddleware).GetMethod(nameof(DetectionBroadcastMiddleware.InvokeAsync))!
+            .GetParameters()
+            .Should().NotContain(
+                p => p.ParameterType == typeof(IDashboardChangeCursor),
+                "convention-based middleware cannot optionally resolve a service param; " +
+                "resolve IDashboardChangeCursor via RequestServices.GetService inside InvokeAsync");
+    }
+
     private static Task InvokeAsync(
         DetectionBroadcastMiddleware middleware,
         HttpContext ctx,
