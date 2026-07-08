@@ -122,6 +122,24 @@
         return map;
     }
 
+    // ----- BroadcastDirty tick-skip state ------------------------------------
+    // Set to true the first time the server sends a BroadcastDirty beacon.
+    // Once set, the legacy BroadcastInvalidation handler early-returns so the
+    // same change is never processed twice. Old servers that only emit
+    // BroadcastInvalidation never set this flag, so the legacy path keeps
+    // working untouched.
+    var serverSendsDirty = false;
+
+    // Last-seen beacon tick per widget id. Populated after each OOB batch swap
+    // so a repeat beacon at the same tick skips already-fresh widgets.
+    var widgetTicks = {};
+
+    // Set by flush() just before it fires an htmx.ajax call so the
+    // htmx:afterSettle listener can stamp the refreshed widgets with the
+    // tick that was current when the request was issued.
+    var pendingSwapIds = [];
+    var pendingSwapTick = 0;
+
     var pending = {};
     var debounceTimer = null;
 
@@ -229,6 +247,10 @@
     });
 
     function invalidate(signal) {
+        // If the server is emitting BroadcastDirty beacons, the new handler
+        // processes all changes; skip here to avoid double-processing the same
+        // change through both code paths.
+        if (serverSendsDirty) return;
         if (isPaused()) return;
         var widgetMap = getWidgetMap();
         var widgets = widgetMap[signal] || [];
@@ -282,11 +304,25 @@
 
         var url = BASE + '/partials/update?' + qs.toString();
         if (typeof htmx !== 'undefined') {
-            // Plain htmx.ajax, NOT startViewTransition. The beacon swaps a small
-            // data-region innerHTML in under one frame; a view-transition overlay
-            // would freeze cursor / hover state for ~160ms each time the beacon
-            // fires (multiple per second).
-            htmx.ajax('GET', url, { target: 'body', swap: 'none' });
+            // Stash the ids and beacon tick so the htmx:afterSettle listener
+            // below can stamp each refreshed widget. pendingTick is 0 when
+            // using the legacy BroadcastInvalidation path, disabling tick-skip
+            // (widgets start at tick 0 too, so the skip is a no-op either way).
+            pendingSwapIds = ids.slice();
+            pendingSwapTick = flush._pendingTick || 0;
+            flush._pendingTick = 0;
+
+            function doAjax() {
+                htmx.ajax('GET', url, { target: 'body', swap: 'none' });
+            }
+
+            // Wrap in a view-transition when the browser supports it.
+            // Feature-detect; don't assume support (Chrome 111+; Safari 18+).
+            if (document.startViewTransition) {
+                document.startViewTransition(doAjax);
+            } else {
+                doAjax();
+            }
         }
     }
 
@@ -310,6 +346,24 @@
     });
 
     document.body.addEventListener('htmx:afterSettle', function () {
+        // Stamp each widget that was refreshed in the last batch swap with the
+        // beacon tick that triggered it. The in-memory widgetTicks map is the
+        // primary freshness record; data-sb-tick on the DOM element is the
+        // durable (SSR-stamped) baseline and survives a re-read of the file.
+        // We clear pendingSwapIds after stamping so a second afterSettle (e.g.
+        // a user-initiated swap) doesn't re-stamp with a stale tick.
+        if (pendingSwapTick > 0 && pendingSwapIds.length > 0) {
+            var stampTick = pendingSwapTick;
+            var stampIds = pendingSwapIds;
+            pendingSwapIds = [];
+            pendingSwapTick = 0;
+            stampIds.forEach(function (wid) {
+                widgetTicks[wid] = stampTick;
+                var el = document.querySelector('[data-sb-widget="' + wid + '"]');
+                if (el) el.setAttribute('data-sb-tick', String(stampTick));
+            });
+        }
+
         document.querySelectorAll('[data-sb-widget]').forEach(function (el) {
             var wid = el.getAttribute('data-sb-widget');
             var params = el.getAttribute('data-sb-params');
@@ -339,6 +393,73 @@
     // client triggers HTMX partial refreshes. No data payloads over the wire.
     connection.on('BroadcastInvalidation', function (signal) {
         if (signal) invalidate(signal);
+    });
+
+    // BroadcastDirty — richer structured beacon emitted by updated servers
+    // alongside BroadcastInvalidation (for back-compat). beacon = { tick: <number>,
+    // dirtyKinds: <string[]> }. On first receipt we set serverSendsDirty so the
+    // legacy invalidate() handler no-ops and we don't process the change twice.
+    connection.on('BroadcastDirty', function (beacon) {
+        if (!beacon) return;
+        if (isPaused()) return;
+
+        // Signal to the legacy BroadcastInvalidation handler that it should
+        // no-op from now on -- this server sends BroadcastDirty so we handle
+        // changes here exclusively.
+        serverSendsDirty = true;
+
+        var tick = (beacon.tick != null) ? Number(beacon.tick) : 0;
+        var dirtyKinds = beacon.dirtyKinds || [];
+        if (dirtyKinds.length === 0) return;
+
+        // Walk every widget on the page; mark it pending only when:
+        //   (a) its data-sb-depends intersects the beacon's dirtyKinds, AND
+        //   (b) its current tick is stale (data-sb-tick < beacon.tick).
+        // The existing in-memory widgetTicks map is the primary freshness
+        // record; data-sb-tick on the DOM element provides an SSR-stamped
+        // baseline for widgets that have never been refreshed by this client.
+        document.querySelectorAll('[data-sb-widget]').forEach(function (el) {
+            var wid = el.getAttribute('data-sb-widget');
+            if (!wid) return;
+
+            // Resolve the widget's current tick: prefer in-memory (set after
+            // the last swap), fall back to the DOM attribute stamped by the
+            // server on SSR or by the previous client-side swap.
+            var currentTick = widgetTicks[wid];
+            if (currentTick == null) {
+                currentTick = parseInt(el.getAttribute('data-sb-tick') || '0', 10);
+                if (isNaN(currentTick)) currentTick = 0;
+            }
+
+            // Skip if the widget is already at or ahead of the beacon tick.
+            if (currentTick >= tick) return;
+
+            // Check whether any of the widget's declared dependencies intersect
+            // the beacon's dirtyKinds.
+            var deps = (el.getAttribute('data-sb-depends') || '').split(',');
+            var matches = false;
+            for (var i = 0; i < deps.length; i++) {
+                var dep = deps[i].trim();
+                if (!dep) continue;
+                if (dirtyKinds.indexOf(dep) !== -1) { matches = true; break; }
+            }
+            if (!matches) return;
+
+            pending[wid] = true;
+        });
+
+        if (Object.keys(pending).length === 0) return;
+
+        // Stash the beacon tick so flush() can stamp widgets after the swap.
+        flush._pendingTick = tick;
+
+        // Feed into the same debounce / startup-grace / user-active-gating
+        // path as the legacy invalidation handler.
+        clearTimeout(debounceTimer);
+        var delay = inStartupGrace()
+            ? Math.max(DEBOUNCE_MS, STARTUP_GRACE_MS - (Date.now() - loadedAt))
+            : DEBOUNCE_MS;
+        debounceTimer = setTimeout(flush, delay);
     });
 
     // HR2 -- fingerprint name-slot rename beacon. The commercial editor POST

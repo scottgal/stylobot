@@ -1,12 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
+[DashboardWidget("endpoints", DatasetKind.EndpointStats)]
 public class SbEndpointsListViewComponent(
     DashboardAggregateCache aggregateCache,
     IDashboardEventStore eventStore,
@@ -43,7 +45,15 @@ public class SbEndpointsListViewComponent(
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
         IReadOnlyList<DashboardEndpointStats> data;
-        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
+        // If the page composer stashed a DashboardPageResult, read the Endpoints slice from
+        // it directly (zero store calls). Otherwise fall through to the existing cache-first /
+        // parameter-driven self-fetch so VCs rendered on non-composer pages still work.
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult?.Endpoints is { } composedEndpoints)
+        {
+            data = composedEndpoints;
+        }
+        else if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
             // Parameter-driven: always bypass cache, query store with the provided args.
             data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience);

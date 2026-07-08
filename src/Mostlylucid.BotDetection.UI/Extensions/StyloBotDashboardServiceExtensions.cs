@@ -393,6 +393,23 @@ public static class StyloBotDashboardServiceExtensions
                 sp.GetService<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>()));
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();
 
+        // Plan 3 Task 1 -- per-surface tick/version cursor. ONE monotonic
+        // counter shared by all dashboard producers; consumers check
+        // TickFor(surface) to skip already-fresh widgets. Tick advanced on
+        // Tick10s via DashboardChangeCursorTickHook (IHostedService shim,
+        // NOT a BackgroundService per feedback_no_background_services).
+        // TryAdd so a commercial host that replaces the cursor keeps its impl.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardChangeCursor,
+            Mostlylucid.BotDetection.UI.Services.DashboardChangeCursor>();
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DashboardChangeCursorTickHook>();
+
+        // Plan 3 Task 2 -- wire cursor into SignalRBroadcastConstrainer so the
+        // BroadcastDirty beacon carries the correct CurrentTick. The cursor is a
+        // singleton; setting it once on the static constrainer is safe for the
+        // process lifetime. The setter is idempotent so repeated AddStyloBotDashboard
+        // calls (multi-pack hosts) don't corrupt the static slot.
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.BroadcastConstrainerCursorWire>();
+
         // #122 -- Centralised dashboard freshness beacon. ONE invalidation
         // channel for every pack-health summary tile (policy stack, AspNet
         // pack, meter stream). Producers publish a surface key; consumers
@@ -554,6 +571,23 @@ public static class StyloBotDashboardServiceExtensions
         // Dashboard event store: SQLite for FOSS (persists across restarts).
         // Commercial PostgreSQL package overrides via TryAddSingleton.
         services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
+
+        // Widget catalog: reflection scan over loaded assemblies at first use.
+        // Singleton — the catalog is immutable after boot.
+        services.AddSingleton(_ =>
+            Mostlylucid.BotDetection.UI.Dashboard.Composition.DashboardWidgetCatalog.BuildFromLoadedAssemblies());
+
+        // Per-request page composer: maps a DashboardPageManifest → one ComposeBatchAsync.
+        // Scoped so it captures the per-request IDashboardEventStore if one is registered
+        // as scoped (Postgres override path); for the FOSS singleton SQLite store, scoped
+        // resolves cleanly from the singleton scope.
+        services.AddScoped<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageComposer,
+            Mostlylucid.BotDetection.UI.Dashboard.Composition.DefaultDashboardPageComposer>();
+
+        // Page manifest source: empty by default; Task 3 adds the traffic manifest.
+        // TryAdd so a commercial host that seeds its own manifests keeps them.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageManifestSource,
+            Mostlylucid.BotDetection.UI.Dashboard.Composition.DefaultDashboardPageManifestSource>();
 
         // Operator-supplied signature labels (for detector weighting / ground truth).
         // In-memory by default; production hosts can register SQLite / PostgreSQL impls.

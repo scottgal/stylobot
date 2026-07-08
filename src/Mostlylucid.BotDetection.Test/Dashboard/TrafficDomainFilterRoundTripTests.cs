@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Controllers;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
@@ -92,8 +93,13 @@ public sealed class TrafficDomainFilterRoundTripTests
 
     private static TrafficController NewController(CapturingEventStore store, out DefaultHttpContext httpContext)
     {
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
         var controller = new TrafficController(
             store,
+            composer,
+            manifests,
             Options.Create(new DashboardLayoutOptions()),
             Options.Create(new ThreatsOptions()));
         httpContext = new DefaultHttpContext();
@@ -102,25 +108,41 @@ public sealed class TrafficDomainFilterRoundTripTests
     }
 
     /// <summary>
-    ///     Captures the <c>domains</c> argument on the first
-    ///     <see cref="IDashboardEventStore.GetTopBotsAsync"/> call so we can
-    ///     assert what the controller threaded through. Every other method
-    ///     returns empty so the controller's SafeGet* guards don't blow up.
+    ///     Captures the <c>domains</c> argument from the <c>ComposeBatchAsync</c>
+    ///     call (current window) and from <c>GetTopBotsAsync</c> (prior window)
+    ///     so we can assert what the controller threaded through. Every other
+    ///     method returns empty so the controller guards don't blow up.
     /// </summary>
     private sealed class CapturingEventStore : IDashboardEventStore
     {
+        /// <summary>Domains captured from the current-window ComposeBatchAsync call.</summary>
         public IReadOnlyList<string>? LastTopBotsDomains { get; private set; }
-        private bool _captured;
+
+        public Task<DashboardDatasetBundle> ComposeBatchAsync(DashboardBatchRequest request, CancellationToken ct = default)
+        {
+            // Capture domains from the current-window compose call.
+            LastTopBotsDomains = request.Domains;
+            var summary = new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0,
+                RiskBandCounts = new Dictionary<string, int>(),
+                TopBotTypes = new Dictionary<string, int>(),
+                TopActions = new Dictionary<string, int>(),
+                UniqueSignatures = 0,
+            };
+            return Task.FromResult(new DashboardDatasetBundle(
+                Summary: summary,
+                TimeBuckets: new List<DashboardTimeSeriesPoint>(),
+                BotAggregate: new List<DashboardTopBotEntry>(),
+                Geo: new List<DashboardCountryStats>(),
+                Endpoints: new List<DashboardEndpointStats>()));
+        }
 
         public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(
             int count = 10, DateTime? startTime = null, DateTime? endTime = null,
             string? audienceFilter = null, IReadOnlyList<string>? domains = null)
         {
-            if (!_captured)
-            {
-                LastTopBotsDomains = domains;
-                _captured = true;
-            }
             return Task.FromResult(new List<DashboardTopBotEntry>());
         }
 

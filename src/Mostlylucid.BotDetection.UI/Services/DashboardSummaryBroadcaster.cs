@@ -67,6 +67,7 @@ public sealed class DashboardSummaryBroadcaster : IDisposable
     private readonly StyloBotDashboardOptions _options;
     private readonly IServiceProvider _serviceProvider;
     private readonly DashboardUserAgentAggregator _uaAggregator;
+    private readonly IDashboardChangeCursor? _cursor;
     private readonly IDisposable? _subscription;
     private bool _seeded;
     private bool _firstTickAnnounced;
@@ -93,7 +94,8 @@ public sealed class DashboardSummaryBroadcaster : IDisposable
         ILogger<DashboardSummaryBroadcaster> logger,
         DashboardUserAgentAggregator uaAggregator,
         DashboardSourceOptions? sourceOptions = null,
-        IScheduleCoordinator? scheduleCoordinator = null)
+        IScheduleCoordinator? scheduleCoordinator = null,
+        IDashboardChangeCursor? cursor = null)
     {
         _hubContext = hubContext;
         _eventStore = eventStore;
@@ -103,6 +105,7 @@ public sealed class DashboardSummaryBroadcaster : IDisposable
         _serviceProvider = serviceProvider;
         _logger = logger;
         _uaAggregator = uaAggregator;
+        _cursor = cursor;
         // Remote-mode dashboards consume the gateway's already-broadcast aggregates
         // over REST / SignalR; running the broadcaster here would push stale, locally-
         // computed snapshots onto the same hub and fight with the gateway's truth.
@@ -302,6 +305,16 @@ public sealed class DashboardSummaryBroadcaster : IDisposable
         // -- direct hub.BroadcastInvalidation calls bypassed the rate cap
         // and the client observed refresh gaps of ~3.6s under load even
         // though every individual caller "obeyed" its own schedule.
+        //
+        // Plan 3 Task 2: bump the cursor at emission time so each surface's
+        // TickFor is recorded before the constrainer window fires. Optional
+        // null-check preserves existing tests that construct without a cursor.
+        _cursor?.Bump("summary");
+        _cursor?.Bump("countries");
+        _cursor?.Bump("endpoints");
+        _cursor?.Bump("signature");
+        _cursor?.Bump("useragents");
+        _cursor?.Bump("metrics");
         SignalRBroadcastConstrainer.Queue(_hubContext, "summary",    _options.BroadcastMinIntervalMs);
         SignalRBroadcastConstrainer.Queue(_hubContext, "countries",  _options.BroadcastMinIntervalMs);
         SignalRBroadcastConstrainer.Queue(_hubContext, "endpoints",  _options.BroadcastMinIntervalMs);
