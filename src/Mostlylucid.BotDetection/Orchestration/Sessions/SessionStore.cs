@@ -50,6 +50,12 @@ public sealed class SessionStore : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _cleanupLoop;
     private readonly int _maxAggregatesPerSite;
+
+    // Slice 1 of the session rearchitecture: optional signals-native session layer.
+    // When present, Upsert dual-writes a contribution into the per-site coordinator
+    // (bounded by construction) in parallel with the legacy aggregate. Null in tests
+    // / minimal hosts that construct SessionStore directly.
+    private readonly SiteCoordinatorRegistry? _siteCoordinators;
     private int _disposed;
 
     /// <summary>
@@ -91,10 +97,12 @@ public sealed class SessionStore : IDisposable
     public SessionStore(
         IOptions<SessionStoreOptions> options,
         ILogger<SessionStore> logger,
-        StyloFlow.Orchestration.IInitSignalBus? initSignalBus = null)
+        StyloFlow.Orchestration.IInitSignalBus? initSignalBus = null,
+        SiteCoordinatorRegistry? siteCoordinators = null)
     {
         _options = options.Value;
         _logger = logger;
+        _siteCoordinators = siteCoordinators;
         _maxAggregatesPerSite = _options.ResolveMaxAggregatesPerSite();
 
         var innerSink = new SignalSink(
@@ -171,6 +179,22 @@ public sealed class SessionStore : IDisposable
             signal: SessionSignalKeys.AggregateUpdated.Name,
             payload: updated,
             key: sample.FingerprintId);
+
+        // Slice 1 bridge: dual-write the request into the signals-native session
+        // layer (bounded SiteCoordinator). Additive + fire-and-forget; the aggregate
+        // above stays authoritative until readers migrate in later slices.
+        _siteCoordinators?.Contribute(
+            sample.SiteId,
+            sample.FingerprintId,
+            new SessionContribution(
+                RequestId: sample.RequestId ?? $"{sample.FingerprintId}:{updated.SampleCount}",
+                At: sample.Timestamp,
+                Signals: new[]
+                {
+                    $"bot_probability:{sample.BotProbability.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
+                    $"status:{sample.StatusCode}",
+                    sample.Honeypot ? "honeypot:true" : "honeypot:false",
+                }));
 
         return updated;
     }

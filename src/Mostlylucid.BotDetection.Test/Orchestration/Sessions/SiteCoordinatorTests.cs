@@ -1,0 +1,107 @@
+using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Orchestration.Sessions;
+
+namespace Mostlylucid.BotDetection.Test.Orchestration.Sessions;
+
+/// <summary>
+///     Slice 1 of the session rearchitecture. Pins the load-bearing invariant that
+///     the old partitioned-dict <c>SessionStore</c> violated: under a high-cardinality
+///     flood the tracked session count stays BOUNDED by the configured cap (the
+///     <see cref="SlidingCacheAtom{TKey,TResult}"/> evicts at-insert), instead of
+///     growing linearly with distinct-fingerprint count.
+/// </summary>
+public sealed class SiteCoordinatorTests
+{
+    private static SessionContribution Contribution(int i) =>
+        new($"req-{i}", DateTimeOffset.UtcNow, new[] { "signal.x" });
+
+    [Fact]
+    public async Task Bounded_under_cardinality_flood_session_count_never_exceeds_cap()
+    {
+        var opts = new SessionCoordinatorOptions { MaxSessions = 100 };
+        await using var coord = new SiteCoordinator("example.com", opts);
+
+        // Cardinality flood: 10,000 distinct fingerprints, one contribution each.
+        for (var i = 0; i < 10_000; i++)
+            await coord.ContributeAsync($"fp-{i}", Contribution(i));
+
+        // THE invariant: bounded by the cap regardless of arrival cardinality.
+        // Old SessionStore grew ~linearly with distinct-sig count -> the leak.
+        coord.SessionCount.Should().BeLessThanOrEqualTo(opts.MaxSessions,
+            "the sliding cache must evict at-insert so the session set is bounded under any flood");
+    }
+
+    [Fact]
+    public async Task Same_fingerprint_accumulates_contributions_in_one_session()
+    {
+        var opts = new SessionCoordinatorOptions { MaxSessions = 100 };
+        await using var coord = new SiteCoordinator("example.com", opts);
+
+        for (var i = 0; i < 5; i++)
+            await coord.ContributeAsync("fp-1", Contribution(i));
+
+        coord.TryGetSession("fp-1", out var session).Should().BeTrue();
+        session!.ContributionCount.Should().Be(5, "requests for one fingerprint accumulate in one session");
+        coord.SessionCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Contribution_resets_activity_and_session_is_live()
+    {
+        var opts = new SessionCoordinatorOptions { MaxSessions = 100 };
+        await using var coord = new SiteCoordinator("site", opts);
+
+        await coord.ContributeAsync("fp-a", Contribution(0));
+        coord.TryGetSession("fp-a", out var s1).Should().BeTrue();
+        var firstActivity = s1!.LastActivityAt;
+
+        await Task.Delay(5);
+        await coord.ContributeAsync("fp-a", Contribution(1));
+        coord.TryGetSession("fp-a", out var s2).Should().BeTrue();
+
+        s2.Should().BeSameAs(s1, "the same live session instance stays writeable across requests");
+        s2!.LastActivityAt.Should().BeOnOrAfter(firstActivity);
+    }
+
+    [Fact]
+    public async Task SessionStore_Upsert_dual_writes_into_site_coordinator()
+    {
+        var coordOpts = Options.Create(new SessionCoordinatorOptions { MaxSessions = 100 });
+        await using var registry = new SiteCoordinatorRegistry(coordOpts, NullLogger<SiteCoordinatorRegistry>.Instance);
+
+        using var store = new SessionStore(
+            Options.Create(new SessionStoreOptions { CleanupInterval = TimeSpan.FromHours(1) }),
+            NullLogger<SessionStore>.Instance,
+            initSignalBus: null,
+            siteCoordinators: registry);
+
+        store.Upsert(new SessionSample
+        {
+            SiteId = "example.com",
+            FingerprintId = "fp-1",
+            Timestamp = DateTimeOffset.UtcNow,
+            BotProbability = 0.9,
+            Confidence = 0.8,
+            StatusCode = 200,
+            FromUpstream = false,
+            Honeypot = false,
+        });
+
+        // The bridge is fire-and-forget; poll until the contribution lands.
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        Session? session = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (registry.TryGet("example.com", out var coord)
+                && coord!.TryGetSession("fp-1", out session)
+                && session!.ContributionCount > 0)
+                break;
+            await Task.Delay(20);
+        }
+
+        session.Should().NotBeNull("the aggregate Upsert must dual-write into the signals-native session layer");
+        session!.ContributionCount.Should().BeGreaterThan(0);
+    }
+}
