@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -20,18 +19,15 @@ public class SlimSessionVectorSearchTests
         return v;
     }
 
-    private static SlimSessionVectorSearch BuildSut(
-        ISessionCentroidStore? store = null,
-        int cacheSize = 100)
+    private static SlimSessionVectorSearch BuildSut(int cacheSize = 100)
     {
-        var centroidStore = store ?? new NoOpSessionCentroidStore();
         var options = Options.Create(new BotDetectionOptions
         {
             SelfMaintenance = { SessionCacheSize = cacheSize }
         });
         return new SlimSessionVectorSearch(
-            centroidStore,
             options,
+            new NullSessionCentroidStore(),
             NullLogger<SlimSessionVectorSearch>.Instance);
     }
 
@@ -73,23 +69,6 @@ public class SlimSessionVectorSearchTests
         await sut.AddAsync(vector, "session-b", isBot: false, botProbability: 0.1);
 
         Assert.Equal(1, sut.Count);
-    }
-
-    [Fact]
-    public async Task AddSession_FiresBackgroundSqliteUpsert()
-    {
-        var capturingStore = new CapturingSessionStore();
-        var sut = BuildSut(store: capturingStore);
-        var vector = MakeVector(3);
-
-        await sut.AddAsync(vector, "session-c", isBot: true, botProbability: 0.87);
-
-        var signaled = await capturingStore.WaitForUpsertAsync(TimeSpan.FromSeconds(5));
-        Assert.True(signaled, "Background SQLite upsert did not fire within 5 seconds");
-
-        Assert.Equal(1, capturingStore.UpsertCount);
-        Assert.Equal("session-c", capturingStore.LastSignatureId);
-        Assert.True(capturingStore.LastIsBot);
     }
 
     [Fact]
@@ -168,44 +147,4 @@ public class SlimSessionVectorSearchTests
         Assert.Equal("new-sig", single.Metadata.Signature);
     }
 
-    // ------------------------------------------------------------------
-    // Test helpers
-    // ------------------------------------------------------------------
-
-    private sealed class NoOpSessionCentroidStore : ISessionCentroidStore
-    {
-        public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SessionCentroidRow>>([]);
-
-        public Task PruneSessionsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-            => Task.CompletedTask;
-    }
-
-    private sealed class CapturingSessionStore : ISessionCentroidStore
-    {
-        private readonly SemaphoreSlim _signal = new(0, 1);
-        public Task<bool> WaitForUpsertAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
-
-        public int UpsertCount { get; private set; }
-        public string? LastSignatureId { get; private set; }
-        public bool LastIsBot { get; private set; }
-
-        public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default)
-        {
-            UpsertCount++;
-            LastSignatureId = row.SignatureId;
-            LastIsBot = row.IsBot;
-            _signal.Release();
-            return Task.CompletedTask;
-        }
-
-        public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SessionCentroidRow>>([]);
-
-        public Task PruneSessionsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-            => Task.CompletedTask;
-    }
 }

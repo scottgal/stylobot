@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Similarity;
 
@@ -12,8 +13,11 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking TryGet on the hot cache then
 ///     SIMD cosine similarity. No SQLite I/O on the hot path.
 ///
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then fires
-///     a background Task to upsert the centroid to SQLite.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then calls
+///     <see cref="ISignatureCentroidStore.RecordSignature"/> (non-blocking, on the calling thread)
+///     to queue a write-behind persist to SQLite via the store's <c>WriteBehindLfuStore</c> drain.
+///     No sampling gate at the call site — the store's <c>ColdnessScore</c> eviction IS the
+///     prioritization (certain-harmless entries shed first under memory pressure).
 /// </summary>
 public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
 {
@@ -21,15 +25,15 @@ public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
     private sealed record CacheEntry(float[] Vector, bool WasBot, double Confidence);
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly ISignatureCentroidStore _centroidStore;
+    private readonly ISignatureCentroidStore _signatureCentroidStore;
     private readonly ILogger<SlimSignatureSimilaritySearch> _logger;
 
     public SlimSignatureSimilaritySearch(
-        ISignatureCentroidStore centroidStore,
         IOptions<BotDetectionOptions> options,
+        ISignatureCentroidStore signatureCentroidStore,
         ILogger<SlimSignatureSimilaritySearch> logger)
     {
-        _centroidStore = centroidStore;
+        _signatureCentroidStore = signatureCentroidStore;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.SignatureCacheSize;
@@ -88,19 +92,10 @@ public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
         // Write to hot cache immediately (fast path)
         _cache.Set(signatureId, new CacheEntry(vector, wasBot, confidence), isBot: wasBot);
 
-        // Persist to SQLite in background; never block the caller
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _centroidStore.UpsertSignatureAsync(signatureId, vector, wasBot, confidence)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Background SQLite upsert failed for signature {Id}", signatureId);
-            }
-        });
+        // Non-blocking write-behind: the store's WriteBehindLfuStore drain handles
+        // batching + SQLite persistence. ColdnessScore eviction sheds
+        // certain-harmless entries first so no sampling gate is needed here.
+        _signatureCentroidStore.RecordSignature(signatureId, vector, wasBot, confidence);
 
         return Task.CompletedTask;
     }

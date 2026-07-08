@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace Mostlylucid.BotDetection.Data;
 
 public sealed record SignatureCentroidRow(
-    string SignatureId, float[] Vector, bool WasBot, double Confidence, int AccessCount = 0);
+    string SignatureId, float[] Vector, bool WasBot, double Confidence);
 
 public sealed class SessionCentroidRow
 {

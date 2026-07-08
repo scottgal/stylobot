@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -20,8 +19,10 @@ public class SessionVectorAnalyticsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var opts = Options.Create(new BotDetectionOptions());
-        var centroidStore = new NullSessionCentroidStore();
-        _index = new SlimSessionVectorSearch(centroidStore, opts, NullLogger<SlimSessionVectorSearch>.Instance);
+        _index = new SlimSessionVectorSearch(
+            opts,
+            new NullSessionCentroidStore(),
+            NullLogger<SlimSessionVectorSearch>.Instance);
         await _index.LoadAsync();
     }
 
@@ -268,11 +269,3 @@ public class SessionVectorAnalyticsTests : IAsyncLifetime
     }
 }
 
-/// <summary>No-op centroid store for unit tests; background SQLite writes are discarded.</summary>
-file sealed class NullSessionCentroidStore : ISessionCentroidStore
-{
-    public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<SessionCentroidRow>>(Array.Empty<SessionCentroidRow>());
-    public Task PruneSessionsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
-}

@@ -92,16 +92,21 @@ public class SqliteFingerprintStore : IFingerprintStore
     private readonly Triggers.IAdaptiveTriggerSignalSource? _triggerSignals;
 
     // ----------------------------------------------------------------------
-    // Write-behind LFU façade for name-slot writes (induced + llm). Per
-    // feedback_write_behind_lfu_facade + §4a constraint 2: matcher writes
-    // (per-request high-frequency) and LLM writes (drift-triggered, bounded
-    // concurrency) MUST NOT take a synchronous DB write — SQLite can't
-    // handle per-request hot-path writes. The dict (_fingerprintById) is
-    // source of truth; this channel funnels mutations to a single drainer
-    // task that batches UPDATE + INSERT INTO fingerprint_name_history.
+    // Single-writer drain channel for all async fingerprint store writes.
+    // Covers three write kinds:
+    //   InducedNameWrite  - matcher-side induced-name slot (per-request high-freq)
+    //   LlmNameWrite      - LLM-evaluated name slot (drift-triggered)
+    //   AbsorbWrite       - centroid absorption (debounced, N fingerprints in
+    //                       parallel without single-writer routing would race on
+    //                       the SQLite write lock: overview-ratified 4th site fix)
     //
-    // Operator GivenName edits stay synchronous: they're rare (operator-
-    // initiated) and durability matters before the endpoint returns 200.
+    // Per feedback_write_behind_lfu_facade + §4a constraint 2: none of these
+    // write kinds may open a concurrent SQLite write connection. The dict
+    // (_fingerprintById) is source of truth on the hot read path; this channel
+    // funnels all three through a single drainer task.
+    //
+    // Operator GivenName edits stay synchronous: they're rare and durability
+    // matters before the endpoint returns 200.
     // ----------------------------------------------------------------------
     private abstract record NameWrite(string FingerprintId, DateTime At);
     private sealed record InducedNameWrite(
@@ -110,6 +115,16 @@ public class SqliteFingerprintStore : IFingerprintStore
     private sealed record LlmNameWrite(
         string FingerprintId, string? OldName, string NewName, string? Description, DateTime At)
         : NameWrite(FingerprintId, At);
+    private sealed record AbsorbWrite(
+        string FingerprintId,
+        long ObservationId,
+        float[] NewCentroid,
+        int NewMaturity,
+        float[] NewWeights,
+        string? NewInferredClientType,
+        double NewInferredTypeConfidence,
+        bool InferredTypeChanged,
+        DateTime At) : NameWrite(FingerprintId, At);
 
     private const int NameWriteQueueCapacity = 4096;
     private readonly Channel<NameWrite> _nameWriteChannel =
@@ -121,6 +136,11 @@ public class SqliteFingerprintStore : IFingerprintStore
         });
     private Task? _nameDrainerTask;
     private readonly object _nameDrainerInitLock = new();
+
+    // Test instrumentation: counts how many absorb writes the drainer has committed.
+    // internal so tests in Mostlylucid.BotDetection.Test can assert the drain count
+    // without leaking to callers.
+    internal int AbsorbWriteCount;
 
     public SqliteFingerprintStore(
         ILogger<SqliteFingerprintStore> logger,
@@ -790,6 +810,15 @@ public class SqliteFingerprintStore : IFingerprintStore
     private async Task PersistNameWriteAsync(NameWrite write)
     {
         await EnsureInitialisedAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // AbsorbWrite needs a vec-capable connection and its own transaction;
+        // dispatch before opening the plain name-write connection below.
+        if (write is AbsorbWrite absorb)
+        {
+            await PersistAbsorbWriteAsync(absorb).ConfigureAwait(false);
+            return;
+        }
+
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync().ConfigureAwait(false);
 
@@ -1122,13 +1151,20 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     Absorption transaction: fold the supplied observation into the fingerprint's centroid
-    ///     using maturity-weighted mean, mark the obs row absorbed, persist the updated weights.
-    ///     If <paramref name="newInferredClientType"/> is non-null and differs from the current
-    ///     row, also updates inferred_client_type / inferred_type_confidence /
-    ///     inferred_type_changed_at in the same transaction.
+    ///     Enqueues an absorption write to the single-writer drain channel.
+    ///     The actual SQLite transaction (centroid + obs mark + vec0 updates)
+    ///     runs inside <see cref="PersistAbsorbWriteAsync"/> on the drainer
+    ///     task, serializing concurrent debounced absorptions through one
+    ///     write connection instead of racing on the WAL lock.
+    ///
+    ///     Fire-and-forget contract: returns <see cref="Task.CompletedTask"/>
+    ///     synchronously. The caller (<see cref="FingerprintAbsorptionService"/>)
+    ///     computes centroid + weights before this call and chains its sequential
+    ///     per-fingerprint loop on those local values -- no read-after-write
+    ///     on the store is needed. The backstop tick absorbs any writes the
+    ///     drainer has not yet committed if the process restarts.
     /// </summary>
-    public async Task AbsorbObservationAsync(
+    public Task AbsorbObservationAsync(
         long observationId,
         string fingerprintId,
         float[] newCentroid,
@@ -1139,14 +1175,30 @@ public class SqliteFingerprintStore : IFingerprintStore
         bool inferredTypeChanged = false,
         CancellationToken ct = default)
     {
-        await EnsureInitialisedAsync(ct);
-        await using var conn = await OpenConnectionWithVecAsync(ct);
-        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+        EnsureNameDrainerStarted();
+        _nameWriteChannel.Writer.TryWrite(new AbsorbWrite(
+            fingerprintId, observationId, newCentroid, newMaturity, newWeights,
+            newInferredClientType, newInferredTypeConfidence, inferredTypeChanged,
+            DateTime.UtcNow));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    ///     The actual absorption SQLite transaction, executed on the single-writer
+    ///     drainer task. Mirrors the old <c>AbsorbObservationAsync</c> body but
+    ///     uses <see cref="CancellationToken.None"/> because the drainer is not
+    ///     tied to any individual caller's cancellation token.
+    /// </summary>
+    private async Task PersistAbsorbWriteAsync(AbsorbWrite write)
+    {
+        await EnsureInitialisedAsync(CancellationToken.None).ConfigureAwait(false);
+        await using var conn = await OpenConnectionWithVecAsync(CancellationToken.None).ConfigureAwait(false);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(CancellationToken.None).ConfigureAwait(false);
 
         await using (var fp = conn.CreateCommand())
         {
             fp.Transaction = tx;
-            if (newInferredClientType is not null)
+            if (write.NewInferredClientType is not null)
             {
                 fp.CommandText = """
                     UPDATE fingerprints
@@ -1159,10 +1211,10 @@ public class SqliteFingerprintStore : IFingerprintStore
                                                             ELSE inferred_type_changed_at END
                      WHERE fingerprint_id = @id
                     """;
-                fp.Parameters.AddWithValue("@itype", newInferredClientType);
-                fp.Parameters.AddWithValue("@iconf", newInferredTypeConfidence);
-                fp.Parameters.AddWithValue("@ichanged", inferredTypeChanged);
-                fp.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
+                fp.Parameters.AddWithValue("@itype", write.NewInferredClientType);
+                fp.Parameters.AddWithValue("@iconf", write.NewInferredTypeConfidence);
+                fp.Parameters.AddWithValue("@ichanged", write.InferredTypeChanged);
+                fp.Parameters.AddWithValue("@now", write.At.ToString("O"));
             }
             else
             {
@@ -1174,20 +1226,20 @@ public class SqliteFingerprintStore : IFingerprintStore
                      WHERE fingerprint_id = @id
                     """;
             }
-            fp.Parameters.AddWithValue("@centroid", FloatsToBlob(newCentroid));
-            fp.Parameters.AddWithValue("@maturity", newMaturity);
-            fp.Parameters.AddWithValue("@weights", FloatsToBlob(newWeights));
-            fp.Parameters.AddWithValue("@id", fingerprintId);
-            await fp.ExecuteNonQueryAsync(ct);
+            fp.Parameters.AddWithValue("@centroid", FloatsToBlob(write.NewCentroid));
+            fp.Parameters.AddWithValue("@maturity", write.NewMaturity);
+            fp.Parameters.AddWithValue("@weights", FloatsToBlob(write.NewWeights));
+            fp.Parameters.AddWithValue("@id", write.FingerprintId);
+            await fp.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
 
         await using (var obs = conn.CreateCommand())
         {
             obs.Transaction = tx;
             obs.CommandText = "UPDATE fingerprint_observations SET absorbed_at = @ts WHERE id = @id";
-            obs.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-            obs.Parameters.AddWithValue("@id", observationId);
-            await obs.ExecuteNonQueryAsync(ct);
+            obs.Parameters.AddWithValue("@ts", write.At.ToString("O"));
+            obs.Parameters.AddWithValue("@id", write.ObservationId);
+            await obs.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
 
         if (_vecAvailable)
@@ -1199,16 +1251,16 @@ public class SqliteFingerprintStore : IFingerprintStore
             {
                 del.Transaction = tx;
                 del.CommandText = "DELETE FROM fingerprints_vec WHERE fingerprint_id = @id";
-                del.Parameters.AddWithValue("@id", fingerprintId);
-                await del.ExecuteNonQueryAsync(ct);
+                del.Parameters.AddWithValue("@id", write.FingerprintId);
+                await del.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
             await using (var ins = conn.CreateCommand())
             {
                 ins.Transaction = tx;
                 ins.CommandText = "INSERT INTO fingerprints_vec(fingerprint_id, centroid) VALUES (@id, @vec)";
-                ins.Parameters.AddWithValue("@id", fingerprintId);
-                ins.Parameters.AddWithValue("@vec", FloatsToBlob(newCentroid));
-                await ins.ExecuteNonQueryAsync(ct);
+                ins.Parameters.AddWithValue("@id", write.FingerprintId);
+                ins.Parameters.AddWithValue("@vec", FloatsToBlob(write.NewCentroid));
+                await ins.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
             // Drop the absorbed observation from the active vec0 index — it's been
             // folded into the centroid; keeping it would double-count in KNN searches.
@@ -1216,13 +1268,14 @@ public class SqliteFingerprintStore : IFingerprintStore
             {
                 obsDel.Transaction = tx;
                 obsDel.CommandText = "DELETE FROM observations_vec WHERE observation_id = @id";
-                obsDel.Parameters.AddWithValue("@id", observationId);
-                await obsDel.ExecuteNonQueryAsync(ct);
+                obsDel.Parameters.AddWithValue("@id", write.ObservationId);
+                await obsDel.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
         }
 
-        await tx.CommitAsync(ct);
-        InvalidateFingerprintCache(fingerprintId);
+        await tx.CommitAsync().ConfigureAwait(false);
+        InvalidateFingerprintCache(write.FingerprintId);
+        Interlocked.Increment(ref AbsorbWriteCount);
     }
 
     /// <summary>

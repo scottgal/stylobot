@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Similarity;
 
@@ -13,8 +14,11 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     Fast path (<see cref="FindSimilarAsync"/>): non-blocking scan of the hot cache with
 ///     SIMD cosine similarity. No SQLite I/O on the hot path.
 ///
-///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then fires
-///     a background Task to upsert the intent centroid to SQLite.
+///     Learning path (<see cref="AddAsync"/>): writes to the hot cache immediately, then calls
+///     <see cref="IIntentCentroidStore.RecordIntent"/> (non-blocking, on the calling thread)
+///     to queue a write-behind persist to SQLite via the store's <c>WriteBehindLfuStore</c> drain.
+///     No sampling gate at the call site — the store's <c>ColdnessScore</c> eviction IS the
+///     prioritization (threat-driven: low-threat browsing shed first under memory pressure).
 /// </summary>
 public sealed class SlimIntentSearch : IIntentSimilaritySearch
 {
@@ -22,15 +26,15 @@ public sealed class SlimIntentSearch : IIntentSimilaritySearch
     private sealed record CacheEntry(float[] Vector, double ThreatScore, string IntentCategory);
 
     private readonly BoundedVectorCache<CacheEntry> _cache;
-    private readonly IIntentCentroidStore _centroidStore;
+    private readonly IIntentCentroidStore _intentCentroidStore;
     private readonly ILogger<SlimIntentSearch> _logger;
 
     public SlimIntentSearch(
-        IIntentCentroidStore centroidStore,
         IOptions<BotDetectionOptions> options,
+        IIntentCentroidStore intentCentroidStore,
         ILogger<SlimIntentSearch> logger)
     {
-        _centroidStore = centroidStore;
+        _intentCentroidStore = intentCentroidStore;
         _logger = logger;
 
         var cacheSize = options.Value.SelfMaintenance.IntentCacheSize;
@@ -88,19 +92,10 @@ public sealed class SlimIntentSearch : IIntentSimilaritySearch
         // Write to hot cache immediately (fast path)
         _cache.Set(signatureId, new CacheEntry(vector, threatScore, intentCategory));
 
-        // Persist to SQLite in background; never block the caller
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _centroidStore.UpsertIntentAsync(signatureId, vector, threatScore, intentCategory)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Background SQLite upsert failed for intent signature {Id}", signatureId);
-            }
-        });
+        // Non-blocking write-behind: the store's WriteBehindLfuStore drain handles
+        // batching + SQLite persistence. ColdnessScore is threat-driven (botProbability=0.0)
+        // so low-threat browsing is shed first under memory pressure — no sampling gate needed here.
+        _intentCentroidStore.RecordIntent(signatureId, vector, threatScore, intentCategory);
 
         return Task.CompletedTask;
     }

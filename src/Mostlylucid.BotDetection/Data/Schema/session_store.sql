@@ -157,7 +157,6 @@ CREATE TABLE IF NOT EXISTS signature_centroids (
     vector       BLOB    NOT NULL,
     was_bot      INTEGER NOT NULL DEFAULT 0,
     confidence   REAL    NOT NULL DEFAULT 0.5,
-    access_count INTEGER NOT NULL DEFAULT 0,
     updated_at   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sigc_updated ON signature_centroids(updated_at);

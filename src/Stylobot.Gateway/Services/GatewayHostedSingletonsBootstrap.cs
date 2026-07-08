@@ -43,6 +43,11 @@ internal sealed class GatewayHostedSingletonsBootstrap : IHostedService
         // sidecar) may not register a particular migrated singleton; the
         // bootstrap should not crash the host when the singleton is absent.
         _services.GetService<ProfileAnalysisWorker>();
+
+        // Upstream health probe: subscribes to Tick1m in its ctor when
+        // BotDetection:UpstreamHealth:Enabled is true. No-op when disabled.
+        _services.GetService<Stylobot.Gateway.Health.UpstreamHealthProbeService>();
+
         return Task.CompletedTask;
     }
 

@@ -287,6 +287,13 @@ try
     // Add metrics and health
     builder.Services.AddGatewayServices();
 
+    // Register active upstream health monitor (IUpstreamHealthEndpointDiscovery +
+    // UpstreamHealthProbeService). The probe service is eagerly resolved by
+    // GatewayHostedSingletonsBootstrap so its ctor-subscribe fires at startup.
+    // Disabled by default (BotDetection:UpstreamHealth:Enabled = false); opt-in
+    // per-deployment.
+    builder.Services.AddUpstreamHealthMonitor(builder.Configuration);
+
     // Add profile mode services (channel, calibration store, background worker)
     builder.Services.AddProfileMode(builder.Configuration);
 
