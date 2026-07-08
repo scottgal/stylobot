@@ -579,6 +579,11 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             .BindConfiguration(Orchestration.Sessions.SessionStoreOptions.SectionName);
         services.AddOptions<Orchestration.Sessions.SessionAtomOptions>()
             .BindConfiguration(Orchestration.Sessions.SessionAtomOptions.SectionName);
+        // Signals-native session layer (Slice 1). Registered BEFORE SessionStore so
+        // its optional ctor param picks up the registry and Upsert dual-writes.
+        services.AddOptions<Orchestration.Sessions.SessionCoordinatorOptions>()
+            .BindConfiguration("BotDetection:SessionCoordinator");
+        services.TryAddSingleton<Orchestration.Sessions.SiteCoordinatorRegistry>();
         services.TryAddSingleton<Orchestration.Sessions.SessionStore>();
         services.AddOnInitSignal<Orchestration.Sessions.SessionAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);

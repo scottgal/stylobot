@@ -306,6 +306,14 @@ public sealed class FingerprintAbsorptionService : IDisposable
         var newInferredConfidence = nearest?.Score ?? 0.0;
         var typeChanged = !string.Equals(newInferredType, obs.InferredClientType, StringComparison.OrdinalIgnoreCase);
 
+        // Ensure the fingerprint is in the store's hot read cache before the write, so
+        // AbsorbObservationAsync's synchronous cache update lands on a real entry: the
+        // store deliberately does not cache on InsertFingerprintAsync (the first read
+        // populates it from the canonical row). Cheap dict hit when already hot; one
+        // canonical SELECT on a genuinely cold fingerprint. Without it, a read-after-write
+        // on a never-yet-read fingerprint would see the stale pre-absorption centroid.
+        await _store.GetFingerprintAsync(obs.FingerprintId, ct).ConfigureAwait(false);
+
         var newMaturity = maturity + 1;
         await _store.AbsorbObservationAsync(
             obs.ObservationId, obs.FingerprintId, newCentroid, newMaturity, newWeights,

@@ -174,10 +174,13 @@ public class EscalateToSessionActionPolicyTests
         var context = NewContext();
         var evidence = NewEvidence(); // no signals, no items
 
+        var raises = 0;
+        store.Changes.TypedSignalRaised += _ => raises++;
+
         var result = await policy.ExecuteAsync(context, evidence);
 
         result.Description.Should().Contain("no fingerprint");
-        store.SnapshotSite("default").Should().BeEmpty();
+        raises.Should().Be(0, "no fingerprint means no upsert and no change fired");
     }
 
     // ── Site resolution ──────────────────────────────────────────────
