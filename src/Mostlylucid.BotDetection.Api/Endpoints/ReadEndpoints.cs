@@ -40,6 +40,7 @@ public static class ReadEndpoints
         group.MapGet("/endpoints/{method}/{**path}", HandleEndpointDetail).WithName("GetEndpointDetail");
         group.MapGet("/topbots", HandleTopBots).WithName("GetTopBots");
         group.MapGet("/threats", HandleThreats).WithName("GetThreats");
+        group.MapPost("/compose-batch", HandleComposeBatch).WithName("ComposeBatch");
 
         return endpoints;
     }
@@ -445,6 +446,27 @@ public static class ReadEndpoints
             }
         }
         return bots;
+    }
+
+    /// <summary>
+    ///     Batched dashboard read: accepts a <see cref="DashboardBatchRequest"/> and returns a
+    ///     <see cref="DashboardDatasetBundle"/> whose properties are populated only for the
+    ///     <see cref="DatasetKind"/>s listed in the request. Allows the remote/viewer dashboard
+    ///     host (<c>RemoteDashboardEventStore</c>) to satisfy a full page render in a
+    ///     single round-trip rather than N parallel GET calls.
+    ///     <para>
+    ///     The in-process <see cref="IDashboardEventStore"/> resolves to the Postgres single-scan
+    ///     override when the gateway is wired with the commercial persistence plugin; it falls back
+    ///     to the default fan-out for any other backing.
+    ///     </para>
+    /// </summary>
+    private static async Task<Ok<SingleResponse<DashboardDatasetBundle>>> HandleComposeBatch(
+        [FromServices] IDashboardEventStore store,
+        [FromBody] DashboardBatchRequest request,
+        CancellationToken ct)
+    {
+        var bundle = await store.ComposeBatchAsync(request, ct);
+        return TypedResults.Ok(new SingleResponse<DashboardDatasetBundle> { Data = bundle, Meta = new ResponseMeta() });
     }
 
     private static BotType? ParseBotType(string? raw)

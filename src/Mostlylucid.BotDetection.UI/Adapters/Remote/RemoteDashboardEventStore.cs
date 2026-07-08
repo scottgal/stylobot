@@ -296,6 +296,23 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         });
     }
 
+    /// <summary>
+    ///     Single-round-trip override: POSTs the entire <see cref="DashboardBatchRequest"/>
+    ///     to the gateway's <c>POST /api/v1/compose-batch</c> endpoint and deserializes the
+    ///     <see cref="DashboardDatasetBundle"/> in one call.  Replaces the base-interface
+    ///     default fan-out (N GET calls) with a single POST — the remote-viewer win.
+    ///     On any transport or non-success response the gateway client logs a warning and
+    ///     returns null; we degrade to an all-null bundle so the dashboard renders empty
+    ///     widgets rather than surfacing an HTTP error.
+    /// </summary>
+    public async Task<DashboardDatasetBundle> ComposeBatchAsync(
+        DashboardBatchRequest request, CancellationToken ct = default)
+    {
+        var bundle = await _api.PostEnvelopeAsync<DashboardBatchRequest, DashboardDatasetBundle>(
+            "/api/v1/compose-batch", request, ct);
+        return bundle ?? new DashboardDatasetBundle(null, null, null, null, null);
+    }
+
     public async Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default)
     {
         var result = await _api.PostEnvelopeAsync<InvestigationFilter, InvestigationResult>(
