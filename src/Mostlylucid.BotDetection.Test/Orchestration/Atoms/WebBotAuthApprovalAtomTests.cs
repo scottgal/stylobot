@@ -414,9 +414,9 @@ public sealed class WebBotAuthApprovalAtomTests
         ctx.Items[IdentityVectorAtom.VectorKey] = NonZeroVector();
 
         var sink = SinkWithSignature();
-        // Verifier returns Invalid (e.g., expired or wrong key)
+        // Verifier returns an invalid-signature outcome (e.g., tampered or wrong key)
         _verifierMock.Setup(v => v.Verify(It.IsAny<TokenInput>()))
-            .Returns(new TokenVerdict(TokenOutcome.Invalid, KeyId, SubjectName, null, TimeSpan.Zero));
+            .Returns(new TokenVerdict(TokenOutcome.InvalidSignature, KeyId, SubjectName, null, TimeSpan.Zero));
 
         var atom = BuildAtom(ctx, store, registry);
 
