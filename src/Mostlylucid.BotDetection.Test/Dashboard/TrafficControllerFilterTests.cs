@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Controllers;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
@@ -85,8 +86,13 @@ public sealed class TrafficControllerFilterTests
     private static TrafficController NewController(out DefaultHttpContext httpContext, TestEventStore? store = null)
     {
         store ??= new TestEventStore();
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
         var controller = new TrafficController(
             store,
+            composer,
+            manifests,
             Options.Create(new DashboardLayoutOptions()),
             Options.Create(new ThreatsOptions()));
         httpContext = new DefaultHttpContext();
@@ -103,6 +109,25 @@ public sealed class TrafficControllerFilterTests
     private sealed class TestEventStore : IDashboardEventStore
     {
         public List<DashboardTopBotEntry> TopBots { get; set; } = new();
+
+        public Task<DashboardDatasetBundle> ComposeBatchAsync(DashboardBatchRequest request, CancellationToken ct = default)
+        {
+            var summary = new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0,
+                RiskBandCounts = new Dictionary<string, int>(),
+                TopBotTypes = new Dictionary<string, int>(),
+                TopActions = new Dictionary<string, int>(),
+                UniqueSignatures = 0,
+            };
+            return Task.FromResult(new DashboardDatasetBundle(
+                Summary: summary,
+                TimeBuckets: new List<DashboardTimeSeriesPoint>(),
+                BotAggregate: TopBots,
+                Geo: new List<DashboardCountryStats>(),
+                Endpoints: new List<DashboardEndpointStats>()));
+        }
 
         public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(
             int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
