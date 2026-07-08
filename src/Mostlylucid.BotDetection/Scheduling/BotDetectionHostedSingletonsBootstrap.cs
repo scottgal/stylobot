@@ -61,6 +61,12 @@ internal sealed class BotDetectionHostedSingletonsBootstrap : IHostedService
         _services.GetService<ICommonUserAgentService>();
         _services.GetService<Ja3CorpusRefreshService>();
         _services.GetService<Definitions.WellKnownBots.WellKnownBotRefreshService>();
+        // Web Bot Auth: the refresh coordinator subscribes to Tick1h + seeds
+        // manual keys at ctor; the Escalator subscribes to the refreshed signal +
+        // fires a best-effort cold-start rehydrate. Resolve the Escalator first so
+        // durable keys land before the coordinator's first fetch.
+        _services.GetService<WebBotAuth.PublicKeyRegistryAtom>();
+        _services.GetService<WebBotAuth.PublicKeyRegistryRefreshCoordinator>();
         _services.GetService<Guardians.GuardianService>();
         _services.GetService<VerifiedBotRegistry>();
         _services.GetService<EntityResolutionService>();

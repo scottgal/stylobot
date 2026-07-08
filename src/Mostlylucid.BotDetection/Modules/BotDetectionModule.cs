@@ -12,6 +12,7 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.WebBotAuth;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;
 using StyloFlow;
 using StyloFlow.Modules;
@@ -98,6 +99,12 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddHostedService<Scheduling.ScheduleCoordinatorWatchdog>();
         // Boot the migrated singletons (each subscribes to ticks at ctor time).
         services.AddHostedService<Scheduling.BotDetectionHostedSingletonsBootstrap>();
+
+        // Web Bot Auth foundation: public-key registry (Coordinator) + Tick1h
+        // refresh + durability Escalator, and the RFC 9421 / license-capability
+        // token verifier. FOSS capability; self-gates on
+        // BotDetection:PublicKeyRegistry:Enabled (default false).
+        services.AddWebBotAuth();
 
         // Manifest loader + config provider back every detector atom's
         // per-manifest weights / thresholds / feature flags. FOSS ships the

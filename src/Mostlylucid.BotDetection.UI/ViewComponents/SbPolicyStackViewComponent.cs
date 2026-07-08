@@ -62,18 +62,51 @@ public sealed class SbPolicyStackViewComponent : ViewComponent
         // pay for the principal lookup.
         var effectiveCanEdit = canEdit ?? _canEditPolicy.CanEdit(HttpContext?.User);
 
-        var vm = await _presenter.BuildAsync(
-            scope: scope,
-            embed: embed,
-            activeTab: activeTab ?? "effective",
-            aggregateWindow: aggregateWindow ?? TimeSpan.FromHours(24),
-            canEdit: effectiveCanEdit,
-            filter: filter,
-            sort: sort,
-            explainerFingerprint: explainerFingerprint,
-            explainerLocked: lockedFingerprint,
-            hideRuleList: hideRuleList,
-            ct: HttpContext?.RequestAborted ?? CancellationToken.None);
+        // Per-VC render budget: cap presenter.BuildAsync at 2s so a slow
+        // upstream (remote-viewer HttpClient, DB query) can't block the
+        // dashboard shell. Serial VCs summed under the render-loop ceiling;
+        // timeout degrades to the empty presenter model. Matches the pattern
+        // in stylobot-commercial 8989761 and stylobot SbSiteHealth d18f7fba.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+            HttpContext?.RequestAborted ?? CancellationToken.None);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+
+        PolicyStackViewModel vm;
+        try
+        {
+            vm = await _presenter.BuildAsync(
+                scope: scope,
+                embed: embed,
+                activeTab: activeTab ?? "effective",
+                aggregateWindow: aggregateWindow ?? TimeSpan.FromHours(24),
+                canEdit: effectiveCanEdit,
+                filter: filter,
+                sort: sort,
+                explainerFingerprint: explainerFingerprint,
+                explainerLocked: lockedFingerprint,
+                hideRuleList: hideRuleList,
+                ct: cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            vm = new PolicyStackViewModel(
+                Scope: scope,
+                BreadcrumbPath: Array.Empty<PolicyScope>(),
+                Embed: embed,
+                ActiveTab: activeTab ?? "effective",
+                AggregateWindow: aggregateWindow ?? TimeSpan.FromHours(24),
+                CanEdit: effectiveCanEdit,
+                Rows: Array.Empty<PolicyStackRowViewModel>(),
+                TotalEffectiveRules: 0,
+                RulesTriggeredInWindow: 0,
+                LatestEditAt: null,
+                ScopeHash: string.Empty,
+                StackGroups: Array.Empty<PolicyStackScopeGroupViewModel>(),
+                Conflicts: Array.Empty<PolicyConflictViewModel>(),
+                Filter: filter,
+                Sort: sort,
+                AggregateStrip: null);
+        }
 
         // Default.cshtml is the single entry point -- it dispatches to the
         // embed-shape partial based on vm.Embed. Returning View() (i.e.

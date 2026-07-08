@@ -158,5 +158,14 @@ public sealed class DashboardFreshnessBeacon
         ///     <c>data-sb-depends="site-health"</c>.
         /// </summary>
         public const string SiteHealth = "site-health";
+
+        /// <summary>
+        ///     Web Bot Auth public-key registry widget. Producer:
+        ///     <see cref="DashboardFreshnessBridge"/>'s arm subscribing to the
+        ///     public-key registry's <c>PublicKeyRegistryRefreshedSignal</c>.
+        ///     Consumers: the <c>SbPublicKeyRegistryViewComponent</c>-rendered
+        ///     card carrying <c>data-sb-depends="public-keys"</c>.
+        /// </summary>
+        public const string PublicKeys = "public-keys";
     }
 }

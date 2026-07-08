@@ -5,6 +5,7 @@ using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
+using Mostlylucid.BotDetection.WebBotAuth;
 
 namespace Mostlylucid.BotDetection.UI.Services;
 
@@ -75,6 +76,12 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
     // still gets the other.
     private IDisposable? _siteHealthTickSubscription;
 
+    // Public-key registry arm (Web Bot Auth): event-driven — fires the
+    // "public-keys" beacon whenever the registry's hourly manifest refresh
+    // raises PublicKeyRegistryRefreshedSignal. Optional so a host without the
+    // detection stack (viewer-mode) skips this arm.
+    private readonly Mostlylucid.Ephemeral.TypedSignalSink<PublicKeyRegistryRefreshedSignal>? _publicKeyRefreshed;
+
     public DashboardFreshnessBridge(
         DashboardFreshnessBeacon beacon,
         IPolicyRuleStore? ruleStore = null,
@@ -82,6 +89,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
         IMeterStream? meterStream = null,
         IScheduleCoordinator? coordinator = null,
         MeterStreamHealthTileCache? meterTileCache = null,
+        Mostlylucid.Ephemeral.TypedSignalSink<PublicKeyRegistryRefreshedSignal>? publicKeyRefreshed = null,
         ILogger<DashboardFreshnessBridge>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(beacon);
@@ -91,6 +99,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
         _meterStream = meterStream;
         _coordinator = coordinator;
         _meterTileCache = meterTileCache;
+        _publicKeyRefreshed = publicKeyRefreshed;
         _logger = logger;
     }
 
@@ -100,6 +109,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
         AttachRuleStoreHandler();
         AttachTickSubscription();
         AttachSiteHealthSubscription();
+        AttachPublicKeySubscription();
         return Task.CompletedTask;
     }
 
@@ -109,6 +119,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
         DetachRuleStoreHandler();
         DetachTickSubscription();
         DetachSiteHealthSubscription();
+        DetachPublicKeySubscription();
         return Task.CompletedTask;
     }
 
@@ -118,6 +129,7 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
         DetachRuleStoreHandler();
         DetachTickSubscription();
         DetachSiteHealthSubscription();
+        DetachPublicKeySubscription();
     }
 
     // -------------------- Policy stack arm -------------------------------
@@ -231,6 +243,39 @@ public sealed class DashboardFreshnessBridge : IHostedService, IDisposable
         try { _siteHealthTickSubscription?.Dispose(); }
         catch { /* coordinator already torn down */ }
         _siteHealthTickSubscription = null;
+    }
+
+    // -------------------- Public-key registry arm ------------------------
+
+    private void AttachPublicKeySubscription()
+    {
+        if (_publicKeyRefreshed is null) return;
+        try { _publicKeyRefreshed.TypedSignalRaised += OnPublicKeysRefreshed; }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex,
+                "DashboardFreshnessBridge: failed to subscribe to the public-key refresh signal.");
+        }
+    }
+
+    private void DetachPublicKeySubscription()
+    {
+        if (_publicKeyRefreshed is null) return;
+        try { _publicKeyRefreshed.TypedSignalRaised -= OnPublicKeysRefreshed; }
+        catch { /* sink already torn down */ }
+    }
+
+    private void OnPublicKeysRefreshed(Mostlylucid.Ephemeral.SignalEvent<PublicKeyRegistryRefreshedSignal> evt)
+    {
+        try
+        {
+            _beacon.BroadcastStale(DashboardFreshnessBeacon.Surfaces.PublicKeys);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex,
+                "DashboardFreshnessBridge: failed to publish public-keys stale beacon.");
+        }
     }
 
     private async Task CheckMeterCatalogAsync(DateTimeOffset _, CancellationToken ct)
