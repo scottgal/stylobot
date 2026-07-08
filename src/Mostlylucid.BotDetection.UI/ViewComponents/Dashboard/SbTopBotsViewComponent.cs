@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
@@ -8,6 +9,7 @@ using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
+[DashboardWidget("top-bots", DatasetKind.BotAggregate)]
 public class SbTopBotsViewComponent(
     IDashboardEventStore eventStore,
     IOptions<StyloBotDashboardOptions> options,

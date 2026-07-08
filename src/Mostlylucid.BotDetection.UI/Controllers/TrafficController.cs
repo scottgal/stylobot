@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Dashboard;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
@@ -30,12 +31,16 @@ namespace Mostlylucid.BotDetection.UI.Controllers;
 public sealed class TrafficController : Controller
 {
     private readonly IDashboardEventStore _eventStore;
+    private readonly IDashboardPageComposer _composer;
+    private readonly IDashboardPageManifestSource _manifests;
     private readonly IOptions<DashboardLayoutOptions> _layout;
     private readonly IOptions<ThreatsOptions> _threatsOpts;
     private readonly SignatureAggregateCache? _cache;
 
     public TrafficController(
         IDashboardEventStore eventStore,
+        IDashboardPageComposer composer,
+        IDashboardPageManifestSource manifests,
         IOptions<DashboardLayoutOptions> layout,
         IOptions<ThreatsOptions> threatsOpts,
         SignatureAggregateCache? cache = null)
@@ -47,6 +52,8 @@ public sealed class TrafficController : Controller
         // data source here -- kept as a constructor dep so any future fast-path
         // can short-circuit through it without a DI rewire.
         _eventStore = eventStore;
+        _composer = composer;
+        _manifests = manifests;
         _layout = layout;
         _threatsOpts = threatsOpts;
         _cache = cache;
@@ -110,30 +117,39 @@ public sealed class TrafficController : Controller
         // dashboard_detections is scoped to the selected subset. null / empty =
         // no filter (fail open, matches the task-spec convention).
         var domainsForQuery = filters.Domains.Count > 0 ? (IReadOnlyList<string>)filters.Domains : null;
-        var topBotsTask = _eventStore.GetTopBotsAsync(
-            count: 500, startTime: startTime, endTime: now, audienceFilter: "all", domains: domainsForQuery);
+
+        // Current window: compose all five datasets in ONE ComposeBatchAsync call.
+        // The DashboardPageResult is stashed in HttpContext.Items so Task 4's VCs
+        // can read their slice without a self-fetch (spec §3, HttpContext.Items key
+        // "sb.dashboard.pageresult").
+        var manifest = _manifests.For("dashboard.traffic")!;
+        var pageWindow = new DashboardPageWindow(
+            StartTime: startTime,
+            EndTime: now,
+            AudienceFilter: "all",
+            ProbMin: null,
+            Domains: domainsForQuery,
+            TopN: 500,
+            BucketMinutes: (int)bucketSize.TotalMinutes);
+        var page = await _composer.ComposeAsync(manifest, pageWindow, ct);
+        HttpContext.Items["sb.dashboard.pageresult"] = page;
+
+        var topBots = page.BotAggregate ?? new List<DashboardTopBotEntry>();
+        var summary = page.Summary;
+        var countriesData = (IReadOnlyList<DashboardCountryStats>)(page.Geo ?? new List<DashboardCountryStats>());
+        var endpointsData = (IReadOnlyList<DashboardEndpointStats>)(page.Endpoints ?? new List<DashboardEndpointStats>());
+
+        // Prior-window comparison: separate direct fetches (two tasks, no composer
+        // needed for just two datasets; the overhead is negligible and avoids
+        // complicating the manifest with a second window concept).
         var priorBotsTask = _eventStore.GetTopBotsAsync(
             count: 500, startTime: startTime.AddMinutes(-windowMinutes), endTime: startTime, audienceFilter: "all", domains: domainsForQuery);
-        var summaryTask = SafeGetSummaryAsync(startTime, now, domainsForQuery);
         var priorSummaryTask = SafeGetSummaryAsync(startTime.AddMinutes(-windowMinutes), startTime, domainsForQuery);
-        var countriesTask = SafeGetCountryStatsAsync(topN, startTime, now, domainsForQuery);
-        var endpointsTask = SafeGetEndpointStatsAsync(topN, startTime, now, domainsForQuery);
-        // The hits-per-period chart is a REAL time series read from the durable
-        // event store (Postgres on the gateway, forwarded over REST on remote
-        // hosts) -- NOT re-projected from the visitor snapshot. Each detection
-        // already carries its own timestamp, so the store buckets by real time;
-        // it survives a gateway restart and spans the full retention window
-        // (feedback_cache_lives_where_data_lives / feedback_no_caches_freshness_over_locality).
-        var hitsSeriesTask = SafeGetTimeSeriesAsync(startTime, now, bucketSize, domainsForQuery);
 
-        await Task.WhenAll(topBotsTask, priorBotsTask, summaryTask, priorSummaryTask, countriesTask, endpointsTask, hitsSeriesTask);
+        await Task.WhenAll(priorBotsTask, priorSummaryTask);
 
-        var topBots = topBotsTask.Result;
         var priorBots = priorBotsTask.Result;
-        var summary = summaryTask.Result;
         var priorSummary = priorSummaryTask.Result;
-        var countriesData = countriesTask.Result;
-        var endpointsData = endpointsTask.Result;
 
         // Project top-bots through the canonical helper so audience split,
         // collapse rules, and threat / country / bot-type post-filters match
@@ -148,7 +164,8 @@ public sealed class TrafficController : Controller
             country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 
         var counters = BuildCounters(summary, priorSummary, topBots, priorBots);
-        var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(hitsSeriesTask.Result, startTime, now, bucketSize);
+        var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(
+            page.TimeBuckets?.ToList() ?? new List<DashboardTimeSeriesPoint>(), startTime, now, bucketSize);
         var botFamilies = BuildBotFamilies(visitors, windowMinutes);
 
         var model = new TrafficPageModel(

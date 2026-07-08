@@ -1,12 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
+[DashboardWidget("endpoints", DatasetKind.EndpointStats)]
 public class SbEndpointsListViewComponent(
     DashboardAggregateCache aggregateCache,
     IDashboardEventStore eventStore,

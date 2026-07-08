@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Controllers;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
@@ -130,13 +132,18 @@ public sealed class TopEndpointsPerfProjectionTests
 
     private static TrafficController NewController(PerfTestEventStore store)
     {
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
         var controller = new TrafficController(
             store,
+            composer,
+            manifests,
             Options.Create(new DashboardLayoutOptions()),
             Options.Create(new ThreatsOptions()));
         controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
         {
-            HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext(),
+            HttpContext = new DefaultHttpContext(),
         };
         return controller;
     }
@@ -149,6 +156,25 @@ public sealed class TopEndpointsPerfProjectionTests
     private sealed class PerfTestEventStore : IDashboardEventStore
     {
         public List<DashboardEndpointStats> Endpoints { get; set; } = new();
+
+        public Task<DashboardDatasetBundle> ComposeBatchAsync(DashboardBatchRequest request, CancellationToken ct = default)
+        {
+            var summary = new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0,
+                RiskBandCounts = new Dictionary<string, int>(),
+                TopBotTypes = new Dictionary<string, int>(),
+                TopActions = new Dictionary<string, int>(),
+                UniqueSignatures = 0,
+            };
+            return Task.FromResult(new DashboardDatasetBundle(
+                Summary: summary,
+                TimeBuckets: new List<DashboardTimeSeriesPoint>(),
+                BotAggregate: new List<DashboardTopBotEntry>(),
+                Geo: new List<DashboardCountryStats>(),
+                Endpoints: Endpoints));
+        }
 
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
             int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
