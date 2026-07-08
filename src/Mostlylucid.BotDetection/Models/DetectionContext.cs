@@ -1697,6 +1697,34 @@ public static partial class SignalKeys
     public const string ApprovalExpiresAt = "approval.expires_at";
 
     // ==========================================
+    // Web Bot Auth (RFC 9421 HTTP Message Signatures) — Contract C3
+    // Set by WebBotAuthApprovalAtom. Locked signal names; do not rename.
+    // ==========================================
+
+    /// <summary>
+    ///     Bool presence-signal: request carried Signature + Signature-Input headers.
+    ///     Beacon only — does not indicate valid verification. Raised before
+    ///     the verify call so downstream atoms can gate on WBA presence without
+    ///     waiting for the crypto outcome.
+    /// </summary>
+    public const string WebBotAuthPresented = "webbotauth.presented";
+
+    /// <summary>Bool hint: true when the signature verified as Valid.</summary>
+    public const string VerifiedBotSigned = "identity.verified_bot_signed";
+
+    /// <summary>String hint: resolved agent name from the public key registry (WBA path).</summary>
+    public const string WbaVerifiedBotName = "identity.verified_bot_name";
+
+    /// <summary>String hint: public key identifier from the Signature-Input params.</summary>
+    public const string VerifiedBotKeyId = "identity.verified_bot_key_id";
+
+    /// <summary>String hint: algorithm string from the Signature-Input params.</summary>
+    public const string VerifiedBotAlgorithm = "identity.verified_bot_algorithm";
+
+    /// <summary>String hint: <see cref="Mostlylucid.BotDetection.Auth.TokenOutcome"/> as a string.</summary>
+    public const string SignatureVerdict = "identity.signature_verdict";
+
+    // ==========================================
     // CVE / Threat Intelligence signals
     // Set by CveFingerprintContributor when traffic matches CVE-derived fingerprints
     // ==========================================

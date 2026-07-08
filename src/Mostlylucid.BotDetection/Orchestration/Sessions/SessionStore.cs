@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Auth;
 using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Orchestration.Sessions;
@@ -184,6 +185,46 @@ public sealed class SessionStore : IDisposable
     {
         if (!_sites.TryGetValue(siteId, out var partition)) return null;
         return partition.Aggregates.TryGetValue(fingerprintId, out var entry) ? entry : null;
+    }
+
+    /// <summary>
+    ///     Write (or update) the <see cref="WebBotAuthCachedVerdict"/> on the
+    ///     aggregate identified by <paramref name="siteId"/> +
+    ///     <paramref name="fingerprintId"/>. If no aggregate exists yet a
+    ///     minimal stub is created so the verdict can be retrieved on the
+    ///     next request within the session window. The stub has
+    ///     <c>SampleCount = 0</c> and low retention priority so it evicts
+    ///     first under pressure; a real sample arriving via
+    ///     <see cref="Upsert"/> will merge into it and preserve the verdict
+    ///     via the C# <c>with</c> copy-semantics on
+    ///     <see cref="SessionAggregateMerge.Merge"/>.
+    ///
+    ///     Does NOT raise on <see cref="Changes"/> — a verdict update is not
+    ///     a behavioural shift; the <see cref="Sessions.SessionAtom"/> must
+    ///     not react to it.
+    /// </summary>
+    public void SetWebBotAuthVerdict(string siteId, string fingerprintId, WebBotAuthCachedVerdict? verdict)
+    {
+        var partition = _sites.GetOrAdd(siteId, _ => new SitePartition());
+        partition.Aggregates.AddOrUpdate(
+            fingerprintId,
+            _ => new SessionAggregate
+            {
+                FingerprintId = fingerprintId,
+                SiteId = siteId,
+                FirstSample = DateTimeOffset.UtcNow,
+                LastSample = DateTimeOffset.UtcNow,
+                SampleCount = 0,
+                MeanBotProbability = 0.5,
+                MaxBotProbability = 0.5,
+                LatestConfidence = 0.0,
+                HoneypotHits = 0,
+                UpstreamStatusCounts = new Dictionary<int, int>(),
+                DominantClientType = null,
+                RetentionPriority = 0.0,
+                WebBotAuthVerdict = verdict,
+            },
+            (_, existing) => existing with { WebBotAuthVerdict = verdict });
     }
 
     /// <summary>
