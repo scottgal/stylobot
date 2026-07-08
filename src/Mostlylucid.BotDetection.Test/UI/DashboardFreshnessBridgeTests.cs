@@ -272,6 +272,8 @@ public sealed class DashboardFreshnessBridgeTests
 
         public Task FingerprintDirty(string fingerprintId, string slot) => Task.CompletedTask;
 
+        public Task BroadcastDirty(DashboardDirtyBeacon beacon) => Task.CompletedTask;
+
         public int SignalCount(string signal)
         {
             lock (Signals) return Signals.Count(s => s == signal);

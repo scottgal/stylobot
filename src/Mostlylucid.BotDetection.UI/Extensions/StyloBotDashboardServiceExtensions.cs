@@ -403,6 +403,13 @@ public static class StyloBotDashboardServiceExtensions
             Mostlylucid.BotDetection.UI.Services.DashboardChangeCursor>();
         services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DashboardChangeCursorTickHook>();
 
+        // Plan 3 Task 2 -- wire cursor into SignalRBroadcastConstrainer so the
+        // BroadcastDirty beacon carries the correct CurrentTick. The cursor is a
+        // singleton; setting it once on the static constrainer is safe for the
+        // process lifetime. The setter is idempotent so repeated AddStyloBotDashboard
+        // calls (multi-pack hosts) don't corrupt the static slot.
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.BroadcastConstrainerCursorWire>();
+
         // #122 -- Centralised dashboard freshness beacon. ONE invalidation
         // channel for every pack-health summary tile (policy stack, AspNet
         // pack, meter stream). Producers publish a surface key; consumers
