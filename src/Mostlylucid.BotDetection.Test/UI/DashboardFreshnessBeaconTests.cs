@@ -126,6 +126,8 @@ public sealed class DashboardFreshnessBeaconTests
         public Task PolicyChanged(string scopeKey) => Task.CompletedTask;
 
         public Task FingerprintDirty(string fingerprintId, string slot) => Task.CompletedTask;
+
+        public Task BroadcastDirty(DashboardDirtyBeacon beacon) => Task.CompletedTask;
     }
 
     private sealed class RecordingHubContext : IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>

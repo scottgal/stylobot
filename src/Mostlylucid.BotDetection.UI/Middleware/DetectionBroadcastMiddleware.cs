@@ -136,6 +136,7 @@ public partial class DetectionBroadcastMiddleware
         IOptions<StyloBotDashboardOptions> dashboardOptionsAccessor,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
+        IDashboardChangeCursor? cursor = null,
         IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null)
     {
         // Build the detection from context.Items (populated by UseBotDetection earlier in
@@ -194,10 +195,17 @@ public partial class DetectionBroadcastMiddleware
                     signatureAggregateCache.UpdateFromDetection(detection);
 
                     // === SIGNALR BEACONS (throttled by SignalRBroadcastConstrainer) ===
+                    // Bump the cursor before queuing so the tick is recorded at emission
+                    // time (Plan 3 Task 2: cursor.Bump at emission, not at delivery).
+                    cursor?.Bump("signature");
+                    cursor?.Bump("summary");
                     SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashOpts.BroadcastMinIntervalMs);
                     SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashOpts.BroadcastMinIntervalMs);
                     if (detection.ThreatScore is > 0.3 || detection.Action == "simulation-pack")
+                    {
+                        cursor?.Bump("threats");
                         SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashOpts.BroadcastMinIntervalMs);
+                    }
 
                     // === ATTACK ARC (best-effort, throttled) ===
                     if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)

@@ -54,4 +54,24 @@ public interface IStyloBotDashboardHub
     ///     </para>
     /// </summary>
     Task FingerprintDirty(string fingerprintId, string slot);
+
+    /// <summary>
+    ///     Structured dirty beacon emitted once per coalescing flush window
+    ///     (Plan 3, Task 2). Carries the monotonic tick at which the flush fired
+    ///     and the closed set of surface names that changed during the window.
+    ///     <para>
+    ///         Clients compare <see cref="DashboardDirtyBeacon.Tick"/> against
+    ///         each widget's <c>data-sb-tick</c> attribute to skip widgets that
+    ///         are already current, avoiding unnecessary partial fetches.
+    ///     </para>
+    ///     <para>
+    ///         <b>ADDITIVE — existing consumers of
+    ///         <see cref="BroadcastInvalidation"/> are unaffected.</b> New
+    ///         clients may subscribe to this method instead of (or in addition
+    ///         to) <see cref="BroadcastInvalidation"/> for richer tick-versioned
+    ///         behaviour. The policy-stack and other legacy consumers continue to
+    ///         use <see cref="BroadcastInvalidation"/> unchanged.
+    ///     </para>
+    /// </summary>
+    Task BroadcastDirty(DashboardDirtyBeacon beacon);
 }
