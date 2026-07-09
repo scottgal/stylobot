@@ -34,7 +34,12 @@ public sealed class GuardianRegistrationCoverageTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["BotDetection:Identity:Enabled"] = identityEnabled ? "true" : "false"
+                ["BotDetection:Identity:Enabled"] = identityEnabled ? "true" : "false",
+                // AddBotDetection fails fast on a null DatabasePath (it used to fall back
+                // to an unbounded in-memory DB). This registration-coverage test never
+                // persists, so it opts into in-memory explicitly with an empty path,
+                // exactly as AddBotDetectionInMemory does. Empty passes; only null throws.
+                ["BotDetection:DatabasePath"] = string.Empty
             })
             .Build();
 
