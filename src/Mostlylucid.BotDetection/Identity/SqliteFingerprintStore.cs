@@ -2032,6 +2032,22 @@ public class SqliteFingerprintStore : IFingerprintStore
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
+        // Browser-mode tables live in this same fingerprints.db (written by
+        // SqliteFingerprintBrowserModeStore). They declare ON DELETE CASCADE but
+        // PRAGMA foreign_keys is off on this connection, so the cascade never fires:
+        // evicting a fingerprint must delete these explicitly or fingerprint_mode_observations
+        // (append-per-request, same shape as fingerprint_observations) keeps growing.
+        // Wrapped in try/catch because a fingerprints.db that predates the browser-mode
+        // store may not have these tables. Child (mode_observations) before parent (modes).
+        foreach (var table in new[] { "fingerprint_mode_observations", "fingerprint_modes" })
+        {
+            await using var cmd = conn.CreateCommand();
+            Bind(cmd);
+            cmd.CommandText = $"DELETE FROM {table} WHERE fingerprint_id IN ({inClause})";
+            try { await cmd.ExecuteNonQueryAsync(ct); }
+            catch (SqliteException) { /* browser-mode tables may be absent */ }
+        }
+
         int deleted;
         await using (var cmd = conn.CreateCommand())
         {
