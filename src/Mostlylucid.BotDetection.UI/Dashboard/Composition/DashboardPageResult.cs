@@ -11,11 +11,24 @@ namespace Mostlylucid.BotDetection.UI.Dashboard.Composition;
 public sealed class DashboardPageResult
 {
     private readonly DashboardDatasetBundle _bundle;
+    private readonly IReadOnlyDictionary<string, object?>? _extensions;
 
-    public DashboardPageResult(DashboardDatasetBundle bundle)
+    public DashboardPageResult(
+        DashboardDatasetBundle bundle,
+        IReadOnlyDictionary<string, object?>? extensions = null)
     {
         _bundle = bundle;
+        _extensions = extensions;
     }
+
+    /// <summary>
+    ///     The resolved data for a pack/commercial extension kind (see
+    ///     <see cref="IDashboardDatasetExtension"/>), cast to the widget's view model.
+    ///     Null when the kind wasn't composed or the extension returned null — the
+    ///     widget then falls back to its self-fetch.
+    /// </summary>
+    public T? GetExtension<T>(string kind) where T : class =>
+        _extensions is not null && _extensions.TryGetValue(kind, out var v) ? v as T : null;
 
     /// <summary>Summary statistics slice; null when <see cref="DatasetKind.SummaryStats"/> was not requested.</summary>
     public DashboardSummary? Summary => _bundle.Summary;
@@ -31,4 +44,7 @@ public sealed class DashboardPageResult
 
     /// <summary>Endpoint stats slice; null when <see cref="DatasetKind.EndpointStats"/> was not requested.</summary>
     public IReadOnlyList<DashboardEndpointStats>? Endpoints => _bundle.Endpoints;
+
+    /// <summary>Site-health degradation history slice; null when <see cref="DatasetKind.DegradationHistory"/> was not requested.</summary>
+    public IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>? Degradations => _bundle.Degradations;
 }

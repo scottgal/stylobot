@@ -596,6 +596,57 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // remote-mode dashboards.
         services.TryAddSingleton<Data.IDetectionArchive, Data.SqliteDetectionArchive>();
 
+        // Data guardian: prune stale time-series bucket rows (Phase 1, extracted
+        // from VectorCompactionService). Runs on its own interval; interval and
+        // enabled flag are config-driven via BotDetection:Guardians:BucketRetention:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.BucketRetentionGuardian>();
+
+        // Data guardian: compact overflowing SQLite session rows into behavioural
+        // centroids (Phase 2, extracted from VectorCompactionService). Runs on its
+        // own interval; config-driven via BotDetection:Guardians:SessionCompaction:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.SessionCompactionGuardian>();
+
+        // Data guardian: compact the HNSW session vector index when it exceeds
+        // threshold (Phase 3, extracted from VectorCompactionService). L1 collapses
+        // multi-vector signatures to per-signature centroids; L2 merges low-priority
+        // cluster members into cluster centroids. No-op when ISessionVectorSearch is
+        // not registered. Config-driven via BotDetection:Guardians:HnswCompaction:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.HnswCompactionGuardian>();
+
+        // Data guardian: prune stale rows from all three centroid tables (Phase 4,
+        // extracted from VectorCompactionService). Prunes signature, session, and
+        // intent centroids older than SelfMaintenance:CentroidRetentionDays in
+        // parallel. Config-driven via BotDetection:Guardians:CentroidRetention:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.CentroidRetentionGuardian>();
+
+        // Data guardian: cross-signature cap enforcement (Phase 5, extracted from
+        // VectorCompactionService). Evicts lowest-value signatures by
+        // DecisionNecessity when distinct signatures exceed MaxSignatures.
+        // No-op when MaxSignatures == 0 (the default, unlimited).
+        // Config-driven via BotDetection:Guardians:SignatureCap:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.SignatureCapGuardian>();
+
+        // Identity data guardians (Part B): bound fingerprints.db, the one durable
+        // store the vector guardians above don't cover. They operate on
+        // SqliteFingerprintStore, which is dormant unless Identity:Enabled, so they
+        // register ONLY when identity is on -- keeping the guardian roster honest
+        // (5 vector guardians when identity is off, 7 when on).
+        if (IsIdentityEnabled(services))
+        {
+            // Prune absorbed fingerprint_observations, keeping all unabsorbed plus
+            // the most-recent-K per fingerprint (drift-preserving). Config-driven via
+            // BotDetection:Guardians:FingerprintObservationRetention:*.
+            services.AddSingleton<Guardians.IGuardian,
+                Identity.FingerprintObservationRetentionGuardian>();
+
+            // Cross-fingerprint MemoryAdaptiveCap eviction by DecisionNecessity;
+            // cascade-deletes all per-fp tables and never evicts verified claims.
+            // No-op when MaxFingerprints == 0. Config-driven via
+            // BotDetection:Guardians:FingerprintEviction:*.
+            services.AddSingleton<Guardians.IGuardian,
+                Identity.FingerprintEvictionGuardian>();
+        }
+
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
         // by default, PostgreSQLDetectionArchive via commercial pack Replace).
@@ -653,6 +704,44 @@ public sealed class BotDetectionModule : IStyloflowWebModule
                 "ephemeral / in-memory operation (tests, CI, throwaway hosts), call AddBotDetectionInMemory() " +
                 "explicitly (it sets DatabasePath to empty to signal that intent). Do NOT leave DatabasePath null.")
             .ValidateOnStart();
+    }
+
+    /// <summary>
+    ///     Resolves the effective <c>Identity.Enabled</c> flag at DI-registration
+    ///     time so the identity data guardians register only when the metastable
+    ///     identity layer is on. Materialises a <see cref="BotDetectionOptions"/>
+    ///     from the same two sources the options system uses: the
+    ///     <c>BotDetection</c> configuration section (the config form) and every
+    ///     registered <see cref="Microsoft.Extensions.Options.IConfigureOptions{BotDetectionOptions}"/>
+    ///     delegate (the <c>AddBotDetection(configure)</c> form), so both surfaces
+    ///     are honoured without building the full service provider.
+    /// </summary>
+    private static bool IsIdentityEnabled(IServiceCollection services)
+    {
+        var options = new BotDetectionOptions();
+
+        // 1. Config-bind form: BotDetection:Identity:Enabled.
+        var configuration = services
+            .LastOrDefault(d =>
+                d.ServiceType == typeof(Microsoft.Extensions.Configuration.IConfiguration))
+            ?.ImplementationInstance as Microsoft.Extensions.Configuration.IConfiguration;
+        if (configuration is not null)
+            Microsoft.Extensions.Configuration.ConfigurationBinder.Bind(
+                configuration.GetSection("BotDetection"), options);
+
+        // 2. configure-action form: apply any registered IConfigureOptions delegates
+        //    (Configure<BotDetectionOptions> registers ConfigureNamedOptions here).
+        foreach (var descriptor in services.Where(d =>
+                     d.ServiceType == typeof(Microsoft.Extensions.Options.IConfigureOptions<BotDetectionOptions>)))
+        {
+            if (descriptor.ImplementationInstance is
+                Microsoft.Extensions.Options.IConfigureOptions<BotDetectionOptions> configure)
+            {
+                configure.Configure(options);
+            }
+        }
+
+        return options.Identity.Enabled;
     }
 
     /// <inheritdoc />

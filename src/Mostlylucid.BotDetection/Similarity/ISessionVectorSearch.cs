@@ -42,7 +42,7 @@ public interface ISessionVectorSearch
 
     /// <summary>
     ///     Find compacted L1/L2 centroid entries similar to the query vector.
-    ///     These represent dormant campaigns that have been compressed by VectorCompactionService.
+    ///     These represent dormant campaigns that have been compressed by the compaction guardians.
     ///     Unlike FindSimilarAsync (which returns any L0/L1/L2 entry), this method returns only
     ///     CompressionLevel >= 1 entries — the crystallized campaign centroids.
     ///     FOSS: served from the bounded in-memory cache (SlimSessionVectorSearch).
@@ -56,7 +56,7 @@ public interface ISessionVectorSearch
 
     /// <summary>
     ///     Returns a point-in-time snapshot of all (vector, metadata) pairs.
-    ///     Used by VectorCompactionService to compute behavioral centroids and velocity centroids.
+    ///     Used by the session/HNSW compaction guardians to compute behavioral centroids and velocity centroids.
     ///     The returned collection is a copy; modifications do not affect the index.
     /// </summary>
     IReadOnlyList<(float[] Vector, SessionVectorMetadata Metadata)> GetAllVectorsSnapshot();

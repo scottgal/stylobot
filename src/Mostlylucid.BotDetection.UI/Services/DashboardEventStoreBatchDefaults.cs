@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -18,6 +19,7 @@ public static class DashboardEventStoreBatchDefaults
         IReadOnlyList<DashboardTopBotEntry>? bots = null;
         IReadOnlyList<DashboardCountryStats>? geo = null;
         IReadOnlyList<DashboardEndpointStats>? endpoints = null;
+        IReadOnlyList<DegradationSnapshot>? degradations = null;
 
         foreach (var d in req.Datasets)
         {
@@ -43,9 +45,16 @@ public static class DashboardEventStoreBatchDefaults
                 case DatasetKind.EndpointStats:
                     endpoints = await store.GetEndpointStatsAsync(d.TopN, req.StartTime, req.EndTime, req.AudienceFilter, req.Domains);
                     break;
+                case DatasetKind.DegradationHistory:
+                    if (req.StartTime is null || req.EndTime is null)
+                        throw new ArgumentException(
+                            "ComposeBatchAsync: a DegradationHistory dataset requires both StartTime and EndTime (a history needs a window).",
+                            nameof(req));
+                    degradations = await store.GetDegradationHistoryAsync(req.StartTime.Value, req.EndTime.Value, ct);
+                    break;
             }
         }
 
-        return new DashboardDatasetBundle(summary, buckets, bots, geo, endpoints);
+        return new DashboardDatasetBundle(summary, buckets, bots, geo, endpoints, degradations);
     }
 }

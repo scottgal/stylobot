@@ -1,7 +1,9 @@
+using Mostlylucid.BotDetection.RateLimit;
+
 namespace Mostlylucid.BotDetection.UI.Models;
 
 /// <summary>Which aggregate slice a caller wants from a batched dashboard read.</summary>
-public enum DatasetKind { SummaryStats, TimeBuckets, BotAggregate, GeoBreakdown, EndpointStats }
+public enum DatasetKind { SummaryStats, TimeBuckets, BotAggregate, GeoBreakdown, EndpointStats, DegradationHistory }
 
 /// <summary>Specifies one slice of a batched dashboard read.</summary>
 public sealed record DatasetRequest(DatasetKind Kind, int TopN = 50, int BucketMinutes = 60);
@@ -28,4 +30,6 @@ public sealed record DashboardDatasetBundle(
     IReadOnlyList<DashboardTimeSeriesPoint>? TimeBuckets,
     IReadOnlyList<DashboardTopBotEntry>? BotAggregate,
     IReadOnlyList<DashboardCountryStats>? Geo,
-    IReadOnlyList<DashboardEndpointStats>? Endpoints);
+    IReadOnlyList<DashboardEndpointStats>? Endpoints,
+    // Optional trailing slot (default null) so existing 5-arg constructions keep compiling.
+    IReadOnlyList<DegradationSnapshot>? Degradations = null);

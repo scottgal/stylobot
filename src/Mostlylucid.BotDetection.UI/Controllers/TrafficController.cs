@@ -142,17 +142,34 @@ public sealed class TrafficController : Controller
         var countriesData = (IReadOnlyList<DashboardCountryStats>)(page.Geo ?? new List<DashboardCountryStats>());
         var endpointsData = (IReadOnlyList<DashboardEndpointStats>)(page.Endpoints ?? new List<DashboardEndpointStats>());
 
-        // Prior-window comparison: separate direct fetches (two tasks, no composer
-        // needed for just two datasets; the overhead is negligible and avoids
-        // complicating the manifest with a second window concept).
-        var priorBotsTask = _eventStore.GetTopBotsAsync(
-            count: 500, startTime: startTime.AddMinutes(-windowMinutes), endTime: startTime, audienceFilter: "all", domains: domainsForQuery);
-        var priorSummaryTask = SafeGetSummaryAsync(startTime.AddMinutes(-windowMinutes), startTime, domainsForQuery);
-
-        await Task.WhenAll(priorBotsTask, priorSummaryTask);
-
-        var priorBots = priorBotsTask.Result;
-        var priorSummary = priorSummaryTask.Result;
+        // Prior-window comparison for the counter deltas, routed through the content
+        // cache (a prior-window envelope) so the tick materializer warms it too and this
+        // render doesn't fan out — only summary + top-bots feed the deltas. Defensive: a
+        // failed prior compose degrades to no-comparison, never fails the page (matches
+        // the old Safe* behaviour).
+        IReadOnlyList<DashboardTopBotEntry> priorBots;
+        DashboardSummary? priorSummary;
+        try
+        {
+            var priorManifest = new DashboardPageManifest(
+                "dashboard.traffic.prior", new[] { "summary", "top-bots" });
+            var priorWindow = new DashboardPageWindow(
+                StartTime: startTime.AddMinutes(-windowMinutes),
+                EndTime: startTime,
+                AudienceFilter: "all",
+                ProbMin: null,
+                Domains: domainsForQuery,
+                TopN: 500,
+                BucketMinutes: (int)bucketSize.TotalMinutes);
+            var priorPage = await _contentCache.GetCurrentAsync(priorManifest, priorWindow, ct);
+            priorBots = priorPage.BotAggregate ?? new List<DashboardTopBotEntry>();
+            priorSummary = priorPage.Summary;
+        }
+        catch
+        {
+            priorBots = new List<DashboardTopBotEntry>();
+            priorSummary = null;
+        }
 
         // Project top-bots through the canonical helper so audience split,
         // collapse rules, and threat / country / bot-type post-filters match

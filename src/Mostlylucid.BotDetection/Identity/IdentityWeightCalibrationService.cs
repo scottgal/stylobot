@@ -34,6 +34,7 @@ namespace Mostlylucid.BotDetection.Identity;
 /// </summary>
 public sealed class IdentityWeightCalibrationService : IDisposable
 {
+
     private readonly ILogger<IdentityWeightCalibrationService> _logger;
     private readonly IFingerprintStore _store;
     private readonly IdentityArchetypeRegistry _archetypes;
@@ -436,7 +437,8 @@ public sealed class IdentityWeightCalibrationService : IDisposable
         // Defensive ?? empty-list because Moq-wrapped IFingerprintStore proxies
         // bypass the interface's default implementation and return null for
         // IReadOnlyList<T> setup-less methods.
-        var driftRows = await _store.ListRecentObservationsForDriftAsync(maxRowsPerArchetype: 5000, ct)
+        var driftRows = await _store.ListRecentObservationsForDriftAsync(
+                maxRowsPerArchetype: _options.DriftMaxRowsPerArchetype, ct)
             ?? Array.Empty<DriftObservationRow>();
         var metrics = ComputeDriftMetrics(driftRows, refined);
         if (metrics.Count > 0)

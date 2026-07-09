@@ -36,6 +36,11 @@ public interface IGuardian
     ///     on this, so a 6 h retention guardian and a 20 min data guardian coexist.</summary>
     TimeSpan Interval { get; }
 
+    /// <summary>Whether this guardian runs. Disabled guardians stay on the roster
+    ///     but are skipped by the walker. Defaults to true so existing guardians
+    ///     keep compiling without change.</summary>
+    bool Enabled => true;
+
     /// <summary>Do one pass. MUST be self-contained and cancellation-aware; the
     ///     walker catches and backs off on throw. Return a report even on a no-op.</summary>
     Task<GuardianReport> GuardAsync(CancellationToken ct = default);

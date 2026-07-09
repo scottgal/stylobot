@@ -187,20 +187,43 @@ from config, ramped down under memory pressure).
 2. **Re-base compliance guardians** onto `IGuardian` (Category = Compliance); fold
    `ComplianceGuardianService` into `GuardianService`. No behaviour change — proves
    the framework is category-agnostic. (commercial repo, pending)
-3. The `SqliteDataGuardian` is `VectorCompactionService` itself (the persisted
-   compaction that already existed just "stopped before the DB"), reframed as a
-   Data guardian and split by mechanism:
-   - **3a** ✅ reframe: drop the daily hour-gate, run `GuardAsync` on
-     `Retention.CompactionInterval` (30 min) via `GuardianService`.
-   - **3b** ✅ cross-signature cap enforcement (Phase 5): when distinct signatures
-     exceed a `MemoryAdaptiveCap(MaxSignatures, MinSignatures)`, evict the lowest
-     `DecisionNecessity.ColdnessScore` (uncertainty peaks at `Classification.BotFloor`).
-     Tests seed N signatures at varied bot-prob/threat/age and assert count ≤ cap AND
-     the survivors are the high-`DecisionNecessity` ones.
-   - **3c** ✅ jsonl retention: `SignatureJsonlRetentionGuardian` (Console gateway,
-     Data) prunes `signatures-*.jsonl` past the window then oldest-first under a byte
-     cap, sparing today's active file; `SignatureLoaderService` boot scan is now
-     `FileInfo.Length` (O(files), not O(bytes)). Config `SignatureLogging:Retention:*`.
+3. **The store-bounding work is DISCRETE Data guardians — one job each, individually
+   toggleable, each its own roster entry + last-run report.** *(2026-07-09 ratification,
+   overview — supersedes the earlier "one `SqliteDataGuardian` split by mechanism"
+   framing.)* The operator's north star: guardians are first-class, VISIBLE dashboard
+   jobs, each individually enable/disable + tune (FOSS = `BotDetection:Guardians:<Name>:{
+   Enabled, Interval, ... }` config; commercial = in-app editor). A monolith hiding N
+   phases behind one on/off contradicts that. So `VectorCompactionService`'s five phases
+   are **extracted, behaviour-preserving** (the phases are already fault-isolated methods
+   with distinct config; the `GuardianService` walker runs guardians sequentially, so no
+   new races), into five discrete Data guardians:
+   - **`BucketRetentionGuardian`** (Phase 1) — prune stale bucket rows. Config `BucketRetention`.
+   - **`SessionCompactionGuardian`** (Phase 2 + its per-signature HNSW entry update) —
+     fold overflowing signature sessions into the maturity-weighted root. `MaxSessionsPerSignature`.
+   - **`HnswCompactionGuardian`** (Phase 3) — bulk L1/L2 vector-index compaction.
+     `HnswLevel1Threshold`/`Level2`/`L2CompactionPriorityThreshold`.
+   - **`CentroidRetentionGuardian`** (Phase 4) — prune stale signature/session/intent centroid rows. `CentroidRetentionDays`.
+   - **`SignatureCapGuardian`** (Phase 5) ✅ logic — cross-signature `MemoryAdaptiveCap`
+     eviction by `DecisionNecessity.ColdnessScore` (uncertainty peaks at `Classification.BotFloor`).
+     Tests seed N signatures at varied bot-prob/threat/age and assert count ≤ cap AND survivors are high-`DecisionNecessity`.
+   - **`SignatureJsonlRetentionGuardian`** ✅ (Console gateway, Data) — already correctly
+     discrete: prunes `signatures-*.jsonl` past the window then oldest-first under a byte cap,
+     sparing today's active file; `SignatureLoaderService` boot scan is `FileInfo.Length`
+     (O(files), not O(bytes)). Config `SignatureLogging:Retention:*`. **This is the exemplar the others copy.**
+
+3bis. **Identity durable-bounding = TWO discrete Data guardians** (same pattern: within-scope
+   retention + cross-scope cap eviction), on `Identity/SqliteFingerprintStore`:
+   - **`FingerprintObservationRetentionGuardian`** — prune absorbed `fingerprint_observations`;
+     keep-set = (all `absorbed_at IS NULL`) ∪ (most-recent-K per fingerprint). **Preserve the two
+     drift readers that scan absorbed rows with no `absorbed_at` filter:** `GetLatestObservationVectorAsync`
+     (`id DESC LIMIT 1` — keeping recent-K covers it) and `ListRecentObservationsForDriftAsync`
+     (`observed_at DESC` per archetype — recent-K MUST be ≥ its `maxRowsPerArchetype`, or gate the
+     prune on a recency floor).
+   - **`FingerprintEvictionGuardian`** — cross-fingerprint `MemoryAdaptiveCap` eviction by
+     `DecisionNecessity.ColdnessScore`, cascade-delete all per-fp tables (`fingerprints`,
+     `fingerprints_vec`, `fingerprint_observations`, `observations_vec`). Protect `claim_status =
+     'verified'`. NB: "operator-pinned" is a net-new `is_pinned` column (does not exist yet) — a
+     separate decision, not assumed by this guardian.
 4. Persisted root-merge compaction (durable mirror of `CompactHistory`). Tests.
 5. Wire the `WriteBehindLfuStore<signature>` subclass hot-tier eviction to
    `DecisionNecessity` (the deferred store piece).

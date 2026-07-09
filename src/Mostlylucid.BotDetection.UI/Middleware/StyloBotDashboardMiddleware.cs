@@ -6891,6 +6891,19 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                     HasData = false, BasePath = _options.BasePath.TrimEnd('/')
                 };
 
+            // The header "You:" pill links Signature to /dashboard/signature/{hash},
+            // which resolves ONLY a lowercase-hex primary_signature. But
+            // MultiFactorSignatures.PrimarySignature falls back to a base64url
+            // entity/session id when no hex signature is resolved (see
+            // IntentAtom `sink.ReadHint(PrimarySignature) ?? sessionId`), and the
+            // remote-mode header hydrator forwards that fallback verbatim. Linking a
+            // non-hex id 404s. Gate the field to a linkable hex signature; when it's
+            // the id fallback, leave it null so the view's existing
+            // `@if (!string.IsNullOrEmpty(yd.Signature))` guard suppresses the link.
+            // Root-cause fix at the model (don't emit an unlinkable signature), not a
+            // view-side format band-aid.
+            var linkableSig = IsHexSignature(sigs.PrimarySignature) ? sigs.PrimarySignature : null;
+
             // ── SINGLE SOURCE OF TRUTH for the headline score ──
             // ONE fingerprint, ONE bot score. The headline BotProbability +
             // RiskBand come from the fingerprint's persisted verdict
@@ -6930,7 +6943,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                     DetectorCount = visitor?.TopReasons.Count ?? 0,
                     Narrative = visitor?.Narrative,
                     TopReasons = visitor?.TopReasons ?? new List<string>(),
-                    Signature = sigs.PrimarySignature,
+                    Signature = linkableSig,
                     ThreatScore = visitor?.ThreatScore,
                     ThreatBand = visitor?.ThreatBand,
                     BasePath = _options.BasePath.TrimEnd('/'),
@@ -6973,7 +6986,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                         Confidence = d.Confidence,
                         RiskBand = d.RiskBand ?? "Unknown",
                         ProcessingTimeMs = d.ProcessingTimeMs,
-                        Signature = sigs.PrimarySignature,
+                        Signature = linkableSig,
                         BasePath = _options.BasePath.TrimEnd('/'),
                         CountryCode = d.CountryCode,
                         UserAgent = d.UserAgent,
@@ -6990,7 +7003,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 
             return new YourDetectionModel
             {
-                HasData = false, Signature = sigs.PrimarySignature,
+                HasData = false, Signature = linkableSig,
                 BasePath = _options.BasePath.TrimEnd('/')
             };
         }
@@ -6999,6 +7012,23 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             _logger.LogDebug(ex, "Failed to build your detection partial model");
             return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
         }
+    }
+
+    /// <summary>
+    ///     True when <paramref name="s"/> is a lowercase-hex primary_signature -- the
+    ///     format the <c>/dashboard/signature/{hash}</c> route resolves. A real
+    ///     signature is <c>Convert.ToHexString(...).ToLowerInvariant()</c>, so any
+    ///     uppercase / '-' / '_' / non-hex character means the base64url entity/session
+    ///     id fallback (<c>PrimarySignature ?? sessionId</c>), which the route 404s on.
+    ///     Used to gate the "You:" pill's linked signature.
+    /// </summary>
+    internal static bool IsHexSignature(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        foreach (var c in s)
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+                return false;
+        return true;
     }
 
     private async Task<TopBotsListModel> BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
