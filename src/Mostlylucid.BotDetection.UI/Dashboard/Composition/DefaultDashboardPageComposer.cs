@@ -14,11 +14,21 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
 {
     private readonly DashboardWidgetCatalog _catalog;
     private readonly IDashboardEventStore _store;
+    private readonly IReadOnlyDictionary<string, IDashboardDatasetExtension> _extensions;
 
-    public DefaultDashboardPageComposer(DashboardWidgetCatalog catalog, IDashboardEventStore store)
+    public DefaultDashboardPageComposer(
+        DashboardWidgetCatalog catalog,
+        IDashboardEventStore store,
+        IEnumerable<IDashboardDatasetExtension>? extensions = null)
     {
         _catalog = catalog;
         _store = store;
+        // Index pack extensions by their kind name (last registration wins on a dup).
+        var map = new Dictionary<string, IDashboardDatasetExtension>(StringComparer.Ordinal);
+        if (extensions is not null)
+            foreach (var e in extensions)
+                map[e.DatasetKind] = e;
+        _extensions = map;
     }
 
     public async Task<DashboardPageResult> ComposeAsync(
@@ -26,7 +36,7 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         DashboardPageWindow w,
         CancellationToken ct)
     {
-        // Resolve widget keys → DatasetKind, skip unknown keys, dedupe via HashSet.
+        // FOSS batched datasets: widget keys → DatasetKind, skip unknown, dedupe.
         var kinds = manifest.WidgetKeys
             .Select(k => _catalog.NeedsFor(k))
             .Where(k => k is not null)
@@ -42,6 +52,48 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             w.Domains);
 
         var bundle = await _store.ComposeBatchAsync(req, ct);
-        return new DashboardPageResult(bundle);
+
+        // Pack/commercial extension datasets: widget keys → extension kind → resolve.
+        // Runs in-process where the extension is registered (typically wrapping a remote
+        // provider); fail-closed per extension so one pack can't break the page.
+        var extensionData = await ResolveExtensionsAsync(manifest, w, ct);
+
+        return new DashboardPageResult(bundle, extensionData);
+    }
+
+    private async Task<IReadOnlyDictionary<string, object?>?> ResolveExtensionsAsync(
+        DashboardPageManifest manifest, DashboardPageWindow w, CancellationToken ct)
+    {
+        if (_extensions.Count == 0) return null;
+
+        var extKinds = manifest.WidgetKeys
+            .Select(k => _catalog.ExtensionKindFor(k))
+            .Where(x => x is not null)
+            .Select(x => x!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (extKinds.Count == 0) return null;
+
+        var ctx = new DashboardDatasetContext(w.StartTime, w.EndTime, w.AudienceFilter, w.Domains, Parameters: null);
+        Dictionary<string, object?>? resolved = null;
+        foreach (var kind in extKinds)
+        {
+            if (!_extensions.TryGetValue(kind, out var ext)) continue;
+            object? data;
+            try
+            {
+                data = await ext.ResolveAsync(ctx, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                data = null; // fail-closed: a throwing extension yields a null slice
+            }
+            (resolved ??= new Dictionary<string, object?>(StringComparer.Ordinal))[kind] = data;
+        }
+        return resolved;
     }
 }
