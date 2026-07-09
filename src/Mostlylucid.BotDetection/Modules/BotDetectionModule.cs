@@ -606,6 +606,13 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // own interval; config-driven via BotDetection:Guardians:SessionCompaction:*.
         services.AddSingleton<Guardians.IGuardian, Guardians.SessionCompactionGuardian>();
 
+        // Data guardian: compact the HNSW session vector index when it exceeds
+        // threshold (Phase 3, extracted from VectorCompactionService). L1 collapses
+        // multi-vector signatures to per-signature centroids; L2 merges low-priority
+        // cluster members into cluster centroids. No-op when ISessionVectorSearch is
+        // not registered. Config-driven via BotDetection:Guardians:HnswCompaction:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.HnswCompactionGuardian>();
+
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
         // by default, PostgreSQLDetectionArchive via commercial pack Replace).
