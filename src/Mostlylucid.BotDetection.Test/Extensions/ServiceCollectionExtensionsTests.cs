@@ -20,7 +20,15 @@ public class ServiceCollectionExtensionsTests
     private static IConfiguration CreateEmptyConfiguration()
     {
         return new ConfigurationBuilder()
-            .AddInMemoryCollection()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                // AddBotDetection now fails fast when DatabasePath is null (a null
+                // path used to fall back SILENTLY to an unbounded in-memory SQLite DB).
+                // These ephemeral option-binding tests never persist, so they opt into
+                // in-memory explicitly the same way AddBotDetectionInMemory does:
+                // DatabasePath = empty. Empty passes validation; only null is rejected.
+                ["BotDetection:DatabasePath"] = string.Empty,
+            })
             .Build();
     }
 
@@ -33,6 +41,59 @@ public class ServiceCollectionExtensionsTests
         services.AddMemoryCache();
         services.AddSingleton<IConfiguration>(CreateEmptyConfiguration());
     }
+
+    #region DatabasePath fail-loud contract
+
+    /// <summary>
+    ///     Regression guard for the silent-in-memory drift: a null DatabasePath must
+    ///     FAIL LOUD (StyloBot persists to SQLite; a null path used to fall back
+    ///     silently to an unbounded in-memory DB that OOMs under load). Resolving the
+    ///     options must throw with actionable guidance, not quietly succeed.
+    /// </summary>
+    [Fact]
+    public void AddBotDetection_NullDatabasePath_ThrowsWithGuidance()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddMemoryCache();
+        // Deliberately NO DatabasePath key -> binds to null.
+        services.AddSingleton<IConfiguration>(
+            new ConfigurationBuilder().AddInMemoryCollection().Build());
+        services.AddBotDetection();
+
+        var provider = services.BuildServiceProvider();
+
+        var ex = Assert.Throws<OptionsValidationException>(
+            () => _ = provider.GetRequiredService<IOptions<BotDetectionOptions>>().Value);
+        Assert.Contains("DatabasePath", ex.Message);
+        Assert.Contains("AddBotDetectionInMemory", ex.Message);
+    }
+
+    /// <summary>
+    ///     The explicit ephemeral opt-in (empty DatabasePath, as AddBotDetectionInMemory
+    ///     sets) is the ONLY allowed in-memory path and must NOT throw.
+    /// </summary>
+    [Fact]
+    public void AddBotDetection_EmptyDatabasePath_IsAllowed()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddMemoryCache();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["BotDetection:DatabasePath"] = string.Empty,
+            })
+            .Build());
+        services.AddBotDetection();
+
+        var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+        Assert.Equal(string.Empty, options.DatabasePath);
+    }
+
+    #endregion
 
     #region Multiple Registration Tests
 

@@ -63,6 +63,15 @@ try
     // Bot detection (all 49 detectors, SQLite persistence in FOSS).
     builder.Services.AddBotDetection();
 
+    // Explicit persistence default: the sidecar owns a local SQLite store, so give
+    // DatabasePath a writable default when neither appsettings nor env sets it.
+    // AddBotDetection now fails LOUD on a null DatabasePath (it used to fall back
+    // silently to an unbounded in-memory SQLite DB and OOM); this keeps the sidecar
+    // starting out-of-box while honouring any explicit override.
+    builder.Services.PostConfigure<BotDetectionOptions>(opts =>
+        opts.DatabasePath ??= Path.Combine(
+            BotDetectionOptions.ResolveDataDirectory(), "botdetection.db"));
+
     // REST API (for callers that can't use gRPC: Node SDK, curl, etc.).
     if (!sidecar.GrpcOnly)
     {

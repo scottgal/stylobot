@@ -687,7 +687,23 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Configure options if not already configured
         services.AddOptions<BotDetectionOptions>()
             .BindConfiguration("BotDetection")
-            .ValidateDataAnnotations();
+            .ValidateDataAnnotations()
+            // Fail-fast on an unconfigured DatabasePath. StyloBot persists
+            // detection / identity / session state to SQLite and REQUIRES a path.
+            // Leaving it null used to fall back SILENTLY to an in-memory database
+            // (Data Source=file::memory:), which grows UNBOUNDED under load and OOMs
+            // the process (it reads exactly like a memory leak; found via soak+load).
+            // null == "operator forgot to configure" -> throw loud. AddBotDetectionInMemory
+            // sets DatabasePath to string.Empty as the EXPLICIT opt-in signal, so empty
+            // is allowed and only null is rejected. No silent in-memory fallback.
+            .Validate(
+                o => o.DatabasePath is not null,
+                "BotDetection:DatabasePath is not configured. StyloBot persists to SQLite and requires a database " +
+                "path (e.g. \"botdetection.db\" or an absolute path). Leaving it unset previously fell back silently " +
+                "to an in-memory database that grows UNBOUNDED under load and OOMs the process. If you intend " +
+                "ephemeral / in-memory operation (tests, CI, throwaway hosts), call AddBotDetectionInMemory() " +
+                "explicitly (it sets DatabasePath to empty to signal that intent). Do NOT leave DatabasePath null.")
+            .ValidateOnStart();
     }
 
     /// <summary>

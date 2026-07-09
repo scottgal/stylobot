@@ -71,6 +71,13 @@ else
         configureDetection: detection =>
         {
             detection.Identity.Enabled = true;
+            // Local-mode single-host owns a local SQLite store. AddBotDetection now
+            // fails LOUD on a null DatabasePath (it used to fall back silently to an
+            // unbounded in-memory SQLite DB and OOM), so give it a writable default
+            // while honouring any explicit override. (Remote mode never calls
+            // AddBotDetection, so it is unaffected.)
+            detection.DatabasePath ??= System.IO.Path.Combine(
+                Mostlylucid.BotDetection.Models.BotDetectionOptions.ResolveDataDirectory(), "botdetection.db");
         });
     builder.Services.AddBotDetectionTelemetry();
     builder.Services.AddStyloBotApi(options =>
