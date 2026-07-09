@@ -619,11 +619,12 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // parallel. Config-driven via BotDetection:Guardians:CentroidRetention:*.
         services.AddSingleton<Guardians.IGuardian, Guardians.CentroidRetentionGuardian>();
 
-        // Data guardian: cross-signature cap enforcement (Phase 5, the remaining
-        // VectorCompactionService body). Evicts lowest-value signatures by
+        // Data guardian: cross-signature cap enforcement (Phase 5, extracted from
+        // VectorCompactionService). Evicts lowest-value signatures by
         // DecisionNecessity when distinct signatures exceed MaxSignatures.
         // No-op when MaxSignatures == 0 (the default, unlimited).
-        services.AddSingleton<Guardians.IGuardian, Services.VectorCompactionService>();
+        // Config-driven via BotDetection:Guardians:SignatureCap:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.SignatureCapGuardian>();
 
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
