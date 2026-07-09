@@ -64,6 +64,7 @@ public sealed class TrafficControllerComposeTests
     {
         public int ComposeBatchCallCount { get; private set; }
         public DashboardBatchRequest? LastBatchRequest { get; private set; }
+        public List<DashboardBatchRequest> BatchRequests { get; } = new();
 
         // Prior-window calls are the two allowed per-widget calls that the
         // controller still issues directly. Track them so tests can assert
@@ -75,6 +76,7 @@ public sealed class TrafficControllerComposeTests
         {
             ComposeBatchCallCount++;
             LastBatchRequest = request;
+            BatchRequests.Add(request);
             var bundle = new DashboardDatasetBundle(
                 Summary: EmptySummary(),
                 TimeBuckets: new List<DashboardTimeSeriesPoint>(),
@@ -145,15 +147,18 @@ public sealed class TrafficControllerComposeTests
         // Act
         _ = await controller.Index(country: null, botType: null, window: "6h", threat: null, partial: null, default);
 
-        // Assert — one ComposeBatchAsync for the current window's datasets (the five
-        // detection aggregates + site-health degradation history).
-        Assert.Equal(1, store.ComposeBatchCallCount);
-        Assert.NotNull(store.LastBatchRequest);
+        // Assert — the current window is composed once with its six datasets (five
+        // detection aggregates + site-health), and the prior window is a SECOND batched
+        // compose (top-bots + summary) — so both are batched, neither fans out.
+        Assert.Equal(2, store.ComposeBatchCallCount);
 
-        var kinds = store.LastBatchRequest!.Datasets.Select(d => d.Kind).OrderBy(k => k).ToArray();
-        Assert.Equal(
-            new[] { DatasetKind.SummaryStats, DatasetKind.TimeBuckets, DatasetKind.BotAggregate, DatasetKind.GeoBreakdown, DatasetKind.EndpointStats, DatasetKind.DegradationHistory }.OrderBy(k => k).ToArray(),
-            kinds);
+        var currentKinds = new[]
+        {
+            DatasetKind.SummaryStats, DatasetKind.TimeBuckets, DatasetKind.BotAggregate,
+            DatasetKind.GeoBreakdown, DatasetKind.EndpointStats, DatasetKind.DegradationHistory,
+        }.OrderBy(k => k).ToArray();
+        Assert.Contains(store.BatchRequests,
+            r => r.Datasets.Select(d => d.Kind).OrderBy(k => k).SequenceEqual(currentKinds));
     }
 
     [Fact]
@@ -177,10 +182,11 @@ public sealed class TrafficControllerComposeTests
     }
 
     [Fact]
-    public async Task TrafficController_prior_window_issues_separate_direct_calls()
+    public async Task TrafficController_prior_window_is_composed_via_the_batch_not_direct_calls()
     {
-        // The prior-window comparison uses direct GetTopBotsAsync + GetSummaryAsync —
-        // the test documents that behaviour and asserts it has not been removed.
+        // The prior-window comparison now goes through the content cache / composer (a
+        // second batched compose of summary + top-bots), so it NO LONGER fans out via
+        // direct GetTopBotsAsync / GetSummaryAsync — the whole page reads out-of-request.
         var store = new RecordingEventStore();
         var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
         var composer = new DefaultDashboardPageComposer(catalog, store);
@@ -192,7 +198,12 @@ public sealed class TrafficControllerComposeTests
 
         _ = await controller.Index(country: null, botType: null, window: "6h", threat: null, partial: null, default);
 
-        // Prior-window comparison still calls the store directly (two separate fetches).
-        Assert.Equal(2, store.GetTopBotsCallCount + store.GetSummaryCallCount);
+        // No direct prior-window fetches — it's batched instead.
+        Assert.Equal(0, store.GetTopBotsCallCount + store.GetSummaryCallCount);
+
+        // A second compose exists for the prior window: exactly summary + top-bots.
+        var priorKinds = new[] { DatasetKind.SummaryStats, DatasetKind.BotAggregate }.OrderBy(k => k).ToArray();
+        Assert.Contains(store.BatchRequests,
+            r => r.Datasets.Select(d => d.Kind).OrderBy(k => k).SequenceEqual(priorKinds));
     }
 }
