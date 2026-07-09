@@ -32,6 +32,39 @@ public sealed class IdentityOptions
     ///     wiring — currently honored by direct invocation from the matcher).
     /// </summary>
     public bool NameRecomposeOnMatch { get; set; } = true;
+
+    // ── Durable bounding (identity data guardians, Part B) ───────────────────
+
+    /// <summary>
+    ///     Most-recent absorbed observations the
+    ///     <c>FingerprintObservationRetentionGuardian</c> keeps per fingerprint;
+    ///     older absorbed rows are pruned. Unabsorbed rows are always kept.
+    ///     MUST default at or above the drift reader's per-archetype cap
+    ///     (<see cref="Mostlylucid.BotDetection.Identity.IdentityWeightCalibrationService.DriftMaxRowsPerArchetype"/> =
+    ///     5000) so pruning never starves archetype drift; the guardian floors
+    ///     the effective keep-count against that cap regardless.
+    /// </summary>
+    public int MaxObservationsPerFingerprint { get; set; } = 5_000;
+
+    /// <summary>
+    ///     Ceiling on distinct fingerprints the <c>FingerprintEvictionGuardian</c>
+    ///     enforces (memory-adaptive, ramps down under pressure). 0 disables the
+    ///     cap (unlimited posture, guardian is a no-op). Default 50 000.
+    /// </summary>
+    public int MaxFingerprints { get; set; } = 50_000;
+
+    /// <summary>
+    ///     Floor the eviction cap ramps down to under memory pressure. Never
+    ///     evicts below this many fingerprints. Default 2 000.
+    /// </summary>
+    public int MinFingerprints { get; set; } = 2_000;
+
+    /// <summary>
+    ///     Recency half-life fed to <see cref="Storage.DecisionNecessity.ColdnessScore"/>
+    ///     for fingerprint eviction: a fingerprint's retention value halves every
+    ///     half-life. Default 7 days.
+    /// </summary>
+    public TimeSpan FingerprintRecencyHalfLife { get; set; } = TimeSpan.FromDays(7);
 }
 
 /// <summary>

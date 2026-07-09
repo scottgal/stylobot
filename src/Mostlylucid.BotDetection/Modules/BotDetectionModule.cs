@@ -626,6 +626,20 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Config-driven via BotDetection:Guardians:SignatureCap:*.
         services.AddSingleton<Guardians.IGuardian, Guardians.SignatureCapGuardian>();
 
+        // Identity data guardians (Part B): bound fingerprints.db, the one durable
+        // store the vector guardians above don't cover. They operate on
+        // SqliteFingerprintStore, which is dormant unless Identity:Enabled, so they
+        // register ONLY when identity is on -- keeping the guardian roster honest
+        // (5 vector guardians when identity is off, 7 when on).
+        if (IsIdentityEnabled(services))
+        {
+            // Prune absorbed fingerprint_observations, keeping all unabsorbed plus
+            // the most-recent-K per fingerprint (drift-preserving). Config-driven via
+            // BotDetection:Guardians:FingerprintObservationRetention:*.
+            services.AddSingleton<Guardians.IGuardian,
+                Identity.FingerprintObservationRetentionGuardian>();
+        }
+
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
         // by default, PostgreSQLDetectionArchive via commercial pack Replace).
@@ -667,6 +681,44 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddOptions<BotDetectionOptions>()
             .BindConfiguration("BotDetection")
             .ValidateDataAnnotations();
+    }
+
+    /// <summary>
+    ///     Resolves the effective <c>Identity.Enabled</c> flag at DI-registration
+    ///     time so the identity data guardians register only when the metastable
+    ///     identity layer is on. Materialises a <see cref="BotDetectionOptions"/>
+    ///     from the same two sources the options system uses: the
+    ///     <c>BotDetection</c> configuration section (the config form) and every
+    ///     registered <see cref="Microsoft.Extensions.Options.IConfigureOptions{BotDetectionOptions}"/>
+    ///     delegate (the <c>AddBotDetection(configure)</c> form), so both surfaces
+    ///     are honoured without building the full service provider.
+    /// </summary>
+    private static bool IsIdentityEnabled(IServiceCollection services)
+    {
+        var options = new BotDetectionOptions();
+
+        // 1. Config-bind form: BotDetection:Identity:Enabled.
+        var configuration = services
+            .LastOrDefault(d =>
+                d.ServiceType == typeof(Microsoft.Extensions.Configuration.IConfiguration))
+            ?.ImplementationInstance as Microsoft.Extensions.Configuration.IConfiguration;
+        if (configuration is not null)
+            Microsoft.Extensions.Configuration.ConfigurationBinder.Bind(
+                configuration.GetSection("BotDetection"), options);
+
+        // 2. configure-action form: apply any registered IConfigureOptions delegates
+        //    (Configure<BotDetectionOptions> registers ConfigureNamedOptions here).
+        foreach (var descriptor in services.Where(d =>
+                     d.ServiceType == typeof(Microsoft.Extensions.Options.IConfigureOptions<BotDetectionOptions>)))
+        {
+            if (descriptor.ImplementationInstance is
+                Microsoft.Extensions.Options.IConfigureOptions<BotDetectionOptions> configure)
+            {
+                configure.Configure(options);
+            }
+        }
+
+        return options.Identity.Enabled;
     }
 
     /// <inheritdoc />
