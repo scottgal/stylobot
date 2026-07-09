@@ -2,7 +2,6 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
@@ -97,10 +96,7 @@ public sealed class VectorCompactionServicePhase5Tests : IAsyncLifetime
         return new VectorCompactionService(
             _store,
             Options.Create(opts),
-            NullLogger<VectorCompactionService>.Instance,
-            new NoopSignatureStore(),
-            new NoopSessionStore(),
-            new NoopIntentStore());
+            NullLogger<VectorCompactionService>.Instance);
     }
 
     private async Task SeedSignatureAsync(
@@ -120,27 +116,4 @@ public sealed class VectorCompactionServicePhase5Tests : IAsyncLifetime
         });
     }
 
-    private sealed class NoopSignatureStore : ISignatureCentroidStore
-    {
-        public Task PruneSignaturesOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpsertSignatureAsync(string signatureId, float[] vector, bool wasBot, double confidence, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<SignatureCentroidRow>> GetRecentSignaturesAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SignatureCentroidRow>>(Array.Empty<SignatureCentroidRow>());
-    }
-
-    private sealed class NoopSessionStore : ISessionCentroidStore
-    {
-        public Task PruneSessionsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SessionCentroidRow>>(Array.Empty<SessionCentroidRow>());
-    }
-
-    private sealed class NoopIntentStore : IIntentCentroidStore
-    {
-        public Task PruneIntentsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpsertIntentAsync(string signatureId, float[] vector, double threatScore, string intentCategory, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<IntentCentroidRow>> GetRecentIntentsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<IntentCentroidRow>>(Array.Empty<IntentCentroidRow>());
-    }
 }

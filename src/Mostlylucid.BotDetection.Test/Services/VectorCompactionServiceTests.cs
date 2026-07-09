@@ -2,145 +2,57 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
-using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
 namespace Mostlylucid.BotDetection.Test.Services;
 
+/// <summary>
+///     Tests for <see cref="VectorCompactionService"/>. After the guardian
+///     decomposition this service owns only Phase 5 (cross-signature cap
+///     enforcement). Phases 1-4 are covered by their respective guardian tests:
+///     <list type="bullet">
+///         <item><c>BucketRetentionGuardianTests</c> (Phase 1)</item>
+///         <item><c>SessionCompactionGuardianTests</c> (Phase 2)</item>
+///         <item><c>HnswCompactionGuardianTests</c> (Phase 3)</item>
+///         <item><c>CentroidRetentionGuardianTests</c> (Phase 4)</item>
+///     </list>
+/// </summary>
 public class VectorCompactionServiceTests
 {
     // -----------------------------------------------------------------------
-    // Tracking fakes for the three centroid stores
+    // Helper: build VectorCompactionService (Phase 5 only after decomposition)
     // -----------------------------------------------------------------------
 
-    private sealed class TrackingSignatureStore : ISignatureCentroidStore
+    private static VectorCompactionService Build(int maxSignatures = 0)
     {
-        public bool PruneCalled { get; private set; }
-        public long? ReceivedCutoff { get; private set; }
+        var options = new BotDetectionOptions();
+        options.Retention.MaxSignatures = maxSignatures;
 
-        public Task PruneSignaturesOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-        {
-            PruneCalled = true;
-            ReceivedCutoff = cutoffEpochSeconds;
-            return Task.CompletedTask;
-        }
-
-        public Task UpsertSignatureAsync(string signatureId, float[] vector, bool wasBot, double confidence, CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public Task<IReadOnlyList<SignatureCentroidRow>> GetRecentSignaturesAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SignatureCentroidRow>>(Array.Empty<SignatureCentroidRow>());
-    }
-
-    private sealed class TrackingSessionCentroidStore : ISessionCentroidStore
-    {
-        public bool PruneCalled { get; private set; }
-        public long? ReceivedCutoff { get; private set; }
-
-        public Task PruneSessionsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-        {
-            PruneCalled = true;
-            ReceivedCutoff = cutoffEpochSeconds;
-            return Task.CompletedTask;
-        }
-
-        public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SessionCentroidRow>>(Array.Empty<SessionCentroidRow>());
-    }
-
-    private sealed class TrackingIntentStore : IIntentCentroidStore
-    {
-        public bool PruneCalled { get; private set; }
-        public long? ReceivedCutoff { get; private set; }
-
-        public Task PruneIntentsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default)
-        {
-            PruneCalled = true;
-            ReceivedCutoff = cutoffEpochSeconds;
-            return Task.CompletedTask;
-        }
-
-        public Task UpsertIntentAsync(string signatureId, float[] vector, double threatScore, string intentCategory, CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public Task<IReadOnlyList<IntentCentroidRow>> GetRecentIntentsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<IntentCentroidRow>>(Array.Empty<IntentCentroidRow>());
-    }
-
-    // -----------------------------------------------------------------------
-    // Helper: build VectorCompactionService with the tracking stores
-    // -----------------------------------------------------------------------
-
-    private static VectorCompactionService Build(
-        TrackingSignatureStore sigStore,
-        TrackingSessionCentroidStore sessStore,
-        TrackingIntentStore intentStore,
-        int centroidRetentionDays = 30)
-    {
-        var options = new BotDetectionOptions
-        {
-            SelfMaintenance = new SelfMaintenanceOptions
-            {
-                CentroidRetentionDays = centroidRetentionDays
-            }
-        };
-
-        // Use Moq for the large IDetectionArchive interface — only the compaction methods need stubs
-        var sessionStoreMock = new Mock<IDetectionArchive>();
-        sessionStoreMock
+        var archiveMock = new Mock<IDetectionArchive>();
+        archiveMock
             .Setup(s => s.GetOverflowingSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<(string Signature, int SessionCount)>());
 
         return new VectorCompactionService(
-            sessionStoreMock.Object,
+            archiveMock.Object,
             Options.Create(options),
-            NullLogger<VectorCompactionService>.Instance,
-            sigStore,
-            sessStore,
-            intentStore);
+            NullLogger<VectorCompactionService>.Instance);
     }
 
     // -----------------------------------------------------------------------
-    // Test
+    // Smoke test: RunCompactionAsync returns 0 now that Phases 1-4 are extracted
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task RunCentroidPruningAsync_CallsPruneOnAllThreeStores()
+    public async Task RunCompactionAsync_returns_zero_when_all_phases_are_extracted()
     {
-        // Arrange
-        const int retentionDays = 30;
-        var sigStore    = new TrackingSignatureStore();
-        var sessStore   = new TrackingSessionCentroidStore();
-        var intentStore = new TrackingIntentStore();
+        // After decomposition Phases 1-4 run in separate guardians. RunCompactionAsync
+        // itself is now a no-op shell that returns 0 (no sessions compacted by this service).
+        var svc = Build();
 
-        var svc = Build(sigStore, sessStore, intentStore, retentionDays);
+        var result = await svc.RunCompactionAsync(CancellationToken.None);
 
-        // Record bounds around the expected cutoff epoch
-        var beforeCall = DateTimeOffset.UtcNow.AddDays(-retentionDays).ToUnixTimeSeconds();
-
-        // Act — call RunCentroidPruningAsync via reflection (internal method)
-        var method = typeof(VectorCompactionService).GetMethod(
-            "RunCentroidPruningAsync",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
-                | System.Reflection.BindingFlags.Public)!;
-
-        await (Task)method.Invoke(svc, [CancellationToken.None])!;
-
-        var afterCall = DateTimeOffset.UtcNow.AddDays(-retentionDays).ToUnixTimeSeconds();
-
-        // Assert: all three stores received a Prune call
-        Assert.True(sigStore.PruneCalled,    "ISignatureCentroidStore.PruneSignaturesOlderThanAsync was not called");
-        Assert.True(sessStore.PruneCalled,   "ISessionCentroidStore.PruneSessionsOlderThanAsync was not called");
-        Assert.True(intentStore.PruneCalled, "IIntentCentroidStore.PruneIntentsOlderThanAsync was not called");
-
-        // Assert: cutoffs are within a 2-second window of the expected value
-        Assert.InRange(sigStore.ReceivedCutoff!.Value,    beforeCall, afterCall + 2);
-        Assert.InRange(sessStore.ReceivedCutoff!.Value,   beforeCall, afterCall + 2);
-        Assert.InRange(intentStore.ReceivedCutoff!.Value, beforeCall, afterCall + 2);
+        Assert.Equal(0, result);
     }
 }

@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Common.Scheduling;
 using Mostlylucid.BotDetection.Scheduling;
@@ -13,25 +12,19 @@ namespace Mostlylucid.BotDetection.Services;
 /// <summary>
 ///     Nightly behavioral compression job implementing dynamic resolution adjustment (LOD-style).
 ///
-///     Three-phase compaction:
-///     Phase 1 - Bucket pruning: deletes time-series bucket rows older than BucketRetention.
-///               Buckets are the only data type that is truly deleted.
+///     After guardian decomposition this service owns only Phase 5:
+///     cross-signature cap enforcement via <see cref="DecisionNecessity"/> eviction.
+///     Phases 1-4 run as independent <see cref="IGuardian"/> implementations on
+///     their own intervals:
+///     <list type="bullet">
+///         <item><b>Phase 1</b> - <c>BucketRetentionGuardian</c>: bucket pruning.</item>
+///         <item><b>Phase 2</b> - <c>SessionCompactionGuardian</c>: SQLite session compaction.</item>
+///         <item><b>Phase 3</b> - <c>HnswCompactionGuardian</c>: HNSW index compaction.</item>
+///         <item><b>Phase 4</b> - <c>CentroidRetentionGuardian</c>: centroid pruning.</item>
+///     </list>
 ///
-///     Phase 2 - SQLite session compaction: for signatures exceeding MaxSessionsPerSignature,
-///               computes a maturity-weighted behavioral centroid AND a velocity centroid
-///               (average drift direction across consecutive sessions), stores as root_vector,
-///               and deletes the old rows. Full-resolution sessions are preserved for the
-///               most recent MaxSessionsPerSignature sessions per signature.
-///
-///     Phase 3 - HNSW index compaction: if total vector count exceeds threshold:
-///               L1: collapse multiple same-signature vectors to one centroid entry (priority-ordered)
-///               L2: if still above HnswLevel2Threshold, collapse low-priority clusters to
-///                   a single cluster-centroid entry.
-///
-///     Priority formula: risk × recency_decay × bot_probability × entity_bonus.
+///     Priority formula: risk x recency_decay x bot_probability x entity_bonus.
 ///     High-risk bots, entity-mapped identities, and recent visitors retain L0 longest.
-///     The velocity centroid is preserved through all compaction levels so downstream
-///     analysis can see not just "what this client looks like" but "how it was changing."
 ///     <para>
 ///         <b>Wave 2 architectural-drift remediation.</b> Was a
 ///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> that
@@ -47,10 +40,6 @@ public sealed class VectorCompactionService : IGuardian
 {
     private readonly IDetectionArchive _store;
     private readonly RetentionOptions _retention;
-    private readonly SelfMaintenanceOptions _selfMaintenance;
-    private readonly ISignatureCentroidStore _signatureCentroidStore;
-    private readonly ISessionCentroidStore _sessionCentroidStore;
-    private readonly IIntentCentroidStore _intentCentroidStore;
     private readonly ILogger<VectorCompactionService> _logger;
     // Cross-signature cap governor (memory-pressure-adaptive). Null when disabled
     // (RetentionOptions.MaxSignatures == 0).
@@ -60,17 +49,10 @@ public sealed class VectorCompactionService : IGuardian
     public VectorCompactionService(
         IDetectionArchive store,
         IOptions<BotDetectionOptions> options,
-        ILogger<VectorCompactionService> logger,
-        ISignatureCentroidStore signatureCentroidStore,
-        ISessionCentroidStore sessionCentroidStore,
-        IIntentCentroidStore intentCentroidStore)
+        ILogger<VectorCompactionService> logger)
     {
         _store = store;
         _retention = options.Value.Retention;
-        _selfMaintenance = options.Value.SelfMaintenance;
-        _signatureCentroidStore = signatureCentroidStore;
-        _sessionCentroidStore = sessionCentroidStore;
-        _intentCentroidStore = intentCentroidStore;
         _logger = logger;
         // The canonical bot/human boundary (v8 rationalisation). DecisionNecessity
         // peaks its uncertainty term here, so a signature sitting right on the
@@ -143,8 +125,8 @@ public sealed class VectorCompactionService : IGuardian
         // Phase 3 (HnswCompactionGuardian): HNSW index compaction extracted to its own
         // guardian and runs on its own interval; no call here.
 
-        // Phase 4: Prune stale centroid rows from all three centroid tables
-        await RunCentroidPruningAsync(ct);
+        // Phase 4 (CentroidRetentionGuardian): centroid pruning extracted to its own
+        // guardian and runs on its own interval; no call here.
 
         _logger.LogInformation("Vector compaction complete in {Elapsed:g}", sw.Elapsed);
         return compacted;
@@ -156,7 +138,7 @@ public sealed class VectorCompactionService : IGuardian
 
     /// <summary>
     ///     Last-resort bound: when distinct signatures exceed the memory-adaptive
-    ///     cap, evict the lowest-value ones by <see cref="DecisionNecessity"/> —
+    ///     cap, evict the lowest-value ones by <see cref="DecisionNecessity"/> --
     ///     resolved-and-harmless first, uncertain + risky retained. Engages only when
     ///     compaction + retention haven't kept the store under the cap (the rotation
     ///     case). Returns the number of signatures evicted.
@@ -209,7 +191,7 @@ public sealed class VectorCompactionService : IGuardian
     }
 
     /// <summary>Maps a stored RiskBand string to a threat weight in [0,1] for the
-    ///     eviction score. Unknown → 0 (the score falls back to bot-probability).</summary>
+    ///     eviction score. Unknown -> 0 (the score falls back to bot-probability).</summary>
     private static double RiskBandToRisk(string? riskBand) => riskBand?.ToLowerInvariant() switch
     {
         "verylow"  => 0.05,
@@ -221,32 +203,4 @@ public sealed class VectorCompactionService : IGuardian
         "verified" => 0.90,
         _          => 0.0
     };
-
-    // ===========================
-    // Phase 4: Centroid pruning
-    // ===========================
-
-    internal async Task RunCentroidPruningAsync(CancellationToken ct)
-    {
-        var cutoff = DateTimeOffset.UtcNow
-            .AddDays(-_selfMaintenance.CentroidRetentionDays)
-            .ToUnixTimeSeconds();
-
-        try
-        {
-            await Task.WhenAll(
-                _signatureCentroidStore.PruneSignaturesOlderThanAsync(cutoff, ct),
-                _sessionCentroidStore.PruneSessionsOlderThanAsync(cutoff, ct),
-                _intentCentroidStore.PruneIntentsOlderThanAsync(cutoff, ct));
-
-            _logger.LogDebug(
-                "Phase 4: pruned centroid rows older than {CutoffEpoch} (retention={Days}d)",
-                cutoff, _selfMaintenance.CentroidRetentionDays);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Phase 4 (centroid pruning) failed");
-        }
-    }
-
 }

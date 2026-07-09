@@ -613,6 +613,18 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // not registered. Config-driven via BotDetection:Guardians:HnswCompaction:*.
         services.AddSingleton<Guardians.IGuardian, Guardians.HnswCompactionGuardian>();
 
+        // Data guardian: prune stale rows from all three centroid tables (Phase 4,
+        // extracted from VectorCompactionService). Prunes signature, session, and
+        // intent centroids older than SelfMaintenance:CentroidRetentionDays in
+        // parallel. Config-driven via BotDetection:Guardians:CentroidRetention:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.CentroidRetentionGuardian>();
+
+        // Data guardian: cross-signature cap enforcement (Phase 5, the remaining
+        // VectorCompactionService body). Evicts lowest-value signatures by
+        // DecisionNecessity when distinct signatures exceed MaxSignatures.
+        // No-op when MaxSignatures == 0 (the default, unlimited).
+        services.AddSingleton<Guardians.IGuardian, Services.VectorCompactionService>();
+
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
         // by default, PostgreSQLDetectionArchive via commercial pack Replace).

@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Guardians;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
@@ -17,33 +16,12 @@ namespace Mostlylucid.BotDetection.Test.Services;
 ///     on <see cref="RetentionOptions.CompactionInterval"/>, so storage stays
 ///     bounded in near-real-time. These cover the guardian contract + that a pass
 ///     runs the store compaction and reports its outcome.
+///
+///     After the Phase 4 extraction to <c>CentroidRetentionGuardian</c>,
+///     centroid stores are no longer injected here.
 /// </summary>
 public sealed class VectorCompactionServiceTickTests
 {
-    private sealed class NoopSignatureStore : ISignatureCentroidStore
-    {
-        public Task PruneSignaturesOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpsertSignatureAsync(string signatureId, float[] vector, bool wasBot, double confidence, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<SignatureCentroidRow>> GetRecentSignaturesAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SignatureCentroidRow>>(Array.Empty<SignatureCentroidRow>());
-    }
-
-    private sealed class NoopSessionStore : ISessionCentroidStore
-    {
-        public Task PruneSessionsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SessionCentroidRow>>(Array.Empty<SessionCentroidRow>());
-    }
-
-    private sealed class NoopIntentStore : IIntentCentroidStore
-    {
-        public Task PruneIntentsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpsertIntentAsync(string signatureId, float[] vector, double threatScore, string intentCategory, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<IntentCentroidRow>> GetRecentIntentsAsync(int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<IntentCentroidRow>>(Array.Empty<IntentCentroidRow>());
-    }
-
     private static VectorCompactionService NewService(
         List<(string Signature, int SessionCount)> overflowing,
         TimeSpan? interval = null)
@@ -63,10 +41,7 @@ public sealed class VectorCompactionServiceTickTests
         return new VectorCompactionService(
             sessionStore.Object,
             Options.Create(opts),
-            NullLogger<VectorCompactionService>.Instance,
-            new NoopSignatureStore(),
-            new NoopSessionStore(),
-            new NoopIntentStore());
+            NullLogger<VectorCompactionService>.Instance);
     }
 
     [Fact]
