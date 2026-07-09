@@ -195,6 +195,16 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
+    // Explicit persistence default: the gateway owns a local SQLite store, so give
+    // DatabasePath a writable default when neither appsettings nor env sets it.
+    // AddBotDetection now fails LOUD on a null DatabasePath (it used to fall back
+    // silently to an unbounded in-memory SQLite DB and OOM); this keeps the gateway
+    // starting out-of-box while honouring any explicit override (including empty
+    // for AddBotDetectionInMemory).
+    builder.Services.PostConfigure<BotDetectionOptions>(opts =>
+        opts.DatabasePath ??= Path.Combine(
+            BotDetectionOptions.ResolveDataDirectory(), "botdetection.db"));
+
     // Wire the StyloFlow module -- the correct entry point per BotDetectionModule.cs.
     // AddBotDetectionModule -> AddStyloFlowModule(new BotDetectionModule(), context)
     //   -> BotDetectionModule.ConfigureServices runs, which:
