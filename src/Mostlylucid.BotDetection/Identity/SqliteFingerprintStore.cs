@@ -1925,6 +1925,189 @@ public class SqliteFingerprintStore : IFingerprintStore
         return counts;
     }
 
+    // ── Durable bounding (identity data guardians, Part B) ───────────────────
+
+    /// <inheritdoc/>
+    public async Task<int> GetFingerprintCountAsync(CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM fingerprints";
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<FingerprintPriorityInfo>> GetAllFingerprintPriorityInfoAsync(
+        int limit, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        var results = new List<FingerprintPriorityInfo>();
+        if (limit <= 0) return results;
+
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // Oldest-first: stale fingerprints are the likeliest eviction candidates.
+        // The guardian re-ranks this coarse pre-filter by DecisionNecessity.
+        cmd.CommandText = """
+            SELECT fingerprint_id, cached_bot_probability, cached_risk_band,
+                   last_seen, claim_status
+              FROM fingerprints
+             ORDER BY last_seen ASC
+             LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var id = reader.GetString(0);
+            var botProb = reader.IsDBNull(1) ? 0.0 : reader.GetDouble(1);
+            var band = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var lastSeen = ParseIso(reader.GetString(3));
+            var claim = reader.IsDBNull(4) ? "unverified" : reader.GetString(4);
+            results.Add(new FingerprintPriorityInfo(
+                id, botProb, band, lastSeen, Protected: claim == "verified"));
+        }
+        return results;
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> DeleteFingerprintsAsync(
+        IReadOnlyList<string> fingerprintIds, CancellationToken ct = default)
+    {
+        if (fingerprintIds is null || fingerprintIds.Count == 0) return 0;
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        var paramNames = new string[fingerprintIds.Count];
+        for (var i = 0; i < fingerprintIds.Count; i++) paramNames[i] = "@fp" + i;
+        var inClause = string.Join(",", paramNames);
+
+        void Bind(SqliteCommand cmd)
+        {
+            cmd.Transaction = tx;
+            for (var i = 0; i < fingerprintIds.Count; i++)
+                cmd.Parameters.AddWithValue(paramNames[i], fingerprintIds[i]);
+        }
+
+        // observations_vec is keyed on observation_id, so delete its rows via the
+        // owning observation ids BEFORE the observation rows go. Only present when
+        // the vec extension loaded.
+        if (_vecAvailable)
+        {
+            await using var vecObs = conn.CreateCommand();
+            Bind(vecObs);
+            vecObs.CommandText =
+                $"DELETE FROM observations_vec WHERE observation_id IN " +
+                $"(SELECT id FROM fingerprint_observations WHERE fingerprint_id IN ({inClause}))";
+            try { await vecObs.ExecuteNonQueryAsync(ct); }
+            catch (SqliteException) { /* vec table may be absent */ }
+
+            await using var vecFp = conn.CreateCommand();
+            Bind(vecFp);
+            vecFp.CommandText = $"DELETE FROM fingerprints_vec WHERE fingerprint_id IN ({inClause})";
+            try { await vecFp.ExecuteNonQueryAsync(ct); }
+            catch (SqliteException) { /* vec table may be absent */ }
+        }
+
+        // Child tables before the parent so REFERENCES fingerprints(...) FKs hold.
+        // fingerprint_corrections keys the fingerprint via pass2_fingerprint.
+        var childTables = new (string Table, string Column)[]
+        {
+            ("fingerprint_observations", "fingerprint_id"),
+            ("fingerprint_keys",         "fingerprint_id"),
+            ("fingerprint_corrections",  "pass2_fingerprint"),
+            ("fingerprint_name_history", "fingerprint_id"),
+            ("fingerprint_root_history", "fingerprint_id")
+        };
+        foreach (var (table, column) in childTables)
+        {
+            await using var cmd = conn.CreateCommand();
+            Bind(cmd);
+            cmd.CommandText = $"DELETE FROM {table} WHERE {column} IN ({inClause})";
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        int deleted;
+        await using (var cmd = conn.CreateCommand())
+        {
+            Bind(cmd);
+            cmd.CommandText = $"DELETE FROM fingerprints WHERE fingerprint_id IN ({inClause})";
+            deleted = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+
+        foreach (var id in fingerprintIds) InvalidateFingerprintCache(id);
+        return deleted;
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> PruneAbsorbedObservationsAsync(
+        int keepPerFingerprint, CancellationToken ct = default)
+    {
+        if (keepPerFingerprint < 0) keepPerFingerprint = 0;
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        // Victim set: absorbed rows ranked beyond the newest-K per fingerprint by id.
+        // Unabsorbed rows (absorbed_at IS NULL) are never in the ranking, so they
+        // always survive -- this preserves both drift readers (ORDER BY id DESC and
+        // observed_at DESC over absorbed rows), provided K >= their per-archetype cap.
+        const string victimCte = """
+            WITH ranked AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY fingerprint_id
+                           ORDER BY id DESC
+                       ) AS rn
+                  FROM fingerprint_observations
+                 WHERE absorbed_at IS NOT NULL
+            )
+            SELECT id FROM ranked WHERE rn > @keep
+            """;
+
+        // Drop the vec mirror rows for the victims first (keyed on observation_id).
+        if (_vecAvailable)
+        {
+            await using var vec = conn.CreateCommand();
+            vec.Transaction = tx;
+            vec.CommandText =
+                $"DELETE FROM observations_vec WHERE observation_id IN ({victimCte})";
+            vec.Parameters.AddWithValue("@keep", keepPerFingerprint);
+            try { await vec.ExecuteNonQueryAsync(ct); }
+            catch (SqliteException) { /* vec table may be absent */ }
+        }
+
+        int pruned;
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                $"DELETE FROM fingerprint_observations WHERE id IN ({victimCte})";
+            cmd.Parameters.AddWithValue("@keep", keepPerFingerprint);
+            pruned = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+        return pruned;
+    }
+
+    private static DateTime ParseIso(string value) =>
+        DateTime.TryParse(
+            value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal |
+            System.Globalization.DateTimeStyles.AssumeUniversal,
+            out var parsed)
+            ? parsed
+            : DateTime.UtcNow;
+
     /// <summary>
     ///     Atomically EWMA-updates the per-fingerprint ambiguity-persistence value and
     ///     returns the post-update value. <paramref name="isAmbiguityEvent"/> = true pushes

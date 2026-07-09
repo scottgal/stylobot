@@ -337,6 +337,47 @@ public interface IFingerprintStore : IFingerprintReader
         CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<DriftObservationRow>>(Array.Empty<DriftObservationRow>());
 
+    // ── Durable bounding (identity data guardians, Part B) ───────────────────
+    // Default no-ops so read-only proxies (RemoteFingerprintReader) and the
+    // null store (Identity:Enabled = false) opt out cleanly; only
+    // SqliteFingerprintStore overrides them.
+
+    /// <summary>Total distinct fingerprints currently stored (for cap enforcement).</summary>
+    Task<int> GetFingerprintCountAsync(CancellationToken ct = default) => Task.FromResult(0);
+
+    /// <summary>
+    ///     Priority metadata for up to <paramref name="limit"/> fingerprints,
+    ///     oldest-first (<c>last_seen ASC</c>), for the eviction guardian's
+    ///     <see cref="Storage.DecisionNecessity"/> ranking. Oldest-first because
+    ///     stale fingerprints are the likeliest eviction candidates; the guardian
+    ///     scores the returned set and evicts the lowest-value ones.
+    /// </summary>
+    Task<IReadOnlyList<FingerprintPriorityInfo>> GetAllFingerprintPriorityInfoAsync(
+        int limit, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<FingerprintPriorityInfo>>(Array.Empty<FingerprintPriorityInfo>());
+
+    /// <summary>
+    ///     Cascade-delete the given fingerprints and every per-fingerprint row they
+    ///     own (observations, vec mirrors, keys, corrections, name / root history)
+    ///     in one transaction. Returns the number of <c>fingerprints</c> rows removed.
+    /// </summary>
+    Task<int> DeleteFingerprintsAsync(
+        IReadOnlyList<string> fingerprintIds, CancellationToken ct = default)
+        => Task.FromResult(0);
+
+    /// <summary>
+    ///     Prune absorbed <c>fingerprint_observations</c> rows so each fingerprint
+    ///     keeps at most <paramref name="keepPerFingerprint"/> of its most-recent
+    ///     (by id) absorbed rows; all unabsorbed rows survive. Also drops the matching
+    ///     <c>observations_vec</c> mirror rows. Returns the number of observation rows
+    ///     pruned. Preserves the drift readers, which scan absorbed rows with no
+    ///     <c>absorbed_at</c> filter -- callers MUST pass a keep-count at or above the
+    ///     drift reader's per-archetype cap.
+    /// </summary>
+    Task<int> PruneAbsorbedObservationsAsync(
+        int keepPerFingerprint, CancellationToken ct = default)
+        => Task.FromResult(0);
+
     // ── Vec KNN ──────────────────────────────────────────────────────────────
     Task<IReadOnlyList<(string FingerprintId, double Distance)>> SearchVecCentroidsAsync(
         float[] queryVector, int k, CancellationToken ct = default);
