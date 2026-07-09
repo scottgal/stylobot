@@ -17,6 +17,21 @@ public interface IDashboardPageManifestSource
 }
 
 /// <summary>
+///     Pack hook to add widget key(s) to a page's manifest so a pack widget joins the
+///     tick-warmed compose. Registered in DI; <see cref="DefaultDashboardPageManifestSource"/>
+///     merges every contribution for a page into the manifest it returns. Composable —
+///     no replace, no ordering race between packs (unlike calling <c>AddManifest</c>).
+/// </summary>
+public interface IDashboardManifestContribution
+{
+    /// <summary>The page whose manifest these keys extend (e.g. <c>"dashboard.traffic"</c>).</summary>
+    string PageKey { get; }
+
+    /// <summary>Widget keys to append (each maps to a <c>[DashboardWidget(key, …)]</c> attribute).</summary>
+    IReadOnlyList<string> WidgetKeys { get; }
+}
+
+/// <summary>
 ///     Default (empty) manifest source. Task 3 seeds the traffic manifest via
 ///     <see cref="AddManifest"/>; commercial packs may add additional manifests
 ///     by resolving this from DI and calling the same method, or by registering
@@ -27,9 +42,13 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
 {
     private readonly Dictionary<string, DashboardPageManifest> _manifests =
         new(StringComparer.Ordinal);
+    private readonly IReadOnlyList<IDashboardManifestContribution> _contributions;
 
-    public DefaultDashboardPageManifestSource()
+    public DefaultDashboardPageManifestSource(
+        IEnumerable<IDashboardManifestContribution>? contributions = null)
     {
+        _contributions = contributions?.ToList()
+            ?? (IReadOnlyList<IDashboardManifestContribution>)Array.Empty<IDashboardManifestContribution>();
         Seed(_manifests);
     }
 
@@ -49,6 +68,22 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
     public void AddManifest(DashboardPageManifest manifest) =>
         _manifests[manifest.PageKey] = manifest;
 
-    public DashboardPageManifest? For(string pageKey) =>
-        _manifests.TryGetValue(pageKey, out var m) ? m : null;
+    public DashboardPageManifest? For(string pageKey)
+    {
+        var baseManifest = _manifests.TryGetValue(pageKey, out var m) ? m : null;
+
+        // Merge pack-contributed widget keys for this page (deduped, statics first).
+        var extra = _contributions
+            .Where(c => string.Equals(c.PageKey, pageKey, StringComparison.Ordinal))
+            .SelectMany(c => c.WidgetKeys)
+            .ToList();
+        if (extra.Count == 0) return baseManifest;
+
+        var keys = new List<string>(baseManifest?.WidgetKeys ?? Array.Empty<string>());
+        foreach (var k in extra)
+            if (!keys.Contains(k, StringComparer.Ordinal))
+                keys.Add(k);
+
+        return new DashboardPageManifest(pageKey, keys);
+    }
 }
