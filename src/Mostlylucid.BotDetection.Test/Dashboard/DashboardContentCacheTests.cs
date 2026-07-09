@@ -108,4 +108,38 @@ public sealed class DashboardContentCacheTests
         tick = 1 + 4;                          // beyond max age -> pruned
         Assert.Empty(cache.LiveEnvelopes());
     }
+
+    [Fact]
+    public async Task GetCurrentAsync_hits_the_last_warm_across_a_tick_advance()
+    {
+        var composes = 0;
+        long tick = 5;
+        await using var cache = new DashboardContentCache(
+            (_, _, _) => { composes++; return Task.FromResult(Result()); },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+
+        await cache.GetCurrentAsync(Traffic, Window(), default); // composes at tick 5, warm=5
+        Assert.Equal(1, composes);
+
+        tick = 6; // tick advanced; nothing warmed tick 6 yet
+        await cache.GetCurrentAsync(Traffic, Window(), default); // resolves to warm tick 5 -> HIT
+        Assert.Equal(1, composes); // the fix: was 2 (a cold miss per tick) before the re-key
+    }
+
+    [Fact]
+    public async Task GetCurrentAsync_hits_a_materializer_warm_at_a_later_current_tick()
+    {
+        var composes = 0;
+        long tick = 5;
+        await using var cache = new DashboardContentCache(
+            (_, _, _) => { composes++; return Task.FromResult(Result()); },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+
+        await cache.WarmAsync(Traffic, Window(), 5, default); // materializer warms env at tick 5
+        Assert.Equal(1, composes);
+
+        tick = 7; // current tick is now ahead of the warm
+        await cache.GetCurrentAsync(Traffic, Window(), default); // resolves to warm tick 5 -> HIT
+        Assert.Equal(1, composes);
+    }
 }

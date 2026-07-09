@@ -27,6 +27,16 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
 
     private sealed record LiveEntry(DashboardPageManifest Manifest, DashboardPageWindow Window, long LastSeenTick);
 
+    // Envelope -> the most recent tick that was warmed (by the materializer or a read).
+    // Reads resolve to THIS tick, not strictly the current tick — so a read never cold-
+    // misses just because the materializer hasn't composed this exact tick yet; it falls
+    // back to the previous warmed tick, which is still in the atom. The tick is the version;
+    // the envelope is the key (operator's model). This is what keeps reads reliably warm.
+    private readonly ConcurrentDictionary<DashboardContentEnvelope, long> _latestWarmTick = new();
+
+    private void RecordWarm(DashboardContentEnvelope env, long tick) =>
+        _latestWarmTick.AddOrUpdate(env, tick, (_, old) => Math.Max(old, tick));
+
     public DashboardContentCache(
         Func<DashboardPageManifest, DashboardPageWindow, CancellationToken, Task<DashboardPageResult>> compose,
         Func<long> currentTick,
@@ -55,19 +65,34 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
     {
         var key = new DashboardContentKey(manifest, window, tick);
-        // Mark this view live so the materializer keeps it warm at future ticks.
+        // Mark this view live so the materializer keeps it warm at future ticks, and record
+        // that this tick is warm so GetCurrentAsync can resolve to it.
         _live[key.Envelope] = new LiveEntry(manifest, window, _currentTick());
+        RecordWarm(key.Envelope, tick);
         return _atom.GetOrComputeAsync(key, ct);
     }
 
     public Task<DashboardPageResult> GetCurrentAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, CancellationToken ct)
-        => GetAsync(manifest, window, _currentTick(), ct);
+    {
+        // Resolve to the LATEST warmed tick for this envelope (current or a recent previous),
+        // NOT strictly the current tick — so the read hits the materializer's most recent warm
+        // instead of cold-missing a not-yet-composed current tick. Only a brand-new envelope
+        // (never warmed) composes once, at the current tick.
+        var env = DashboardContentEnvelope.From(manifest, window);
+        var readTick = _latestWarmTick.TryGetValue(env, out var warmed) ? warmed : _currentTick();
+        return GetAsync(manifest, window, readTick, ct);
+    }
 
     public Task<DashboardPageResult> WarmAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
-        // No liveness record: the materializer's own warm must not keep an envelope alive.
-        => _atom.GetOrComputeAsync(new DashboardContentKey(manifest, window, tick), ct);
+    {
+        // Materializer warm: compose (env, tick) and record it as the latest warm — but do
+        // NOT touch liveness (the materializer's own warm must not keep an envelope alive).
+        var key = new DashboardContentKey(manifest, window, tick);
+        RecordWarm(key.Envelope, tick);
+        return _atom.GetOrComputeAsync(key, ct);
+    }
 
     public bool TryGet(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, out DashboardPageResult? result)
