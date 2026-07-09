@@ -252,6 +252,39 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         InvalidateModes(updated.FingerprintId);
     }
 
+    public async Task<int> PruneAbsorbedModeObservationsAsync(
+        int keepPerFingerprint, CancellationToken ct = default)
+    {
+        if (keepPerFingerprint < 0) keepPerFingerprint = 0;
+
+        await _parent.EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // Victim set: absorbed rows ranked beyond the newest-K per fingerprint by
+        // id. Unabsorbed rows (absorbed_at IS NULL) are never in the ranking, so
+        // the drainer's only reader (ListUnabsorbedModeObservationsAsync) is never
+        // starved. There is no absorbed-row reader to preserve here, so the
+        // partition key and K are diagnostic margin, not a correctness constraint.
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM fingerprint_mode_observations
+             WHERE id IN (
+                SELECT id FROM (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY fingerprint_id
+                               ORDER BY id DESC
+                           ) AS rn
+                      FROM fingerprint_mode_observations
+                     WHERE absorbed_at IS NOT NULL
+                ) WHERE rn > @keep
+             )
+            """;
+        cmd.Parameters.AddWithValue("@keep", keepPerFingerprint);
+        return await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<IReadOnlyList<string>> ListFingerprintIdsWithModesAsync(
         int maxRows, CancellationToken ct = default)
     {

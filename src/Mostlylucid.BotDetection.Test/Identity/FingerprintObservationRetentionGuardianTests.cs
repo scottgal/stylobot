@@ -55,10 +55,18 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
         return store;
     }
 
+    private static Mostlylucid.BotDetection.Identity.BrowserModes.SqliteFingerprintBrowserModeStore NewModeStore(
+        SqliteFingerprintStore store, BotDetectionOptions opts)
+        => new(
+            store,
+            Microsoft.Extensions.Options.Options.Create(opts),
+            NullLogger<Mostlylucid.BotDetection.Identity.BrowserModes.SqliteFingerprintBrowserModeStore>.Instance);
+
     private static FingerprintObservationRetentionGuardian NewGuardian(
         SqliteFingerprintStore store, BotDetectionOptions opts)
         => new(
             store,
+            NewModeStore(store, opts),
             Microsoft.Extensions.Options.Options.Create(opts),
             new ConfigurationBuilder().AddInMemoryCollection().Build(),
             NullLogger<FingerprintObservationRetentionGuardian>.Instance);
@@ -137,6 +145,36 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
         Assert.Equal("FingerprintObservationRetention", report.GuardianName);
         // Under the 5000 keep everything survives (drift-preserving no-op prune).
         Assert.Equal(4, await TotalObservationsAsync("fp"));
+    }
+
+    [Fact]
+    public async Task GuardAsync_prunes_absorbed_mode_observations_beyond_keep_but_never_unabsorbed()
+    {
+        // A soak measured fingerprint_mode_observations at ~71% of the identity DB's
+        // growth: one row per resolved mode per request, absorbed-but-never-deleted.
+        // The guardian prunes absorbed mode rows beyond the keep just as it does the
+        // plain observations table, while unabsorbed rows (the drainer's only reader
+        // filters absorbed_at IS NULL) always survive.
+        var opts = Options(maxObs: 2, driftCap: 2); // effectiveK = 2
+        var store = await NewStoreAsync(opts);
+        await SeedFingerprintAsync(store, "fp");
+        var modeStore = NewModeStore(store, opts);
+
+        // 6 absorbed then 3 unabsorbed mode observations.
+        for (var i = 0; i < 6; i++)
+            await modeStore.RecordModeObservationAsync(RequestScope.Unknown, "fp", "mode-a", UnitVector(), "chrome");
+        await MarkAllModeObservationsAbsorbedAsync("fp");
+        for (var i = 0; i < 3; i++)
+            await modeStore.RecordModeObservationAsync(RequestScope.Unknown, "fp", "mode-a", UnitVector(), "chrome");
+
+        var report = await NewGuardian(store, opts).GuardAsync();
+
+        // effectiveK = 2 absorbed kept + 3 unabsorbed always kept = 5 total; the 4
+        // oldest absorbed rows are pruned. The report details name the mode count.
+        Assert.Equal("pruned", report.Status);
+        Assert.Equal(3, await UnabsorbedModeCountAsync("fp"));
+        Assert.Equal(5, await TotalModeObservationsAsync("fp"));
+        Assert.Contains("mode observations", report.Details);
     }
 
     [Fact]
@@ -220,5 +258,28 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
     private Task<int> UnabsorbedCountAsync(string id) =>
         ScalarAsync(
             "SELECT COUNT(*) FROM fingerprint_observations WHERE fingerprint_id = @id AND absorbed_at IS NULL",
+            id);
+
+    private async Task MarkAllModeObservationsAbsorbedAsync(string fingerprintId)
+    {
+        await using var conn = new SqliteConnection($"Data Source={_fpDb}");
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprint_mode_observations
+               SET absorbed_at = @ts
+             WHERE fingerprint_id = @id AND absorbed_at IS NULL
+            """;
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private Task<int> TotalModeObservationsAsync(string id) =>
+        ScalarAsync("SELECT COUNT(*) FROM fingerprint_mode_observations WHERE fingerprint_id = @id", id);
+
+    private Task<int> UnabsorbedModeCountAsync(string id) =>
+        ScalarAsync(
+            "SELECT COUNT(*) FROM fingerprint_mode_observations WHERE fingerprint_id = @id AND absorbed_at IS NULL",
             id);
 }
