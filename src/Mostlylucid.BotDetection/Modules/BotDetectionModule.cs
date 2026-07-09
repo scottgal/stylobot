@@ -638,6 +638,13 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             // BotDetection:Guardians:FingerprintObservationRetention:*.
             services.AddSingleton<Guardians.IGuardian,
                 Identity.FingerprintObservationRetentionGuardian>();
+
+            // Cross-fingerprint MemoryAdaptiveCap eviction by DecisionNecessity;
+            // cascade-deletes all per-fp tables and never evicts verified claims.
+            // No-op when MaxFingerprints == 0. Config-driven via
+            // BotDetection:Guardians:FingerprintEviction:*.
+            services.AddSingleton<Guardians.IGuardian,
+                Identity.FingerprintEvictionGuardian>();
         }
 
         // Session echo — the two-phase eviction ack subscriber. Routes to
