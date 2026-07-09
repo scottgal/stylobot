@@ -601,6 +601,11 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // enabled flag are config-driven via BotDetection:Guardians:BucketRetention:*.
         services.AddSingleton<Guardians.IGuardian, Guardians.BucketRetentionGuardian>();
 
+        // Data guardian: compact overflowing SQLite session rows into behavioural
+        // centroids (Phase 2, extracted from VectorCompactionService). Runs on its
+        // own interval; config-driven via BotDetection:Guardians:SessionCompaction:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.SessionCompactionGuardian>();
+
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
         // by default, PostgreSQLDetectionArchive via commercial pack Replace).

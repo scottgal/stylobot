@@ -140,8 +140,9 @@ public sealed class VectorCompactionService : IGuardian
         // Phase 1 (BucketRetentionGuardian): bucket pruning extracted to its own
         // guardian and runs on its own interval; no call here.
 
-        // Phase 2: Compact overflowing SQLite sessions into behavioral centroids
-        var compacted = await RunPhase2SessionCompactionAsync(ct);
+        // Phase 2 (SessionCompactionGuardian): SQLite session compaction extracted
+        // to its own guardian and runs on its own interval; no call here.
+        var compacted = 0;
 
         // Phase 3: Compact HNSW index if it's grown too large
         if (_vectorSearch != null)
@@ -251,83 +252,6 @@ public sealed class VectorCompactionService : IGuardian
         {
             _logger.LogWarning(ex, "Phase 4 (centroid pruning) failed");
         }
-    }
-
-    // ===========================
-    // Phase 2: SQLite session compaction
-    // ===========================
-
-    private async Task<int> RunPhase2SessionCompactionAsync(CancellationToken ct)
-    {
-        try
-        {
-            var overflowing = await _store.GetOverflowingSignaturesAsync(
-                _retention.MaxSessionsPerSignature, limit: 1000, ct);
-
-            if (overflowing.Count == 0)
-            {
-                _logger.LogDebug("Phase 2: no signatures over session limit ({Max})", _retention.MaxSessionsPerSignature);
-                return 0;
-            }
-
-            _logger.LogInformation("Phase 2: compacting {Count} signatures over {Max}-session limit",
-                overflowing.Count, _retention.MaxSessionsPerSignature);
-
-            var compacted = 0;
-            foreach (var (signature, sessionCount) in overflowing)
-            {
-                if (ct.IsCancellationRequested) break;
-
-                var result = await _store.CompactSignatureSessionsAsync(
-                    signature, _retention.MaxSessionsPerSignature, ct);
-
-                if (result.HasCentroid && _vectorSearch != null)
-                {
-                    // Update HNSW metadata: replace individual vectors for this signature
-                    // with a single centroid entry carrying the velocity centroid
-                    await UpdateHnswEntryForSignatureAsync(result, ct);
-                }
-
-                if (result.CompactedCount > 0) compacted++;
-            }
-
-            _logger.LogInformation("Phase 2 complete: {Count} signatures compacted", compacted);
-            return compacted;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Phase 2 (session compaction) failed");
-            return 0;
-        }
-    }
-
-    private async Task UpdateHnswEntryForSignatureAsync(CompactionResult result, CancellationToken ct)
-    {
-        if (_vectorSearch == null || result.BehavioralCentroid == null) return;
-
-        var all = _vectorSearch.GetAllVectorsSnapshot();
-        var remaining = all
-            .Where(x => x.Metadata.Signature != result.Signature)
-            .ToList();
-
-        // Add the compacted centroid entry with velocity centroid embedded in metadata
-        var centroidMeta = new SessionVectorMetadata
-        {
-            Signature = result.Signature,
-            IsBot = false, // Will be updated by next live session; we don't know from the centroid alone
-            BotProbability = 0,
-            Timestamp = DateTimeOffset.UtcNow,
-            VelocityVector = result.VelocityCentroid,
-            VelocityMagnitude = result.VelocityCentroid != null
-                ? Analysis.SessionVectorizer.VelocityMagnitude(result.VelocityCentroid)
-                : 0f,
-            FrequencyFingerprint = result.FrequencyCentroid,
-            CompressionLevel = 1, // L1 centroid
-            Priority = 1.0
-        };
-
-        remaining.Add((result.BehavioralCentroid, centroidMeta));
-        await _vectorSearch.ReplaceAllAsync(remaining);
     }
 
     // ===========================

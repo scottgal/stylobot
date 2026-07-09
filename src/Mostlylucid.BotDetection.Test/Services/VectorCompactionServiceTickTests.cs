@@ -94,13 +94,18 @@ public sealed class VectorCompactionServiceTickTests
     }
 
     [Fact]
-    public async Task GuardAsync_compacts_overflowing_signatures_and_reports_the_count()
+    public async Task GuardAsync_reports_ok_when_sessions_overflow_but_no_cap_is_set()
     {
+        // Phase 2 (session compaction) was extracted to SessionCompactionGuardian in Task 3.
+        // VectorCompactionService now owns Phases 3-5 only. When sessions overflow but
+        // MaxSignatures is 0 (cap disabled, the default), GuardAsync returns "ok" because
+        // neither Phase 3 (HNSW) nor Phase 5 (cap enforcement) engages on this path.
+        // SessionCompactionGuardianTests covers the compaction-count reporting contract.
         var svc = NewService([("sigA", 50), ("sigB", 40)]);
 
         var report = await svc.GuardAsync();
 
-        report.Status.Should().Be("compacted");
-        report.Details.Should().Contain("2");
+        report.Status.Should().Be("ok");
+        report.GuardianName.Should().Be("VectorCompaction");
     }
 }
