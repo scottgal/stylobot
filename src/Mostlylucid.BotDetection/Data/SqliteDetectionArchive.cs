@@ -38,7 +38,7 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
         var basePath = Path.GetDirectoryName(
             options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
             ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(basePath);
+        StoreDbDirectory.EnsureExists(basePath);
         var dbPath = Path.Combine(basePath, "sessions.db");
         _connectionString = $"Data Source={dbPath};Cache=Shared";
     }

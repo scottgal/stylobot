@@ -62,7 +62,7 @@ public sealed class SqliteSessionCentroidStore
         var basePath = Path.GetDirectoryName(
             options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
             ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(basePath);
+        StoreDbDirectory.EnsureExists(basePath);
         _connectionString = $"Data Source={Path.Combine(basePath, "session_centroids.db")};Cache=Shared";
     }
 
