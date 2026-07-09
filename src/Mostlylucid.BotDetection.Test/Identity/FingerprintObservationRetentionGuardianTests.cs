@@ -34,10 +34,15 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* best effort */ }
     }
 
-    private BotDetectionOptions Options(int maxObs) => new()
+    private BotDetectionOptions Options(int maxObs, int driftCap = 5000) => new()
     {
         DatabasePath = Path.Combine(_tempDir, "botdetection.db"),
-        Identity = new IdentityOptions { Enabled = true, MaxObservationsPerFingerprint = maxObs }
+        Identity = new IdentityOptions
+        {
+            Enabled = true,
+            MaxObservationsPerFingerprint = maxObs,
+            DriftMaxRowsPerArchetype = driftCap
+        }
     };
 
     private async Task<SqliteFingerprintStore> NewStoreAsync(BotDetectionOptions opts)
@@ -59,36 +64,60 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
             NullLogger<FingerprintObservationRetentionGuardian>.Instance);
 
     [Fact]
-    public async Task GuardAsync_preserves_drift_rankable_absorbed_rows()
+    public async Task GuardAsync_prunes_older_absorbed_but_floors_keep_at_the_drift_cap()
     {
-        var opts = Options(maxObs: 2); // configured below the drift cap on purpose
+        // The drift reader ranks the newest 5 rows per archetype (driftCap: 5), but
+        // retention is naively configured to keep only 2. The guardian MUST floor its
+        // effective keep-count at the drift cap, or the prune would delete 3 rows that
+        // ListRecentObservationsForDriftAsync ranks (both readers scan absorbed rows
+        // unfiltered). Small caps here so the prune genuinely runs, unlike the 5000
+        // default where a handful of rows is a no-op.
+        var opts = Options(maxObs: 2, driftCap: 5);
         var store = await NewStoreAsync(opts);
         await SeedFingerprintAsync(store, "fp");
 
-        // 8 absorbed (older) + 3 unabsorbed (newer). With the configured keep of 2,
-        // a naive prune would delete 6 absorbed. But effectiveK is floored at the
-        // drift cap (5000), so every absorbed row the drift reader ranks survives.
+        // 8 absorbed observations (same archetype "chrome-desktop" / ua "chrome").
         for (var i = 0; i < 8; i++)
+            await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+        await MarkAllObservationsAbsorbedAsync("fp");
+
+        // Baseline: the drift reader ranks a full cap of 5 rows.
+        var driftBefore = await store.ListRecentObservationsForDriftAsync(opts.Identity.DriftMaxRowsPerArchetype);
+        Assert.Equal(5, driftBefore.Count);
+
+        var report = await NewGuardian(store, opts).GuardAsync();
+
+        // The prune actually RAN (8 -> 5, not a no-op) and kept exactly the drift cap:
+        // the 3 oldest absorbed rows are gone, but every row the drift reader ranks
+        // survives. If effectiveK were the naive 2 (floor broken), only 2 would remain
+        // and the drift reader would be starved to 2 rows.
+        Assert.Equal("pruned", report.Status);
+        Assert.Equal(5, await TotalObservationsAsync("fp"));
+
+        var driftAfter = await store.ListRecentObservationsForDriftAsync(opts.Identity.DriftMaxRowsPerArchetype);
+        Assert.Equal(5, driftAfter.Count);
+    }
+
+    [Fact]
+    public async Task GuardAsync_always_keeps_unabsorbed_rows_even_below_the_keep_count()
+    {
+        // Unabsorbed rows are never eligible for pruning regardless of the keep count.
+        var opts = Options(maxObs: 1, driftCap: 1);
+        var store = await NewStoreAsync(opts);
+        await SeedFingerprintAsync(store, "fp");
+
+        // 4 absorbed then 3 unabsorbed. effectiveK = max(1, 1) = 1.
+        for (var i = 0; i < 4; i++)
             await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
         await MarkAllObservationsAbsorbedAsync("fp");
         for (var i = 0; i < 3; i++)
             await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
 
-        var driftBefore = await store.ListRecentObservationsForDriftAsync(
-            IdentityWeightCalibrationService.DriftMaxRowsPerArchetype);
-        Assert.NotEmpty(driftBefore);
+        await NewGuardian(store, opts).GuardAsync();
 
-        var report = await NewGuardian(store, opts).GuardAsync();
-
-        // Drift-preservation: the guard floored keep at the drift cap, so nothing
-        // the drift reader ranks was pruned.
-        Assert.Equal("pruned", report.Status);
-        Assert.Equal(11, await TotalObservationsAsync("fp"));
+        // All 3 unabsorbed survive; absorbed pruned down to the keep of 1.
         Assert.Equal(3, await UnabsorbedCountAsync("fp"));
-
-        var driftAfter = await store.ListRecentObservationsForDriftAsync(
-            IdentityWeightCalibrationService.DriftMaxRowsPerArchetype);
-        Assert.Equal(driftBefore.Count, driftAfter.Count);
+        Assert.Equal(4, await TotalObservationsAsync("fp")); // 3 unabsorbed + 1 kept absorbed
     }
 
     [Fact]

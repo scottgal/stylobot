@@ -22,7 +22,7 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     <c>absorbed_at</c> filter: <see cref="IFingerprintStore.GetLatestObservationVectorAsync"/>
 ///     (id DESC LIMIT 1) and <see cref="IFingerprintStore.ListRecentObservationsForDriftAsync"/>
 ///     (per-archetype, capped at
-///     <see cref="IdentityWeightCalibrationService.DriftMaxRowsPerArchetype"/>). So the
+///     <see cref="IdentityOptions.DriftMaxRowsPerArchetype"/>). So the
 ///     effective keep-count is <c>max(MaxObservationsPerFingerprint, DriftMaxRowsPerArchetype)</c>
 ///     -- a prune can never starve archetype drift.
 ///
@@ -53,7 +53,7 @@ public sealed class FingerprintObservationRetentionGuardian : IGuardian
         // ListRecentObservationsForDriftAsync (which reads absorbed rows unfiltered).
         _effectiveKeep = Math.Max(
             options.Value.Identity.MaxObservationsPerFingerprint,
-            IdentityWeightCalibrationService.DriftMaxRowsPerArchetype);
+            options.Value.Identity.DriftMaxRowsPerArchetype);
 
         var (enabled, interval) = GuardianConfig.Read(
             config, "FingerprintObservationRetention", DefaultInterval);

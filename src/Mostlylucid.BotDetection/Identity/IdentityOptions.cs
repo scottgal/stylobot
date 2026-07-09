@@ -39,12 +39,22 @@ public sealed class IdentityOptions
     ///     Most-recent absorbed observations the
     ///     <c>FingerprintObservationRetentionGuardian</c> keeps per fingerprint;
     ///     older absorbed rows are pruned. Unabsorbed rows are always kept.
-    ///     MUST default at or above the drift reader's per-archetype cap
-    ///     (<see cref="Mostlylucid.BotDetection.Identity.IdentityWeightCalibrationService.DriftMaxRowsPerArchetype"/> =
-    ///     5000) so pruning never starves archetype drift; the guardian floors
-    ///     the effective keep-count against that cap regardless.
+    ///     The guardian floors the effective keep-count against
+    ///     <see cref="DriftMaxRowsPerArchetype"/> regardless of this value, so
+    ///     pruning never starves archetype drift.
     /// </summary>
     public int MaxObservationsPerFingerprint { get; set; } = 5_000;
+
+    /// <summary>
+    ///     Per-archetype row cap the drift reader
+    ///     (<c>ListRecentObservationsForDriftAsync</c>) ranks over, and the floor
+    ///     the observation-retention guardian keeps per fingerprint so a prune can
+    ///     never delete a row the drift reader would rank (both readers scan
+    ///     absorbed rows unfiltered). Single source of truth for both the drift
+    ///     sampling depth and the retention floor: raise this and the guardian
+    ///     keeps more; lower it (tests) and both move together.
+    /// </summary>
+    public int DriftMaxRowsPerArchetype { get; set; } = 5_000;
 
     /// <summary>
     ///     Ceiling on distinct fingerprints the <c>FingerprintEvictionGuardian</c>
