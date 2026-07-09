@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -15,19 +16,29 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
     private readonly DashboardWidgetCatalog _catalog;
     private readonly IDashboardEventStore _store;
     private readonly IReadOnlyDictionary<string, IDashboardDatasetExtension> _extensions;
+    private readonly ILogger<DefaultDashboardPageComposer>? _logger;
 
     public DefaultDashboardPageComposer(
         DashboardWidgetCatalog catalog,
         IDashboardEventStore store,
-        IEnumerable<IDashboardDatasetExtension>? extensions = null)
+        IEnumerable<IDashboardDatasetExtension>? extensions = null,
+        ILogger<DefaultDashboardPageComposer>? logger = null)
     {
         _catalog = catalog;
         _store = store;
-        // Index pack extensions by their kind name (last registration wins on a dup).
+        _logger = logger;
+        // Index pack extensions by their kind name (last registration wins on a dup —
+        // logged so a pack silently hijacking another pack's kind is visible).
         var map = new Dictionary<string, IDashboardDatasetExtension>(StringComparer.Ordinal);
         if (extensions is not null)
             foreach (var e in extensions)
+            {
+                if (map.ContainsKey(e.DatasetKind))
+                    _logger?.LogWarning(
+                        "Duplicate dashboard dataset extension for kind '{DatasetKind}'; last registration wins.",
+                        e.DatasetKind);
                 map[e.DatasetKind] = e;
+            }
         _extensions = map;
     }
 
@@ -88,9 +99,13 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
-                data = null; // fail-closed: a throwing extension yields a null slice
+                // Fail-closed: a throwing extension yields a null slice — but LOGGED, not
+                // silent (no-silent-errors), so a tile vanishing has an operator trail.
+                _logger?.LogWarning(ex,
+                    "Dashboard dataset extension '{DatasetKind}' threw; slice omitted.", kind);
+                data = null;
             }
             (resolved ??= new Dictionary<string, object?>(StringComparer.Ordinal))[kind] = data;
         }
