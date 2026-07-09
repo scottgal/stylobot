@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -170,9 +171,19 @@ public sealed class SbWidgetBatchMiddleware
         if (kinds.Length == 0)
             return; // nothing composer-covered in this batch
 
+        var window = BuildBatchWindow(context);
+
+        // Prefer the warm page bundle the tick materializer keeps fresh out-of-request:
+        // a delta update then reads a ready bundle instead of composing on the request
+        // thread. Optional (resolved from request services so a widgets-only host with
+        // no dashboard cache still works); falls back to the subset compose below.
+        var contentCache = context.RequestServices.GetService<IDashboardContentCache>();
+        var manifests = context.RequestServices.GetService<IDashboardPageManifestSource>();
+        if (await TryStashWarmPageBundleAsync(contentCache, manifests, context, window, _logger, ct))
+            return;
+
         try
         {
-            var window = BuildBatchWindow(context);
             var datasets = kinds
                 .Select(k => new DatasetRequest(k, window.TopN, window.BucketMinutes))
                 .ToList();
@@ -188,6 +199,42 @@ public sealed class SbWidgetBatchMiddleware
         {
             // Compose failure is non-fatal: widgets fall back to their self-fetch.
             _logger.LogDebug(ex, "SbWidgetBatch: compose failed — falling back to per-widget self-fetch");
+        }
+    }
+
+    /// <summary>
+    ///     Stashes the warm page bundle (kept fresh by the tick materializer) for the
+    ///     traffic page at the update's window, so delta widgets read a ready bundle
+    ///     instead of composing in-request. The traffic manifest carries all five
+    ///     dataset kinds, so any covered widget finds its slice. Returns false when no
+    ///     content cache / manifest is available (caller falls back to a subset
+    ///     compose); read failures degrade to the same fallback.
+    /// </summary>
+    internal static async Task<bool> TryStashWarmPageBundleAsync(
+        IDashboardContentCache? contentCache,
+        IDashboardPageManifestSource? manifests,
+        HttpContext context,
+        DashboardPageWindow window,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        if (contentCache is null || manifests is null)
+            return false;
+
+        var manifest = manifests.For("dashboard.traffic");
+        if (manifest is null)
+            return false;
+
+        try
+        {
+            var page = await contentCache.GetCurrentAsync(manifest, window, ct);
+            context.Items["sb.dashboard.pageresult"] = page;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "SbWidgetBatch: warm page-bundle read failed — falling back to subset compose");
+            return false;
         }
     }
 

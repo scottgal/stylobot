@@ -1,6 +1,10 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
+using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -198,5 +202,51 @@ public sealed class WidgetBatchComposeTests
         // Assert: stashed and of the correct type.
         Assert.True(httpContext.Items.ContainsKey("sb.dashboard.pageresult"));
         Assert.IsType<DashboardPageResult>(httpContext.Items["sb.dashboard.pageresult"]);
+    }
+
+    // ---------- warm-bundle delta path (out-of-request materialization) ----------
+
+    /// <summary>
+    ///     When a content cache is available, the delta path stashes the warm traffic
+    ///     page bundle (all five kinds) instead of composing its own subset — so a live
+    ///     update reads a ready bundle the tick materializer keeps fresh.
+    /// </summary>
+    [Fact]
+    public async Task Delta_prefers_the_warm_page_bundle_when_a_content_cache_is_available()
+    {
+        var composes = 0;
+        long tick = 1;
+        var cache = new DashboardContentCache(
+            (_, _, _) => { composes++; return Task.FromResult(MakeResult()); },
+            () => tick,
+            Options.Create(new DashboardMaterializerOptions()));
+        var manifests = new DefaultDashboardPageManifestSource();
+        var ctx = new DefaultHttpContext();
+        var window = new DashboardPageWindow(null, null, "all", null, null, 500, 60);
+
+        var stashed = await SbWidgetBatchMiddleware.TryStashWarmPageBundleAsync(
+            cache, manifests, ctx, window, NullLogger.Instance, default);
+
+        Assert.True(stashed);
+        Assert.IsType<DashboardPageResult>(ctx.Items["sb.dashboard.pageresult"]);
+        Assert.Equal(1, composes); // composed the traffic page bundle once (cold), now cached
+    }
+
+    /// <summary>
+    ///     With no content cache (a widgets-only host, or the dashboard cache
+    ///     unregistered), the delta path reports false so the caller falls back to its
+    ///     subset compose — no regression to the pre-materialization behaviour.
+    /// </summary>
+    [Fact]
+    public async Task Delta_falls_back_when_no_content_cache_is_available()
+    {
+        var ctx = new DefaultHttpContext();
+        var window = new DashboardPageWindow(null, null, "all", null, null, 500, 60);
+
+        var stashed = await SbWidgetBatchMiddleware.TryStashWarmPageBundleAsync(
+            null, null, ctx, window, NullLogger.Instance, default);
+
+        Assert.False(stashed);
+        Assert.False(ctx.Items.ContainsKey("sb.dashboard.pageresult"));
     }
 }
