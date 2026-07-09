@@ -647,6 +647,14 @@ public sealed class BotDetectionModule : IStyloflowWebModule
                 Identity.FingerprintEvictionGuardian>();
         }
 
+        // The walker itself. It collects every IGuardian above via IEnumerable and
+        // runs each on its own interval off the ScheduleCoordinator's Tick1m. This
+        // registration was MISSING: the guardians were registered but nothing walked
+        // them, so the whole tier silently never ran (GuardianService is eager-resolved
+        // by BotDetectionHostedSingletonsBootstrap via GetService, which returned null
+        // when it was unregistered). Register it so the guardians actually fire.
+        services.TryAddSingleton<Guardians.GuardianService>();
+
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
         // by default, PostgreSQLDetectionArchive via commercial pack Replace).
