@@ -137,8 +137,8 @@ public sealed class VectorCompactionService : IGuardian
         _logger.LogInformation("Vector compaction started");
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
-        // Phase 1: Delete stale bucket rows (chart counters only)
-        await RunPhase1BucketPruneAsync(ct);
+        // Phase 1 (BucketRetentionGuardian): bucket pruning extracted to its own
+        // guardian and runs on its own interval; no call here.
 
         // Phase 2: Compact overflowing SQLite sessions into behavioral centroids
         var compacted = await RunPhase2SessionCompactionAsync(ct);
@@ -225,22 +225,6 @@ public sealed class VectorCompactionService : IGuardian
         "verified" => 0.90,
         _          => 0.0
     };
-
-    // ===========================
-    // Phase 1: Bucket pruning
-    // ===========================
-
-    private async Task RunPhase1BucketPruneAsync(CancellationToken ct)
-    {
-        try
-        {
-            await _store.PruneBucketsAsync(_retention.BucketRetention, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Phase 1 (bucket pruning) failed");
-        }
-    }
 
     // ===========================
     // Phase 4: Centroid pruning

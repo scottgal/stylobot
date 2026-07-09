@@ -596,6 +596,11 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // remote-mode dashboards.
         services.TryAddSingleton<Data.IDetectionArchive, Data.SqliteDetectionArchive>();
 
+        // Data guardian: prune stale time-series bucket rows (Phase 1, extracted
+        // from VectorCompactionService). Runs on its own interval; interval and
+        // enabled flag are config-driven via BotDetection:Guardians:BucketRetention:*.
+        services.AddSingleton<Guardians.IGuardian, Guardians.BucketRetentionGuardian>();
+
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
         // by default, PostgreSQLDetectionArchive via commercial pack Replace).
