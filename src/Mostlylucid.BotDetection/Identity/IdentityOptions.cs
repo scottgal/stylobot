@@ -32,6 +32,49 @@ public sealed class IdentityOptions
     ///     wiring — currently honored by direct invocation from the matcher).
     /// </summary>
     public bool NameRecomposeOnMatch { get; set; } = true;
+
+    // ── Durable bounding (identity data guardians, Part B) ───────────────────
+
+    /// <summary>
+    ///     Most-recent absorbed observations the
+    ///     <c>FingerprintObservationRetentionGuardian</c> keeps per fingerprint;
+    ///     older absorbed rows are pruned. Unabsorbed rows are always kept.
+    ///     The guardian floors the effective keep-count against
+    ///     <see cref="DriftMaxRowsPerArchetype"/> regardless of this value, so
+    ///     pruning never starves archetype drift.
+    /// </summary>
+    public int MaxObservationsPerFingerprint { get; set; } = 5_000;
+
+    /// <summary>
+    ///     Per-archetype row cap the drift reader
+    ///     (<c>ListRecentObservationsForDriftAsync</c>) ranks over, and the floor
+    ///     the observation-retention guardian keeps per fingerprint so a prune can
+    ///     never delete a row the drift reader would rank (both readers scan
+    ///     absorbed rows unfiltered). Single source of truth for both the drift
+    ///     sampling depth and the retention floor: raise this and the guardian
+    ///     keeps more; lower it (tests) and both move together.
+    /// </summary>
+    public int DriftMaxRowsPerArchetype { get; set; } = 5_000;
+
+    /// <summary>
+    ///     Ceiling on distinct fingerprints the <c>FingerprintEvictionGuardian</c>
+    ///     enforces (memory-adaptive, ramps down under pressure). 0 disables the
+    ///     cap (unlimited posture, guardian is a no-op). Default 50 000.
+    /// </summary>
+    public int MaxFingerprints { get; set; } = 50_000;
+
+    /// <summary>
+    ///     Floor the eviction cap ramps down to under memory pressure. Never
+    ///     evicts below this many fingerprints. Default 2 000.
+    /// </summary>
+    public int MinFingerprints { get; set; } = 2_000;
+
+    /// <summary>
+    ///     Recency half-life fed to <see cref="Storage.DecisionNecessity.ColdnessScore"/>
+    ///     for fingerprint eviction: a fingerprint's retention value halves every
+    ///     half-life. Default 7 days.
+    /// </summary>
+    public TimeSpan FingerprintRecencyHalfLife { get; set; } = TimeSpan.FromDays(7);
 }
 
 /// <summary>

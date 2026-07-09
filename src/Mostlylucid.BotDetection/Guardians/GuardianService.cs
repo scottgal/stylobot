@@ -71,6 +71,7 @@ public sealed class GuardianService : IDisposable
         foreach (var g in _guardians)
         {
             if (ct.IsCancellationRequested) return;
+            if (!g.Enabled) continue;
             if (nowUtc < _nextRun[g.Name]) continue;
 
             var sw = Stopwatch.StartNew();
