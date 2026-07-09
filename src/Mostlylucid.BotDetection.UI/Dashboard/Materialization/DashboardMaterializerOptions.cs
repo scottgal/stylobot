@@ -30,6 +30,17 @@ public sealed class DashboardMaterializerOptions
     /// </summary>
     public bool ComputeOnColdMiss { get; set; } = true;
 
-    /// <summary>Max hot pages the materializer will compose in a single tick (backpressure budget).</summary>
+    /// <summary>Max live envelopes the materializer will warm in a single tick (backpressure budget).</summary>
     public int MaxPagesPerTick { get; set; } = 32;
+
+    /// <summary>
+    ///     An envelope is "live" (kept warm by the materializer) for this many ticks
+    ///     after its last read. Approximates demand-gating until SignalR presence
+    ///     lands: recently-viewed envelopes stay warm; long-unviewed ones age out so
+    ///     the materializer stops composing them. Default 6 ticks ≈ 60s at Tick10s.
+    /// </summary>
+    public int LiveEnvelopeMaxAgeTicks { get; set; } = 6;
+
+    /// <summary>Master switch for the tick-driven materializer (the read path's cache still works when off).</summary>
+    public bool Enabled { get; set; } = true;
 }

@@ -78,4 +78,34 @@ public sealed class DashboardContentCacheTests
 
         Assert.Equal(2, composes);
     }
+
+    [Fact]
+    public async Task User_read_records_a_live_envelope_but_a_warm_does_not()
+    {
+        long tick = 1;
+        await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
+            Options.Create(new DashboardMaterializerOptions()));
+
+        await cache.WarmAsync(Traffic, Window(), 1, default);
+        Assert.Empty(cache.LiveEnvelopes()); // a warm must not keep an envelope alive
+
+        await cache.GetAsync(Traffic, Window(), 1, default);
+        Assert.Single(cache.LiveEnvelopes()); // a genuine user read does
+    }
+
+    [Fact]
+    public async Task LiveEnvelopes_ages_out_views_beyond_max_age()
+    {
+        long tick = 1;
+        await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
+            Options.Create(new DashboardMaterializerOptions { LiveEnvelopeMaxAgeTicks = 3 }));
+
+        await cache.GetAsync(Traffic, Window(), 1, default);
+
+        tick = 1 + 3;                          // exactly at the age boundary -> still live
+        Assert.Single(cache.LiveEnvelopes());
+
+        tick = 1 + 4;                          // beyond max age -> pruned
+        Assert.Empty(cache.LiveEnvelopes());
+    }
 }

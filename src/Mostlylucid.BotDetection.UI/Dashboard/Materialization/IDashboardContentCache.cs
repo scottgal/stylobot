@@ -26,7 +26,25 @@ public interface IDashboardContentCache
     Task<DashboardPageResult> GetCurrentAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, CancellationToken ct);
 
+    /// <summary>
+    ///     Warms (materializes) the bundle for (manifest, window) at <paramref name="tick"/>
+    ///     WITHOUT recording the envelope as live. The tick materializer uses this so its
+    ///     own warm reads don't keep an envelope alive — only genuine user reads
+    ///     (<see cref="GetAsync"/>) refresh liveness, so unviewed envelopes age out.
+    /// </summary>
+    Task<DashboardPageResult> WarmAsync(
+        DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct);
+
     /// <summary>Reads an already-materialized bundle without composing; false on miss.</summary>
     bool TryGet(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, out DashboardPageResult? result);
+
+    /// <summary>
+    ///     The (manifest, window) pairs read recently enough to still be "live" — the
+    ///     tick materializer re-warms exactly these at the current tick so reads hit
+    ///     instead of composing. Prunes envelopes older than the configured max age.
+    ///     This is the demand signal until SignalR presence lands: only viewed
+    ///     envelopes are warmed, and they age out when no longer read.
+    /// </summary>
+    IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window)> LiveEnvelopes();
 }

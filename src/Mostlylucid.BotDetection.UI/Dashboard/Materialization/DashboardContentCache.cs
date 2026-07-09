@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.Ephemeral;
@@ -18,6 +19,13 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
     private readonly SlidingCacheAtom<DashboardContentKey, DashboardPageResult> _atom;
     private readonly Func<long> _currentTick;
     private readonly DashboardMaterializerOptions _options;
+
+    // Live-envelope registry: the (manifest, window) pairs read recently enough that
+    // the materializer should keep warming them. Keyed by envelope so re-reads of the
+    // same view refresh the last-seen tick. Age-pruned in LiveEnvelopes().
+    private readonly ConcurrentDictionary<DashboardContentEnvelope, LiveEntry> _live = new();
+
+    private sealed record LiveEntry(DashboardPageManifest Manifest, DashboardPageWindow Window, long LastSeenTick);
 
     public DashboardContentCache(
         Func<DashboardPageManifest, DashboardPageWindow, CancellationToken, Task<DashboardPageResult>> compose,
@@ -45,15 +53,42 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
 
     public Task<DashboardPageResult> GetAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
-        => _atom.GetOrComputeAsync(new DashboardContentKey(manifest, window, tick), ct);
+    {
+        var key = new DashboardContentKey(manifest, window, tick);
+        // Mark this view live so the materializer keeps it warm at future ticks.
+        _live[key.Envelope] = new LiveEntry(manifest, window, _currentTick());
+        return _atom.GetOrComputeAsync(key, ct);
+    }
 
     public Task<DashboardPageResult> GetCurrentAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, CancellationToken ct)
         => GetAsync(manifest, window, _currentTick(), ct);
 
+    public Task<DashboardPageResult> WarmAsync(
+        DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
+        // No liveness record: the materializer's own warm must not keep an envelope alive.
+        => _atom.GetOrComputeAsync(new DashboardContentKey(manifest, window, tick), ct);
+
     public bool TryGet(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, out DashboardPageResult? result)
         => _atom.TryGet(new DashboardContentKey(manifest, window, tick), out result);
+
+    public IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window)> LiveEnvelopes()
+    {
+        var current = _currentTick();
+        var maxAge = _options.LiveEnvelopeMaxAgeTicks;
+        var live = new List<(DashboardPageManifest, DashboardPageWindow)>();
+        foreach (var kvp in _live)
+        {
+            if (current - kvp.Value.LastSeenTick > maxAge)
+            {
+                _live.TryRemove(kvp.Key, out _); // aged out — stop warming it
+                continue;
+            }
+            live.Add((kvp.Value.Manifest, kvp.Value.Window));
+        }
+        return live;
+    }
 
     /// <summary>
     ///     Importance retention (higher = keep longer): the current tick's bundle is

@@ -609,6 +609,12 @@ public static class StyloBotDashboardServiceExtensions
                 options: options);
         });
 
+        // Tick-driven materializer (Dashboard Coordinator batch side): each Tick10s it
+        // warms the content cache's live envelopes so the request path reads a ready
+        // bundle instead of composing. Self-disables on a viewer-mode host with no
+        // IScheduleCoordinator (its coordinator dep is optional).
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerCoordinator>();
+
         // Page manifest source: empty by default; Task 3 adds the traffic manifest.
         // TryAdd so a commercial host that seeds its own manifests keeps them.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageManifestSource,
