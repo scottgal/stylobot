@@ -18,6 +18,7 @@ using Mostlylucid.BotDetection.OpenApi;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Atoms;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Middleware;
@@ -584,36 +585,11 @@ public static class StyloBotDashboardServiceExtensions
         services.AddScoped<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageComposer,
             Mostlylucid.BotDetection.UI.Dashboard.Composition.DefaultDashboardPageComposer>();
 
-        // Out-of-request content cache: gateway-owned, fresh-by-tick, over the canonical
-        // SlidingCacheAtom. The request path reads through it (cache-first) and the tick
-        // materializer warms hot pages into it. Registered as a SINGLETON (shared across
-        // requests + the materializer) — so its compose factory resolves the SCOPED
-        // composer through a fresh scope per compose (a singleton can't capture a scoped
-        // dependency). The current tick comes from the change cursor.
-        services.AddOptions<Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions>();
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Materialization.IDashboardContentCache>(sp =>
-        {
-            var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
-            var cursor = sp.GetRequiredService<Mostlylucid.BotDetection.UI.Services.IDashboardChangeCursor>();
-            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<
-                Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions>>();
-            return new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardContentCache(
-                compose: async (manifest, window, ct) =>
-                {
-                    using var scope = scopeFactory.CreateScope();
-                    var composer = scope.ServiceProvider
-                        .GetRequiredService<Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageComposer>();
-                    return await composer.ComposeAsync(manifest, window, ct);
-                },
-                currentTick: () => cursor.CurrentTick,
-                options: options);
-        });
-
-        // Tick-driven materializer (Dashboard Coordinator batch side): each Tick10s it
-        // warms the content cache's live envelopes so the request path reads a ready
-        // bundle instead of composing. Self-disables on a viewer-mode host with no
-        // IScheduleCoordinator (its coordinator dep is optional).
-        services.AddHostedService<Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerCoordinator>();
+        // Out-of-request materialization stack: the content cache (singleton over the
+        // canonical SlidingCacheAtom, composing the scoped composer through a fresh scope
+        // per compose) + the tick-driven materializer hosted service. Extracted so it can
+        // be resolution-tested in isolation.
+        services.AddDashboardMaterialization();
 
         // Page manifest source: empty by default; Task 3 adds the traffic manifest.
         // TryAdd so a commercial host that seeds its own manifests keeps them.
