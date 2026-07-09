@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Mostlylucid.BotDetection.UI.Dashboard;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.ViewComponents;
@@ -20,6 +22,7 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents;
 ///         hosts.
 ///     </para>
 /// </summary>
+[DashboardWidget("site-health", DatasetKind.DegradationHistory)]
 public sealed class SbSiteHealthViewComponent : ViewComponent
 {
     private readonly IDashboardEventStore? _store;
@@ -56,17 +59,30 @@ public sealed class SbSiteHealthViewComponent : ViewComponent
         var span = ParseWindow(win);
         var now = DateTime.UtcNow;
         IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot> history;
-        try
+
+        // Prefer the warm slice from the composed page bundle (the tick materializer keeps
+        // DegradationHistory warm as part of the traffic manifest), so a page render doesn't
+        // self-fetch /api/v1/site-health/history. Fall back to the direct store read on the
+        // non-composed render path (or a host that didn't warm this envelope).
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult?.Degradations is { } warmSlice)
         {
-            history = await _store.GetDegradationHistoryAsync(now - span, now, cts.Token);
+            history = warmSlice;
         }
-        catch (OperationCanceledException)
+        else
         {
-            return View("Default", new SiteHealthViewModel(
-                Window: win,
-                LatencyChart: null,
-                ErrorsChart: null,
-                IsHealthyEmpty: true));
+            try
+            {
+                history = await _store.GetDegradationHistoryAsync(now - span, now, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return View("Default", new SiteHealthViewModel(
+                    Window: win,
+                    LatencyChart: null,
+                    ErrorsChart: null,
+                    IsHealthyEmpty: true));
+            }
         }
 
         if (history.Count == 0 || SiteHealthChartletBuilder.IsAllHealthy(history))

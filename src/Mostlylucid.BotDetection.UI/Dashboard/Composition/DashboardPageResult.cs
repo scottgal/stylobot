@@ -31,4 +31,7 @@ public sealed class DashboardPageResult
 
     /// <summary>Endpoint stats slice; null when <see cref="DatasetKind.EndpointStats"/> was not requested.</summary>
     public IReadOnlyList<DashboardEndpointStats>? Endpoints => _bundle.Endpoints;
+
+    /// <summary>Site-health degradation history slice; null when <see cref="DatasetKind.DegradationHistory"/> was not requested.</summary>
+    public IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>? Degradations => _bundle.Degradations;
 }

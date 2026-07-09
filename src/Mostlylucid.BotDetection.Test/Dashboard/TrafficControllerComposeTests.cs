@@ -145,13 +145,14 @@ public sealed class TrafficControllerComposeTests
         // Act
         _ = await controller.Index(country: null, botType: null, window: "6h", threat: null, partial: null, default);
 
-        // Assert — one ComposeBatchAsync for the current window's five datasets
+        // Assert — one ComposeBatchAsync for the current window's datasets (the five
+        // detection aggregates + site-health degradation history).
         Assert.Equal(1, store.ComposeBatchCallCount);
         Assert.NotNull(store.LastBatchRequest);
 
         var kinds = store.LastBatchRequest!.Datasets.Select(d => d.Kind).OrderBy(k => k).ToArray();
         Assert.Equal(
-            new[] { DatasetKind.SummaryStats, DatasetKind.TimeBuckets, DatasetKind.BotAggregate, DatasetKind.GeoBreakdown, DatasetKind.EndpointStats }.OrderBy(k => k).ToArray(),
+            new[] { DatasetKind.SummaryStats, DatasetKind.TimeBuckets, DatasetKind.BotAggregate, DatasetKind.GeoBreakdown, DatasetKind.EndpointStats, DatasetKind.DegradationHistory }.OrderBy(k => k).ToArray(),
             kinds);
     }
 

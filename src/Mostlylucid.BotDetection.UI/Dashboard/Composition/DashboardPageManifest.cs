@@ -36,11 +36,13 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
     /// <summary>Override in a subclass to seed manifests at construction time.</summary>
     protected virtual void Seed(Dictionary<string, DashboardPageManifest> manifests)
     {
-        // Traffic page: the five current-window datasets the TrafficController composes in one batch.
-        // Widget keys must match the [DashboardWidget(key, ...)] attributes Task 4 will add to the VCs.
+        // Traffic page: the current-window datasets the TrafficController composes in one batch,
+        // plus site-health (degradation history) so the SbSiteHealth VC reads warm instead of
+        // self-fetching /api/v1/site-health/history. Widget keys match the [DashboardWidget(key,...)]
+        // attributes on the VCs.
         manifests["dashboard.traffic"] = new DashboardPageManifest(
             "dashboard.traffic",
-            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints" });
+            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health" });
     }
 
     /// <summary>Register or replace a manifest at runtime (e.g. from Task 3 wiring).</summary>
