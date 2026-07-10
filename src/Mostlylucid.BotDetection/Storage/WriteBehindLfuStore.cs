@@ -39,6 +39,11 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     where TValue : class
 {
     private readonly ConcurrentDictionary<TKey, TValue> _entries;
+    // Behavioural-sample drain (Gap A): keys mutated since the last flush. The
+    // drainer pulls the CURRENT value for these, coalesced by key (a hot key
+    // that mutated 1000× this cycle appears once), ordered by significance, and
+    // persists each once. Empty for op-replay subclasses (UseBehaviouralSampleDrain=false).
+    private readonly ConcurrentDictionary<TKey, byte> _dirtyKeys;
     private readonly Channel<TWriteOp> _writeQueue;
     private readonly Task _drainer;
     private readonly CancellationTokenSource _shutdownCts = new();
@@ -87,6 +92,9 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
         _entries = keyComparer is null
             ? new ConcurrentDictionary<TKey, TValue>()
             : new ConcurrentDictionary<TKey, TValue>(keyComparer);
+        _dirtyKeys = keyComparer is null
+            ? new ConcurrentDictionary<TKey, byte>()
+            : new ConcurrentDictionary<TKey, byte>(keyComparer);
         _writeQueue = Channel.CreateBounded<TWriteOp>(new BoundedChannelOptions(writeQueueCapacity)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -146,13 +154,43 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
         if (_entries.Count > _effectiveMax + _effectiveMax / 10)
             EvictColdest();
 
-        // Non-blocking enqueue. DropOldest mode discards the oldest if full,
-        // not the newest -- we'd rather lose stale persistence catch-up than
-        // recent state.
-        _writeQueue.Writer.TryWrite(op);
+        if (UseBehaviouralSampleDrain)
+        {
+            // Behavioural sample: just flag the key dirty. The drainer pulls the
+            // coalesced current value once per cycle. A hot key that mutates N
+            // times this cycle persists once, not N times.
+            _dirtyKeys[key] = 0;
+        }
+        else
+        {
+            // Op-replay path. Non-blocking enqueue; DropOldest discards the
+            // oldest if full, not the newest -- we'd rather lose stale
+            // persistence catch-up than recent state.
+            _writeQueue.Writer.TryWrite(op);
+        }
         Interlocked.Increment(ref _writes);
         return merged;
     }
+
+    /// <summary>
+    ///     Opt in to the behavioural-sample drain (Gap A): the drainer flushes the
+    ///     highest-significance dirty entries' CURRENT values, coalesced by key,
+    ///     once per cycle, instead of replaying every enqueued write op. Bounds
+    ///     write VOLUME, not just row count. Subclasses that opt in must override
+    ///     <see cref="PersistValuesBatchAsync"/> (a keyed upsert) instead of
+    ///     <see cref="PersistBatchAsync"/>. Default false keeps the op-replay path.
+    /// </summary>
+    protected virtual bool UseBehaviouralSampleDrain => false;
+
+    /// <summary>
+    ///     Persist a coalesced batch of CURRENT values to the durable tier, one
+    ///     keyed upsert per entry. Called by the behavioural-sample drainer when
+    ///     <see cref="UseBehaviouralSampleDrain"/> is true. Failures are logged and
+    ///     the keys re-marked dirty for the next cycle. Default no-op so op-replay
+    ///     subclasses need not implement it.
+    /// </summary>
+    protected virtual Task PersistValuesBatchAsync(
+        IReadOnlyList<KeyValuePair<TKey, TValue>> batch, CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>How to build a brand-new entry from a write op (key not in
     ///     dict yet). Subclasses fold per-record fields (initial hit count,
@@ -198,7 +236,74 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
         foreach (var k in coldest) _entries.TryRemove(k, out _);
     }
 
-    private async Task DrainLoopAsync()
+    private Task DrainLoopAsync() =>
+        UseBehaviouralSampleDrain ? SampleDrainLoopAsync() : OpReplayDrainLoopAsync();
+
+    /// <summary>
+    ///     Behavioural-sample drainer (Gap A). Each cycle: pull the dirty keys,
+    ///     read their CURRENT values, order by significance (<see cref="ColdnessScore"/>
+    ///     descending), claim + persist the top <c>batchMaxSize</c> as one keyed-upsert
+    ///     batch, and leave the rest dirty for the next cycle. A hot shape that mutated
+    ///     many times persists once; an unchanged shape doesn't persist at all.
+    /// </summary>
+    private async Task SampleDrainLoopAsync()
+    {
+        var ct = _shutdownCts.Token;
+
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(_drainInterval, ct); }
+            catch (OperationCanceledException) { break; }
+
+            if (_maxEntriesProvider is not null)
+            {
+                _effectiveMax = Math.Max(1, _maxEntriesProvider());
+                EvictColdest();
+            }
+
+            if (_dirtyKeys.IsEmpty) continue;
+
+            // Phase 1: gather current values for the dirty keys, drop any evicted
+            // since they were flagged, and order by significance (highest first).
+            var candidates = new List<KeyValuePair<TKey, TValue>>(_dirtyKeys.Count);
+            foreach (var k in _dirtyKeys.Keys)
+            {
+                if (_entries.TryGetValue(k, out var v)) candidates.Add(new(k, v));
+                else _dirtyKeys.TryRemove(k, out _); // evicted before flush: nothing to persist
+            }
+            if (candidates.Count == 0) continue;
+            candidates.Sort((a, b) => ColdnessScore(b.Value).CompareTo(ColdnessScore(a.Value)));
+
+            // Phase 2: claim (remove dirty flag) + re-read current value + persist the
+            // top batch. Claiming before the re-read means a mutation that lands after
+            // we claim re-flags the key, so the next cycle re-persists the newer value;
+            // we never lose an update, at worst persist one redundantly.
+            var batch = new List<KeyValuePair<TKey, TValue>>(Math.Min(_batchMaxSize, candidates.Count));
+            for (var i = 0; i < candidates.Count && batch.Count < _batchMaxSize; i++)
+            {
+                var k = candidates[i].Key;
+                if (!_dirtyKeys.TryRemove(k, out _)) continue;
+                if (_entries.TryGetValue(k, out var cur)) batch.Add(new(k, cur));
+            }
+            if (batch.Count == 0) continue;
+
+            try
+            {
+                await PersistValuesBatchAsync(batch, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch (Exception ex)
+            {
+                // Re-flag so the next cycle retries; the dict stays authoritative.
+                foreach (var kv in batch) _dirtyKeys[kv.Key] = 0;
+                _logger.LogWarning(ex,
+                    "{Store} sample-drainer: batch of {Count} re-queued after persist error",
+                    GetType().Name, batch.Count);
+            }
+        }
+    }
+
+    private async Task OpReplayDrainLoopAsync()
     {
         var ct = _shutdownCts.Token;
         var batch = new List<TWriteOp>(_batchMaxSize);

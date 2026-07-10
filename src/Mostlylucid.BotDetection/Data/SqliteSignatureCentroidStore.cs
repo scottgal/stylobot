@@ -305,4 +305,60 @@ public sealed class SqliteSignatureCentroidStore
             _writeLock.Release();
         }
     }
+
+    // ── Behavioural-sample drain (Gap A) ─────────────────────────────────────
+    // The centroid IS the persisted unit: one durable row per signature, upserted
+    // from the current in-memory shape. The drainer coalesces by key and persists
+    // the highest-significance dirty shapes once per cycle, so a hot signature that
+    // mutated many times this cycle writes one row, not one per mutation.
+
+    protected override bool UseBehaviouralSampleDrain => true;
+
+    protected override async Task PersistValuesBatchAsync(
+        IReadOnlyList<KeyValuePair<string, SignatureCentroidEntry>> batch, CancellationToken ct)
+    {
+        if (batch.Count == 0) return;
+
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
+            cmd.CommandText = """
+                INSERT INTO signature_centroids (signature_id, vector, was_bot, confidence, updated_at)
+                VALUES ($sig, $vec, $bot, $conf, $ts)
+                ON CONFLICT(signature_id) DO UPDATE SET
+                    vector=excluded.vector, was_bot=excluded.was_bot,
+                    confidence=excluded.confidence,
+                    updated_at=excluded.updated_at
+                """;
+            var pSig  = cmd.CreateParameter(); pSig.ParameterName  = "$sig";  cmd.Parameters.Add(pSig);
+            var pVec  = cmd.CreateParameter(); pVec.ParameterName  = "$vec";  cmd.Parameters.Add(pVec);
+            var pBot  = cmd.CreateParameter(); pBot.ParameterName  = "$bot";  cmd.Parameters.Add(pBot);
+            var pConf = cmd.CreateParameter(); pConf.ParameterName = "$conf"; cmd.Parameters.Add(pConf);
+            var pTs   = cmd.CreateParameter(); pTs.ParameterName   = "$ts";   cmd.Parameters.Add(pTs);
+
+            foreach (var kv in batch)
+            {
+                var e = kv.Value;
+                pSig.Value  = e.SignatureId;
+                pVec.Value  = CentroidFloatPacker.Pack(e.Vector);
+                pBot.Value  = e.WasBot ? 1 : 0;
+                pConf.Value = e.Confidence;
+                // Persist the shape's real last-update time, not "now": the durable
+                // tier is a snapshot of the accumulated shape, and updated_at drives
+                // the DecisionNecessity recency factor on cold restore.
+                pTs.Value   = new DateTimeOffset(e.UpdatedAtTicks, TimeSpan.Zero).ToUnixTimeSeconds();
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
 }

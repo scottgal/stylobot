@@ -363,4 +363,68 @@ public sealed class SqliteSessionCentroidStore
             _writeLock.Release();
         }
     }
+
+    // ── Behavioural-sample drain (Gap A) ─────────────────────────────────────
+    protected override bool UseBehaviouralSampleDrain => true;
+
+    protected override async Task PersistValuesBatchAsync(
+        IReadOnlyList<KeyValuePair<string, SessionCentroidEntry>> batch, CancellationToken ct)
+    {
+        if (batch.Count == 0) return;
+
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
+            cmd.CommandText = """
+                INSERT INTO session_centroids
+                    (signature_id, vector, velocity_vector, variance_vector, freq_fingerprint,
+                     cluster_id, compression_level, is_bot, bot_probability, priority, updated_at)
+                VALUES ($sig,$vec,$vel,$var,$freq,$cid,$lvl,$bot,$prob,$pri,$ts)
+                ON CONFLICT(signature_id) DO UPDATE SET
+                    vector=excluded.vector, velocity_vector=excluded.velocity_vector,
+                    variance_vector=excluded.variance_vector, freq_fingerprint=excluded.freq_fingerprint,
+                    cluster_id=excluded.cluster_id, compression_level=excluded.compression_level,
+                    is_bot=excluded.is_bot, bot_probability=excluded.bot_probability,
+                    priority=excluded.priority, updated_at=excluded.updated_at
+                """;
+            var pSig  = cmd.CreateParameter(); pSig.ParameterName  = "$sig";  cmd.Parameters.Add(pSig);
+            var pVec  = cmd.CreateParameter(); pVec.ParameterName  = "$vec";  cmd.Parameters.Add(pVec);
+            var pVel  = cmd.CreateParameter(); pVel.ParameterName  = "$vel";  cmd.Parameters.Add(pVel);
+            var pVar  = cmd.CreateParameter(); pVar.ParameterName  = "$var";  cmd.Parameters.Add(pVar);
+            var pFreq = cmd.CreateParameter(); pFreq.ParameterName = "$freq"; cmd.Parameters.Add(pFreq);
+            var pCid  = cmd.CreateParameter(); pCid.ParameterName  = "$cid";  cmd.Parameters.Add(pCid);
+            var pLvl  = cmd.CreateParameter(); pLvl.ParameterName  = "$lvl";  cmd.Parameters.Add(pLvl);
+            var pBot  = cmd.CreateParameter(); pBot.ParameterName  = "$bot";  cmd.Parameters.Add(pBot);
+            var pProb = cmd.CreateParameter(); pProb.ParameterName = "$prob"; cmd.Parameters.Add(pProb);
+            var pPri  = cmd.CreateParameter(); pPri.ParameterName  = "$pri";  cmd.Parameters.Add(pPri);
+            var pTs   = cmd.CreateParameter(); pTs.ParameterName   = "$ts";   cmd.Parameters.Add(pTs);
+
+            foreach (var kv in batch)
+            {
+                var e = kv.Value;
+                pSig.Value  = e.SignatureId;
+                pVec.Value  = CentroidFloatPacker.Pack(e.Vector);
+                pVel.Value  = e.VelocityVector  != null ? (object)CentroidFloatPacker.Pack(e.VelocityVector)  : DBNull.Value;
+                pVar.Value  = e.VarianceVector  != null ? (object)CentroidFloatPacker.Pack(e.VarianceVector)  : DBNull.Value;
+                pFreq.Value = e.FreqFingerprint != null ? (object)CentroidFloatPacker.Pack(e.FreqFingerprint) : DBNull.Value;
+                pCid.Value  = (object?)e.ClusterId ?? DBNull.Value;
+                pLvl.Value  = e.CompressionLevel;
+                pBot.Value  = e.IsBot ? 1 : 0;
+                pProb.Value = e.BotProbability;
+                pPri.Value  = e.Priority;
+                pTs.Value   = new DateTimeOffset(e.UpdatedAtTicks, TimeSpan.Zero).ToUnixTimeSeconds();
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
 }
