@@ -90,7 +90,7 @@ public sealed class WriteBehindLfuSampleDrainTests
     }
 
     [Fact]
-    public async Task OverBatchCap_HighestSignificancePersistsFirst_RestNextCycle()
+    public async Task OverBatchCap_HighestSignificanceFlushesFirst_RestFlushesOnceBatchHasRoom()
     {
         using var store = new Accumulator(batchMaxSize: 2);
 
@@ -105,7 +105,13 @@ public sealed class WriteBehindLfuSampleDrainTests
         first.Select(kv => kv.Key).Should().BeEquivalentTo(new[] { "high", "mid" },
             "the batch cap admits the highest-significance dirty shapes first");
 
-        // The remaining low-significance key flushes on a later cycle (never starved).
+        // Once the high-significance keys are drained there is room, so the deferred
+        // low-significance key flushes on a subsequent cycle. NOTE: this is NOT a
+        // no-starvation guarantee: under SUSTAINED high-significance saturation the
+        // batch stays full every cycle and a low-significance key can be deferred
+        // indefinitely, which is correct sampling behaviour (insignificant shapes are
+        // exactly the ones it is OK to not persist; _dirtyKeys stays bounded as a
+        // subset of _entries). Here saturation stops, so the tail drains.
         await WaitUntilAsync(() => store.AllPersisted().Any(p => p.Key == "low"));
         store.AllPersisted().Select(p => p.Key).Should().Contain("low");
     }
