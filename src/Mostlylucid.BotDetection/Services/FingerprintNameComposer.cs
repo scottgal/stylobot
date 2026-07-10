@@ -233,41 +233,35 @@ internal static class FingerprintNameComposer
         string? finalName;
         if (!string.IsNullOrEmpty(family) && family != "Other")
         {
-            var parts = new List<string>(5) { family };
-            if (!string.IsNullOrEmpty(version)) parts.Add(version);
-            if (!string.IsNullOrEmpty(os) && os != "Other")
-            {
-                parts.Add(os);
-                if (!string.IsNullOrEmpty(osVersion)) parts.Add(osVersion);
-            }
+            // Short-but-distinct display name: family + MAJOR version + OS NAME. The full
+            // patch version (149.0.0.0) and the OS version (10.15.7) are dropped -- they
+            // blew the name out to ~30 chars and overflowed the list cells without adding
+            // useful distinction (operator 2026-07-10: not a 50-char name, but NOT 50 bare
+            // "Chrome" rows either). family+major+os keeps a fleet of Chrome visitors
+            // distinguishable ("Chrome 149 macOS" vs "Chrome 148 Windows") while staying
+            // list-length; genuine same-name collisions are disambiguated by the matcher
+            // via BuildDistinctiveModifier (ASN / country).
+            var parts = new List<string>(3) { family };
+            var major = ExtractMajorVersion(version);
+            if (!string.IsNullOrEmpty(major)) parts.Add(major);
+            if (!string.IsNullOrEmpty(os) && os != "Other") parts.Add(os);
+            _ = osVersion; // parsed above for the fallback chain; intentionally not shown.
             var baseName = string.Join(' ', parts);
             var modifiers = CollectObservedModifiers(signals);
             finalName = string.IsNullOrEmpty(modifiers) ? baseName : $"{baseName} {modifiers}";
         }
         else
         {
-            // Priority 4: raw UA prefix as a visible last-resort label. User direction
-            // 2026-06-15: showing the head of the actual UA string is always more useful
-            // than a null/anonymous label or the legacy "analysing" / "unknown xxx"
-            // placeholders. IsFallback below recognises this shape (UAs always contain
-            // a "/") so hysteresis still lets a real Priority 1-3 name win when it
-            // later becomes available, and the persist site still treats it as a
-            // fallback to keep it out of long-term fingerprint records.
-            var fallbackUa = GetString(signals, SignalKeys.UserAgent) ?? userAgent;
-            if (!string.IsNullOrEmpty(fallbackUa))
-            {
-                finalName = fallbackUa.Length > UaPrefixMaxLength
-                    ? fallbackUa[..UaPrefixMaxLength] + "…"
-                    : fallbackUa;
-            }
-            else
-            {
-                // No UA at all -- emit a canonical Unknown terminal. NoUserAgentFallback
-                // is retained as a const so IsFallback still recognises legacy stored
-                // "No User-Agent" rows for hysteresis-aware overwrite, but Compose
-                // never produces that string.
-                finalName = ComposeUnknownTerminal(signals, fingerprintId);
-            }
+            // Priority 4: last resort. Do NOT blurt the raw UA into the name column --
+            // it is lazy, long, and not a name (operator 2026-07-10: "we're being lazy and
+            // just blurting whatever is in the UA... 'welcome to cupertino'"). The raw UA
+            // was never one of the three allowed name shapes anyway (bot name | browser
+            // family | Unknown <disc>), so the old prefix-blurt contradicted the contract.
+            // ComposeUnknownTerminal keeps the name SHORT and per-fingerprint / per-network
+            // DISTINCT (Unknown <fp8> when a fingerprint id is known, else Unknown AS<asn>
+            // / Unknown <country>) so rows stay distinguishable without dumping UA content.
+            // The full UA remains visible in its own dedicated block on the detail page.
+            finalName = ComposeUnknownTerminal(signals, fingerprintId);
         }
 
         // Defensive contract gate (T5, 2026-06-22). The priority-1/2 returns above
@@ -415,14 +409,6 @@ internal static class FingerprintNameComposer
     ///     subsequent real names overwrite it on persistence.
     /// </summary>
     public const string NoUserAgentFallback = "No User-Agent";
-
-    /// <summary>
-    ///     Cap on the visible UA prefix produced by Priority 4. Long enterprise UAs
-    ///     (Skype, Outlook, build tooling) can run 200+ characters and would blow up
-    ///     dashboard row layouts; the full UA is always available on the signature
-    ///     detail page where it has its own dedicated visible block.
-    /// </summary>
-    private const int UaPrefixMaxLength = 48;
 
     /// <summary>
     ///     True when <paramref name="composedName"/> is null/empty, a legacy fallback

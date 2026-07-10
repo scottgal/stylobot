@@ -350,16 +350,16 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_PrefersFamily_OverUaPrefixFallback()
     {
-        // Priority 3 (rich projection per 2026-06-26 contract) must still beat
-        // the defensive Unknown <hex> terminal. The raw UA's "Mozilla/5.0 ..."
-        // prefix must not leak in -- the family + os signals own the result.
+        // Priority 2 (family projection) must beat the last-resort Unknown terminal, and
+        // the raw UA must never leak in as the name. Short form now: family + OS name, no
+        // OS *version* (the "10" was dropped 2026-07-10 to keep list names short).
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
             ["user_agent.os"] = "Windows",
             ["ua.raw"] = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36"
         });
-        Assert.Equal("Chrome Windows 10", name);
+        Assert.Equal("Chrome Windows", name);
     }
 
     [Fact]
@@ -564,15 +564,17 @@ public class FingerprintNameComposerTests
     // ----- 2026-06-26 contract restore tests --------------------------------------------
 
     [Fact]
-    public void Compose_Projection_AppendsVersion_WhenFamilyVersionSignalPresent()
+    public void Compose_Projection_AppendsMajorVersion_WhenFamilyVersionSignalPresent()
     {
+        // Short form (2026-07-10): the MAJOR version only (149, not 149.0.0) + OS name,
+        // so a fleet of Chrome visitors stays distinct without a 30-char list name.
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
             ["ua.family_version"] = "149.0.0",
             ["user_agent.os"] = "macOS",
         });
-        Assert.Equal("Chrome 149.0.0 macOS", name);
+        Assert.Equal("Chrome 149 macOS", name);
     }
 
     [Fact]
