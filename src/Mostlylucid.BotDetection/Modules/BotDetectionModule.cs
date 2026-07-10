@@ -619,32 +619,32 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Data guardian: prune stale time-series bucket rows (Phase 1, extracted
         // from VectorCompactionService). Runs on its own interval; interval and
         // enabled flag are config-driven via BotDetection:Guardians:BucketRetention:*.
-        services.AddSingleton<Guardians.IGuardian, Guardians.BucketRetentionGuardian>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Guardians.IGuardian, Guardians.BucketRetentionGuardian>());
 
         // Data guardian: compact overflowing SQLite session rows into behavioural
         // centroids (Phase 2, extracted from VectorCompactionService). Runs on its
         // own interval; config-driven via BotDetection:Guardians:SessionCompaction:*.
-        services.AddSingleton<Guardians.IGuardian, Guardians.SessionCompactionGuardian>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Guardians.IGuardian, Guardians.SessionCompactionGuardian>());
 
         // Data guardian: compact the HNSW session vector index when it exceeds
         // threshold (Phase 3, extracted from VectorCompactionService). L1 collapses
         // multi-vector signatures to per-signature centroids; L2 merges low-priority
         // cluster members into cluster centroids. No-op when ISessionVectorSearch is
         // not registered. Config-driven via BotDetection:Guardians:HnswCompaction:*.
-        services.AddSingleton<Guardians.IGuardian, Guardians.HnswCompactionGuardian>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Guardians.IGuardian, Guardians.HnswCompactionGuardian>());
 
         // Data guardian: prune stale rows from all three centroid tables (Phase 4,
         // extracted from VectorCompactionService). Prunes signature, session, and
         // intent centroids older than SelfMaintenance:CentroidRetentionDays in
         // parallel. Config-driven via BotDetection:Guardians:CentroidRetention:*.
-        services.AddSingleton<Guardians.IGuardian, Guardians.CentroidRetentionGuardian>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Guardians.IGuardian, Guardians.CentroidRetentionGuardian>());
 
         // Data guardian: cross-signature cap enforcement (Phase 5, extracted from
         // VectorCompactionService). Evicts lowest-value signatures by
         // DecisionNecessity when distinct signatures exceed MaxSignatures.
         // No-op when MaxSignatures == 0 (the default, unlimited).
         // Config-driven via BotDetection:Guardians:SignatureCap:*.
-        services.AddSingleton<Guardians.IGuardian, Guardians.SignatureCapGuardian>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Guardians.IGuardian, Guardians.SignatureCapGuardian>());
 
         // Identity data guardians (Part B): bound fingerprints.db, the one durable
         // store the vector guardians above don't cover. They operate on
@@ -656,15 +656,15 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             // Prune absorbed fingerprint_observations, keeping all unabsorbed plus
             // the most-recent-K per fingerprint (drift-preserving). Config-driven via
             // BotDetection:Guardians:FingerprintObservationRetention:*.
-            services.AddSingleton<Guardians.IGuardian,
-                Identity.FingerprintObservationRetentionGuardian>();
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<Guardians.IGuardian,
+                Identity.FingerprintObservationRetentionGuardian>());
 
             // Cross-fingerprint MemoryAdaptiveCap eviction by DecisionNecessity;
             // cascade-deletes all per-fp tables and never evicts verified claims.
             // No-op when MaxFingerprints == 0. Config-driven via
             // BotDetection:Guardians:FingerprintEviction:*.
-            services.AddSingleton<Guardians.IGuardian,
-                Identity.FingerprintEvictionGuardian>();
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<Guardians.IGuardian,
+                Identity.FingerprintEvictionGuardian>());
         }
 
         // The walker itself. It collects every IGuardian above via IEnumerable and
