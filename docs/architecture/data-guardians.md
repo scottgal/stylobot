@@ -31,10 +31,15 @@ cleanup. The model:
 
 **What this leaves for guardians:** almost nothing. `FingerprintObservationRetention` /
 `SessionCompaction` sweep raw-row tables (`fingerprint_observations`, `sessions`) that **should not
-exist** — fold those rows into centroids and the guardians delete. `SignatureCap` / `HnswCompaction`
-become the failure-mode cap *at insert* on their accumulators, not periodic DELETEs. Only
-`CentroidRetention` / `BucketRetention` survive, as small genuine TTL trims on the sampled durable
-tier. The reference implementation is the keyed-upsert centroid store on a fixed Evidence
+exist** — fold those rows into centroids and the guardians delete (retire `FingerprintObservationRetention`
+*with* Gap B, not before — until the drift readers move off the table and novel obs stop writing rows,
+the residual novel rows still need a floor). `SignatureCap` / `HnswCompaction` become the failure-mode
+cap *at insert* on their accumulators, not periodic DELETEs. `CentroidRetention` survives but is
+**reshaped to significance-weighted** (`DecisionNecessity` × recency — a cold-but-high-significance
+centroid must not age out just because it's old; a cold-and-harmless one goes early); NOT blind age.
+`BucketRetention` stays age-based only because a chart aggregate's significance ≈ its recency, so the
+same admission filter degenerates to age there — it's the general model with flat significance, not a
+special case. The reference implementation is the keyed-upsert centroid store on a fixed Evidence
 Accumulator; two gaps to close: the drainer must behavioural-sample (pull dirty ∧ significant),
 not op-replay; and the raw-row tables must fold into centroids.
 
