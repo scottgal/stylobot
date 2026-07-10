@@ -41,45 +41,26 @@ public sealed class BotDetectionOrchestrator : IDisposable
 {
     private readonly ILogger<BotDetectionOrchestrator> _logger;
     private readonly BotDetectionOptions _options;
-    private readonly DetectorOrchestrator _orchestrator;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly DetectionEngine _engine;
     private readonly SignalSink _signalSink;
 
     public BotDetectionOrchestrator(
-        IServiceProvider serviceProvider,
+        DetectionEngine engine,
         IOptions<BotDetectionOptions> options,
         ILogger<BotDetectionOrchestrator> logger)
     {
-        _serviceProvider = serviceProvider;
+        _engine = engine;
         _options = options.Value;
         _logger = logger;
 
-        // Create shared signal sink for this orchestrator
+        // Per-request signal sink. This is the ONLY per-request allocation now: the
+        // expensive DetectorOrchestrator + ~70-atom Register() wiring is built ONCE in the
+        // singleton DetectionEngine (see DetectionEngine for the why -- it fixes the
+        // per-request re-wiring that collapsed the latency tail under load). This class
+        // stays AddScoped only so the sink's lifetime tracks the request scope.
         _signalSink = new SignalSink(
             maxCapacity: _options.MaxSignalCapacity,
             maxAge: TimeSpan.FromMinutes(_options.SignalRetentionMinutes));
-
-        // Create orchestrator with configured options
-        _orchestrator = new DetectorOrchestrator(new DetectorOrchestratorOptions
-        {
-            ParallelWaveExecution = _options.ParallelDetection,
-            EnableQuorumExit = _options.EnableQuorumExit,
-            QuorumConfidenceThreshold = _options.QuorumConfidenceThreshold,
-            Timeout = TimeSpan.FromMilliseconds(_options.TimeoutMs)
-        });
-
-        // Register all detector atoms from DI
-        var detectorAtoms = serviceProvider.GetServices<IDetectorAtom>();
-        foreach (var atom in detectorAtoms.Where(d => d.IsEnabled))
-        {
-            _orchestrator.Register(atom);
-            _logger.LogDebug("Registered detector atom: {Name} (Priority: {Priority})",
-                atom.Name, atom.Priority);
-        }
-
-        _logger.LogInformation(
-            "BotDetectionOrchestrator initialized with {Count} detector atoms",
-            detectorAtoms.Count(d => d.IsEnabled));
     }
 
     /// <summary>
@@ -103,7 +84,7 @@ public sealed class BotDetectionOrchestrator : IDisposable
             RequestHydratorAtom.HydrateFromContext(_signalSink, context, sessionId);
 
             // Step 2: Run detection through orchestrator
-            var ledger = await _orchestrator.DetectAsync(_signalSink, sessionId, ct);
+            var ledger = await _engine.DetectAsync(_signalSink, sessionId, ct);
 
             stopwatch.Stop();
 
@@ -193,7 +174,14 @@ public static class BotDetectionOrchestratorExtensions
     public static IServiceCollection AddBotDetectionOrchestrator(
         this IServiceCollection services)
     {
-        // Register the orchestrator as scoped (one per request)
+        // The detection ENGINE (DetectorOrchestrator + atom wave/priority wiring) is a
+        // process singleton, built ONCE. The per-request wrapper below stays scoped only
+        // for the per-request SignalSink. This split fixes the tail-latency collapse under
+        // load (the wrapper used to rebuild the engine + re-register ~70 atoms per request).
+        services.TryAddSingleton<DetectionEngine>();
+
+        // Per-request wrapper: owns the request's SignalSink, delegates detection to the
+        // shared singleton engine.
         services.AddScoped<BotDetectionOrchestrator>();
 
         // TimeAtom takes a TimeProvider from DI (falls back to .System only if the
