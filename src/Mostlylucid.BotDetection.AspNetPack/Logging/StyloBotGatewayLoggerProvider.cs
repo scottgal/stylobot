@@ -27,7 +27,12 @@ public sealed class StyloBotGatewayLoggerProvider : ILoggerProvider
         Channel = System.Threading.Channels.Channel.CreateBounded<LogRecord>(
             new BoundedChannelOptions(opts.Value.QueueCapacity)
             {
-                FullMode = BoundedChannelFullMode.Wait,
+                // Telemetry is best-effort: when the drainer falls behind (e.g. a
+                // slow/unreachable collector), DROP the oldest queued records rather
+                // than apply backpressure. Wait would let a jammed exporter couple
+                // into any writer that used WriteAsync; DropOldest guarantees the
+                // producer side can never block on log emission.
+                FullMode = BoundedChannelFullMode.DropOldest,
                 SingleReader = true, SingleWriter = false
             });
     }
