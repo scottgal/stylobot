@@ -50,7 +50,16 @@ public static class StyloBotLoggingExtensions
         // Named HttpClient so DefaultHttpClientFactory's handler chain still
         // applies but a single exporter instance is shared for the process
         // lifetime. The exporter reads the gateway endpoint from options.
-        builder.Services.AddHttpClient(nameof(StyloBotGatewayLogExporter));
+        // Bound the timeout to LogSinkOptions.ExportTimeout so an unreachable
+        // collector fails fast instead of hanging on the DNS/connect timeout
+        // (the ~14-21s-per-request prod stall). Telemetry is best-effort; the
+        // request path must never wait on it.
+        builder.Services.AddHttpClient(nameof(StyloBotGatewayLogExporter))
+            .ConfigureHttpClient((sp, client) =>
+            {
+                var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<LogSinkOptions>>().Value;
+                client.Timeout = o.ExportTimeout > TimeSpan.Zero ? o.ExportTimeout : TimeSpan.FromSeconds(5);
+            });
         builder.Services.AddSingleton<StyloBotGatewayLogExporter>(sp =>
         {
             var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<LogSinkOptions>>();
