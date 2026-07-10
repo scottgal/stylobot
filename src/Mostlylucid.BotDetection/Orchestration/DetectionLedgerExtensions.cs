@@ -75,6 +75,20 @@ public static class DetectionLedgerExtensions
             sink?.ReadBoolHint(key, fallback: false)
             ?? (preSignals.TryGetValue(key, out var v) && v is true);
 
+        // Sink-first string reader -- the string analogue of ReadBool. Atoms
+        // (UserAgentAtom etc.) raise their catalog identity via sink.Raise
+        // ("ua.bot_name:SemrushBot") and never populate contribution.Signals, so
+        // preSignals built from ledger.MergedSignals misses ua.bot_name / ua.bot_type
+        // in production exactly as it missed the sink-raised booleans. Without this,
+        // the name resolvers below read preSignals directly and every catalog bot
+        // whose display name comes ONLY from the UA atom (SemrushBot, SEO tools, AI
+        // scrapers -- anything not routed through the VerifiedBot atoms that set
+        // ledger.BotName directly) resolved to "Unknown". Tests pass premergedSignals
+        // with sink==null and keep working via the preSignals fallback.
+        string? ReadString(string key) =>
+            (sink?.ReadHint(key) is { Length: > 0 } hint ? hint : null)
+            ?? (preSignals.TryGetValue(key, out var sv) ? sv as string : null);
+
         var earlyThreatForBand = ExtractThreatScoreRaw(preSignals);
         var isConfirmedBadForBand = IsConfirmedBad(preSignals, sink);
         var sessionCountForBand = ExtractSessionCount(preSignals);
@@ -151,9 +165,9 @@ public static class DetectionLedgerExtensions
         // identified (Mastodon, Pleroma, etc.). The signals are the canonical
         // single source either way; this just teaches the read site to consult them.
         var ledgerBotType = ParseBotType(ledger.BotType)
-                            ?? ParseBotType(preSignals.TryGetValue(SignalKeys.UserAgentBotType, out var uabt) ? uabt as string : null);
+                            ?? ParseBotType(ReadString(SignalKeys.UserAgentBotType));
         var ledgerBotName = ledger.BotName
-                            ?? (preSignals.TryGetValue(SignalKeys.UserAgentBotName, out var uabn) ? uabn as string : null);
+                            ?? ReadString(SignalKeys.UserAgentBotName);
 
         // Local-network promotion runs BEFORE the verdict composer so the
         // composer's trusted-and-aligned clamp (Internal => RiskBand.Low) can
@@ -221,8 +235,8 @@ public static class DetectionLedgerExtensions
         // Catalog index by construction only contains entries with non-empty
         // BotType so a non-null FindBotTypeByName return IS authoritative.
         var nameForCatalog =
-            (preSignals.TryGetValue(SignalKeys.IdentityDisplayName, out var idn) ? idn as string : null)
-            ?? (preSignals.TryGetValue(SignalKeys.UserAgentBotName, out var uabn1) ? uabn1 as string : null)
+            ReadString(SignalKeys.IdentityDisplayName)
+            ?? ReadString(SignalKeys.UserAgentBotName)
             ?? ledger.BotName;
         var catalogBotType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(nameForCatalog));
         var ledgerPrimaryBotType = catalogBotType ?? ParseBotType(ledger.BotType);
@@ -278,7 +292,12 @@ public static class DetectionLedgerExtensions
         // PrimaryBotName is NEVER gated — every fingerprint always has a name (verdict label
         // and name are separate concerns). Prefer the matcher-set identity.display_name
         // (persisted, drift-gated) over the ledger's UA-derived name.
-        var primaryBotName = ResolveDisplayName(preSignals, isActuallyBot ? ledger.BotName : null);
+        // Use the sink-first ledgerBotName (ledger.BotName ?? sink ua.bot_name) as the
+        // fallback, not raw ledger.BotName. Otherwise a catalog bot named only by the UA
+        // atom (SemrushBot etc.) drops to Compose(preSignals), which -- with ua.bot_name /
+        // ua.raw sink-only and absent from preSignals -- returns the "Unknown" terminal.
+        var primaryBotName = ResolveDisplayName(
+            preSignals, isActuallyBot ? ledgerBotName : null, ReadString(SignalKeys.UserAgent));
 
         // Verdict-honest override. When the current-request verdict says bot but the
         // resolved name came from a human-browser archetype match (Chrome XHR shape
@@ -439,6 +458,14 @@ public static class DetectionLedgerExtensions
             sink?.ReadBoolHint(key, fallback: false)
             ?? (earlySignals.TryGetValue(key, out var v) && v is true);
 
+        // Sink-first string reader (mirrors ToAggregatedEvidence): the raw UA and the
+        // catalog bot name are sink-only, so the early-exit name resolution needs to
+        // read them from the sink too or a reputation-early-exited catalog bot / human
+        // browser resolves to "Unknown" on the fast path.
+        string? ReadString(string key) =>
+            (sink?.ReadHint(key) is { Length: > 0 } hint ? hint : null)
+            ?? (earlySignals.TryGetValue(key, out var sv) ? sv as string : null);
+
         var (earlyThreatScore, earlyThreatBand) = ExtractThreatScore(earlySignals);
 
         var earlyRiskBand = verdict switch
@@ -462,7 +489,10 @@ public static class DetectionLedgerExtensions
         // the friendly UA's BotName so the dashboard shows "Mastodon" rather than the
         // reputation-pattern id ("ip:::ffff::/48") that FastPathReputation supplied.
         // Confirmed-bad and high threat still escalate.
-        var primaryBotName = ResolveDisplayName(earlySignals, exitContrib.BotName);
+        var primaryBotName = ResolveDisplayName(
+            earlySignals,
+            !string.IsNullOrEmpty(exitContrib.BotName) ? exitContrib.BotName : ReadString(SignalKeys.UserAgentBotName),
+            ReadString(SignalKeys.UserAgent));
         // Verdict-honest override for the early-exit path. Same rule as the post-
         // orchestration path above: when the early-exit verdict says bot AND the
         // resolved name came from a human-browser archetype hit, rewrite to
@@ -631,7 +661,7 @@ public static class DetectionLedgerExtensions
     ///        never fall back to a signature-hash label.
     /// </summary>
     private static string? ResolveDisplayName(
-        IReadOnlyDictionary<string, object> signals, string? fallback)
+        IReadOnlyDictionary<string, object> signals, string? fallback, string? rawUserAgent = null)
     {
         var fromSignal = signals.TryGetValue(SignalKeys.IdentityDisplayName, out var v)
             ? v as string : null;
@@ -639,7 +669,12 @@ public static class DetectionLedgerExtensions
         if (!string.IsNullOrEmpty(fallback)) return fallback;
         // Compose from UA signals so humans get "Chrome 124 / Windows" instead of a
         // signature hash when the Identity layer is disabled or hasn't allocated yet.
-        return Services.FingerprintNameComposer.Compose(signals);
+        // rawUserAgent is the sink-resolved ua.raw: the composer's ua.family / ua.os /
+        // ua.raw inputs are ALSO sink-only and absent from the signals dict in
+        // production, so without threading the raw UA here Compose has nothing to parse
+        // and every human browser resolved to "Unknown" (same root cause as the catalog
+        // bot name). Passing it lets Compose parse the UA (family/os) and self-rescue.
+        return Services.FingerprintNameComposer.Compose(signals, userAgent: rawUserAgent);
     }
 
     private static (double ThreatScore, ThreatBand Band) ExtractThreatScore(
