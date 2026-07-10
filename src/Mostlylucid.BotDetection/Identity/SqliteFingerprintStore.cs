@@ -191,7 +191,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             // bound to the interface) doesn't leave an empty fingerprint data
             // directory behind despite the concrete still being in the DI
             // container.
-            Directory.CreateDirectory(_dataDir);
+            Data.StoreDbDirectory.EnsureExists(_dataDir);
 
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);

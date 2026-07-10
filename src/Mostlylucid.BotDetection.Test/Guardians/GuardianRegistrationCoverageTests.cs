@@ -79,4 +79,20 @@ public sealed class GuardianRegistrationCoverageTests
         foreach (var absent in IdentityGuardians)
             Assert.DoesNotContain(absent, names);
     }
+
+    [Fact]
+    public async Task GuardianService_walker_is_registered_and_collects_the_guardians()
+    {
+        // Regression: the guardians were registered as IGuardian, but GuardianService
+        // (the walker that runs them off the ScheduleCoordinator's Tick1m) was NOT
+        // registered, so the whole tier silently never ran. The eager-resolve in
+        // BotDetectionHostedSingletonsBootstrap uses GetService (not GetRequiredService),
+        // which returned null when the walker was unregistered, with no error. This pins
+        // that the walker resolves and sees every registered guardian.
+        await using var provider = BuildProvider(identityEnabled: true);
+
+        var walker = provider.GetService<GuardianService>();
+        Assert.NotNull(walker);
+        Assert.Equal(provider.GetServices<IGuardian>().Count(), walker!.Guardians.Count);
+    }
 }

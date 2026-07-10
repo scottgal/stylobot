@@ -95,6 +95,29 @@ public interface IFingerprintBrowserModeStore
     Task<IReadOnlyList<string>> ListFingerprintIdsWithModesAsync(
         int maxRows, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Prune absorbed <c>fingerprint_mode_observations</c> rows beyond the
+    ///     newest-K per fingerprint, returning the number of rows deleted.
+    ///     Absorption only stamps <c>absorbed_at</c> and never deletes, so under
+    ///     a UA-rotating flood the mode-observations table is the largest residual
+    ///     unbounded-growth surface on the identity tier (it dwarfs the plain
+    ///     <c>fingerprint_observations</c> table because every request records one
+    ///     row per resolved mode).
+    ///
+    ///     Unlike <see cref="IFingerprintStore.PruneAbsorbedObservationsAsync"/>,
+    ///     no reader scans absorbed mode-observation rows: the only reader,
+    ///     <see cref="ListUnabsorbedModeObservationsAsync"/>, filters
+    ///     <c>absorbed_at IS NULL</c>, and <see cref="GetModesAsync"/> reads the
+    ///     absorbed centroids from <c>fingerprint_modes</c>, never the raw rows.
+    ///     So absorbed rows are pure dead weight once folded and the recent-K
+    ///     retained per fingerprint is only a diagnostic margin.
+    ///
+    ///     Default no-op: only the SQLite store prunes; null / remote impls opt out.
+    /// </summary>
+    Task<int> PruneAbsorbedModeObservationsAsync(
+        int keepPerFingerprint, CancellationToken ct = default)
+        => Task.FromResult(0);
+
 }
 
 /// <summary>

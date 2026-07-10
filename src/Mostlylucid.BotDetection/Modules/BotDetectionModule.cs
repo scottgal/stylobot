@@ -292,6 +292,26 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Identity.IdentityGlobalWeightsCache>();
         // IdentityProcessingCoordinator — Pass-2 coalescer for FingerprintMatchAtom.
         services.TryAddSingleton<Identity.IdentityProcessingCoordinator>();
+
+        // Tick-driven identity learning loop. These were registered in the old
+        // ServiceCollectionExtensions and the Step-7 contributor delete (1a8d2745,
+        // ServiceCollectionExtensions 1778 -> 156 lines) dropped the registrations while
+        // LEAVING BotDetectionHostedSingletonsBootstrap eager-resolving them via GetService,
+        // which returned null silently -- so the entire learning loop (absorption, drift,
+        // calibration, entity resolution, convergence, markov, mode-absorption, rollup) has
+        // been DEAD on main. Absorption never running is the root cause of the identity
+        // observation leak (observations pile up unabsorbed because nothing folds them into
+        // centroids). Restore them (matching the pre-drop AddSingleton/TryAddSingleton set).
+        services.TryAddSingleton<Identity.FingerprintAbsorptionService>();
+        services.TryAddSingleton<Identity.BrowserModes.FingerprintModeAbsorptionService>();
+        services.TryAddSingleton<Identity.BrowserModes.FingerprintRollupRecomputeService>();
+        services.TryAddSingleton<Identity.FingerprintDriftService>();
+        services.TryAddSingleton<Identity.IdentityWeightCalibrationService>();
+        services.TryAddSingleton<Services.DeploymentNormCalibrationService>();
+        services.TryAddSingleton<Services.EntityResolutionService>();
+        services.TryAddSingleton<Markov.MarkovTracker>();
+        services.TryAddSingleton<Markov.PopulationMarkovService>();
+        services.TryAddSingleton<SignatureConvergenceService>();
         // Func<DbConnection> — FOSS default SQLite connection factory.
         // BotDetectionOptions.DatabasePath drives the file path; empty means
         // a shared in-memory DB (fresh per process). Commercial Postgres pack
@@ -646,6 +666,14 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             services.AddSingleton<Guardians.IGuardian,
                 Identity.FingerprintEvictionGuardian>();
         }
+
+        // The walker itself. It collects every IGuardian above via IEnumerable and
+        // runs each on its own interval off the ScheduleCoordinator's Tick1m. This
+        // registration was MISSING: the guardians were registered but nothing walked
+        // them, so the whole tier silently never ran (GuardianService is eager-resolved
+        // by BotDetectionHostedSingletonsBootstrap via GetService, which returned null
+        // when it was unregistered). Register it so the guardians actually fire.
+        services.TryAddSingleton<Guardians.GuardianService>();
 
         // Session echo — the two-phase eviction ack subscriber. Routes to
         // whatever IDetectionArchive is registered (SqliteDetectionArchive
