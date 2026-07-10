@@ -33,6 +33,11 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         = new(StringComparer.Ordinal);
     private long _epoch;
 
+    // Test instrumentation: mode observations that adaptive sampling summarised
+    // (mode count + maturity advanced, no detail row). Mirrors
+    // SqliteFingerprintStore.SummarisedObservationCount.
+    internal long SummarisedModeObservationCount;
+
     public SqliteFingerprintBrowserModeStore(
         SqliteFingerprintStore parent,
         IOptions<BotDetectionOptions> options,
@@ -129,6 +134,13 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         InvalidateModes(fingerprintId);
     }
 
+    /// <summary>
+    ///     Append an unabsorbed mode observation. Adaptive forgetting (shared policy with the
+    ///     parent store): a confirmatory observation on an already-matured mode is summarised
+    ///     (mode count + maturity advance, no detail row) so fingerprint_mode_observations grows
+    ///     with novelty, not request volume. Novel observations and observations on
+    ///     still-maturing modes keep a full detail row for the drainer to fold.
+    /// </summary>
     public async Task RecordModeObservationAsync(
         RequestScope scope,
         string fingerprintId, string modeId, float[] vector,
@@ -137,6 +149,13 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
     {
         if (string.IsNullOrEmpty(fingerprintId) || string.IsNullOrEmpty(modeId)) return;
         await _parent.EnsureInitialisedAsync(ct);
+
+        if (!await ShouldPersistModeObservationAsync(fingerprintId, modeId, vector, ct))
+        {
+            await SummariseModeObservationAsync(fingerprintId, modeId, ct);
+            return;
+        }
+
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
@@ -153,6 +172,59 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         cmd.Parameters.AddWithValue("@domain", (object?)scope.Domain ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@host", (object?)scope.Host ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    ///     Adaptive-forgetting decision for a mode observation. Keeps detail for novel
+    ///     observations, for every observation while the mode is still maturing, and whenever
+    ///     sampling is disabled or the mode / centroid is not yet comparable. Summarises only a
+    ///     confirmatory observation on a matured mode.
+    /// </summary>
+    private async Task<bool> ShouldPersistModeObservationAsync(
+        string fingerprintId, string modeId, float[] vector, CancellationToken ct)
+    {
+        var opts = _parent.VectorOptions;
+        if (!opts.AdaptiveObservationSampling)
+            return true;
+
+        var mode = await GetModeAsync(fingerprintId, modeId, ct); // cached, warm from the matcher
+        if (mode is null)
+            return true; // new mode: bootstrap
+
+        if (mode.CentroidMaturity < opts.AbsorptionMaturityThreshold)
+            return true; // still learning the mode shape
+
+        if (mode.Centroid.Length != vector.Length || vector.Length == 0)
+            return true;
+
+        var novelty = Math.Clamp(1.0 - BruteForceIdentityAnchorIndex.Cosine(vector, mode.Centroid), 0.0, 2.0);
+        return novelty >= opts.ObservationNoveltyKeepThreshold;
+    }
+
+    /// <summary>
+    ///     Summarise a confirmatory mode observation: advance the mode's aggregate counters
+    ///     without writing a detail row or waking the drainer. The maturity bump keeps the fold
+    ///     accounting honest so the mode centroid keeps stabilising.
+    /// </summary>
+    private async Task SummariseModeObservationAsync(string fingerprintId, string modeId, CancellationToken ct)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprint_modes
+               SET observation_count = observation_count + 1,
+                   centroid_maturity = centroid_maturity + 1,
+                   last_seen = @ts
+             WHERE fingerprint_id = @fp AND mode_id = @mode
+            """;
+        cmd.Parameters.AddWithValue("@fp", fingerprintId);
+        cmd.Parameters.AddWithValue("@mode", modeId);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        InvalidateModes(fingerprintId);
+        System.Threading.Interlocked.Increment(ref SummarisedModeObservationCount);
     }
 
     public async Task<IReadOnlyList<UnabsorbedModeObservation>> ListUnabsorbedModeObservationsAsync(

@@ -23,6 +23,14 @@ public class SqliteFingerprintStore : IFingerprintStore
     private readonly string _connectionString;
     private readonly IdentityVectorLayout _layout;
     private readonly IdentityEngineOptions _engineOptions;
+    private readonly IdentityVectorOptions _vectorOptions;
+
+    /// <summary>
+    ///     The identity vector options, shared with the browser-mode store so both write
+    ///     paths sample observations with the same adaptive-forgetting policy. internal:
+    ///     the mode store already holds a reference to this parent.
+    /// </summary>
+    internal IdentityVectorOptions VectorOptions => _vectorOptions;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialised;
     private bool _vecAvailable;
@@ -142,6 +150,11 @@ public class SqliteFingerprintStore : IFingerprintStore
     // without leaking to callers.
     internal int AbsorbWriteCount;
 
+    // Test instrumentation: counts observations that adaptive sampling summarised
+    // (count + maturity advanced, no detail row written). internal so the flood
+    // tests can assert confirmatory observations were forgotten, not persisted.
+    internal long SummarisedObservationCount;
+
     public SqliteFingerprintStore(
         ILogger<SqliteFingerprintStore> logger,
         IOptions<BotDetectionOptions> options,
@@ -151,6 +164,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         _logger = logger;
         _layout = layout;
         _engineOptions = options.Value.Identity.Engine;
+        _vectorOptions = options.Value.Identity.Vector;
         _triggerSignals = triggerSignals;
         var dbPath = options.Value.DatabasePath
             ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
@@ -1031,6 +1045,13 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>Append an unabsorbed observation row.</summary>
+    /// <remarks>
+    ///     Adaptive forgetting (<see cref="IdentityVectorOptions.AdaptiveObservationSampling"/>):
+    ///     a confirmatory observation on an already-matured fingerprint is <i>summarised</i>
+    ///     (count + centroid maturity advance, no detail row, no absorber wake) so the identity
+    ///     store grows with behavioural novelty, not request volume. Novel observations and
+    ///     observations on still-maturing fingerprints keep a full detail row exactly as before.
+    /// </remarks>
     public async Task RecordObservationAsync(
         RequestScope scope,
         string fingerprintId,
@@ -1039,6 +1060,13 @@ public class SqliteFingerprintStore : IFingerprintStore
         CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
+
+        if (!await ShouldPersistObservationDetailAsync(fingerprintId, vector, ct))
+        {
+            await SummariseObservationAsync(fingerprintId, ct);
+            return;
+        }
+
         await using var conn = await OpenConnectionWithVecAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -1091,6 +1119,68 @@ public class SqliteFingerprintStore : IFingerprintStore
         {
             _logger.LogWarning(ex, "ObservationAppended handler threw for {FingerprintId}", fingerprintId);
         }
+    }
+
+    /// <summary>
+    ///     Adaptive-forgetting decision: does this observation earn a detail row? True for
+    ///     novel observations, for every observation while a fingerprint is still maturing
+    ///     (the identity-building phase, below <see cref="IdentityVectorOptions.AbsorptionMaturityThreshold"/>),
+    ///     and always when sampling is disabled or the fingerprint / centroid is not yet
+    ///     comparable. False only for a confirmatory observation on a matured fingerprint.
+    /// </summary>
+    private async Task<bool> ShouldPersistObservationDetailAsync(string fingerprintId, float[] vector, CancellationToken ct)
+    {
+        if (!_vectorOptions.AdaptiveObservationSampling)
+            return true;
+
+        // L0-cached read; the matcher just loaded this fingerprint, so it is warm.
+        var fp = await GetFingerprintAsync(fingerprintId, ct);
+        if (fp is null)
+            return true; // brand-new fingerprint: keep detail (bootstrap).
+
+        // Still learning the shape: every observation is identity-building, keep it.
+        if (fp.CentroidMaturity < _vectorOptions.AbsorptionMaturityThreshold)
+            return true;
+
+        // Layout mismatch (versioned relayout, degenerate centroid): cannot judge
+        // novelty, so keep detail rather than risk forgetting a real change.
+        if (fp.Centroid.Length != vector.Length || vector.Length == 0)
+            return true;
+
+        // Novelty = distance from the established centroid = "does this change the score".
+        // Cosine treats the composed vectors as L2-normalised (dot product); clamp guards a
+        // slightly denormalised centroid from producing an out-of-range novelty.
+        var novelty = Math.Clamp(1.0 - BruteForceIdentityAnchorIndex.Cosine(vector, fp.Centroid), 0.0, 2.0);
+        return novelty >= _vectorOptions.ObservationNoveltyKeepThreshold;
+    }
+
+    /// <summary>
+    ///     Summarise a confirmatory observation: advance the aggregate counters (observation
+    ///     count for crossing notifications, centroid maturity so the fold accounting stays
+    ///     honest and the fingerprint keeps stabilising, last_seen for recency) without writing
+    ///     a detail row, a vec row, or waking the absorber. This is the "still logs a summarised
+    ///     entry for the unimportant ones" half of adaptive forgetting.
+    /// </summary>
+    private async Task SummariseObservationAsync(string fingerprintId, CancellationToken ct)
+    {
+        // Plain connection: the summary path never touches vec0, and skipping the
+        // extension load keeps a confirmatory-observation flood cheap.
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var bump = conn.CreateCommand();
+        bump.CommandText = """
+            UPDATE fingerprints
+               SET observation_count = observation_count + 1,
+                   centroid_maturity = centroid_maturity + 1,
+                   last_seen = @ts
+             WHERE fingerprint_id = @id
+            """;
+        bump.Parameters.AddWithValue("@id", fingerprintId);
+        bump.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await bump.ExecuteNonQueryAsync(ct);
+
+        InvalidateFingerprintCache(fingerprintId);
+        System.Threading.Interlocked.Increment(ref SummarisedObservationCount);
     }
 
     /// <summary>Record a Pass-2-corrects-Pass-1 disagreement and persist Pass 2's updated weights.</summary>
