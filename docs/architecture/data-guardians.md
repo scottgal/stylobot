@@ -1,9 +1,47 @@
 # Data Guardians — bounded, self-optimizing storage
 
-**Status:** spec (2026-07-03). **Why it matters:** no StyloBot store may grow
-unbounded regardless of traffic shape. This is the long-term-stability
-guarantee; without it a UA-rotating bot (the exact thing StyloBot exists to
+**Status:** spec (2026-07-03; **tier model added + guardian-first framing superseded 2026-07-10**).
+**Why it matters:** no StyloBot store may grow unbounded regardless of traffic shape. This is the
+long-term-stability guarantee; without it a UA-rotating bot (the exact thing StyloBot exists to
 catch) is a storage-DoS.
+
+## 0. The tier model (authoritative — read this first)
+
+**[2026-07-10 ratification, overview.]** Guardians are NOT the primary bounding mechanism — that
+framing (§1–§6 below) was the drift. Bounding is a property of the *write path*, not a periodic
+cleanup. The model:
+
+- **Evidence Accumulator** — the hot in-memory tier. It does not "cache"; it *accumulates
+  behavioural evidence*, folding raw samples into an evolving shape (the centroid) on arrival.
+  **It IS the current state.** Reads hit it first; the durable tier is consulted only on cold miss
+  (read-through) and warm-on-start.
+- **Behavioural Admission Filter** — the gate. What is admitted / retained / sampled is decided by
+  **behavioural significance** (`DecisionNecessity` = uncertainty ⊕ risk × recency), **NOT
+  frequency.** "LFU" is the wrong lens: a rarely-seen-but-uncertain fingerprint is the *most*
+  valuable to keep. (`WriteBehindLfuStore` is the closest current impl; its `ColdnessScore`/LFU
+  eviction should become this behavioural filter — a rename to `EvidenceAccumulator` is a
+  follow-up.)
+- **The persisted UNIT is the centroid (the accumulated shape), never raw rows.** Observations fold
+  into the fingerprint centroid; sessions into the session/fingerprint shape — in the Accumulator,
+  before anything is written. There is no raw row to later absorb or prune.
+- **The write is a behavioural sample:** flush the highest-significance ∧ dirty shapes from the
+  Accumulator, coalesced by key, batched — never every mutation, never every row. That sampling is
+  what keeps the durable tier bounded; a flood cannot outrun it because the flood never becomes rows.
+- **At-insert eviction is the FAILURE-MODE cap only** (flood backstop), not the normal path.
+
+**What this leaves for guardians:** almost nothing. `FingerprintObservationRetention` /
+`SessionCompaction` sweep raw-row tables (`fingerprint_observations`, `sessions`) that **should not
+exist** — fold those rows into centroids and the guardians delete. `SignatureCap` / `HnswCompaction`
+become the failure-mode cap *at insert* on their accumulators, not periodic DELETEs. Only
+`CentroidRetention` / `BucketRetention` survive, as small genuine TTL trims on the sampled durable
+tier. The reference implementation is the keyed-upsert centroid store on a fixed Evidence
+Accumulator; two gaps to close: the drainer must behavioural-sample (pull dirty ∧ significant),
+not op-replay; and the raw-row tables must fold into centroids.
+
+Sections §1–§6 below describe the earlier guardian-centric design. Keep them for the guardian
+*framework* (discrete jobs, roster, `IGuardian`) — that machinery is still correct for the small
+TTL + failure-cap role — but read them through §0: the guardians are the backstop, the tier model
+is the mechanism.
 
 ## 1. Problem
 
