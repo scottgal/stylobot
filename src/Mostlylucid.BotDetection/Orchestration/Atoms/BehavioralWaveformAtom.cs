@@ -44,14 +44,14 @@ public sealed partial class BehavioralWaveformAtom : DetectorAtomBase
 {
     private const int SequenceMinPosition = 3;
 
-    private readonly WaveformHistoryStore _store;
+    private readonly IWaveformHistoryStore _store;
     private readonly ILogger<BehavioralWaveformAtom> _logger;
     private readonly IDetectorConfigProvider _configProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public BehavioralWaveformAtom(
         ILogger<BehavioralWaveformAtom> logger,
-        WaveformHistoryStore store,
+        IWaveformHistoryStore store,
         IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "BehavioralWaveform", category: "Waveform")
