@@ -1155,11 +1155,15 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     Summarise a confirmatory observation: advance the aggregate counters (observation
-    ///     count for crossing notifications, centroid maturity so the fold accounting stays
-    ///     honest and the fingerprint keeps stabilising, last_seen for recency) without writing
-    ///     a detail row, a vec row, or waking the absorber. This is the "still logs a summarised
-    ///     entry for the unimportant ones" half of adaptive forgetting.
+    ///     Summarise a confirmatory observation: advance the aggregate counters
+    ///     (observation_count for crossing notifications, last_seen for recency) WITHOUT
+    ///     writing a detail row, a vec row, or waking the absorber. Critically it must NOT
+    ///     touch the centroid or centroid_maturity: the absorber is the sole owner of those,
+    ///     and a second writer here desyncs the maturity-weighted fold (a summarised bump
+    ///     followed by a real fold corrupts the centroid). centroid_maturity therefore counts
+    ///     folded (novel) observations only, which is also the more correct notion of
+    ///     confidence: confirmatory repetitions add no new information. This is the "still logs
+    ///     a summarised entry for the unimportant ones" half of adaptive forgetting.
     /// </summary>
     private async Task SummariseObservationAsync(string fingerprintId, CancellationToken ct)
     {
@@ -1171,7 +1175,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         bump.CommandText = """
             UPDATE fingerprints
                SET observation_count = observation_count + 1,
-                   centroid_maturity = centroid_maturity + 1,
                    last_seen = @ts
              WHERE fingerprint_id = @id
             """;

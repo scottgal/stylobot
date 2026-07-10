@@ -203,8 +203,10 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
 
     /// <summary>
     ///     Summarise a confirmatory mode observation: advance the mode's aggregate counters
-    ///     without writing a detail row or waking the drainer. The maturity bump keeps the fold
-    ///     accounting honest so the mode centroid keeps stabilising.
+    ///     without writing a detail row or waking the drainer. Must NOT touch the centroid or
+    ///     centroid_maturity: the mode drainer is the sole owner of the fold, and a second
+    ///     writer here desyncs the maturity-weighted mean (same corruption as the parent store).
+    ///     centroid_maturity counts folded (novel) observations only.
     /// </summary>
     private async Task SummariseModeObservationAsync(string fingerprintId, string modeId, CancellationToken ct)
     {
@@ -214,7 +216,6 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         cmd.CommandText = """
             UPDATE fingerprint_modes
                SET observation_count = observation_count + 1,
-                   centroid_maturity = centroid_maturity + 1,
                    last_seen = @ts
              WHERE fingerprint_id = @fp AND mode_id = @mode
             """;

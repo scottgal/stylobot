@@ -133,7 +133,8 @@ public sealed class AdaptiveModeObservationSamplingTests : IDisposable
         modeStore.SummarisedModeObservationCount.Should().Be(1);
 
         var after = await modeStore.GetModeAsync(fpId, modeId, CancellationToken.None);
-        after!.CentroidMaturity.Should().Be(11, "maturity advances so the mode centroid keeps stabilising");
+        after!.CentroidMaturity.Should().Be(10,
+            "summarise must NOT touch mode maturity: the drainer owns the fold; a second writer desyncs it");
         after.ObservationCount.Should().Be(101);
     }
 

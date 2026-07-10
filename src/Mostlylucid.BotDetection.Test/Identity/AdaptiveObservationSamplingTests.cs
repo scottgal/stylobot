@@ -116,8 +116,10 @@ public sealed class AdaptiveObservationSamplingTests : IDisposable
         var after = await store.GetFingerprintAsync(fpId);
         after!.ObservationCount.Should().Be(before!.ObservationCount + 1,
             "the summarised entry still advances the observation count");
-        after.CentroidMaturity.Should().Be(before.CentroidMaturity + 1,
-            "maturity advances so the fold accounting stays honest and the centroid keeps stabilising");
+        after.CentroidMaturity.Should().Be(before.CentroidMaturity,
+            "summarise must NOT touch centroid maturity: the absorber is its sole owner, and a second " +
+            "writer here desyncs the maturity-weighted fold (proven by CentroidLearningLoopTests). " +
+            "Maturity counts folded (novel) observations only.");
     }
 
     [Fact]
