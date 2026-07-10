@@ -299,4 +299,51 @@ public sealed class SqliteIntentCentroidStore
             _writeLock.Release();
         }
     }
+
+    // ── Behavioural-sample drain (Gap A) ─────────────────────────────────────
+    protected override bool UseBehaviouralSampleDrain => true;
+
+    protected override async Task PersistValuesBatchAsync(
+        IReadOnlyList<KeyValuePair<string, IntentCentroidEntry>> batch, CancellationToken ct)
+    {
+        if (batch.Count == 0) return;
+
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
+            cmd.CommandText = """
+                INSERT INTO intent_centroids (signature_id, vector, threat_score, intent_category, updated_at)
+                VALUES ($sig, $vec, $ts_score, $cat, $ts)
+                ON CONFLICT(signature_id) DO UPDATE SET
+                    vector=excluded.vector, threat_score=excluded.threat_score,
+                    intent_category=excluded.intent_category, updated_at=excluded.updated_at
+                """;
+            var pSig   = cmd.CreateParameter(); pSig.ParameterName   = "$sig";      cmd.Parameters.Add(pSig);
+            var pVec   = cmd.CreateParameter(); pVec.ParameterName   = "$vec";      cmd.Parameters.Add(pVec);
+            var pScore = cmd.CreateParameter(); pScore.ParameterName = "$ts_score"; cmd.Parameters.Add(pScore);
+            var pCat   = cmd.CreateParameter(); pCat.ParameterName   = "$cat";      cmd.Parameters.Add(pCat);
+            var pTs    = cmd.CreateParameter(); pTs.ParameterName    = "$ts";       cmd.Parameters.Add(pTs);
+
+            foreach (var kv in batch)
+            {
+                var e = kv.Value;
+                pSig.Value   = e.SignatureId;
+                pVec.Value   = CentroidFloatPacker.Pack(e.Vector);
+                pScore.Value = e.ThreatScore;
+                pCat.Value   = e.IntentCategory;
+                pTs.Value    = new DateTimeOffset(e.UpdatedAtTicks, TimeSpan.Zero).ToUnixTimeSeconds();
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
 }
