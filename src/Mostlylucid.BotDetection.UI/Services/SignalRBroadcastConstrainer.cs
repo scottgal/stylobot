@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.SignalR;
 using Mostlylucid.BotDetection.UI.Hubs;
 
@@ -45,8 +46,25 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// </summary>
 public static class SignalRBroadcastConstrainer
 {
-    private static readonly ConcurrentDictionary<string, byte> Pending = new();
-    private static int _flushScheduled;
+    // Per-hub flush window. Production has exactly ONE hub context (the SignalR
+    // IHubContext singleton), so this table holds a single entry and behaves
+    // identically to the previous process-global Pending + _flushScheduled. The
+    // per-hub keying exists so tests — which create multiple hub contexts — get
+    // ISOLATED flush windows: without it, concurrent tests raced the single global
+    // _flushScheduled gate and the loser's signals emitted to the winner's hub,
+    // so the loser's hub never received its beacon (the BroadcastDirtyTests flake).
+    private sealed class FlushWindow
+    {
+        public readonly ConcurrentDictionary<string, byte> Pending = new();
+        public int FlushScheduled;
+        // Cursor captured when THIS window opens, so a later SetCursor (another
+        // test, or a host starting) can't change the tick this window reports.
+        public IDashboardChangeCursor? Cursor;
+    }
+
+    // ConditionalWeakTable: a window's state is collected with its hub context, so
+    // transient test hub contexts don't leak. Keyed on the hub context reference.
+    private static readonly ConditionalWeakTable<object, FlushWindow> Windows = new();
 
     // Optional cursor for tick-versioned BroadcastDirty. Null when not wired
     // (e.g. tests that only care about BroadcastInvalidation, or hosts where
@@ -72,8 +90,12 @@ public static class SignalRBroadcastConstrainer
         string signal,
         int intervalMs)
     {
-        Pending[signal] = 0;
-        if (Interlocked.CompareExchange(ref _flushScheduled, 1, 0) != 0) return;
+        var window = Windows.GetOrCreateValue(hub);
+        window.Pending[signal] = 0;
+        if (Interlocked.CompareExchange(ref window.FlushScheduled, 1, 0) != 0) return;
+
+        // Capture the cursor for THIS window at open time (see FlushWindow.Cursor).
+        window.Cursor = _cursor;
 
         _ = Task.Run(async () =>
         {
@@ -82,9 +104,9 @@ public static class SignalRBroadcastConstrainer
             {
                 // Snapshot, clear, emit. Any signal queued during the emit
                 // becomes the seed of the next window.
-                var signals = Pending.Keys.ToArray();
+                var signals = window.Pending.Keys.ToArray();
                 foreach (var s in signals)
-                    Pending.TryRemove(s, out _);
+                    window.Pending.TryRemove(s, out _);
 
                 // Back-compat: per-surface BroadcastInvalidation (unchanged).
                 foreach (var s in signals)
@@ -93,7 +115,7 @@ public static class SignalRBroadcastConstrainer
                 // Plan 3 Task 2: ONE structured BroadcastDirty per flush window
                 // alongside the existing per-surface invalidations (additive).
                 // Skipped gracefully when cursor is not wired.
-                var cursor = _cursor;
+                var cursor = window.Cursor;
                 if (cursor is not null && signals.Length > 0)
                 {
                     var beacon = new DashboardDirtyBeacon(cursor.CurrentTick, signals);
@@ -102,7 +124,7 @@ public static class SignalRBroadcastConstrainer
             }
             finally
             {
-                Interlocked.Exchange(ref _flushScheduled, 0);
+                Interlocked.Exchange(ref window.FlushScheduled, 0);
             }
         });
     }
