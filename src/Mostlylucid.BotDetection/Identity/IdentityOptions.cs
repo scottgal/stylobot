@@ -222,6 +222,34 @@ public sealed class IdentityVectorOptions
     /// <summary>Absorb a detailed observation after the fingerprint sees N more requests.</summary>
     public int AbsorptionMaturityThreshold { get; set; } = 5;
 
+    /// <summary>
+    ///     Adaptive forgetting: sample which observations keep a detail row. When true
+    ///     (default), a <i>confirmatory</i> observation (one whose vector barely moves an
+    ///     already-matured fingerprint's centroid) is <b>summarised</b> rather than persisted:
+    ///     the observation count and centroid maturity advance, but no
+    ///     <c>fingerprint_observations</c> / <c>observations_vec</c> detail row is written and
+    ///     no absorber wake fires. The detail table therefore grows with behavioural NOVELTY,
+    ///     not request volume, so a high-cardinality flood of look-alike requests cannot balloon
+    ///     the identity store. Observations that change the score (novelty at or above
+    ///     <see cref="ObservationNoveltyKeepThreshold"/>) and every observation on a
+    ///     still-maturing fingerprint (maturity below <see cref="AbsorptionMaturityThreshold"/>,
+    ///     the identity-building phase) always keep full detail. Set false to persist every
+    ///     observation (legacy behaviour).
+    /// </summary>
+    public bool AdaptiveObservationSampling { get; set; } = true;
+
+    /// <summary>
+    ///     Novelty floor for <see cref="AdaptiveObservationSampling"/>. An observation whose
+    ///     cosine novelty (<c>1 - cosine-similarity</c> to the current fingerprint centroid) is
+    ///     at or above this value keeps a full detail row; below it, the observation is
+    ///     summarised. 0 keeps every observation (disables sampling for matured fingerprints);
+    ///     higher values summarise more aggressively. Default 0.05: a 5% shape change is "novel
+    ///     enough" to be worth a detail row for drift analysis. Kept well below the drift
+    ///     detector's own thresholds so real drift is never sampled away
+    ///     (feedback: FOSS never loses detection sensitivity).
+    /// </summary>
+    public double ObservationNoveltyKeepThreshold { get; set; } = 0.05;
+
     /// <summary>Absorb observations older than this on active fingerprints.</summary>
     public int AbsorptionAgeDays { get; set; } = 30;
 

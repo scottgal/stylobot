@@ -244,6 +244,13 @@ public sealed class CentroidLearningLoopTests : IDisposable
                     AbsorptionAgeDays = 30,
                     ActiveWindowDays = 90,
                     SubscriptionDebounceMs = 0,        // tests drive TickOnceAsync directly
+                    // These tests exercise the ABSORBER'S maturity-weighted fold in isolation,
+                    // feeding repeated identical observations. Adaptive-forgetting sampling
+                    // (default on) would correctly summarise those confirmatory repeats once the
+                    // centroid converges (nothing left to absorb) — orthogonal to what is under
+                    // test here. Turn it off so every observation reaches the absorber; the
+                    // sampling decision is covered by AdaptiveObservationSamplingTests.
+                    AdaptiveObservationSampling = false,
                 },
                 Calibration = new IdentityCalibrationOptions
                 {
