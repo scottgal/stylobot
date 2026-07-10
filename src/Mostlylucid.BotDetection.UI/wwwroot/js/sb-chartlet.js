@@ -209,8 +209,27 @@
           config.options.scales.x.grid = { display: !!model.axes.gridLines, color: 'rgba(127,127,127,0.15)' };
           config.options.scales.y.grid = { display: false };
         }
-        if (!window.Chart) return;
-        chart = new window.Chart(canvas, config);
+        // Draw as soon as Chart.js is available. On a COLD first load the self-hosted
+        // ~205KB chart.umd.min.js can still be parsing when Alpine runs x-init; the old
+        // code did `if (!window.Chart) return` and gave up for good, leaving the canvas
+        // BLANK until a refresh warmed Chart.js into cache — the "blank graphs on first
+        // load, fine after" bug. Poll briefly until Chart.js is ready, then construct.
+        // `chart` is the closure var so toggle()/destroy still see the instance.
+        var tries = 0;
+        (function draw() {
+          if (!window.Chart) {
+            if (tries++ > 200) return; // ~10s ceiling — bail rather than spin forever
+            setTimeout(draw, 50);
+            return;
+          }
+          // A prior instance may still be bound to this canvas (HTMX OOB-swap re-ran
+          // init); tear it down now that Chart is definitely present.
+          if (typeof window.Chart.getChart === 'function') {
+            var prev = window.Chart.getChart(canvas);
+            if (prev) prev.destroy();
+          }
+          chart = new window.Chart(canvas, config);
+        })();
       },
       toggle: function (key) {
         this.hidden[key] = !this.hidden[key];
