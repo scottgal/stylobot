@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Guardians;
 
@@ -94,5 +95,68 @@ public sealed class GuardianRegistrationCoverageTests
         var walker = provider.GetService<GuardianService>();
         Assert.NotNull(walker);
         Assert.Equal(provider.GetServices<IGuardian>().Count(), walker!.Guardians.Count);
+    }
+
+    [Fact]
+    public async Task Double_module_wire_registers_each_guardian_once_and_does_not_crash_the_walker()
+    {
+        // Regression (deploy- 2026-07-10, exit 139 crash-loop on the enterprise gateway):
+        // a host that wires the module twice -- e.g. AddBotDetection() +
+        // AddBotDetectionModule(), and the former just chains to the latter -- registered
+        // every guardian twice via AddSingleton, and GuardianService..ctor's
+        // ToDictionary(g => g.Name) threw on the duplicate Name, hard-crashing at boot.
+        // TryAddEnumerable now dedupes the registration so a double-wire is safe.
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["BotDetection:Identity:Enabled"] = "true",
+                ["BotDetection:DatabasePath"] = string.Empty
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddMemoryCache();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddBotDetection();
+        services.AddBotDetection(); // the double wire that crashed staging
+
+        await using var provider = services.BuildServiceProvider();
+
+        var names = provider.GetServices<IGuardian>().Select(g => g.Name).ToList();
+        Assert.Equal(names.Count, names.Distinct().Count()); // each guardian registered exactly once
+        var walker = provider.GetService<GuardianService>();
+        Assert.NotNull(walker); // resolves without the ToDictionary duplicate-key crash
+        Assert.Equal(names.Distinct().Count(), walker!.Guardians.Count);
+    }
+
+    [Fact]
+    public void GuardianService_ctor_dedupes_two_different_classes_that_share_a_Name()
+    {
+        // TryAddEnumerable dedupes by (service, impl) type, so two DIFFERENT guardian
+        // classes with the same Name (e.g. a pack colliding with a FOSS guardian) both
+        // still register. The ctor's DistinctBy(g => g.Name) guards that path so a Name
+        // collision can never crash the walker at construction.
+        var dupes = new IGuardian[] { new NamedFakeGuardian("Dup"), new NamedFakeGuardian("Dup") };
+
+        var ex = Record.Exception(() =>
+            new GuardianService(dupes, NullLogger<GuardianService>.Instance));
+
+        Assert.Null(ex);
+    }
+
+    private sealed class NamedFakeGuardian(string name) : IGuardian
+    {
+        public string Name => name;
+        public GuardianCategory Category => GuardianCategory.Data;
+        public TimeSpan Interval => TimeSpan.FromMinutes(30);
+        public bool Enabled => true;
+        public Task<GuardianReport> GuardAsync(CancellationToken ct = default) =>
+            Task.FromResult(new GuardianReport
+            {
+                GuardianName = Name,
+                Category = Category,
+                Status = "noop"
+            });
     }
 }

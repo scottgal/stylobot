@@ -37,7 +37,13 @@ public sealed class GuardianService : IDisposable
         ILogger<GuardianService> logger,
         IScheduleCoordinator? scheduleCoordinator = null)
     {
-        _guardians = guardians.ToList();
+        // Dedupe by Name at construction. TryAddEnumerable stops the SAME guardian
+        // class registering twice on a double module-wire, but two DIFFERENT guardian
+        // classes can still share a Name (a pack colliding with a FOSS guardian), and
+        // the _nextRun ToDictionary below throws on a duplicate key -- a hard boot crash
+        // (exit 139) on any host that hits it. Dedupe here so a Name collision can never
+        // crash the walker at construction; first registration wins.
+        _guardians = guardians.DistinctBy(g => g.Name).ToList();
         _logger = logger;
         // Every guardian is due immediately so the first tick runs one pass each.
         _nextRun = _guardians.ToDictionary(g => g.Name, _ => DateTime.UtcNow);
