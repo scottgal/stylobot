@@ -60,6 +60,23 @@ public sealed class StyloBotDashboardOptions
     public bool RenderPage { get; set; } = true;
 
     /// <summary>
+    ///     Max distinct widget shingles (rendered OOB elements) kept resident in the LFU
+    ///     render cache (<c>DashboardWidgetShingleCache</c>). Small on purpose -- only the
+    ///     widget/filter/version combinations operators actively watch stay warm; the cold
+    ///     tail evicts on its own. Raise it if a host drives many concurrent dashboards on
+    ///     wildly different filters. Default: 256.
+    /// </summary>
+    public int WidgetShingleCacheMaxEntries { get; set; } = 256;
+
+    /// <summary>
+    ///     Absolute safety TTL for a widget shingle. Freshness is normally driven by the
+    ///     data-change version baked into the fingerprint (a change re-keys the shingle);
+    ///     this TTL only bounds how long an orphaned old-version shingle lingers before the
+    ///     LFU reclaims it under no memory pressure. Default: 2 minutes.
+    /// </summary>
+    public TimeSpan WidgetShingleSafetyTtl { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
     ///     When true (default), the dashboard's <c>Index.cshtml</c> emits its own brand header
     ///     (logo + Dashboard pill + SignalR dot + license badge + theme picker). When false,
     ///     the host application is expected to wrap the dashboard body in its own layout / navbar

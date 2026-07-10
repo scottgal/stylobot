@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
@@ -40,10 +39,8 @@ public sealed class SbWidgetBatchMiddleware
     private readonly DashboardAggregateCache _aggregateCache;
     private readonly SignatureAggregateCache _signatureCache;
     private readonly LiquidWidgetRenderer _liquidRenderer;
-    private readonly IMemoryCache _cache;
+    private readonly DashboardWidgetShingleCache _shingleCache;
     private readonly ILogger<SbWidgetBatchMiddleware> _logger;
-
-    private static readonly TimeSpan WidgetCacheTtl = TimeSpan.FromSeconds(2);
 
     // Default time window used when no window param is supplied on the update request.
     // Matches the TrafficController default (6h) so batch-updated widgets use the same
@@ -58,7 +55,7 @@ public sealed class SbWidgetBatchMiddleware
         DashboardAggregateCache aggregateCache,
         SignatureAggregateCache signatureCache,
         LiquidWidgetRenderer liquidRenderer,
-        IMemoryCache cache,
+        DashboardWidgetShingleCache shingleCache,
         ILogger<SbWidgetBatchMiddleware> logger)
     {
         _next = next;
@@ -68,7 +65,7 @@ public sealed class SbWidgetBatchMiddleware
         _aggregateCache = aggregateCache;
         _signatureCache = signatureCache;
         _liquidRenderer = liquidRenderer;
-        _cache = cache;
+        _shingleCache = shingleCache;
         _logger = logger;
     }
 
@@ -96,19 +93,35 @@ public sealed class SbWidgetBatchMiddleware
         var widgetList = context.Request.Query["widgets"].FirstOrDefault() ?? "summary";
         var widgets = widgetList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        // Compose-on-delta: identify which requested widgets are catalog-covered (i.e. the
-        // DashboardWidgetCatalog maps their key to a DatasetKind). For those widgets, issue
-        // ONE ComposeAsync instead of N self-fetches.  The DashboardPageResult is stashed in
-        // HttpContext.Items so the per-widget render helpers can read their slice from it
-        // directly; non-covered widgets fall through to their existing self-fetch unchanged.
-        await TryComposeAndStashAsync(context, widgets, context.RequestAborted);
+        // Signal-Shingle: compute each widget's shingle fingerprint (widget + filter/params
+        // + its surface's data-change version) and split the batch into WARM shingles (served
+        // from the LFU as-is) and MISSES. A read boosts the fingerprint's LFU score, so the
+        // widgets operators actually watch stay resident. A fully-warm delta composes nothing
+        // and renders nothing -- it just streams the resident OOB elements.
+        var cursor = context.RequestServices.GetService<IDashboardChangeCursor>();
+        var fingerprints = new string[widgets.Length];
+        var misses = new List<string>(widgets.Length);
+        for (var i = 0; i < widgets.Length; i++)
+        {
+            var q = WidgetRenderHelpers.ExtractWidgetParams(context, widgets[i]);
+            var version = cursor?.TickFor(WidgetRenderHelpers.WidgetSurface(widgets[i])) ?? 0L;
+            fingerprints[i] = WidgetRenderHelpers.ComputeWidgetShingleFingerprint(widgets[i], q, version);
+            if (!_shingleCache.TryGet(fingerprints[i], out _))
+                misses.Add(widgets[i]);
+        }
+
+        // Compose-on-delta ONLY for the missing widgets: issue ONE batched read for the
+        // catalog-covered misses instead of N self-fetches, stashed in HttpContext.Items for
+        // the per-widget render helpers. Skipped entirely when everything is already warm.
+        if (misses.Count > 0)
+            await TryComposeAndStashAsync(context, misses.ToArray(), context.RequestAborted);
 
         context.Response.ContentType = "text/html; charset=utf-8";
 
         var sb = new StringBuilder();
-        foreach (var w in widgets)
+        for (var i = 0; i < widgets.Length; i++)
         {
-            var html = await RenderWidgetWithCacheAsync(context, w);
+            var html = await RenderWidgetWithShingleAsync(context, widgets[i], fingerprints[i]);
             if (!string.IsNullOrEmpty(html))
                 sb.Append(html);
         }
@@ -293,19 +306,23 @@ public sealed class SbWidgetBatchMiddleware
     // Cache + render
     // -------------------------------------------------------------------------
 
-    private async Task<string> RenderWidgetWithCacheAsync(HttpContext context, string widgetId)
+    private async Task<string> RenderWidgetWithShingleAsync(HttpContext context, string widgetId, string fingerprint)
     {
-        var q = WidgetRenderHelpers.ExtractWidgetParams(context, widgetId);
-        var cacheKey = WidgetRenderHelpers.ComputeWidgetCacheKey(widgetId, q);
-
-        if (_cache.TryGetValue(cacheKey, out string? cached) && cached != null)
+        // Warm shingle: serve the resident OOB element as-is (the read already boosted its
+        // LFU score in the partition pass; a concurrent request may also have warmed it
+        // between the partition and here, so re-check).
+        if (_shingleCache.TryGet(fingerprint, out var cached) && !string.IsNullOrEmpty(cached))
             return cached;
 
+        // Miss: render the widget, tag it OOB, and store the shingle under its fingerprint.
+        // The version in the fingerprint means this shingle stays valid until this widget's
+        // surface next changes -- no TTL churn, no whole-page recompute.
+        var q = WidgetRenderHelpers.ExtractWidgetParams(context, widgetId);
         var html = await RenderWidgetAsync(context, widgetId, q);
         if (!string.IsNullOrEmpty(html))
         {
             html = WidgetRenderHelpers.InjectOobAttribute(html);
-            _cache.Set(cacheKey, html, WidgetCacheTtl);
+            _shingleCache.Set(fingerprint, html);
         }
 
         return html ?? "";

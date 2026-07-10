@@ -54,6 +54,44 @@ public static class WidgetRenderHelpers
         return $"sb:widget:{widgetId}:{string.Join("&", sorted)}";
     }
 
+    /// <summary>
+    ///     Maps a widget instance id to the <see cref="Services.IDashboardChangeCursor"/>
+    ///     surface whose data it renders. The surface's <c>TickFor()</c> is folded into
+    ///     the widget's shingle fingerprint (<see cref="ComputeWidgetShingleFingerprint"/>)
+    ///     so a data change on that surface -- and only that surface -- re-keys this
+    ///     widget's cached render. Surfaces are the strings the producers bump:
+    ///     <c>summary</c>, <c>signature</c>, <c>threats</c>, <c>countries</c>,
+    ///     <c>endpoints</c>, <c>useragents</c> (see DetectionBroadcastMiddleware and
+    ///     DashboardSummaryBroadcaster). Unknown widgets fall back to <c>signature</c>,
+    ///     the broadest surface (bumped on every detection broadcast), so an unmapped
+    ///     widget still refreshes on the normal live cadence rather than going stale.
+    /// </summary>
+    public static string WidgetSurface(string widgetId) => widgetId switch
+    {
+        "summary"     => "summary",
+        "countries"   => "countries",
+        "endpoints"   => "endpoints",
+        "useragents"  => "useragents",
+        "threats"     => "threats",
+        "visitors"    => "signature",
+        "sessions"    => "signature",
+        "topbots" or "top-bots" or "top-visitors" or "live-visitors"
+            or "live-activity" or "overview-topbots" => "signature",
+        _ => "signature",
+    };
+
+    /// <summary>
+    ///     The shingle fingerprint: the params-scoped widget key
+    ///     (<see cref="ComputeWidgetCacheKey"/>) plus the widget's data-change
+    ///     <paramref name="version"/> (its surface's cursor tick). Two shingles differ
+    ///     iff their widget, filter/params, OR underlying data version differ -- so a
+    ///     filter change or a data change yields a fresh key for THAT widget alone,
+    ///     while an unchanged widget keeps the same fingerprint and serves warm from the
+    ///     LFU. This is the cache identity for <c>DashboardWidgetShingleCache</c>.
+    /// </summary>
+    public static string ComputeWidgetShingleFingerprint(string widgetId, IQueryCollection q, long version) =>
+        $"{ComputeWidgetCacheKey(widgetId, q)}:v{version}";
+
     internal static int QueryPage(IQueryCollection q) =>
         int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
 

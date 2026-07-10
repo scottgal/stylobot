@@ -404,6 +404,13 @@ public static class StyloBotDashboardServiceExtensions
             Mostlylucid.BotDetection.UI.Services.DashboardChangeCursor>();
         services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DashboardChangeCursorTickHook>();
 
+        // Bounded LFU cache of pre-rendered widget shingles (the render-layer sibling of
+        // the content cache's data layer). Each entry is one widget's OOB-tagged element,
+        // keyed by widget + filter/params + data-change version; hot fingerprints stay
+        // warm, cold ones evict. The batch-update middleware serves resident shingles and
+        // renders only the misses -- a fully-warm delta composes and renders nothing.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardWidgetShingleCache>();
+
         // Plan 3 Task 2 -- wire cursor into SignalRBroadcastConstrainer so the
         // BroadcastDirty beacon carries the correct CurrentTick. The cursor is a
         // singleton; setting it once on the static constrainer is safe for the
@@ -998,6 +1005,12 @@ public static class StyloBotDashboardServiceExtensions
 
         // Stateless UA aggregator - used by view components with audience/range params
         services.TryAddSingleton<DashboardUserAgentAggregator>();
+
+        // Bounded LFU shingle cache used by SbWidgetBatchMiddleware to serve resident
+        // pre-rendered widget elements. Registered here too (the widgets-only host does
+        // not call AddStyloBotDashboard); the change-cursor is dashboard-only, so a
+        // widgets-only host renders at version 0 and refreshes on the safety TTL.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardWidgetShingleCache>();
 
         return services;
     }
