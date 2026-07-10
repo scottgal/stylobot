@@ -1138,7 +1138,7 @@ public partial class DetectionBroadcastMiddleware
         AggregateContributionsAndTopReasons(IReadOnlyList<DetectionContribution> contributions)
     {
         var byDetector = new Dictionary<string, DetectorAccumulator>(StringComparer.Ordinal);
-        var reasonsBuffer = new List<(string Reason, double Score)>(contributions.Count);
+        var reasonsBuffer = new List<(string Reason, double Score, bool IsAggregate)>(contributions.Count);
 
         for (var i = 0; i < contributions.Count; i++)
         {
@@ -1161,16 +1161,35 @@ public partial class DetectionBroadcastMiddleware
 
             // Top-reasons feed.
             if (!string.IsNullOrEmpty(c.Reason))
-                reasonsBuffer.Add((c.Reason, Math.Abs(c.ConfidenceDelta * c.Weight)));
+                reasonsBuffer.Add((c.Reason, Math.Abs(c.ConfidenceDelta * c.Weight), IsAggregateReason(name)));
         }
 
-        // Sort reasons by abs(weighted delta) descending, then slice to 5. Sort on a
-        // freshly built buffer rather than the input list so the matcher's contribution
-        // ordering is preserved for everyone else who reads evidence.Contributions.
-        reasonsBuffer.Sort(static (a, b) => b.Score.CompareTo(a.Score));
+        // Sort reasons so the CONCRETE identity/behaviour reasons ("Known bot UA pattern:
+        // Bingbot", "SQL injection payload", catalog matches) rank above the AI heuristic
+        // model, then by abs(weighted delta) descending within each group. The heuristic
+        // is a meta-aggregate that consumes every other signal (298 features) and rolls
+        // them into one probability -- surfacing "AI heuristic model: 100% bot likelihood"
+        // as the TOP detection signal is circular and hides the actual reason (operator
+        // report: "it's an aggregate NOT the reason"). Sort on a freshly built buffer so
+        // the matcher's contribution ordering is preserved for evidence.Contributions.
+        reasonsBuffer.Sort(static (a, b) =>
+            a.IsAggregate != b.IsAggregate
+                ? a.IsAggregate.CompareTo(b.IsAggregate) // false (concrete) sorts before true (aggregate)
+                : b.Score.CompareTo(a.Score));
         var topReasons = new List<string>(Math.Min(5, reasonsBuffer.Count));
-        for (var i = 0; i < reasonsBuffer.Count && i < 5; i++)
+        var aggregateShown = false;
+        for (var i = 0; i < reasonsBuffer.Count && topReasons.Count < 5; i++)
+        {
+            // Collapse the heuristic's duplicate early/late entries to a single trailing
+            // summary line; the operator saw four near-identical "AI heuristic model: N%
+            // (M features)" rows crowding out the one real reason.
+            if (reasonsBuffer[i].IsAggregate)
+            {
+                if (aggregateShown) continue;
+                aggregateShown = true;
+            }
             topReasons.Add(reasonsBuffer[i].Reason);
+        }
 
         // Materialise the per-detector dict into the final record-shaped dictionary.
         var byDetectorOut = new Dictionary<string, DashboardDetectorContribution>(
@@ -1199,6 +1218,16 @@ public partial class DetectionBroadcastMiddleware
         public int Priority;
         public List<string>? Reasons;
     }
+
+    /// <summary>
+    ///     True for detectors whose "reason" is a rolled-up aggregate over every other
+    ///     signal rather than a concrete piece of evidence -- the AI heuristic model. These
+    ///     are demoted below concrete reasons in the TopReasons feed and collapsed to a
+    ///     single trailing summary line so the actual detection reason surfaces first.
+    /// </summary>
+    private static bool IsAggregateReason(string? detectorName) =>
+        string.Equals(detectorName, "Heuristic", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(detectorName, "HeuristicLate", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     ///     Projects the in-process <c>DashboardDetectionEvent</c> into the transport-friendly

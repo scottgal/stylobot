@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 using Xunit;
 
@@ -50,6 +52,39 @@ public class HumanBotNameResolutionTests
 
         Assert.NotNull(result.PrimaryBotName);
         Assert.NotEmpty(result.PrimaryBotName);
+    }
+
+    /// <summary>
+    ///     REGRESSION (same root cause as the catalog-bot "Unknown"): in production the
+    ///     UA atom raises <c>ua.raw</c> via <c>sink.Raise</c> and preSignals (from
+    ///     ledger.MergedSignals) carries NONE of the UA signals. Before the sink-first
+    ///     raw-UA threading into ResolveDisplayName, <c>Compose(preSignals)</c> had
+    ///     nothing to parse, so every human browser resolved to the "Unknown" terminal
+    ///     when Identity was off. Earlier tests missed this because they injected
+    ///     ua.family / ua.os straight into premergedSignals. This pins the production shape.
+    /// </summary>
+    [Fact]
+    public void Human_with_sink_only_raw_UA_resolves_browser_name_not_Unknown()
+    {
+        var ledger = new DetectionLedger("test-human-sink");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "Header",
+            Category = "Header",
+            ConfidenceDelta = 0.0,
+            Weight = 1.0,
+            Reason = "Clean browser headers"
+        });
+
+        // The atom's real emit path: raw UA on the sink, absent from the merged dict.
+        var sink = new SignalSink(maxCapacity: 256, maxAge: TimeSpan.FromMinutes(5));
+        sink.Raise($"{SignalKeys.UserAgent}:{ChromeMacUa}", "test");
+
+        var result = ledger.ToAggregatedEvidence(
+            aiRan: false, premergedSignals: new Dictionary<string, object>(), sink: sink);
+
+        Assert.NotNull(result.PrimaryBotName);
+        Assert.Contains("Chrome", result.PrimaryBotName); // parsed from the sink-only UA, not "Unknown"
     }
 
     [Fact]

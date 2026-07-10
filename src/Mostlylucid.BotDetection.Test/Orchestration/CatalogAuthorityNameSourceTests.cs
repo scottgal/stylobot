@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 using Xunit;
 
@@ -119,5 +121,43 @@ public class CatalogAuthorityNameSourceTests
         var result = ledger.ToAggregatedEvidence(aiRan: false, premergedSignals: signals);
 
         Assert.Null(result.PrimaryBotType);
+    }
+
+    /// <summary>
+    ///     REGRESSION (staging f69ff9c7…: Semrush shown as "unknown"). In production the
+    ///     UA atom raises its catalog identity via <c>sink.Raise("ua.bot_name:…")</c> and
+    ///     never populates <c>contribution.Signals</c>, so <c>preSignals</c> (built from
+    ///     <c>ledger.MergedSignals</c>) does NOT carry <see cref="SignalKeys.UserAgentBotName"/>.
+    ///     The name resolvers used to read preSignals directly, so every catalog bot named
+    ///     only by the UA atom (SemrushBot, SEO tools, AI scrapers) resolved to "Unknown".
+    ///     The fix makes the name/type reads sink-first (like the pre-existing ReadBool).
+    ///     This test pins the production shape: signal in the SINK, absent from preSignals.
+    /// </summary>
+    [Fact]
+    public void Sink_only_UserAgentBotName_drives_display_name_when_preSignals_lacks_it()
+    {
+        var ledger = new DetectionLedger("test");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = 0.7,
+            Weight = 1.0,
+            Reason = "Known bot pattern: GPTBot"
+        });
+
+        // The atom's real emit path: raised on the sink, NOT in the merged-signal dict.
+        var sink = new SignalSink(maxCapacity: 256, maxAge: TimeSpan.FromMinutes(5));
+        sink.Raise($"{SignalKeys.UserAgentIsBot}:true", "test");
+        sink.Raise($"{SignalKeys.UserAgentBotName}:GPTBot", "test");
+        sink.Raise($"{SignalKeys.UserAgentBotType}:Scraper", "test"); // heuristic guess; catalog must win
+
+        // preSignals shape in production: EMPTY of the sink-only UA signals.
+        var result = ledger.ToAggregatedEvidence(
+            aiRan: false, premergedSignals: new Dictionary<string, object>(), sink: sink);
+
+        // Before the fix this was "Unknown". Catalog identity now reaches the resolver.
+        Assert.Equal("GPTBot", result.PrimaryBotName);
+        Assert.Equal(BotType.AiBot, result.PrimaryBotType); // catalog authority via sink
     }
 }
