@@ -67,11 +67,12 @@ public static class BrowserFingerprintEndpointExtensions
         if (bodyJson.Length > maxBodyBytes)
             return Results.BadRequest(new { error = "Payload too large" });
 
-        // Token: header preferred (main fingerprint script sets X-ML-BotD-Token);
-        // the body `t` field is the sendBeacon / adblocker-probe fallback (no
-        // header support). data.BodyToken is read after parse below.
-        var headerToken = context.Request.Headers["X-ML-BotD-Token"].FirstOrDefault();
-        var providedSig = context.Request.Headers["X-ML-BotD-Sig"].FirstOrDefault();
+        // Token: header preferred (main fingerprint script sets the configured token
+        // header, default X-SB-Client-Token); the body `t` field is the sendBeacon /
+        // adblocker-probe fallback (no header support). data.BodyToken is read after
+        // parse below. Header names are operator-configurable for white-labelling.
+        var headerToken = context.Request.Headers[opts.ClientSide.TokenHeader].FirstOrDefault();
+        var providedSig = context.Request.Headers[opts.ClientSide.SignatureHeader].FirstOrDefault();
 
         BrowserFingerprintData? data;
         try

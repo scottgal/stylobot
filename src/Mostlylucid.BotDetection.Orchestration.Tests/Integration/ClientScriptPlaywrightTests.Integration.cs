@@ -80,10 +80,10 @@ public class ClientScriptPlaywrightTests : IAsyncLifetime
     [Fact(Skip = "Playwright integration test. Run locally with: dotnet test --filter \"Category=Integration\" after starting Demo manually. See docs/superpowers/plans/2026-06-05-stylobot-observability.md memory: 'project_puppeteer_test_rot'.")]
     public async Task TestPage_LoadsBootstrap_AndExternalScript()
     {
-        // Bootstrap pair: an inline <script>window.MLBotD={...}</script> +
+        // Bootstrap pair: an inline <script>window.StyloBot={...}</script> +
         // <script src="/bot-detection/script.js">. Playwright sees both as
         // separate document scripts. Verify the network fetch for the
-        // external one and the MLBotD global landing on window.
+        // external one and the StyloBot global landing on window.
         var ctx = await _browser!.NewContextAsync(new BrowserNewContextOptions
         {
             ExtraHTTPHeaders = new Dictionary<string, string>
@@ -104,10 +104,10 @@ public class ClientScriptPlaywrightTests : IAsyncLifetime
 
         Assert.Single(scriptRequests);
 
-        // window.MLBotD published by the bootstrap.
+        // window.StyloBot published by the bootstrap.
         var hasBootstrap = await page.EvaluateAsync<bool>(
-            "() => typeof window.MLBotD === 'object' && typeof window.MLBotD.t === 'string'");
-        Assert.True(hasBootstrap, "Expected the bootstrap to publish window.MLBotD with a token");
+            "() => typeof window.StyloBot === 'object' && typeof window.StyloBot.t === 'string'");
+        Assert.True(hasBootstrap, "Expected the bootstrap to publish window.StyloBot with a token");
     }
 
     [Fact(Skip = "Playwright integration test. Run locally with: dotnet test --filter \"Category=Integration\" after starting Demo manually. See docs/superpowers/plans/2026-06-05-stylobot-observability.md memory: 'project_puppeteer_test_rot'.")]

@@ -1642,9 +1642,9 @@ public class ClientSideOptions
 
     /// <summary>
     ///     Require the beacon payload to be HMAC-signed with the browser token
-    ///     (<c>X-ML-BotD-Sig</c> = base64(HMAC-SHA256(key=token, msg=raw body))). This
-    ///     binds the collected signals to the single-use, IP-bound token so an
-    ///     off-browser replay (a curl farm POSTing a canned payload with a captured
+    ///     (the <see cref="SignatureHeader"/> = base64(HMAC-SHA256(key=token, msg=raw
+    ///     body))). This binds the collected signals to the single-use, IP-bound token
+    ///     so an off-browser replay (a curl farm POSTing a canned payload with a captured
     ///     token) is rejected. When <c>true</c>, a missing or invalid signature is
     ///     rejected; when <c>false</c> (default, for rollout) a signature is verified
     ///     only when present, so older scripts and the sendBeacon unload fallback
@@ -1654,6 +1654,20 @@ public class ClientSideOptions
     ///     Default: false.
     /// </summary>
     public bool RequirePayloadSignature { get; set; } = false;
+
+    /// <summary>
+    ///     HTTP header the client-side script sends the browser token in (the beacon
+    ///     also carries it in the body <c>t</c> field for the header-less sendBeacon
+    ///     fallback). Configurable so operators can white-label the wire contract.
+    ///     Default: <c>X-SB-Client-Token</c> (SB = StyloBot; unrelated to FingerprintJS BotD).
+    /// </summary>
+    public string TokenHeader { get; set; } = "X-SB-Client-Token";
+
+    /// <summary>
+    ///     HTTP header the client-side script sends the payload HMAC signature in.
+    ///     Configurable to match <see cref="TokenHeader"/>. Default: <c>X-SB-Client-Sig</c>.
+    /// </summary>
+    public string SignatureHeader { get; set; } = "X-SB-Client-Sig";
 
     /// <summary>
     ///     How long to cache fingerprint results for correlation with requests.

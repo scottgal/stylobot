@@ -9,7 +9,7 @@ namespace Mostlylucid.BotDetection.ClientSide;
 ///     Renders the bootstrap pair that loads the StyloBot client-side detector:
 ///     <list type="number">
 ///         <item>An inline <c>&lt;script&gt;</c> block that publishes
-///               <c>window.MLBotD = { t, e, cfg }</c> -- token, beacon endpoint,
+///               <c>window.StyloBot = { t, e, cfg }</c> -- token, beacon endpoint,
 ///               feature toggles.</item>
 ///         <item>A <c>&lt;script src="/bot-detection/script.js"&gt;</c> tag
 ///               that loads the actual detector logic from the endpoint
@@ -135,7 +135,7 @@ public class BotDetectionTagHelper : TagHelper
         // BotD URL only ships in the bootstrap when enabled; default off so
         // existing CSP setups don't suddenly attempt a cross-origin fetch.
         var botdUrl = opts.Botd.Enabled ? opts.Botd.ScriptUrl ?? "" : "";
-        var bootstrap = $"window.MLBotD={{t:'{JsEscape(token)}',e:'{JsEscape(Endpoint)}',cfg:{{collectWebGL:{B(opts.CollectWebGL)},collectCanvas:{B(opts.CollectCanvas)},collectAudio:{B(opts.CollectAudio)},collectInteraction:{B(true)},timeout:{opts.CollectionTimeoutMs},iceStun:'{JsEscape(opts.IceStunServerUrl ?? "")}',botdUrl:'{JsEscape(botdUrl)}'}}}};";
+        var bootstrap = $"window.StyloBot={{t:'{JsEscape(token)}',e:'{JsEscape(Endpoint)}',cfg:{{collectWebGL:{B(opts.CollectWebGL)},collectCanvas:{B(opts.CollectCanvas)},collectAudio:{B(opts.CollectAudio)},collectInteraction:{B(true)},timeout:{opts.CollectionTimeoutMs},iceStun:'{JsEscape(opts.IceStunServerUrl ?? "")}',botdUrl:'{JsEscape(botdUrl)}',th:'{JsEscape(opts.TokenHeader)}',sh:'{JsEscape(opts.SignatureHeader)}'}}}};";
 
         var html =
             $"<script{nonceAttr}>{bootstrap}</script>" +

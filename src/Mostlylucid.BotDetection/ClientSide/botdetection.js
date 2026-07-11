@@ -1,7 +1,7 @@
 /**
  * StyloBot client-side bot/headless detector. Served as a static file via
  * /bot-detection/script.js -- the TagHelper emits a small bootstrap that
- * sets `window.MLBotD` (token, endpoint, feature toggles) before this
+ * sets `window.StyloBot` (token, endpoint, feature toggles) before this
  * file loads. Keeps the served JS cacheable, CSP-friendly (nonce + self),
  * and reviewable as a plain artifact instead of an inline string spliced
  * together in C#.
@@ -66,7 +66,7 @@
     //     collectInteraction:boolean (waits 500ms after load, then posts) [true]
     //   }
     // }
-    var cfg = (window.MLBotD || {});
+    var cfg = (window.StyloBot || {});
     if (!cfg.t) return;
     var endpoint = cfg.e || '/bot-detection/fingerprint';
     var c = cfg.cfg || {};
@@ -786,11 +786,15 @@
     async function send(payload) {
         var json = JSON.stringify(payload);
         var headers = { 'Content-Type': 'application/json' };
-        // Echo the token in the header (the endpoint prefers the header; the body
-        // `t` is the sendBeacon fallback since sendBeacon cannot set headers).
-        if (cfg.t) headers['X-ML-BotD-Token'] = cfg.t;
+        // Header names are operator-configurable (white-labelling); the bootstrap
+        // supplies them, with StyloBot defaults. Echo the token in the header (the
+        // endpoint prefers the header; the body `t` is the sendBeacon fallback since
+        // sendBeacon cannot set headers).
+        var tokenHeader = c.th || 'X-SB-Client-Token';
+        var sigHeader = c.sh || 'X-SB-Client-Sig';
+        if (cfg.t) headers[tokenHeader] = cfg.t;
         var sig = await signBody(json);
-        if (sig) headers['X-ML-BotD-Sig'] = sig;
+        if (sig) headers[sigHeader] = sig;
         // Prefer fetch+keepalive (gives a real response if anyone listens);
         // sendBeacon fallback for unload-time delivery. Both are
         // CSP-friendly via the 'connect-src' directive.

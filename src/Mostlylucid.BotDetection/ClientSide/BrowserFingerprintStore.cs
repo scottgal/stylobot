@@ -10,7 +10,7 @@ namespace Mostlylucid.BotDetection.ClientSide;
 /// </summary>
 public class BrowserFingerprintStore : IBrowserFingerprintStore
 {
-    private const string CachePrefix = "MLBotD:Fingerprint:";
+    private const string CachePrefix = "SB:Fingerprint:";
     private readonly IMemoryCache _cache;
     private readonly BotDetectionOptions _options;
 

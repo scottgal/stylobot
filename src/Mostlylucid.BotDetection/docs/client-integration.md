@@ -22,7 +22,7 @@ The detection script is the same on every host. The tag helpers are how a Razor 
 
 ### `botdetection.js`
 
-A single embedded resource at `src/Mostlylucid.BotDetection/ClientSide/botdetection.js`, served by the `MapBotDetectionScript` endpoint. The bootstrap inline `<script>` publishes a config object (`window.MLBotD`); the loaded script reads it, runs the probes, and beacons the result back.
+A single embedded resource at `src/Mostlylucid.BotDetection/ClientSide/botdetection.js`, served by the `MapBotDetectionScript` endpoint. The bootstrap inline `<script>` publishes a config object (`window.StyloBot`); the loaded script reads it, runs the probes, and beacons the result back.
 
 The script is the artifact on the wire. The previous version inlined an ~80-line IIFE into the C# tag helper, which produced an unmaintained twin of the `.js` file. The current shape has one source of truth: the `.js` file is embedded as an assembly resource, served by the script endpoint, and referenced by the tag helper via `<script src=...>`.
 
@@ -44,10 +44,10 @@ The script is the artifact on the wire. The previous version inlined an ~80-line
 
 Each probe wraps its body in `try/catch` so a single failing probe never breaks the beacon. Errored probes return a sentinel (`-1` for numerics, empty string for strings) so the analyzer can distinguish "errored" from "observed zero".
 
-**Configuration object (`window.MLBotD`):**
+**Configuration object (`window.StyloBot`):**
 
 ```js
-window.MLBotD = {
+window.StyloBot = {
   t: '<signed token>',            // per-request token, HMAC-bound to IP
   e: '/bot-detection/fingerprint', // beacon endpoint
   cfg: {
@@ -90,10 +90,10 @@ All three are registered automatically when you call `app.UseStyloBot()` (the ca
 
 ### Token contract
 
-`IBrowserTokenService` (default `BrowserTokenService`) issues an HMAC-SHA256 token per request, bound to the visitor's IP-hash + a request id + expiry. The token rides into the page via the bootstrap, comes back in the beacon body or `X-ML-BotD-Token` header, and is single-use (cached for the lifetime window to prevent replay).
+`IBrowserTokenService` (default `BrowserTokenService`) issues an HMAC-SHA256 token per request, bound to the visitor's IP-hash + a request id + expiry. The token rides into the page via the bootstrap, comes back in the beacon body or `X-SB-Client-Token` (configurable via `ClientSide.TokenHeader`) header, and is single-use (cached for the lifetime window to prevent replay).
 
 Two delivery paths exist because of `sendBeacon` limitations:
-- **Fetch path** (main fingerprint script): sets `X-ML-BotD-Token` header.
+- **Fetch path** (main fingerprint script): sets `X-SB-Client-Token` (configurable via `ClientSide.TokenHeader`) header.
 - **sendBeacon path** (adblocker probe): tokens cannot ride in headers via `navigator.sendBeacon`, so the token is in the JSON body under field `t`. The endpoint accepts either source.
 
 Configure the signing secret via `BotDetection.ClientSide.TokenSecret` (any string >= 32 chars). Without one, a random per-instance key is generated and tokens do not survive process restarts; the service logs a warning.

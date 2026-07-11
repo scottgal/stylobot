@@ -20,7 +20,7 @@ public class BrowserFingerprintData
 {
     /// <summary>
     ///     Token in the body. The main fingerprint script sends its token via the
-    ///     <c>X-ML-BotD-Token</c> header (it owns a normal fetch). The adblocker
+    ///     configured token header (default <c>X-SB-Client-Token</c>; it owns a normal fetch). The adblocker
     ///     probe uses <c>navigator.sendBeacon</c> which can't set headers, so the
     ///     token rides here instead. Endpoint accepts either source.
     /// </summary>

@@ -22,7 +22,7 @@ namespace Mostlylucid.BotDetection.Test.ClientSide;
 ///          consistency checks that would otherwise drag a real human user into
 ///          bot territory.
 ///       3. The /bot-detection/fingerprint endpoint accepts the token via the body
-///          (`t` field) when the X-ML-BotD-Token header is absent -- the
+///          (`t` field) when the token header (default X-SB-Client-Token) is absent -- the
 ///          adblocker probe uses navigator.sendBeacon which can't set headers.
 /// </summary>
 public class AdblockerProbeFlowTests

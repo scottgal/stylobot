@@ -43,7 +43,7 @@ public record BrowserTokenPayload
 public class BrowserTokenService : IBrowserTokenService
 {
     // Cache used tokens to prevent replay attacks
-    private const string UsedTokenCachePrefix = "MLBotD:UsedToken:";
+    private const string UsedTokenCachePrefix = "SB:UsedToken:";
     private readonly IMemoryCache _cache;
     private readonly byte[] _key;
     private readonly ILogger<BrowserTokenService> _logger;
