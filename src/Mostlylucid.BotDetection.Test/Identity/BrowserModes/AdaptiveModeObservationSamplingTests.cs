@@ -13,7 +13,7 @@ namespace Mostlylucid.BotDetection.Test.Identity.BrowserModes;
 ///     Adaptive forgetting on the browser-mode write path: a confirmatory observation on an
 ///     already-matured mode is summarised (mode count + maturity advance, no detail row) while
 ///     novel observations and observations on still-maturing modes keep a full detail row. This
-///     bounds fingerprint_mode_observations by novelty rather than volume — the mode-observation
+///     bounds fingerprint_mode_observations by novelty rather than volume: the mode-observation
 ///     table was the largest under a high-cardinality flood.
 /// </summary>
 public sealed class AdaptiveModeObservationSamplingTests : IDisposable

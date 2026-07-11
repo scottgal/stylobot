@@ -72,11 +72,6 @@ public interface IFingerprintApprovalStore
 /// </summary>
 public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, IAsyncDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
     private readonly string _connectionString;
     private readonly ILogger<SqliteFingerprintApprovalStore> _logger;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
