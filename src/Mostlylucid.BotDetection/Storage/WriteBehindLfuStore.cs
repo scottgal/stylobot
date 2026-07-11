@@ -47,6 +47,14 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     private readonly Channel<TWriteOp> _writeQueue;
     private readonly Task _drainer;
     private readonly CancellationTokenSource _shutdownCts = new();
+    // Serialises DrainDirtyOnceAsync between the background SampleDrainLoop and
+    // FlushDirtyAsync. Without it the two race: the background drain can claim keys
+    // (TryRemove) and be mid-persist while FlushDirtyAsync sees an empty _dirtyKeys and
+    // returns before that persist commits -- a read straight after the flush gets stale
+    // data. The gate makes FlushDirtyAsync wait for any in-flight drain, then test
+    // emptiness + drain under mutual exclusion, so on return every entry dirty at call
+    // time is durable. Mirrors the commercial BufferingWriteBehindQueue drain-gate fix.
+    private readonly SemaphoreSlim _drainGate = new(1, 1);
     private readonly ILogger _logger;
     private readonly int _maxEntries;
     // Optional memory-pressure governor. When set, the drainer refreshes
@@ -261,7 +269,14 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
                 EvictColdest();
             }
 
-            try { await DrainDirtyOnceAsync(ct); }
+            try
+            {
+                // Drain under the gate so a concurrent FlushDirtyAsync can't observe a
+                // half-claimed _dirtyKeys with a persist still in flight.
+                await _drainGate.WaitAsync(ct);
+                try { await DrainDirtyOnceAsync(ct); }
+                finally { _drainGate.Release(); }
+            }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
         }
     }
@@ -340,13 +355,25 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     internal async Task FlushDirtyAsync(CancellationToken ct = default)
     {
         if (!UseBehaviouralSampleDrain) return;
-        while (!_dirtyKeys.IsEmpty && !ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested)
         {
-            // Stop only when a pass persists nothing LEGITIMATELY (all remaining keys were
-            // evicted before we could flush them). A persist FAILURE throws instead of
-            // returning 0, so a dead durable tier surfaces as an exception, never a false
-            // "flushed" result.
-            if (await DrainDirtyOnceAsync(ct, throwOnPersistError: true) == 0) break;
+            // Test emptiness + drain UNDER the gate. Outside it, a background sample-drain
+            // that has already claimed the dirty keys (TryRemove) but is still mid-persist
+            // leaves _dirtyKeys momentarily empty, so a bare `while (!_dirtyKeys.IsEmpty)`
+            // would exit and return before that persist commits -- a caller reading straight
+            // after the flush gets stale data. Holding the gate makes the emptiness test
+            // authoritative: any in-flight claim+persist holds the gate, so we wait for it.
+            await _drainGate.WaitAsync(ct);
+            try
+            {
+                if (_dirtyKeys.IsEmpty) break;
+                // Stop only when a pass persists nothing LEGITIMATELY (all remaining keys were
+                // evicted before we could flush them). A persist FAILURE throws instead of
+                // returning 0, so a dead durable tier surfaces as an exception, never a false
+                // "flushed" result.
+                if (await DrainDirtyOnceAsync(ct, throwOnPersistError: true) == 0) break;
+            }
+            finally { _drainGate.Release(); }
         }
     }
 
@@ -423,5 +450,6 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
         try { _shutdownCts.Cancel(); } catch (ObjectDisposedException) { }
         try { _drainer.Wait(TimeSpan.FromSeconds(5)); } catch { }
         _shutdownCts.Dispose();
+        _drainGate.Dispose();
     }
 }
