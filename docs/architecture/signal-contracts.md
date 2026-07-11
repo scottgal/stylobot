@@ -26,48 +26,53 @@ override). The bug shape is:
 Every consumer silently degrades. Nothing throws. The only symptom is "the
 dashboard looks wrong".
 
-## Rule 1: foundation versus classifier
+## Rule 1: foundation versus classifier (v8 atom model)
 
-Two categories of contributor exist. They are not interchangeable.
+**[Updated 2026-07-11 for the v8 atom orchestrator; supersedes the
+`IFoundationContributor` framing.]** Detection runs through the atom orchestrator:
+every `IDetectorAtom` (`DetectorAtomBase`) registers via `AddNativeDetectorAtoms`,
+and the orchestrator **sorts by `Priority` and runs them in that order — Wave 0 →
+Wave N** (`Orchestration/Atoms/BotDetectionOrchestrator.cs`). "Waves" are a priority
+band, **not** an enum and **not** four fixed phases — the taxonomy-role grouping in
+the registration (Sensor / Extractor / Guard / Constrainer / Proposer / Ranker) is
+for readability; only `Priority` drives run order. The legacy
+`IFoundationContributor` / blackboard-contributor model is **retired** —
+`IFoundationContributor` no longer exists in code. The foundation-vs-classifier
+distinction survives, re-expressed on atoms:
 
-**Foundation contributors** establish identity context for the request before
-any classifier weighs in. Two sub-shapes, both implementing
-`Mostlylucid.BotDetection.Orchestration.IFoundationContributor`:
+**Foundation atoms (Wave 0)** establish identity context before any classifier
+weighs in. They are the lowest-`Priority` atoms — the "Wave 0" band — that declare
+**empty `RequiredSignals`**, so the orchestrator runs them **unconditionally, first,
+regardless of policy**. Their output is consumed by later atoms and by
+display/persistence as ground truth. ~27 atoms today; e.g. `SignatureAtom`,
+`TransportProtocolAtom`, `IdentityVectorAtom`, `FingerprintPriorAtom`,
+`FingerprintMatchAtom`, `FastPathReputationAtom`, `VerifiedBotAtom`,
+`ContentSequenceAtom`.
 
-- *Compute* - derives identity from the current request alone, pure synchronous
-  compute, no waits.
-  - `SignatureAtom` - `signature.primary`, `signature.multifactor`, header hashes
-  - `TransportProtocolAtom` - `transport.protocol_class`, `transport.is_streaming`, `transport.is_upgrade`
-  - `PiiQueryStringAtom` - privacy probe (PII presence in query string)
-- *Match* - looks up what we already know about the just-computed identity.
-  In-memory cache or fast SQLite read keyed on signature/UA/IP. Useful even on
-  a cold request (returns "no prior" cleanly).
-  - `FingerprintPriorAtom` - cached prior probability + confidence
-  - `FastPathReputationAtom` - UA/IP reputation cache, can short-circuit to early exit
-  - `ContentSequenceAtom` - per-fingerprint sequence state, gates 5 deferred detectors
+**Classifier atoms** compute bot-probability deltas on what foundation
+established. They run later by `Priority` and many are gated by `RequiredSignals`
+(they run only when the signals they need are present) — a tight policy may skip
+expensive classification on cheap traffic. E.g. `UserAgentAtom`, `HeaderAtom`,
+`BehavioralAtom`, `HeuristicAtom`, `AiScraperAtom`, `LlmAtom`.
 
-The orchestrator runs every foundation contributor unconditionally, regardless
-of policy. Compute runs first by Priority, then Match (which can read what
-Compute wrote), then classifiers see the full identity context.
+**Triggered classifiers** depend on a prior round-trip that may never come, so
+they can never be a wave the pipeline waits on. They run when their precondition
+holds: `FingerprintApprovalAtom` (out-of-band approval), `ChallengeVerificationAtom`
+(a solved JS challenge), `ClientSideAtom` (in-page JS POSTing back — the
+client-attested beacon, see Rule 5).
 
-**Classifier contributors** compute bot-probability deltas based on what
-foundation established. Policy-gated by design because a tight policy may want
-to skip expensive classification on cheap traffic. Examples: `UserAgent`,
-`Header`, `Behavioral`, `Heuristic`, `AiScraper`, `LlmAtom`.
+An atom is foundation iff: inputs derive from the current request alone or from
+in-memory/SQLite caches keyed on the just-computed identity; **empty
+`RequiredSignals`**; latency is microseconds; output is consumed as ground truth;
+it does useful work on a cold/fresh request. Otherwise it is a classifier (or
+triggered classifier).
 
-**Not foundation** - these depend on prior round-trips that may never come, so
-they cannot be a wave the pipeline waits on. They run as triggered classifiers
-when their preconditions hold:
-
-- `FingerprintApprovalAtom` - operator-issued approval (out-of-band action)
-- `ChallengeVerificationAtom` - depends on a JS challenge solved in a prior request
-- `ClientSideAtom` - depends on in-page JS POSTing back data from a prior page load
-
-A contributor is foundation iff: inputs derive from the current request alone
-or from in-memory/SQLite caches keyed on the just-computed identity; latency is
-microseconds; output is consumed by classifiers or display surfaces as ground
-truth; it does useful work even on a cold/fresh request. If any of those fail,
-it is a classifier (or a triggered classifier).
+**The foundation set is not asserted by a single test** (the old
+`DetectorRegistrationCoverageTests` is gone). `AtomEmitContractTests` asserts the
+full atom set registers (a count floor) and that no atom raises an undeclared
+signal; `DefaultPolicyAndCoverageTests` asserts the coverage detectors are in
+`DetectionPolicy.Default`. Adding a Wave-0 atom has no set-assertion to update —
+but you still owe the BDF probe in Rule 4.
 
 ## Rule 2: one fact, one store
 
@@ -138,24 +143,25 @@ attacker-influenceable *even when signed*: signing proves channel
    "good" values. The detection value is the *inconsistency*, never the raw
    attested value. The best outcome a spoofer can buy by POSTing perfect values
    is *consistency = neutral*; there is no human discount to game.
-5. **Triggered classifier, never foundation.** Like `ClientSideContributor`,
-   the adaptor + any consumer depend on a prior round-trip that may never come,
-   so they run as triggered classifiers, not a wave the pipeline waits on
-   (Rule 1).
+5. **Triggered classifier, never foundation.** Like `ClientSideAtom`, the adaptor
+   + any consumer depend on a prior round-trip that may never come, so they run as
+   triggered classifiers (later-wave, gated on the beacon), never Wave 0 the
+   pipeline waits on (Rule 1).
 
 The learned-centroid comparison that turns attested values into an inconsistency
 verdict (`browser.characteristic_drift`) lives in the identity centroid tier and
-is emitted by `InconsistencyContributor`; see the browser-consistency design.
+is emitted by `InconsistencyAtom` (priority 50); see the browser-consistency design.
 
 ## The decision flowchart
 
 Before merging a change to detection code:
 
 ```
-Touching a contributor?
-  Does it produce a fact something downstream reads as truth?
-    YES → IFoundationContributor. Runs unconditionally.
-    NO  → IDetectorAtom only. Policy filters apply.
+Touching a detector atom?
+  Does it produce a fact something downstream reads as truth,
+  from the current request alone, with empty RequiredSignals?
+    YES → foundation (Wave 0). Runs unconditionally, first, by Priority.
+    NO  → classifier. Later wave; RequiredSignals-gated / policy filters apply.
 
 Adding a new signal key any consumer reads?
   Add a SignalProbe to BdfReplayActual.
