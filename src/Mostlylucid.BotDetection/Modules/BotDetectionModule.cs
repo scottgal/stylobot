@@ -227,8 +227,13 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // SignatureAtom for verdict composition).
         services.TryAddSingleton<Dashboard.MultiFactorSignatureService>();
         // Waveform history is a per-fingerprint ring buffer feeding
-        // BehavioralWaveformAtom's spectral analysis.
+        // BehavioralWaveformAtom's spectral analysis. Bind the interface to the
+        // concrete so the commercial pack can Replace the durable tier with a
+        // Postgres impl (one durable backend, never memory-only). Consumers inject
+        // Orchestration.Atoms.IWaveformHistoryStore, not the concrete.
         services.TryAddSingleton<Orchestration.Atoms.WaveformHistoryStore>();
+        services.TryAddSingleton<Orchestration.Atoms.IWaveformHistoryStore>(
+            sp => sp.GetRequiredService<Orchestration.Atoms.WaveformHistoryStore>());
         // Detectors (legacy) still injected by 4 atoms. FOSS defaults.
         services.TryAddSingleton<Detectors.HeuristicDetector>();
         services.TryAddSingleton<Detectors.VersionAgeDetector>();

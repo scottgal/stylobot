@@ -17,6 +17,27 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 public sealed record WaveformOp(string Signature, RequestSnapshot Snapshot);
 
 /// <summary>
+///     Per-signature request-history store that <see cref="BehavioralWaveformAtom"/> drives its
+///     timing / path / transition / rate analyses from. Extracted so the durable tier is
+///     swappable: FOSS binds the SQLite-backed <see cref="WaveformHistoryStore"/>; the commercial
+///     pack <c>Replace()</c>s the binding with a Postgres impl. One durable backend, chosen at
+///     composition, never memory-only (feedback_no_inmemory_persistence). The schema-init surface
+///     is provided by <see cref="Mostlylucid.BotDetection.Storage.IStoreInitializer"/>, which both
+///     impls also implement.
+/// </summary>
+public interface IWaveformHistoryStore
+{
+    /// <summary>Append a snapshot to the signature's history; returns the post-merge history.</summary>
+    WaveformHistory Record(string signature, RequestSnapshot snapshot);
+
+    /// <summary>
+    ///     Replace the last snapshot's observed content class for the given signature (the
+    ///     detection-feedback loop). No-op when no hot entry exists.
+    /// </summary>
+    void UpdateLastContentClass(string signature, ContentClass actual);
+}
+
+/// <summary>
 ///     SQLite-backed <see cref="WriteBehindLfuStore{TKey, TValue, TWriteOp}"/>
 ///     for the per-signature request history that
 ///     <see cref="BehavioralWaveformContributor"/> uses to drive timing,
@@ -38,7 +59,8 @@ public sealed record WaveformOp(string Signature, RequestSnapshot Snapshot);
 /// </summary>
 public sealed class WaveformHistoryStore
     : WriteBehindLfuStore<string, WaveformHistory, WaveformOp>,
-      Mostlylucid.BotDetection.Storage.IStoreInitializer
+      Mostlylucid.BotDetection.Storage.IStoreInitializer,
+      IWaveformHistoryStore
 {
     public const int MaxSnapshotsPerSignature = 100;
     public static readonly TimeSpan HistoryWindow = TimeSpan.FromMinutes(30);
