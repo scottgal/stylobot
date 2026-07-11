@@ -190,6 +190,44 @@ app.MapBotDetectionScript();
 // the verification HTML emitted by ChallengeActionPolicy.
 app.MapBotDetectionChallengeScript();
 
+// --- [client- agent] Live demo of the proof-of-work CAPTCHA challenge ---------
+// GET /demo/challenge presents the PoW challenge page; ClientSide/challenge.js
+// solves it in Web Workers, POSTs to /bot-detection/challenge/verify, receives
+// the signed bot_challenge_token cookie, then redirects back here. On the second
+// visit (cookie present) we show the pass page. Localhost traffic is classified
+// Internal (never auto-challenged), so this route presents the challenge
+// unconditionally purely to exercise the client-side CAPTCHA loop end to end.
+app.MapGet("/demo/challenge", async (HttpContext ctx) =>
+{
+    if (ctx.Request.Cookies.ContainsKey("bot_challenge_token"))
+    {
+        ctx.Response.ContentType = "text/html";
+        await ctx.Response.WriteAsync(
+            "<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:system-ui;max-width:520px;margin:80px auto;text-align:center\">"
+            + "<h1>&#10003; Challenge passed</h1><p>You hold a valid <code>bot_challenge_token</code> cookie, so StyloBot lets you through without re-challenging.</p>"
+            + "<p><a href=\"/demo/challenge-reset\">reset cookie and try again</a></p></body>");
+        return;
+    }
+
+    var evidence = ctx.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var ev)
+                   && ev is AggregatedEvidence ae
+        ? ae
+        : new AggregatedEvidence { BotProbability = 0.6, Confidence = 0.5, RiskBand = RiskBand.Unknown };
+
+    var challengePolicy = new ChallengeActionPolicy("demo-pow", new ChallengeActionOptions
+    {
+        ChallengeType = ChallengeType.ProofOfWork,
+        ChallengeStatusCode = 200,
+    });
+    await challengePolicy.ExecuteAsync(ctx, evidence);
+});
+
+app.MapGet("/demo/challenge-reset", (HttpContext ctx) =>
+{
+    ctx.Response.Cookies.Delete("bot_challenge_token");
+    return Results.Redirect("/demo/challenge");
+});
+
 // Map training data export endpoints
 app.MapBotTrainingEndpoints();
 
