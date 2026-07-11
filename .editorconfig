@@ -1,0 +1,32 @@
+# EditorConfig for the stylobot solution.
+# https://editorconfig.org
+
+root = true
+
+[*.cs]
+# ── Analyzer posture ─────────────────────────────────────────────────────────
+# Keep the .NET code-quality analyzers RUNNING (they still surface as warnings),
+# but do NOT let their style / performance / design rules break the build.
+#
+# SDK 10.0.201 escalates this batch of CA rules to ERROR severity by default. The
+# CI toolchain (setup-dotnet floating `10.0.x`, currently a stable release) treats
+# them as warnings, so CI is green — but a clean local or commercial build on
+# 10.0.201 fails identically with ~142 `error CAxxxx` unless you pass
+# -p:RunAnalyzers=false (a workaround that disables analysis entirely). Pinning the
+# severity here restores the intended warning posture consistently across SDK
+# versions, without disabling the analyzers. These are style/perf preferences, not
+# defects, so they belong at warning, not build-breaking error.
+dotnet_diagnostic.CA1805.severity = warning   # member explicitly initialised to default
+dotnet_diagnostic.CA1813.severity = warning   # avoid unsealed attributes
+dotnet_diagnostic.CA1822.severity = warning   # member can be marked static
+dotnet_diagnostic.CA1823.severity = warning   # unused private field
+dotnet_diagnostic.CA1826.severity = warning   # use property instead of Enumerable method
+dotnet_diagnostic.CA1847.severity = warning   # use char overload of string.Contains
+dotnet_diagnostic.CA1850.severity = warning   # prefer static SHA*.HashData
+dotnet_diagnostic.CA1853.severity = warning   # unnecessary ContainsKey before indexer
+dotnet_diagnostic.CA1854.severity = warning   # prefer TryGetValue over ContainsKey + indexer
+dotnet_diagnostic.CA1860.severity = warning   # prefer Count/Length over Any()
+dotnet_diagnostic.CA1861.severity = warning   # avoid constant arrays as arguments
+dotnet_diagnostic.CA1866.severity = warning   # use char overload of string.StartsWith/EndsWith
+dotnet_diagnostic.CA1869.severity = warning   # cache and reuse JsonSerializerOptions
+dotnet_diagnostic.CA2254.severity = warning   # logging template should be a static expression

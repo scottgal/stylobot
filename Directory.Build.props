@@ -17,6 +17,12 @@
     <LangVersion>preview</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- CA code-quality analyzers stay at warning (see the root .editorconfig) and
+         are never promoted to build-breaking errors, even in projects that set
+         TreatWarningsAsErrors (e.g. StyloExtract). Real compiler warnings (CSxxxx)
+         are unaffected. This is what lets a clean build on SDK 10.0.201 succeed
+         without -p:RunAnalyzers=false. -->
+    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
   </PropertyGroup>
 
   <!-- Shared icon for all packages (only included when packing) -->
