@@ -37,9 +37,27 @@ public class UserAgentDiscriminatorTests
     [InlineData("Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)")]
     [InlineData("Mozilla/5.0 (compatible; UptimeRobot/2.0; http://www.uptimerobot.com/)")]
     [InlineData("Feedly/1.0 (+http://www.feedly.com/fetcher.html; 1234 subscribers)")]
+    // Vendor-home SUBDOMAINS are documentation references too, not per-instance ids.
+    // Meta-ExternalAgent's UA carries developers.facebook.com, which was bloating the
+    // display name to "Meta-ExternalAgent developers.facebook.com". Suffix-match on the
+    // registered vendor home (facebook.com / google.com / openai.com) drops the subdomain.
+    [InlineData("meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler/)")]
+    [InlineData("Mozilla/5.0 (compatible; Google-Extended/1.0; +https://developers.google.com/search/docs/crawling-indexing/overview-google-crawlers)")]
+    [InlineData("SomeAiBot/1.0 (+https://labs.openai.com/policies)")]
     public void Returns_null_for_vendor_home_documentation_urls(string ua)
     {
         Assert.Null(UserAgentDiscriminator.ExtractDiscriminator(ua));
+    }
+
+    [Theory]
+    // Dot-boundary guard: a host that merely ENDS WITH a vendor home but is a different
+    // registrable domain is NOT a subdomain, so it keeps its discriminator.
+    [InlineData("SomeBot/1.0 (+https://evil-facebook.com/)", "evil-facebook.com")]
+    [InlineData("SomeBot/1.0 (+https://notfacebook.com/)", "notfacebook.com")]
+    [InlineData("SomeBot/1.0 (+https://myopenai.com/)", "myopenai.com")]
+    public void Keeps_discriminator_for_lookalike_hosts_that_are_not_vendor_subdomains(string ua, string expected)
+    {
+        Assert.Equal(expected, UserAgentDiscriminator.ExtractDiscriminator(ua));
     }
 
     [Theory]

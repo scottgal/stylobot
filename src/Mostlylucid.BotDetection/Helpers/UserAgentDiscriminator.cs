@@ -86,6 +86,26 @@ public static class UserAgentDiscriminator
         if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
             host = host[4..];
 
-        return VendorHomeHosts.Value.Contains(host) ? null : host;
+        // Drop the discriminator when the host is a known vendor home OR any subdomain of
+        // one: Meta-ExternalAgent's UA carries developers.facebook.com, Googlebot's carries
+        // developers.google.com, etc. Those are the vendor's own docs domains, not
+        // per-deployment identifiers, so appending them just bloats the display name
+        // ("Meta-ExternalAgent developers.facebook.com"). Suffix-match on a dot boundary so
+        // facebook.com covers developers.facebook.com without matching evil-facebook.com.
+        return IsVendorHomeOrSubdomain(host) ? null : host;
+    }
+
+    private static bool IsVendorHomeOrSubdomain(string host)
+    {
+        var set = VendorHomeHosts.Value;
+        if (set.Contains(host)) return true;
+        foreach (var vendor in set)
+        {
+            if (host.Length > vendor.Length + 1 &&
+                host[host.Length - vendor.Length - 1] == '.' &&
+                host.EndsWith(vendor, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }
