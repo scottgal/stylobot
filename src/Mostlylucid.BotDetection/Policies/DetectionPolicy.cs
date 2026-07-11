@@ -216,7 +216,7 @@ public sealed record DetectionPolicy
         [
             // Identity and basic fast path
             "FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool",
-            "Behavioral", "AdvancedBehavioral", "ClientSide", "CacheBehavior",
+            "Behavioral", "AdvancedBehavioral", "ClientSide", "BrowserCharConsistency", "CacheBehavior",
             "Inconsistency", "VersionAge", "Heuristic", "HeuristicLate", "ReputationBias",
             "Geo", "GeoClient",
             // Honeypot / threat-feed

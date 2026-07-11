@@ -1651,6 +1651,11 @@ public class ClientSideOptions
     ///     (which cannot set headers) still work. The signing key is the client-held
     ///     token, so this proves channel provenance and payload integrity, NOT value
     ///     truthfulness -- the browser-characteristic consistency check does that.
+    ///     Default-false is NOT "unsigned = trusted": an unsigned beacon can still only
+    ///     ever RAISE suspicion via the asymmetric consistency merge (never earn a human
+    ///     discount), and a beacon that IS signed but fails verification is rejected
+    ///     regardless of this flag. The signature is defense-in-depth against tampering /
+    ///     off-browser replay, not the sole trust boundary.
     ///     Default: false.
     /// </summary>
     public bool RequirePayloadSignature { get; set; } = false;

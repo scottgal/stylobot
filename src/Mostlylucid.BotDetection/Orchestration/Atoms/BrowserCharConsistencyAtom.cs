@@ -62,6 +62,12 @@ public sealed class BrowserCharConsistencyAtom : DetectorAtomBase
     }
 
     public override int Priority => 19;
+
+    // Don't register a dead atom: only run when Identity + BrowserChar are on. Matches
+    // BrowserModeClassifierAtom. DetectionEngine builds the atom set once at startup from
+    // IsEnabled, so a disabled install never pays for a no-op atom on the hot path.
+    public override bool IsEnabled => _enabled;
+
     public override IReadOnlyList<string> RequiredSignals => Array.Empty<string>();
 
     public override Task<IReadOnlyList<DetectionContribution>> DetectAsync(
