@@ -441,23 +441,24 @@ public static class WidgetRenderHelpers
             Ai = snapshot.Count(v => v.IsBot && IsAiBotByType(v.BotType)),
             Search = snapshot.Count(v => v.IsBot && IsSearchBotByType(v.BotType)),
             Tools = snapshot.Count(v => v.IsBot && IsToolBotByType(v.BotType)),
-            // V1: Internal = local / same-network calls. Pragmatic v1 semantic
-            // documented on FilterCounts.Internal — refine when a per-fingerprint
-            // IsInternal flag exists. TODO: replace with a real internal marker
-            // (e.g. RFC1918 source-IP or operator-tagged fingerprint) once we
-            // surface either field on CachedVisitor.
-            Internal = snapshot.Count(IsInternalLikeRow),
+            // Internal = self-traffic (bot_type == "Internal": loopback / RFC1918 / health
+            // probes). Exact marker, matching the middleware + store + Postgres.
+            Internal = snapshot.Count(IsInternal),
         };
 
+        // Default (and humans/bots) EXCLUDE self-traffic, matching the middleware / store /
+        // Postgres AudiencePredicate. "internal" shows only self; "all" shows the full mix.
+        // ai/search/tools already exclude internal via their bot-type check.
         IEnumerable<CachedVisitor> items = filter switch
         {
-            "humans"   => snapshot.Where(v => !v.IsBot),
-            "bots"     => snapshot.Where(v => v.IsBot),
+            "humans"   => snapshot.Where(v => !v.IsBot && !IsInternal(v)),
+            "bots"     => snapshot.Where(v => v.IsBot && !IsInternal(v)),
             "ai"       => snapshot.Where(v => v.IsBot && IsAiBotByType(v.BotType)),
             "search"   => snapshot.Where(v => v.IsBot && IsSearchBotByType(v.BotType)),
             "tools"    => snapshot.Where(v => v.IsBot && IsToolBotByType(v.BotType)),
-            "internal" => snapshot.Where(IsInternalLikeRow),
-            _          => snapshot
+            "internal" => snapshot.Where(IsInternal),
+            "all"      => snapshot,
+            _          => snapshot.Where(v => !IsInternal(v))
         };
 
         // V1 URL filters (Visitors page): post-filter the already-projected
@@ -485,7 +486,7 @@ public static class WidgetRenderHelpers
                 string.Equals(v.PrimarySignature, fingerprintId, StringComparison.OrdinalIgnoreCase));
         }
         if (internalOnly)
-            items = items.Where(IsInternalLikeRow);
+            items = items.Where(IsInternal);
 
         items = (sortField, sortDir) switch
         {
@@ -539,11 +540,10 @@ public static class WidgetRenderHelpers
     ///     until a real per-fingerprint <c>IsInternal</c> marker exists
     ///     (RFC1918 source-IP latch or operator-tagged fingerprint).
     /// </summary>
-    private static bool IsInternalLikeRow(CachedVisitor v)
-    {
-        var noGeo = string.IsNullOrEmpty(v.CountryCode)
-                    || string.Equals(v.CountryCode, "ZZ", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(v.CountryCode, "XX", StringComparison.OrdinalIgnoreCase);
-        return noGeo && !v.IsBot && v.BotProbability < 0.3;
-    }
+    // Exact self-traffic marker: bot_type == "Internal" (loopback / RFC1918 / health probes /
+    // StyloBot talking to itself). Matches the middleware + Postgres definition
+    // (SbWidgetBatchMiddleware.IsInternal, PostgreSQLDashboardEventStore.AudiencePredicate);
+    // replaces the former fuzzy "no-geo + not-bot + low-prob" guess that misclassified.
+    private static bool IsInternal(CachedVisitor v)
+        => string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
 }

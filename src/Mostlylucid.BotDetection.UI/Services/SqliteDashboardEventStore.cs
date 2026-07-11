@@ -497,6 +497,24 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return results;
     }
 
+    /// <summary>
+    ///     Audience predicate for the <c>detections</c> table, mirroring the commercial
+    ///     <c>PostgreSQLDashboardEventStore.AudiencePredicate</c> so dev (SQLite) and prod
+    ///     (Postgres) agree. Default EXCLUDES self-traffic (<c>bot_type='Internal'</c>:
+    ///     loopback / RFC1918 / health probes); "internal" shows only self; "all" shows the
+    ///     full mix; "humans"/"bots" apply the bot-probability floor gate AND exclude self.
+    ///     SQLite <c>IS NOT</c> is null-safe, so NULL-<c>bot_type</c> humans are kept (matches
+    ///     Postgres <c>IS DISTINCT FROM</c>). Callers bind <c>@botFloor</c> for humans/bots.
+    /// </summary>
+    private static string AudiencePredicate(string? audienceFilter) => audienceFilter?.ToLowerInvariant() switch
+    {
+        "internal" => " AND bot_type = 'Internal'",
+        "all"      => string.Empty,
+        "bots"     => " AND bot_probability >= @botFloor AND bot_type IS NOT 'Internal'",
+        "humans"   => " AND bot_probability < @botFloor AND bot_type IS NOT 'Internal'",
+        _          => " AND bot_type IS NOT 'Internal'",
+    };
+
     public async Task<DashboardSummary> GetSummaryAsync(
         DateTime? startTime = null,
         DateTime? endTime = null,
@@ -512,13 +530,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var untilStr = (endTime ?? DateTime.MaxValue).ToString("O");
         var hasUntil = endTime.HasValue;
 
-        // Audience predicate for the detection-level sub-query only.
-        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
-        {
-            "bots"   => " AND bot_probability >= @botFloor",
-            "humans" => " AND bot_probability < @botFloor",
-            _        => string.Empty
-        };
+        // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
+        var audiencePredicate = AudiencePredicate(audienceFilter);
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         // Request-level counts (one detection row per request — drives traffic charts).
@@ -538,7 +551,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     AVG(processing_time_ms) AS avg_ms,
                     MAX(processing_time_ms) AS max_ms
                 FROM detections
-                WHERE timestamp >= @since{untilClause} AND bot_type IS NOT 'Internal'{audiencePredicate}{domainPredicate}
+                WHERE timestamp >= @since{untilClause}{audiencePredicate}{domainPredicate}
                 """;
             cmd.Parameters.AddWithValue("@since", sinceStr);
             cmd.Parameters.AddWithValue("@botFloor", _botFloor);
@@ -646,13 +659,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // overlapping/scrambled series the chart drew as disconnected points.
         var bucketSeconds = Math.Max((int)bucketSize.TotalSeconds, 1);
 
-        // Audience predicate restricts each bucket to the matching audience.
-        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
-        {
-            "bots"   => " AND bot_probability >= @botFloor",
-            "humans" => " AND bot_probability < @botFloor",
-            _        => string.Empty
-        };
+        // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
+        var audiencePredicate = AudiencePredicate(audienceFilter);
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         await using var conn = new SqliteConnection(_connectionString);
@@ -671,7 +679,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 AVG(processing_time_ms) AS avg_ms,
                 MAX(processing_time_ms) AS max_ms
             FROM detections
-            WHERE timestamp >= @start AND timestamp < @end AND bot_type IS NOT 'Internal'{audiencePredicate}{domainPredicate}
+            WHERE timestamp >= @start AND timestamp < @end{audiencePredicate}{domainPredicate}
             GROUP BY bucket
             ORDER BY bucket
             """;
@@ -749,11 +757,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         //   "humans"      -- humans only (signature.is_bot = 0)
         //   "all"         -- bots + humans, no is_bot predicate (used by callers that need a
         //                    cross-cutting top-N for accurate audience counts)
+        // Same audience semantics as AudiencePredicate but against the signatures table
+        // (alias s, WHERE form): default is bots-only + exclude self, "internal" shows only
+        // self, "all" shows the full mix. Keeps dev consistent with Postgres + the windowed path.
         var isBotPredicate = audienceFilter?.ToLowerInvariant() switch
         {
-            "all"    => string.Empty,
-            "humans" => "WHERE s.bot_probability < @botFloor",
-            _        => "WHERE s.bot_probability >= @botFloor"
+            "internal" => "WHERE s.bot_type = 'Internal'",
+            "all"      => string.Empty,
+            "humans"   => "WHERE s.bot_probability < @botFloor AND s.bot_type IS NOT 'Internal'",
+            _          => "WHERE s.bot_probability >= @botFloor AND s.bot_type IS NOT 'Internal'"
         };
 
         // When a time window is specified, or a domain filter is applied, aggregate
@@ -834,14 +846,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
-        // Audience predicate (mirrors GetTopBotsAsync): null/"bots" -> is_bot=1 (legacy),
-        // "humans" -> is_bot=0, "all" -> no predicate.
-        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
-        {
-            "all"    => string.Empty,
-            "humans" => " AND bot_probability < @botFloor",
-            _        => " AND bot_probability >= @botFloor"
-        };
+        // Internal-exclusion + bot/human gate, shared with Postgres. Top-bots defaults to
+        // bots-only (mirrors the commercial store), so a null audience maps to "bots".
+        var audiencePredicate = AudiencePredicate(audienceFilter ?? "bots");
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         var timeWhere = new System.Text.StringBuilder();
@@ -931,11 +938,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var where = new System.Text.StringBuilder("WHERE country_code IS NOT NULL AND country_code != ''");
         if (startTime.HasValue) where.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
-        switch (audienceFilter?.ToLowerInvariant())
-        {
-            case "humans": where.Append(" AND bot_probability < @botFloor"); break;
-            case "bots":   where.Append(" AND bot_probability >= @botFloor"); break;
-        }
+        // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
+        where.Append(AudiencePredicate(audienceFilter));
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
         if (domainPredicate.Length > 0) where.Append(domainPredicate);
 
@@ -1046,13 +1050,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var where = new System.Text.StringBuilder("WHERE 1=1");
         if (startTime.HasValue) where.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
-        switch (audienceFilter?.ToLowerInvariant())
-        {
-            case "humans": where.Append(" AND bot_probability < @botFloor"); break;
-            case "bots":   where.Append(" AND bot_probability >= @botFloor"); break;
-            // "honeypot" filters in-memory after classification; no additional SQL predicate.
-            // null / "all" / anything else: no additional predicate
-        }
+        // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
+        // "honeypot" falls to the default (exclude self); honeypot rows are then filtered
+        // in-memory after path classification.
+        where.Append(AudiencePredicate(audienceFilter));
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
         if (domainPredicate.Length > 0) where.Append(domainPredicate);
 

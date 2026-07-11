@@ -292,4 +292,80 @@ public sealed class InternalStatExclusionTests
         var totalAcrossBuckets = series.Sum(p => p.TotalCount);
         Assert.Equal(2, totalAcrossBuckets);
     }
+
+    // ── AudiencePredicate parity: top-bots default-exclusion + internal/all toggle ──
+    // These pin the shared AudiencePredicate seam (also used by country + endpoint) so
+    // the SQLite path matches the commercial PostgreSQLDashboardEventStore.AudiencePredicate.
+
+    /// <summary>Top-bots (windowed) must exclude Internal by default, not just summary/timeseries.</summary>
+    [Fact]
+    public async Task GetTopBotsAsync_ExcludesInternal_ByDefault()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("topbots-internal-excl");
+        var now = DateTime.UtcNow;
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05, at: now.AddMinutes(-5)));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95, at: now.AddMinutes(-5)));
+
+        var top = await fx.Store.GetTopBotsAsync(count: 10, startTime: now.AddHours(-1), endTime: now.AddHours(1));
+
+        Assert.DoesNotContain(top, e => string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(top, e => e.PrimarySignature == "sig-bot");
+    }
+
+    /// <summary>The "internal" audience shows ONLY self-traffic.</summary>
+    [Fact]
+    public async Task GetTopBotsAsync_InternalAudience_ShowsOnlyInternal()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("topbots-internal-only");
+        var now = DateTime.UtcNow;
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05, at: now.AddMinutes(-5)));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95, at: now.AddMinutes(-5)));
+
+        var top = await fx.Store.GetTopBotsAsync(count: 10, startTime: now.AddHours(-1), endTime: now.AddHours(1), audienceFilter: "internal");
+
+        Assert.NotEmpty(top);
+        Assert.All(top, e => Assert.Equal("Internal", e.BotType));
+    }
+
+    /// <summary>The "all" audience shows the full mix (self-traffic included).</summary>
+    [Fact]
+    public async Task GetTopBotsAsync_AllAudience_IncludesInternal()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("topbots-all");
+        var now = DateTime.UtcNow;
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05, at: now.AddMinutes(-5)));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95, at: now.AddMinutes(-5)));
+
+        var top = await fx.Store.GetTopBotsAsync(count: 10, startTime: now.AddHours(-1), endTime: now.AddHours(1), audienceFilter: "all");
+
+        Assert.Contains(top, e => string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Summary "internal" audience returns only self-traffic totals.</summary>
+    [Fact]
+    public async Task GetSummaryAsync_InternalAudience_ShowsOnlyInternal()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("summary-internal-only");
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95));
+
+        var summary = await fx.Store.GetSummaryAsync(
+            startTime: DateTime.UtcNow.AddHours(-1), endTime: DateTime.UtcNow.AddHours(1), audienceFilter: "internal");
+
+        Assert.Equal(1, summary.TotalRequests);
+    }
+
+    /// <summary>Summary "all" audience includes self-traffic in the totals.</summary>
+    [Fact]
+    public async Task GetSummaryAsync_AllAudience_IncludesInternal()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("summary-all");
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot",   "SearchEngine", isBot: true,  probability: 0.95));
+
+        var summary = await fx.Store.GetSummaryAsync(
+            startTime: DateTime.UtcNow.AddHours(-1), endTime: DateTime.UtcNow.AddHours(1), audienceFilter: "all");
+
+        Assert.Equal(2, summary.TotalRequests);
+    }
 }
