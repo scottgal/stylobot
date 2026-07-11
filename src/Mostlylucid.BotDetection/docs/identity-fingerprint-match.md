@@ -28,12 +28,12 @@ Without identity enabled, each of those produces a fresh `signatures` row, a fre
 
 ```
 Request →
-  IdentityVectorContributor (foundation, priority 5)
+  IdentityVectorAtom (foundation, priority 5)
     composes a vector from upstream signals (TLS, H2, headers, locale, transport)
     + raw header set
     → writes signal: identity.vector
   ↓
-  FingerprintMatchContributor (foundation, priority 6)
+  FingerprintMatchAtom (foundation, priority 6)
     Pass 1: fingerprint_keys[primary_signature] lookup + confirm
     Pass 2 (only if L1 misses or fails confirm): IIdentityAnchorIndex.SearchAsync
     → writes signals: identity.fingerprint_id, identity.match_score,
@@ -70,7 +70,7 @@ The `fingerprints` table gained four columns in 7.5 to survive process restarts 
 | `verified_at` | TEXT (ISO-8601 UTC) | Timestamp of first successful verification. Null when `unverified`. |
 | `trust_observations` | INTEGER | Counter incremented on each request that matches the claimed identity's expected behavioural pattern. Transitions to `behaviourally-trusted` when it crosses the configured threshold (Gap #5). |
 
-The verifier contributors (`VerifiedBotContributor`, `FediverseDomainContributor`) read `claim_status` and `verified_at` at request entry and skip re-verification when the cached result is still within `TrustOptions.TrustCacheTtl`, emitting `verifiedbot.cached` instead.
+The verifier contributors (`VerifiedBotAtom`, `FediverseDomainAtom`) read `claim_status` and `verified_at` at request entry and skip re-verification when the cached result is still within `TrustOptions.TrustCacheTtl`, emitting `verifiedbot.cached` instead.
 
 ## The four background services
 
@@ -135,11 +135,11 @@ The system infers client type from observed behaviour. There is no manual taggin
 
 ## Display name composition (7.5+, claim-first)
 
-`FingerprintNameComposer` applies a four-priority naming chain. The key change in 7.5 is that Priority 1 is now the UA-string claim, not the matched archetype. The matcher runs at Priority 6 before `UserAgentContributor` at Priority 10, so the YAML bot-pattern catalog is scanned directly from the raw UA string rather than waiting for the cached `ua.bot_name` signal.
+`FingerprintNameComposer` applies a four-priority naming chain. The key change in 7.5 is that Priority 1 is now the UA-string claim, not the matched archetype. The matcher runs at Priority 6 before `UserAgentAtom` at Priority 10, so the YAML bot-pattern catalog is scanned directly from the raw UA string rather than waiting for the cached `ua.bot_name` signal.
 
 | Priority | Source | When it fires |
 |---|---|---|
-| 1 | UA-string CLAIM via YAML bot-pattern catalog (`BotPatternLoader.MatchUserAgent`) | UA matches a catalogued bot/tool/fediverse/AI-scraper pattern. Per-instance discriminator (`+URL` hostname) appended for fediverse UAs. `(!)` appended when `VerifiedBotContributor` flagged spoofed or rDNS mismatch. |
+| 1 | UA-string CLAIM via YAML bot-pattern catalog (`BotPatternLoader.MatchUserAgent`) | UA matches a catalogued bot/tool/fediverse/AI-scraper pattern. Per-instance discriminator (`+URL` hostname) appended for fediverse UAs. `(!)` appended when `VerifiedBotAtom` flagged spoofed or rDNS mismatch. |
 | 2 | Matched archetype name + drift variance (`identity.archetype_name`) | Only when archetype kind is `human-browser`. Bot-shaped archetypes fall through to Priority 3 to avoid mislabelling real browsers that drift onto a bot centroid. |
 | 3 | UA family + OS characterization (`ua.family` / `user_agent.os`) | Parsed from signals or directly from the raw UA string when signals haven't been written yet. |
 | 4 | Raw UA prefix (first 48 chars, truncated with `…`) | Last resort when no structured name is available. Treated as a fallback by hysteresis so a later real Priority 1-3 name can override it. |

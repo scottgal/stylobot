@@ -1,6 +1,6 @@
 # Click Fraud Detection
 
-StyloBot detects click fraud and invalid ad traffic (IAB IVT class: **SIVT** - Sophisticated Invalid Traffic) using the `ClickFraudContributor` (priority 38) and `PiiQueryStringContributor` (which extracts UTM parameters and click IDs). Together they form a two-stage pipeline: signal extraction followed by weighted pattern scoring.
+StyloBot detects click fraud and invalid ad traffic (IAB IVT class: **SIVT** - Sophisticated Invalid Traffic) using the `ClickFraudAtom` (priority 38) and `PiiQueryStringAtom` (which extracts UTM parameters and click IDs). Together they form a two-stage pipeline: signal extraction followed by weighted pattern scoring.
 
 ---
 
@@ -13,7 +13,7 @@ Generic bot detection catches obvious threats but misses the click fraud-specifi
 - Have a plausible TLS/HTTP2 fingerprint
 - Arrive with a valid `gclid` or `fbclid` click ID
 
-The click fraud detector combines ad traffic signals with behavioral signals to produce an **IAB SIVT classification** independent of the main bot probability score. It feeds back into `IntentContributor` threat scoring and `ReputationBiasContributor` weighting, making future requests from the same fingerprint more aggressively flagged when paid traffic is involved.
+The click fraud detector combines ad traffic signals with behavioral signals to produce an **IAB SIVT classification** independent of the main bot probability score. It feeds back into `IntentAtom` threat scoring and `ReputationBiasAtom` weighting, making future requests from the same fingerprint more aggressively flagged when paid traffic is involved.
 
 ---
 
@@ -23,20 +23,20 @@ The click fraud detector combines ad traffic signals with behavioral signals to 
 Request arrives with ?gclid=... or utm_source=...
         |
         v
-PiiQueryStringContributor (priority 19)
+PiiQueryStringAtom (priority 19)
   - strips and hashes gclid, fbclid, msclkid, ttclid
   - sets utm.present, utm.has_gclid, utm.source_platform
   - checks referrer vs. declared ad platform -> utm.referrer_mismatch
         |
         v
-ClickFraudContributor (priority 38)
+ClickFraudAtom (priority 38)
   - reads utm.* + ip.* + session.* + fingerprint.* + resource.*
   - scores 8 patterns with configurable weights
   - emits clickfraud.confidence, clickfraud.pattern, clickfraud.is_paid_traffic
         |
-        +---> IntentContributor (priority 40): if confidence > 0.55 -> ad_fraud threat category
+        +---> IntentAtom (priority 40): if confidence > 0.55 -> ad_fraud threat category
         |
-        +---> ReputationBiasContributor: amplifies weight by paid_traffic_bias_multiplier (default 1.5)
+        +---> ReputationBiasAtom: amplifies weight by paid_traffic_bias_multiplier (default 1.5)
         |
         +---> HeuristicFeatureExtractor: cf:click_fraud_score (weight 0.8), cf:is_paid_traffic (weight 0.3)
 ```
@@ -82,11 +82,11 @@ The `clickfraud.pattern` signal maps directly to SIVT sub-categories.
 | `clickfraud.confidence` | `double` | Composite fraud score, 0.0-1.0. Scores above `bot_threshold` (default 0.55) produce a bot contribution |
 | `clickfraud.pattern` | `string` | Primary pattern label(s), comma-separated: `datacenter_paid`, `referrer_spoof`, `headless_paid`, `vpn_paid`, `proxy_paid`, `immediate_bounce`, `engagement_void` |
 | `clickfraud.is_paid_traffic` | `bool` | True when UTM parameters or a click ID (`gclid`, `fbclid`, `msclkid`, `ttclid`) is present |
-| `clickfraud.checked` | `bool` | Gate signal - true once the detector has run; used by `IntentContributor` trigger conditions |
+| `clickfraud.checked` | `bool` | Gate signal - true once the detector has run; used by `IntentAtom` trigger conditions |
 
 ### Input signals consumed
 
-From `PiiQueryStringContributor`: `utm.present`, `utm.has_gclid`, `utm.has_fbclid`, `utm.has_msclkid`, `utm.has_ttclid`, `utm.referrer_mismatch`, `utm.source_platform`
+From `PiiQueryStringAtom`: `utm.present`, `utm.has_gclid`, `utm.has_fbclid`, `utm.has_msclkid`, `utm.has_ttclid`, `utm.referrer_mismatch`, `utm.source_platform`
 
 From upstream detectors: `ip.is_datacenter`, `geo.is_vpn`, `geo.is_proxy`, `fingerprint.headless_score`, `session.request_count`, `resource.asset_count`, `transport.protocol_class`
 
@@ -100,7 +100,7 @@ All weights and thresholds are YAML-configurable. Override any value in `appsett
 {
   "BotDetection": {
     "Detectors": {
-      "ClickFraudContributor": {
+      "ClickFraudAtom": {
         "Weights": {
           "BotSignal": 1.5
         },
@@ -137,15 +137,15 @@ All weights and thresholds are YAML-configurable. Override any value in `appsett
 
 ## Integration with other detectors
 
-### IntentContributor
+### IntentAtom
 
-When `clickfraud.checked` is true and `clickfraud.confidence` exceeds `clickfraud_threshold` (default 0.55), `IntentContributor` produces an `ad_fraud` threat category with a blended threat score that incorporates both the click fraud confidence and the standard intent signals.
+When `clickfraud.checked` is true and `clickfraud.confidence` exceeds `clickfraud_threshold` (default 0.55), `IntentAtom` produces an `ad_fraud` threat category with a blended threat score that incorporates both the click fraud confidence and the standard intent signals.
 
 ```json
 {
   "BotDetection": {
     "Detectors": {
-      "IntentContributor": {
+      "IntentAtom": {
         "Parameters": {
           "clickfraud_weight": 0.7,
           "clickfraud_threshold": 0.55
@@ -156,7 +156,7 @@ When `clickfraud.checked` is true and `clickfraud.confidence` exceeds `clickfrau
 }
 ```
 
-### ReputationBiasContributor
+### ReputationBiasAtom
 
 Known-bad fingerprints arriving via paid traffic get amplified weighting. This makes the fast-path reputation check more aggressive for returning fraudsters. Configure via:
 
@@ -164,7 +164,7 @@ Known-bad fingerprints arriving via paid traffic get amplified weighting. This m
 {
   "BotDetection": {
     "Detectors": {
-      "ReputationBiasContributor": {
+      "ReputationBiasAtom": {
         "Parameters": {
           "paid_traffic_bias_multiplier": 1.5
         }
@@ -227,7 +227,7 @@ Or in a YAML-driven custom policy weight:
 
 ## Related
 
-- [`PiiQueryStringContributor`](./response-pii-masking.md) - extracts and hashes UTM/click-ID parameters
-- [`IntentContributor`](./detection-strategies.md#intent-classification) - downstream threat scoring
-- [`ReputationBiasContributor`](./reputation-bias.md) - fast-path reputation amplification
+- [`PiiQueryStringAtom`](./response-pii-masking.md) - extracts and hashes UTM/click-ID parameters
+- [`IntentAtom`](./detection-strategies.md#intent-classification) - downstream threat scoring
+- [`ReputationBiasAtom`](./reputation-bias.md) - fast-path reputation amplification
 - [`action-policies.md`](./action-policies.md) - configuring block, challenge, and throttle responses

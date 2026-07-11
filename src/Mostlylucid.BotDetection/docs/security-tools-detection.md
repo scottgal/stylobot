@@ -6,12 +6,12 @@ on User-Agent patterns. This provides immediate blocking of known malicious scan
 ## Overview
 
 Security tools typically identify themselves in their User-Agent strings, making them easy to detect. The
-`SecurityToolContributor` runs in **Wave 0** (first wave, no dependencies) with high priority to enable instant abort
+`SecurityToolAtom` runs in **Wave 0** (first wave, no dependencies) with high priority to enable instant abort
 before expensive analysis runs.
 
 ```mermaid
 flowchart LR
-    Request([Request]) --> SecurityTool{SecurityToolContributor}
+    Request([Request]) --> SecurityTool{SecurityToolAtom}
     SecurityTool -->|Match| Block([403 BLOCKED])
     SecurityTool -->|No match| Continue[Continue Detection...]
 ```
@@ -251,14 +251,14 @@ curl http://localhost:5080/bot-detection/check \
 
 ## Integration with Other Detectors
 
-The SecurityToolContributor integrates with the blackboard orchestrator:
+The SecurityToolAtom integrates with the blackboard orchestrator:
 
 ```
 Wave 0 (parallel):
-├── SecurityToolContributor (Priority 8)
-├── UserAgentContributor (Priority 10)
-├── HeaderContributor (Priority 10)
-└── IpContributor (Priority 10)
+├── SecurityToolAtom (Priority 8)
+├── UserAgentAtom (Priority 10)
+├── HeaderAtom (Priority 10)
+└── IpAtom (Priority 10)
 
 If SecurityTool detects → TriggerEarlyExit = true → Skip remaining waves
 ```
@@ -278,7 +278,7 @@ This prevents wasted computation on known-malicious requests.
 Security tool detections are logged at Warning level:
 
 ```
-warn: Mostlylucid.BotDetection.Orchestration.ContributingDetectors.SecurityToolContributor[0]
+warn: Mostlylucid.BotDetection.Orchestration.ContributingDetectors.SecurityToolAtom[0]
       Security tool detected: Nikto (Category: Scanner) from IP: 192.168.1.100
 ```
 
@@ -288,7 +288,7 @@ Enable debug logging for pattern loading:
 {
   "Logging": {
     "LogLevel": {
-      "Mostlylucid.BotDetection.Orchestration.ContributingDetectors.SecurityToolContributor": "Debug"
+      "Mostlylucid.BotDetection.Orchestration.ContributingDetectors.SecurityToolAtom": "Debug"
     }
   }
 }

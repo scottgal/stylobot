@@ -540,7 +540,7 @@ See [local-llm-tunnel.md](local-llm-tunnel.md) for full setup instructions.
 
 ## HeuristicLate Contributor (Post-AI Refinement)
 
-The `HeuristicLateContributor` runs **after** the AI/LLM detectors to provide a final classification layer that
+The `HeuristicLateAtom` runs **after** the AI/LLM detectors to provide a final classification layer that
 incorporates all prior evidence, including AI results.
 
 ### Detection Pipeline Flow
@@ -549,9 +549,9 @@ incorporates all prior evidence, including AI results.
 sequenceDiagram
     participant R as Request
     participant E as Early Detectors
-    participant H as HeuristicContributor
+    participant H as HeuristicAtom
     participant AI as LLM Contributor
-    participant HL as HeuristicLateContributor
+    participant HL as HeuristicLateAtom
     participant F as Final Score
 
     R->>E: Wave 0-1 (UA, Header, IP, etc.)

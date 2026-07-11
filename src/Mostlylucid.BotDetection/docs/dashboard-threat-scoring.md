@@ -1,13 +1,13 @@
 # Dashboard Threat Scoring
 
-The intent detection system (see [Intent Classification](../Orchestration/ContributingDetectors/IntentContributor.cs)) computes per-request threat scores and threat bands. This document describes how those values flow through the dashboard pipeline and appear in the operator UI.
+The intent detection system (see [Intent Classification](../Orchestration/Atoms/IntentAtom.cs)) computes per-request threat scores and threat bands. This document describes how those values flow through the dashboard pipeline and appear in the operator UI.
 
 ## Architecture
 
 Threat scoring is **orthogonal to bot probability**. A human probing `.env` files has low bot probability but high threat score. The two dimensions are surfaced independently throughout the dashboard.
 
 ```
-IntentContributor
+IntentAtom
   -> intent.threat_score / intent.threat_band signals
   -> AggregatedEvidence.ThreatScore / ThreatBand
   -> DetectionBroadcastMiddleware

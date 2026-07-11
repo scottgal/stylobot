@@ -99,7 +99,7 @@ public enum ResponseAnalysisThoroughness
 ### Example 1: IpDetector Triggers Response Analysis
 
 ```csharp
-public class IpDetector : ContributingDetectorBase, IResponseAnalysisTrigger
+public class IpDetector : DetectorAtomBase, IResponseAnalysisTrigger
 {
     public override string Name => "IpDetector";
     public override int Priority => 0; // EARLY execution
@@ -146,7 +146,7 @@ public class IpDetector : ContributingDetectorBase, IResponseAnalysisTrigger
 ### Example 2: PathDetector Triggers Honeypot Analysis
 
 ```csharp
-public class PathDetector : ContributingDetectorBase
+public class PathDetector : DetectorAtomBase
 {
     public override string Name => "PathDetector";
     public override int Priority => 10; // Early-ish
@@ -202,7 +202,7 @@ public class PathDetector : ContributingDetectorBase
 ### Example 3: HeuristicDetector Triggers Based on Score
 
 ```csharp
-public class HeuristicDetector : ContributingDetectorBase
+public class HeuristicDetector : DetectorAtomBase
 {
     public override string Name => "HeuristicDetector";
     public override int Priority => 50; // Mid-wave

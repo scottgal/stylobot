@@ -70,8 +70,8 @@ Bot Management Enterprise exposes a JA3 hash (`cf.bot_management.ja3_hash`) and 
 
 | Header name | CF Enterprise expression | What it tells you |
 |---|---|---|
-| `X-JA3-Hash` | `cf.bot_management.ja3_hash` | JA3 TLS handshake fingerprint - read by `TlsFingerprintContributor` |
-| `X-JA4` | `cf.bot_management.ja4` | JA4 fingerprint - read by `TlsFingerprintContributor` (also accepts `X-JA4-Fingerprint` or `X-JA4-Hash`) |
+| `X-JA3-Hash` | `cf.bot_management.ja3_hash` | JA3 TLS handshake fingerprint - read by `TlsFingerprintAtom` |
+| `X-JA4` | `cf.bot_management.ja4` | JA4 fingerprint - read by `TlsFingerprintAtom` (also accepts `X-JA4-Fingerprint` or `X-JA4-Hash`) |
 | `X-Client-TLS-Ext-Sha1` | `cf.tls_client_extensions_sha1` | (already in the free-tier table above; included here for completeness) |
 
 That's it - no extra middleware or plugin needed. The same `X-JA3-Hash` / `X-JA4` headers that nginx-with-ssl_ja3 or a Caddy JA4 plugin sends are what the gateway expects from CF Enterprise too. Pick the single header name per signal and the gateway doesn't care which edge produced it.
@@ -126,7 +126,7 @@ proxy_set_header X-JA3-Hash    $ssl_ja3_hash;
 proxy_set_header X-JA3-String  $ssl_ja3;
 ```
 
-`TlsFingerprintContributor` reads `X-JA3-Hash` (priority) or computes the MD5 from `X-JA3-String` when only the raw string is available. With this in place the TLS Fingerprint card on signature detail shows a real JA3 hash, not the `cf.tls_client_extensions_sha1` partial substitute.
+`TlsFingerprintAtom` reads `X-JA3-Hash` (priority) or computes the MD5 from `X-JA3-String` when only the raw string is available. With this in place the TLS Fingerprint card on signature detail shows a real JA3 hash, not the `cf.tls_client_extensions_sha1` partial substitute.
 
 ## HAProxy
 

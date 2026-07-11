@@ -115,7 +115,7 @@ Request In
     ▼
 ┌──────────────────────────────────────────────────┐
 │ Wave 0: Fast-Path (10ms budget)                  │
-│   └── FastPathReputationContributor              │
+│   └── FastPathReputationAtom              │
 │       ├── Known bot signature → BLOCK immediately│
 │       ├── Known good signature → ALLOW           │
 │       └── Unknown → continue                     │
@@ -124,18 +124,18 @@ Request In
     ▼
 ┌──────────────────────────────────────────────────┐
 │ Wave 1: Signal Extraction (100ms budget)         │
-│   ├── SecurityToolContributor (can early exit)   │
-│   ├── UserAgentContributor                       │
-│   ├── HeaderContributor                          │
-│   ├── IpContributor                              │
-│   ├── BehavioralContributor                      │
+│   ├── SecurityToolAtom (can early exit)   │
+│   ├── UserAgentAtom                       │
+│   ├── HeaderAtom                          │
+│   ├── IpAtom                              │
+│   ├── BehavioralAtom                      │
 │   └── ... (all parallel)                         │
 └──────────────────────────────────────────────────┘
     │
     ▼
 ┌──────────────────────────────────────────────────┐
 │ Wave 2: Quick Aggregation (50ms budget)          │
-│   └── HeuristicContributor                       │
+│   └── HeuristicAtom                       │
 │       ├── score > 0.85 → BLOCK (high confidence) │
 │       ├── score < 0.15 → ALLOW (high confidence) │
 │       └── 0.15-0.85 → UNCERTAIN                  │
@@ -174,7 +174,7 @@ Background Queue (keyed by signature)
     ▼
 ┌──────────────────────────────────────────────────┐
 │ Wave 3: LLM Validation (background only)         │
-│   └── LlmContributor                             │
+│   └── LlmAtom                             │
 │       ├── Validates uncertain decisions          │
 │       ├── Spot-checks high-confidence decisions  │
 │       └── Feeds learning with ground truth       │

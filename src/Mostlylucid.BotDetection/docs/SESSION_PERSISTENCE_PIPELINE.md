@@ -235,8 +235,8 @@ Escalators (as `IActionPolicy` factories, keyed by `ActionType.Escalate`; per-in
 
 - **`Data.SessionPersistenceService`.** Dead code — see next section. Adding this back means "silently restart the CLR-event bridge without a design decision", which is exactly the thing you were brought in to think about.
 - **`SessionPersistenceServiceLifecycleHost`** (companion type inside `SessionPersistenceService.cs`). Same story.
-- **Old `IContributingDetector` / `BlackboardOrchestrator` / `IFoundationContributor` / `BlackboardState`.** Purged in Step 7. Gone for good. If you see references in comments or docs, those are stale.
-- **`SessionVectorContributor`.** Replaced by `SessionVectorAtom`. Contributor gone.
+- **Old `IContributingDetector` / `BlackboardOrchestrator` / `BlackboardState`.** Purged in Step 7. Gone for good. If you see references in comments or docs, those are stale.
+- **`SessionVectorContributor`.** Replaced by `SessionVectorAtom`. The old contributor is gone.
 
 ### The pattern that keeps catching people
 

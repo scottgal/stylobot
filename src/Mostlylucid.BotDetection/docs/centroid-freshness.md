@@ -8,7 +8,7 @@ Centroid freshness is StyloBot's answer to this problem. Two complementary mecha
 
 ## The Problem
 
-`ContentSequenceContributor` tracks the sequence of resources each browser loads during a document request session. It builds a centroid per endpoint -the weighted average of observed resource load sequences -and measures how much each incoming session diverges from that centroid. High divergence is a strong bot signal: scrapers, crawlers, and headless browsers routinely skip CSS/JS, load assets in wrong order, or omit font loading entirely.
+`ContentSequenceAtom` tracks the sequence of resources each browser loads during a document request session. It builds a centroid per endpoint -the weighted average of observed resource load sequences -and measures how much each incoming session diverges from that centroid. High divergence is a strong bot signal: scrapers, crawlers, and headless browsers routinely skip CSS/JS, load assets in wrong order, or omit font loading entirely.
 
 This works well under steady-state conditions. It breaks during deploys.
 
@@ -37,7 +37,7 @@ Two mechanisms detect this:
 
 This is the primary path for deploy detection. It activates 1–2 sessions after a deploy, as browsers start loading the new assets.
 
-`EndpointDivergenceTracker` maintains a sliding window per endpoint path. On every document request, `ContentSequenceContributor` calls `RecordSession(path)`. On every continuation request where divergence is detected, it calls `RecordDivergence(path)`.
+`EndpointDivergenceTracker` maintains a sliding window per endpoint path. On every document request, `ContentSequenceAtom` calls `RecordSession(path)`. On every continuation request where divergence is detected, it calls `RecordDivergence(path)`.
 
 `IsStale(path)` returns true when both conditions are met:
 
@@ -72,9 +72,9 @@ Note that the asset path and the document path are distinct. The asset fingerpri
 
 `CentroidSequenceStore` stores stale timestamps in a `ConcurrentDictionary<string, DateTimeOffset>`. The staleness window is fixed at 1 hour. During this window:
 
-- `ContentSequenceContributor` writes `sequence.centroid_stale = true` to the blackboard
-- `ResourceWaterfallContributor` reads this signal and returns a neutral contribution instead of bot signals
-- `CacheBehaviorContributor` reads this signal and returns a neutral contribution instead of bot signals
+- `ContentSequenceAtom` writes `sequence.centroid_stale = true` to the blackboard
+- `ResourceWaterfallAtom` reads this signal and returns a neutral contribution instead of bot signals
+- `CacheBehaviorAtom` reads this signal and returns a neutral contribution instead of bot signals
 
 After 1 hour, staleness expires automatically. No action is needed -the detectors begin scoring normally, and the centroid rebuilds from fresh post-deploy sessions over the following hours.
 
@@ -132,7 +132,7 @@ The Tier 1 global fallback used to be a hardcoded template chain (StaticAsset, S
 
 The global chain is now *learned* from a broad sample of confirmed-human sessions across all signatures. `CentroidSequenceStore.RelearnGlobalAsync(minSessions)` aggregates Markov transitions from sessions classified as human and persists the result under the `"global"` row in the `centroid_sequences` SQLite table. The chain survives process restart.
 
-`CentroidSequenceRebuildHostedService` kicks `RelearnGlobalAsync(50)` in the background on startup and re-runs it after every cluster update. Until the configured minimum is reached, the contributor suppresses divergence scoring entirely for sessions falling back to the global chain - the `sequence.centroid_stale` signal carries the warmup state through to `ResourceWaterfallContributor` and `CacheBehaviorContributor`.
+`CentroidSequenceRebuildHostedService` kicks `RelearnGlobalAsync(50)` in the background on startup and re-runs it after every cluster update. Until the configured minimum is reached, the contributor suppresses divergence scoring entirely for sessions falling back to the global chain - the `sequence.centroid_stale` signal carries the warmup state through to `ResourceWaterfallAtom` and `CacheBehaviorAtom`.
 
 YAML key:
 
@@ -157,7 +157,7 @@ Tracks per-path divergence rate in a rolling time window.
 **Operations:**
 
 - `RecordSession(path)` -increment total session count for this path; called on every document request
-- `RecordDivergence(path)` -increment divergence count; called by `ContentSequenceContributor` when a continuation request diverges from the centroid
+- `RecordDivergence(path)` -increment divergence count; called by `ContentSequenceAtom` when a continuation request diverges from the centroid
 - `IsStale(path)` -returns true if TotalSessions >= minimum and divergence rate >= threshold
 - `Reset(path)` -clears the window for this path after marking stale
 
@@ -231,7 +231,7 @@ The asset fingerprint mechanism and the divergence-rate mechanism operate on dif
 /vendor/css/tailwind.min.css  →  AssetHashStore  →  CentroidSequenceStore.MarkEndpointStale("/vendor/css/tailwind.min.css")
 ```
 
-`ContentSequenceContributor` checks for stale centroids using **document paths**:
+`ContentSequenceAtom` checks for stale centroids using **document paths**:
 ```
 IsEndpointStale("/blog/post")  →  false  (unless divergence-rate path fired for this document path)
 ```
@@ -247,11 +247,11 @@ The two mechanisms complement each other without requiring direct coupling. A fu
 
 ---
 
-## How ContentSequenceContributor Uses These Signals
+## How ContentSequenceAtom Uses These Signals
 
 ### On document requests
 
-Before emitting any contributions, `ContentSequenceContributor` checks:
+Before emitting any contributions, `ContentSequenceAtom` checks:
 
 ```csharp
 bool assetChanged = _assetHashStore.IsRecentlyChanged(contentPath);
@@ -280,7 +280,7 @@ When divergence is detected on a continuation request:
 
 ### Downstream consumption
 
-`ResourceWaterfallContributor` and `CacheBehaviorContributor` both read `sequence.centroid_stale` before emitting bot signals:
+`ResourceWaterfallAtom` and `CacheBehaviorAtom` both read `sequence.centroid_stale` before emitting bot signals:
 
 ```csharp
 if (GetSignal<bool>(state, SignalKeys.SequenceCentroidStale))
@@ -295,8 +295,8 @@ When the signal is present and true, these detectors return a neutral (zero-weig
 
 | Signal | Written by | Type | Meaning |
 |---|---|---|---|
-| `sequence.centroid_stale` | `ContentSequenceContributor` | bool | The centroid for this endpoint was recently marked stale; divergence scoring is suppressed |
-| `asset.content_changed` | `ContentSequenceContributor` | bool | `AssetHashStore` detected a recent fingerprint change for this content path |
+| `sequence.centroid_stale` | `ContentSequenceAtom` | bool | The centroid for this endpoint was recently marked stale; divergence scoring is suppressed |
+| `asset.content_changed` | `ContentSequenceAtom` | bool | `AssetHashStore` detected a recent fingerprint change for this content path |
 
 ---
 
@@ -316,23 +316,23 @@ For sites behind a CDN that caches responses, this step may be delayed until the
 
 ### Step 3 -First post-deploy browser sessions load the page
 
-Browsers receive the new HTML with updated asset references. They begin loading new assets in a new sequence. `ContentSequenceContributor` compares these sequences against the stored centroid (built from pre-deploy sessions). Divergence is detected.
+Browsers receive the new HTML with updated asset references. They begin loading new assets in a new sequence. `ContentSequenceAtom` compares these sequences against the stored centroid (built from pre-deploy sessions). Divergence is detected.
 
 `RecordDivergence(documentPath)` increments the counter. With fewer than 10 sessions, `IsStale` returns false -divergence scoring proceeds normally for these first sessions. This is intentional: the minimum session threshold prevents a single errant request from triggering broad suppression.
 
 ### Step 4 -10th diverging session crosses the threshold
 
-Assuming the divergence rate is above 40%, `IsStale` returns true. `ContentSequenceContributor` marks the document path stale, resets the window, and logs the event. All subsequent sessions on this path receive `sequence.centroid_stale = true` for the next hour.
+Assuming the divergence rate is above 40%, `IsStale` returns true. `ContentSequenceAtom` marks the document path stale, resets the window, and logs the event. All subsequent sessions on this path receive `sequence.centroid_stale = true` for the next hour.
 
 ### Step 5 -1-hour suppression window
 
-During this window, `ResourceWaterfallContributor` and `CacheBehaviorContributor` return neutral contributions for this endpoint. Divergence from the stale centroid does not contribute to bot scores. Other detectors -UA analysis, IP reputation, header inconsistency, TLS fingerprinting -continue operating normally.
+During this window, `ResourceWaterfallAtom` and `CacheBehaviorAtom` return neutral contributions for this endpoint. Divergence from the stale centroid does not contribute to bot scores. Other detectors -UA analysis, IP reputation, header inconsistency, TLS fingerprinting -continue operating normally.
 
 Real bots that happen to hit the site during a deploy are still detectable via these other signals. The suppression is narrow: it specifically covers the signals that fire on resource sequence divergence.
 
 ### Step 6 -Centroid rebuilds
 
-Over the following hours, `ContentSequenceContributor` ingests post-deploy sessions and updates the centroid. After 1–6 hours of normal traffic (depending on session volume), the centroid converges on the new expected sequence.
+Over the following hours, `ContentSequenceAtom` ingests post-deploy sessions and updates the centroid. After 1–6 hours of normal traffic (depending on session volume), the centroid converges on the new expected sequence.
 
 ### Step 7 -Suppression expires
 
@@ -350,7 +350,7 @@ Sites behind a CDN that aggressively caches static assets introduce a complicati
 
 **Impact on the divergence rate path:**
 
-The divergence rate path is unaffected by CDN caching. It fires when browsers diverge from the centroid -which happens regardless of whether the asset was served from CDN or origin. As long as the document HTML reaches browsers with new asset references, browsers will load new sequences, and `ContentSequenceContributor` will detect the divergence.
+The divergence rate path is unaffected by CDN caching. It fires when browsers diverge from the centroid -which happens regardless of whether the asset was served from CDN or origin. As long as the document HTML reaches browsers with new asset references, browsers will load new sequences, and `ContentSequenceAtom` will detect the divergence.
 
 **Recommended CDN configuration:**
 
@@ -416,7 +416,7 @@ One hour is the upper bound on how long it typically takes a human visitor to ma
 
 **Staleness is not blanket suppression**
 
-`sequence.centroid_stale` suppresses only divergence-based signals from `ResourceWaterfallContributor` and `CacheBehaviorContributor`. It does not suppress:
+`sequence.centroid_stale` suppresses only divergence-based signals from `ResourceWaterfallAtom` and `CacheBehaviorAtom`. It does not suppress:
 
 - UA detection
 - IP reputation

@@ -9,7 +9,7 @@ StyloBot's proof-of-work challenge is a **response action**, not a detection mec
 3. The client's browser solves SHA-256 micro-puzzles using Web Workers in parallel
 4. Solutions are POSTed to `/bot-detection/challenge/verify`
 5. On verification, a signed HMAC token cookie is issued (valid 30 minutes)
-6. On the **next request**, the `ChallengeVerificationContributor` reads the solve metadata and emits human/bot signals based on solve characteristics
+6. On the **next request**, the `ChallengeVerificationAtom` reads the solve metadata and emits human/bot signals based on solve characteristics
 
 ## Architecture
 

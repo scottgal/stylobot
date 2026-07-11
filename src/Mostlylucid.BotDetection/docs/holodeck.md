@@ -65,8 +65,8 @@ HoneypotPathTagger          (middleware, pre-detection)
      │
      ▼
 BotDetectionMiddleware      (runs all 57 detectors)
-  HoneypotLinkContributor   (priority 5, strong bot signal)
-  BeaconContributor         (priority 2, canary scan)
+  HoneypotLinkAtom   (priority 5, strong bot signal)
+  BeaconAtom         (priority 2, canary scan)
      │
      ▼
 HolodeckActionPolicy        (or SimulationPackResponder)
@@ -87,13 +87,13 @@ context.Items["Holodeck.IsHoneypotPath"] = true;
 context.Items["Holodeck.MatchedPath"] = "/wp-login.php";
 ```
 
-Matching is exact or prefix. The path is not normalized at this layer (normalization happens in `HoneypotLinkContributor`).
+Matching is exact or prefix. The path is not normalized at this layer (normalization happens in `HoneypotLinkAtom`).
 
 ### Layer 2: Contributors
 
-**`HoneypotLinkContributor`** (priority 5): Matches the request path against the built-in list of scanner paths (WordPress probes, config files, `.git`, database admin panels, cloud metadata endpoints, etc.) plus any paths configured in `HolodeckOptions.HoneypotPaths`. Normalizes the path (double URL-decode, null-byte removal, `.`/`..` resolution) before matching. An exact or prefix match returns `ConfidenceDelta = 0.95` with `Weight = 2.0` and triggers early exit.
+**`HoneypotLinkAtom`** (priority 5): Matches the request path against the built-in list of scanner paths (WordPress probes, config files, `.git`, database admin panels, cloud metadata endpoints, etc.) plus any paths configured in `HolodeckOptions.HoneypotPaths`. Normalizes the path (double URL-decode, null-byte removal, `.`/`..` resolution) before matching. An exact or prefix match returns `ConfidenceDelta = 0.95` with `Weight = 2.0` and triggers early exit.
 
-**`BeaconContributor`** (priority 2): Scans all incoming requests for canary values from previous holodeck responses. Checks query string values, path segments, cookie values, and Referer query parameters. On a match, writes signals linking the current request to the original fingerprint.
+**`BeaconAtom`** (priority 2): Scans all incoming requests for canary values from previous holodeck responses. Checks query string values, path segments, cookie values, and Referer query parameters. On a match, writes signals linking the current request to the original fingerprint.
 
 ### Layer 3: HolodeckActionPolicy / SimulationPackResponder
 
@@ -116,8 +116,8 @@ builder.Services.AddApiHolodeck();
 
 `AddApiHolodeck()` registers:
 - `HolodeckActionPolicy` as `IActionPolicy`
-- `HoneypotLinkContributor` as `IContributingDetector`
-- `BeaconContributor` as `IContributingDetector`
+- `HoneypotLinkAtom` as `IDetectorAtom`
+- `BeaconAtom` as `IDetectorAtom`
 - `HolodeckCoordinator` (singleton)
 - `BeaconCanaryGenerator` (singleton, keyed from `BotDetectionOptions.SignatureHashKey`)
 - `BeaconStore` (singleton, SQLite at `{ContentRootPath}/beacons.db`)
@@ -323,7 +323,7 @@ The beacon system detects fingerprint rotation by confirmed bots.
    await _beaconStore.StoreAsync(canary, fingerprint, path, packId, TimeSpan.FromHours(24));
    ```
 
-4. On all subsequent requests, `BeaconContributor` (priority 2) scans query string values, path segments, cookie values, and Referer query parameters for any 8-character value that matches a stored canary.
+4. On all subsequent requests, `BeaconAtom` (priority 2) scans query string values, path segments, cookie values, and Referer query parameters for any 8-character value that matches a stored canary.
 
 5. On a match, it writes signals to the blackboard:
    - `beacon.matched` = `true`
@@ -343,13 +343,13 @@ Entity resolution uses `beacon.original_fingerprint` to link the rotated fingerp
 | `SimulationPacks/IBeaconStore.cs` | Interface: `StoreAsync(canary, fingerprint, path, packId, ttl)` |
 | `ApiHolodeck/Services/BeaconCanaryGenerator.cs` | HMAC-SHA256 implementation, deterministic per fingerprint+path |
 | `ApiHolodeck/Services/BeaconStore.cs` | SQLite implementation with `LookupAsync` and `BatchLookupAsync` |
-| `ApiHolodeck/Contributors/BeaconContributor.cs` | Detector that scans requests and writes beacon signals |
+| `ApiHolodeck/Contributors/BeaconAtom.cs` | Detector that scans requests and writes beacon signals |
 
 ---
 
 ## Signals Emitted
 
-### BeaconContributor
+### BeaconAtom
 
 | Signal | Type | Meaning |
 |--------|------|---------|
@@ -360,7 +360,7 @@ Entity resolution uses `beacon.original_fingerprint` to link the rotated fingerp
 | `beacon.age_seconds` | `double` | Age of the canary at match time |
 | `beacon.pack_id` | `string` | Simulation pack that generated the canary |
 
-### HoneypotLinkContributor
+### HoneypotLinkAtom
 
 Writes signals on the contribution's `Signals` dictionary (not top-level blackboard signals):
 
@@ -395,7 +395,7 @@ var canary = generator.Generate(fingerprint: "abc123", path: "/wp-login.php");
 // canary = "a3f7b2c1" (repeatable)
 ```
 
-To verify rotation detection, use `BeaconStore.LookupAsync(canary)` directly in tests or call the existing `BatchLookupAsync` path through `BeaconContributor`.
+To verify rotation detection, use `BeaconStore.LookupAsync(canary)` directly in tests or call the existing `BatchLookupAsync` path through `BeaconAtom`.
 
 ---
 

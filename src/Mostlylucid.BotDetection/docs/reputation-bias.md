@@ -10,7 +10,7 @@ For each matched non-neutral pattern, the detector creates a reputation contribu
 
 Combined signature matches (UA + IP + path) receive an additional multiplier (default 1.5x) because they are more specific and less prone to false positives than individual UA or IP matches. Path normalization replaces GUIDs and numeric IDs with placeholders before hashing to group structurally similar requests.
 
-Unlike FastPathReputationContributor (which handles instant allow/abort for high-confidence patterns), ReputationBias handles the softer scoring adjustments for patterns that are not yet conclusively classified. It does not trigger early exits.
+Unlike FastPathReputationAtom (which handles instant allow/abort for high-confidence patterns), ReputationBias handles the softer scoring adjustments for patterns that are not yet conclusively classified. It does not trigger early exits.
 
 ## Signals Emitted
 
@@ -31,7 +31,7 @@ Where `{category}` is `useragent`, `ip`, or `combined`.
 {
   "BotDetection": {
     "Detectors": {
-      "ReputationBiasContributor": {
+      "ReputationBiasAtom": {
         "Parameters": {
           "confirmed_bad_weight": 2.5,
           "combined_pattern_multiplier": 1.5,

@@ -29,7 +29,7 @@ User-Agent → YAML bot-pattern catalog (substring match) → bot name + type id
 {
   "BotDetection": {
     "Detectors": {
-      "UserAgentContributor": {
+      "UserAgentAtom": {
         "Enabled": true,
         "Parameters": {
           "short_ua_threshold": 20,
@@ -146,7 +146,7 @@ Reputation states affect UA detection weight:
 
 Add new bot patterns by editing the appropriate YAML file in `Definitions/BotPatterns/`. Each entry needs a `pattern` (substring to match), `bot_name` (display name), and `bot_type`. For AI bots add an `ai_category` field. The YAML change is picked up at next startup.
 
-For custom detection logic beyond UA pattern matching, implement `IContributingDetector` (see the 5-file checklist in CLAUDE.md) and register it in DI.
+For custom detection logic beyond UA pattern matching, implement `IDetectorAtom` (see the 5-file checklist in CLAUDE.md) and register it in DI.
 
 ## Accessing Results
 

@@ -31,8 +31,8 @@ Six naming paths collapsed to one canonical pipeline owned by `FingerprintNameCo
 
 - 29 dead `SignalKeys` removed (no detector wrote them, no consumer read them).
 - Rate-limiter TOCTOU fixed: check and update under one lock.
-- `PeriodicityContributor` + `IdentityChangeContributor` marked `IFoundationContributor` so they run unconditionally on every request.
-- `FingerprintMatchContributor` self-computes the identity vector when the wave race elides the upstream signal.
+- `PeriodicityAtom` + `IdentityChangeAtom` marked `IFoundationContributor` so they run unconditionally on every request.
+- `FingerprintMatchAtom` self-computes the identity vector when the wave race elides the upstream signal.
 - `SignatureAggregateCache` warms from the persisted `signatures` table on startup (distinct-by-signature so a chatty source can't blank the cache).
 - `ExtractThreatScore` reads honeypot + attack signals too.
 - YARP integration null-guards `evidence.Signals` before dereference.
@@ -49,7 +49,7 @@ When a browser loads a page it does a recognisable thing: the document comes fir
 
 **How it works:**
 
-The new `ContentSequenceContributor` (Priority 4) runs on every request before the expensive detectors:
+The new `ContentSequenceAtom` (Priority 4) runs on every request before the expensive detectors:
 
 1. Document requests (Sec-Fetch-Mode: navigate) reset the sequence at position 0 and load the best available expected chain -cluster-specific if enough session data exists, or the global human fallback.
 2. Continuation requests classify the request type, advance position, and evaluate divergence across four time-based phase windows.
@@ -57,7 +57,7 @@ The new `ContentSequenceContributor` (Priority 4) runs on every request before t
 
 **Cache-warm detection:** Visitors whose browser cache is already primed skip the initial asset burst. The detector recognises this pattern (no static assets in the first 500ms) and suppresses the false-positive "no assets loaded" signal that would otherwise flag a repeat visitor.
 
-**SignalR guard:** When the next expected chain step is SignalR on a human-centroid chain, `sequence.signalr_expected` is set and `StreamAbuseContributor` skips -avoiding false positives on expected WebSocket upgrades.
+**SignalR guard:** When the next expected chain step is SignalR on a human-centroid chain, `sequence.signalr_expected` is set and `StreamAbuseAtom` skips -avoiding false positives on expected WebSocket upgrades.
 
 Full documentation: `docs/content-sequence-detection.md`
 

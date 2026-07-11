@@ -28,13 +28,13 @@ confidence     = anyVerificationAttempted ? 1.0 : 0.5
 
 - `SignalKeys.FriendlyIpVerified` -- vendor-IP range check ran (Commercial)
 - `SignalKeys.FriendlyDomainVerified` -- NodeInfo / fediverse-domain lookup ran (FOSS)
-- `SignalKeys.VerifiedBotChecked` -- `VerifiedBotContributor` ran reverse-DNS or honest-bot resolution
+- `SignalKeys.VerifiedBotChecked` -- `VerifiedBotAtom` ran reverse-DNS or honest-bot resolution
 
 **A failed verification is still high confidence.** Detecting a spoofer (UA claims Googlebot, IP says no) is a confident identity judgement -- in the negative. The dashboard should *not* display "0.5 confidence" on a confirmed spoofer; the operator's read on the row is "we know what this is and it's lying."
 
 ## What the override does NOT touch
 
-- **Verified-good early-exit.** `VerifiedBotContributor` short-circuits with `DetectionContribution.VerifiedGoodBot` for IP/FCrDNS-confirmed Googlebot, Bingbot, etc. `CreateEarlyExitResult` already returns `BotProbability = 1.0, Confidence = 1.0` for that path -- the override never fires.
+- **Verified-good early-exit.** `VerifiedBotAtom` short-circuits with `DetectionContribution.VerifiedGoodBot` for IP/FCrDNS-confirmed Googlebot, Bingbot, etc. `CreateEarlyExitResult` already returns `BotProbability = 1.0, Confidence = 1.0` for that path -- the override never fires.
 - **Friendly-pin RiskBand.** `DetermineRiskBand`'s friendly-bot path (verified Mastodon, MJ12bot, DuckDuckBot, etc.) still pins `RiskBand.Low` based on classification + corroboration. The override changes the displayed probability/confidence numbers; it doesn't change the response routing.
 - **The ledger itself.** `DetectionLedger.Aggregate` is shared with other consumers (RetrievalCore, ResponseDetectionOrchestrator). The override is applied at the read-overlay layer in `DetectionLedgerExtensions`, not at the rollup.
 - **Humans.** `UserAgentIsBot == false` (the explicit human path) does not trip the override; probability and confidence follow the existing sigmoid + coverage logic.
@@ -63,7 +63,7 @@ With a spoofer (`verifiedbot.checked = true`, `verifiedbot.spoofed = true`):
 |-------|-------|
 | Bot Probability | **1.0** |
 | Confidence | **1.0** (we are certain it is a spoofer) |
-| RiskBand | High / VeryHigh (driven by `StrongBotContribution` from `VerifiedBotContributor` + threat signals) |
+| RiskBand | High / VeryHigh (driven by `StrongBotContribution` from `VerifiedBotAtom` + threat signals) |
 
 ## Tests pinning this behaviour
 

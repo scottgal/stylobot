@@ -38,7 +38,7 @@ OSS today: "edit appsettings.json or the detector YAML file, restart the app." F
 │ │ Files                        │ │ ┌────────────────────────────────────┐ │ │         │
 │ │                              │ │ │ [Monaco editor, YAML/JSON]        │ │ │         │
 │ │ ▼ Detector manifests         │ │ │                                    │ │ │         │
-│ │   ● useragent.detector.yaml  │ │ │ name: UserAgentContributor         │ │ │         │
+│ │   ● useragent.detector.yaml  │ │ │ name: UserAgentAtom         │ │ │         │
 │ │   ○ header.detector.yaml     │ │ │ priority: 10                       │ │ │         │
 │ │   ○ ip.detector.yaml         │ │ │ defaults:                          │ │ │         │
 │ │   ○ (27 total - search)      │ │ │   weights:                         │ │ │         │
@@ -113,7 +113,7 @@ Content-Type: application/json
 
 {
   "path": "detectors/useragent.detector.yaml",
-  "content": "name: UserAgentContributor\n...",
+  "content": "name: UserAgentAtom\n...",
   "format": "yaml"     // or "json"
 }
 ```

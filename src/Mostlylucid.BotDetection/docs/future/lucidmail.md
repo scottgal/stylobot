@@ -16,7 +16,7 @@ The design target is "zero external dependency by default", with optional integr
 
 ## Goals
 
-- Build a modular email detection pipeline using `IContributingDetector` style contributors.
+- Build a modular email detection pipeline using `IDetectorAtom` style contributors.
 - Keep all inference local-first (small models, Ollama/ONNX friendly).
 - Detect both single-message risk and cross-message campaigns.
 - Preserve explainability: every action ties to detector contributions and signals.
@@ -412,7 +412,7 @@ Mostlylucid.StyloSpam/
   Ingestion/
   Models/
   Orchestration/
-  ContributingDetectors/
+  Atoms/
   Campaigns/
   Policies/
   Storage/

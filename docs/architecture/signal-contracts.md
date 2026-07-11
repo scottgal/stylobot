@@ -36,15 +36,15 @@ any classifier weighs in. Two sub-shapes, both implementing
 
 - *Compute* - derives identity from the current request alone, pure synchronous
   compute, no waits.
-  - `SignatureContributor` - `signature.primary`, `signature.multifactor`, header hashes
-  - `TransportProtocolContributor` - `transport.protocol_class`, `transport.is_streaming`, `transport.is_upgrade`
-  - `PiiQueryStringContributor` - privacy probe (PII presence in query string)
+  - `SignatureAtom` - `signature.primary`, `signature.multifactor`, header hashes
+  - `TransportProtocolAtom` - `transport.protocol_class`, `transport.is_streaming`, `transport.is_upgrade`
+  - `PiiQueryStringAtom` - privacy probe (PII presence in query string)
 - *Match* - looks up what we already know about the just-computed identity.
   In-memory cache or fast SQLite read keyed on signature/UA/IP. Useful even on
   a cold request (returns "no prior" cleanly).
-  - `FingerprintPriorContributor` - cached prior probability + confidence
-  - `FastPathReputationContributor` - UA/IP reputation cache, can short-circuit to early exit
-  - `ContentSequenceContributor` - per-fingerprint sequence state, gates 5 deferred detectors
+  - `FingerprintPriorAtom` - cached prior probability + confidence
+  - `FastPathReputationAtom` - UA/IP reputation cache, can short-circuit to early exit
+  - `ContentSequenceAtom` - per-fingerprint sequence state, gates 5 deferred detectors
 
 The orchestrator runs every foundation contributor unconditionally, regardless
 of policy. Compute runs first by Priority, then Match (which can read what
@@ -53,15 +53,15 @@ Compute wrote), then classifiers see the full identity context.
 **Classifier contributors** compute bot-probability deltas based on what
 foundation established. Policy-gated by design because a tight policy may want
 to skip expensive classification on cheap traffic. Examples: `UserAgent`,
-`Header`, `Behavioral`, `Heuristic`, `AiScraper`, `LlmContributor`.
+`Header`, `Behavioral`, `Heuristic`, `AiScraper`, `LlmAtom`.
 
 **Not foundation** - these depend on prior round-trips that may never come, so
 they cannot be a wave the pipeline waits on. They run as triggered classifiers
 when their preconditions hold:
 
-- `FingerprintApprovalContributor` - operator-issued approval (out-of-band action)
-- `ChallengeVerificationContributor` - depends on a JS challenge solved in a prior request
-- `ClientSideContributor` - depends on in-page JS POSTing back data from a prior page load
+- `FingerprintApprovalAtom` - operator-issued approval (out-of-band action)
+- `ChallengeVerificationAtom` - depends on a JS challenge solved in a prior request
+- `ClientSideAtom` - depends on in-page JS POSTing back data from a prior page load
 
 A contributor is foundation iff: inputs derive from the current request alone
 or from in-memory/SQLite caches keyed on the just-computed identity; latency is
@@ -155,7 +155,7 @@ Before merging a change to detection code:
 Touching a contributor?
   Does it produce a fact something downstream reads as truth?
     YES → IFoundationContributor. Runs unconditionally.
-    NO  → IContributingDetector only. Policy filters apply.
+    NO  → IDetectorAtom only. Policy filters apply.
 
 Adding a new signal key any consumer reads?
   Add a SignalProbe to BdfReplayActual.

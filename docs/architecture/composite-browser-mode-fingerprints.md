@@ -65,8 +65,8 @@ Backpressure is the same shape as the rest of the system: under load, the schedu
 
 ## Per-request flow
 
-1. **IdentityVectorContributor composes the per-request vector** — unchanged. The same raw-values dict that today produces a layout-conformant float vector.
-2. **BrowserModeClassifierContributor** — new atom subscribing to the existing per-request signal pattern. Reads the raw-values from the `SignalSink`, walks the YAML predicates compiled into `SignalPatternMatcher`s, emits `identity.browser_mode` (the mode id) on the same sink. Cost: microseconds. No state, no I/O.
+1. **IdentityVectorAtom composes the per-request vector** — unchanged. The same raw-values dict that today produces a layout-conformant float vector.
+2. **BrowserModeClassifierAtom** — new atom subscribing to the existing per-request signal pattern. Reads the raw-values from the `SignalSink`, walks the YAML predicates compiled into `SignalPatternMatcher`s, emits `identity.browser_mode` (the mode id) on the same sink. Cost: microseconds. No state, no I/O.
 3. **L1 lookup** — `primary_signature → fingerprint_id`, unchanged. Same `HMAC(IP, UA)` key, same LFU-cached lookup served by the existing fingerprint hot cache atom.
 4. **Load fingerprint + its modes** — the `BrowserModeHotCacheAtom` serves the tuple from its dict; on miss, it reads through to the store (single join query on `fingerprints` + `fingerprint_modes`) and populates the dict.
 5. **Pick the mode row** matching the emitted `identity.browser_mode`. If absent: allocate a new mode row, seed from the request vector (no archetype prior — the parent fingerprint is already confirmed identity, the mode is just learning its shape). The allocation is in-dict immediately; persistence happens via the absorbed-signal handler on the next `tick.10s`.
@@ -235,9 +235,9 @@ New unit tests:
 
 ## Build sequence
 
-1. **Mode classifier + YAML inventory** — `Definitions/BrowserModes/*.yaml`, `BrowserModeRegistry`, signal emission. No persistence change. Wire into the orchestrator after `IdentityVectorContributor`. End state: every request emits `identity.browser_mode`, dashboard sees it, no downstream consumer breaks.
+1. **Mode classifier + YAML inventory** — `Definitions/BrowserModes/*.yaml`, `BrowserModeRegistry`, signal emission. No persistence change. Wire into the orchestrator after `IdentityVectorAtom`. End state: every request emits `identity.browser_mode`, dashboard sees it, no downstream consumer breaks.
 2. **`fingerprint_modes` schema + LFU façade** — both stores. The migration project emits the idempotent SQL. Existing fingerprints seeded with one `unknown` mode row. End state: schema landed, no behavioural change.
-3. **Per-mode matcher** — `FingerprintMatchContributor` learns to read modes, do L1 confirm against the matched mode, EWMA-absorb into the mode's centroid. End state: same identity stability as today, with the new mode signals fully populated.
+3. **Per-mode matcher** — `FingerprintMatchAtom` learns to read modes, do L1 confirm against the matched mode, EWMA-absorb into the mode's centroid. End state: same identity stability as today, with the new mode signals fully populated.
 4. **Rollup recompute on `tick.5m`** — recompute parent `centroid`, drift signals against rollup. End state: Pass 2 + index search keep working unchanged.
 5. **Endpoint policy mode predicate** — `EndpointPolicyResolver` consumes `identity.browser_mode`, `mode_in` / `mode_required` clauses go live. New configurable settings on `BotDetection:EndpointPolicies`. End state: per-mode access control available.
 6. **Mode mix anomaly axis** — `SignatureRiskVerdictComposer` learns `BrowserModeMixDeviation`. Dashboard `Risk Profile` axis surfaces it. End state: bot-impersonating-browser detection sharpens.

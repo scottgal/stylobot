@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `AiScraperContributor` identifies AI bots, LLM training crawlers, and AI-powered scraping services. It detects over 50 known AI bot User-Agents and analyzes modern protocol signals including Cloudflare's "Markdown for Agents" feature, Web Bot Auth (RFC 9421), and AI-specific HTTP headers.
+The `AiScraperAtom` identifies AI bots, LLM training crawlers, and AI-powered scraping services. It detects over 50 known AI bot User-Agents and analyzes modern protocol signals including Cloudflare's "Markdown for Agents" feature, Web Bot Auth (RFC 9421), and AI-specific HTTP headers.
 
 ## Detection Layers
 

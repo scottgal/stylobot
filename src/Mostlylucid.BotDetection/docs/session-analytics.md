@@ -133,7 +133,7 @@ specific session. This is a softer signal.
 | `session.top_similarity` | `float` | Best cosine similarity (0.0 when void) |
 | `session.mahalanobis_nearest_distance` | `float` | Distance to nearest centroid (`float.MaxValue` if no centroids) |
 
-**IntentContributor features (derived):**
+**IntentAtom features (derived):**
 
 | Feature key | Description |
 |---|---|
@@ -296,8 +296,8 @@ constant controls when a breaking discard is triggered.
 
 ## Signal reference
 
-All signals are emitted by `SessionVectorContributor` (priority 30, after behavioral analysis).
-Override thresholds via `appsettings.json → BotDetection:Detectors:SessionVectorContributor:*`.
+All signals are emitted by `SessionVectorAtom` (priority 30, after behavioral analysis).
+Override thresholds via `appsettings.json → BotDetection:Detectors:SessionVectorAtom:*`.
 
 ```
 session.frequency_fingerprint          float[8]   Autocorrelation rhythm vector
@@ -319,8 +319,8 @@ session.boundary_detected              bool       Session boundary just detected
 
 | Consumer | Signals used |
 |---|---|
-| `SessionVectorContributor` | Emits all session.* signals |
-| `IntentContributor` | Reads all session.* signals as intent features |
+| `SessionVectorAtom` | Emits all session.* signals |
+| `IntentAtom` | Reads all session.* signals as intent features |
 | `SessionEscalationService` | `FlagForEscalation` called on deep void detection |
 | `EntityResolutionService` | Uses session vectors for merge/split/convergence decisions |
 

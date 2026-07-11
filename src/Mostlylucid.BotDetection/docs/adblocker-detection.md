@@ -7,7 +7,7 @@
 
 ## Problem
 
-The `ClientSideContributor` penalises document requests that arrive without a
+The `ClientSideAtom` penalises document requests that arrive without a
 browser fingerprint. Legitimate users with adblockers get caught: their browser
 blocks the fingerprint script entirely, so they look identical to a headless bot
 that skips JS execution.
@@ -123,7 +123,7 @@ SignalKeys.ClientSideAdblockerDetected = "clientside.adblocker_detected"  // boo
 SignalKeys.ClientSideAdblockerProvider = "clientside.adblocker_provider"  // "adsense" | "amazon" | ...
 ```
 
-`ClientSideContributor` checks `ClientSideAdblockerDetected` in the
+`ClientSideAtom` checks `ClientSideAdblockerDetected` in the
 `isNoFingerprint` path and returns early without adding a contribution:
 
 ```csharp

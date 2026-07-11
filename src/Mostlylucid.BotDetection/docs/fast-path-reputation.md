@@ -10,7 +10,7 @@ For **confirmed good patterns** (ConfirmedGood or ManuallyAllowed states), the d
 
 For **confirmed bad patterns** (ConfirmedBad or ManuallyBlocked states), the detector emits a `VerifiedBot` contribution with the cached bot score as confidence delta and a very high weight (default 3.0), enabling instant abort. The pattern's accumulated support score (observation count) is written to signals for downstream use.
 
-The detector works in tandem with `ReputationBiasContributor` (priority 45): FastPathReputation handles instant allow/abort for high-confidence patterns, while ReputationBias handles softer scoring bias for suspect/neutral patterns after signals have been extracted.
+The detector works in tandem with `ReputationBiasAtom` (priority 45): FastPathReputation handles instant allow/abort for high-confidence patterns, while ReputationBias handles softer scoring bias for suspect/neutral patterns after signals have been extracted.
 
 ## Signals Emitted
 
@@ -32,7 +32,7 @@ Where `{type}` is `useragent` or `ip`.
 {
   "BotDetection": {
     "Detectors": {
-      "FastPathReputationContributor": {
+      "FastPathReputationAtom": {
         "Parameters": {
           "fast_abort_weight": 3.0,
           "min_support_allow": 10.0,

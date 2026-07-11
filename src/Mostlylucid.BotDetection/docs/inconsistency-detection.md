@@ -30,7 +30,7 @@ When no inconsistencies are found, the detector emits a human contribution (nega
 {
   "BotDetection": {
     "Detectors": {
-      "InconsistencyContributor": {
+      "InconsistencyAtom": {
         "Parameters": {
           "datacenter_browser_confidence": 0.7,
           "missing_language_confidence": 0.5,
