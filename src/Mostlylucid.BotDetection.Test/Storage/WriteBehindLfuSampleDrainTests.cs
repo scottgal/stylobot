@@ -155,4 +155,72 @@ public sealed class WriteBehindLfuSampleDrainTests
         await flush.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*durable tier is down*");
     }
+
+    /// <summary>Test double that parks its FIRST persist (the background drainer's) mid-flight
+    ///     so a concurrent FlushDirtyAsync is forced to race it; later persists complete
+    ///     immediately.</summary>
+    private sealed class ParkingStore : WriteBehindLfuStore<string, Val, Val>
+    {
+        private int _firstPersist = 1;
+        public readonly TaskCompletionSource FirstPersistStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource ReleaseFirstPersist = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly ConcurrentQueue<IReadOnlyList<KeyValuePair<string, Val>>> Flushes = new();
+
+        public ParkingStore()
+            : base(maxEntries: 10_000, writeQueueCapacity: 10_000, batchMaxSize: 50,
+                   drainInterval: TimeSpan.FromMilliseconds(20), NullLogger.Instance) { }
+
+        protected override bool UseBehaviouralSampleDrain => true;
+        protected override Val CreateInitial(string key, Val op) => op;
+        protected override Val MergeIntoExisting(string key, Val existing, Val op) => op;
+        protected override ValueTask<Val?> LoadFromDurableTierAsync(string key, CancellationToken ct)
+            => new((Val?)null);
+        protected override Task PersistBatchAsync(IReadOnlyList<Val> batch, CancellationToken ct)
+            => Task.CompletedTask;
+        protected override long ColdnessScore(Val entry) => entry.Significance;
+
+        protected override async Task PersistValuesBatchAsync(
+            IReadOnlyList<KeyValuePair<string, Val>> batch, CancellationToken ct)
+        {
+            if (Interlocked.Exchange(ref _firstPersist, 0) == 1)
+            {
+                FirstPersistStarted.TrySetResult();
+                await ReleaseFirstPersist.Task; // park mid-persist, holding the drain gate
+            }
+            Flushes.Enqueue(batch.ToList());
+        }
+
+        public List<KeyValuePair<string, Val>> AllPersisted() => Flushes.SelectMany(f => f).ToList();
+    }
+
+    [Fact]
+    public async Task FlushDirtyAsync_WaitsFor_InFlightDrainerBatch_BeforeReturning()
+    {
+        using var store = new ParkingStore();
+
+        // The background drainer claims "A" and parks mid-persist, holding the drain gate.
+        // (Pre-fix, "A" is already TryRemoved from _dirtyKeys during that persist.)
+        store.Record("A", new Val("A", 1, Significance: 10));
+        await store.FirstPersistStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        // Mark more keys dirty while the drainer is parked.
+        store.Record("B", new Val("B", 1, Significance: 20));
+        store.Record("C", new Val("C", 1, Significance: 30));
+
+        // FlushDirtyAsync must NOT return while the drainer holds an in-flight persist.
+        // Pre-fix it saw _dirtyKeys non-empty (B/C), drained those, then found it empty
+        // (A was claimed) and returned -- with A never persisted.
+        var flushTask = store.FlushDirtyAsync();
+        await Task.Delay(80);
+        flushTask.IsCompleted.Should().BeFalse(
+            "FlushDirtyAsync returned while the background drainer still had a persist in flight");
+
+        // Release the parked persist; flush can now acquire the gate + drain the remainder.
+        store.ReleaseFirstPersist.TrySetResult();
+        await flushTask.WaitAsync(TimeSpan.FromSeconds(3));
+
+        // On return, every key dirty at call time is durable -- including the one the
+        // drainer had in flight.
+        store.AllPersisted().Select(p => p.Key).Should().Contain(new[] { "A", "B", "C" });
+    }
 }
