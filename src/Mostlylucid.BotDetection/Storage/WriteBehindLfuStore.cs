@@ -272,7 +272,7 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     ///     <c>batchMaxSize</c> as one keyed-upsert batch, and leave the rest dirty. Returns
     ///     the number of entries persisted (0 = nothing dirty, all evicted, or persist failed).
     /// </summary>
-    private async Task<int> DrainDirtyOnceAsync(CancellationToken ct)
+    private async Task<int> DrainDirtyOnceAsync(CancellationToken ct, bool throwOnPersistError = false)
     {
         if (_dirtyKeys.IsEmpty) return 0;
 
@@ -308,11 +308,15 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            // Re-flag so the next cycle retries; the dict stays authoritative.
+            // Re-flag so a later cycle (or the caller) can retry; the dict stays authoritative.
             foreach (var kv in batch) _dirtyKeys[kv.Key] = 0;
             _logger.LogWarning(ex,
                 "{Store} sample-drainer: batch of {Count} re-queued after persist error",
                 GetType().Name, batch.Count);
+            // The background drainer fails open (retry next cycle). A caller that needs a
+            // durability barrier (FlushDirtyAsync) passes throwOnPersistError so the failure
+            // surfaces instead of masquerading as "nothing left to flush".
+            if (throwOnPersistError) throw;
             return 0;
         }
     }
@@ -320,18 +324,29 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     /// <summary>
     ///     Synchronously persist ALL currently-dirty entries now, via the same
     ///     significance-ordered batches the background drainer uses, until nothing is dirty.
-    ///     Removes the dependency on the timer-driven drain, so tests (and a graceful
-    ///     shutdown) get deterministic persistence instead of racing the drain interval.
-    ///     No-op on the op-replay path. internal: tests in Mostlylucid.BotDetection.Test.
+    ///     Removes the dependency on the timer-driven drain, so tests get deterministic
+    ///     persistence instead of racing the drain interval.
+    ///     <para>
+    ///     Unlike the background drainer (which fails open and retries next cycle), this is a
+    ///     durability barrier: a persist failure THROWS rather than returning silently, so a
+    ///     caller can assert the flush actually reached the durable tier. It returns normally
+    ///     only when every dirty entry was persisted (or evicted before it could be flushed).
+    ///     </para>
+    ///     No-op on the op-replay path. This does NOT run on shutdown: <see cref="Dispose"/>
+    ///     cancels the drainer without flushing, so dirty-but-undrained samples are dropped by
+    ///     design (the write is a bounded SAMPLE, not a log). internal: tests in
+    ///     Mostlylucid.BotDetection.Test.
     /// </summary>
     internal async Task FlushDirtyAsync(CancellationToken ct = default)
     {
         if (!UseBehaviouralSampleDrain) return;
         while (!_dirtyKeys.IsEmpty && !ct.IsCancellationRequested)
         {
-            // Stop if a pass persists nothing (all remaining keys evicted, or a persist
-            // error re-flagged them) so a dead durable tier can't spin this forever.
-            if (await DrainDirtyOnceAsync(ct) == 0) break;
+            // Stop only when a pass persists nothing LEGITIMATELY (all remaining keys were
+            // evicted before we could flush them). A persist FAILURE throws instead of
+            // returning 0, so a dead durable tier surfaces as an exception, never a false
+            // "flushed" result.
+            if (await DrainDirtyOnceAsync(ct, throwOnPersistError: true) == 0) break;
         }
     }
 

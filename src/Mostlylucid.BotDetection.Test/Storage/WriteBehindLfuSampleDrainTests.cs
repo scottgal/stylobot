@@ -47,6 +47,32 @@ public sealed class WriteBehindLfuSampleDrainTests
             Flushes.SelectMany(f => f).ToList();
     }
 
+    /// <summary>
+    ///     Test double whose durable-tier persist always throws. Drain interval is set far in
+    ///     the future so the background drainer never fires during the test: FlushDirtyAsync is
+    ///     the sole drainer, so the persist failure it hits cannot be masked by a concurrent
+    ///     background pass claiming the key first.
+    /// </summary>
+    private sealed class FailingStore : WriteBehindLfuStore<string, Val, Val>
+    {
+        public FailingStore()
+            : base(maxEntries: 10_000, writeQueueCapacity: 10_000, batchMaxSize: 50,
+                   drainInterval: TimeSpan.FromHours(1), NullLogger.Instance) { }
+
+        protected override bool UseBehaviouralSampleDrain => true;
+        protected override Val CreateInitial(string key, Val op) => op;
+        protected override Val MergeIntoExisting(string key, Val existing, Val op) => op;
+        protected override ValueTask<Val?> LoadFromDurableTierAsync(string key, CancellationToken ct)
+            => new((Val?)null);
+        protected override Task PersistBatchAsync(IReadOnlyList<Val> batch, CancellationToken ct)
+            => Task.CompletedTask;
+        protected override long ColdnessScore(Val entry) => entry.Significance;
+
+        protected override Task PersistValuesBatchAsync(
+            IReadOnlyList<KeyValuePair<string, Val>> batch, CancellationToken ct)
+            => throw new InvalidOperationException("durable tier is down");
+    }
+
     private static async Task WaitUntilAsync(Func<bool> cond, int timeoutMs = 3000)
     {
         var deadline = Environment.TickCount64 + timeoutMs;
@@ -114,5 +140,19 @@ public sealed class WriteBehindLfuSampleDrainTests
         // subset of _entries). Here saturation stops, so the tail drains.
         await WaitUntilAsync(() => store.AllPersisted().Any(p => p.Key == "low"));
         store.AllPersisted().Select(p => p.Key).Should().Contain("low");
+    }
+
+    [Fact]
+    public async Task FlushDirtyAsync_SurfacesPersistError_InsteadOfSilentSuccess()
+    {
+        using var store = new FailingStore();
+        store.Record("A", new Val("A", 1, Significance: 10));
+
+        // As a durability barrier, a dead durable tier must THROW, not return as if it flushed.
+        // Before the fix, DrainDirtyOnceAsync swallowed the error and returned 0, so FlushDirtyAsync
+        // broke out of its loop and completed normally with the key still unpersisted.
+        var flush = async () => await store.FlushDirtyAsync();
+        await flush.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*durable tier is down*");
     }
 }
