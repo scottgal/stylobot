@@ -52,6 +52,10 @@
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Test" />
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Orchestration.Tests" />
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Benchmarks" />
+        <!-- Commercial durability tests assert on WriteBehindLfuStore.FlushDirtyAsync
+             (a durability barrier that throws on persist failure). Exposed per overview's
+             request so the commercial suite can flush deterministically. -->
+        <InternalsVisibleTo Include="Stylobot.Commercial.IntegrationTests" />
         <!-- DetectionBroadcastMiddleware uses FingerprintNameComposer as a request-path
              backstop when evidence.PrimaryBotName is null (matcher race against
              UserAgentContributor leaving signals[ua.raw] unset). Same composer, just
