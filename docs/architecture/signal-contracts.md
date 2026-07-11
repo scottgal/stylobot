@@ -109,6 +109,44 @@ appears in `evidence.Signals` after a real detection run, under
 is where this lives. Add a probe to `BdfReplayActual.SignalProbes` and a new
 assertion in `AssertSignalsFlowed` whenever you add a foundation signal.
 
+## Rule 5: externally-sourced (client-attested) signals are a distinct low-trust tier
+
+Signals derived from the current request, our caches, or our own detectors are
+trusted: we produced them. **Client-attested signals** — values a browser POSTs
+back about itself (in-page JS: version-gated feature presence, engine tells,
+mode markers) — are different. The client controls the value, so they are
+attacker-influenceable *even when signed*: signing proves channel
+**provenance/integrity** (the key is on the client), never value
+**truthfulness**. They ingress under these rules:
+
+1. **One adaptor, one writer.** A single adaptor validates the beacon and admits
+   client-attested signals. It is the sole canonical writer of the
+   `clientattested.*` namespace (Rule 2). Nothing else writes those keys.
+2. **The beacon payload must be bound to the token.** HMAC over `payload+token`,
+   not the token alone — otherwise a valid-token holder (or an off-browser
+   `curl` farm replaying a canned payload) can POST fabricated values. The
+   adaptor rejects any beacon whose payload signature does not verify.
+3. **The whitelist is the security boundary.** The adaptor admits only an
+   explicit allow-list of `clientattested.*` keys. A client must **never** be
+   able to write a high-trust fact (`reputation.*`, `verifiedbot.*`,
+   `signature.*`, priors). Widening the whitelist is a security change, not a
+   feature — review it as one.
+4. **Merge asymmetrically.** Client-attested signals may only **raise**
+   suspicion (via *inconsistency* — deviation of the observed values from the
+   learned centroid for the claimed browser/version/mode). They may **never
+   lower** bot-probability toward "human" on the strength of self-reported
+   "good" values. The detection value is the *inconsistency*, never the raw
+   attested value. The best outcome a spoofer can buy by POSTing perfect values
+   is *consistency = neutral*; there is no human discount to game.
+5. **Triggered classifier, never foundation.** Like `ClientSideContributor`,
+   the adaptor + any consumer depend on a prior round-trip that may never come,
+   so they run as triggered classifiers, not a wave the pipeline waits on
+   (Rule 1).
+
+The learned-centroid comparison that turns attested values into an inconsistency
+verdict (`browser.characteristic_drift`) lives in the identity centroid tier and
+is emitted by `InconsistencyContributor`; see the browser-consistency design.
+
 ## The decision flowchart
 
 Before merging a change to detection code:
