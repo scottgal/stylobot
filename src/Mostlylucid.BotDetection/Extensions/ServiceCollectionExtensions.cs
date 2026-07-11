@@ -130,6 +130,13 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Singleton<Data.Contracts.ISignatureCentroidStore, Data.NullSignatureCentroidStore>());
         services.Replace(ServiceDescriptor.Singleton<Data.Contracts.ISessionCentroidStore, Data.NullSessionCentroidStore>());
         services.Replace(ServiceDescriptor.Singleton<Data.Contracts.IIntentCentroidStore, Data.NullIntentCentroidStore>());
+        // Fingerprint store: even with Identity disabled, the mode-centroid classifier reads
+        // catalogue centroids via IFingerprintStore.GetByCatalogueKindAsync (ModeCentroidCatalogue),
+        // which otherwise resolves the concrete SqliteFingerprintStore and creates fingerprints.db.
+        // Swap to the null store so ephemeral mode touches no identity db file. Identity learning is
+        // already parked here; this closes the classifier read path any catalogue (e.g. browser_char)
+        // would hit.
+        services.Replace(ServiceDescriptor.Singleton<Identity.IFingerprintStore, Identity.NullFingerprintStore>());
 
         return services;
     }
