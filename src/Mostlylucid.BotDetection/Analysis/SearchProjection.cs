@@ -12,7 +12,6 @@ public static class SearchProjection
     private const int StationaryEnd = MarkovEnd + StateCount;   // 110
     private const int TemporalOffset = StationaryEnd;           // 110
     private const int FingerprintOffset = TemporalOffset + 8;   // 118
-    private const int TransitionTimingOffset = FingerprintOffset + 8; // 126
 
     /// <summary>
     ///     Project a session vector to the 16-axis search space.

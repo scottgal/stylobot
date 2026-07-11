@@ -10,7 +10,7 @@ root = true
 #
 # SDK 10.0.201 escalates this batch of CA rules to ERROR severity by default. The
 # CI toolchain (setup-dotnet floating `10.0.x`, currently a stable release) treats
-# them as warnings, so CI is green — but a clean local or commercial build on
+# them as warnings, so CI is green, but a clean local or commercial build on
 # 10.0.201 fails identically with ~142 `error CAxxxx` unless you pass
 # -p:RunAnalyzers=false (a workaround that disables analysis entirely). Pinning the
 # severity here restores the intended warning posture consistently across SDK

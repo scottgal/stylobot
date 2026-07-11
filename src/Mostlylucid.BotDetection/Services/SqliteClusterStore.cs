@@ -22,11 +22,6 @@ public sealed class SqliteClusterStore : IClusterStore
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _initialised;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-    };
-
     public SqliteClusterStore(string connectionString, ILogger<SqliteClusterStore> logger)
     {
         _connectionString = connectionString;

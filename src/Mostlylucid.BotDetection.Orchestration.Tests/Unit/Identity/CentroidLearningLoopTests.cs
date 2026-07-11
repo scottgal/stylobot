@@ -247,7 +247,7 @@ public sealed class CentroidLearningLoopTests : IDisposable
                     // These tests exercise the ABSORBER'S maturity-weighted fold in isolation,
                     // feeding repeated identical observations. Adaptive-forgetting sampling
                     // (default on) would correctly summarise those confirmatory repeats once the
-                    // centroid converges (nothing left to absorb) — orthogonal to what is under
+                    // centroid converges (nothing left to absorb), orthogonal to what is under
                     // test here. Turn it off so every observation reaches the absorber; the
                     // sampling decision is covered by AdaptiveObservationSamplingTests.
                     AdaptiveObservationSampling = false,

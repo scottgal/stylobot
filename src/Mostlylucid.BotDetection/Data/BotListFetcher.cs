@@ -91,14 +91,6 @@ public class SecurityToolPattern
 /// </summary>
 public partial class BotListFetcher : IBotListFetcher
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        // Use source generator context for AOT/NativeAOT support
-        TypeInfoResolver = BotDetectionJsonSerializerContext.Default
-    };
-
     private readonly IMemoryCache _cache;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BotListFetcher> _logger;

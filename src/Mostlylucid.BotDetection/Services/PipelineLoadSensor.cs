@@ -51,9 +51,6 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
 {
     // EMA smoothing factor: 30% weight on the latest 1-second sample.
     private const double Alpha = 0.3;
-    // Slow EMA for baseline: ~50-sample memory so the baseline doesn't chase a
-    // sustained pressure event and mask it.
-    private const double BaselineAlpha = 0.02;
     // Number of baseline samples to collect before adaptive logic engages; below
     // this we fall back to the legacy RPS bands. ~50s of real measurements.
     private const int BaselineWarmupTicks = 50;
