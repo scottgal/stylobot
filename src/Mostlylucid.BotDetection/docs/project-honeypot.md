@@ -11,13 +11,13 @@ malicious actors, email harvesters, and comment spammers.
 - **Comment Spammers** - Bots that post spam comments on websites
 - **Suspicious IPs** - IPs that have exhibited suspicious behavior
 
-The `ProjectHoneypotContributor` runs in **Wave 1** (after basic IP analysis) and performs DNS lookups to check visitor
+The `ProjectHoneypotAtom` runs in **Wave 1** (after basic IP analysis) and performs DNS lookups to check visitor
 IPs.
 
 ```mermaid
 flowchart LR
-    Request([Request]) --> IP{IpContributor}
-    IP --> |ip.is_local=false| Honeypot{ProjectHoneypotContributor}
+    Request([Request]) --> IP{IpAtom}
+    IP --> |ip.is_local=false| Honeypot{ProjectHoneypotAtom}
     Honeypot --> |Listed| Bot([High Bot Score])
     Honeypot --> |Not Listed| Continue([Slight Human Bias])
 ```

@@ -54,7 +54,7 @@ This document inventories every outbound network call that StyloBot makes, when 
 | **Data sent** | Client IP address (encoded in DNS query), Project Honeypot access key |
 | **Data received** | Threat type, threat score, last seen days |
 | **PII risk** | **Client IP address** transmitted to third-party DNS service |
-| **Can be disabled** | Set `BotDetection:ProjectHoneypot:Enabled = false` (default: false). The `ProjectHoneypotContributor` is skipped entirely. |
+| **Can be disabled** | Set `BotDetection:ProjectHoneypot:Enabled = false` (default: false). The `ProjectHoneypotAtom` is skipped entirely. |
 
 ### 5. Bot List Update
 

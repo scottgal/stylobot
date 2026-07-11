@@ -42,7 +42,7 @@ Registered contributors that are not in that default list include:
 - `AI`
 - `AiScraper`
 - `BehavioralWaveform`
-- `ClusterContributor`
+- `ClusterAtom`
 - `Http2Fingerprint`
 - `Http3Fingerprint`
 - `Llm`
@@ -53,7 +53,7 @@ Registered contributors that are not in that default list include:
 - `TcpIpFingerprint`
 - `TlsFingerprint`
 
-Source: `Mostlylucid.BotDetection/Extensions/ServiceCollectionExtensions.cs` and contributor classes under `Mostlylucid.BotDetection/Orchestration/ContributingDetectors`.
+Source: `Mostlylucid.BotDetection/Extensions/ServiceCollectionExtensions.cs` and contributor classes under `Mostlylucid.BotDetection/Orchestration/Atoms`.
 
 ### Configuration gap
 

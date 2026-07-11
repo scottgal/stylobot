@@ -19,13 +19,13 @@ The list is illustrative, not exhaustive. The probes write privacy-safe signals;
 
 ## Client-side probes
 
-All client-side probes are added to `src/Mostlylucid.BotDetection/ClientSide/botdetection.js`. Their results are deserialised into nested blocks on `BrowserFingerprintResult` (see "DTO shape" below), turned into signals by `ClientSide.BrowserFingerprintAnalyzer`, and consumed by `Orchestration.ContributingDetectors.InconsistencyContributor` plus the heuristic feature extractor.
+All client-side probes are added to `src/Mostlylucid.BotDetection/ClientSide/botdetection.js`. Their results are deserialised into nested blocks on `BrowserFingerprintResult` (see "DTO shape" below), turned into signals by `ClientSide.BrowserFingerprintAnalyzer`, and consumed by `Orchestration.ContributingDetectors.InconsistencyAtom` plus the heuristic feature extractor.
 
 ### `connType` (Plan 1: mobile + connection-type mismatch)
 
 **Targets:** damru and other Android-emulator stacks. Real Android Chrome on a phone reports `cellular` or `wifi` from `navigator.connection.type`. Redroid containers running on a host with ethernet uplink report `ethernet` because `Network.overrideNetworkState` was skipped during the headless-Chromium patch.
 
-**Mechanism:** the JS probe records `navigator.connection?.type` (string, or empty when the Network Information API is unavailable). The analyzer writes it to `SignalKeys.ClientSideConnectionType` ("clientside.connection_type"). `InconsistencyContributor` triggers a `mobile_connection_mismatch` flag when the UA contains a mobile token and the connection type is `ethernet`, `wifi`, or `mixed`.
+**Mechanism:** the JS probe records `navigator.connection?.type` (string, or empty when the Network Information API is unavailable). The analyzer writes it to `SignalKeys.ClientSideConnectionType` ("clientside.connection_type"). `InconsistencyAtom` triggers a `mobile_connection_mismatch` flag when the UA contains a mobile token and the connection type is `ethernet`, `wifi`, or `mixed`.
 
 **Signal:** `SignalKeys.ClientSideConnectionType` (string).
 
@@ -41,7 +41,7 @@ The STUN server URL is configurable via `ClientSideOptions.IceStunServerUrl` (de
 
 **Signal:** `SignalKeys.ClientSideIceNoSrflx` (bool: true when the probe completed and no srflx appeared).
 
-**Consumed by:** `InconsistencyContributor` gates the check on mobile UA-CH because some desktop captive portals legitimately drop UDP. Heuristic feature: `sigv:ice_no_srflx` (bool, 1f).
+**Consumed by:** `InconsistencyAtom` gates the check on mobile UA-CH because some desktop captive portals legitimately drop UDP. Heuristic feature: `sigv:ice_no_srflx` (bool, 1f).
 
 ### `ttsProbe()` (Plan 3b: TTS voice list)
 
@@ -51,7 +51,7 @@ The STUN server URL is configurable via `ClientSideOptions.IceStunServerUrl` (de
 
 **Signal:** `SignalKeys.ClientSideTtsVoiceCount` (int).
 
-**Consumed by:** `InconsistencyContributor` triggers `android_empty_voices` only when the UA contains "Android" and the count is zero. iOS Safari has a different voice lifecycle so the check is Android-only by design. Heuristic feature: `sigv:tts_voice_count` (normalised /20).
+**Consumed by:** `InconsistencyAtom` triggers `android_empty_voices` only when the UA contains "Android" and the count is zero. iOS Safari has a different voice lifecycle so the check is Android-only by design. Heuristic feature: `sigv:tts_voice_count` (normalised /20).
 
 ### `cdpRuntime` (Plan 3c: CDP Runtime detection)
 
@@ -80,17 +80,17 @@ The STUN server URL is configurable via `ClientSideOptions.IceStunServerUrl` (de
 **Mechanism:** an event listener samples up to 50 mousemove events. Per sample it records `clientX`, `clientY`, and timestamp. From those it computes: total count, integer-coords-only flag, mean delta, stddev delta, and CV.
 
 **Signals:**
-- `SignalKeys.ClientMouseEvents` (int: sample count; also lights up the previously-orphaned ghost signal that `BehavioralWaveformContributor` already consumed)
+- `SignalKeys.ClientMouseEvents` (int: sample count; also lights up the previously-orphaned ghost signal that `BehavioralWaveformAtom` already consumed)
 - `SignalKeys.ClientSideMouseAllIntegerCoords` (bool)
 - `SignalKeys.ClientSideMouseTimingCv` (double)
 
-**Consumed by:** `InconsistencyContributor` triggers `kameleo_mouse_synthesis` when the UA is desktop, the sample count is non-trivial, and either the integer-only flag is true or the CV is below 0.5. Heuristic features: `sigv:mouse_events` (normalised /50), `sigv:mouse_all_integer` (bool, 1f), `sigv:mouse_timing_cv` (double).
+**Consumed by:** `InconsistencyAtom` triggers `kameleo_mouse_synthesis` when the UA is desktop, the sample count is non-trivial, and either the integer-only flag is true or the CV is below 0.5. Heuristic features: `sigv:mouse_events` (normalised /50), `sigv:mouse_all_integer` (bool, 1f), `sigv:mouse_timing_cv` (double).
 
 ### `shape_hash` (Bonus A: fingerprint shape hash)
 
 **Targets:** Multilogin Mimic and Kameleo Chroma profile rotation. Both products cycle curated profiles per session; the canvas + WebGL renderer triple is the load-bearing identity inside each profile and stays stable per profile. A bot operator running N profiles across M IPs leaves a footprint of "same shape under many distinct contexts".
 
-**Mechanism:** `BrowserFingerprintAnalyzer.GenerateShapeHash()` computes `xxHash64(canvas | vendor | renderer)`. The 16-char hex string is written to `SignalKeys.ClientSideShapeHash`. The `PoolCollisionContributor` looks it up in `IFingerprintPoolCollisionTracker` (SQLite-backed; see "Pool collision store" below), records the current (IP-hash, session-id) context, and writes the distinct-context count to `SignalKeys.ClientSidePoolCollisionContexts`. Above the configured threshold (default 3 contexts within a 6h window) the contributor emits a bot vote.
+**Mechanism:** `BrowserFingerprintAnalyzer.GenerateShapeHash()` computes `xxHash64(canvas | vendor | renderer)`. The 16-char hex string is written to `SignalKeys.ClientSideShapeHash`. The `PoolCollisionAtom` looks it up in `IFingerprintPoolCollisionTracker` (SQLite-backed; see "Pool collision store" below), records the current (IP-hash, session-id) context, and writes the distinct-context count to `SignalKeys.ClientSidePoolCollisionContexts`. Above the configured threshold (default 3 contexts within a 6h window) the contributor emits a bot vote.
 
 **Why the canvas+WebGL triple:** it is hardware-derived (GPU, driver, OS) and effectively immutable for a real user across sessions on the same device. A change under the same fingerprint id is the canonical anti-detect-browser profile-swap signal.
 
@@ -110,7 +110,7 @@ The JA3 reference corpus lives in `src/Mostlylucid.BotDetection/Definitions/TlsR
 
 **Targets:** the entire damru family (~184 cipher-list variants per Cloudflare's published catalogue). Damru and similar tools blacklist specific cipher suites from the real Chrome list to evade fingerprint matchers; the patched ClientHello is otherwise byte-identical to real Chrome.
 
-**Mechanism:** `TlsFingerprintContributor` parses the observed JA3 string into its five parts (TLS version, ciphers, extensions, elliptic curves, EC point formats). It looks up the reference JA3 for the UA-claimed browser + major version + mobile/desktop class via `IJa3ReferenceIndex.GetReference()`. `IsStrictCipherSubset()` returns true when parts 0/2/3/4 match exactly and the cipher list is a strict subset (every observed cipher is present in the reference, and at least one reference cipher is missing). Subset + missing count are written as signals.
+**Mechanism:** `TlsFingerprintAtom` parses the observed JA3 string into its five parts (TLS version, ciphers, extensions, elliptic curves, EC point formats). It looks up the reference JA3 for the UA-claimed browser + major version + mobile/desktop class via `IJa3ReferenceIndex.GetReference()`. `IsStrictCipherSubset()` returns true when parts 0/2/3/4 match exactly and the cipher list is a strict subset (every observed cipher is present in the reference, and at least one reference cipher is missing). Subset + missing count are written as signals.
 
 **Signals:**
 - `SignalKeys.TlsCipherSubsetOfRealChrome` (bool)
@@ -155,7 +155,7 @@ The metastable fingerprint identity layer (6.4.7+) compares the current request'
 
 **`botd_kind` dim (weight 0.20):** a fingerprint that BotD classified as `selenium` last session and `puppeteer` this session either swapped automation framework (rare for legitimate operators) or is being reused across accounts.
 
-`IdentityChangeContributor` reads `ClientSideShapeHash` and `ClientSideBotdKind` from the current signals, compares against the snapshot, and writes:
+`IdentityChangeAtom` reads `ClientSideShapeHash` and `ClientSideBotdKind` from the current signals, compares against the snapshot, and writes:
 
 - `SignalKeys.RiskShapeHashChanged` (bool)
 - `SignalKeys.RiskBotdKindChanged` (bool)
@@ -184,9 +184,9 @@ Two new SQLite-backed stores were added. Both subclass `WriteBehindLfuStore<TKey
 
 ### `WaveformHistoryStore`
 
-**File:** `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/WaveformHistoryStore.cs`
+**File:** `src/Mostlylucid.BotDetection/Orchestration/Atoms/WaveformHistoryStore.cs`
 **DB:** `waveform_history.db`
-**Purpose:** replaces the previous `IMemoryCache` usage in `BehavioralWaveformContributor` (per the "no unbacked IMemoryCache" rule; new IMemoryCache without a backing store is a bug).
+**Purpose:** replaces the previous `IMemoryCache` usage in `BehavioralWaveformAtom` (per the "no unbacked IMemoryCache" rule; new IMemoryCache without a backing store is a bug).
 **Privacy:** hashes UA via xxHash64 before SQLite persistence; raw UA stays in the hot tier only.
 **Window:** 30-minute sliding window + 100-snapshot cap per signature.
 **In-place update:** `UpdateLastContentClass` uses same-timestamp merge so the latest snapshot updates without an insert/delete cycle.
@@ -325,6 +325,6 @@ All cloak-detection options live under `BotDetection` in `appsettings.json`. Def
 
 ## Known follow-ups
 
-- **X-JA3 / X-JA4 / X-Client-TLS-* trusted-proxy gate.** The current `TlsFingerprintContributor` trusts these headers when HTTPS terminates upstream, but does not gate by a trusted-proxy CIDR list. An off-net attacker who can reach the origin directly can forge them. Tracked as security debt; the proper fix is a `BotDetectionOptions.TrustedProxyCidrs` list and a check before consuming any `X-*` recovery headers. The naive "trust on HTTPS" extension I committed in 5ef663f8 was reverted in 0fc3ad9a.
+- **X-JA3 / X-JA4 / X-Client-TLS-* trusted-proxy gate.** The current `TlsFingerprintAtom` trusts these headers when HTTPS terminates upstream, but does not gate by a trusted-proxy CIDR list. An off-net attacker who can reach the origin directly can forge them. Tracked as security debt; the proper fix is a `BotDetectionOptions.TrustedProxyCidrs` list and a check before consuming any `X-*` recovery headers. The naive "trust on HTTPS" extension I committed in 5ef663f8 was reverted in 0fc3ad9a.
 - **BDF cloak assertion shape.** New assertion API that asserts on the specific signals listed above, not on `isBot >= 0.5`, so the rig surfaces cloak-detection regressions independently of the global verdict.
 - **CAPTCHA migration to Altcha.** Research complete; no code yet. The current PoW challenge stays in place.

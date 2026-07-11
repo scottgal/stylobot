@@ -34,7 +34,7 @@ Behavioral drift is computed as a weighted composite of five dimensions: geograp
 {
   "BotDetection": {
     "Detectors": {
-      "AccountTakeoverContributor": {
+      "AccountTakeoverAtom": {
         "Parameters": {
           "failed_login_threshold": 5,
           "brute_force_threshold": 10,

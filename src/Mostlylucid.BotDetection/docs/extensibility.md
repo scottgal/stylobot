@@ -17,7 +17,7 @@ The library uses a pluggable architecture with three main extension points:
 │  └─────────────┘     └─────────────────┘     └───────────────┘  │
 │        │                     │                       │          │
 │        v                     v                       v          │
-│  IContributingDetector  IPolicyRegistry     IActionPolicyRegistry│
+│  IDetectorAtom  IPolicyRegistry     IActionPolicyRegistry│
 │                         IPolicyEvaluator    IActionPolicy        │
 │                                             IActionPolicyFactory │
 │                                                                  │
@@ -33,7 +33,7 @@ Detectors analyze requests and contribute evidence to the detection process.
 ```csharp
 using Mostlylucid.BotDetection.Orchestration;
 
-public class GeoLocationDetector : IContributingDetector
+public class GeoLocationDetector : IDetectorAtom
 {
     // Required: unique name
     public string Name => "GeoLocation";
@@ -96,10 +96,10 @@ public class GeoLocationDetector : IContributingDetector
 
 ```csharp
 // In Program.cs or Startup.cs
-services.AddSingleton<IContributingDetector, GeoLocationDetector>();
+services.AddSingleton<IDetectorAtom, GeoLocationDetector>();
 
 // Or with dependencies
-services.AddSingleton<IContributingDetector>(sp =>
+services.AddSingleton<IDetectorAtom>(sp =>
 {
     var geoService = sp.GetRequiredService<IGeoService>();
     var logger = sp.GetRequiredService<ILogger<GeoLocationDetector>>();
@@ -575,7 +575,7 @@ Individual detectors can also be configured:
 
 | Interface                 | Purpose                     | Registration                                                 |
 |---------------------------|-----------------------------|--------------------------------------------------------------|
-| `IContributingDetector`   | Add detection signals       | `services.AddSingleton<IContributingDetector, MyDetector>()` |
+| `IDetectorAtom`   | Add detection signals       | `services.AddSingleton<IDetectorAtom, MyDetector>()` |
 | `IActionPolicy`           | Custom response handling    | `services.AddSingleton<IActionPolicy, MyPolicy>()`           |
 | `IActionPolicyFactory`    | Create policies from config | `services.AddSingleton<IActionPolicyFactory, MyFactory>()`   |
 | `IChallengeHandler`       | Custom challenge logic      | `services.AddSingleton<IChallengeHandler, MyHandler>()`      |
@@ -593,7 +593,7 @@ Individual detectors can also be configured:
 Always use constructor injection for dependencies:
 
 ```csharp
-public class MyDetector : IContributingDetector
+public class MyDetector : IDetectorAtom
 {
     private readonly ILogger<MyDetector> _logger;
     private readonly IMyService _service;
@@ -678,7 +678,7 @@ contributions.Add(new DetectionContribution
 
 ```csharp
 // 1. Custom Detector
-public class FraudDetector : IContributingDetector
+public class FraudDetector : IDetectorAtom
 {
     public string Name => "Fraud";
     public string Category => "Behavioral";
@@ -711,7 +711,7 @@ public class FraudAlertHandler : ILearningEventHandler
 }
 
 // 4. Registration
-services.AddSingleton<IContributingDetector, FraudDetector>();
+services.AddSingleton<IDetectorAtom, FraudDetector>();
 services.AddSingleton<IActionPolicy, FraudBlockPolicy>();
 services.AddSingleton<ILearningEventHandler, FraudAlertHandler>();
 ```

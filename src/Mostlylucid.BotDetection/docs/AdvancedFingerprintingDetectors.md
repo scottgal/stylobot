@@ -8,11 +8,11 @@ from Zeek, p0f, and modern threat intelligence.
 The advanced detection suite adds five new contributors that analyze network and protocol-layer characteristics to
 detect sophisticated automation:
 
-1. **TlsFingerprintContributor** - JA3/JA4-style TLS fingerprinting
-2. **TcpIpFingerprintContributor** - TCP/IP stack fingerprinting (p0f-style)
+1. **TlsFingerprintAtom** - JA3/JA4-style TLS fingerprinting
+2. **TcpIpFingerprintAtom** - TCP/IP stack fingerprinting (p0f-style)
 3. **Http2FingerprintContributor** - HTTP/2 protocol fingerprinting (AKAMAI-style)
-4. **MultiLayerCorrelationContributor** - Cross-layer consistency analysis
-5. **BehavioralWaveformContributor** - Temporal pattern analysis across requests
+4. **MultiLayerCorrelationAtom** - Cross-layer consistency analysis
+5. **BehavioralWaveformAtom** - Temporal pattern analysis across requests
 
 ## Inspiration from Zeek
 

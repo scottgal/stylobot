@@ -194,7 +194,7 @@ The `vector version` slot in the Quality bucket of every composed vector echoes 
 
 ## Vector composition
 
-Composed by `IdentityVectorContributor` (foundation Match step) from signals already on the blackboard plus raw headers it pulls directly. Dimension count is whatever the encoding produces (~110-180 dims expected). No artificial cap.
+Composed by `IdentityVectorAtom` (foundation Match step) from signals already on the blackboard plus raw headers it pulls directly. Dimension count is whatever the encoding produces (~110-180 dims expected). No artificial cap.
 
 ```
 Network              ASN, IP-subnet, country, region, city, is_datacenter, is_vpn, is_tor
@@ -410,7 +410,7 @@ dimensions:
   # dims not listed are unmasked (mask = 0); the archetype makes no claim about them
 ```
 
-Loader compiles each YAML into the binary `centroid` + `dimension_mask` blobs at startup using the same encoding rules as the live IdentityVectorContributor. Archetypes and live vectors share dimension layout and encoding, so cosine between them is meaningful.
+Loader compiles each YAML into the binary `centroid` + `dimension_mask` blobs at startup using the same encoding rules as the live IdentityVectorAtom. Archetypes and live vectors share dimension layout and encoding, so cosine between them is meaningful.
 
 ## Per-fingerprint weight learning
 
@@ -491,8 +491,8 @@ Foundation Compute:
 
 Foundation Match:
   FastPathReputation, FingerprintPrior, ContentSequence,
-  IdentityVectorContributor (composes V, writes identity.vector + identity.vector_quality),
-  FingerprintMatchContributor (runs Pass 1 + Pass 2, writes identity.* signals)
+  IdentityVectorAtom (composes V, writes identity.vector + identity.vector_quality),
+  FingerprintMatchAtom (runs Pass 1 + Pass 2, writes identity.* signals)
 
 Classifier wave:
   Existing classifiers, unchanged. Identity match outcome does not gate them.
@@ -511,13 +511,13 @@ Every component named so far is a node in one closed loop. Each cycle improves t
 ```
                          ┌──────────────────────────────┐
                          │  Request arrives             │
-                         │  IdentityVectorContributor   │
+                         │  IdentityVectorAtom   │
                          │  composes vector V           │
                          └──────────────┬───────────────┘
                                         │
                                         ▼
                          ┌──────────────────────────────┐
-                         │  FingerprintMatchContributor │
+                         │  FingerprintMatchAtom │
                          │  Pass 1 quick confirm        │
                          │  Pass 2 vec0 + re-rank       │
                          └──────────────┬───────────────┘
@@ -607,8 +607,8 @@ There are no terminal nodes. Every path eventually produces a row that the next 
 The C# wiring:
 
 ```
-IdentityVectorContributor          (foundation Match step, hot path)
-FingerprintMatchContributor        (foundation Match step, hot path,
+IdentityVectorAtom          (foundation Match step, hot path)
+FingerprintMatchAtom        (foundation Match step, hot path,
                                     runs Pass 1 + Pass 2)
 IFingerprintObservationWriter      (writes obs row + queues for absorption)
 IFingerprintCorrectionRecorder     (writes correction row + applies weight delta)

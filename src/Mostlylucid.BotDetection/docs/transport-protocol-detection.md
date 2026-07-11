@@ -12,7 +12,7 @@ The detector emits the identified protocol as a signal (`transport.protocol`) fo
 
 ## Two-Level Transport Classification
 
-Beyond protocol identification, TransportProtocolContributor emits a two-level classification that downstream detectors use to suppress false positives on streaming traffic:
+Beyond protocol identification, TransportProtocolAtom emits a two-level classification that downstream detectors use to suppress false positives on streaming traffic:
 
 - **Transport class** (`transport.transport_class`): Physical transport - `http`, `websocket`, or `sse`
 - **Protocol class** (`transport.protocol_class`): Application protocol - `signalr`, `grpc`, `api`, or `unknown`
@@ -29,9 +29,9 @@ The SignalR transport type is classified as `negotiate`, `websocket`, `sse`, or 
 
 ### SSE Reconnect Detection
 
-When `Last-Event-ID` is present, the detector emits `transport.sse_reconnect = true` and `transport.sse_last_event_id` with the value. This allows StreamAbuseContributor to track reconnect frequency.
+When `Last-Event-ID` is present, the detector emits `transport.sse_reconnect = true` and `transport.sse_last_event_id` with the value. This allows StreamAbuseAtom to track reconnect frequency.
 
-For the full stream-aware detection architecture, including how downstream detectors consume these signals and the StreamAbuseContributor, see [Stream Transport Detection](stream-transport-detection.md).
+For the full stream-aware detection architecture, including how downstream detectors consume these signals and the StreamAbuseAtom, see [Stream Transport Detection](stream-transport-detection.md).
 
 ## Signals Emitted
 
@@ -59,7 +59,7 @@ For the full stream-aware detection architecture, including how downstream detec
 {
   "BotDetection": {
     "Detectors": {
-      "TransportProtocolContributor": {
+      "TransportProtocolAtom": {
         "Parameters": {
           "missing_ws_headers_confidence": 0.6,
           "grpc_browser_ua_confidence": 0.5,

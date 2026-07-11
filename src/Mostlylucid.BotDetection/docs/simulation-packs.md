@@ -52,7 +52,7 @@ Simulation packs are embedded YAML resources in `Mostlylucid.BotDetection`. They
 
 Pack loading and path matching are handled by `SimulationPackLoader`, which implements `ISimulationPackRegistry`. At startup, it scans for embedded YAML resources matching the prefix `Mostlylucid.BotDetection.SimulationPacks.Packs.` and deserializes each into a `SimulationPack` record. All honeypot and CVE probe paths across all packs are flattened into a single lookup list for fast per-request matching.
 
-The `CveProbeContributor` (Priority 11, Wave 0) runs on every request and calls `IsHoneypotPath()` against the registry. When a match is found, it writes signals to the blackboard and adds a `DetectionContribution.Bot(...)` with confidence scaled to severity. It also sets `action.trigger_policy` to `"simulation-pack"` for paths with confidence >= 0.7, which routes the request to `SimulationPackResponder`.
+The `CveProbeAtom` (Priority 11, Wave 0) runs on every request and calls `IsHoneypotPath()` against the registry. When a match is found, it writes signals to the blackboard and adds a `DetectionContribution.Bot(...)` with confidence scaled to severity. It also sets `action.trigger_policy` to `"simulation-pack"` for paths with confidence >= 0.7, which routes the request to `SimulationPackResponder`.
 
 Path matching uses `FileSystemName.MatchesSimpleExpression` (case-insensitive glob). CVE probe paths resolve with confidence derived from the module's severity field; honeypot paths use the per-path `confidence` value from the YAML definition.
 
@@ -347,7 +347,7 @@ A `PackCveModule` targets a specific published vulnerability. It contains:
 When a request path matches a CVE module's `probe_paths`:
 - Confidence is set by severity (0.75-0.95)
 - Weight is 2.5 (higher than most honeypot path entries)
-- `CveProbeContributor` classifies the bot as `MaliciousBot` for critical/high, `Scraper` for medium/low
+- `CveProbeAtom` classifies the bot as `MaliciousBot` for critical/high, `Scraper` for medium/low
 - The `simulation-pack` action policy is triggered for confidence >= 0.7
 
 If the module defines a `probe_response`, that template is served instead of any pack-level template matching the same path.
@@ -356,7 +356,7 @@ If the module defines a `probe_response`, that template is served instead of any
 
 ## Signals Emitted
 
-`CveProbeContributor` writes to the blackboard when a path matches:
+`CveProbeAtom` writes to the blackboard when a path matches:
 
 | Signal Key | Type | Value |
 |-----------|------|-------|
@@ -368,7 +368,7 @@ If the module defines a `probe_response`, that template is served instead of any
 | `action.trigger_policy` | `string` | `"simulation-pack"` (set when confidence >= 0.7) |
 | `action.trigger_reason` | `string` | Human-readable reason, e.g. `"CVE probe: CVE-2024-6386 (critical)"` |
 
-`BeaconContributor` (Priority 2, from `Mostlylucid.BotDetection.ApiHolodeck`) writes when a canary from a previous holodeck response is found in the current request:
+`BeaconAtom` (Priority 2, from `Mostlylucid.BotDetection.ApiHolodeck`) writes when a canary from a previous holodeck response is found in the current request:
 
 | Signal Key | Type | Value |
 |-----------|------|-------|

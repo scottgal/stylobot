@@ -8,7 +8,7 @@ Trigger: No prerequisites -runs on every request
 
 Tracks the request sequence produced by each fingerprint and scores divergence from the expected browser page-load pattern. Real browsers follow a predictable rhythm: a document navigation request is followed immediately by a burst of static asset loads (CSS, JS, images), then API calls settle in, and finally streaming connections (SignalR, WebSocket) open if the page requires them. Bots routinely break this rhythm -hitting APIs directly after a document, loading no assets at all, or firing requests at machine speed.
 
-`ContentSequenceContributor` maintains this per-fingerprint sequence state, classifies each incoming request against the current phase window, and writes divergence signals that deferred detectors (SessionVector, BehavioralWaveform, ResourceWaterfall, Periodicity, CacheBehavior) consume to decide whether to run.
+`ContentSequenceAtom` maintains this per-fingerprint sequence state, classifies each incoming request against the current phase window, and writes divergence signals that deferred detectors (SessionVector, BehavioralWaveform, ResourceWaterfall, Periodicity, CacheBehavior) consume to decide whether to run.
 
 ## How It Works
 
@@ -18,7 +18,7 @@ A request is treated as a document navigation when any of the following is true:
 
 - `Sec-Fetch-Mode: navigate` is present
 - `Accept` header includes `text/html` and the method is GET
-- The `transport.protocol_class` signal from `TransportProtocolContributor` is `document`
+- The `transport.protocol_class` signal from `TransportProtocolAtom` is `document`
 
 When a document request is received, the contributor resets the sequence context to position 0 for that fingerprint and loads the best available chain:
 
@@ -92,7 +92,7 @@ This prevents speculative prefetch from inflating divergence scores on real user
 
 ### Cache-warm detection
 
-When the Critical phase window (0–500 ms) closes with no StaticAsset observed, the contributor marks the session as cache-warm and writes `sequence.cache_warm = true`. This is the normal pattern for repeat visitors whose browser already holds all static resources. `CacheBehaviorContributor` reads this signal and returns a neutral contribution instead of flagging the absence of cache validation headers.
+When the Critical phase window (0–500 ms) closes with no StaticAsset observed, the contributor marks the session as cache-warm and writes `sequence.cache_warm = true`. This is the normal pattern for repeat visitors whose browser already holds all static resources. `CacheBehaviorAtom` reads this signal and returns a neutral contribution instead of flagging the absence of cache validation headers.
 
 ### No active sequence (API-only access)
 
@@ -144,11 +144,11 @@ Expected chains are persisted to SQLite, keyed by cluster ID.
 
 Five detectors that produce expensive or meaningful-only-with-enough-data analysis are gated behind `SequenceGuardTrigger.Default`:
 
-- `SessionVectorContributor`
-- `PeriodicityContributor`
-- `BehavioralWaveformContributor`
-- `ResourceWaterfallContributor`
-- `CacheBehaviorContributor`
+- `SessionVectorAtom`
+- `PeriodicityAtom`
+- `BehavioralWaveformAtom`
+- `ResourceWaterfallAtom`
+- `CacheBehaviorAtom`
 
 The guard triggers a deferred detector when **any** of the following conditions is true:
 
@@ -169,7 +169,7 @@ This means:
 File: `Orchestration/Manifests/detectors/contentsequence.detector.yaml`
 
 ```yaml
-name: ContentSequenceContributor
+name: ContentSequenceAtom
 priority: 4
 enabled: true
 scope: request
@@ -240,7 +240,7 @@ Parameters can be overridden at runtime without redeployment:
 {
   "BotDetection": {
     "Detectors": {
-      "ContentSequenceContributor": {
+      "ContentSequenceAtom": {
         "Enabled": true,
         "Parameters": {
           "divergence_threshold": 0.35,
@@ -282,25 +282,25 @@ if (onTrack && centroidType == "Human")
 }
 ```
 
-The `sequence.signalr_expected` signal follows a similar pattern -`StreamAbuseContributor` skips its analysis when this signal is true because opening a SignalR connection after a document load is a normal browser action, not stream abuse.
+The `sequence.signalr_expected` signal follows a similar pattern -`StreamAbuseAtom` skips its analysis when this signal is true because opening a SignalR connection after a document load is a normal browser action, not stream abuse.
 
 ## Interaction with Other Detectors
 
-### CacheBehaviorContributor
+### CacheBehaviorAtom
 
 Reads `sequence.cache_warm`. When true, returns a neutral contribution rather than flagging the absence of `If-None-Match` / `If-Modified-Since` cache validation headers. This prevents false positives on repeat visitors whose browsers skip conditional requests because the resource is already fresh in the local cache.
 
-### StreamAbuseContributor
+### StreamAbuseAtom
 
 Reads `sequence.signalr_expected`. When true, skips its analysis for SignalR connection attempts. A SignalR open that follows a document request and appears in the centroid chain's next expected state is not stream abuse.
 
-### SessionVectorContributor, BehavioralWaveformContributor, PeriodicityContributor, ResourceWaterfallContributor
+### SessionVectorAtom, BehavioralWaveformAtom, PeriodicityAtom, ResourceWaterfallAtom
 
 All four use `SequenceGuardTrigger.Default` to decide whether to run. See Deferred Detector Integration above.
 
-### TransportProtocolContributor (Priority 5)
+### TransportProtocolAtom (Priority 5)
 
-`ContentSequenceContributor` consumes the `transport.protocol_class` signal emitted by `TransportProtocolContributor` to classify document requests. Because `ContentSequenceContributor` runs at priority 4 and `TransportProtocolContributor` at priority 5, this signal is not yet available on the first pass. The fallback logic (`Sec-Fetch-Mode: navigate` or `Accept: text/html + GET`) handles document detection independently for the priority-4 wave. Transport classification is used for continuation request classification where priority ordering is not a constraint.
+`ContentSequenceAtom` consumes the `transport.protocol_class` signal emitted by `TransportProtocolAtom` to classify document requests. Because `ContentSequenceAtom` runs at priority 4 and `TransportProtocolAtom` at priority 5, this signal is not yet available on the first pass. The fallback logic (`Sec-Fetch-Mode: navigate` or `Accept: text/html + GET`) handles document detection independently for the priority-4 wave. Transport classification is used for continuation request classification where priority ordering is not a constraint.
 
 ### CentroidSequenceRebuildHostedService
 
@@ -316,7 +316,7 @@ Listens to `BotClusterService.ClustersUpdated` and rebuilds all Tier 2 chains in
 
 **Centroid freshness after site redesign.** A significant structural change to page layout (new CSS bundles, changed JS entry points, rearranged API calls) will cause divergence spikes as the Tier 2 centroids become stale. Call `MarkEndpointStale(path)` for affected paths during a deployment to suppress divergence scoring for the 1-hour suppression window while `CentroidSequenceRebuildHostedService` rebuilds the chains from post-deployment traffic.
 
-**Session gap tuning.** The default 30-minute gap matches the session boundary used by `SessionVectorContributor`. Keeping both values aligned ensures that a sequence chain reset and a new session vector start together. If you customise `session_gap_minutes`, apply the same value to `SessionVectorContributor`'s session gap parameter to avoid the two subsystems diverging on session identity.
+**Session gap tuning.** The default 30-minute gap matches the session boundary used by `SessionVectorAtom`. Keeping both values aligned ensures that a sequence chain reset and a new session vector start together. If you customise `session_gap_minutes`, apply the same value to `SessionVectorAtom`'s session gap parameter to avoid the two subsystems diverging on session identity.
 
 ## Performance
 

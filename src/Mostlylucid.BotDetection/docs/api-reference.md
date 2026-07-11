@@ -1022,12 +1022,12 @@ builder.Services.AddReverseProxy()
 
 **Namespace:** `Mostlylucid.BotDetection.Orchestration`
 
-Implement `IContributingDetector` to create custom detectors.
+Implement `IDetectorAtom` to create custom detectors.
 
-### IContributingDetector Interface
+### IDetectorAtom Interface
 
 ```csharp
-public interface IContributingDetector
+public interface IDetectorAtom
 {
     string Name { get; }
     int Priority => 100;                    // Lower = runs first
@@ -1043,12 +1043,12 @@ public interface IContributingDetector
 }
 ```
 
-### ContributingDetectorBase
+### DetectorAtomBase
 
 Abstract base class with helpers.
 
 ```csharp
-public abstract class ContributingDetectorBase : IContributingDetector
+public abstract class DetectorAtomBase : IDetectorAtom
 {
     // Implement these:
     public abstract string Name { get; }
@@ -1110,7 +1110,7 @@ Triggers.WhenRiskMediumOrHigher
 ### Example Custom Detector
 
 ```csharp
-public class GeoFenceDetector : ContributingDetectorBase
+public class GeoFenceDetector : DetectorAtomBase
 {
     public override string Name => "GeoFence";
     public override int Priority => 50;
@@ -1145,7 +1145,7 @@ public class GeoFenceDetector : ContributingDetectorBase
 }
 
 // Register:
-services.AddSingleton<IContributingDetector, GeoFenceDetector>();
+services.AddSingleton<IDetectorAtom, GeoFenceDetector>();
 ```
 
 ---

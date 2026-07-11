@@ -78,7 +78,7 @@ implementation:
   nuget:
     package: Mostlylucid.BotDetection
     version: "^3.0.0"
-    type: Mostlylucid.BotDetection.Orchestration.ContributingDetectors.BehavioralContributor
+    type: Mostlylucid.BotDetection.Orchestration.ContributingDetectors.BehavioralAtom
 
 # Taxonomy classification
 taxonomy:

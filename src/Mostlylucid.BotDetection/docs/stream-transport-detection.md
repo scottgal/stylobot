@@ -2,19 +2,19 @@
 
 WebSocket, Server-Sent Events (SSE), and SignalR traffic follows fundamentally different patterns than standard HTTP page loads. Without stream-aware detection, these patterns cause false positives: high request count, odd paths, missing cache headers, and timing regularity are all normal for streaming but suspicious for page loads.
 
-StyloBot implements a **two-level transport classification** system that identifies streaming traffic early and propagates that classification to all downstream detectors. A dedicated **StreamAbuseContributor** then catches attackers who hide behind streaming traffic.
+StyloBot implements a **two-level transport classification** system that identifies streaming traffic early and propagates that classification to all downstream detectors. A dedicated **StreamAbuseAtom** then catches attackers who hide behind streaming traffic.
 
 ## Architecture
 
 Two detectors work together:
 
-- **TransportProtocolContributor** (Wave 0, priority 5) - classifies every request into a transport class and protocol class, emitting `transport.is_streaming` for downstream consumption
-- **StreamAbuseContributor** (Wave 1+, priority 35) - uses per-signature sliding window tracking to detect abuse patterns unique to streaming
+- **TransportProtocolAtom** (Wave 0, priority 5) - classifies every request into a transport class and protocol class, emitting `transport.is_streaming` for downstream consumption
+- **StreamAbuseAtom** (Wave 1+, priority 35) - uses per-signature sliding window tracking to detect abuse patterns unique to streaming
 
 Five existing detectors consume the streaming signals to suppress false positives:
 
-- **CacheBehaviorContributor** - skips cache validation checks entirely for streaming requests
-- **BehavioralWaveformContributor** - excludes streaming requests from page rate/burst calculations, applies stream-specific burst thresholds
+- **CacheBehaviorAtom** - skips cache validation checks entirely for streaming requests
+- **BehavioralWaveformAtom** - excludes streaming requests from page rate/burst calculations, applies stream-specific burst thresholds
 - **AdvancedBehavioralContributor** - skips path entropy, navigation pattern, and burst analysis for streaming
 - **MultiFactorSignatureService** - prevents streaming requests from polluting full-page-load signature factors
 
@@ -56,7 +56,7 @@ flowchart TD
 
 ## Two-Level Transport Classification
 
-TransportProtocolContributor emits two classification levels for every request:
+TransportProtocolAtom emits two classification levels for every request:
 
 ### Level 1: Transport Class
 
@@ -116,7 +116,7 @@ sequenceDiagram
 
 ## SSE Reconnect Detection
 
-When an SSE connection drops, the browser automatically reconnects with `Last-Event-ID` to resume from where it left off. TransportProtocolContributor detects this:
+When an SSE connection drops, the browser automatically reconnects with `Last-Event-ID` to resume from where it left off. TransportProtocolAtom detects this:
 
 | Signal | Type | Description |
 |--------|------|-------------|
@@ -127,7 +127,7 @@ A `Last-Event-ID` of `0` or `-1` triggers a bot signal (history replay attempt -
 
 ## Stream Abuse Detection
 
-StreamAbuseContributor runs in Wave 1+ (after TransportProtocol and BehavioralWaveform emit signals). It uses `IMemoryCache` for per-signature sliding window tracking.
+StreamAbuseAtom runs in Wave 1+ (after TransportProtocol and BehavioralWaveform emit signals). It uses `IMemoryCache` for per-signature sliding window tracking.
 
 ### Abuse Patterns Detected
 
@@ -191,13 +191,13 @@ A signature connecting to many distinct streaming endpoints (probing for open st
 
 ## Downstream Detector Behavior Changes
 
-### CacheBehaviorContributor
+### CacheBehaviorAtom
 
 **Before**: Wave 0, no streaming awareness. Penalized missing `If-None-Match`/`If-Modified-Since` and rapid repeat requests - both normal for SSE and SignalR.
 
 **After**: Moved to Wave 1 (triggered by `transport.protocol`). Reads `transport.is_streaming` and returns a neutral contribution immediately for streaming requests, emitting `cache.skipped_streaming = true`.
 
-### BehavioralWaveformContributor
+### BehavioralWaveformAtom
 
 **Before**: Only excluded WebSocket from page rate calculations and burst detection.
 
@@ -231,7 +231,7 @@ All parameters are configurable via `appsettings.json`:
 {
   "BotDetection": {
     "Detectors": {
-      "StreamAbuseContributor": {
+      "StreamAbuseAtom": {
         "Parameters": {
           "handshake_storm_threshold": 10,
           "handshake_storm_window_seconds": 60,
@@ -314,12 +314,12 @@ flowchart LR
 
 | File | Role |
 |------|------|
-| `ContributingDetectors/TransportProtocolContributor.cs` | Two-level classification, SignalR detection |
-| `ContributingDetectors/StreamAbuseContributor.cs` | Stream abuse detection (new) |
+| `Atoms/TransportProtocolAtom.cs` | Two-level classification, SignalR detection |
+| `Atoms/StreamAbuseAtom.cs` | Stream abuse detection (new) |
 | `Manifests/detectors/transport-protocol.detector.yaml` | TransportProtocol YAML manifest |
 | `Manifests/detectors/stream-abuse.detector.yaml` | StreamAbuse YAML manifest |
-| `ContributingDetectors/CacheBehaviorContributor.cs` | Stream skip logic |
-| `ContributingDetectors/BehavioralWaveformContributor.cs` | ContentClass SSE/SignalR, stream-aware rates |
-| `ContributingDetectors/AdvancedBehavioralContributor.cs` | Streaming guards |
+| `Atoms/CacheBehaviorAtom.cs` | Stream skip logic |
+| `Atoms/BehavioralWaveformAtom.cs` | ContentClass SSE/SignalR, stream-aware rates |
+| `Atoms/AdvancedBehavioralContributor.cs` | Streaming guards |
 | `Dashboard/MultiFactorSignatureService.cs` | SSE/SignalR in IsNonDocumentRequest |
 | `Models/DetectionContext.cs` | Signal key constants |

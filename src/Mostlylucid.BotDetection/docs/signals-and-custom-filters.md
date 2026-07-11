@@ -8,10 +8,10 @@ Every detector in the pipeline writes signals to a shared blackboard. After dete
 
 ```
 Request → Orchestrator
-  ├─ UserAgentContributor → ua.is_bot, ua.bot_type, ua.bot_name
-  ├─ IpContributor       → ip.is_datacenter, ip.is_known_bot_ip
+  ├─ UserAgentAtom → ua.is_bot, ua.bot_type, ua.bot_name
+  ├─ IpAtom       → ip.is_datacenter, ip.is_known_bot_ip
   ├─ GeoContributor      → geo.country_code, geo.is_vpn, geo.is_tor
-  ├─ HeaderContributor   → header.missing_count, header.suspicious_count
+  ├─ HeaderAtom   → header.missing_count, header.suspicious_count
   ├─ HeuristicDetector   → heuristic.confidence, heuristic.probability
   └─ ... (57 detectors, including Threat Intelligence)
       ↓
@@ -222,20 +222,20 @@ app.MapPost("/api/transfer", (HttpContext ctx) =>
 
 | Key | Source | Description |
 |-----|--------|-------------|
-| `clientside.connection_type` | ClientSideContributor | `navigator.connection.type` value (mobile UA + ethernet = damru) |
-| `clientside.ice_no_srflx` | ClientSideContributor | WebRTC ICE probe saw no srflx candidate (UDP egress blocked) |
-| `clientside.tts_voice_count` | ClientSideContributor | `speechSynthesis.getVoices()` count (zero on Android = fresh container) |
-| `clientside.botd_kind` | ClientSideContributor | FingerprintJS BotD verdict kind (opt-in; default off) |
-| `clientside.shape_hash` | ClientSideContributor | xxHash64 of canvas + WebGL vendor + renderer |
-| `clientside.pool_collision_contexts` | PoolCollisionContributor | Distinct (IP, session) count for the same shape hash in window |
-| `clientside.mouse_all_integer_coords` | ClientSideContributor | All sampled mousemoves had integer coords (Kameleo) |
-| `clientside.mouse_timing_cv` | ClientSideContributor | Coefficient of variation of mouse-event intervals |
-| `tls.cipher_subset_of_real_chrome` | TlsFingerprintContributor | Observed JA3 ciphers are a strict subset of the reference |
-| `tls.cipher_subset_missing_count` | TlsFingerprintContributor | How many ciphers are missing from the subset |
-| `tls.version_delta_from_ua` | TlsFingerprintContributor | UA-claim minus JA3-matched browser major version |
-| `risk.shape_hash_changed` | IdentityChangeContributor | Shape hash changed under the same fingerprint id (profile swap) |
-| `risk.botd_kind_changed` | IdentityChangeContributor | BotD kind changed under the same fingerprint id |
-| `risk.suspicious_change_score` | IdentityChangeContributor | Weighted aggregate of all risk dim changes |
+| `clientside.connection_type` | ClientSideAtom | `navigator.connection.type` value (mobile UA + ethernet = damru) |
+| `clientside.ice_no_srflx` | ClientSideAtom | WebRTC ICE probe saw no srflx candidate (UDP egress blocked) |
+| `clientside.tts_voice_count` | ClientSideAtom | `speechSynthesis.getVoices()` count (zero on Android = fresh container) |
+| `clientside.botd_kind` | ClientSideAtom | FingerprintJS BotD verdict kind (opt-in; default off) |
+| `clientside.shape_hash` | ClientSideAtom | xxHash64 of canvas + WebGL vendor + renderer |
+| `clientside.pool_collision_contexts` | PoolCollisionAtom | Distinct (IP, session) count for the same shape hash in window |
+| `clientside.mouse_all_integer_coords` | ClientSideAtom | All sampled mousemoves had integer coords (Kameleo) |
+| `clientside.mouse_timing_cv` | ClientSideAtom | Coefficient of variation of mouse-event intervals |
+| `tls.cipher_subset_of_real_chrome` | TlsFingerprintAtom | Observed JA3 ciphers are a strict subset of the reference |
+| `tls.cipher_subset_missing_count` | TlsFingerprintAtom | How many ciphers are missing from the subset |
+| `tls.version_delta_from_ua` | TlsFingerprintAtom | UA-claim minus JA3-matched browser major version |
+| `risk.shape_hash_changed` | IdentityChangeAtom | Shape hash changed under the same fingerprint id (profile swap) |
+| `risk.botd_kind_changed` | IdentityChangeAtom | BotD kind changed under the same fingerprint id |
+| `risk.suspicious_change_score` | IdentityChangeAtom | Weighted aggregate of all risk dim changes |
 
 See [cloak-detection.md](cloak-detection.md) for the full probe-by-probe reference, thresholds, configuration, and what each probe targets.
 

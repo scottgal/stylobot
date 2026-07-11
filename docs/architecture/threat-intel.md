@@ -60,7 +60,7 @@ public interface IThreatIntelCoordinator
 
 ## Detector
 
-`ThreatIntelContributor` runs at priority 7 (after `IpContributor` at 4 gives us ASN, before `Heuristic`). Reads via `IThreatIntelCoordinator.Lookup`, writes blackboard signals:
+`ThreatIntelAtom` runs at priority 7 (after `IpAtom` at 4 gives us ASN, before `Heuristic`). Reads via `IThreatIntelCoordinator.Lookup`, writes blackboard signals:
 
 | Signal | Type | Meaning |
 |---|---|---|
@@ -177,7 +177,7 @@ Coordinator behaviour when `ThreatIntel:Enabled = false`: the contributor short-
 
 **FOSS** ships:
 
-- `IThreatIntelProvider`, `IThreatIntelCoordinator`, `ThreatIntelContributor`
+- `IThreatIntelProvider`, `IThreatIntelCoordinator`, `ThreatIntelAtom`
 - `ThreatIntelOfflineProviderBase` + the offline pack:
   - `SpamhausDropProvider` (DROP + EDROP combined; ~3MB total)
   - `TorExitProvider`
@@ -211,8 +211,8 @@ src/Mostlylucid.BotDetection/ThreatIntel/
     TorExitProvider.cs
     CisaKevProvider.cs
     CloudRangesProvider.cs
-src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/
-  ThreatIntelContributor.cs
+src/Mostlylucid.BotDetection/Orchestration/Atoms/
+  ThreatIntelAtom.cs
 src/Mostlylucid.BotDetection/Orchestration/Manifests/detectors/
   threatintel.detector.yaml
 src/Mostlylucid.BotDetection.Test/ThreatIntel/
@@ -227,7 +227,7 @@ src/Mostlylucid.BotDetection.Test/ThreatIntel/
 
 ```yaml
 name: threatintel
-priority: 7        # after IpContributor (4); before Heuristic (10)
+priority: 7        # after IpAtom (4); before Heuristic (10)
 enabled: true
 scope: request
 taxonomy:
@@ -253,8 +253,8 @@ emits:
 
 Two existing signals feed the KEV provider; no new CVE-extraction work needed:
 
-- `cve.probe.id` (e.g. `"CVE-2024-6386"`) - written by `CveProbeContributor` when a request matches a simulation-pack honeypot path. High confidence: the requester explicitly probed a known CVE path.
-- `cve.top_advisory_id` (e.g. `"CVE-2026-1234"` or `"GHSA-xxxx"`) - written by `CveFingerprintContributor` when the session shape matches a CVE-derived fingerprint. Lower confidence but earlier signal.
+- `cve.probe.id` (e.g. `"CVE-2024-6386"`) - written by `CveProbeAtom` when a request matches a simulation-pack honeypot path. High confidence: the requester explicitly probed a known CVE path.
+- `cve.top_advisory_id` (e.g. `"CVE-2026-1234"` or `"GHSA-xxxx"`) - written by `CveFingerprintAtom` when the session shape matches a CVE-derived fingerprint. Lower confidence but earlier signal.
 
 KEV provider does an exact lookup against either signal; on match, sets `threatintel.kev_match = <id>` and bumps `threatintel.score` to at least `kev_match_threat_floor` (default 0.7). GHSA-prefixed advisory ids are skipped (KEV is CVE-only).
 

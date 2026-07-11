@@ -75,7 +75,7 @@ the `SkipSamplingRate` refresh fraction (see section 5).
 
 The middleware stashes `fingerprint.prior.probability`,
 `fingerprint.prior.confidence`, and `fingerprint.prior.age_seconds` on
-`HttpContext.Items`. The Wave 0 `FingerprintPriorContributor` reads them and
+`HttpContext.Items`. The Wave 0 `FingerprintPriorAtom` reads them and
 emits a single `DetectionContribution` with `ConfidenceDelta = 2 * (prob - 0.5)`
 and `Weight = prior_confidence * prior_weight_multiplier * linear-age-decay`,
 so a recent confident prior anchors the posterior strongly while an old prior

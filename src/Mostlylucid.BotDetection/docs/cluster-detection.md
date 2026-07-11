@@ -25,7 +25,7 @@ SignatureCoordinator      BotClusterService (background)
     |          Leiden Clustering   Spectral (FFT)  Semantic Embeddings
     |                 |                |               |
     v                 v                v               v
-CountryReputationTracker   ClusterContributor (Wave 2)
+CountryReputationTracker   ClusterAtom (Wave 2)
                                        |
                            BotClusterDescriptionService (background)
                                        |
@@ -41,7 +41,7 @@ CountryReputationTracker   ClusterContributor (Wave 2)
 | `BotClusterService` | `BackgroundService` | Periodically clusters bot signatures using Leiden (or Label Propagation) |
 | `BotClusterDescriptionService` | Service | Background LLM-based cluster naming and description (GraphRAG-style) |
 | `LeidenClustering` | Static helper | Native C# Leiden community detection with CPM quality function |
-| `ClusterContributor` | `IContributingDetector` | Emits cluster membership and country reputation signals |
+| `ClusterAtom` | `IDetectorAtom` | Emits cluster membership and country reputation signals |
 | `CountryReputationTracker` | Service | Tracks time-decayed bot rates per country |
 | `SpectralFeatureExtractor` | Static helper | FFT-based timing pattern analysis |
 
@@ -222,9 +222,9 @@ Where `tau` = `DecayTauHours` (default: 168 hours = 1 week). A country's bad rep
 
 ### Integration
 
-The orchestrator calls `RecordDetection()` after every detection that has a `geo.country_code` signal. The `ClusterContributor` reads rates via `GetCountryBotRate()`.
+The orchestrator calls `RecordDetection()` after every detection that has a `geo.country_code` signal. The `ClusterAtom` reads rates via `GetCountryBotRate()`.
 
-## ClusterContributor
+## ClusterAtom
 
 Wave 2 detector (priority 850) that runs after GeoContributor and BehavioralWaveform. Requires the `waveform.signature` signal.
 
@@ -305,7 +305,7 @@ Applies a signal when a country has elevated bot traffic:
 {
   "BotDetection": {
     "Detectors": {
-      "ClusterContributor": {
+      "ClusterAtom": {
         "Parameters": {
           "product_confidence_delta": 0.4,
           "network_confidence_delta": 0.25,
@@ -326,7 +326,7 @@ Applies a signal when a country has elevated bot traffic:
 The `cluster.detector.yaml` defines the full signal contract:
 
 ```yaml
-name: ClusterContributor
+name: ClusterAtom
 priority: 850
 enabled: true
 

@@ -8,7 +8,7 @@ This guide covers writing a pack YAML, understanding every field, registering cu
 
 ## How Packs Work
 
-At startup, `SimulationPackLoader` reads all `*.yaml` files embedded under `Mostlylucid.BotDetection.SimulationPacks.Packs.*` and builds a flattened path lookup. When a request arrives, `CveProbeContributor` checks whether the path matches any honeypot or CVE probe path and writes detection signals. `SimulationPackResponder` finds the matching response template and serves it, optionally with an HMAC canary embedded for beacon tracking.
+At startup, `SimulationPackLoader` reads all `*.yaml` files embedded under `Mostlylucid.BotDetection.SimulationPacks.Packs.*` and builds a flattened path lookup. When a request arrives, `CveProbeAtom` checks whether the path matches any honeypot or CVE probe path and writes detection signals. `SimulationPackResponder` finds the matching response template and serves it, optionally with an HMAC canary embedded for beacon tracking.
 
 Path matching uses `FileSystemName.MatchesSimpleExpression` (glob-style, case-insensitive). CVE probe responses take priority over pack-level response templates.
 
@@ -124,7 +124,7 @@ Three placeholders are substituted in static (non-dynamic) response bodies. Incl
 | `{{token}}` | Same canary value as `{{nonce}}`. Use in Authorization headers and bearer token fields. |
 | `{{api_key}}` | Same canary value as `{{nonce}}`. Use in API key fields and configuration values. |
 
-All three placeholders resolve to the same HMAC canary string for a given fingerprint and path. When the bot replays the canary in a future request, `BeaconContributor` detects it and links the rotated fingerprint back to the original via `beacon.original_fingerprint`.
+All three placeholders resolve to the same HMAC canary string for a given fingerprint and path. When the bot replays the canary in a future request, `BeaconAtom` detects it and links the rotated fingerprint back to the original via `beacon.original_fingerprint`.
 
 If `ICanaryGenerator` is not registered, substitution is skipped and the literal placeholder text is served (avoid this in production).
 
@@ -192,7 +192,7 @@ cve_modules:
         error_template: '{"success":false,"data":"-1"}'
 ```
 
-Severity drives the confidence delta applied by `CveProbeContributor`:
+Severity drives the confidence delta applied by `CveProbeAtom`:
 
 | Severity | Confidence delta |
 |---|---|
@@ -598,4 +598,4 @@ cve_modules:
           <div class="error">Access denied.</div>
 ```
 
-This pack registers four honeypot paths, three response templates (two static, one dynamic), and one CVE module for a specific phpMyAdmin vulnerability. The `{{nonce}}` in the admin login form will be replaced with a canary value. If the bot replays the canary in a subsequent POST, `BeaconContributor` flags the rotation.
+This pack registers four honeypot paths, three response templates (two static, one dynamic), and one CVE module for a specific phpMyAdmin vulnerability. The `{{nonce}}` in the admin login form will be replaced with a canary value. If the bot replays the canary in a subsequent POST, `BeaconAtom` flags the rotation.

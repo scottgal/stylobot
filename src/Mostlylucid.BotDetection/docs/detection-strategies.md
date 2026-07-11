@@ -610,7 +610,7 @@ For complex detection scenarios, use the new blackboard architecture where detec
 detectors:
 
 ```csharp
-public class MyContributor : ContributingDetectorBase
+public class MyContributor : DetectorAtomBase
 {
     public override string Name => "My Contributor";
     public override string Category => "Custom";

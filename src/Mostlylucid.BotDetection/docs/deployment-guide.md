@@ -78,57 +78,57 @@ app.Run();
 All 57 detectors execute in a wave-based pipeline:
 
 **Pre-Wave 0** (instant abort):
-- `FastPathReputationContributor` (priority 3) - Short-circuits known-bad signatures from the reputation cache
-- `VerifiedBotContributor` (priority 4) - Allows verified search engine crawlers; flags UA spoofing of known crawlers
+- `FastPathReputationAtom` (priority 3) - Short-circuits known-bad signatures from the reputation cache
+- `VerifiedBotAtom` (priority 4) - Allows verified search engine crawlers; flags UA spoofing of known crawlers
 
 **Wave 0** (priority 4-15, parallel, no dependencies):
-- `ContentSequenceContributor` (priority 4) - Tracks document→asset→API page-load order; detects machine-speed timing and phase divergence
-- `MultiLayerCorrelationContributor` (priority 4) - Cross-layer fingerprint correlation (TLS + UA + H2 + TCP)
-- `TransportProtocolContributor` (priority 5) - Classifies transport context (document, API, SignalR, WebSocket, gRPC)
+- `ContentSequenceAtom` (priority 4) - Tracks document→asset→API page-load order; detects machine-speed timing and phase divergence
+- `MultiLayerCorrelationAtom` (priority 4) - Cross-layer fingerprint correlation (TLS + UA + H2 + TCP)
+- `TransportProtocolAtom` (priority 5) - Classifies transport context (document, API, SignalR, WebSocket, gRPC)
 - `HaxxorContributor` (priority 7) - SQL injection, XSS, path traversal, and attack-payload detection
-- `PiiQueryStringContributor` (priority 8) - PII data harvesting patterns in query strings
-- `SecurityToolContributor` (priority 8) - Pen-testing tool signatures (sqlmap, Burp, Nikto, Metasploit)
-- `AiScraperContributor` (priority 9) - Known AI training crawler signatures (GPTBot, ClaudeBot, etc.)
-- `UserAgentContributor` (priority 10) - Pattern matching against 50K+ known bot signatures
-- `HeaderContributor` (priority 10) - HTTP header consistency and ordering analysis
-- `CveProbeContributor` (priority 11) - CVE-targeting probe patterns (WordPress, Log4j, Spring4Shell, etc.)
-- `TlsFingerprintContributor` (priority 11) - JA3/JA4/JA4+ TLS client fingerprinting
-- `TcpIpFingerprintContributor` (priority 11) - p0f-style TCP/IP OS fingerprinting
-- `IpContributor` (priority 12) - Datacenter IP range detection (AWS, GCP, Azure, Cloudflare) + residential ISP signals
-- `ResponseBehaviorContributor` (priority 12) - Historical response pattern feedback (honeypot hits, auth failures)
+- `PiiQueryStringAtom` (priority 8) - PII data harvesting patterns in query strings
+- `SecurityToolAtom` (priority 8) - Pen-testing tool signatures (sqlmap, Burp, Nikto, Metasploit)
+- `AiScraperAtom` (priority 9) - Known AI training crawler signatures (GPTBot, ClaudeBot, etc.)
+- `UserAgentAtom` (priority 10) - Pattern matching against 50K+ known bot signatures
+- `HeaderAtom` (priority 10) - HTTP header consistency and ordering analysis
+- `CveProbeAtom` (priority 11) - CVE-targeting probe patterns (WordPress, Log4j, Spring4Shell, etc.)
+- `TlsFingerprintAtom` (priority 11) - JA3/JA4/JA4+ TLS client fingerprinting
+- `TcpIpFingerprintAtom` (priority 11) - p0f-style TCP/IP OS fingerprinting
+- `IpAtom` (priority 12) - Datacenter IP range detection (AWS, GCP, Azure, Cloudflare) + residential ISP signals
+- `ResponseBehaviorAtom` (priority 12) - Historical response pattern feedback (honeypot hits, auth failures)
 - `Http2FingerprintContributor` (priority 13) - AKAMAI HTTP/2 SETTINGS fingerprinting
 - `Http3FingerprintContributor` (priority 14) - QUIC transport parameter fingerprinting
-- `CacheBehaviorContributor` (priority 15) - Cache-Control / ETag / conditional request consistency
-- `ProjectHoneypotContributor` (priority 15) - DNS-based IP reputation lookup (Project Honey Pot)
+- `CacheBehaviorAtom` (priority 15) - Cache-Control / ETag / conditional request consistency
+- `ProjectHoneypotAtom` (priority 15) - DNS-based IP reputation lookup (Project Honey Pot)
 - `TimescaleReputationContributor` (priority 15) - 90-day decayed reputation history per signature
-- `GeoChangeContributor` (priority 16) - Geo-velocity anomaly detection (IP geolocation drift)
-- `BehavioralContributor` (priority 20) - Request rate, timing regularity, and burst pattern analysis
-- `CookieBehaviorContributor` (priority 20) - Cookie lifecycle consistency (missing, stale, replayed)
-- `HeaderCorrelationContributor` (priority 21) - Cross-header correlation (Sec-Fetch-* + Accept + UA family)
-- `ResourceWaterfallContributor` (priority 22) - Asset load sequence consistency (doc → CSS → JS → fonts)
-- `FingerprintApprovalContributor` (priority 24) - Approved fingerprint allowlist (enterprise overrides)
-- `AccountTakeoverContributor` (priority 25) - Credential stuffing, brute-force, and ATO pattern detection
-- `ChallengeVerificationContributor` (priority 25) - PoW challenge / CAPTCHA result verification
-- `PeriodicityContributor` (priority 25) - Rotation cadence and temporal autocorrelation detection
-- `VersionAgeContributor` (priority 25) - Browser/OS/library version staleness scoring
-- `ClientSideContributor` (priority 18) - Browser fingerprint token validation (JS-collected signals)
+- `GeoChangeAtom` (priority 16) - Geo-velocity anomaly detection (IP geolocation drift)
+- `BehavioralAtom` (priority 20) - Request rate, timing regularity, and burst pattern analysis
+- `CookieBehaviorAtom` (priority 20) - Cookie lifecycle consistency (missing, stale, replayed)
+- `HeaderCorrelationAtom` (priority 21) - Cross-header correlation (Sec-Fetch-* + Accept + UA family)
+- `ResourceWaterfallAtom` (priority 22) - Asset load sequence consistency (doc → CSS → JS → fonts)
+- `FingerprintApprovalAtom` (priority 24) - Approved fingerprint allowlist (enterprise overrides)
+- `AccountTakeoverAtom` (priority 25) - Credential stuffing, brute-force, and ATO pattern detection
+- `ChallengeVerificationAtom` (priority 25) - PoW challenge / CAPTCHA result verification
+- `PeriodicityAtom` (priority 25) - Rotation cadence and temporal autocorrelation detection
+- `VersionAgeAtom` (priority 25) - Browser/OS/library version staleness scoring
+- `ClientSideAtom` (priority 18) - Browser fingerprint token validation (JS-collected signals)
 - `AdvancedBehavioralContributor` (priority 25) - Advanced multi-session behavioral pattern analysis
-- `SessionVectorContributor` (priority 30) - Markov chain → 129-dim vector; inter-session velocity anomaly
-- `ReactivePatternContributor` (priority 32) - Retry-after compliance, backoff pattern, error event analysis
-- `ClaimedIdentityContributor` (priority 35) - UA family behavioral centroid consistency (spoofing detection)
-- `StreamAbuseContributor` (priority 35) - WebSocket/SSE/gRPC streaming abuse patterns
-- `ClickFraudContributor` (priority 38) - Paid traffic click-fraud signals (bot clicks on ad-landing paths)
-- `IntentContributor` (priority 40) - Semantic intent classification via HNSW embedding similarity
-- `ReputationBiasContributor` (priority 45) - Learned per-signature reputation bias from historical verdicts
-- `HeuristicContributor` (priority 50) - Feature-based heuristic scoring (~50 features, early pass)
-- `InconsistencyContributor` (priority 50) - Cross-signal inconsistency (UA says Chrome, TLS says curl, etc.)
-- `LlmContributor` (priority 55) - Optional LLM escalation for ambiguous edge cases (async, non-blocking)
-- `CveFingerprintContributor` (priority 55) - CVE exploit fingerprint matching from YAML-driven pattern DB
-- `SimilarityContributor` (priority 60) - HNSW cosine similarity to known-bot session vectors
-- `HeuristicLateContributor` (priority 100) - Final heuristic pass consuming all accumulated evidence
+- `SessionVectorAtom` (priority 30) - Markov chain → 129-dim vector; inter-session velocity anomaly
+- `ReactivePatternAtom` (priority 32) - Retry-after compliance, backoff pattern, error event analysis
+- `ClaimedIdentityAtom` (priority 35) - UA family behavioral centroid consistency (spoofing detection)
+- `StreamAbuseAtom` (priority 35) - WebSocket/SSE/gRPC streaming abuse patterns
+- `ClickFraudAtom` (priority 38) - Paid traffic click-fraud signals (bot clicks on ad-landing paths)
+- `IntentAtom` (priority 40) - Semantic intent classification via HNSW embedding similarity
+- `ReputationBiasAtom` (priority 45) - Learned per-signature reputation bias from historical verdicts
+- `HeuristicAtom` (priority 50) - Feature-based heuristic scoring (~50 features, early pass)
+- `InconsistencyAtom` (priority 50) - Cross-signal inconsistency (UA says Chrome, TLS says curl, etc.)
+- `LlmAtom` (priority 55) - Optional LLM escalation for ambiguous edge cases (async, non-blocking)
+- `CveFingerprintAtom` (priority 55) - CVE exploit fingerprint matching from YAML-driven pattern DB
+- `SimilarityAtom` (priority 60) - HNSW cosine similarity to known-bot session vectors
+- `HeuristicLateAtom` (priority 100) - Final heuristic pass consuming all accumulated evidence
 
 **Wave 2** (post-signature aggregation):
-- `ClusterContributor` (priority 850) - Leiden community detection across signatures; bot network / product cluster discovery
+- `ClusterAtom` (priority 850) - Leiden community detection across signatures; bot network / product cluster discovery
 
 ### Zero configuration required
 
@@ -282,7 +282,7 @@ app.Run();
 
 The heuristic AI and learning system form a closed loop:
 
-1. **Heuristic scoring** (`HeuristicContributor` / `HeuristicLateContributor`): Extracts ~50 features from each request (UA length, header count, timing variance, etc.) and runs a lightweight scoring model. No LLM needed - pure math.
+1. **Heuristic scoring** (`HeuristicAtom` / `HeuristicLateAtom`): Extracts ~50 features from each request (UA length, header count, timing variance, etc.) and runs a lightweight scoring model. No LLM needed - pure math.
 
 2. **Weight learning** (`SignatureFeedbackHandler`): When a request is classified, the system adjusts per-detector weights using exponential moving average (EMA). Detectors that contribute accurate signals get higher weights.
 

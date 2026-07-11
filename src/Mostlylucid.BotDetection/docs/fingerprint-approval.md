@@ -22,7 +22,7 @@ StyloBot's approach: `key + matching fingerprint + locked dimensions + behaviora
 2. Response includes `X-SB-Approval-Id: {token}` header (one-time, 24h expiry)
 3. Operator enters the token in the dashboard form with justification + locked dimensions + optional expiry
 4. Stored in SQLite (FOSS) or PostgreSQL (commercial)
-5. Next request: `FingerprintApprovalContributor` reads approval, checks locked dimensions against live signals
+5. Next request: `FingerprintApprovalAtom` reads approval, checks locked dimensions against live signals
 6. All match: strong human signal (-0.4 delta). Mismatch: strong bot signal (+0.3 delta)
 
 ## Locked Dimensions

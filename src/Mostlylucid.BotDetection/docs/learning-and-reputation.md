@@ -18,12 +18,12 @@ The system operates on **four levels**:
 ```mermaid
 flowchart TB
     subgraph Detection["Detection Path (Hot Path)"]
-        Request([Request]) --> FastPath["FastPathReputationContributor<br/>(Priority 3)"]
+        Request([Request]) --> FastPath["FastPathReputationAtom<br/>(Priority 3)"]
         FastPath -->|ConfirmedBad?| Abort([INSTANT ABORT])
         FastPath -->|Not known bad| Wave0["Wave 0 Detectors<br/>(UA, Header, IP, Security)"]
         Wave0 --> Wave1["Wave 1 Detectors<br/>(Inconsistency, Honeypot)"]
-        Wave1 --> Bias["ReputationBiasContributor<br/>(Priority 45)"]
-        Bias --> Heuristic["HeuristicContributor<br/>(Priority 50)"]
+        Wave1 --> Bias["ReputationBiasAtom<br/>(Priority 45)"]
+        Bias --> Heuristic["HeuristicAtom<br/>(Priority 50)"]
         Heuristic --> AI{Escalate?}
         AI -->|Yes| LLM["LLM Contributor"]
         AI -->|No| Aggregate
@@ -124,7 +124,7 @@ Key properties:
 Detectors can specify conditions for when they should run:
 
 ```csharp
-public class MyContributor : ContributingDetectorBase
+public class MyContributor : DetectorAtomBase
 {
     public override IReadOnlyList<TriggerCondition> TriggerConditions =>
     [
@@ -168,14 +168,14 @@ Early exit skips remaining detectors and returns immediately.
 The reputation feedback loop is closed by two specialized contributors that query the `IPatternReputationCache` to apply
 learned patterns during detection.
 
-### FastPathReputationContributor (Instant Abort)
+### FastPathReputationAtom (Instant Abort)
 
-The `FastPathReputationContributor` runs **first** (Priority 3, Wave 0, no dependencies) to enable instant abort for
+The `FastPathReputationAtom` runs **first** (Priority 3, Wave 0, no dependencies) to enable instant abort for
 known bad actors before any expensive analysis.
 
 ```mermaid
 flowchart LR
-    Request([Request]) --> FastPath{FastPathReputationContributor}
+    Request([Request]) --> FastPath{FastPathReputationAtom}
     FastPath -->|ConfirmedBad| Abort([403 BLOCKED])
     FastPath -->|ManuallyBlocked| Abort
     FastPath -->|Other| Continue[Continue Detection...]
@@ -186,7 +186,7 @@ flowchart LR
 - **Priority 3** - Runs before all other detectors
 - **No trigger conditions** - Runs immediately in Wave 0
 - **Only checks abort-eligible patterns** - `ConfirmedBad` and `ManuallyBlocked`
-- **Skips Neutral/Suspect** - Those are handled by ReputationBiasContributor later
+- **Skips Neutral/Suspect** - Those are handled by ReputationBiasAtom later
 - **Uses raw UA/IP** - No signal extraction needed
 
 **Pattern matching ("12 basic shapes"):**
@@ -204,7 +204,7 @@ This normalization creates a finite set of "shapes" that can be instantly matche
 **Code example:**
 
 ```csharp
-// FastPathReputationContributor (simplified)
+// FastPathReputationAtom (simplified)
 public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
     BlackboardState state, CancellationToken ct)
 {
@@ -234,18 +234,18 @@ public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
 }
 ```
 
-### ReputationBiasContributor (Scoring Bias)
+### ReputationBiasAtom (Scoring Bias)
 
-The `ReputationBiasContributor` runs **after** Wave 0 signal extraction but **before** the Heuristic model to provide
+The `ReputationBiasAtom` runs **after** Wave 0 signal extraction but **before** the Heuristic model to provide
 learned bias.
 
 ```mermaid
 flowchart LR
-    Wave0[Wave 0 Signals] --> Bias{ReputationBiasContributor}
+    Wave0[Wave 0 Signals] --> Bias{ReputationBiasAtom}
     Bias -->|Suspect| AddBias["+0.5 confidence"]
     Bias -->|ConfirmedGood| SubBias["-0.2 confidence"]
     Bias -->|Combined match| HighBias["+0.75 × 1.5 weight"]
-    Bias --> Heuristic[HeuristicContributor]
+    Bias --> Heuristic[HeuristicAtom]
 ```
 
 **Key characteristics:**
@@ -275,7 +275,7 @@ flowchart LR
 **Code example:**
 
 ```csharp
-// ReputationBiasContributor (simplified)
+// ReputationBiasAtom (simplified)
 public override IReadOnlyList<TriggerCondition> TriggerConditions =>
 [
     Triggers.WhenSignalExists(SignalKeys.UserAgent)
@@ -329,7 +329,7 @@ Request arrives
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  FastPathReputationContributor (Priority 3)                 │
+│  FastPathReputationAtom (Priority 3)                 │
 │  - Check raw UA hash → IPatternReputationCache              │
 │  - Check raw IP range → IPatternReputationCache             │
 │  - If ConfirmedBad/ManuallyBlocked → INSTANT ABORT (403)    │
@@ -339,7 +339,7 @@ Request arrives
 ┌─────────────────────────────────────────────────────────────┐
 │  Wave 0: UA, Header, IP, Behavioral, ClientSide, Security  │
 │  - Extract signals: UserAgent, ClientIp, Headers, etc.     │
-│  - SecurityToolContributor checks penetration tools        │
+│  - SecurityToolAtom checks penetration tools        │
 └─────────────────────────────────────────────────────────────┘
     │
     ▼
@@ -351,7 +351,7 @@ Request arrives
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  ReputationBiasContributor (Priority 45)                    │
+│  ReputationBiasAtom (Priority 45)                    │
 │  - Uses extracted signals for pattern ID creation          │
 │  - Checks UA, IP, Combined patterns                        │
 │  - Adds bias contributions for Suspect/ConfirmedGood       │
@@ -359,7 +359,7 @@ Request arrives
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  HeuristicContributor (Priority 50)                         │
+│  HeuristicAtom (Priority 50)                         │
 │  - Logistic regression with learned weights                │
 │  - Bias contributions influence final score                │
 └─────────────────────────────────────────────────────────────┘
@@ -372,7 +372,7 @@ Request arrives
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  HeuristicLateContributor (Final scoring)                   │
+│  HeuristicLateAtom (Final scoring)                   │
 │  - Consumes all evidence                                   │
 │  - Final risk score calculation                            │
 └─────────────────────────────────────────────────────────────┘

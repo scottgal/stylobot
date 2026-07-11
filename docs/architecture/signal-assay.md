@@ -23,8 +23,8 @@ The ungated penalty sites the map found:
 
 | Site | Behaviour | Weight |
 |---|---|---|
-| `TcpIpFingerprintContributor:258-276` | missing `Connection` header → bot | Δ0.2 × 0.7, **ungated by trust** |
-| `TlsFingerprintContributor:159-169` | `!isHttps` and no `X-Forwarded-Proto` → bot | Δ0.05 × 0.3 |
+| `TcpIpFingerprintAtom:258-276` | missing `Connection` header → bot | Δ0.2 × 0.7, **ungated by trust** |
+| `TlsFingerprintAtom:159-169` | `!isHttps` and no `X-Forwarded-Proto` → bot | Δ0.05 × 0.3 |
 | `Http2FingerprintContributor:304-320` | missing stream-priority → bot | Δ0.1 × 0.6 (gated by trust) |
 | `TransportHeaderTrust` Auto mode | Cloudflare peer IP is *public* → `trustHeaders=false` → **every** `X-*` transport header discarded | — |
 
