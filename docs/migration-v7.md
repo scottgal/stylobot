@@ -1,85 +1,44 @@
-# Migration Guide: v6 to v7 (Package Rename)
+# Migration Guide: v6 to v7 (License Change)
 
 ## What is changing
 
-On **June 1, 2026**, all Stylobot NuGet packages are being renamed. The package IDs, namespaces, and extension method names all change. The detection pipeline, configuration schema, SQLite schema, and signal keys are unchanged.
+In **7.0.0**, StyloBot FOSS changes its license: **`Unlicense` (public domain) becomes `GNU AGPL-3.0-only`**. The `LICENSE` file at the repo root is now the canonical AGPLv3 text, and every published NuGet package advertises `PackageLicenseExpression = AGPL-3.0-only`.
 
-## Package ID changes
+The detection pipeline, public API, configuration schema, SQLite schema, signal keys, package IDs, and namespaces are **unchanged**. This is a licensing change, not a code change.
 
-| Current (v6) | New (v7) |
-|---|---|
-| `mostlylucid.botdetection` | `stylobot` |
-| `mostlylucid.geodetection` | `stylobot.geodetection` |
-| `Mostlylucid.BotDetection.UI` | `stylobot.ui` |
-| `Mostlylucid.BotDetection.Api` | `stylobot.api` |
-| `Mostlylucid.BotDetection.Llm.Holodeck` | `stylobot.llm.holodeck` |
+## Practical impact
 
-The old packages will be marked as deprecated on NuGet.org at the time of the v7.0 release. They will continue to work but will not receive further updates.
+- **Internal use is unaffected.** If you build on StyloBot and do not distribute the binary or run it as a public-facing service, nothing changes for you.
+- **Public-facing services must offer source.** If you incorporate StyloBot's source into a service your users reach over a network, AGPL's network clause (the "A") requires you to offer those users the corresponding source. Static linking, dynamic linking, and the SDK helpers all count as incorporation.
+- **`Mostlylucid.GeoDetection.Contributor` stays MIT.** That package is dual-licensed and is not affected.
 
-## Namespace changes
-
-All `Mostlylucid.BotDetection.*` namespaces become `Stylobot.*`.
-
-```csharp
-// Before (v6)
-using Mostlylucid.BotDetection;
-using Mostlylucid.BotDetection.Extensions;
-using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Policies;
-
-// After (v7)
-using Stylobot;
-using Stylobot.Extensions;
-using Stylobot.Models;
-using Stylobot.Policies;
-```
-
-## Migration steps
-
-### 1. Update package references
-
-```xml
-<!-- Before -->
-<PackageReference Include="mostlylucid.botdetection" Version="6.*" />
-
-<!-- After -->
-<PackageReference Include="stylobot" Version="7.*" />
-```
-
-Repeat for each package you reference from the table above.
-
-### 2. Update using directives
-
-Run a solution-wide find and replace:
-
-| Find | Replace |
-|---|---|
-| `using Mostlylucid.BotDetection` | `using Stylobot` |
-| `using Mostlylucid.GeoDetection` | `using Stylobot.GeoDetection` |
-
-Most editors support regex find-and-replace across the solution. In Visual Studio: Edit > Find and Replace > Find in Files, with regex enabled.
-
-### 3. Build
-
-The compiler will flag any remaining references. All public API shapes, method signatures, and configuration keys are identical between v6 and v7.
+If either of the first two points affects you, review the `LICENSE` file and your distribution model before upgrading. There is no code, config, or database migration required.
 
 ## What is NOT changing
 
-- Configuration schema (`appsettings.json` keys under `BotDetection:`)
-- SQLite schema (existing databases work without migration)
-- Signal keys (e.g. `signature.primary`, `request.ip.is_datacenter`)
-- YAML manifest format for detectors and policies
-- The `stylobot` binary (already named correctly)
-- Detector behaviour and weights
+- **Package IDs** stay `Mostlylucid.BotDetection`, `Mostlylucid.BotDetection.ApiHolodeck`, `Mostlylucid.Common`, `Mostlylucid.GeoDetection`, etc. (There is no package rename in v7.)
+- **Namespaces** stay `Mostlylucid.BotDetection.*`.
+- **Configuration schema** (`appsettings.json` keys under `BotDetection:`).
+- **SQLite schema** (existing databases work without migration).
+- **Signal keys** (e.g. `signature.primary`, `request.ip.is_datacenter`) and the **YAML manifest format**.
+- **Detector behaviour and weights.** FOSS detection is unchanged: every SQLite store stays the default. The v7 identity-layer interfaces only add a swap point for the commercial layer; FOSS behaviour is identical.
 
-## Timeline
+## Migration steps
 
-| Date | Event |
-|---|---|
-| Now | Deprecation notice added to v6 package descriptions |
-| June 1, 2025 | `stylobot` v7.0.0 released; old packages deprecated on NuGet.org |
-| No end date | Old packages remain installable; no further updates |
+Bump the package version and rebuild. No source changes are required.
+
+```xml
+<!-- Before -->
+<PackageReference Include="Mostlylucid.BotDetection" Version="6.*" />
+
+<!-- After -->
+<PackageReference Include="Mostlylucid.BotDetection" Version="7.*" />
+```
+
+## Upgrading further
+
+To move from 7.x to 8.x, see [`upgrade-7-to-8.md`](upgrade-7-to-8.md).
 
 ## Questions
 
-Open an issue at https://github.com/scottgal/stylobot/issues
+Open an issue at https://github.com/scottgal/stylobot/issues.
