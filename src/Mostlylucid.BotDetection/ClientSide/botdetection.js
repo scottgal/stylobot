@@ -756,8 +756,41 @@
     }
 
     // === Transport ===========================================================
-    function send(payload) {
+    // base64 of an ArrayBuffer (for the HMAC bytes).
+    function b64(buf) {
+        var bytes = new Uint8Array(buf), bin = '';
+        for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    }
+
+    // Bind the payload to the browser token: HMAC-SHA256(key = token, msg = body).
+    // The server (which validated the single-use, IP-bound token) recomputes and
+    // verifies this, so an off-browser replay of a canned payload with a captured
+    // token is rejected. The token is client-held, so this proves channel
+    // provenance + payload integrity, NOT value truthfulness -- the consistency
+    // check does that. Returns null when SubtleCrypto is unavailable (insecure
+    // context) so the beacon still sends unsigned (server verifies only when
+    // present unless RequirePayloadSignature is set).
+    async function signBody(json) {
+        try {
+            if (!cfg.t || typeof window.crypto === 'undefined'
+                || !crypto.subtle || typeof TextEncoder === 'undefined') return null;
+            var enc = new TextEncoder();
+            var key = await crypto.subtle.importKey(
+                'raw', enc.encode(cfg.t), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+            var mac = await crypto.subtle.sign('HMAC', key, enc.encode(json));
+            return b64(mac);
+        } catch (e) { return null; }
+    }
+
+    async function send(payload) {
         var json = JSON.stringify(payload);
+        var headers = { 'Content-Type': 'application/json' };
+        // Echo the token in the header (the endpoint prefers the header; the body
+        // `t` is the sendBeacon fallback since sendBeacon cannot set headers).
+        if (cfg.t) headers['X-ML-BotD-Token'] = cfg.t;
+        var sig = await signBody(json);
+        if (sig) headers['X-ML-BotD-Sig'] = sig;
         // Prefer fetch+keepalive (gives a real response if anyone listens);
         // sendBeacon fallback for unload-time delivery. Both are
         // CSP-friendly via the 'connect-src' directive.
@@ -765,13 +798,13 @@
             if (typeof fetch === 'function') {
                 fetch(endpoint, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: json,
                     keepalive: true,
                     credentials: 'omit',
                     mode: 'cors'
                 }).catch(function () {
-                    // Fall through to sendBeacon on fetch error
+                    // Fall through to sendBeacon on fetch error (unsigned: no headers)
                     if (navigator.sendBeacon) {
                         navigator.sendBeacon(endpoint, new Blob([json], { type: 'application/json' }));
                     }

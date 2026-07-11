@@ -1641,6 +1641,21 @@ public class ClientSideOptions
     public int TokenLifetimeSeconds { get; set; } = 300;
 
     /// <summary>
+    ///     Require the beacon payload to be HMAC-signed with the browser token
+    ///     (<c>X-ML-BotD-Sig</c> = base64(HMAC-SHA256(key=token, msg=raw body))). This
+    ///     binds the collected signals to the single-use, IP-bound token so an
+    ///     off-browser replay (a curl farm POSTing a canned payload with a captured
+    ///     token) is rejected. When <c>true</c>, a missing or invalid signature is
+    ///     rejected; when <c>false</c> (default, for rollout) a signature is verified
+    ///     only when present, so older scripts and the sendBeacon unload fallback
+    ///     (which cannot set headers) still work. The signing key is the client-held
+    ///     token, so this proves channel provenance and payload integrity, NOT value
+    ///     truthfulness -- the browser-characteristic consistency check does that.
+    ///     Default: false.
+    /// </summary>
+    public bool RequirePayloadSignature { get; set; } = false;
+
+    /// <summary>
     ///     How long to cache fingerprint results for correlation with requests.
     ///     Default: 1800 (30 minutes)
     /// </summary>
