@@ -261,45 +261,77 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
                 EvictColdest();
             }
 
-            if (_dirtyKeys.IsEmpty) continue;
-
-            // Phase 1: gather current values for the dirty keys, drop any evicted
-            // since they were flagged, and order by significance (highest first).
-            var candidates = new List<KeyValuePair<TKey, TValue>>(_dirtyKeys.Count);
-            foreach (var k in _dirtyKeys.Keys)
-            {
-                if (_entries.TryGetValue(k, out var v)) candidates.Add(new(k, v));
-                else _dirtyKeys.TryRemove(k, out _); // evicted before flush: nothing to persist
-            }
-            if (candidates.Count == 0) continue;
-            candidates.Sort((a, b) => ColdnessScore(b.Value).CompareTo(ColdnessScore(a.Value)));
-
-            // Phase 2: claim (remove dirty flag) + re-read current value + persist the
-            // top batch. Claiming before the re-read means a mutation that lands after
-            // we claim re-flags the key, so the next cycle re-persists the newer value;
-            // we never lose an update, at worst persist one redundantly.
-            var batch = new List<KeyValuePair<TKey, TValue>>(Math.Min(_batchMaxSize, candidates.Count));
-            for (var i = 0; i < candidates.Count && batch.Count < _batchMaxSize; i++)
-            {
-                var k = candidates[i].Key;
-                if (!_dirtyKeys.TryRemove(k, out _)) continue;
-                if (_entries.TryGetValue(k, out var cur)) batch.Add(new(k, cur));
-            }
-            if (batch.Count == 0) continue;
-
-            try
-            {
-                await PersistValuesBatchAsync(batch, ct);
-            }
+            try { await DrainDirtyOnceAsync(ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
-            catch (Exception ex)
-            {
-                // Re-flag so the next cycle retries; the dict stays authoritative.
-                foreach (var kv in batch) _dirtyKeys[kv.Key] = 0;
-                _logger.LogWarning(ex,
-                    "{Store} sample-drainer: batch of {Count} re-queued after persist error",
-                    GetType().Name, batch.Count);
-            }
+        }
+    }
+
+    /// <summary>
+    ///     One sample-drain pass: gather the dirty keys' CURRENT values, order by
+    ///     significance (<see cref="ColdnessScore"/> descending), claim + persist the top
+    ///     <c>batchMaxSize</c> as one keyed-upsert batch, and leave the rest dirty. Returns
+    ///     the number of entries persisted (0 = nothing dirty, all evicted, or persist failed).
+    /// </summary>
+    private async Task<int> DrainDirtyOnceAsync(CancellationToken ct)
+    {
+        if (_dirtyKeys.IsEmpty) return 0;
+
+        // Phase 1: gather current values for the dirty keys, drop any evicted since they
+        // were flagged, and order by significance (highest first).
+        var candidates = new List<KeyValuePair<TKey, TValue>>(_dirtyKeys.Count);
+        foreach (var k in _dirtyKeys.Keys)
+        {
+            if (_entries.TryGetValue(k, out var v)) candidates.Add(new(k, v));
+            else _dirtyKeys.TryRemove(k, out _); // evicted before flush: nothing to persist
+        }
+        if (candidates.Count == 0) return 0;
+        candidates.Sort((a, b) => ColdnessScore(b.Value).CompareTo(ColdnessScore(a.Value)));
+
+        // Phase 2: claim (remove dirty flag) + re-read current value + persist the top
+        // batch. Claiming before the re-read means a mutation that lands after we claim
+        // re-flags the key, so the next cycle re-persists the newer value; we never lose an
+        // update, at worst persist one redundantly.
+        var batch = new List<KeyValuePair<TKey, TValue>>(Math.Min(_batchMaxSize, candidates.Count));
+        for (var i = 0; i < candidates.Count && batch.Count < _batchMaxSize; i++)
+        {
+            var k = candidates[i].Key;
+            if (!_dirtyKeys.TryRemove(k, out _)) continue;
+            if (_entries.TryGetValue(k, out var cur)) batch.Add(new(k, cur));
+        }
+        if (batch.Count == 0) return 0;
+
+        try
+        {
+            await PersistValuesBatchAsync(batch, ct);
+            return batch.Count;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            // Re-flag so the next cycle retries; the dict stays authoritative.
+            foreach (var kv in batch) _dirtyKeys[kv.Key] = 0;
+            _logger.LogWarning(ex,
+                "{Store} sample-drainer: batch of {Count} re-queued after persist error",
+                GetType().Name, batch.Count);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    ///     Synchronously persist ALL currently-dirty entries now, via the same
+    ///     significance-ordered batches the background drainer uses, until nothing is dirty.
+    ///     Removes the dependency on the timer-driven drain, so tests (and a graceful
+    ///     shutdown) get deterministic persistence instead of racing the drain interval.
+    ///     No-op on the op-replay path. internal: tests in Mostlylucid.BotDetection.Test.
+    /// </summary>
+    internal async Task FlushDirtyAsync(CancellationToken ct = default)
+    {
+        if (!UseBehaviouralSampleDrain) return;
+        while (!_dirtyKeys.IsEmpty && !ct.IsCancellationRequested)
+        {
+            // Stop if a pass persists nothing (all remaining keys evicted, or a persist
+            // error re-flagged them) so a dead durable tier can't spin this forever.
+            if (await DrainDirtyOnceAsync(ct) == 0) break;
         }
     }
 
