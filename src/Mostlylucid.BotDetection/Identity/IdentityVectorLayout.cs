@@ -136,6 +136,29 @@ public sealed class IdentityVectorLayout
         // separation across all the canonical UA family strings the catalog catalogue carries.
         Add("hdr.ua_family", 16, IdentityVectorEncoding.HashLsh);
 
+        // Browser-characteristic consistency (client-attested, script v2.1.0+). Bool
+        // dims (+1 present / -1 absent / 0 not-observed, presence-gated out when the
+        // beacon never arrived). Populated only for beacon-carrying requests; scored
+        // by the browser_char centroid catalogue keyed {family}:{major}:{mode}. The
+        // browser_char DimensionMask weights the FEATURE dims LOW (spoofable) and the
+        // ENGINE dims HIGH (un-spoofable substrate a fake cannot move), so poisoning
+        // the feature dims cannot drag a mature centroid.
+        Add("client.feat.popover", 1, IdentityVectorEncoding.Bool);
+        Add("client.feat.css_has", 1, IdentityVectorEncoding.Bool);
+        Add("client.feat.array_findlast", 1, IdentityVectorEncoding.Bool);
+        Add("client.feat.structured_clone", 1, IdentityVectorEncoding.Bool);
+        Add("client.feat.webgpu", 1, IdentityVectorEncoding.Bool);
+        Add("client.triple.view_tx", 1, IdentityVectorEncoding.Bool);
+        Add("client.triple.speculation", 1, IdentityVectorEncoding.Bool);
+        Add("client.triple.storage_access", 1, IdentityVectorEncoding.Bool);
+        Add("client.eng.v8_break_iterator", 1, IdentityVectorEncoding.Bool);
+        Add("client.eng.error_capture_stack", 1, IdentityVectorEncoding.Bool);
+        Add("client.eng.stack_v8", 1, IdentityVectorEncoding.Bool);
+        Add("client.eng.stack_smjsc", 1, IdentityVectorEncoding.Bool);
+        Add("client.eng.regex_lookbehind", 1, IdentityVectorEncoding.Bool);
+        Add("client.eng.show_open_file_picker", 1, IdentityVectorEncoding.Bool);
+        Add("client.eng.user_agent_data", 1, IdentityVectorEncoding.Bool);
+
         // Quality
         Add("quality.dimension_presence_ratio", 1, IdentityVectorEncoding.Scalar);
         Add("quality.transport_quality", 1, IdentityVectorEncoding.Scalar);
@@ -146,7 +169,11 @@ public sealed class IdentityVectorLayout
         // total Dimension count and the matcher's version check will treat them as stale,
         // triggering fresh allocation on the next request per fingerprint. DisplayName
         // (persisted on the Fingerprint row, not the centroid) survives the bump.
-        return new IdentityVectorLayout(version: 3, slots);
+        // v4: added 15 client-attested browser-characteristic dims (client.feat.* /
+        // client.triple.* / client.eng.*). Same forward-only story -- v3 centroids
+        // mismatch the new Dimension count and re-allocate on next request (a one-time
+        // warm-up restage). SHIP THIS BUMP ON A QUIET WINDOW, not mid-incident.
+        return new IdentityVectorLayout(version: 4, slots);
     }
 }
 

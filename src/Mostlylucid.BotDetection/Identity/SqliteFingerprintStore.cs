@@ -207,6 +207,15 @@ public class SqliteFingerprintStore : IFingerprintStore
             // container.
             Data.StoreDbDirectory.EnsureExists(_dataDir);
 
+            // Layout migration BEFORE the schema opens: if a prior fingerprints.db exists
+            // at a different vector layout, its centroids/observations are the wrong
+            // dimension and EnsureLayoutRowAsync below would refuse to start. Centroids are
+            // re-learnable from traffic, so we wipe the db and let it re-seed at the new
+            // layout -- the "fresh allocation" the layout versioning promises, made real.
+            // A layout bump is a rare deploy-time event, so a one-time warm-up restage is
+            // the right trade against a hard startup crash.
+            await MigrateStaleLayoutAsync(ct);
+
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);
 
@@ -318,6 +327,72 @@ public class SqliteFingerprintStore : IFingerprintStore
         insert.Parameters.AddWithValue("@json", BuildLayoutJson(_layout.Slots));
         insert.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         await insert.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    ///     Wipes <c>fingerprints.db</c> when the stored vector layout is incompatible with the
+    ///     running one (version or dimension changed), so the schema re-creates and re-seeds at
+    ///     the new layout instead of hard-failing in <see cref="EnsureLayoutRowAsync"/>. The
+    ///     centroids, observations, archetypes and dimension weights are all layout-dimensioned
+    ///     and re-learnable from live traffic, so a bump is a one-time warm-up restage.
+    /// </summary>
+    private async Task MigrateStaleLayoutAsync(CancellationToken ct)
+    {
+        var dbPath = Path.Combine(_dataDir, "fingerprints.db");
+        if (!File.Exists(dbPath)) return; // fresh install -> schema creates at the current layout
+
+        if (!await IsStoredLayoutIncompatibleAsync(ct)) return;
+
+        // Release pooled handles so the file delete succeeds (matters on Windows).
+        SqliteConnection.ClearAllPools();
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            var p = dbPath + suffix;
+            try
+            {
+                if (File.Exists(p)) File.Delete(p);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "Layout migration: could not delete {Path}", p);
+            }
+        }
+    }
+
+    private async Task<bool> IsStoredLayoutIncompatibleAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var probe = new SqliteConnection(_connectionString);
+            await probe.OpenAsync(ct);
+            await using var cmd = probe.CreateCommand();
+            cmd.CommandText = "SELECT version, dimension FROM identity_vector_layout WHERE id = 1";
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+                return false; // table present but no row -> EnsureLayoutRowAsync inserts cleanly
+
+            var storedVersion = reader.GetInt32(0);
+            var storedDim = reader.GetInt32(1);
+            if (storedVersion == _layout.Version && storedDim == _layout.Dimension)
+                return false; // compatible
+
+            _logger.LogWarning(
+                "Identity vector layout changed (stored v{StoredV}/dim{StoredD} -> running "
+                + "v{RunV}/dim{RunD}); wiping fingerprints.db and re-seeding. Learned centroids "
+                + "rebuild from traffic.",
+                storedVersion, storedDim, _layout.Version, _layout.Dimension);
+            return true;
+        }
+        catch (SqliteException)
+        {
+            // No readable identity_vector_layout (pre-versioning / foreign / corrupt db). We
+            // cannot verify compatibility and the running schema guard would refuse to start,
+            // so wipe to recover -- the data is re-learnable.
+            _logger.LogWarning(
+                "fingerprints.db has no readable identity_vector_layout; wiping and re-seeding "
+                + "at layout v{RunV}.", _layout.Version);
+            return true;
+        }
     }
 
     /// <summary>Count of unabsorbed observation rows for a single fingerprint.</summary>
