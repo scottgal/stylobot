@@ -32,6 +32,9 @@ emits:
     - key: time.is_business_hours
       type: bool
       description: Convenience boolean latched during business hours in the server's configured timezone (raised by the atom; declared here to close the reverse-drift gap)
+    - key: time.is_weekend
+      type: bool
+      description: Convenience boolean latched at weekends in the server's configured timezone (raised by the atom; declared here to close the reverse-drift gap - previously only surfaced by the atom-emit contract test on weekends)
   on_failure:
     - detector.time.failed
 

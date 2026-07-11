@@ -24,6 +24,10 @@ public class NameLengthDiagnostic
     [InlineData("Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)")]
     [InlineData("welcome to cupertino")]
     [InlineData("Some Weird Long Client String With No Slash That Would Have Blurted")]
+    // Operator 2026-07-11: "Meta-ExternalAgent developers.facebook.com" (42 chars) was
+    // blowing the list width. developers.facebook.com is a vendor-home subdomain, dropped
+    // now so the name is just "Meta-ExternalAgent".
+    [InlineData("meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler/)")]
     public void Show(string ua)
     {
         var name = FingerprintNameComposer.Compose(
