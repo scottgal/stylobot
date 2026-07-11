@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StyloBot** is an enterprise-grade bot detection and anonymous entity resolution framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 57 contributors across 4 waves, real-time inference with <1ms fast path, intent classification with threat scoring, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection with optional LLM enrichment (not decision-making) for edge cases. Sessions are the primary behavioral unit - compressed into 129-dimensional Markov chain vectors with unified fingerprint dimensions and per-transition timing anomaly detection, enabling inter-session velocity analysis and behavioral anomaly detection. **Metastable fingerprint identity** (6.4.7+, opt-in via `Identity:Enabled = true`) treats each visitor as a learned vector *shape* - centroid + per-fp weight vector + observation cloud - and uses a two-pass match (L1 IP+UA point lookup → L2 weighted-cosine via `IIdentityAnchorIndex`) so the fast path stays sub-ms for stable visitors while rotated identities still resolve to a single fingerprint. Drift verifier, calibration via Fisher discriminant ratios, and self-refining archetypes close the learning loop. See [`docs/architecture/fingerprint-match.md`](docs/architecture/fingerprint-match.md). **Anonymous Entity Resolution** progressively builds identity from multiple factors (IP+UA → TLS → HTTP/2 → client-side JS → behavioral patterns), discovers stable identity anchors per visitor (PersonalStability × GlobalRarity scoring), and detects rotation trails via cosine neighbor walking. Entity merge/split/rewind operations are backed by immutable session snapshots. Persistence uses SQLite everywhere (zero-dependency) for the FOSS product, with PostgreSQL as the commercial upgrade path (in the `stylobot-commercial` repo). The website/portal has been moved to `stylobot-commercial` as it depends on commercial packages. A **single canonical bot/human classifier** (v8 rationalisation): every surface derives `is_bot` from `bot_probability >= Classification.BotFloor`, never a separately-stored boolean, so the dashboard can't disagree with the score. **Signal Assay** (deployment-norm calibration via `DeploymentNormTracker`) stops penalising transport-fingerprint signals (JA3, HTTP/2 stream priority, TCP Connection header) that a proxy/tunnel strips before the origin: absent-for-everyone signals are learned as `BelowNorm` and during cold-start warm-up penalties fail open. The real-time dashboard (V2 IA: Traffic / Visitors / Site / Policies / Configuration) features behavioral radar charts, vendored Chart.js chartlets, world threat map, country/endpoint analytics, Leiden cluster visualization, threat scoring, deterministic per-fingerprint bot naming, drift badges, a live signature feed, and a policy-stack editor. All dashboard data persists to SQLite (no in-memory stores). **Simulation packs** (WordPress FOSS, others commercial) simulate vulnerable endpoints to detect CVE-targeting bots. The `UseStyloBot()` method provides single-call setup with correct middleware ordering.
+**StyloBot** is an enterprise-grade bot detection and anonymous entity resolution framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 64 detector atoms across 4 waves, real-time inference with <1ms fast path, intent classification with threat scoring, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection with optional LLM enrichment (not decision-making) for edge cases. Sessions are the primary behavioral unit - compressed into 129-dimensional Markov chain vectors with unified fingerprint dimensions and per-transition timing anomaly detection, enabling inter-session velocity analysis and behavioral anomaly detection. **Metastable fingerprint identity** (6.4.7+, opt-in via `Identity:Enabled = true`) treats each visitor as a learned vector *shape* - centroid + per-fp weight vector + observation cloud - and uses a two-pass match (L1 IP+UA point lookup → L2 weighted-cosine via `IIdentityAnchorIndex`) so the fast path stays sub-ms for stable visitors while rotated identities still resolve to a single fingerprint. Drift verifier, calibration via Fisher discriminant ratios, and self-refining archetypes close the learning loop. See [`docs/architecture/fingerprint-match.md`](docs/architecture/fingerprint-match.md). **Anonymous Entity Resolution** progressively builds identity from multiple factors (IP+UA → TLS → HTTP/2 → client-side JS → behavioral patterns), discovers stable identity anchors per visitor (PersonalStability × GlobalRarity scoring), and detects rotation trails via cosine neighbor walking. Entity merge/split/rewind operations are backed by immutable session snapshots. Persistence uses SQLite everywhere (zero-dependency) for the FOSS product, with PostgreSQL as the commercial upgrade path (in the `stylobot-commercial` repo). The website/portal has been moved to `stylobot-commercial` as it depends on commercial packages. A **single canonical bot/human classifier** (v8 rationalisation): every surface derives `is_bot` from `bot_probability >= Classification.BotFloor`, never a separately-stored boolean, so the dashboard can't disagree with the score. **Signal Assay** (deployment-norm calibration via `DeploymentNormTracker`) stops penalising transport-fingerprint signals (JA3, HTTP/2 stream priority, TCP Connection header) that a proxy/tunnel strips before the origin: absent-for-everyone signals are learned as `BelowNorm` and during cold-start warm-up penalties fail open. The real-time dashboard (V2 IA: Traffic / Visitors / Site / Policies / Configuration) features behavioral radar charts, vendored Chart.js chartlets, world threat map, country/endpoint analytics, Leiden cluster visualization, threat scoring, deterministic per-fingerprint bot naming, drift badges, a live signature feed, and a policy-stack editor. All dashboard data persists to SQLite (no in-memory stores). **Simulation packs** (WordPress FOSS, others commercial) simulate vulnerable endpoints to detect CVE-targeting bots. The `UseStyloBot()` method provides single-call setup with correct middleware ordering.
 
 ## Critical Rules
 
@@ -93,11 +93,11 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 ### Detector Pipeline
 
-**Identity (Priority 1)**: Signature (PrimarySignature computation + header hashes for progressive identity)
+**Foundation (Wave 0, run unconditionally)**: RequestHydrator (extracts signals from HttpContext into the SignalSink; pipeline entry point), Signature (PrimarySignature computation + header hashes for progressive identity), IdentityVector (composes the per-request identity feature vector from sink hints + HttpContext), Time (webmaster-readable time-of-day facets from the gateway clock), FingerprintMatch (two-pass identity match: L1 IP+UA point lookup → L2 weighted-cosine), FingerprintPrior (injects the cached fingerprint verdict as a prior bias). See the Foundation contributors note in Critical Rules.
 
 **Content Sequence (Priority 4, Wave 0)**: ContentSequence -tracks document→asset→API page-load order per fingerprint; writes `sequence.*` signals that gate 5 deferred detectors; detects machine-speed timing (<20ms), phase-window divergence, cache-warm, and expected SignalR; `CentroidSequenceStore` (SQLite) holds per-cluster expected chains; `EndpointDivergenceTracker` + `AssetHashMiddleware` suppress false positives during deploys
 
-**Fast Path (<1ms)**: UserAgent, Header, Ip, SecurityTool, Behavioral, ClientSide, Inconsistency, VersionAge, Heuristic, FastPathReputation, CacheBehavior, CookieBehavior, ResourceWaterfall, ReputationBias, AiScraper, Haxxor, CveProbe, PiiQueryString, VerifiedBot, VerifiedBotInline, FediverseDomain, BrowserModeClassifier, CveFingerprint, HeuristicLate, ClaimedIdentity, ThreatIntel
+**Fast Path (<1ms)**: UserAgent, Header, HeaderCorrelation (UA rotation via same-headers-different-signature correlation), Ip, SecurityTool, Behavioral, ClientSide, Inconsistency, VersionAge, Heuristic, FastPathReputation, CacheBehavior, CookieBehavior, ResourceWaterfall, ReputationBias, AiScraper, Haxxor, CveProbe, PiiQueryString, VerifiedBot, VerifiedBotInline, FediverseDomain, BrowserModeClassifier, CveFingerprint, HeuristicLate, ClaimedIdentity, ThreatIntel, HealthEndpoint (Wave 0 boundary sensor: flags recognized health/probe paths), HealthEndpointRecon (raises threat when a health path is hit by non-health traffic)
 
 **Slow Path (~100ms)**: ProjectHoneypot (DNS lookup)
 
@@ -107,9 +107,9 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 **Entity Resolution**: Merge (cosine neighbor walking), Split (velocity oscillation), Convergence (parallel behavioral vectors), L0-L5 confidence levels, AccountTakeover, IdentityChange, GeoChange, PoolCollision
 
-**Post-Round-Trip**: ChallengeVerification, FingerprintApproval, ClickFraud, Honeypot.EndpointHistory, Honeypot.HoneypotLink
+**Post-Round-Trip**: ChallengeVerification, FingerprintApproval, WebBotAuthApproval (RFC 9421 HTTP Message Signatures / Web Bot Auth, verified once per session window), ClickFraud, Honeypot.EndpointHistory, Honeypot.HoneypotLink
 
-**LLM Escalation**: Llm (enrichment only, not decision-making)
+**Threat Scoring & LLM**: Intent (unified 0-1 threat score, orthogonal to bot probability - human threat is scored separately), Ai (late-stage ONNX/LLM analysis, runs only once the running risk score has settled), Llm (availability sensor; enrichment only, not decision-making)
 
 ### Detector Benchmark Numbers
 
@@ -187,7 +187,7 @@ Sessions are the primary behavioral unit. Per-request Markov chain transitions a
 
 **Key files:**
 - `Analysis/SessionVector.cs` - SessionStore, SessionVectorizer, FingerprintContext, snapshot compaction
-- `Orchestration/ContributingDetectors/SessionVectorContributor.cs` - Detection contributor
+- `Orchestration/Atoms/SessionVectorAtom.cs` - Detection atom
 - `Orchestration/Manifests/detectors/sessionvector.detector.yaml` - YAML config
 
 ### Persistence
@@ -207,7 +207,7 @@ Sessions are the primary behavioral unit. Per-request Markov chain transitions a
 
 - `Extensions/ServiceCollectionExtensions.cs` - DI registration entry points
 - `Orchestration/BlackboardOrchestrator.cs` - Main detection orchestration
-- `Orchestration/ContributingDetectors/` - All 57 contributor implementations
+- `Orchestration/Atoms/` - All 64 atom implementations
 - `Orchestration/Manifests/detectors/*.yaml` - Detector configurations
 - `Models/BotDetectionOptions.cs` - Configuration model
 - `Actions/*.cs` - Response policies (block, throttle, challenge, redirect)
@@ -362,16 +362,16 @@ For JA3/JA4: `TlsFingerprintContributor` reads `X-JA3-Hash` and `X-JA3-String` f
 
 ## Adding a New Detector
 
-Every detector touches exactly 5 files. Use `Http3FingerprintContributor` as a reference implementation.
+Every detector touches exactly 5 files. Use `Http3FingerprintAtom` as a reference implementation. (The v8 atom refactor replaced the old `IContributingDetector` / `ContributingDetectors/` model with `IDetectorAtom` / `Orchestration/Atoms/`; `DetectorAtomBase` lives in the `mostlylucid.ephemeral.atoms.taxonomy` package.)
 
 ### 5-File Checklist
 
-1. **C# class** - `Orchestration/ContributingDetectors/{Name}Contributor.cs`
-   - Inherit `ConfiguredContributorBase` (for YAML config) or `ContributingDetectorBase` (for no-config detectors)
-   - Constructor takes `ILogger<T>` + `IDetectorConfigProvider` and calls `base(configProvider)`
-   - Override `Name` (string), `Priority` (int), `TriggerConditions` (empty array for Wave 0, or signal triggers for later waves)
-   - Implement `ContributeAsync(BlackboardState state, CancellationToken)` returning `IReadOnlyList<DetectionContribution>`
-   - Use `GetParam<T>(name, default)` for all tunable values - no magic numbers in code
+1. **C# class** - `Orchestration/Atoms/{Name}Atom.cs`
+   - Inherit `DetectorAtomBase` and call `base(name: "{Name}", category: "{Category}")`
+   - Constructor takes `ILogger<T>` + `IDetectorConfigProvider` (for YAML params), plus `IHttpContextAccessor` if it needs the raw request; optional collaborators default to null
+   - Override `Priority` (int) and `RequiredSignals` (`Array.Empty<string>()` for Wave 0, or the signal keys this atom depends on for later waves)
+   - Implement `DetectAsync(SignalSink sink, string sessionId, CancellationToken ct)` returning `Task<IReadOnlyList<DetectionContribution>>`
+   - Read every tunable via `_configProvider.GetParameter(Name, "key", default)` / `GetDefaults(Name)` - no magic numbers in code
 
 2. **YAML manifest** - `Orchestration/Manifests/detectors/{name}.detector.yaml`
    - Follows the schema: `name`, `priority`, `enabled`, `scope`, `taxonomy`, `input`, `output`, `triggers`, `emits`, `defaults` (weights, confidence, timing, features, parameters)
@@ -381,18 +381,18 @@ Every detector touches exactly 5 files. Use `Http3FingerprintContributor` as a r
    - Add constants in the `SignalKeys` class grouped with a section header comment
    - Use hierarchical naming: `h3.protocol`, `h3.client_type`, etc.
 
-4. **DI registration** - `Extensions/ServiceCollectionExtensions.cs`
-   - Add `services.AddSingleton<IContributingDetector, {Name}Contributor>();` in the appropriate wave section
+4. **DI registration** - `Orchestration/Atoms/BotDetectionOrchestrator.cs`
+   - Add `services.AddSingleton<IDetectorAtom, {Name}Atom>();` in the appropriate wave section
 
 5. **Narrative builder** - `Mostlylucid.BotDetection.UI/Services/DetectionNarrativeBuilder.cs`
    - Add entries to both `DetectorFriendlyNames` and `DetectorCategories` dictionaries
 
 ### Key Rules
 
-- **No magic numbers** - all confidence, weight, and threshold values come from YAML `defaults.parameters` via `GetParam<T>()`
-- **Always add signals to the last contribution** - the orchestrator reads signals from contributions; ensure the final contribution carries the full `signals.ToImmutable()` dictionary
-- **Cross-detector communication** - use `TriggerConditions` (e.g., `SignalExistsTrigger`, `AnyOfTrigger`, `AllOfTrigger`) to declare dependencies, and `GetSignal<T>(state, key)` to read signals from earlier detectors
-- **Use helper methods** - `BotContribution()`, `HumanContribution()`, `NeutralContribution()`, `StrongBotContribution()` from `ConfiguredContributorBase`
+- **No magic numbers** - all confidence, weight, and threshold values come from YAML `defaults` via `_configProvider.GetParameter(Name, ...)` / `GetDefaults(Name)`
+- **Write signals to the sink** - emit via `sink.Raise(SignalKeys.X, value)` on the `SignalSink` passed to `DetectAsync`; downstream atoms read them back from the same sink
+- **Cross-detector communication** - declare dependencies via `RequiredSignals` (the orchestrator defers the atom until those keys exist) and read them from the sink
+- **Return contributions** - build the `IReadOnlyList<DetectionContribution>` result; `None()` (from `DetectorAtomBase`) is the empty/no-op result. See `Http3FingerprintAtom` and `AiScraperAtom` for the contribution-building helpers.
 
 ## Versioning
 

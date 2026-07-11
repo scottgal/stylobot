@@ -5,6 +5,34 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [8.1.0] - 2026-07-11
+
+8.1 is the atom-orchestrator consolidation and durability-hardening release. Where v8 unified the classifier's *voice*, 8.1 rebuilds the *engine*: the detectors are now first-class `IDetectorAtom`s driven by a single stateless orchestrator (no more per-request re-wiring), the session and identity layers are bounded at the write so high-cardinality floods can no longer balloon memory, and every durable store gained a coalesced write-behind drain plus a commercial PostgreSQL sibling. New detection surfaces (Web Bot Auth, health-endpoint awareness, UA-rotation correlation) land on that foundation.
+
+### Headline
+
+- **Atom orchestrator (default-on).** The detector pipeline is now 64 native `IDetectorAtom` implementations under `Orchestration/Atoms/`, run by a stateless singleton orchestrator hoisted out of the per-request path (previously the full atom set was re-wired on every request). The old `IContributingDetector` model and hand-emitted `<name>.ran` signals are gone. The sub-ms fast path holds end to end (~100 µs/request).
+- **Bounded, signals-native session + identity layers.** Session aggregation is decoupled from volatile caches and driven by signal-triggered two-phase eviction; the metastable-identity observation cloud is bounded *at the write* via adaptive-forgetting sampling (confirmatory observations are summarised, novel ones kept). Fixes unbounded memory growth under sustained high-cardinality traffic.
+- **Data-guardian framework.** Discrete, single-purpose guardians on the shipped `IGuardian` / `GuardianService` framework bound each durable store: bucket retention, session and HNSW compaction, significance-weighted centroid retention (not blind-age TTL), and identity fingerprint observation-retention + eviction. The FOSS dashboard roster shows every guardian's last run.
+- **Write-behind sample drain + store uniformity.** `WriteBehindLfuStore` gained a behavioural-sample drain (coalesce-by-key, DecisionNecessity coldness ordering), so a hot shape persists once per cycle instead of once per mutation. Every durable store now has a SQLite (FOSS) implementation with a PostgreSQL commercial sibling.
+- **Web Bot Auth.** `WebBotAuthApprovalAtom` verifies RFC 9421 HTTP Message Signatures once per session window against a public-key registry; the dashboard surfaces the registered issuer keys.
+- **Health-endpoint awareness.** Health and liveness probes are shape- and source-classified as `BotType.Internal` (never throttled, excluded from threat tallies); a source-aware endpoint policy stops real probes returning 429, and an active upstream-probe lane tracks upstream health.
+- **New detection surfaces.** `HeaderCorrelation` (UA rotation via same-headers-different-signature), `Intent` (unified 0-1 threat score orthogonal to bot probability), and the foundation compute/match atoms (`RequestHydrator`, `IdentityVector`, `Time`, `FingerprintMatch`, `FingerprintPrior`) are now first-class.
+- **Dashboard batch materialisation + delta updates.** A tick-driven materialiser warms a content cache out-of-request; the gateway composes multiple datasets in one round-trip; partial widget refreshes stream as deltas.
+- **FOSS carries no licensing.** All licensing knowledge removed from FOSS and the capability verifier is generic. `BotDetectionPack` renamed to `BotDetectionOrchestrator`. Ephemeral atom packages to 2.9.1; Tailwind v4.
+
+### Fixes
+
+- **Boot + startup.** Fixed relative and bare-filename `DatabasePath` startup crashes; `DatabasePath = null` now fails loud rather than silently running in-memory. Idempotent guardian registration (double-wire boot crash), restored DI registrations dropped by the contributor delete, AOT-safe JSON for the SQLite detection archive, and non-loading manifests.
+- **Naming.** Short-but-distinct display names (stop echoing the raw UA and version/OS bloat); dropped vendor-home subdomains from the discriminator (the `Meta-ExternalAgent developers.facebook.com` over-claim); fixed the atom-refactor "Unknown" regression for catalog bots and humans.
+- **Reliability + tests.** OTLP log-export timeout bounded so a dead collector cannot stall the request path; deterministic `FlushDirtyAsync` that now surfaces persist failures instead of silently succeeding; SignalR broadcast flush-state per hub context (flake); Windows SQLite pool cleanup; centroid write dedupe.
+- **Build.** CA analyzers pinned to warnings (clean build on SDK 10.0.201 without disabling analysis); worked around the Grpc.Tools linux_arm64 protoc segfault; `[FromServices]` fix so the AOT binary starts.
+
+### Performance
+
+- Detection engine hoisted to a stateless singleton: per-request atom re-wiring eliminated. Full pipeline ~100 µs/request; the identity, Markov, and vector hot paths are ns-to-low-µs and mostly zero-alloc.
+- Dashboard materialisation: a tick-warmed content cache plus one-round-trip batch compose cut per-request gateway load.
+
 ## [8.0.0] - 2026-07-01
 
 v8 is the classification-rationalisation and dashboard-V2 release. The 7.x series proved out the metastable-fingerprint identity layer; v8 makes the whole system speak with **one voice** about a visitor - one fingerprint, one probability, one bot/human verdict, one display name - and calibrates the transport-fingerprint signals against each deployment's own norms so proxy/tunnel topologies stop producing false positives.
