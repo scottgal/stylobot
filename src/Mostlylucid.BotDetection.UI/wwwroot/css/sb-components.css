@@ -751,3 +751,59 @@ tr.endpoint-row.is-selected > td {
 tr.endpoint-row.is-selected > td:first-child {
     border-left: 2px solid var(--color-primary, #3b82f6);
 }
+
+/* ===========================================================================
+   sb-widget sizing system
+   ---------------------------------------------------------------------------
+   Uniform widget sizing so short widgets stop stretching to a tall neighbour
+   (the site-health whitespace) and the page dense-packs instead of leaving big
+   L-shaped gaps. Each widget declares a WIDTH span + a HEIGHT tier; the grid
+   uses a fine row unit + `dense` flow so a short widget's leftover space is
+   back-filled by the next widget. Content that exceeds its tier scrolls inside
+   the card (bounded height is the point — no runaway-tall widgets).
+   =========================================================================== */
+.sb-widget-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-rows: 2.5rem;          /* fine unit; height tiers span multiples  */
+    grid-auto-flow: row dense;       /* back-fill the gap a short widget leaves */
+    gap: 0.75rem;
+    align-items: stretch;
+}
+
+/* WIDTH span (12-col) */
+.sb-w-quarter { grid-column: span 3; }
+.sb-w-third   { grid-column: span 4; }
+.sb-w-half    { grid-column: span 6; }
+.sb-w-2third  { grid-column: span 8; }
+.sb-w-full    { grid-column: span 12; }
+
+/* HEIGHT tier (multiples of the 2.5rem row unit + 0.75rem gaps) */
+.sb-h-quarter { grid-row: span 2; }  /* ~5.75rem — strips: site-health, empty  */
+.sb-h-half    { grid-row: span 5; }  /* ~14.75rem — small charts / short lists  */
+.sb-h-tall    { grid-row: span 7; }  /* ~20.75rem — charts / medium tables      */
+.sb-h-full    { grid-row: span 9; }  /* ~26.75rem — headline chart / long lists */
+
+/* the tier cell owns the height; the widget's own card fills it, content scrolls */
+.sb-widget { min-width: 0; }
+.sb-widget-grid > [class*="sb-w-"] { min-width: 0; }
+.sb-widget > .card,
+.sb-widget-grid > [class*="sb-w-"] > .card { height: 100%; margin: 0; }
+.sb-widget > .card > .card-body,
+.sb-widget-grid > [class*="sb-w-"] > .card > .card-body { overflow: auto; min-height: 0; }
+
+/* compact empty-state strip (replaces a full empty card) */
+.sb-widget-empty {
+    display: flex; align-items: center; gap: .5rem; height: 100%;
+    color: var(--color-base-content, #64748b); opacity: .6; font-size: .8125rem;
+}
+.sb-widget-head { font-size: .8125rem; font-weight: 600; opacity: .75; margin-bottom: .5rem; }
+
+/* responsive: don't crush spans on narrow viewports */
+@media (max-width: 1024px) {
+    .sb-w-quarter, .sb-w-third, .sb-w-half, .sb-w-2third { grid-column: span 6; }
+}
+@media (max-width: 640px) {
+    .sb-widget-grid { grid-template-columns: 1fr; }
+    .sb-w-quarter, .sb-w-third, .sb-w-half, .sb-w-2third, .sb-w-full { grid-column: 1 / -1; }
+}

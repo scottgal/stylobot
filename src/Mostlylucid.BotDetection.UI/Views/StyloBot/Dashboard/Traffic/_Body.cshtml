@@ -131,18 +131,13 @@
     @* Row A: the volume shape now sits in the prime top-left slot (where the old
        VISITORS card was), with Top Bots beside it — the two headline widgets of
        the page. The visitor split moved to the compact bar above. *@
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div class="card bg-base-100 border border-base-300">
-            <div class="card-body p-3">
-                <div class="text-sm text-base-content/60 mb-2">@chartLabel</div>
-                <vc:sb-chartlet model="hitsChart" />
-            </div>
-        </div>
-        <div class="card bg-base-100 border border-base-300">
-            <div class="card-body p-3">
-                <sb-top-bots filter="bots" range="@Model.Filters.Window" page-size="6" widget-id="overview-topbots" />
-            </div>
-        </div>
+    <div class="sb-widget-grid">
+        <sb-widget width="half" height="tall" heading="@chartLabel">
+            <vc:sb-chartlet model="hitsChart" />
+        </sb-widget>
+        <sb-widget width="half" height="tall">
+            <sb-top-bots filter="bots" range="@Model.Filters.Window" page-size="6" widget-id="overview-topbots" />
+        </sb-widget>
     </div>
 
     @* Row B: top content pages + site health, half-and-half. Content is the
@@ -150,19 +145,19 @@
        Site-health carries its own card (ms + percent, different units; a dual-axis
        overlay on the chart would mislead), backed by persisted DegradationSnapshot
        rows via IDashboardEventStore. *@
-    @* items-start: don't stretch the two cards to equal height — the content
-       list and (when healthy) the thin site-health strip sit at their natural
-       height, top-aligned, instead of padding out to match. *@
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-        <div class="card bg-base-100 border border-base-300">
-            <div class="card-body p-3">
-                <sb-endpoints-list compact="true" content-only="true"
-                                   heading="Top content pages"
-                                   range="@Model.Filters.Window"
-                                   sort="total" dir="desc" page-size="8" />
-            </div>
+    @* sb-widget-grid: top content pages as a tall widget; site-health as a
+       QUARTER-height strip (it self-cards, so it goes in a tier wrapper) instead
+       of a full card matched to the table's height — the whitespace fix. *@
+    <div class="sb-widget-grid">
+        <sb-widget width="half" height="tall">
+            <sb-endpoints-list compact="true" content-only="true"
+                               heading="Top content pages"
+                               range="@Model.Filters.Window"
+                               sort="total" dir="desc" page-size="8" />
+        </sb-widget>
+        <div class="sb-w-half sb-h-quarter">
+            <vc:sb-site-health window="@Model.Filters.Window" />
         </div>
-        <vc:sb-site-health window="@Model.Filters.Window" />
     </div>
 
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", Model)
