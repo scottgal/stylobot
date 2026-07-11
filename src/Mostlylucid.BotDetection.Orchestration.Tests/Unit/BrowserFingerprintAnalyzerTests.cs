@@ -18,6 +18,51 @@ public class BrowserFingerprintAnalyzerTests
         _analyzer = new BrowserFingerprintAnalyzer(NullLogger<BrowserFingerprintAnalyzer>.Instance);
     }
 
+    #region Browser-characteristic consistency passthrough (script v2.1.0+)
+
+    [Fact]
+    public void Analyze_CarriesFeaturesAndEngineBlocks_Verbatim()
+    {
+        // The analyzer must carry the raw browser-consistency observations onto the
+        // result untouched -- no verdict computed here; scoring is centroid-side.
+        var data = new BrowserFingerprintData
+        {
+            Features = new FeaturesBlock
+            {
+                Popover = 1, CssHas = 1, ArrayFindLast = 1, StructuredClone = 1, WebGpu = 1
+            },
+            Engine = new EngineBlock
+            {
+                V8BreakIterator = 1, ErrorCaptureStackTrace = 1, StackStyle = "v8",
+                RegexLookbehind = 1, ShowOpenFilePicker = 1, UserAgentData = 1
+            }
+        };
+
+        var result = _analyzer.Analyze(data, "test-browser-char");
+
+        Assert.NotNull(result.Features);
+        Assert.NotNull(result.Engine);
+        Assert.Equal("v8", result.Engine!.StackStyle);
+        Assert.Equal(1, result.Engine.V8BreakIterator);
+        Assert.Equal(1, result.Features!.CssHas);
+        Assert.Equal(1, result.Features.WebGpu);
+    }
+
+    [Fact]
+    public void Analyze_NoFeaturesOrEngine_ResultBlocksNull()
+    {
+        // A pre-v2.1.0 beacon (no features/engine) must leave the blocks null,
+        // never a fabricated zero-vector that would look like a spoof.
+        var data = new BrowserFingerprintData();
+
+        var result = _analyzer.Analyze(data, "test-no-browser-char");
+
+        Assert.Null(result.Features);
+        Assert.Null(result.Engine);
+    }
+
+    #endregion
+
     #region Permission Consistency
 
     [Fact]

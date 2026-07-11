@@ -2042,6 +2042,46 @@ public static partial class SignalKeys
     /// </summary>
     public const string ClientSideMouseTimingCv = "clientside.mouse_timing_cv";
 
+    // ==========================================
+    // Browser-characteristic consistency signals (client-attested, script v2.1.0+)
+    // Raised by ClientSideAtom (the canonical clientside.* writer) from the beacon's
+    // versionFeatures()/engineProbes() blocks. Inert observability at this stage;
+    // the browser_char centroid scores them and the InconsistencyAtom emits the
+    // derived verdict. These are the un-spoofable engine tells (weighted high in the
+    // centroid mask) plus a feature-presence summary (spoofable, weighted low).
+    // ==========================================
+
+    /// <summary>
+    ///     String: the real JS engine family inferred from Error().stack shape --
+    ///     "v8" (Chromium), "spidermonkey-jsc" (Firefox/Safari), or "unknown".
+    ///     Un-spoofable by mainstream tools; a claimed Safari/Firefox UA reporting
+    ///     "v8" is a definitive spoof. Also the presence-trigger for the
+    ///     browser-characteristic consistency branch.
+    /// </summary>
+    public const string ClientSideEngineFamily = "clientside.engine_family";
+
+    /// <summary>
+    ///     Bool: V8-only internals present (Intl.v8BreakIterator or
+    ///     Error.captureStackTrace). True under a non-Chromium claimed UA is a spoof.
+    /// </summary>
+    public const string ClientSideEngineV8 = "clientside.engine_v8";
+
+    /// <summary>
+    ///     Int (0-5): count of version-gated capabilities present
+    ///     (popover / :has() / findLast / structuredClone / WebGPU). Spoofable, so
+    ///     low-weighted; used with the engine tells to score claim-vs-observed.
+    /// </summary>
+    public const string ClientSideFeatureCount = "clientside.feature_count";
+
+    /// <summary>
+    ///     Double (0-1): browser-characteristic drift -- how far this session's
+    ///     feature/engine vector sits from the learned browser_char centroid for its
+    ///     CLAIMED {family}:{major}:{mode}. Higher = more inconsistent with the claim.
+    ///     Written by the InconsistencyAtom browser_char branch; only ever RAISES
+    ///     suspicion (consistency is neutral, never a human discount).
+    /// </summary>
+    public const string BrowserCharacteristicDrift = "browser.characteristic_drift";
+
 
     // ==========================================
     // Cookie behavior signals

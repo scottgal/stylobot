@@ -83,6 +83,11 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             MouseMoveCount = mouseMoves,
             MouseAllIntegerCoords = mouseAllInt,
             MouseTimingCv = mouseCv,
+            // Browser-consistency raw observations (script v2.1.0+): carried verbatim
+            // for ClientSideAtom -> client.feat.*/client.eng.* and the browser_char
+            // centroid. No verdict computed here; the consistency scoring is centroid-side.
+            Features = data.Features,
+            Engine = data.Engine,
         };
 
         // Handle error case. data.Error is attacker-controlled (JSON body);

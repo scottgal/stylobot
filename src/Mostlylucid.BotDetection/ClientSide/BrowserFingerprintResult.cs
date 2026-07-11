@@ -92,6 +92,12 @@ public class BrowserFingerprintData
     /// <summary>Chromium-feature triple (startViewTransition / Speculation Rules / hasStorageAccess) for UA cross-check.</summary>
     [JsonPropertyName("triple")] public TripleBlock? Triple { get; set; }
 
+    /// <summary>Version-gated capability observations from <c>versionFeatures()</c> (script v2.1.0+). Raw browser-consistency signals: which APIs this engine exposes, cross-checked server-side against the claimed browser+version.</summary>
+    [JsonPropertyName("features")] public FeaturesBlock? Features { get; set; }
+
+    /// <summary>Engine-identity observations from <c>engineProbes()</c> (script v2.1.0+). Un-spoofable V8/SpiderMonkey/JSC tells; a claimed Safari/Firefox UA exposing V8 internals is a spoof.</summary>
+    [JsonPropertyName("engine")] public EngineBlock? Engine { get; set; }
+
     /// <summary>UA-Client Hints high-entropy block; null on non-secure contexts or older browsers.</summary>
     [JsonPropertyName("ua")] public UaBlock? Ua { get; set; }
 
@@ -262,6 +268,40 @@ public class TripleBlock
     [JsonPropertyName("storageAccess")] public int HasStorageAccess { get; set; }
 }
 
+/// <summary>
+///     Version-gated capability observations from <c>versionFeatures()</c>
+///     (script v2.1.0+). Each is 1 present / 0 absent / -1 probe-errored. These
+///     are the SPOOFABLE feature-presence signals: cross-checked server-side
+///     against the claimed browser+version, but low-weighted in the
+///     browser-characteristic centroid mask relative to the engine tells.
+/// </summary>
+public class FeaturesBlock
+{
+    [JsonPropertyName("popover")] public int Popover { get; set; }
+    [JsonPropertyName("cssHas")] public int CssHas { get; set; }
+    [JsonPropertyName("arrayFindLast")] public int ArrayFindLast { get; set; }
+    [JsonPropertyName("structuredClone")] public int StructuredClone { get; set; }
+    [JsonPropertyName("webGpu")] public int WebGpu { get; set; }
+}
+
+/// <summary>
+///     Engine-identity observations from <c>engineProbes()</c> (script v2.1.0+).
+///     The UN-SPOOFABLE tells: they reveal the real JS engine (V8 / SpiderMonkey
+///     / JavaScriptCore) regardless of the claimed UA, because anti-detect
+///     browsers rewrite the surface but run on a real engine. High-weighted in
+///     the browser-characteristic centroid mask. Ints are 1/0/-1;
+///     <see cref="StackStyle"/> is "v8" / "spidermonkey-jsc" / "unknown".
+/// </summary>
+public class EngineBlock
+{
+    [JsonPropertyName("v8BreakIterator")] public int V8BreakIterator { get; set; }
+    [JsonPropertyName("errorCaptureStackTrace")] public int ErrorCaptureStackTrace { get; set; }
+    [JsonPropertyName("stackStyle")] public string? StackStyle { get; set; }
+    [JsonPropertyName("regexLookbehind")] public int RegexLookbehind { get; set; }
+    [JsonPropertyName("showOpenFilePicker")] public int ShowOpenFilePicker { get; set; }
+    [JsonPropertyName("userAgentData")] public int UserAgentData { get; set; }
+}
+
 /// <summary>UA-Client Hints high-entropy block from <c>uaCH()</c>.</summary>
 public class UaBlock
 {
@@ -288,6 +328,15 @@ public class LegitBlock
 {
     [JsonPropertyName("brave")] public int Brave { get; set; }
     [JsonPropertyName("lockdown")] public int Lockdown { get; set; }
+
+    /// <summary>Firefox engine (MozAppearance CSS tell). Feeds the mode-state classifier so RFP/Tor become a learned mode, not a false-positive.</summary>
+    [JsonPropertyName("firefox")] public int Firefox { get; set; }
+
+    /// <summary>Timezone forced to UTC (Firefox resistFingerprinting / Tor tell).</summary>
+    [JsonPropertyName("tzUtc")] public int TimezoneUtc { get; set; }
+
+    /// <summary>Tor letterboxing: Firefox + UTC + round window dimensions.</summary>
+    [JsonPropertyName("torLetterbox")] public int TorLetterbox { get; set; }
 }
 
 /// <summary>performance.now() clamp probe from <c>clampProbe()</c>.</summary>
@@ -391,6 +440,20 @@ public class BrowserFingerprintResult
     ///     Whether the browser appears to be automated/headless.
     /// </summary>
     public bool IsHeadless { get; set; }
+
+    /// <summary>
+    ///     Version-gated capability observations (script v2.1.0+), carried verbatim
+    ///     from the beacon so <c>ClientSideAtom</c> can raise <c>client.feat.*</c> and
+    ///     the browser_char centroid can score them. Null when absent from the payload.
+    /// </summary>
+    public FeaturesBlock? Features { get; set; }
+
+    /// <summary>
+    ///     Engine-identity observations (script v2.1.0+): the un-spoofable
+    ///     V8/SpiderMonkey/JSC tells, carried verbatim for <c>client.eng.*</c> and the
+    ///     engine-weighted browser_char centroid dimensions. Null when absent.
+    /// </summary>
+    public EngineBlock? Engine { get; set; }
 
     /// <summary>
     ///     Confidence score that this is a bot (0.0 to 1.0).

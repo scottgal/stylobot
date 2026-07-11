@@ -221,6 +221,31 @@ public sealed class ClientSideAtom : DetectorAtomBase
                     sink.Raise($"{SignalKeys.ClientSideMouseAllIntegerCoords}:{(fp.MouseAllIntegerCoords.Value ? "true" : "false")}", sessionId);
                 if (fp.MouseTimingCv.HasValue)
                     sink.Raise($"{SignalKeys.ClientSideMouseTimingCv}:{fp.MouseTimingCv.Value.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
+
+                // Browser-characteristic consistency (script v2.1.0+): inert raw
+                // observations. The engine tells are the un-spoofable anchor; the
+                // feature-presence count is the spoofable summary. The browser_char
+                // centroid scores the full vector off fp.Engine/fp.Features; these
+                // signals give the consistency branch its presence-trigger plus
+                // dashboard/BDF observability. Only raised when a beacon arrived,
+                // so this stays a triggered path, never foundation.
+                if (fp.Engine is { } eng)
+                {
+                    if (!string.IsNullOrEmpty(eng.StackStyle))
+                        sink.Raise($"{SignalKeys.ClientSideEngineFamily}:{eng.StackStyle}", sessionId);
+                    var v8 = eng.V8BreakIterator == 1 || eng.ErrorCaptureStackTrace == 1;
+                    sink.Raise($"{SignalKeys.ClientSideEngineV8}:{(v8 ? "true" : "false")}", sessionId);
+                }
+                if (fp.Features is { } feat)
+                {
+                    var present = 0;
+                    if (feat.Popover == 1) present++;
+                    if (feat.CssHas == 1) present++;
+                    if (feat.ArrayFindLast == 1) present++;
+                    if (feat.StructuredClone == 1) present++;
+                    if (feat.WebGpu == 1) present++;
+                    sink.Raise($"{SignalKeys.ClientSideFeatureCount}:{present}", sessionId);
+                }
             }
         }
         catch (Exception ex)
