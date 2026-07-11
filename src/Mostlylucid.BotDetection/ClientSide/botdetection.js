@@ -226,9 +226,87 @@
     function chromiumTriple() {
         return {
             viewTx: typeof document.startViewTransition === 'function' ? 1 : 0,
-            speculation: ('speculationrules' in HTMLScriptElement.prototype) ? 1 : 0,
+            // Speculation Rules MUST be probed via HTMLScriptElement.supports().
+            // `'speculationrules' in HTMLScriptElement.prototype` is a
+            // FALSE-NEGATIVE on every shipping Chrome (verified live on Chrome
+            // 149) -- it made a genuine Chrome look like it was missing a Chrome
+            // feature, which is exactly the browser-consistency false-positive we
+            // must not create.
+            speculation: (typeof HTMLScriptElement.supports === 'function'
+                && HTMLScriptElement.supports('speculationrules')) ? 1 : 0,
             storageAccess: typeof document.hasStorageAccess === 'function' ? 1 : 0
         };
+    }
+
+    // === [PRIMARY] Version-gated feature vector (browser-consistency signals) ==
+    // Raw capability observations (1 = present, 0 = absent, -1 = probe errored)
+    // the server-side browser-UA-consistency check consumes to verify the CLAIMED
+    // browser+version (UA-CH fullVersionList) against what this engine actually
+    // ships. We emit ONLY the observations here; the feature -> min-version matrix
+    // and the consistency verdict live server-side (matrix as YAML data, scoring
+    // in the contributor) -- never a claimed-vs-observed verdict baked into this
+    // file. This is claim verification, not fingerprinting: no identity, no
+    // high-entropy hashing, just "does the engine behave like the version it
+    // claims to be". Each probe uses correct standards-based feature detection so
+    // a real browser is never mislabelled as missing one of its own features.
+    function versionFeatures() {
+        var f = {};
+        // Popover API           -- Chrome 114, Safari 17, Firefox 125
+        try { f.popover = (typeof HTMLElement !== 'undefined'
+            && typeof HTMLElement.prototype.showPopover === 'function') ? 1 : 0; }
+        catch (e) { f.popover = -1; }
+        // CSS :has()            -- Chrome 105, Safari 15.4, Firefox 121
+        try { f.cssHas = (typeof CSS !== 'undefined' && CSS.supports
+            && CSS.supports('selector(:has(*))')) ? 1 : 0; }
+        catch (e) { f.cssHas = -1; }
+        // Array.prototype.findLast -- Chrome 97, Safari 15.4, Firefox 104
+        try { f.arrayFindLast = (typeof Array.prototype.findLast === 'function') ? 1 : 0; }
+        catch (e) { f.arrayFindLast = -1; }
+        // structuredClone       -- Chrome 98, Safari 15.4, Firefox 94
+        try { f.structuredClone = (typeof structuredClone === 'function') ? 1 : 0; }
+        catch (e) { f.structuredClone = -1; }
+        // WebGPU (navigator.gpu) -- Chrome 113 desktop; absent on most stable
+        // Firefox/Safari. Engine + version tell.
+        try { f.webGpu = ('gpu' in navigator) ? 1 : 0; }
+        catch (e) { f.webGpu = -1; }
+        return f;
+    }
+
+    // === [PRIMARY] Engine-identity probes (un-spoofable by mainstream tools) ===
+    // The strongest browser-consistency tells: these reveal the REAL JS engine
+    // (V8 / SpiderMonkey / JavaScriptCore) regardless of the claimed UA, because
+    // anti-detect browsers, Brave / Firefox-RFP / Tor, and puppeteer-stealth all
+    // rewrite the surface (canvas / WebGL / UA) but run on a real, unmodified
+    // engine. A claimed Safari/Firefox UA that exposes V8-only internals is a
+    // definitive spoof. Raw observations only (1 present, 0 absent, -1 errored);
+    // the claimed-vs-observed verdict lives server-side.
+    function engineProbes() {
+        var e = {};
+        // Intl.v8BreakIterator: V8-only (Chromium). Present under a claimed
+        // Safari/Firefox UA = real Chromium behind a spoofed UA.
+        try { e.v8BreakIterator = (typeof Intl !== 'undefined' && 'v8BreakIterator' in Intl) ? 1 : 0; }
+        catch (ex) { e.v8BreakIterator = -1; }
+        // Error.captureStackTrace: V8-only API (absent in JSC / SpiderMonkey).
+        try { e.errorCaptureStackTrace = (typeof Error.captureStackTrace === 'function') ? 1 : 0; }
+        catch (ex) { e.errorCaptureStackTrace = -1; }
+        // Error().stack format is engine-specific: V8 frames start "    at ...";
+        // SpiderMonkey / JSC use "func@url:line". We emit the family only, never
+        // the raw stack (it is our own synthetic Error -- no PII).
+        try {
+            var s = (new Error()).stack || '';
+            e.stackStyle = /^\s*at\s/m.test(s) ? 'v8' : (/@/.test(s) ? 'spidermonkey-jsc' : 'unknown');
+        } catch (ex) { e.stackStyle = 'unknown'; }
+        // RegExp lookbehind: un-polyfillable syntax. Shipped Chrome 62, Firefox
+        // 78, Safari 16.4. A claimed Safari < 16.4 that supports it is impossible.
+        try { new RegExp('(?<=a)b'); e.regexLookbehind = 1; } catch (ex) { e.regexLookbehind = 0; }
+        // File System Access (showOpenFilePicker): Chromium-only (Chrome 86).
+        try { e.showOpenFilePicker = (typeof window.showOpenFilePicker === 'function') ? 1 : 0; }
+        catch (ex) { e.showOpenFilePicker = -1; }
+        // navigator.userAgentData: Chromium-only. Present under a non-Chromium
+        // claim = spoof.
+        try { e.userAgentData = ('userAgentData' in navigator && navigator.userAgentData != null) ? 1 : 0; }
+        catch (ex) { e.userAgentData = -1; }
+        return e;
     }
 
     // === [PRIMARY] Headless markers ==========================================
@@ -399,6 +477,21 @@
             var noAudio = !(window.OfflineAudioContext || window.webkitOfflineAudioContext);
             var iOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
             out.lockdown = (iOS && noWebGL && noAudio) ? 1 : 0;
+        } catch (e) {}
+        // Firefox resistFingerprinting (RFP) / Tor Browser: privacy users who
+        // deliberately spoof surface signals. We emit raw markers so the
+        // server-side consistency check treats them as legitimate (NOT bots) and
+        // suppresses the surface-contradiction checks for them. MozAppearance is
+        // a Firefox-only CSS property (engine tell); RFP forces the timezone to
+        // UTC; Tor additionally letterboxes the window to round dimensions and
+        // ships a frozen ESR UA.
+        try {
+            var isFirefox = 'MozAppearance' in (document.documentElement.style || {});
+            var tzUtc = (((Intl.DateTimeFormat().resolvedOptions() || {}).timeZone) === 'UTC') ? 1 : 0;
+            var iw = window.innerWidth || 0, ih = window.innerHeight || 0;
+            out.firefox = isFirefox ? 1 : 0;
+            out.tzUtc = tzUtc;
+            out.torLetterbox = (isFirefox && tzUtc && iw > 0 && iw % 100 === 0 && ih % 100 === 0) ? 1 : 0;
         } catch (e) {}
         return out;
     }
@@ -634,7 +727,7 @@
 
         var payload = {
             t: cfg.t,
-            v: '2.0.0',
+            v: '2.1.0',
             ts: Date.now(),
             cdp: cdpHit,
             stack: stackFrames(),
@@ -648,6 +741,8 @@
             botd: asyncResult[7] || null,
             clamp: clampProbe(),
             triple: chromiumTriple(),
+            features: versionFeatures(),
+            engine: engineProbes(),
             headless: headlessMarkers(),
             touch: touchProfile(),
             basics: basics(),

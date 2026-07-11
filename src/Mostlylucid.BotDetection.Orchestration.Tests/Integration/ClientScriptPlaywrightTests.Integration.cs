@@ -217,8 +217,16 @@ public class ClientScriptPlaywrightTests : IAsyncLifetime
 
         // Supporting collectors
         AssertHasProperty(root, "basics",    "hardware/locale/preferences");
-        AssertHasProperty(root, "legit",     "legitimate-user classifiers (Brave/Lockdown)");
+        AssertHasProperty(root, "legit",     "legitimate-user classifiers (Brave/Lockdown/RFP/Tor)");
         AssertHasProperty(root, "tail",      "long-tail markers (webdriver/phantom/selenium/iframe)");
+
+        // Browser-consistency signals (script v2.1.0+): the version-gated feature
+        // vector + engine-identity probes that feed the claimed-vs-observed
+        // browser consistency check. If these stop landing, the consistency
+        // signal loses its client-side input (the same silent-regression class
+        // the rest of this contract guards).
+        AssertHasProperty(root, "features",  "version-gated feature vector (browser-consistency)");
+        AssertHasProperty(root, "engine",    "engine-identity probes (V8/SpiderMonkey/JSC tells)");
 
         // Sanity-check a couple of well-defined sub-shapes.
         Assert.True(root.GetProperty("stack").TryGetProperty("hasObjectApply", out _),
@@ -227,6 +235,28 @@ public class ClientScriptPlaywrightTests : IAsyncLifetime
             "triple.viewTx not present -- the Chromium-feature triple shape changed");
         Assert.True(root.GetProperty("touch").TryGetProperty("maxTouch", out _),
             "touch.maxTouch not present");
+        Assert.True(root.GetProperty("features").TryGetProperty("cssHas", out _),
+            "features.cssHas not present -- the version-gated feature vector shape changed");
+        Assert.True(root.GetProperty("engine").TryGetProperty("v8BreakIterator", out _),
+            "engine.v8BreakIterator not present -- the engine-identity probe shape changed");
+        Assert.True(root.GetProperty("engine").TryGetProperty("stackStyle", out _),
+            "engine.stackStyle not present -- the engine-family classifier probe changed");
+
+        // Playwright Chromium runs V8: the engine-identity probe MUST classify it
+        // as v8 and expose the V8-only Intl.v8BreakIterator, and the corrected
+        // Speculation-Rules probe MUST report present (the old
+        // `'speculationrules' in HTMLScriptElement.prototype` false-negatived on
+        // real Chrome -- this is the regression guard for that fix).
+        var engineEl = root.GetProperty("engine");
+        var stackStyle = engineEl.GetProperty("stackStyle").GetString();
+        var v8BreakIterator = engineEl.GetProperty("v8BreakIterator").GetInt32();
+        var speculation = root.GetProperty("triple").GetProperty("speculation").GetInt32();
+        _output.WriteLine($"engine.stackStyle: {stackStyle}");
+        _output.WriteLine($"engine.v8BreakIterator: {v8BreakIterator}");
+        _output.WriteLine($"triple.speculation: {speculation}");
+        Assert.Equal("v8", stackStyle);
+        Assert.Equal(1, v8BreakIterator);
+        Assert.Equal(1, speculation);
 
         // CDP getter trap: in Playwright Chromium (which IS a CDP-driven browser)
         // this SHOULD trip. If it ever returns 0 here, either Playwright
