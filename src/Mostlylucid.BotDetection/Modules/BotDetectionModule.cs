@@ -223,6 +223,25 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             return Identity.BrowserModes.ModeCentroidClassifier
                 .LoadAsync(cat, layout).GetAwaiter().GetResult();
         });
+        // Browser-characteristic consistency (browser_char): clones the browser_mode
+        // catalogue on the same identity_archetypes table (catalogue_kind='browser_char').
+        // Hardcoded seed prior is the slice-1 stand-in (YAML source is a follow-up, exactly
+        // like HardcodedBrowserModeSeedSource was before the YAML loader).
+        services.TryAddSingleton<Identity.BrowserChar.IBrowserCharSeedSource>(sp =>
+            new Identity.BrowserChar.HardcodedBrowserCharSeedSource(
+                sp.GetRequiredService<Identity.IdentityVectorLayout>()));
+        services.TryAddSingleton<Identity.BrowserChar.BrowserCharCentroidCatalogue>();
+        // Materialize the scorer once at boot (same blocking-await pattern as the mode
+        // classifier above); it snapshots the centroids + builds the engine-weighted mask.
+        services.TryAddSingleton<Identity.BrowserChar.BrowserCharConsistencyScorer>(sp =>
+        {
+            var cat = sp.GetRequiredService<Identity.BrowserChar.BrowserCharCentroidCatalogue>();
+            var layout = sp.GetRequiredService<Identity.IdentityVectorLayout>();
+            var bc = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Models.BotDetectionOptions>>()
+                .Value.Identity.BrowserChar;
+            return Identity.BrowserChar.BrowserCharConsistencyScorer
+                .LoadAsync(cat, layout, bc.EngineWeight, bc.FeatureWeight).GetAwaiter().GetResult();
+        });
         // Signature scoring / dashboard aggregate service (also read by
         // SignatureAtom for verdict composition).
         services.TryAddSingleton<Dashboard.MultiFactorSignatureService>();

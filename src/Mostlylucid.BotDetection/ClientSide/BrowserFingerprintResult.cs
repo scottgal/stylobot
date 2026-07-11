@@ -456,6 +456,13 @@ public class BrowserFingerprintResult
     public EngineBlock? Engine { get; set; }
 
     /// <summary>
+    ///     Chromium-feature triple (View Transitions / Speculation Rules / Storage Access),
+    ///     carried for the <c>client.triple.*</c> browser_char dims (a Chromium-only feature
+    ///     present under a non-Chromium claim is a spoof tell). Null when absent.
+    /// </summary>
+    public TripleBlock? Triple { get; set; }
+
+    /// <summary>
     ///     Confidence score that this is a bot (0.0 to 1.0).
     /// </summary>
     public double HeadlessLikelihood { get; set; }

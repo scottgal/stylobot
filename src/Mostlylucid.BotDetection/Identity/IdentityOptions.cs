@@ -22,6 +22,7 @@ public sealed class IdentityOptions
     public IdentityCoordinatorOptions Coordinator { get; set; } = new();
     public IdentityLooksLikeOptions LooksLike { get; set; } = new();
     public BrowserModeOptions BrowserMode { get; set; } = new();
+    public BrowserCharOptions BrowserChar { get; set; } = new();
 
     /// <summary>
     ///     When true (default), <see cref="Services.FingerprintNameComposer"/>
@@ -725,4 +726,37 @@ public sealed class IdentityEngineOptions
     ///     write to a fingerprint is a direct assignment regardless of alpha.
     /// </summary>
     public double VerdictEwmaAlpha { get; set; } = 0.3;
+}
+
+/// <summary>
+///     Browser-characteristic consistency (claim verification): score a session's
+///     observed feature/engine vector against the learned browser_char centroid for
+///     its CLAIMED {family}:{mode}. Deviation raises suspicion (never a human discount).
+///     Runs only when Identity.Enabled AND a client beacon carried engine data.
+/// </summary>
+public sealed class BrowserCharOptions
+{
+    /// <summary>Master switch (default true so it is active wherever Identity.Enabled is).</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     Weight on the un-spoofable ENGINE dims in the browser_char cosine mask. High so
+    ///     the score is anchored on the engine substrate a spoofer cannot fake.
+    /// </summary>
+    public float EngineWeight { get; set; } = 3.0f;
+
+    /// <summary>
+    ///     Weight on the spoofable / version-dependent FEATURE-presence dims. Low so a
+    ///     minor-version lag or feature spoof cannot swing the verdict.
+    /// </summary>
+    public float FeatureWeight { get; set; } = 0.5f;
+
+    /// <summary>
+    ///     Drift (1 - weighted cosine, halved) above which the branch emits a suspicion
+    ///     contribution. Below it, consistency is neutral (no human discount).
+    /// </summary>
+    public double DriftThreshold { get; set; } = 0.5;
+
+    /// <summary>Contribution weight when the drift branch fires.</summary>
+    public double Weight { get; set; } = 1.5;
 }

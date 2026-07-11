@@ -88,6 +88,7 @@ public class BrowserFingerprintAnalyzer : IBrowserFingerprintAnalyzer
             // centroid. No verdict computed here; the consistency scoring is centroid-side.
             Features = data.Features,
             Engine = data.Engine,
+            Triple = data.Triple,
         };
 
         // Handle error case. data.Error is attacker-controlled (JSON body);

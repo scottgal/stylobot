@@ -286,6 +286,7 @@ public static class BotDetectionOrchestratorExtensions
         services.AddDetectorAtom<HealthEndpointReconAtom>();   // Priority 16
         services.AddDetectorAtom<GeoChangeAtom>();             // Priority 16
         services.AddDetectorAtom<ClientSideAtom>();            // Priority 18
+        services.AddDetectorAtom<BrowserCharConsistencyAtom>(); // Priority 19
         services.AddDetectorAtom<CookieBehaviorAtom>();        // Priority 20
         services.AddDetectorAtom<HeaderCorrelationAtom>();     // Priority 21
         services.AddDetectorAtom<WebBotAuthApprovalAtom>();    // Priority 23
