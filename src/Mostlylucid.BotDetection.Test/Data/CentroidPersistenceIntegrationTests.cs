@@ -147,7 +147,10 @@ public sealed class CentroidPersistenceIntegrationTests : IAsyncLifetime
         var vector = new float[] { 0.1f, 0.5f, 0.9f };
         sqlStore.RecordSignature(sig, vector, wasBot: true, confidence: 0.85);
 
-        // Drain interval is 500ms; poll up to 5s (generous so it stays green under full-suite load).
+        // Deterministic: force the sample-drain to persist now instead of racing its 500ms
+        // timer (which flaked under full-suite thread-pool pressure). Poll remains as a
+        // belt-and-braces read-visibility check on the fresh connection.
+        await sqlStore.FlushDirtyAsync();
         var dbFile = Path.Combine(_dbDirStandard, "signature_centroids.db");
         var persisted = await PollUntilRowAsync(dbFile, "signature_centroids", sig, TimeSpan.FromSeconds(5));
 
@@ -197,6 +200,8 @@ public sealed class CentroidPersistenceIntegrationTests : IAsyncLifetime
         var sig = $"slim-sig-{Guid.NewGuid():N}";
         concrete.RecordSignature(sig, new float[] { 0.3f, 0.6f }, wasBot: false, confidence: 0.2);
 
+        // Deterministic flush, same reason as Standard_RecordSignature (no timer race).
+        await concrete.FlushDirtyAsync();
         var dbFile    = Path.Combine(_dbDirSlim, "signature_centroids.db");
         var persisted = await PollUntilRowAsync(dbFile, "signature_centroids", sig, TimeSpan.FromSeconds(5));
 
