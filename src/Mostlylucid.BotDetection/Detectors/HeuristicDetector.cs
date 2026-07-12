@@ -59,7 +59,14 @@ public class HeuristicDetector : IDetector, IDisposable
 {
     private const string BiasSignature = "bias";
     private const float DefaultBias = 0.1f;
-    private const float DefaultNewFeatureWeight = 0.1f;
+    // An UNLEARNED feature is absence of evidence, not evidence of a bot, so its default weight is
+    // NEUTRAL (0). The prior +0.1 meant that on a cold start (freshly restarted gateway, before the
+    // per-feature weights are learned) most of a request's ~20 features fell back to +0.1, summing
+    // to ~+1.2 and driving sigmoid to ~0.77 bot for EVERY request -- humans included -- which then
+    // dominated every calibrated human signal. Known-feature weights (DefaultWeights below) still
+    // carry their tuned values; only genuinely-unseen features are neutralised until the learner
+    // assigns them a real weight.
+    private const float DefaultNewFeatureWeight = 0.0f;
 
     /// <summary>
     ///     Default weights for known feature patterns.
