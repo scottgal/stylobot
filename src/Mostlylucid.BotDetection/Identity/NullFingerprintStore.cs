@@ -171,7 +171,7 @@ public class NullFingerprintStore : IFingerprintStore
         => Task.FromResult<float[]?>(null);
 
     public Task<IReadOnlyList<AbsorbableObservation>> ListAbsorbableObservationsAsync(
-        int maturityThreshold, int ageDays, int activeWindowDays, CancellationToken ct = default)
+        int maturityThreshold, int ageDays, int activeWindowDays, int maxFingerprints, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<AbsorbableObservation>>(Array.Empty<AbsorbableObservation>());
 
     // ── Calibration ──────────────────────────────────────────────────────────

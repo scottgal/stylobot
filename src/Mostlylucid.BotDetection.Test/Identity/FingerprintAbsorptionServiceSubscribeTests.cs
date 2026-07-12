@@ -39,7 +39,8 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
 
     private async Task<(SqliteFingerprintStore Store, FingerprintAbsorptionService Service)> BuildAsync(
         int debounceMs = 250,
-        RecordingScheduleCoordinator? coordinator = null)
+        RecordingScheduleCoordinator? coordinator = null,
+        IdentityProcessingCoordinator? slowPathCoordinator = null)
     {
         var options = Options.Create(new BotDetectionOptions
         {
@@ -69,7 +70,8 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
             store,
             archetypes,
             options,
-            coordinator);
+            coordinator,
+            slowPathCoordinator: slowPathCoordinator);
 
         return (store, service);
     }
@@ -130,6 +132,46 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
         finally
         {
             service.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ObservationAppended_WithSlowPathCoordinator_FoldsViaSequencedQueue()
+    {
+        // When a slow-path coordinator is present the debounced fold is enqueued through it
+        // (one-at-a-time via the coordinator's worker loops) instead of a fire-and-forget
+        // Task.Run per observation. Prove the fold still completes AND that it went through
+        // the coordinator's queue (TotalEnqueued incremented).
+        var coord = new IdentityProcessingCoordinator(
+            NullLogger<IdentityProcessingCoordinator>.Instance,
+            Options.Create(new BotDetectionOptions()));
+        await coord.StartAsync(CancellationToken.None);
+
+        var (store, service) = await BuildAsync(debounceMs: 200, slowPathCoordinator: coord);
+        try
+        {
+            var fpId = await SeedFingerprintAsync(store, "fp-seq-1");
+
+            await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            int pending;
+            do
+            {
+                await Task.Delay(50, CancellationToken.None);
+                pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
+            }
+            while (pending > 0 && DateTime.UtcNow < deadline);
+
+            Assert.Equal(0, pending); // the fold completed -- via the sequenced coordinator
+            Assert.True(coord.GetDiagnostics().TotalEnqueued >= 1,
+                "the debounced fold must route through the slow-path coordinator, not fire-and-forget");
+        }
+        finally
+        {
+            service.Dispose();
+            await coord.StopAsync(CancellationToken.None);
+            coord.Dispose();
         }
     }
 

@@ -237,8 +237,14 @@ public interface IFingerprintStore : IFingerprintReader
 
     Task<float[]?> GetLatestObservationVectorAsync(string fingerprintId, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Lists absorbable observations for at most <paramref name="maxFingerprints"/> fingerprints,
+    ///     ordered by <c>last_seen DESC</c> (the just-observed fingerprint is always in-set; colder
+    ///     ones age in over successive backstop ticks). Bounds the working-set scan under a
+    ///     high-cardinality flood. Pass <c>IdentityVectorOptions.AbsorptionMaxFingerprintsPerRun</c>.
+    /// </summary>
     Task<IReadOnlyList<AbsorbableObservation>> ListAbsorbableObservationsAsync(
-        int maturityThreshold, int ageDays, int activeWindowDays, CancellationToken ct = default);
+        int maturityThreshold, int ageDays, int activeWindowDays, int maxFingerprints, CancellationToken ct = default);
 
     // ── Calibration ──────────────────────────────────────────────────────────
     Task UpsertGlobalWeightsAsync(

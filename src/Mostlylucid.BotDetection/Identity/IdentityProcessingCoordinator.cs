@@ -16,7 +16,16 @@ public enum IdentitySlowPathKind
     ObservationRecord,
     DriftVerify,
     OperatorReverify,
-    OperatorAiOpinion
+    OperatorAiOpinion,
+
+    /// <summary>
+    ///     Debounced fingerprint-centroid absorption fold. Enqueued so folds apply one-at-a-time
+    ///     instead of the fire-and-forget per-observation burst that contended the SQLite single
+    ///     writer (and the commercial connection pool) under a high-cardinality flood. Lowest
+    ///     priority: background maintenance yields to request-driven slow-path work, and the
+    ///     backstop sweep catches anything shed or coalesced.
+    /// </summary>
+    Absorption
 }
 
 /// <summary>

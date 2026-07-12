@@ -106,7 +106,7 @@ public sealed class SqliteFingerprintStoreAbsorbDrainerTests : IDisposable
         await store.RecordObservationAsync(
             RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
         var absorbable = await store.ListAbsorbableObservationsAsync(
-            maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, CancellationToken.None);
+            maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, maxFingerprints: 0, CancellationToken.None);
         var obs = Assert.Single(absorbable, o => o.FingerprintId == fpId);
 
         var centroid = new float[dim];
@@ -148,7 +148,7 @@ public sealed class SqliteFingerprintStoreAbsorbDrainerTests : IDisposable
 
         // Retrieve all absorbable observations.
         var absorbable = await store.ListAbsorbableObservationsAsync(
-            maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, CancellationToken.None);
+            maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, maxFingerprints: 0, CancellationToken.None);
         absorbable.Count.Should().BeGreaterThanOrEqualTo(n);
 
         var centroid = new float[dim];
