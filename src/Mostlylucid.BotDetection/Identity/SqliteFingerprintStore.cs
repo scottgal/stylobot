@@ -1490,6 +1490,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         int maturityThreshold,
         int ageDays,
         int activeWindowDays,
+        int maxFingerprints,
         CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
@@ -1497,14 +1498,43 @@ public class SqliteFingerprintStore : IFingerprintStore
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT o.id, o.fingerprint_id, o.vector, o.observed_at,
-                   f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen,
-                   f.inferred_client_type, o.ua_family, o.domain, o.host
-              FROM fingerprint_observations o
-              JOIN fingerprints f ON f.fingerprint_id = o.fingerprint_id
-             WHERE o.absorbed_at IS NULL
-            """;
+
+        // Cap the working set to the most-recently-seen fingerprints that still have unabsorbed
+        // observations (last_seen DESC = the DB corollary of the in-memory LFU). The fingerprint
+        // that triggered a fast-path fold sorts to the top, so it is always in-set; colder ones
+        // age in over successive backstop ticks. A non-positive cap means unbounded (legacy).
+        if (maxFingerprints > 0)
+        {
+            cmd.CommandText = """
+                SELECT o.id, o.fingerprint_id, o.vector, o.observed_at,
+                       f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen,
+                       f.inferred_client_type, o.ua_family, o.domain, o.host
+                  FROM fingerprint_observations o
+                  JOIN fingerprints f ON f.fingerprint_id = o.fingerprint_id
+                 WHERE o.absorbed_at IS NULL
+                   AND o.fingerprint_id IN (
+                       SELECT o2.fingerprint_id
+                         FROM fingerprint_observations o2
+                         JOIN fingerprints f2 ON f2.fingerprint_id = o2.fingerprint_id
+                        WHERE o2.absorbed_at IS NULL
+                        GROUP BY o2.fingerprint_id
+                        ORDER BY f2.last_seen DESC
+                        LIMIT @maxFingerprints
+                   )
+                """;
+            cmd.Parameters.AddWithValue("@maxFingerprints", maxFingerprints);
+        }
+        else
+        {
+            cmd.CommandText = """
+                SELECT o.id, o.fingerprint_id, o.vector, o.observed_at,
+                       f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen,
+                       f.inferred_client_type, o.ua_family, o.domain, o.host
+                  FROM fingerprint_observations o
+                  JOIN fingerprints f ON f.fingerprint_id = o.fingerprint_id
+                 WHERE o.absorbed_at IS NULL
+                """;
+        }
         await using var reader = await cmd.ExecuteReaderAsync(ct);
 
         var ageCutoff = DateTime.UtcNow.AddDays(-ageDays);

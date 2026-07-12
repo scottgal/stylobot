@@ -258,6 +258,17 @@ public sealed class IdentityVectorOptions
     public int ActiveWindowDays { get; set; } = 90;
 
     /// <summary>
+    ///     Guardian throttle: the absorption catch-up (both the debounced fast-path fold and the
+    ///     backstop sweep) evaluates at most this many fingerprints per run, ordered by
+    ///     <c>last_seen DESC</c> (the DB corollary of the in-memory LFU). Just-observed fingerprints
+    ///     sort to the top so the fast-path fold always finds the fingerprint that triggered it;
+    ///     colder fingerprints with pending observations age in over successive backstop ticks.
+    ///     Bounds the working-set scan + connection appetite under a high-cardinality flood.
+    ///     Read by both <c>SqliteFingerprintStore</c> and the commercial mirror; not a store option.
+    /// </summary>
+    public int AbsorptionMaxFingerprintsPerRun { get; set; } = 256;
+
+    /// <summary>
     ///     Fraction of L1-confirmed requests for which an observation is recorded. 1.0 = every
     ///     request; lower values sample on very hot fingerprints (CDN warm pools, etc.).
     ///     Slow-path detectors always run regardless; this only gates the observation-row write

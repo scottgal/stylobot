@@ -219,6 +219,53 @@ public class FingerprintStoreBoundingApiTests : IDisposable
     }
 
     // ============================================================
+    // ListAbsorbableObservationsAsync (working-set cap)
+    // ============================================================
+
+    [Fact]
+    public async Task ListAbsorbableObservationsAsync_caps_to_most_recently_seen_fingerprints()
+    {
+        var store = await NewStoreAsync();
+        var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // 5 fingerprints, each with one unabsorbed observation, at distinct last_seen
+        // (fp-0 newest ... fp-4 oldest). RecordObservationAsync bumps last_seen to now,
+        // so stamp the controlled value AFTER recording.
+        for (var i = 0; i < 5; i++)
+        {
+            var id = $"fp-{i}";
+            await SeedFingerprintAsync(store, id);
+            await store.RecordObservationAsync(RequestScope.Unknown, id, UnitVector(), "chrome");
+            await StampLastSeenAsync(id, baseTime.AddMinutes(-i));
+        }
+
+        // Cap to 3 => only the 3 most-recently-seen fingerprints' observations are absorbable
+        // this run; colder ones age in over successive ticks.
+        var capped = await store.ListAbsorbableObservationsAsync(
+            maturityThreshold: 1, ageDays: 3650, activeWindowDays: 3650, maxFingerprints: 3);
+
+        var cappedFps = capped.Select(o => o.FingerprintId).Distinct().OrderBy(x => x).ToList();
+        Assert.Equal(new[] { "fp-0", "fp-1", "fp-2" }, cappedFps);
+    }
+
+    [Fact]
+    public async Task ListAbsorbableObservationsAsync_nonpositive_cap_is_unbounded()
+    {
+        var store = await NewStoreAsync();
+        for (var i = 0; i < 5; i++)
+        {
+            var id = $"fp-{i}";
+            await SeedFingerprintAsync(store, id);
+            await store.RecordObservationAsync(RequestScope.Unknown, id, UnitVector(), "chrome");
+        }
+
+        var all = await store.ListAbsorbableObservationsAsync(
+            maturityThreshold: 1, ageDays: 3650, activeWindowDays: 3650, maxFingerprints: 0);
+
+        Assert.Equal(5, all.Select(o => o.FingerprintId).Distinct().Count());
+    }
+
+    // ============================================================
     // Helpers
     // ============================================================
 
@@ -292,6 +339,17 @@ public class FingerprintStoreBoundingApiTests : IDisposable
              WHERE fingerprint_id = @id AND absorbed_at IS NULL
             """;
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task StampLastSeenAsync(string fingerprintId, DateTime lastSeen)
+    {
+        await using var conn = new SqliteConnection($"Data Source={_fpDb}");
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE fingerprints SET last_seen = @seen WHERE fingerprint_id = @id";
+        cmd.Parameters.AddWithValue("@seen", lastSeen.ToString("O"));
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync();
     }

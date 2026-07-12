@@ -104,7 +104,7 @@ public class ObservationAppendedEventTests : IDisposable
         // Materialise the read path -- absorb picker returns all rows on active
         // fingerprints past the maturity threshold.
         var rows = await store.ListAbsorbableObservationsAsync(
-            maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, CancellationToken.None);
+            maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, maxFingerprints: 0, CancellationToken.None);
         var row = Assert.Single(rows, r => r.FingerprintId == fpId);
         Assert.Equal("acme.com", row.Domain);
         Assert.Equal("www.acme.com", row.Host);

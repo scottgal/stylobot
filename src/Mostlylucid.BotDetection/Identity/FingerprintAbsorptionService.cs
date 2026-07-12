@@ -50,6 +50,15 @@ public sealed class FingerprintAbsorptionService : IDisposable
     /// </summary>
     private readonly Triggers.IAdaptiveTriggerSignalSource? _triggerSignals;
 
+    /// <summary>
+    ///     Optional slow-path sequencer. When present, the debounced fast-path fold is enqueued
+    ///     through it so folds apply one-at-a-time (the coordinator's <c>ExecuteAsync</c> pumps
+    ///     the queue sequentially), replacing the fire-and-forget per-observation <c>Task.Run</c>
+    ///     burst that contended the SQLite single writer under a high-cardinality flood. Null in
+    ///     unit tests that construct the service directly; then the fold runs inline as before.
+    /// </summary>
+    private readonly IdentityProcessingCoordinator? _slowPathCoordinator;
+
     // Per-fp debounce: maps fingerprint id to the next-fire deadline.
     private readonly ConcurrentDictionary<string, DateTime> _pendingByFingerprint
         = new(StringComparer.Ordinal);
@@ -72,7 +81,8 @@ public sealed class FingerprintAbsorptionService : IDisposable
         IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options,
         IScheduleCoordinator? scheduleCoordinator = null,
-        Triggers.IAdaptiveTriggerSignalSource? triggerSignals = null)
+        Triggers.IAdaptiveTriggerSignalSource? triggerSignals = null,
+        IdentityProcessingCoordinator? slowPathCoordinator = null)
     {
         _logger = logger;
         _store = store;
@@ -80,6 +90,7 @@ public sealed class FingerprintAbsorptionService : IDisposable
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
         _triggerSignals = triggerSignals;
+        _slowPathCoordinator = slowPathCoordinator;
 
         // Wire the event-driven fast-path immediately so observations recorded
         // between construction and the first tick still get folded inside the
@@ -167,8 +178,7 @@ public sealed class FingerprintAbsorptionService : IDisposable
                 await Task.Delay(debounceMs, ct).ConfigureAwait(false);
                 _pendingByFingerprint.TryRemove(fingerprintId, out _);
                 if (_disposed != 0) return;
-                await RunAbsorptionForAsync(fingerprintId, ct).ConfigureAwait(false);
-                Interlocked.Increment(ref EventDrivenAbsorptionCount);
+                await DispatchAbsorptionAsync(fingerprintId, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -184,6 +194,37 @@ public sealed class FingerprintAbsorptionService : IDisposable
     }
 
     /// <summary>
+    ///     Runs (or enqueues) the fold for one fingerprint after its debounce window. When a
+    ///     slow-path coordinator is present the fold is enqueued through it so it applies
+    ///     one-at-a-time with other identity slow-path work (the coordinator pumps its queue
+    ///     sequentially) instead of the fire-and-forget per-observation burst that contended the
+    ///     SQLite single writer under a high-cardinality flood; otherwise it runs inline. The
+    ///     absorption count is bumped inside the operation so it reflects actual folds, not
+    ///     enqueues the coordinator may coalesce or shed (the backstop sweep catches those).
+    /// </summary>
+    private async Task DispatchAbsorptionAsync(string fingerprintId, CancellationToken ct)
+    {
+        if (_slowPathCoordinator is not null)
+        {
+            await _slowPathCoordinator.RunAsync(
+                fingerprintId,
+                IdentitySlowPathKind.Absorption,
+                riskScore: 0.0,
+                async innerCt =>
+                {
+                    await RunAbsorptionForAsync(fingerprintId, innerCt).ConfigureAwait(false);
+                    Interlocked.Increment(ref EventDrivenAbsorptionCount);
+                    return true;
+                },
+                ct).ConfigureAwait(false);
+            return;
+        }
+
+        await RunAbsorptionForAsync(fingerprintId, ct).ConfigureAwait(false);
+        Interlocked.Increment(ref EventDrivenAbsorptionCount);
+    }
+
+    /// <summary>
     ///     Absorbs all pending observations for a single fingerprint. Called both by the
     ///     event-driven handler (per-fp debounce) and, indirectly, by the backstop loop
     ///     via <see cref="TickOnceAsync"/> which walks the full pending set.
@@ -194,6 +235,7 @@ public sealed class FingerprintAbsorptionService : IDisposable
             _options.Vector.AbsorptionMaturityThreshold,
             _options.Vector.AbsorptionAgeDays,
             _options.Vector.ActiveWindowDays,
+            _options.Vector.AbsorptionMaxFingerprintsPerRun,
             ct);
 
         // Filter to just this fingerprint.
@@ -233,6 +275,7 @@ public sealed class FingerprintAbsorptionService : IDisposable
             _options.Vector.AbsorptionMaturityThreshold,
             _options.Vector.AbsorptionAgeDays,
             _options.Vector.ActiveWindowDays,
+            _options.Vector.AbsorptionMaxFingerprintsPerRun,
             ct);
 
         // Track in-flight per-fingerprint state so multiple absorptions in the same tick fold
