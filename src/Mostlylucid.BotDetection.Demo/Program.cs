@@ -231,6 +231,11 @@ app.MapGet("/demo/challenge-reset", (HttpContext ctx) =>
 // Map training data export endpoints
 app.MapBotTrainingEndpoints();
 
+// Map BDF replay endpoints (deterministic detection-accuracy rig). Enabled by
+// default but locked in production via RequireApiKey with no keys configured;
+// the BDF test rig runs it against this Demo with the key requirement relaxed.
+app.MapBdfReplayEndpoints();
+
 // Map MockLLMApi endpoints - this is where the holodeck redirects bots
 // Generates LLM-powered fake API responses that look real but contain useless data
 app.MapLLMockApi();

@@ -54,6 +54,14 @@ public sealed class DemoAppFactory : IAsyncLifetime
                     // wall-clock CalibrationIntervalMinutes = 1, which exceeds
                     // a full BDF replay scenario's duration.
                     ["BotDetection__Identity__Calibration__Trigger__Enabled"] = "false",
+                    // BDF replay endpoint config for the rig. Enabled by default but
+                    // RequireApiKey defaults true and RateLimitPerMinute defaults to 10;
+                    // the rig sends no key and fires reset+replay for every scenario from
+                    // loopback, so relax both for the test host only. Production keeps the
+                    // hardened defaults (endpoint locked with no keys configured).
+                    ["BotDetection__BdfReplay__Enabled"] = "true",
+                    ["BotDetection__BdfReplay__RequireApiKey"] = "false",
+                    ["BotDetection__BdfReplay__RateLimitPerMinute"] = "0",
                 },
             },
         };
