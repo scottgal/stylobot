@@ -33,10 +33,8 @@ public class RequestPersistenceTests
     [Fact]
     public async Task LowRiskRequest_WrittenUnderNormalLoad()
     {
-        var writtenCount = 0;
         var store = new Mock<IDetectionArchive>();
         store.Setup(s => s.AddRequestBatchAsync(It.IsAny<RequestScope>(), It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
-             .Callback<RequestScope, IReadOnlyList<PersistedRequest>, CancellationToken>((_, b, _) => writtenCount += b.Count)
              .Returns(Task.CompletedTask);
 
         var svc = CreateService(store);
@@ -44,8 +42,17 @@ public class RequestPersistenceTests
         for (var i = 0; i < 10; i++)
             await svc.EnqueueAsync("sig-human", "/about", "PageView", 200, 0.1, 0.8, "Low", 2.0, DateTime.UtcNow);
 
-        await svc.DisposeAsync(); // drain all pending writes before asserting
-        Assert.Equal(10, writtenCount);
+        await svc.DisposeAsync();
+
+        // Assert on the SYNCHRONOUS sampling decision (incremented in ShouldWrite during
+        // EnqueueAsync), not the asynchronous drain. Under normal load (_pendingBatches < 5)
+        // every low-risk request takes the write-always path and none is sampled out. The
+        // previous assertion counted the mock's AddRequestBatchAsync callback, but the batch
+        // drain is async (BatchingAtom); under full-suite thread-pool pressure it hadn't
+        // recorded by assert time, so the exact-count check flaked to 0 even though the
+        // sampling decision was correct.
+        Assert.Equal(10, svc.WrittenAlwaysCount);
+        Assert.Equal(0, svc.DroppedSampledOutCount);
     }
 }
 
