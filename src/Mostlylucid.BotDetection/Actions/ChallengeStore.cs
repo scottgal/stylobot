@@ -87,7 +87,7 @@ public sealed class SqliteChallengeStore : IChallengeStore, IAsyncDisposable
         var basePath = Path.GetDirectoryName(
             options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
             ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(basePath);
+        Data.StoreDbDirectory.EnsureExists(basePath);
         var dbPath = Path.Combine(basePath, "challenges.db");
         _connectionString = $"Data Source={dbPath};Cache=Shared";
     }
