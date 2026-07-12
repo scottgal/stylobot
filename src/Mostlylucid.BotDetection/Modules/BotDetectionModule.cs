@@ -362,6 +362,14 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddOptions<Orchestration.SignatureCoordinatorOptions>()
             .BindConfiguration("BotDetection:SignatureCoordinator");
         services.TryAddSingleton<Orchestration.SignatureCoordinator>();
+        // SignatureCoordinatorWarmupService replays recently persisted request records into the
+        // SignatureCoordinator (and MarkovTracker) at startup so clustering resumes from a warm
+        // corpus instead of cold on every restart. The Step-7 contributor delete (1a8d2745)
+        // dropped this AddHostedService (same drop as IdentityProcessingCoordinator), so since
+        // then clustering has cold-started from live traffic only after every deploy/restart.
+        // Restore it. ExecuteAsync fails open (logs, no boot impact). Asserted by
+        // Step7HostedServiceRegistrationTests so it cannot silently recur.
+        services.AddHostedService<Services.SignatureCoordinatorWarmupService>();
         // ClientSide fingerprint store (browser-side collected metrics).
         services.TryAddSingleton<ClientSide.IBrowserFingerprintStore, ClientSide.BrowserFingerprintStore>();
         // ClientSide analyzer + token service + metrics, consumed by BrowserFingerprintEndpoint.

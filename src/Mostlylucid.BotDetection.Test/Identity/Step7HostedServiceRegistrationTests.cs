@@ -3,21 +3,31 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Identity;
+using Mostlylucid.BotDetection.Services;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Identity;
 
 /// <summary>
-///     Regression guard for the <see cref="IdentityProcessingCoordinator"/> DI wiring.
-///     The Step-7 contributor delete (1a8d2745) dropped the coordinator's
-///     <c>AddHostedService</c> registration while keeping the injectable singleton, so its
-///     worker loops never started in production: <c>RunAsync</c> enqueued, the queue filled to
-///     <c>MaxQueueDepth</c>, then every FingerprintMatchAtom Pass-2 sheds -- identity confirm
-///     silently degraded to L1-only, and any work routed through the coordinator (the
-///     absorption folds) would never drain. This asserts the coordinator is hosted as the SAME
-///     instance the atoms inject, so its <c>ExecuteAsync</c> pumps the very queue they enqueue to.
+///     Regression guards for hosted <see cref="BackgroundService"/> registrations the Step-7
+///     contributor delete (1a8d2745) dropped while keeping the classes. Both are the same
+///     invisible failure class: the singleton/type still resolves, but with no
+///     <c>AddHostedService</c> the <c>ExecuteAsync</c> loop never runs, so the feature is
+///     silently dead in production.
+///     <list type="bullet">
+///         <item><description>
+///             <see cref="IdentityProcessingCoordinator"/> (factory form): its worker loops drain
+///             the slow-path queue. Dead loops -> FingerprintMatchAtom Pass-2 sheds to L1-only and
+///             absorption folds never drain.
+///         </description></item>
+///         <item><description>
+///             <see cref="SignatureCoordinatorWarmupService"/> (type form): replays persisted
+///             requests into the SignatureCoordinator at startup. Dead -> clustering cold-starts
+///             from live traffic only after every restart.
+///         </description></item>
+///     </list>
 /// </summary>
-public sealed class IdentityProcessingCoordinatorHostedRegistrationTests
+public sealed class Step7HostedServiceRegistrationTests
 {
     private static IServiceCollection BuildServices()
     {
@@ -80,5 +90,22 @@ public sealed class IdentityProcessingCoordinatorHostedRegistrationTests
         Assert.True(hostedIsSameInstance,
             "IdentityProcessingCoordinator must be registered as a hosted service resolving the " +
             "injectable singleton, so its worker loops drain the queue the atoms enqueue to.");
+    }
+
+    [Fact]
+    public void SignatureCoordinatorWarmupService_is_registered_as_a_hosted_service()
+    {
+        var services = BuildServices();
+
+        // Type-form registration: assert the descriptor exists without activating any hosted
+        // service (activation needs host infra the bare container lacks). Without it, clustering
+        // cold-starts from live traffic only after every restart (the Step-7 regression).
+        var registered = services.Any(sd =>
+            sd.ServiceType == typeof(IHostedService)
+            && sd.ImplementationType == typeof(SignatureCoordinatorWarmupService));
+
+        Assert.True(registered,
+            "SignatureCoordinatorWarmupService must be registered as a hosted service so it " +
+            "replays the persisted request corpus into the SignatureCoordinator on startup.");
     }
 }
