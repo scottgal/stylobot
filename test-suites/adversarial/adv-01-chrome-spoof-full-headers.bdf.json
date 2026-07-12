@@ -1,6 +1,6 @@
 {
   "scenarioName": "adv-chrome-spoof-full-headers",
-  "description": "ADVERSARIAL: Bot with perfectly spoofed Chrome headers including Sec-Fetch, Sec-Ch-Ua, client hints. Missing: real TLS fingerprint, HTTP/2 settings, behavioral timing. Should still be caught.",
+  "description": "ADVERSARIAL: Bot with perfectly spoofed Chrome headers including Sec-Fetch, Sec-Ch-Ua, client hints. Missing: real TLS fingerprint, HTTP/2 settings, behavioral timing. Should still be caught. [bot/curl TLS fingerprint (JA3) inconsistent with spoofed Chrome headers]",
   "requests": [
     {
       "method": "GET",
@@ -18,10 +18,15 @@
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1"
+        "Upgrade-Insecure-Requests": "1",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.02,
-      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
     },
     {
       "method": "GET",
@@ -36,10 +41,15 @@
         "Sec-Ch-Ua-Platform": "\"Windows\"",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin"
+        "Sec-Fetch-Site": "same-origin",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.02,
-      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
     },
     {
       "method": "GET",
@@ -54,10 +64,15 @@
         "Sec-Ch-Ua-Platform": "\"Windows\"",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin"
+        "Sec-Fetch-Site": "same-origin",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.02,
-      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
     },
     {
       "method": "GET",
@@ -69,10 +84,15 @@
         "Accept-Encoding": "gzip, deflate, br, zstd",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin"
+        "Sec-Fetch-Site": "same-origin",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.0,
-      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
     }
   ]
 }

@@ -84,7 +84,16 @@ public sealed partial class TlsFingerprintAtom : DetectorAtomBase
 
     private double HttpConfidencePenalty => _configProvider.GetParameter(Name, "http_confidence_penalty", 0.05);
     private double KnownBotFingerprintConfidence => _configProvider.GetParameter(Name, "known_bot_fingerprint_confidence", 0.85);
-    private double KnownBrowserFingerprintConfidence => _configProvider.GetParameter(Name, "known_browser_fingerprint_confidence", -0.15);
+    // A JA3 in the curated legitimate-browser set is a TRANSPORT-layer attestation of a real
+    // browser: far harder to forge than headers (a scraper's TLS ClientHello yields a different
+    // JA3, and a header-perfect spoof like adv-01-chrome-spoof carries a bot JA3, scored at
+    // KnownBotFingerprintConfidence below). It is therefore weighted strongly enough to
+    // counterbalance the behavioural automation signals (high rate / api-only / periodic) that a
+    // legitimate SPA dashboard legitimately trips -- otherwise a real Chrome making a fast burst of
+    // same-origin XHR reads as a bot. Bounded (a contribution, not a cap) and configurable; JA3
+    // spoofing (curl-impersonate / utls) is the residual risk, mitigated by the small curated set +
+    // the other signals still applying.
+    private double KnownBrowserFingerprintConfidence => _configProvider.GetParameter(Name, "known_browser_fingerprint_confidence", -0.7);
     private double WeakCipherPenalty => _configProvider.GetParameter(Name, "weak_cipher_penalty", 0.4);
     private double ClientCertPenalty => _configProvider.GetParameter(Name, "client_cert_penalty", 0.3);
     private double OutdatedSslPenalty => _configProvider.GetParameter(Name, "outdated_ssl_penalty", 0.7);

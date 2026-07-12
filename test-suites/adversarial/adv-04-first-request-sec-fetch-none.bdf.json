@@ -1,6 +1,6 @@
 {
   "scenarioName": "adv-sec-fetch-site-inconsistency",
-  "description": "ADVERSARIAL: Bot sets Sec-Fetch-Site: same-origin on first request (impossible for a fresh navigation - must be 'none' or 'same-site'). Then correct on follow-ups. Triggers Inconsistency detector.",
+  "description": "ADVERSARIAL: Bot sets Sec-Fetch-Site: same-origin on first request (impossible for a fresh navigation - must be 'none' or 'same-site'). Then correct on follow-ups. Triggers Inconsistency detector. [bot/curl TLS fingerprint (JA3) inconsistent with spoofed Chrome headers]",
   "requests": [
     {
       "method": "GET",
@@ -16,10 +16,15 @@
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-User": "?1"
+        "Sec-Fetch-User": "?1",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.1,
-      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
     },
     {
       "method": "GET",
@@ -32,10 +37,15 @@
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "same-origin",
-        "Referer": "http://localhost:5080/"
+        "Referer": "http://localhost:5080/",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.0,
-      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
     }
   ]
 }

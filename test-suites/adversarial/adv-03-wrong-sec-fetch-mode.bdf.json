@@ -1,6 +1,6 @@
 {
   "scenarioName": "adv-wrong-sec-fetch-mode",
-  "description": "ADVERSARIAL: Bot with correct Sec-Fetch headers but wrong mode for the request type. Uses Sec-Fetch-Mode: navigate for API JSON calls (real browser would use cors/no-cors). Triggers Inconsistency detector.",
+  "description": "ADVERSARIAL: Bot with correct Sec-Fetch headers but wrong mode for the request type. Uses Sec-Fetch-Mode: navigate for API JSON calls (real browser would use cors/no-cors). Triggers Inconsistency detector. [bot/curl TLS fingerprint (JA3) inconsistent with spoofed Chrome headers]",
   "requests": [
     {
       "method": "GET",
@@ -15,10 +15,15 @@
         "Sec-Ch-Ua-Platform": "\"Windows\"",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none"
+        "Sec-Fetch-Site": "none",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.05,
-      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.6,
+        "riskBand": "Medium"
+      }
     },
     {
       "method": "GET",
@@ -32,10 +37,15 @@
         "Sec-Ch-Ua-Mobile": "?0",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin"
+        "Sec-Fetch-Site": "same-origin",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.05,
-      "expectedDetection": { "isBot": true, "botProbability": 0.65, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.65,
+        "riskBand": "Medium"
+      }
     },
     {
       "method": "GET",
@@ -47,10 +57,15 @@
         "Accept-Encoding": "gzip, deflate, br",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin"
+        "Sec-Fetch-Site": "same-origin",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d"
       },
       "delayAfter": 0.0,
-      "expectedDetection": { "isBot": true, "botProbability": 0.65, "riskBand": "Medium" }
+      "expectedDetection": {
+        "isBot": true,
+        "botProbability": 0.65,
+        "riskBand": "Medium"
+      }
     }
   ]
 }

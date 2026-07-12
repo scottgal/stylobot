@@ -1,6 +1,6 @@
 {
   "scenarioName": "fp-spa-dashboard-api",
-  "description": "FALSE POSITIVE PREVENTION: SPA making same-origin API calls (dashboard/admin pattern). Sec-Fetch-Site: same-origin. Must NOT be blocked even with programmatic timing.",
+  "description": "FALSE POSITIVE PREVENTION: SPA making same-origin API calls (dashboard/admin pattern). Sec-Fetch-Site: same-origin. Must NOT be blocked even with programmatic timing. [real browser TLS fingerprint (JA3) present - transport corroborates the browser]",
   "requests": [
     {
       "method": "GET",
@@ -16,10 +16,15 @@
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-origin",
-        "Referer": "http://localhost:5080/admin"
+        "Referer": "http://localhost:5080/admin",
+        "X-JA3-Hash": "f4c3b2a1e9d8c7b6a5f4e3d2c1b0a9f8"
       },
       "delayAfter": 0.1,
-      "expectedDetection": { "isBot": false, "botProbability": 0.4, "riskBand": "Low" }
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
     },
     {
       "method": "GET",
@@ -35,10 +40,15 @@
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-origin",
-        "Referer": "http://localhost:5080/admin"
+        "Referer": "http://localhost:5080/admin",
+        "X-JA3-Hash": "f4c3b2a1e9d8c7b6a5f4e3d2c1b0a9f8"
       },
       "delayAfter": 0.1,
-      "expectedDetection": { "isBot": false, "botProbability": 0.4, "riskBand": "Low" }
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
     },
     {
       "method": "GET",
@@ -50,10 +60,15 @@
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-origin",
-        "Referer": "http://localhost:5080/admin"
+        "Referer": "http://localhost:5080/admin",
+        "X-JA3-Hash": "f4c3b2a1e9d8c7b6a5f4e3d2c1b0a9f8"
       },
       "delayAfter": 0.0,
-      "expectedDetection": { "isBot": false, "botProbability": 0.4, "riskBand": "Low" }
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
     }
   ]
 }
