@@ -718,11 +718,38 @@ public partial class DetectionBroadcastMiddleware
     /// </summary>
     private string ResolvePrimarySignature(HttpContext context)
     {
+        // ONE canonical signature per identity. This MUST mirror StyloBotEdgeHeaders' resolution
+        // (the value the gateway forwards as X-Bot-Detection-PrimarySignature and that fingerprint_keys
+        // stores), so a dashboard record + its /dashboard/signature/<sig> URL resolve against the same
+        // signature the self-link uses. Previously this fell straight to GenerateFallbackSignature —
+        // a LOCAL SHA256(ip:ua) hex-8 — for every request without local evidence (the whole remote/
+        // gateway dashboard write path), so dashboard signatures were hex-8 while identity signatures
+        // were base64url, and "your own signature" 404'd. The edge-header path was hardened for this
+        // exact case (see StyloBotEdgeHeaders 156-162); this write path had drifted and wasn't.
+
+        // 1. Canonical from local in-process evidence.
         if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
             && evObj is AggregatedEvidence ev
             && Mostlylucid.BotDetection.Orchestration.SignatureLookup.PrimaryOrMultifactor(ev) is { } resolved)
             return resolved;
 
+        // 2. Forwarded/hydrated canonical signature (remote-mode dashboard host).
+        if (context.Items.TryGetValue(SignalKeys.PrimarySignature, out var sigObj)
+            && sigObj is string forwardedSig && !string.IsNullOrEmpty(forwardedSig))
+            return forwardedSig;
+
+        // 3. Direct compute via MultiFactorSignatureService — the SAME canonical base64url signature
+        //    the edge header forwards and fingerprint_keys stores (verdict-cache-skip paths reach
+        //    here). NOT the hex-8 GenerateFallbackSignature, which can never resolve against
+        //    fingerprint_keys.
+        var sigService = context.RequestServices.GetService<Mostlylucid.BotDetection.Dashboard.MultiFactorSignatureService>();
+        if (sigService is not null)
+        {
+            try { return sigService.GenerateSignatures(context).PrimarySignature; }
+            catch (Exception ex) { _logger.LogDebug(ex, "Canonical primary-signature compute failed; using local fallback"); }
+        }
+
+        // 4. Last resort only when the signature service is unavailable.
         return GenerateFallbackSignature(context);
     }
 
