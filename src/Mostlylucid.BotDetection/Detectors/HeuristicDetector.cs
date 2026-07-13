@@ -488,8 +488,19 @@ public class HeuristicDetector : IDetector, IDisposable
             if (gatewayWarming && BehaviouralGatedFeatures.Contains(featureName))
                 continue;
 
-            // Get weight for this feature (use default if not found)
-            var weight = _weights.TryGetValue(featureName, out var w) ? w : DefaultNewFeatureWeight;
+            // Weight resolution: learned/effective weight first, then the tuned DefaultWeights
+            // baseline for a KNOWN feature, and only genuinely-unseen features fall to
+            // DefaultNewFeatureWeight. Consulting DefaultWeights here (not just _weights) keeps
+            // known bot arms (honeypot +0.9, ua:contains_bot, 404-scan) scoring even before the
+            // async EnsureInitializedAsync has hydrated _weights -- matching the fc966722 intent
+            // that "known-feature weights still carry their tuned values" while unseen features
+            // stay neutral. In production _weights is hydrated from DefaultWeights so this only
+            // changes the pre-init / standalone-RunInference path; learned overrides still win.
+            var weight = _weights.TryGetValue(featureName, out var w)
+                ? w
+                : DefaultWeights.TryGetValue(featureName, out var dw)
+                    ? dw
+                    : DefaultNewFeatureWeight;
             score += featureValue * weight;
         }
 

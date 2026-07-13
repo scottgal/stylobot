@@ -15,6 +15,11 @@ import { Rate, Trend, Counter } from 'k6/metrics';
 
 const TARGET = __ENV.TARGET || 'http://192.168.0.89:5080';
 const MAX_RPS = parseInt(__ENV.MAX_RPS || '300');
+// Debug/ops key sent as X-SB-Api-Key on EVERY request. Set it (to a key with
+// DisableLearningWrites) so a soak's synthetic traffic does NOT train the model — un-keyed soak
+// traffic is learned and poisons centroids/reputation. Leave empty ONLY when deliberately
+// exercising the learning pipeline. See feedback_always_api_key_on_stylobot_traffic.
+const API_KEY = __ENV.API_KEY || '';
 
 // Custom metrics
 const detectionLatency = new Trend('detection_latency_ms');
@@ -121,6 +126,9 @@ export default function () {
     headers = { 'User-Agent': 'curl/8.4.0', 'Accept': '*/*' };
     tag = 'honeypot';
   }
+
+  // Poison-guard: carry the debug key so the model does not learn from this synthetic flood.
+  if (API_KEY) headers['X-SB-Api-Key'] = API_KEY;
 
   const res = http.get(url, { headers, tags: { traffic_type: tag } });
 
