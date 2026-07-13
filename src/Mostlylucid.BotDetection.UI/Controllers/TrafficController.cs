@@ -463,8 +463,14 @@ public sealed class TrafficController : Controller
                 BotShare: r.TotalCount > 0 ? r.BotCount / (double)r.TotalCount : 0d))
             .ToList();
 
+    // Internal/self traffic ("Internal") is not a bot type and, being the highest-
+    // volume "type", would dominate the breakdown and drown the real bot types. These
+    // visitors come from a filter:"all" projection (which keeps internal for the Top
+    // Visitors list), so exclude it here at the breakdown -- consistent with the
+    // exclude-internal default on the summary bot-type breakdown + Top Bots.
     private static IReadOnlyList<BotTypeRow> TopByBotType(IReadOnlyList<CachedVisitor> rows, int topN) =>
-        rows.Where(v => v.IsBot && !string.IsNullOrEmpty(v.BotType))
+        rows.Where(v => v.IsBot && !string.IsNullOrEmpty(v.BotType)
+                        && !string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
             .GroupBy(v => v.BotType!)
             .Select(g => new BotTypeRow(g.Key, g.Sum(v => v.Hits)))
             .OrderByDescending(r => r.Hits)

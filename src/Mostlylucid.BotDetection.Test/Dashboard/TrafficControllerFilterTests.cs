@@ -83,6 +83,33 @@ public sealed class TrafficControllerFilterTests
             Assert.Equal("Scraper", v.BotType, ignoreCase: true));
     }
 
+    [Fact]
+    public async Task Index_by_bot_type_breakdown_excludes_internal()
+    {
+        // "Internal" is self-traffic, not a bot type. It has the MOST hits here, so if the
+        // breakdown counted it, it would dominate the By-bot-type chart and drown the real
+        // types (the live-dashboard symptom). It must be excluded even though the projection
+        // keeps it for the Top Visitors list.
+        var store = new TestEventStore
+        {
+            TopBots = new List<DashboardTopBotEntry>
+            {
+                new() { PrimarySignature = "int", HitCount = 50, BotType = "Internal",     IsKnownBot = true, BotProbability = 0.99, FirstSeen = DateTime.UtcNow.AddMinutes(-10), LastSeen = DateTime.UtcNow.AddMinutes(-1) },
+                new() { PrimarySignature = "scr", HitCount = 7,  BotType = "Scraper",      IsKnownBot = true, BotProbability = 0.95, FirstSeen = DateTime.UtcNow.AddMinutes(-10), LastSeen = DateTime.UtcNow.AddMinutes(-1) },
+                new() { PrimarySignature = "se",  HitCount = 3,  BotType = "SearchEngine", IsKnownBot = true, BotProbability = 0.90, FirstSeen = DateTime.UtcNow.AddMinutes(-10), LastSeen = DateTime.UtcNow.AddMinutes(-2) },
+            }
+        };
+        var ctrl = NewController(out _, store);
+
+        var result = await ctrl.Index(
+            country: null, botType: null, window: "60m", threat: null, partial: null, ct: default);
+
+        var model = Assert.IsType<TrafficPageModel>(Assert.IsType<ViewResult>(result).Model);
+        Assert.DoesNotContain(model.BotTypes, b => string.Equals(b.BotType, "Internal", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(model.BotTypes, b => b.BotType == "Scraper");
+        Assert.Contains(model.BotTypes, b => b.BotType == "SearchEngine");
+    }
+
     private static TrafficController NewController(out DefaultHttpContext httpContext, TestEventStore? store = null)
     {
         store ??= new TestEventStore();
