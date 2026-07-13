@@ -172,6 +172,17 @@ else
                 </button>
             }
         </span>
+        @* Operator "correct decision" control (commercial). Lazy-loads the correction
+           editor fragment from the gateway; under FOSS the endpoint returns 402 and the
+           swap leaves this empty span, so nothing renders. Same degrade-clean pattern as
+           the effective-policy panel and the given-name editor above. *@
+        @if (!string.IsNullOrEmpty(Model.FingerprintId))
+        {
+            <span class="fp-correction inline-flex items-center"
+                  hx-get="@($"/api/v1/commercial/fingerprints/{Uri.EscapeDataString(Model.FingerprintId)}/correction/edit")"
+                  hx-trigger="load"
+                  hx-swap="outerHTML"></span>
+        }
         @if (!string.IsNullOrEmpty(uaPretty))
         {
             <span class="text-base-content/40">·</span>
