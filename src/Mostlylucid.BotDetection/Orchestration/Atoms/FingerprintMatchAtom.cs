@@ -166,6 +166,16 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
                     ResolveRequestScope(context), l1Candidate.FingerprintId, vector,
                     ResolveObservedUaFamily(context, sink), ct).ConfigureAwait(false);
                 EmitPostObservationSignals(sink, sessionId, l1Candidate.ObservationCount + 1, l1Candidate.CentroidMaturity);
+                // "wrote once and never again" fix: this clean-L1 hot path previously returned
+                // without ever re-composing the display name, so a fingerprint named with a
+                // fallback ("Unknown ...", "No User-Agent") at allocation -- when its UA wasn't
+                // yet visible (the matcher at Priority 6 fires before UserAgentContributor at
+                // Priority 10, and a first request can legitimately carry no UA) -- stayed stuck
+                // forever, even once later requests carried a real UA. Re-compose to upgrade a
+                // stuck fallback to the real UA-derived name. Gated on the currently-displayed
+                // name being a fallback so an already-named fingerprint pays nothing here.
+                if (FingerprintNameComposer.IsFallback(FingerprintNameResolver.Resolve(l1Candidate)))
+                    EmitInducedNameSignal(context, sink, sessionId, vector, l1Candidate, drift: null);
                 await AbsorbIntoBrowserModeAsync(context, sink, sessionId, l1Candidate.FingerprintId, vector, ct).ConfigureAwait(false);
                 await BumpAmbiguityAsync(sink, sessionId, l1Candidate.FingerprintId, isAmbiguous: false, ct).ConfigureAwait(false);
                 return;
