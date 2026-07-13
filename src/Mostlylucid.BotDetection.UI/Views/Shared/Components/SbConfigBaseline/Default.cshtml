@@ -1,0 +1,48 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model IReadOnlyList<Mostlylucid.BotDetection.UI.Models.EffectivePolicyRowViewModel>
+@*
+    Config-baseline layer of the effective-policy view. Each row is a bot-type (or the global
+    default) mapped to the action policy the orchestrator applies -- always enforced, config-derived,
+    and previously invisible on this page. Verdict colour comes from the composer (ActionType via the
+    registry). The edit control is gated on CanEdit: absent on FOSS (read-only), present + carrying
+    the config key on a licensed commercial host so the override write can target it.
+*@
+@{
+    var configRows = Model.Where(r => r.ConfigRow is not null).Select(r => r.ConfigRow!).ToList();
+}
+@if (configRows.Count > 0)
+{
+    <section class="sb-config-baseline" data-config-baseline aria-label="Config baseline policies">
+        <header class="sb-config-baseline-head">
+            <h3 class="sb-config-baseline-title">Config baseline</h3>
+            <p class="sb-config-baseline-hint">
+                Always enforced, from configuration. A hand-authored rule below can override a target.
+            </p>
+        </header>
+        <ul class="sb-config-baseline-rows">
+            @foreach (var row in configRows)
+            {
+                var sourceLabel = row.Source == EffectivePolicyConfigSource.DefaultActionPolicy
+                    ? "DEFAULT" : "BOT TYPE";
+                <li class="sb-config-baseline-row @(row.SupersededByRuleId is null ? "" : "is-superseded")"
+                    data-config-key="@row.ConfigKey">
+                    <span class="sb-config-baseline-target">@row.Target</span>
+                    <span class="sb-config-baseline-arrow" aria-hidden="true">&rarr;</span>
+                    <span class="verdict @row.ActionColorClass">@row.ResultingAction</span>
+                    <span class="badge source-pill" title="@row.ConfigKey">@sourceLabel</span>
+                    @if (row.SupersededByRuleId is not null)
+                    {
+                        <span class="badge sb-config-superseded" role="note"
+                              title="A hand-authored rule overrides this target">superseded by rule</span>
+                    }
+                    @if (row.CanEdit)
+                    {
+                        <button type="button" class="sb-config-baseline-edit"
+                                data-config-edit data-config-key="@row.ConfigKey"
+                                aria-label="Edit @row.Target action policy">Edit</button>
+                    }
+                </li>
+            }
+        </ul>
+    </section>
+}
