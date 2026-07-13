@@ -44,7 +44,12 @@ public class PipelineBenchmarkRunner
             {
                 ["BotDetection:Enabled"] = "true",
                 ["BotDetection:AiDetection:OllamaEnabled"] = "false",
-                ["BotDetection:AiDetection:AnthropicEnabled"] = "false"
+                ["BotDetection:AiDetection:AnthropicEnabled"] = "false",
+                // Real SQLite (temp file) so the identity/matcher path is actually exercised.
+                // AddBotDetection now fail-louds on a null DatabasePath; AddBotDetectionInMemory
+                // would stub the stores with nulls and skip the matcher we want to measure.
+                ["BotDetection:DatabasePath"] =
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"stylobot-bench-{Guid.NewGuid():N}.db")
             })
             .Build();
 
