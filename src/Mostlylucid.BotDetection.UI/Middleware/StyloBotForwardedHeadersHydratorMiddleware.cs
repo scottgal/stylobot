@@ -62,6 +62,30 @@ public sealed class StyloBotForwardedHeadersHydratorMiddleware
             };
         }
 
+        // Verdict: the gateway forwards the composed probability / band / type as X-Bot-Detection-*
+        // headers. A trust-upstream host runs no local detection, so self-detection surfaces (the
+        // "You:" pill on the marketing home, verdict badges) read the visitor's own result from
+        // context.Items["BotDetectionResult"]. The hydrator populated identity but never the RESULT,
+        // so those surfaces fell back to 0.0% / Unknown for every visitor. Reconstruct a lightweight
+        // BotDetectionResult from the forwarded headers so they show the real gateway verdict.
+        var probHeader = TryGet(headers, StyloBotEdgeHeaderNames.Probability);
+        if (!string.IsNullOrEmpty(probHeader)
+            && double.TryParse(probHeader, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var prob))
+        {
+            var botTypeHeader = TryGet(headers, StyloBotEdgeHeaderNames.BotType);
+            BotType? botType = Enum.TryParse<BotType>(botTypeHeader, ignoreCase: true, out var bt) ? bt : null;
+            context.Items["BotDetectionResult"] = new BotDetectionResult
+            {
+                // The home/self surfaces read ConfidenceScore AS the bot probability (existing
+                // upstream-trust contract in Home/Index.cshtml), so map the probability header here.
+                ConfidenceScore = prob,
+                IsBot = prob >= 0.5,
+                BotType = botType,
+                BotName = TryGet(headers, StyloBotEdgeHeaderNames.BotName),
+            };
+        }
+
         return _next(context);
     }
 
