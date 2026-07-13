@@ -119,9 +119,34 @@ public class ApiKeyConfig
     public List<string> Tags { get; set; } = [];
 
     /// <summary>
-    ///     Future: bind key to a specific user identity.
+    ///     When set, requests using this key IMPERSONATE this identity: the pipeline pins the
+    ///     request's <c>primary_signature</c> to this value instead of computing it from the
+    ///     request, so detection resolves against this specific stored user's fingerprint
+    ///     (centroid match, drift, archetype, reputation). This is the debug seam for
+    ///     reproducing a single user's fingerprint scoring path to diagnose fingerprint issues.
+    ///     A per-request <c>X-SB-Impersonate</c> header overrides this default (see
+    ///     <see cref="AllowImpersonation"/>). Ignored unless <see cref="AllowImpersonation"/> is true.
     /// </summary>
     public string? BoundIdentity { get; set; }
+
+    /// <summary>
+    ///     Gate for the impersonation capability. When true, this key may pin the request identity
+    ///     to a target <c>primary_signature</c> -- via the per-request <c>X-SB-Impersonate</c>
+    ///     header, or falling back to <see cref="BoundIdentity"/> -- so a debug/ops operator can
+    ///     reproduce a specific user's detection path to test fingerprint issues.
+    ///     <para>
+    ///         Impersonation is DETECTION-IDENTITY ONLY: it changes which fingerprint the request
+    ///         scores against; it grants NO permissions, session, or auth of the impersonated user.
+    ///         It is also forced READ-ONLY -- an impersonating request never writes to the model
+    ///         (reputation / Markov / observations), so testing user X can never poison X's real
+    ///         centroid. Detection still runs and the verdict header trail is honest.
+    ///     </para>
+    ///     <para>
+    ///         Off by default. Only set on trusted debug/ops keys: a holder can make their traffic
+    ///         resolve as any known signature, so treat the key as a sensitive secret.
+    ///     </para>
+    /// </summary>
+    public bool AllowImpersonation { get; set; }
 
     /// <summary>
     ///     When true, requests authenticated with this key produce NO learning
@@ -166,6 +191,20 @@ public sealed record ApiKeyContext
     ///     only write-back into the model is suppressed.
     /// </summary>
     public bool DisableLearningWrites { get; init; }
+
+    /// <summary>
+    ///     Mirrors <see cref="ApiKeyConfig.AllowImpersonation"/>. When true this key may pin the
+    ///     request identity to a target signature (via the <c>X-SB-Impersonate</c> header or
+    ///     <see cref="BoundIdentity"/>) to reproduce a specific user's fingerprint scoring.
+    /// </summary>
+    public bool AllowImpersonation { get; init; }
+
+    /// <summary>
+    ///     Mirrors <see cref="ApiKeyConfig.BoundIdentity"/>: the default impersonation target
+    ///     <c>primary_signature</c> when the key allows impersonation and no per-request
+    ///     <c>X-SB-Impersonate</c> header is supplied. Null = no default target.
+    /// </summary>
+    public string? BoundIdentity { get; init; }
 
     /// <summary>
     ///     Whether all detectors are disabled (key has ["*"] in DisabledDetectors).

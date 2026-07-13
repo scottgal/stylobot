@@ -84,6 +84,45 @@ public static partial class HttpContextExtensions
     }
 
     /// <summary>
+    ///     Per-request header naming the <c>primary_signature</c> to impersonate. Honoured only
+    ///     when the validated API key has <see cref="ApiKeyConfig.AllowImpersonation"/> set.
+    /// </summary>
+    public const string ImpersonateHeader = "X-SB-Impersonate";
+
+    /// <summary>
+    ///     Resolves the impersonation target for the current request, or null when impersonation
+    ///     is not active. A target is returned ONLY when a rich API key with
+    ///     <see cref="ApiKeyContext.AllowImpersonation"/> is present; the per-request
+    ///     <see cref="ImpersonateHeader"/> wins, falling back to the key's
+    ///     <see cref="ApiKeyContext.BoundIdentity"/> default. The value is the
+    ///     <c>primary_signature</c> the pipeline should pin the request identity to, so detection
+    ///     resolves against that stored user's fingerprint -- the seam for reproducing a single
+    ///     user's scoring to diagnose fingerprint issues. Detection-identity only: it grants no
+    ///     auth/session, and an impersonating request is forced read-only
+    ///     (<see cref="IsLearningSuppressedByApiKey"/>) so it can never poison the target's model.
+    /// </summary>
+    public static string? GetImpersonationTarget(this HttpContext context)
+    {
+        var keyCtx = context.GetApiKeyContext();
+        if (keyCtx is not { AllowImpersonation: true }) return null;
+
+        if (context.Request.Headers.TryGetValue(ImpersonateHeader, out var header))
+        {
+            var value = header.ToString().Trim();
+            if (!string.IsNullOrEmpty(value)) return value;
+        }
+
+        return string.IsNullOrWhiteSpace(keyCtx.BoundIdentity) ? null : keyCtx.BoundIdentity;
+    }
+
+    /// <summary>
+    ///     True when the current request is impersonating a target identity (see
+    ///     <see cref="GetImpersonationTarget"/>).
+    /// </summary>
+    public static bool IsImpersonating(this HttpContext context)
+        => context.GetImpersonationTarget() is not null;
+
+    /// <summary>
     ///     Returns true if the current request's API key has
     ///     <see cref="ApiKeyConfig.DisableLearningWrites"/> set. Orchestrators
     ///     and learning queues consult this to skip enqueuing reputation
@@ -95,7 +134,12 @@ public static partial class HttpContextExtensions
     /// </summary>
     public static bool IsLearningSuppressedByApiKey(this HttpContext context)
     {
-        return context.GetApiKeyContext()?.DisableLearningWrites == true;
+        // Impersonation is forced read-only: an impersonating request scores AS the target
+        // signature, so any learning write would land on the impersonated user's model and
+        // could poison their real centroid with test traffic. Suppress writes whenever the
+        // request impersonates, independent of the key's own DisableLearningWrites setting.
+        return context.GetApiKeyContext()?.DisableLearningWrites == true
+            || context.IsImpersonating();
     }
 
     /// <summary>

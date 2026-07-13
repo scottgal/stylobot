@@ -15,13 +15,18 @@ namespace Mostlylucid.BotDetection.Test.Extensions;
 /// </summary>
 public sealed class IsLearningSuppressedByApiKeyTests
 {
-    private static ApiKeyContext NewContext(bool disableLearning)
+    private static ApiKeyContext NewContext(
+        bool disableLearning,
+        bool allowImpersonation = false,
+        string? boundIdentity = null)
         => new()
         {
             KeyName = "test",
             DisabledDetectors = Array.Empty<string>(),
             WeightOverrides = new Dictionary<string, double>(),
             DisableLearningWrites = disableLearning,
+            AllowImpersonation = allowImpersonation,
+            BoundIdentity = boundIdentity,
         };
 
     [Fact]
@@ -58,5 +63,54 @@ public sealed class IsLearningSuppressedByApiKeyTests
         var ctx = new DefaultHttpContext();
         ctx.Items["BotDetection.ApiKeyBypass"] = true;
         Assert.False(ctx.IsLearningSuppressedByApiKey());
+    }
+
+    // ── Impersonation ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void No_impersonation_when_key_lacks_the_capability()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Items["BotDetection.ApiKeyContext"] = NewContext(false, allowImpersonation: false, boundIdentity: "sig-victim");
+        ctx.Request.Headers[HttpContextExtensions.ImpersonateHeader] = "sig-header";
+        // Capability gate: neither the header nor BoundIdentity is honoured without AllowImpersonation.
+        Assert.Null(ctx.GetImpersonationTarget());
+        Assert.False(ctx.IsImpersonating());
+    }
+
+    [Fact]
+    public void Impersonation_header_wins_when_capability_granted()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Items["BotDetection.ApiKeyContext"] = NewContext(false, allowImpersonation: true, boundIdentity: "sig-default");
+        ctx.Request.Headers[HttpContextExtensions.ImpersonateHeader] = "sig-header";
+        Assert.Equal("sig-header", ctx.GetImpersonationTarget());
+    }
+
+    [Fact]
+    public void Impersonation_falls_back_to_bound_identity_when_no_header()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Items["BotDetection.ApiKeyContext"] = NewContext(false, allowImpersonation: true, boundIdentity: "sig-default");
+        Assert.Equal("sig-default", ctx.GetImpersonationTarget());
+    }
+
+    [Fact]
+    public void Impersonation_null_when_capable_but_no_target_supplied()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Items["BotDetection.ApiKeyContext"] = NewContext(false, allowImpersonation: true, boundIdentity: null);
+        Assert.Null(ctx.GetImpersonationTarget());
+    }
+
+    [Fact]
+    public void Impersonation_forces_learning_suppression_even_when_key_allows_learning()
+    {
+        // The key itself has DisableLearningWrites=false, but an active impersonation must never
+        // write to the impersonated target's model -- suppression is forced on.
+        var ctx = new DefaultHttpContext();
+        ctx.Items["BotDetection.ApiKeyContext"] = NewContext(disableLearning: false, allowImpersonation: true, boundIdentity: "sig-victim");
+        Assert.True(ctx.IsImpersonating());
+        Assert.True(ctx.IsLearningSuppressedByApiKey());
     }
 }

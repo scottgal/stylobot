@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Ephemeral;
@@ -81,6 +82,24 @@ public sealed class SignatureAtom : DetectorAtomBase
         try
         {
             var signatures = _signatureService.GenerateSignatures(context);
+
+            // Impersonation (debug/ops): a key with AllowImpersonation can pin the request's
+            // primary_signature to a target so detection resolves against THAT stored user's
+            // fingerprint -- the seam for reproducing a single user's scoring to diagnose
+            // fingerprint issues. Override before the rich object + sink hint are published, so
+            // every downstream consumer (fingerprint resolution, centroid match, drift, dashboard)
+            // sees the impersonated identity. Forced read-only upstream via
+            // IsLearningSuppressedByApiKey, so it can never poison the target's model. Logged at
+            // Warning + raised on the sink for auditability -- impersonation must never be silent.
+            var impersonationTarget = context.GetImpersonationTarget();
+            if (!string.IsNullOrEmpty(impersonationTarget))
+            {
+                _logger.LogWarning(
+                    "Request impersonating identity {Target} (was {Original}) via API key {Key} -- read-only, detection-identity only",
+                    impersonationTarget, signatures.PrimarySignature, context.GetApiKeyContext()?.KeyName ?? "?");
+                signatures.PrimarySignature = impersonationTarget;
+                sink.Raise($"signature.impersonated:{impersonationTarget}", sessionId);
+            }
 
             // Rich object -> HttpContext.Items (request-scoped, auto-evicted).
             context.Items[MultifactorKey] = signatures;
