@@ -144,9 +144,19 @@ public static class BdfReplayEndpoints
         Identity.IdentityProcessingCoordinator coordinator,
         Identity.IdentityArchetypeRegistry archetypes,
         Orchestration.Atoms.FingerprintDimSnapshotCache snapshotCache,
+        Identity.EncoderResultCache encoderCache,
         CancellationToken ct)
     {
         var counts = await store.TruncateAllAsync(ct);
+        // Clear the in-process encoded-identity-vector cache (keyed on primary_signature). It is a
+        // process-level singleton that survives the DB truncate and outlives the test COLLECTION,
+        // so in a mixed test run a scenario reusing a primary_signature seen by an earlier scenario
+        // hands back a cached vector -> the encode step short-circuits -> the fresh per-request
+        // signals (e.g. tls.ja3_hash / tls.ja4 from edge-injected headers) are not recomputed and
+        // the TLS-forwarding assertions flake. A reset-identity must leave the WHOLE identity
+        // subsystem pristine, encoder cache included, so replay is deterministic regardless of
+        // cross-collection process state.
+        encoderCache.Clear();
         // Clear the coordinator's in-memory coalesce dict alongside the DB truncate.
         // Without this, a previous scenario's unresolved Pass 2 entries can shed a
         // fresh allocation in the next scenario that happens to reuse a fingerprint
