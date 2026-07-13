@@ -362,6 +362,10 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddOptions<Orchestration.SignatureCoordinatorOptions>()
             .BindConfiguration("BotDetection:SignatureCoordinator");
         services.TryAddSingleton<Orchestration.SignatureCoordinator>();
+        // Operator "correct decision" corrections (in-memory prior, nullable seam). The
+        // commercial correction store calls Set(...) on write; the verdict composer reads it
+        // as a bias, never an override. Default in-memory impl; nothing populates it under FOSS.
+        services.TryAddSingleton<Risk.IOperatorCorrectionPriors, Risk.InMemoryOperatorCorrectionPriors>();
         // SignatureCoordinatorWarmupService replays recently persisted request records into the
         // SignatureCoordinator (and MarkovTracker) at startup so clustering resumes from a warm
         // corpus instead of cold on every restart. The Step-7 contributor delete (1a8d2745)

@@ -50,11 +50,22 @@ public static class SignatureRiskVerdictComposer
     /// <summary>Average cluster threat score above this makes BotNetwork clusters hostile.</summary>
     public const double DefaultClusterTypeHostileThreatGate = 0.60;
 
+    /// <summary>
+    ///     Blend weight for an operator ground-truth correction, applied to
+    ///     <see cref="SignatureRiskInputs.BotProbability"/> as a prior. 0 = ignore the
+    ///     correction; 1 = hard-set the probability to the label target. Default 0.85: strong
+    ///     enough that the operator's label normally decides the verdict, but short of 1.0 so it
+    ///     stays a prior, not an override -- the behaviour pins below still run on the biased
+    ///     probability and a genuinely hostile signal can still win.
+    /// </summary>
+    public const double DefaultOperatorCorrectionWeight = 0.85;
+
     public sealed record Settings
     {
         public double FriendlyArchetypeDriftRevokeThreshold { get; init; } = DefaultFriendlyArchetypeDriftRevokeThreshold;
         public double ThreatHostileThreshold { get; init; } = DefaultThreatHostileThreshold;
         public double ClusterTypeHostileThreatGate { get; init; } = DefaultClusterTypeHostileThreatGate;
+        public double OperatorCorrectionWeight { get; init; } = DefaultOperatorCorrectionWeight;
     }
 
     public static SignatureRiskVerdict Compose(
@@ -63,6 +74,23 @@ public static class SignatureRiskVerdictComposer
     {
         var s = settings ?? new Settings();
         var reasons = new List<string>();
+
+        // === Operator correction (ground-truth prior; runs BEFORE the pins) ===
+        // When the operator has labelled this fingerprint via the "correct decision" control,
+        // blend the per-request probability toward the label target (bot ~0.95 / human ~0.05)
+        // at a high weight. This is a PRIOR, not an override: the hostile / confirmed-bad pins
+        // below still run on the biased probability, so a "human"-labelled fingerprint that
+        // later attacks (high RawThreatScore / ConfirmedBad) is still pinned hostile. No bypass.
+        if (inputs.Correction is { } correction)
+        {
+            var target = correction.IsBot ? 0.95 : 0.05;
+            var w = Math.Clamp(s.OperatorCorrectionWeight, 0.0, 1.0);
+            var biased = (inputs.BotProbability * (1.0 - w)) + (target * w);
+            reasons.Add(
+                $"operator_correction: {correction.Label} ground-truth prior " +
+                $"(w={w:F2}, {inputs.BotProbability:F2} -> {biased:F2})");
+            inputs = inputs with { BotProbability = biased };
+        }
 
         // === Hostile-pin (runs first; behaviour wins over identity for negative signals) ===
         var hostilePin = false;

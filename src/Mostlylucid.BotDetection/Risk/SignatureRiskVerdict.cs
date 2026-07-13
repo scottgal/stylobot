@@ -77,6 +77,15 @@ public sealed record SignatureRiskInputs
     public string? BotType { get; init; }
     public bool IsFriendlyBotType { get; init; }
 
+    /// <summary>
+    ///     Operator ground-truth correction for this fingerprint, when one exists (commercial
+    ///     "correct decision" control). Applied by the composer as a high-confidence PRIOR that
+    ///     biases <see cref="BotProbability"/> toward the label -- never a decision-path override
+    ///     (behaviour pins still run after the bias). Null when no correction applies (always
+    ///     null in a pure-FOSS deployment).
+    /// </summary>
+    public OperatorCorrectionPrior? Correction { get; init; }
+
     // === archetype anchor + drift ===
     public string? OriginArchetypeId { get; init; }
     public string? CurrentArchetypeId { get; init; }
