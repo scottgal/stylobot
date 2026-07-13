@@ -650,18 +650,12 @@ public sealed class SignatureAggregateCache
     public FilterCounts GetVisitorCounts()
     {
         var all = SnapshotAllAsVisitors();
-        // V1 (dashboard IA collapse plan): Internal = pragmatic "local /
-        // same-network traffic" predicate. Same semantics as
-        // WidgetRenderHelpers.IsInternalLikeRow — keep the two in sync so
-        // every read site (cache fast-path + event-store projection path)
-        // reports the same count to the operator.
+        // Internal = self-traffic (bot_type == "Internal": loopback / RFC1918 / health probes).
+        // Exact marker, matching WidgetRenderHelpers.IsInternal + the middleware + Postgres, so
+        // every read site (cache fast-path + event-store projection path) reports the same count
+        // to the operator. Replaces the former fuzzy "no-geo + not-bot + low-prob" guess.
         bool IsInternal(CachedVisitor v)
-        {
-            var noGeo = string.IsNullOrEmpty(v.CountryCode)
-                        || string.Equals(v.CountryCode, "ZZ", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(v.CountryCode, "XX", StringComparison.OrdinalIgnoreCase);
-            return noGeo && !v.IsBot && v.BotProbability < 0.3;
-        }
+            => string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
         return new FilterCounts
         {
             All      = all.Count,
