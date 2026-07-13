@@ -68,6 +68,43 @@ public class FingerprintNameComposerUnknownTerminalTests
     }
 
     [Fact]
+    public void No_UA_with_cloud_provider_yields_Missing_UA_provider_not_opaque_Unknown()
+    {
+        // A no-UA hosting-provider scanner (Azure, etc.) must be named by WHAT it is, not an
+        // opaque "Unknown <fp8>". Provider wins over the fingerprint-id / ASN terminals.
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IpProvider] = "Azure",
+            [SignalKeys.IpAsn] = "8075",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: "e91adac5526fc9c5", userAgent: null);
+
+        Assert.Equal("Missing UA Azure", name);
+    }
+
+    [Fact]
+    public void No_UA_with_asn_org_but_no_provider_yields_Missing_UA_asn_org()
+    {
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.IpAsnOrg] = "MICROSOFT-CORP-MSN-AS-BLOCK",
+        };
+
+        var name = FingerprintNameComposer.Compose(signals, fingerprintId: null, userAgent: null);
+
+        Assert.Equal("Missing UA MICROSOFT-CORP-MSN-AS-BLOCK", name);
+    }
+
+    [Fact]
+    public void Missing_UA_name_is_recognised_as_a_fallback_so_it_upgrades_when_a_UA_appears()
+    {
+        // "Missing UA Azure" is not a real name -- it must still be overwritten by a
+        // UA-derived name if the actor later sends one (the wrote-once-and-never-again guard).
+        Assert.True(FingerprintNameComposer.IsFallback("Missing UA Azure"));
+    }
+
+    [Fact]
     public void Asn_wins_over_country_when_both_present()
     {
         var signals = new Dictionary<string, object>

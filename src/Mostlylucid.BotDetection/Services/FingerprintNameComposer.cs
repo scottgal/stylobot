@@ -261,7 +261,7 @@ internal static class FingerprintNameComposer
             // DISTINCT (Unknown <fp8> when a fingerprint id is known, else Unknown AS<asn>
             // / Unknown <country>) so rows stay distinguishable without dumping UA content.
             // The full UA remains visible in its own dedicated block on the detail page.
-            finalName = ComposeUnknownTerminal(signals, fingerprintId);
+            finalName = ComposeUnknownTerminal(signals, fingerprintId, rawUaForClaim);
         }
 
         // Defensive contract gate (T5, 2026-06-22). The priority-1/2 returns above
@@ -273,7 +273,7 @@ internal static class FingerprintNameComposer
         // See docs/superpowers/specs/2026-06-22-identity-mode-archetype-name-design.md.
         if (!FingerprintNameComposerContract.IsAllowedShape(finalName))
         {
-            finalName = ComposeUnknownTerminal(signals, fingerprintId);
+            finalName = ComposeUnknownTerminal(signals, fingerprintId, rawUaForClaim);
         }
         return finalName;
     }
@@ -388,8 +388,23 @@ internal static class FingerprintNameComposer
     /// </summary>
     private static string ComposeUnknownTerminal(
         IReadOnlyDictionary<string, object> signals,
-        string? fingerprintId)
+        string? fingerprintId,
+        string? rawUa = null)
     {
+        // No UA at all, but the network layer knows what this is: name it by the hosting
+        // provider ("Missing UA Azure") instead of an opaque per-fp hash, so the operator can
+        // see WHAT it is even without a UA. Recognised by IsFallback so a real UA-derived name
+        // still overwrites it if the actor later sends a UA; the matcher disambiguates
+        // same-provider collisions via BuildDistinctiveModifier (ASN / country / IP block).
+        if (string.IsNullOrWhiteSpace(rawUa))
+        {
+            var provider = GetString(signals, SignalKeys.IpProvider);
+            if (!string.IsNullOrEmpty(provider)) return $"Missing UA {provider}";
+
+            var asnOrg = GetString(signals, SignalKeys.IpAsnOrg);
+            if (!string.IsNullOrEmpty(asnOrg)) return $"Missing UA {asnOrg}";
+        }
+
         if (!string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8)
             return $"Unknown {fingerprintId[..8]}";
 
@@ -434,7 +449,8 @@ internal static class FingerprintNameComposer
         if (baseName == "analysing"
             || baseName == "Unknown"
             || baseName.StartsWith("unknown ", StringComparison.Ordinal)
-            || baseName.StartsWith("Unknown ", StringComparison.Ordinal))
+            || baseName.StartsWith("Unknown ", StringComparison.Ordinal)
+            || baseName.StartsWith("Missing UA", StringComparison.Ordinal))
             return true;
         // Raw-UA-prefix detection. Every UA token carries a "/" between the product
         // name and version; the structured Priority 1-3 outputs never do.
