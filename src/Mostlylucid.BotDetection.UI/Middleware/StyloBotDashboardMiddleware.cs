@@ -5912,7 +5912,16 @@ public class StyloBotDashboardMiddleware
             Found = true,
             BotName = canonicalDetailName,
             BotType = latest.BotType,
-            RiskBand = headlineRisk,
+            // Derive the headline band AT READ from the probability being shown, via the same
+            // single source the store uses at write (SignatureRiskVerdictComposer.BucketRisk, which
+            // DeriveConsistentBand wraps). The old `headlineRisk = fp.CachedRiskBand ?? latest.RiskBand`
+            // fell back to latest.RiskBand when the fingerprint cache was cold/null -- a DIFFERENT
+            // probability than headlineProb -- so the "Risk Profile" card contradicted the
+            // "Probability" beside it (e.g. prob 0.89 next to a Low band). Deriving from headlineProb
+            // guarantees the (probability, band) pair on the detail page is always internally
+            // consistent, matching the fingerprint cache when present and correct when it is not.
+            RiskBand = Mostlylucid.BotDetection.Risk.SignatureRiskVerdictComposer
+                .BucketRisk(headlineProb, headlineConf).ToString(),
             BotProbability = headlineProb,
             Confidence = headlineConf,
             HitCount = hitCount,
