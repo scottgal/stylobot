@@ -133,6 +133,12 @@ public class SqliteFingerprintStore : IFingerprintStore
         double NewInferredTypeConfidence,
         bool InferredTypeChanged,
         DateTime At) : NameWrite(FingerprintId, At);
+    // Hot-path identity-verdict persist. The EWMA blend happens in-memory (dict-first) on the
+    // caller thread; only this durability write rides the shared name drainer, so per-request
+    // verdict recording never opens a connection on the request path.
+    private sealed record VerdictWrite(
+        string FingerprintId, double Probability, string? RiskBand, DateTime At)
+        : NameWrite(FingerprintId, At);
 
     private const int NameWriteQueueCapacity = 4096;
     private readonly Channel<NameWrite> _nameWriteChannel =
@@ -913,6 +919,23 @@ public class SqliteFingerprintStore : IFingerprintStore
 
         switch (write)
         {
+            case VerdictWrite verdict:
+            {
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = """
+                    UPDATE fingerprints
+                       SET cached_bot_probability  = @prob,
+                           cached_risk_band        = @band,
+                           cached_score_updated_at = @ts
+                     WHERE fingerprint_id = @id
+                    """;
+                cmd.Parameters.AddWithValue("@prob", verdict.Probability);
+                cmd.Parameters.AddWithValue("@band", (object?)verdict.RiskBand ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ts", verdict.At.ToString("O"));
+                cmd.Parameters.AddWithValue("@id", verdict.FingerprintId);
+                await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                break;
+            }
             case InducedNameWrite ind:
             {
                 await using (var cmd = conn.CreateCommand())
@@ -1756,13 +1779,44 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     Request-path verdict write. EWMA-blends the incoming bot probability with the
-    ///     fingerprint's existing cached value, writes through the in-memory dict so the
-    ///     next L1 verdict lookup sees the new value immediately, and persists to SQLite
-    ///     for restart-survival. First-ever write is a direct assignment so a brand-new
-    ///     fingerprint's first detection lands its real probability, not an attenuated
-    ///     blend against the default 0.0.
+    ///     Hot-path verdict record. EWMA-blends the per-request probability into the in-memory
+    ///     fingerprint (dict-first, the source of truth on the hot read path) and enqueues the
+    ///     durability UPDATE on the shared name drainer. Unlike <see cref="RecordVerdictAsync"/>
+    ///     it opens NO SQLite connection on the caller thread, so it is safe to call per request
+    ///     from the detection path: the identity headline score converges to live detection
+    ///     instead of only updating at a session-persistence boundary (a burst-bot that never
+    ///     forms a 30-min session previously kept its allocation-time 0.0 and read as Human).
+    ///     First-ever write is a direct assignment so a brand-new fingerprint's first detection
+    ///     lands its real probability, not an attenuated blend against the default 0.0. The risk
+    ///     band is derived from the blended score (never a caller-supplied band) so it can never
+    ///     disagree with the probability the dashboard header re-buckets from CachedBotProbability.
+    ///     Dict-only: if the fingerprint is not resident it is skipped (the matcher already
+    ///     resident-loaded it earlier this request), never a cold-load on the hot path.
     /// </summary>
+    public void RecordVerdictWriteBehind(string fingerprintId, double botProbability)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var existing)) return;
+
+        var alpha = Math.Clamp(_engineOptions.VerdictEwmaAlpha, 0.0, 1.0);
+        var blended = existing.CachedScoreUpdatedAt is null
+            ? botProbability
+            : existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
+        var consistentBand = DeriveConsistentBand(blended, existing.InferredTypeConfidence);
+        var now = DateTime.UtcNow;
+
+        // Dict-first: source of truth on the hot read path; the drainer write is durability only.
+        _fingerprintById[fingerprintId] = existing with
+        {
+            CachedBotProbability = blended,
+            CachedRiskBand       = consistentBand,
+            CachedScoreUpdatedAt = now
+        };
+
+        EnsureNameDrainerStarted();
+        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, consistentBand, now));
+    }
+
     public async Task RecordVerdictAsync(
         string fingerprintId,
         double botProbability,
