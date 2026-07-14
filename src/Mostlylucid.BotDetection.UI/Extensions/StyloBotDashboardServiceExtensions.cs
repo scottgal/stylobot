@@ -330,6 +330,15 @@ public static class StyloBotDashboardServiceExtensions
         // (/api/v1/policies, C3); this presenter just shapes the existing
         // rule (or empty defaults) into the edit-row view model.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyEditPresenter>();
+        // Effective-policy view: the config-baseline rows (BotTypeActionPolicies +
+        // DefaultActionPolicyName) that /dashboard/policies never showed, so a config-default
+        // throttle stops being an invisible enforcement. The composer is a pure read surface;
+        // the overlay is the contribution seam a commercial host uses to overlay the config
+        // override value / supersede stamp / edit gate. TryAdd the FOSS passthrough so a
+        // commercial overlay registered before AddStyloBotDashboard wins.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IEffectivePolicyConfigOverlay,
+            Mostlylucid.BotDetection.UI.Services.PassthroughEffectivePolicyConfigOverlay>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>();
         // Editor debounce timings carried to the JS via data-* attributes on
         // the edit-row article. Defaults match the historical FOSS literals
         // (80ms parse, 500ms backtest); commercial widens these via

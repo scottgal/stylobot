@@ -51,6 +51,11 @@
     }
 }
 <section class="dashboard-policies">
+    @* Config-baseline layer -- the BotTypeActionPolicies + DefaultActionPolicyName enforcement
+       that this page never showed, so a config-default throttle stops being invisible. Rendered
+       above the rule stack (the always-enforced base layer). canEdit is left unset so the
+       registered IPolicyCanEditPolicy decides: FOSS read-only, commercial editable. *@
+    @await Component.InvokeAsync("SbConfigBaseline")
     @if (templateGroups.Count > 0)
     {
         <div class="sb-policy-stack-template-groups" data-policy-stack-template-groups>
