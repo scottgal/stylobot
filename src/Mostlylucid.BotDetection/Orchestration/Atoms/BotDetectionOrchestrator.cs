@@ -298,6 +298,7 @@ public static class BotDetectionOrchestratorExtensions
         services.AddDetectorAtom<CacheBehaviorAtom>();         // Priority 15
         services.AddDetectorAtom<ProjectHoneypotAtom>();       // Priority 15
         services.AddDetectorAtom<EndpointHistoryAtom>();       // Priority 6  (Wave 0)
+        services.AddDetectorAtom<SessionModeResolverAtom>();   // Priority 15 (after Match@6, before Behavioral@20)
         services.AddDetectorAtom<BehavioralAtom>();            // Priority 20
         services.AddDetectorAtom<HealthEndpointReconAtom>();   // Priority 16
         services.AddDetectorAtom<GeoChangeAtom>();             // Priority 16
