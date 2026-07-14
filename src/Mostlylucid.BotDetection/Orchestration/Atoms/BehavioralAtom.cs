@@ -25,10 +25,19 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 ///         <c>BehavioralContributor</c>. Priority 20 -- Wave 0.
 ///     </para>
 ///     <para>
-///         Per-client history in <see cref="BehavioralPatternAnalyzer"/>
-///         (backed by <see cref="IMemoryCache"/> keyed by client IP). Sink
+///         Per-conversation history in <see cref="BehavioralPatternAnalyzer"/>
+///         (backed by <see cref="IMemoryCache"/> keyed by PrimarySignature -- NOT the client IP,
+///         which is shared behind an edge and would mix multiple clients' patterns). Sink
 ///         learns aggregate scalars only -- entropy scores, CV, burst
 ///         counts, timing z-scores; no raw path or timestamp series leaks.
+///     </para>
+///     <para>
+///         Repetition (low path-entropy, A→A navigation, burst) is bot-evidence in a content-
+///         browsing mode but the EXPECTED baseline in a streaming one. So it is neutralized when
+///         this request is genuinely streaming (<c>TransportIsStreaming</c>) OR the conversation is
+///         an established streaming one (<c>SessionEstablishedStreaming</c>, from
+///         <see cref="SessionModeResolverAtom"/>) AND still mode-consistent (not scraping many
+///         distinct paths). A flip to high path-entropy re-engages the penalties -- no latch.
 ///     </para>
 /// </remarks>
 public sealed class BehavioralAtom : DetectorAtomBase
@@ -157,14 +166,23 @@ public sealed class BehavioralAtom : DetectorAtomBase
 
         try
         {
-            _analyzer.RecordRequest(clientIp, currentPath, currentTime);
+            // Behavioral state is keyed on PrimarySignature (a stable per-conversation identity),
+            // NOT the client IP. Behind an edge/proxy the peer IP is shared across many clients, so an
+            // IP-keyed analyzer mixes their path/timing/burst patterns under one bucket -- a
+            // false-positive engine AND a latent cross-client taint. PrimarySignature is resolved at
+            // priority 1, so it is available here at 20; fall back to clientIp only if it is absent.
+            var behaviorKey = sink.ReadHint(SignalKeys.PrimarySignature) ?? clientIp;
+
+            _analyzer.RecordRequest(behaviorKey, currentPath, currentTime);
 
             var sequenceDiverged = sink.ReadBoolHint(SignalKeys.SequenceDiverged);
             var sequenceOnTrack = sink.ReadBoolHint(SignalKeys.SequenceOnTrack);
             var centroidStale = sink.ReadBoolHint(SignalKeys.SequenceCentroidStale);
 
-            var isStreaming = sink.ReadBoolHint(SignalKeys.TransportIsStreaming);
-            if (!isStreaming)
+            // This-request transport truth: a genuine WebSocket/SSE/SignalR request. Neutralizes ALL
+            // repetition signals (repetition IS the interaction).
+            var perRequestStreaming = sink.ReadBoolHint(SignalKeys.TransportIsStreaming);
+            if (!perRequestStreaming)
             {
                 var isWebSocket = context.Request.Headers.TryGetValue("Upgrade", out var upgradeHeader)
                                   && upgradeHeader.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase);
@@ -175,15 +193,31 @@ public sealed class BehavioralAtom : DetectorAtomBase
                 var isSignalR = (pathVal.EndsWith("/negotiate", StringComparison.OrdinalIgnoreCase)
                                  && query.Contains("negotiateVersion", StringComparison.OrdinalIgnoreCase))
                                 || query.Contains("id=", StringComparison.OrdinalIgnoreCase);
-                isStreaming = isWebSocket || isSse || isSignalR;
+                perRequestStreaming = isWebSocket || isSse || isSignalR;
             }
 
-            // 1. Path entropy
-            double pathEntropy = isStreaming ? 1.0 : _analyzer.CalculatePathEntropy(clientIp);
-            if (!isStreaming && pathEntropy > 0)
+            // Cross-request inference (SessionModeResolverAtom): the conversation ESTABLISHED a
+            // streaming mode. Repetition is then the expected baseline -- but only while the current
+            // pattern stays consistent with streaming. A flip to content-scraping (high path-entropy
+            // across many distinct paths) is mode INCONSISTENCY: deference is withdrawn and the
+            // repetition signals re-engage (inconsistency raises, never lowers), so a scraper cannot
+            // latch "streaming" with one negotiate and then scrape under the umbrella.
+            var sessionStreaming = sink.ReadBoolHint(SignalKeys.SessionEstablishedStreaming);
+
+            // 1. Path entropy. Real value unless this request is genuinely streaming (then 1.0).
+            double pathEntropy = perRequestStreaming ? 1.0 : _analyzer.CalculatePathEntropy(behaviorKey);
+            var sessionStreamingConsistent = sessionStreaming && pathEntropy <= PathEntropyHigh;
+            // Repetition is neutral within a genuinely-streaming interaction, or an established +
+            // still-consistent streaming conversation.
+            var streamingNeutral = perRequestStreaming || sessionStreamingConsistent;
+
+            if (pathEntropy > 0)
             {
-                if (pathEntropy > PathEntropyHigh && !sequenceOnTrack)
+                if (!perRequestStreaming && pathEntropy > PathEntropyHigh && !sequenceOnTrack)
                 {
+                    // High path-entropy = random scanning. Fires even for an established-streaming
+                    // session (that IS the mode inconsistency), never for a genuine streaming request
+                    // (whose entropy is forced to 1.0, below the high threshold).
                     sink.Raise($"behavioral.path_entropy:{pathEntropy.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
                     sink.Raise("behavioral.path_entropy_high:true", sessionId);
                     var confidence = sequenceDiverged ? PathEntropyHighConfidence * 1.3 : PathEntropyHighConfidence;
@@ -198,8 +232,11 @@ public sealed class BehavioralAtom : DetectorAtomBase
                             : "Visiting many random URLs in no logical order (random scanning pattern)"
                     });
                 }
-                else if (pathEntropy < PathEntropyLow)
+                else if (!streamingNeutral && pathEntropy < PathEntropyLow)
                 {
+                    // Low path-entropy = repetitive. Neutral within a streaming interaction (hub
+                    // polling): suppressed when this request is streaming, or the conversation is
+                    // established-streaming and still consistent.
                     sink.Raise($"behavioral.path_entropy:{pathEntropy.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
                     sink.Raise("behavioral.path_entropy_low:true", sessionId);
                     contributions.Add(new DetectionContribution
@@ -214,7 +251,7 @@ public sealed class BehavioralAtom : DetectorAtomBase
             }
 
             // 2. Timing entropy
-            var timingEntropy = _analyzer.CalculateTimingEntropy(clientIp);
+            var timingEntropy = _analyzer.CalculateTimingEntropy(behaviorKey);
             if (timingEntropy > 0 && timingEntropy < TimingEntropyLow && !sequenceOnTrack)
             {
                 sink.Raise($"behavioral.timing_entropy:{timingEntropy.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
@@ -233,7 +270,7 @@ public sealed class BehavioralAtom : DetectorAtomBase
             }
 
             // 3. Timing anomaly
-            var (isAnomaly, zScore, anomalyDesc) = _analyzer.DetectTimingAnomaly(clientIp, currentTime);
+            var (isAnomaly, zScore, anomalyDesc) = _analyzer.DetectTimingAnomaly(behaviorKey, currentTime);
             if (isAnomaly)
             {
                 sink.Raise($"behavioral.timing_anomaly_zscore:{zScore.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
@@ -249,7 +286,7 @@ public sealed class BehavioralAtom : DetectorAtomBase
             }
 
             // 4. Regular pattern (CV)
-            var (isTooRegular, cv, cvDesc) = _analyzer.DetectRegularPattern(clientIp);
+            var (isTooRegular, cv, cvDesc) = _analyzer.DetectRegularPattern(behaviorKey);
             if (isTooRegular && !sequenceOnTrack && !centroidStale)
             {
                 sink.Raise($"behavioral.cv:{cv.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
@@ -265,9 +302,9 @@ public sealed class BehavioralAtom : DetectorAtomBase
             }
 
             // 5. Navigation pattern
-            if (!isStreaming)
+            if (!streamingNeutral)
             {
-                var (transitionScore, navPattern) = _analyzer.AnalyzeNavigationPattern(clientIp, currentPath);
+                var (transitionScore, navPattern) = _analyzer.AnalyzeNavigationPattern(behaviorKey, currentPath);
                 if (transitionScore > 0)
                 {
                     sink.Raise($"behavioral.navigation_anomaly:{transitionScore.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
@@ -284,10 +321,10 @@ public sealed class BehavioralAtom : DetectorAtomBase
             }
 
             // 6. Burst detection
-            if (!isStreaming)
+            if (!streamingNeutral)
             {
                 var burstWindow = TimeSpan.FromSeconds(BurstWindowSeconds);
-                var (isBurst, burstSize, burstDuration) = _analyzer.DetectBurstPattern(clientIp, burstWindow);
+                var (isBurst, burstSize, burstDuration) = _analyzer.DetectBurstPattern(behaviorKey, burstWindow);
                 if (isBurst)
                 {
                     sink.Raise("behavioral.burst_detected:true", sessionId);

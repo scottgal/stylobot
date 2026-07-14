@@ -1510,6 +1510,18 @@ public static partial class SignalKeys
     /// <summary>String: dominant Markov state of the completed session</summary>
     public const string SessionDominantState = "session.dominant_state";
 
+    /// <summary>
+    ///     Cross-request inference: the fingerprint's PRIOR-persisted session established a
+    ///     streaming interaction mode (Markov dominant/recent state in {WebSocket, SignalR,
+    ///     ServerSentEvent}). Raised by SessionModeResolverAtom in the [6,20) priority gap from an
+    ///     LFU read of the session by PrimarySignature. DISTINCT from <see cref="TransportIsStreaming"/>
+    ///     (this-request transport truth) -- this is "the conversation is a streaming one", so
+    ///     BehavioralAtom can treat repetition as NEUTRAL (mode-relative) even on a marker-less poll.
+    ///     Consumers MUST still apply the mode-consistency gate (do not suppress when the current
+    ///     pattern is content-scraping) so it cannot become a once-streamed-always-suppressed latch.
+    /// </summary>
+    public const string SessionEstablishedStreaming = "session.established_streaming";
+
     /// <summary>Float: maturity of the current session's vector (0-1)</summary>
     public const string SessionVectorMaturity = "session.vector_maturity";
 
