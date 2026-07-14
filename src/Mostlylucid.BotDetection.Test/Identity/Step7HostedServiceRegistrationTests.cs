@@ -108,4 +108,45 @@ public sealed class Step7HostedServiceRegistrationTests
             "SignatureCoordinatorWarmupService must be registered as a hosted service so it " +
             "replays the persisted request corpus into the SignatureCoordinator on startup.");
     }
+
+    [Fact]
+    public async Task WellKnownBotIndex_is_registered_as_a_resolvable_singleton()
+    {
+        // The atom refactor dropped the WellKnownBotIndex registration. UserAgentAtom /
+        // AiScraperAtom take it as an OPTIONAL ctor param (WellKnownBotIndex? = null), so an
+        // unregistered index resolves to null instead of throwing -- the catalog branch
+        // (if (_wellKnownBots is { Count: > 0 })) is silently skipped and all ~635 arcjet bots
+        // (PetalBot, ...) fall through to "appears normal" human. Pin it back.
+        var services = BuildServices();
+        await using var provider = services.BuildServiceProvider();
+
+        var index = provider.GetService<Mostlylucid.BotDetection.Definitions.WellKnownBots.WellKnownBotIndex>();
+        Assert.NotNull(index);
+
+        // Singleton: the atoms, the refresh service, and the middleware fallback must share ONE
+        // index so the refresh service's seed/refresh is visible to the consumers.
+        var again = provider.GetService<Mostlylucid.BotDetection.Definitions.WellKnownBots.WellKnownBotIndex>();
+        Assert.Same(index, again);
+    }
+
+    [Fact]
+    public async Task WellKnownBotRefreshService_resolves_and_seeds_the_catalog_baseline()
+    {
+        // The refresh service is IDisposable + coordinator-tick (NOT IHostedService), eager-
+        // resolved by BotDetectionHostedSingletonsBootstrap -- whose GetService call was left
+        // orphaned when the registration dropped. Registering the singleton re-arms it. Its ctor
+        // seeds the embedded arcjet baseline into the shared index synchronously, so this asserts
+        // the BEHAVIOURAL end of the drift: after resolution the catalog is actually populated.
+        // Count == 0 is what made PetalBot (and ~635 others) read as a verified real browser.
+        var services = BuildServices();
+        await using var provider = services.BuildServiceProvider();
+
+        var refresh = provider.GetService<Mostlylucid.BotDetection.Definitions.WellKnownBots.WellKnownBotRefreshService>();
+        Assert.NotNull(refresh);
+
+        var index = provider.GetRequiredService<Mostlylucid.BotDetection.Definitions.WellKnownBots.WellKnownBotIndex>();
+        Assert.True(index.Count > 0,
+            "resolving the refresh service must seed the embedded baseline into the shared index; " +
+            "Count == 0 means the catalog is dead and catalog-only bots misclassify as human.");
+    }
 }
