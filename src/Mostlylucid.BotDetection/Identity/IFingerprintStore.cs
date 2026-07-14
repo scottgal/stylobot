@@ -55,6 +55,17 @@ public interface IFingerprintStore : IFingerprintReader
         string? riskBand,
         CancellationToken ct = default);
 
+    /// <summary>
+    ///     Hot-path variant of <see cref="RecordVerdictAsync"/>: blends the per-request
+    ///     probability into the in-memory fingerprint (dict-first) and persists via write-behind,
+    ///     opening NO connection on the caller thread, so detection can record every request's
+    ///     verdict without a per-request DB connection. The risk band is derived from the blended
+    ///     score inside the store, never supplied by the caller, so it stays consistent with the
+    ///     probability. Default no-op for stores that hold no resident dict (the null store);
+    ///     SQLite + the commercial store override it.
+    /// </summary>
+    void RecordVerdictWriteBehind(string fingerprintId, double botProbability) { }
+
     Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default);
 
     // ── Matcher write path ───────────────────────────────────────────────────

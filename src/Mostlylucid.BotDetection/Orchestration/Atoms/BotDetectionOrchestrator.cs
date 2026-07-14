@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms;
@@ -42,15 +43,18 @@ public sealed class BotDetectionOrchestrator : IDisposable
     private readonly ILogger<BotDetectionOrchestrator> _logger;
     private readonly BotDetectionOptions _options;
     private readonly DetectionEngine _engine;
+    private readonly IFingerprintStore _fingerprintStore;
     private readonly SignalSink _signalSink;
 
     public BotDetectionOrchestrator(
         DetectionEngine engine,
         IOptions<BotDetectionOptions> options,
+        IFingerprintStore fingerprintStore,
         ILogger<BotDetectionOrchestrator> logger)
     {
         _engine = engine;
         _options = options.Value;
+        _fingerprintStore = fingerprintStore;
         _logger = logger;
 
         // Per-request signal sink. This is the ONLY per-request allocation now: the
@@ -98,6 +102,18 @@ public sealed class BotDetectionOrchestrator : IDisposable
             _signalSink.Raise($"detection.completed:{evidence.BotProbability:F2}", sessionId);
             _signalSink.Raise("request.risk", evidence.BotProbability.ToString("F4"));
             _signalSink.Raise("request.honeypot", (evidence.CategoryBreakdown.ContainsKey("Honeypot")).ToString());
+
+            // Step 5: Record this request's verdict into the identity headline score. The
+            // dashboard signature header reads fp.CachedBotProbability as the single source of
+            // truth; before this, that field was only refreshed at a 30-min session-persistence
+            // boundary (SessionAtom shift -> RecordVerdictAsync), so a burst-bot that never forms
+            // a session kept its allocation-time 0.0 and displayed as Human despite a 100% live
+            // score. RecordVerdictWriteBehind blends dict-first (source of truth on the hot read
+            // path) and persists via the shared name drainer -- NO per-request DB connection.
+            // Dict-only + no-op when identity is disabled or the fingerprint id is absent.
+            var identityFingerprintId = _signalSink.ReadHint(SignalKeys.IdentityFingerprintId);
+            if (!string.IsNullOrEmpty(identityFingerprintId))
+                _fingerprintStore.RecordVerdictWriteBehind(identityFingerprintId, evidence.BotProbability);
 
             // Session-scope promotion (was: SessionSignatureEscalatorAtom
             // fan-out into a per-signature coordinator cache) has moved out
