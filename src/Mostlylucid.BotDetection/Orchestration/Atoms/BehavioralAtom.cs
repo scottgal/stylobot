@@ -169,8 +169,9 @@ public sealed class BehavioralAtom : DetectorAtomBase
             // Behavioral state is keyed on PrimarySignature (a stable per-conversation identity),
             // NOT the client IP. Behind an edge/proxy the peer IP is shared across many clients, so an
             // IP-keyed analyzer mixes their path/timing/burst patterns under one bucket -- a
-            // false-positive engine AND a latent cross-client taint. PrimarySignature is resolved at
-            // priority 1, so it is available here at 20; fall back to clientIp only if it is absent.
+            // false-positive engine AND a latent cross-client taint. PrimarySignature is computed by
+            // the Signature atom (priority 1), so it is available here at 20; fall back to clientIp
+            // only if it is absent.
             var behaviorKey = sink.ReadHint(SignalKeys.PrimarySignature) ?? clientIp;
 
             _analyzer.RecordRequest(behaviorKey, currentPath, currentTime);
