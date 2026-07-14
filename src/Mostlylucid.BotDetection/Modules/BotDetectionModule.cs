@@ -564,6 +564,25 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // providers are off, StartAsync/ExecuteAsync short-circuit; safe to
         // register unconditionally.
         services.AddHostedService<ThreatIntel.ThreatIntelRefreshService>();
+
+        // WellKnownBots: the ~635-entry arcjet catalog that names + classifies known bots.
+        // TryAddSingleton so UserAgentAtom / AiScraperAtom / the middleware UA fallback share ONE
+        // index with the refresh service. The refresh service SEEDS the embedded baseline on
+        // startup (so the catalog is populated even air-gapped) then refreshes from the arcjet
+        // URL per RefreshInterval; empty URL just skips the download.
+        //
+        // REGRESSION FIX: the atom refactor dropped both registrations. The atoms take the index
+        // as an OPTIONAL ctor param (WellKnownBotIndex? = null), so it silently resolved to null,
+        // the `if (_wellKnownBots is { Count: > 0 })` catalog branch never ran, and every
+        // catalog-only bot (PetalBot, ...) fell through to "appears normal" human. Guarded by
+        // Step7HostedServiceRegistrationTests.WellKnownBot*.
+        // Both singletons. The refresh service is IDisposable + coordinator-tick (NOT
+        // IHostedService); its ctor seeds the baseline + subscribes to the refresh tick, and
+        // BotDetectionHostedSingletonsBootstrap already eager-resolves it at boot (the GetService
+        // call there was orphaned when this registration was dropped). Registering the singleton
+        // re-arms that existing eager-resolve.
+        services.TryAddSingleton<Definitions.WellKnownBots.WellKnownBotIndex>();
+        services.TryAddSingleton<Definitions.WellKnownBots.WellKnownBotRefreshService>();
         // Signal on successful refresh (task-#65 pattern). Payload-free: the
         // provider cache stays the source of truth; consumers re-lookup via
         // IThreatIntelCoordinator on notification.
