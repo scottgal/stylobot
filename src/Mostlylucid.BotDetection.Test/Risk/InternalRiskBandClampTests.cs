@@ -113,6 +113,7 @@ public class InternalRiskBandClampTests
         var signals = new System.Collections.Generic.Dictionary<string, object>
         {
             [Mostlylucid.BotDetection.Models.SignalKeys.IpIsLocal] = true,
+            [Mostlylucid.BotDetection.Models.SignalKeys.IpIsTrustedInternal] = true,
             [Mostlylucid.BotDetection.Models.SignalKeys.UserAgent] = "StyloBot.Internal/6.0.0",
             [Mostlylucid.BotDetection.Models.SignalKeys.UserAgentBotName] = "StyloBot Internal",
             [Mostlylucid.BotDetection.Models.SignalKeys.UserAgentBotType] = "Tool",
@@ -139,6 +140,7 @@ public class InternalRiskBandClampTests
         var signals = new System.Collections.Generic.Dictionary<string, object>
         {
             [Mostlylucid.BotDetection.Models.SignalKeys.IpIsLocal] = true,
+            [Mostlylucid.BotDetection.Models.SignalKeys.IpIsTrustedInternal] = true,
             [Mostlylucid.BotDetection.Models.SignalKeys.UserAgent] = "StyloBot.Internal/6.0.0",
             [Mostlylucid.BotDetection.Models.SignalKeys.UserAgentFamily] = "StyloBot.Internal",
         };

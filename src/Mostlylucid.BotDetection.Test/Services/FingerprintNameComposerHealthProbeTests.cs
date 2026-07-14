@@ -39,6 +39,7 @@ public sealed class FingerprintNameComposerHealthProbeTests
     {
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
         // ua.raw is the key read by ProbeShapeClassifier.IsProbeShape via sink.ReadHint.
         sink.Raise($"{SignalKeys.UserAgent}:curl/8.5.0", "ua");
@@ -95,6 +96,7 @@ public sealed class FingerprintNameComposerHealthProbeTests
 
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
         sink.Raise($"{SignalKeys.UserAgent}:curl/8.5.0", "ua");
 
@@ -129,6 +131,7 @@ public sealed class FingerprintNameComposerHealthProbeTests
 
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         // No HealthEndpoint signal raised.
 
         var evidence = ledger.ToAggregatedEvidence(
@@ -151,6 +154,7 @@ public sealed class FingerprintNameComposerHealthProbeTests
     {
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
         sink.Raise($"{SignalKeys.UserAgent}:Mozilla/5.0 (Windows NT 10.0) Chrome/120", "ua");
         sink.Raise($"{SignalKeys.HeaderSecFetchMode}:navigate", "sfm");

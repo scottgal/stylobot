@@ -69,6 +69,12 @@ emits:
     - key: ip.is_local
       type: bool
       description: Client IP is RFC1918 / loopback / link-local
+    - key: ip.is_trusted_internal
+      type: bool
+      description: >-
+        Real TCP peer (Connection.RemoteIpAddress) is trusted for the Internal enforcement
+        carve-out per InternalTrust config. Peer-only, never X-Forwarded-For, so it cannot be
+        spoofed. The Internal classification gates on this, not ip.is_local.
     - key: ip.is_ipv6
       type: bool
       description: Client IP is an IPv6 address

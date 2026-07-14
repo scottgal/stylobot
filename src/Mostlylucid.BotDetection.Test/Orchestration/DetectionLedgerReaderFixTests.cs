@@ -33,6 +33,7 @@ public sealed class DetectionLedgerReaderFixTests
         // Arrange: sink has ip.is_local:true (as IpAtom raises in production).
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "s");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "s");
 
         // A ledger that would otherwise classify as a bot (curl-ish Tool verdict).
         // No premergedSignals -> exercises the production path where signals live
@@ -65,7 +66,8 @@ public sealed class DetectionLedgerReaderFixTests
     {
         var signals = new Dictionary<string, object>
         {
-            [SignalKeys.IpIsLocal]      = true,
+            [SignalKeys.IpIsLocal] = true,
+            [SignalKeys.IpIsTrustedInternal] = true,
             [SignalKeys.HealthEndpoint] = true,
             [SignalKeys.UserAgent]      = "curl/8.5.0",
         };
@@ -102,6 +104,7 @@ public sealed class DetectionLedgerReaderFixTests
         var signals = new Dictionary<string, object>
         {
             [SignalKeys.IpIsLocal]          = true,
+            [SignalKeys.IpIsTrustedInternal] = true,
             [SignalKeys.HealthEndpoint]     = true,
             [SignalKeys.UserAgent]          = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/120",
             [SignalKeys.HeaderSecFetchMode] = "navigate",
@@ -138,6 +141,7 @@ public sealed class DetectionLedgerReaderFixTests
     {
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
         // ua.raw is the key read by ProbeShapeClassifier.IsProbeShape via sink.ReadHint.
         sink.Raise($"{SignalKeys.UserAgent}:curl/8.5.0", "ua");
@@ -171,6 +175,7 @@ public sealed class DetectionLedgerReaderFixTests
     {
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
         sink.Raise($"{SignalKeys.UserAgent}:Mozilla/5.0 (Windows NT 10.0) Chrome/120", "ua");
         sink.Raise($"{SignalKeys.HeaderSecFetchMode}:navigate", "sfm");

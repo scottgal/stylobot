@@ -182,6 +182,14 @@ public class BotDetectionOptions
     public TransportTrustOptions TransportTrust { get; set; } = new();
 
     /// <summary>
+    ///     Peer-verified gate for the <see cref="BotType.Internal"/> enforcement carve-out (LAN
+    ///     traffic -> logonly). Evaluated against the real TCP peer only, never X-Forwarded-For,
+    ///     so it cannot be spoofed by a header. Set <c>Enabled = false</c> for a bare gateway, or
+    ///     define <c>TrustedRanges</c> to lock Internal to specific peer CIDRs.
+    /// </summary>
+    public InternalTrustOptions InternalTrust { get; set; } = new();
+
+    /// <summary>
     ///     Startup-time tunnel-enrichment inspector. Samples the first N requests
     ///     after process start, snapshots whether the gateway is behind a tunnel
     ///     AND whether the TLS / JA3 recovery headers (or native TLS handshake)
