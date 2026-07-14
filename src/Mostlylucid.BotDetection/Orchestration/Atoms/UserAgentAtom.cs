@@ -81,6 +81,14 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
     private double SuspiciousConfidence => _configProvider.GetParameter(Name, "suspicious_confidence", 0.6);
     private double ToolHeaderMatchConfidence => _configProvider.GetParameter(Name, "tool_header_match_confidence", 0.7);
     private double ToolHeaderMismatchConfidence => _configProvider.GetParameter(Name, "tool_header_mismatch_confidence", 0.5);
+
+    // A UA that merely "looks like a browser" is the single most-spoofed surface in the system, so
+    // the UA atom -- a contributor, NOT the arbiter of "human" -- may only lean WEAKLY toward human
+    // on it. It must never emit a confident human verdict a browser-costumed bot can hide behind.
+    // Bot markers still emit the strong PatternMatchConfidence signal; this is only the
+    // no-bot-marker fallback. Small negative (default -0.05, vs the old arbiter-strength -0.15);
+    // calibratable via the manifest.
+    private double BrowserUaHumanLean => _configProvider.GetParameter(Name, "browser_ua_human_lean", -0.05);
     private double WeightBotSignal => _configProvider.GetDefaults(Name).Weights.BotSignal;
 
     private static readonly string[] BrowserOnlyHeaders =
@@ -183,9 +191,12 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
             {
                 DetectorName = Name,
                 Category = Category,
-                ConfidenceDelta = -0.15,
+                // Weak human lean only -- a plausible-browser UA is the most-spoofed surface, so it
+                // cannot be a confident human verdict. The aggregate decides human/bot across all
+                // contributors; this atom only observes "no bot marker in the UA".
+                ConfidenceDelta = BrowserUaHumanLean,
                 Weight = 1.0,
-                Reason = "User-Agent appears normal"
+                Reason = "No bot marker in User-Agent (weak human lean; UA is easily spoofed)"
             });
         }
 
