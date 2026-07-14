@@ -152,6 +152,31 @@ The learned-centroid comparison that turns attested values into an inconsistency
 verdict (`browser.characteristic_drift`) lives in the identity centroid tier and
 is emitted by `InconsistencyAtom` (priority 50); see the browser-consistency design.
 
+## Rule 6: no contributor is an arbiter of "human"
+
+A foundation or classifier contributor may raise bot-suspicion (a positive contribution) at whatever confidence its surface warrants. It may **not** assert a confident or "verified" human verdict, and it may **not** short-circuit in a way that suppresses a co-present bot signal. Human confidence is an **emergent** property of the composed verdict — independent-signal agreement plus centroid/archetype consistency — never a single contributor's assertion.
+
+Merge is **asymmetric in proportion to spoofability**: the more spoofable a surface, the weaker the human lean it may express and the stronger the bot push it may express. The User-Agent is the most-spoofed surface, so it may say "bot" with confidence but may only *lean* human weakly — an "absence of bot markers" nudge, bounded below the smallest positive bot signal — never "verified human." This generalises Rule 5's asymmetric merge (an inconsistency RAISES, never lowers toward human) from the client-attested tier to every contributor.
+
+Concretely, a contributor must:
+
+- emit **additive** contributions, not a first-match-wins single verdict that discards co-present signals;
+- never suppress a co-present bot marker via a "browser / appears normal" branch;
+- express any human lean as a small, bounded, **configurable** negative contribution, not a terminal "human / verified" decision.
+
+*Failure this rule guards against:* a browser-costumed bot (a real bot token co-present with browser tokens) short-circuiting to "verified human" on the UA surface alone — the PetalBot / UA-arbiter regression (FOSS #88 re-lit the catalog; #90 weakened the UA lean to a configurable additive `-0.05`).
+
+## Rule 7: a missing foundation input degrades to NEUTRAL, never toward human
+
+A foundation contributor that depends on an optional or injected input — a catalog, an index, an upstream transport signal — must degrade to **neutral / unavailable** when that input is absent. Never toward a human verdict, and never toward a confident bot verdict it can no longer substantiate. An input absent because the environment cannot provide it (a stripped transport signal behind an edge) or because a dependency was not wired (a dropped DI registration) carries **no** evidentiary weight; treating its absence as "appears normal → human" manufactures a verdict from a gap.
+
+This is the Signal-Assay principle (absent-because-env-can't-provide = neutral, not bot-evidence) applied to the wiring layer. Two obligations follow:
+
+- an atom's optional-dependency branch, when the dependency is null or empty, contributes **nothing** — not a human lean;
+- the foundation's coverage tests assert that every foundation input is actually registered, so a dropped registration is caught **RED in CI**, not silently in production.
+
+*Failure this rule guards against:* the well-known-bot catalog's DI registration dropped in the atom refactor, so ~635 declared bots went invisible and fell through to a human verdict — invisibly, because the null-catalog branch simply skipped. Also the session-mode false-positive's inverse: a behavioral signal must be read relative to the session's established interaction mode (repetition is the expected baseline in a streaming conversation), not as unconditional bot-evidence (FOSS #91).
+
 ## The decision flowchart
 
 Before merging a change to detection code:
