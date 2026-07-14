@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
@@ -67,6 +68,7 @@ public sealed class IpAtom : DetectorAtomBase
     private readonly IProxyEnvironment? _proxyEnvironment;
     private readonly IDetectorConfigProvider _configProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IOptionsMonitor<BotDetectionOptions>? _options;
 
     public IpAtom(
         ILogger<IpAtom> logger,
@@ -74,7 +76,8 @@ public sealed class IpAtom : DetectorAtomBase
         IHttpContextAccessor httpContextAccessor,
         IBotListDatabase? botListDatabase = null,
         IAsnLookupService? asnLookup = null,
-        IProxyEnvironment? proxyEnvironment = null)
+        IProxyEnvironment? proxyEnvironment = null,
+        IOptionsMonitor<BotDetectionOptions>? options = null)
         : base(name: "Ip", category: "IP")
     {
         _logger = logger;
@@ -83,6 +86,7 @@ public sealed class IpAtom : DetectorAtomBase
         _botListDatabase = botListDatabase;
         _asnLookup = asnLookup;
         _proxyEnvironment = proxyEnvironment;
+        _options = options;
     }
 
     public override int Priority => 12;
@@ -129,6 +133,16 @@ public sealed class IpAtom : DetectorAtomBase
         var isLocal = NetworkHelper.IsLocalIp(clientIp);
         var isLoopback = clientIp is "::1" or "127.0.0.1" or "localhost";
         sink.Raise($"{SignalKeys.IpIsLocal}:{(isLocal ? "true" : "false")}", sessionId);
+
+        // Peer-verified trust for the Internal enforcement carve-out. Computed from the REAL TCP
+        // peer (Connection.RemoteIpAddress) + InternalTrust config, never from clientIp (which
+        // may be X-Forwarded-For-derived and is therefore spoofable). The Internal classification
+        // in DetectionLedgerExtensions reads THIS signal, not ip.is_local, so no header can claim
+        // Internal -> logonly and bypass enforcement.
+        var isTrustedInternal = InternalTrustEvaluator.IsTrustedInternalPeer(
+            context.Connection.RemoteIpAddress,
+            _options?.CurrentValue.InternalTrust ?? new InternalTrustOptions());
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:{(isTrustedInternal ? "true" : "false")}", sessionId);
 
         if (isLocal)
         {

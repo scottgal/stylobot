@@ -325,6 +325,15 @@ public static partial class SignalKeys
     /// <summary>Bool: true when the client IP is RFC1918 / loopback / link-local (test or internal traffic).</summary>
     public const string IpIsLocal = "ip.is_local";
 
+    /// <summary>
+    ///     Peer-verified trust for the Internal (LAN -> logonly) enforcement carve-out. Set from
+    ///     the real TCP peer (Connection.RemoteIpAddress) + InternalTrust config, NEVER from
+    ///     X-Forwarded-For. Distinct from <see cref="IpIsLocal"/> (a detection feature computed
+    ///     from the resolved client IP, which may be header-derived and is therefore unsafe as a
+    ///     bypass gate). The Internal classification reads THIS signal, not IpIsLocal.
+    /// </summary>
+    public const string IpIsTrustedInternal = "ip.is_trusted_internal";
+
     /// <summary>String: hosting provider name when the IP resolves to a known cloud / VPS / hosting ASN.</summary>
     public const string IpProvider = "ip.provider";
 

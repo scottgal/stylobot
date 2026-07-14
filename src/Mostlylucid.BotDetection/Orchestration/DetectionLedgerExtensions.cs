@@ -276,14 +276,19 @@ public static class DetectionLedgerExtensions
         // no Sec-Fetch-Mode:navigate signal. For non-health paths, local IP
         // always grants Internal (unchanged behaviour).
         var isHealthEndpoint = ReadBool(SignalKeys.HealthEndpoint);
-        var isLocalIp = ReadBool(SignalKeys.IpIsLocal);
+        // Internal is an enforcement BYPASS, so its gate must be the peer-verified trust signal
+        // (ip.is_trusted_internal, set by IpAtom from Connection.RemoteIpAddress + InternalTrust
+        // config) -- NOT ip.is_local, which is computed from the resolved client IP and can be
+        // X-Forwarded-For-derived. Reading ip.is_local here let an external caller behind an edge
+        // spoof `X-Forwarded-For: <private-ip>` into Internal -> logonly, a total detection bypass.
+        var isTrustedInternal = ReadBool(SignalKeys.IpIsTrustedInternal);
         var probeUas = options?.HealthEndpoints?.ProbeUserAgents
                        ?? HealthEndpointOptions.DefaultProbeUserAgents;
-        var isHealthProbe = isHealthEndpoint && isLocalIp
+        var isHealthProbe = isHealthEndpoint && isTrustedInternal
             && ProbeShapeClassifier.IsProbeShape(preSignals, sink, probeUas);
-        // Non-health-endpoint local traffic: always Internal (unchanged).
-        // Health-endpoint local traffic: requires probe shape (shape guard).
-        var primaryBotType = (isLocalIp && !isHealthEndpoint) || isHealthProbe
+        // Non-health-endpoint trusted-internal traffic: Internal.
+        // Health-endpoint trusted-internal traffic: requires probe shape (shape guard).
+        var primaryBotType = (isTrustedInternal && !isHealthEndpoint) || isHealthProbe
             ? BotType.Internal
             : verdict.HostilePinFired
                 ? BotType.MaliciousBot

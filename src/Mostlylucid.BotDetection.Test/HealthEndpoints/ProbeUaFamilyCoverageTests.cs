@@ -44,6 +44,7 @@ public sealed class ProbeUaFamilyCoverageTests
         // Arrange: production sink path (all signals raised via sink.Raise, no premergedSignals).
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
         // SignalKeys.UserAgent is the key read by ProbeShapeClassifier.IsProbeShape via sink.ReadHint.
         sink.Raise($"{SignalKeys.UserAgent}:{ua}", "ua");
@@ -86,6 +87,7 @@ public sealed class ProbeUaFamilyCoverageTests
     {
         var sink = new SignalSink(maxCapacity: 128, maxAge: TimeSpan.FromMinutes(5));
         sink.Raise($"{SignalKeys.IpIsLocal}:true", "ip");
+        sink.Raise($"{SignalKeys.IpIsTrustedInternal}:true", "ip");
         sink.Raise($"{SignalKeys.HealthEndpoint}:true", "health");
         sink.Raise($"{SignalKeys.UserAgent}:Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/131", "ua");
         // Sec-Fetch-Mode: navigate is the shape-guard trigger.
