@@ -3,20 +3,20 @@ using Microsoft.Extensions.Logging;
 namespace Mostlylucid.BotDetection.UI.Models;
 
 /// <summary>
-///     Direct, synchronous ingest hook used by the AspNet Pack's
-///     <c>LogSinkLoggerProvider</c> to route the gateway's own <c>ILogger</c>
-///     output (gateway startup messages, exceptions, <c>Yarp.ReverseProxy.*</c>
-///     upstream-error messages, etc.) into whatever per-fingerprint cache the
-///     host has already provisioned for the Log-sink dashboard tile.
+///     Direct, synchronous ingest hook used by a log-sink logger provider to route
+///     the gateway's own <c>ILogger</c> output (gateway startup messages, exceptions,
+///     <c>Yarp.ReverseProxy.*</c> upstream-error messages, etc.) into whatever
+///     per-fingerprint cache the host has already provisioned for the Log-sink
+///     dashboard tile.
 ///     <para>
-///         Lives in <c>Mostlylucid.BotDetection.UI</c> -- alongside
-///         <see cref="IRecentLogEntriesProvider"/> -- so commercial overlays
-///         (OtelMesh, future packs) can depend on it without pulling the
-///         AspNet Pack's OTLP-proto vendor copy into their compile graph. The
-///         AspNet Pack still owns the provider impl + the OTLP shipper for
-///         remote-SDK hosts; this interface is the seam between FOSS capture
-///         and whichever atom the commercial pack chose to back the dashboard
-///         tile with.
+///         This interface is a generic FOSS seam that lives in
+///         <c>Mostlylucid.BotDetection.UI</c> -- alongside
+///         <see cref="IRecentLogEntriesProvider"/> -- so any pack (the commercial
+///         ASP.NET pack, OtelMesh, future packs) can depend on it without pulling a
+///         pack's OTLP-proto vendor copy into their compile graph. The commercial
+///         ASP.NET pack owns the provider impl + the OTLP shipper for remote-SDK
+///         hosts; this interface is the seam between capture and whichever atom the
+///         pack chose to back the dashboard tile with.
 ///     </para>
 ///     <para>
 ///         Implementations MUST be allocation-light and non-blocking: the call
