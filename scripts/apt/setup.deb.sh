@@ -1,13 +1,13 @@
 #!/bin/sh
 # StyloBot apt repository setup (GitHub Pages static repo).
 #
-#   curl -fsSL https://scottgal.github.io/stylobot/setup.deb.sh | sudo sh
+#   curl -fsSL https://pages.stylo.bot/setup.deb.sh | sudo sh
 #
 # Adds the StyloBot apt repo + signing key, then you can:
 #   sudo apt-get update && sudo apt-get install stylobot
 set -e
 
-REPO_URL="https://scottgal.github.io/stylobot"
+REPO_URL="https://pages.stylo.bot"
 KEYRING="/usr/share/keyrings/stylobot.gpg"
 LIST="/etc/apt/sources.list.d/stylobot.list"
 

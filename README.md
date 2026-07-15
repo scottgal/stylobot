@@ -51,7 +51,7 @@ Homebrew strips macOS's quarantine flag automatically. If you'd rather download 
 
 **Linux (apt - Debian/Ubuntu - recommended)**
 ```bash
-curl -fsSL https://scottgal.github.io/stylobot/setup.deb.sh | sudo sh
+curl -fsSL https://pages.stylo.bot/setup.deb.sh | sudo sh
 sudo apt update && sudo apt install stylobot
 stylobot 5080 http://localhost:3000
 stylobot genkey   # generate a secure HMAC key for production

@@ -150,8 +150,10 @@ jobs:
           cp scripts/apt/setup.deb.sh public/setup.deb.sh
           # Jekyll off (serve dot-underscore + reprepro db dirs verbatim).
           touch public/.nojekyll
-          printf 'StyloBot apt repo. Setup: curl -fsSL https://%s/setup.deb.sh | sudo sh\n' \
-            "$(echo "$GITHUB_REPOSITORY" | cut -d/ -f1).github.io/$(echo "$GITHUB_REPOSITORY" | cut -d/ -f2)" \
+          # Custom domain: the CNAME file is what configures the GitHub Pages custom
+          # domain (served at root). Must match the DNS record for pages.stylo.bot.
+          echo "pages.stylo.bot" > public/CNAME
+          printf 'StyloBot apt repo. Setup: curl -fsSL https://pages.stylo.bot/setup.deb.sh | sudo sh\n' \
             > public/index.html
 
       - name: Commit + push gh-pages
