@@ -173,6 +173,14 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
         services.TryAddSingleton<Identity.IFingerprintStore>(
             sp => sp.GetRequiredService<Identity.SqliteFingerprintStore>());
+        // IFingerprintReader is the read-only facet of IFingerprintStore. Bind it
+        // to whatever store is active (SQLite here; Postgres via the commercial
+        // pack's own AddSingleton) so read-only consumers — notably the UI's
+        // BotDetectionDetailsViewComponent — resolve without pulling the full
+        // store. Without this the FOSS-only host (e.g. the SQLite demo) throws
+        // "Unable to resolve IFingerprintReader" activating that ViewComponent.
+        services.TryAddSingleton<Identity.IFingerprintReader>(
+            sp => sp.GetRequiredService<Identity.IFingerprintStore>());
         services.TryAddSingleton<Identity.BrowserModes.IFingerprintBrowserModeStore,
             Identity.BrowserModes.SqliteFingerprintBrowserModeStore>();
         services.TryAddSingleton<ThreatIntel.ICveFingerprintMatcher, ThreatIntel.NullCveFingerprintMatcher>();
