@@ -51,12 +51,12 @@ Homebrew strips macOS's quarantine flag automatically. If you'd rather download 
 
 **Linux (apt - Debian/Ubuntu - recommended)**
 ```bash
-curl -1sLf 'https://dl.cloudsmith.io/public/mostlylucid/stylobot/setup.deb.sh' | sudo bash
+curl -fsSL https://scottgal.github.io/stylobot/setup.deb.sh | sudo sh
 sudo apt update && sudo apt install stylobot
 stylobot 5080 http://localhost:3000
 stylobot genkey   # generate a secure HMAC key for production
 ```
-The apt repo is signed (managed by Cloudsmith); `apt update` verifies the repo signature on every fetch.
+The apt repo is a GPG-signed static repository hosted on GitHub Pages; the setup script installs the signing key to `/usr/share/keyrings/stylobot.gpg` and `apt update` verifies the repo signature on every fetch.
 
 **Linux (manual tarball)**
 ```bash

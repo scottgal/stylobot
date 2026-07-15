@@ -1,0 +1,173 @@
+name: Publish apt repo (GitHub Pages)
+
+# Builds a signed static Debian apt repository (reprepro) on the gh-pages branch
+# and serves it via GitHub Pages -- the self-hosted replacement for Cloudsmith.
+#
+# Isolated + non-blocking: runs AFTER "Publish Stylobot Binaries" completes (so the
+# release + the .deb assets exist), in its own workflow, so a repo hiccup never fails
+# the release. workflow_dispatch lets you test it against an existing tag by hand
+# before a release relies on it.
+#
+# PREREQUISITES (operator-side):
+#   * RELEASE_GPG_PRIVATE_KEY + RELEASE_GPG_PASSPHRASE secrets (already used to sign
+#     SHA256SUMS) -- the repo Release file is signed with the same key.
+#   * "Publish Stylobot Binaries" must upload the .deb assets to the release
+#     (see publish-stylobot.yml: publish-linux-deb uploads debs/*.deb).
+#   * Enable GitHub Pages: Settings -> Pages -> Source = "Deploy from a branch",
+#     branch = gh-pages, folder = / (root). One-time.
+
+on:
+  workflow_run:
+    workflows: ["Publish Stylobot Binaries"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to (re)publish (e.g., 8.1.5)'
+        required: false
+
+permissions:
+  contents: write   # push to gh-pages
+
+jobs:
+  publish-apt:
+    # Auto-run after a successful binaries build on an allbot-v* tag; skip
+    # prereleases. Manual dispatch always allowed.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'allbot-v') &&
+       !contains(github.event.workflow_run.head_branch, '-alpha') &&
+       !contains(github.event.workflow_run.head_branch, '-beta'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for scripts/apt config)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Guard on signing key
+        id: guard
+        env:
+          HAS_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "RELEASE_GPG_PRIVATE_KEY not set -- an apt Release file must be signed. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Find version
+        if: steps.guard.outputs.skip != 'true'
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [ -n "$RUN_HEAD_BRANCH" ]; then
+            # workflow_run.head_branch holds the tag name for a tag-triggered upstream run
+            VERSION="${RUN_HEAD_BRANCH#allbot-v}"
+          else
+            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
+              | jq -r '[.[] | select(.tagName | startswith("allbot-v")) | select(.isPrerelease == false)][0].tagName')
+            VERSION="${TAG#allbot-v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing apt repo for stylobot v$VERSION"
+
+      - name: Install reprepro
+        if: steps.guard.outputs.skip != 'true'
+        run: sudo apt-get update && sudo apt-get install -y reprepro
+
+      - name: Download .deb assets from the release
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p incoming
+          gh release download "allbot-v${VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "stylobot_*.deb" \
+            --dir incoming
+          ls -l incoming
+
+      - name: Import signing key + preset passphrase for non-interactive reprepro signing
+        if: steps.guard.outputs.skip != 'true'
+        id: gpg
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          GNUPGHOME="$(mktemp -d)"; export GNUPGHOME
+          chmod 700 "$GNUPGHOME"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          printf 'allow-loopback-pinentry\nallow-preset-passphrase\n' > "$GNUPGHOME/gpg-agent.conf"
+          printf 'pinentry-mode loopback\n' > "$GNUPGHOME/gpg.conf"
+          echo "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg-connect-agent reloadagent /bye
+          KEYID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5; exit}')
+          KEYGRIP=$(gpg --list-secret-keys --with-keygrip --with-colons | awk -F: '/^grp:/{print $10; exit}')
+          # reprepro invokes gpg without a passphrase prompt; preset it into the agent.
+          PRESET=""
+          for p in /usr/lib/gnupg/gpg-preset-passphrase /usr/lib/gnupg2/gpg-preset-passphrase \
+                   /usr/libexec/gpg-preset-passphrase; do
+            [ -x "$p" ] && PRESET="$p" && break
+          done
+          [ -n "$PRESET" ] || { echo "gpg-preset-passphrase not found" >&2; exit 1; }
+          "$PRESET" --preset --passphrase "$RELEASE_GPG_PASSPHRASE" "$KEYGRIP"
+          echo "keyid=$KEYID" >> "$GITHUB_OUTPUT"
+          echo "Imported signing key $KEYID"
+
+      - name: Fetch existing gh-pages repo state (preserve the package pool)
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git clone --branch gh-pages --single-branch --depth 1 \
+               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" public 2>/dev/null; then
+            echo "existing gh-pages checked out (pool preserved)"
+          else
+            echo "no gh-pages yet -- bootstrapping a fresh repo"
+            mkdir -p public
+            (cd public && git init -q && git checkout -q -b gh-pages)
+          fi
+
+      - name: reprepro includedeb + sign
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          KEYID: ${{ steps.gpg.outputs.keyid }}
+        run: |
+          mkdir -p public/conf
+          # conf/distributions is checked in as a template; stamp the actual key id.
+          sed "s/__GPG_KEY_ID__/${KEYID}/" scripts/apt/conf/distributions > public/conf/distributions
+          reprepro -b public includedeb stable incoming/*.deb
+          # Publish the binary signing key + the one-line setup script + a landing page.
+          gpg --export "$KEYID" > public/stylobot.gpg
+          cp scripts/apt/setup.deb.sh public/setup.deb.sh
+          # Jekyll off (serve dot-underscore + reprepro db dirs verbatim).
+          touch public/.nojekyll
+          printf 'StyloBot apt repo. Setup: curl -fsSL https://%s/setup.deb.sh | sudo sh\n' \
+            "$(echo "$GITHUB_REPOSITORY" | cut -d/ -f1).github.io/$(echo "$GITHUB_REPOSITORY" | cut -d/ -f2)" \
+            > public/index.html
+
+      - name: Commit + push gh-pages
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd public
+          git config user.name "stylobot-ci"
+          git config user.email "ci@stylo.bot"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no changes to publish"
+          else
+            git commit -q -m "apt: stylobot ${VERSION}"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+            echo "Published stylobot ${VERSION} to the gh-pages apt repo"
+          fi
