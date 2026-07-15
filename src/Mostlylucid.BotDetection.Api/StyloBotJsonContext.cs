@@ -130,6 +130,10 @@ namespace Mostlylucid.BotDetection.Api;
 // shipped without these, so --enable-api crashed on startup with a JsonTypeInfo error.
 [JsonSerializable(typeof(DashboardBatchRequest))]
 [JsonSerializable(typeof(SingleResponse<DashboardDatasetBundle>))]
+// Config-baseline read surface (GET /api/v1/policies/config-baseline) -- the composed config rows a
+// remote / thin-client dashboard reads to render the gateway's baseline. Source-gen-only under AOT.
+[JsonSerializable(typeof(ConfigPolicyRowViewModel))]
+[JsonSerializable(typeof(SingleResponse<IReadOnlyList<ConfigPolicyRowViewModel>>))]
 
 // Cluster surface
 [JsonSerializable(typeof(BotCluster))]

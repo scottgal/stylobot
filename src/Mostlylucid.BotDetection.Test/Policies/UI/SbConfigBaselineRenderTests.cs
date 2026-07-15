@@ -93,6 +93,8 @@ public sealed class SbConfigBaselineRenderTests : IAsyncDisposable
 
         builder.Services.AddSingleton<IEffectivePolicyConfigOverlay, PassthroughEffectivePolicyConfigOverlay>();
         builder.Services.AddSingleton<EffectivePolicyComposer>();
+        // The view component consumes the IConfigBaselineProvider seam; the local composer is it.
+        builder.Services.AddSingleton<IConfigBaselineProvider>(sp => sp.GetRequiredService<EffectivePolicyComposer>());
         builder.Services.AddSingleton(canEditPolicy);
 
         var app = builder.Build();

@@ -17,20 +17,23 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents;
 /// </summary>
 public sealed class SbConfigBaselineViewComponent : ViewComponent
 {
-    private readonly EffectivePolicyComposer _composer;
+    private readonly IConfigBaselineProvider _baseline;
     private readonly IPolicyCanEditPolicy _canEditPolicy;
 
     public SbConfigBaselineViewComponent(
-        EffectivePolicyComposer composer,
+        IConfigBaselineProvider baseline,
         IPolicyCanEditPolicy canEditPolicy)
     {
-        _composer = composer;
+        _baseline = baseline;
         _canEditPolicy = canEditPolicy;
     }
 
-    public IViewComponentResult Invoke(bool? canEdit = null)
+    // Async: the provider is the local composer (in-process) on a detection host, or the remote
+    // reader (HTTP to the gateway) on a thin-client dashboard. Same rows either way.
+    public async Task<IViewComponentResult> InvokeAsync(bool? canEdit = null)
     {
         var effectiveCanEdit = canEdit ?? _canEditPolicy.CanEdit(HttpContext?.User);
-        return View(_composer.ComposeConfigRows(effectiveCanEdit));
+        var rows = await _baseline.GetConfigRowsAsync(effectiveCanEdit, HttpContext?.RequestAborted ?? default);
+        return View(rows);
     }
 }

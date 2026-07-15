@@ -75,6 +75,11 @@ public static class RemoteDashboardServiceExtensions
         services.AddSingleton<IEntityReader, RemoteEntityReader>();
         services.AddSingleton<IConfigEditorService, RemoteConfigEditorService>();
         services.AddSingleton<IBotClusterReader, RemoteBotClusterReader>();
+        // Config-baseline effective view: the thin client can't compose it (no local config, no
+        // IActionPolicyRegistry), so read the gateway's composed rows over REST. Registered before
+        // AddStyloBotDashboard, whose local composer is a TryAdd -- so remote wins, and the policies
+        // page shows the GATEWAY's config baseline instead of skipping it.
+        services.AddSingleton<Services.IConfigBaselineProvider, RemoteConfigBaselineProvider>();
         // Compliance: the gateway OWNS the pack selection + guardians; the site reads
         // status over REST and loads the (static, embedded) pack catalogue locally. No
         // local compliance store, no Postgres connection on the site

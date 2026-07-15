@@ -55,11 +55,11 @@
        that this page never showed, so a config-default throttle stops being invisible. Rendered
        above the rule stack (the always-enforced base layer). canEdit is left unset so the
        registered IPolicyCanEditPolicy decides: FOSS read-only, commercial editable.
-       EffectivePolicyComposer is registered only on a LOCAL-detection host (it needs the real
-       IActionPolicyRegistry). A remote / thin-client dashboard has no local config baseline to
-       compose, so skip the section rather than render a fabricated empty one -- its presence is
-       the local-mode signal (same optional-DI pattern as the pack contribution slots). *@
-    @if (Context?.RequestServices?.GetService(typeof(Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer)) is not null)
+       IConfigBaselineProvider is registered in BOTH modes -- the local composer on a detection host,
+       the remote reader (reads the gateway's baseline) on a thin-client dashboard. It is absent only
+       on an API-only host with no baseline to serve, where the section correctly skips rather than
+       rendering a fabricated empty one (same optional-DI pattern as the pack contribution slots). *@
+    @if (Context?.RequestServices?.GetService(typeof(Mostlylucid.BotDetection.UI.Services.IConfigBaselineProvider)) is not null)
     {
         @await Component.InvokeAsync("SbConfigBaseline")
     }

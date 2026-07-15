@@ -355,7 +355,15 @@ public static class StyloBotDashboardServiceExtensions
         // path, never a locally-fabricated one; the config-baseline view component invocation is
         // gated on this same registration (see _Policies.cshtml).
         if (services.Any(sd => sd.ServiceType == typeof(Mostlylucid.BotDetection.Actions.IActionPolicyRegistry)))
+        {
             services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>();
+            // Local-detection host: the composer IS the config-baseline provider (composes in-process
+            // from local config). A remote / thin-client host registers RemoteConfigBaselineProvider
+            // instead (AddStyloBotDashboardRemote), so SbConfigBaselineViewComponent resolves the seam
+            // in both modes and reads the gateway's baseline when remote -- never a fabricated one.
+            services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IConfigBaselineProvider>(
+                sp => sp.GetRequiredService<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>());
+        }
         // Editor debounce timings carried to the JS via data-* attributes on
         // the edit-row article. Defaults match the historical FOSS literals
         // (80ms parse, 500ms backtest); commercial widens these via
