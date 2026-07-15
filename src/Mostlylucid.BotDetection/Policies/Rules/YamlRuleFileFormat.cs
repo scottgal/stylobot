@@ -157,6 +157,9 @@ public sealed partial class YamlRuleAction
 
     /// <summary>Optional operator-facing label for throttle decisions. Read only for <c>throttle</c>.</summary>
     [YamlMember("reason")] public string? Reason { get; init; }
+
+    /// <summary>Optional HTTP status for a <c>block</c> action. Null keeps the default 403; 404 deflects a scan.</summary>
+    [YamlMember("status")] public int? Status { get; init; }
 }
 
 /// <summary>
