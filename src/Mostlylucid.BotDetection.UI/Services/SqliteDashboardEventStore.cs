@@ -742,9 +742,23 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return points;
     }
 
-    // NOTE: This query joins the 'sessions' table created by SqliteDetectionArchive (core package).
-    // Both stores share the same database file. The join is intentional; on a fresh DB with no
-    // sessions yet, the subquery returns NULL for last_path, which is handled via reader.IsDBNull(12).
+    /// <summary>
+    ///     True when a <c>sessions</c> table exists in this connection's database. The last_path
+    ///     enrichment in <see cref="GetTopBotsAsync"/> reads it; co-located deployments (website /
+    ///     all-in-one) share one DB file so it is present, but the stylobot gateway with --enable-api
+    ///     keeps dashboard.db and sessions.db apart, so it is not. A hard reference would 500 topbots.
+    /// </summary>
+    private static async Task<bool> SessionsTableExistsAsync(SqliteConnection conn)
+    {
+        await using var probe = conn.CreateCommand();
+        probe.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions' LIMIT 1";
+        return await probe.ExecuteScalarAsync() is not null;
+    }
+
+    // NOTE: The last_path column reads the 'sessions' table created by SqliteDetectionArchive (core
+    // package) WHEN the session store shares this database file (website / all-in-one). The stylobot
+    // gateway (--enable-api) keeps the stores in separate files, so last_path degrades to NULL there
+    // via SessionsTableExistsAsync — either way reader.IsDBNull(12) handles the NULL.
     // top_reasons_json is migrated by EnsureInitializedAsync — absent on pre-migration DBs it reads NULL.
     // Column order (0-based): signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
     //   last_seen(5), threat_score(6), threat_band(7), action(8), narrative(9), top_reasons_json(10),
@@ -779,17 +793,29 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
+        // The last_path enrichment reads the session store's `sessions` table. When the
+        // dashboard event store and the session store are separate SQLite files -- the
+        // stylobot gateway with --enable-api keeps dashboard.db and sessions.db apart --
+        // `sessions` is not in this connection's database, and a hard reference fails the
+        // whole query with "no such table: sessions" (topbots then 500s). Probe for it and
+        // degrade last_path to NULL when absent; co-located deployments keep the enrichment.
+        var lastPathExpr = await SessionsTableExistsAsync(conn)
+            ? """
+              (SELECT json_extract(ses.paths_json, '$[0]')
+                    FROM sessions ses
+                    WHERE ses.signature = s.signature AND ses.paths_json IS NOT NULL
+                    ORDER BY ses.ended_at DESC
+                    LIMIT 1)
+              """
+            : "NULL";
+
         await using var cmd = conn.CreateCommand();
         // bytes_out is computed over ALL detections for this signature (no time filter).
         // This is the all-time / cache-seed path — windowed calls go to GetTopBotsWindowedAsync.
         cmd.CommandText = $"""
             SELECT s.signature, s.bot_name, s.bot_type, s.bot_probability, s.hit_count, s.last_seen,
                    s.threat_score, s.threat_band, s.action, s.narrative, s.top_reasons_json, s.country_code,
-                   (SELECT json_extract(ses.paths_json, '$[0]')
-                    FROM sessions ses
-                    WHERE ses.signature = s.signature AND ses.paths_json IS NOT NULL
-                    ORDER BY ses.ended_at DESC
-                    LIMIT 1) AS last_path,
+                   {lastPathExpr} AS last_path,
                    COALESCE((SELECT SUM(d.response_bytes) FROM detections d WHERE d.signature = s.signature), 0) AS bytes_out,
                    (s.bot_probability >= @botFloor) AS is_bot
             FROM signatures s
