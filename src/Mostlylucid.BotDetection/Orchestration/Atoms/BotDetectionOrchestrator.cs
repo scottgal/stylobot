@@ -287,6 +287,7 @@ public static class BotDetectionOrchestratorExtensions
         services.AddDetectorAtom<ThreatIntelAtom>();           // Priority 7  (Wave 0)
         services.AddDetectorAtom<HaxxorAtom>();                // Priority 7  (Wave 0)
         services.AddDetectorAtom<SecurityToolAtom>();          // Priority 8  (Wave 0)
+        services.AddDetectorAtom<RegistryClientSensor>();      // Priority 8  (Wave 0)
         services.AddDetectorAtom<AiScraperAtom>();             // Priority 9  (Wave 0)
         services.AddDetectorAtom<CveProbeAtom>();              // Priority 11 (Wave 0)
 

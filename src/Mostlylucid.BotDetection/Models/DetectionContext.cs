@@ -898,6 +898,36 @@ public static partial class SignalKeys
     public const string AiScraperCategory = "aiscraper.category";
 
     // ============================================================
+    // Registry-client (OCI Distribution Spec / Docker Registry v2) signals
+    // Set by RegistryClientSensor. registry.client is only raised when the UA
+    // family is CORROBORATED by registry protocol behaviour (never UA alone).
+    // ============================================================
+
+    /// <summary>Boolean ("true"): a genuine registry client, UA family corroborated by v2 protocol behaviour.</summary>
+    public const string RegistryClientDetected = "registry.client";
+
+    /// <summary>String: registry client name (e.g. "Docker", "containerd", "Helm").</summary>
+    public const string RegistryClientName = "registry.client.name";
+
+    /// <summary>String: parsed client version (e.g. "24.0.7"). Absent when the UA carries no version.</summary>
+    public const string RegistryClientVersion = "registry.client.version";
+
+    /// <summary>Marker: the RegistryClient sensor evaluated a registry-relevant request (registry UA or /v2/ path).</summary>
+    public const string RegistryV2Ran = "registry.v2.ran";
+
+    /// <summary>String: the OCI v2 step observed (ping / manifest / blob / upload / tags / v2).</summary>
+    public const string RegistryV2Step = "registry.v2.step";
+
+    /// <summary>Marker: the request carried a registry manifest / blob Accept media type.</summary>
+    public const string RegistryAcceptManifest = "registry.accept.manifest";
+
+    /// <summary>Marker: the request carried a Bearer Authorization header (registry auth dance).</summary>
+    public const string RegistryAuthBearer = "registry.auth.bearer";
+
+    /// <summary>Marker: UA claims a registry client but showed NO v2 protocol behaviour (spoof-suspect; not lowered).</summary>
+    public const string RegistryUaOnly = "registry.ua_only";
+
+    // ============================================================
     // UTM / Ad Traffic signals - set by PiiQueryStringContributor
     // ============================================================
 
