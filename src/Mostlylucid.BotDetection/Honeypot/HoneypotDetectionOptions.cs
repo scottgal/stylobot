@@ -61,6 +61,32 @@ public sealed class HoneypotDetectionOptions
     ///     "stylobot saw this", which defeats the holodeck.
     /// </summary>
     public HoneypotRateLimitOptions RateLimit { get; set; } = new();
+
+    /// <summary>
+    ///     How the honeypot responds to a matched trap path. Default:
+    ///     <see cref="HoneypotResponseMode.EngagePack"/> -- serve realistic fake content from a matching
+    ///     simulation pack (a 200), falling back to a generic 404. This ENGAGES the scanner so pack
+    ///     canaries + behavioural signals accrue.
+    ///     <para>
+    ///     Set to <see cref="HoneypotResponseMode.Deflect404"/> to serve a fast, plain 404 instead: the
+    ///     scanner sees an honest "not found" and de-prioritises the path rather than being encouraged
+    ///     to keep probing by a 200 fake. Detection still fires (the honeypot signal is on its dedicated
+    ///     pathway, NOT the response status), and the rate-limit 403 still protects against a flood.
+    ///     Use this when the deployment values deflection over engagement -- e.g. a public marketing
+    ///     site that isn't running the holodeck and doesn't want scanners lingering on fake 200s.
+    ///     </para>
+    /// </summary>
+    public HoneypotResponseMode ResponseMode { get; set; } = HoneypotResponseMode.EngagePack;
+}
+
+/// <summary>How the honeypot action policy responds to a matched trap path.</summary>
+public enum HoneypotResponseMode
+{
+    /// <summary>Serve fake pack content (200) when a pack matches, else a generic 404 -- engages the scanner.</summary>
+    EngagePack,
+
+    /// <summary>Serve a fast, plain 404 -- deflects the scanner so it stops probing rather than being encouraged by a 200 fake.</summary>
+    Deflect404
 }
 
 /// <summary>
