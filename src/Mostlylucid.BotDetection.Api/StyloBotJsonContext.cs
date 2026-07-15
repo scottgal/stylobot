@@ -121,6 +121,15 @@ namespace Mostlylucid.BotDetection.Api;
 [JsonSerializable(typeof(SingleResponse<DashboardSummary>))]
 [JsonSerializable(typeof(SingleResponse<DashboardCountryDetail>))]
 [JsonSerializable(typeof(SingleResponse<DashboardEndpointDetail>))]
+// Batch read surface (POST /api/v1/compose-batch). The request body + response wrapper
+// MUST be registered here: this context is source-gen-only (no reflection fallback), and
+// the minimal-API endpoint factory resolves the [FromBody] DashboardBatchRequest metadata
+// at STARTUP -- an absent type fails the whole pipeline build, taking down --enable-api on
+// the AOT gateway. The response registration walks DashboardDatasetBundle + its members
+// (DegradationSnapshot already registered above) transitively. compose-batch (29183d77)
+// shipped without these, so --enable-api crashed on startup with a JsonTypeInfo error.
+[JsonSerializable(typeof(DashboardBatchRequest))]
+[JsonSerializable(typeof(SingleResponse<DashboardDatasetBundle>))]
 
 // Cluster surface
 [JsonSerializable(typeof(BotCluster))]
