@@ -19,7 +19,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     so the operator sees both layers. Rows sort most-severe-first (Block, then Challenge/Throttle,
 ///     then the rest) with the global default last.
 /// </summary>
-public sealed class EffectivePolicyComposer
+public sealed class EffectivePolicyComposer : IConfigBaselineProvider
 {
     private readonly IOptionsMonitor<BotDetectionOptions> _options;
     private readonly IActionPolicyRegistry _registry;
@@ -34,6 +34,13 @@ public sealed class EffectivePolicyComposer
         _registry = registry;
         _overlay = overlay;
     }
+
+    /// <summary>
+    ///     <see cref="IConfigBaselineProvider"/> local implementation: composes in-process from local
+    ///     config. Synchronous under the hood; the async signature exists for the remote reader.
+    /// </summary>
+    public Task<IReadOnlyList<EffectivePolicyRowViewModel>> GetConfigRowsAsync(bool canEdit, CancellationToken ct = default)
+        => Task.FromResult(ComposeConfigRows(canEdit));
 
     /// <summary>
     ///     Compose the config-baseline rows. <paramref name="canEdit"/> is the same
