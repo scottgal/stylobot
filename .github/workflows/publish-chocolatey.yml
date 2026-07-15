@@ -1,22 +1,29 @@
 name: Publish to Chocolatey
 
 on:
-  release:
-    types: [published]
+  # Runs after "Publish Stylobot Binaries" finishes, so the GitHub Release and its
+  # assets (SHA256SUMS.txt + signed .zips) already exist. NOT release:published --
+  # GitHub suppresses that event for releases created by the Actions GITHUB_TOKEN,
+  # so the old trigger never auto-fired (Chocolatey only ever ran via manual dispatch).
+  workflow_run:
+    workflows: ["Publish Stylobot Binaries"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 6.3.0)'
+        description: 'Version to publish (e.g., 8.1.5)'
         required: false
 
 jobs:
   publish:
-    # Only run on allbot-v* releases, skip prereleases (betas don't go to Chocolatey)
+    # Auto-publish after a successful binaries build on an allbot-v* tag; skip
+    # prereleases (alpha/beta). Manual workflow_dispatch always allowed.
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'release' &&
-       startsWith(github.event.release.tag_name, 'allbot-v') &&
-       github.event.release.prerelease == false)
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'allbot-v') &&
+       !contains(github.event.workflow_run.head_branch, '-alpha') &&
+       !contains(github.event.workflow_run.head_branch, '-beta'))
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -27,13 +34,14 @@ jobs:
       env:
         INPUT_VERSION: ${{ inputs.version }}
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        RELEASE_TAG: ${{ github.event.release.tag_name }}
+        RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
       shell: bash
       run: |
         if [ -n "$INPUT_VERSION" ]; then
           VERSION="$INPUT_VERSION"
-        elif [ -n "$RELEASE_TAG" ]; then
-          VERSION="${RELEASE_TAG#allbot-v}"
+        elif [ -n "$RUN_HEAD_BRANCH" ]; then
+          # workflow_run.head_branch holds the tag name for a tag-triggered upstream run
+          VERSION="${RUN_HEAD_BRANCH#allbot-v}"
         else
           TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
             | jq -r '[.[] | select(.tagName | startswith("allbot-v")) | select(.isPrerelease == false)][0].tagName')
