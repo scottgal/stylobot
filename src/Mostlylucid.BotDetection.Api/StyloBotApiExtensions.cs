@@ -62,6 +62,21 @@ public static class StyloBotApiExtensions
             .BindConfiguration("BotDetection:Debug:BdfHarvest");
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.BdfHarvestService>();
 
+        // Config-baseline read surface (GET /api/v1/policies/config-baseline). The gateway never
+        // calls AddStyloBotDashboard, so the composer isn't registered by that path -- but it's a
+        // pure-compute service (IOptionsMonitor<BotDetectionOptions> + IActionPolicyRegistry +
+        // IEffectivePolicyConfigOverlay, all present once AddBotDetection ran), so wire it here so a
+        // remote / thin-client dashboard can read the GATEWAY's composed baseline. Guarded on the
+        // real registry (never a null/empty stand-in). TryAdd is idempotent with a dashboard host.
+        if (services.Any(sd => sd.ServiceType == typeof(Mostlylucid.BotDetection.Actions.IActionPolicyRegistry)))
+        {
+            services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IEffectivePolicyConfigOverlay,
+                Mostlylucid.BotDetection.UI.Services.PassthroughEffectivePolicyConfigOverlay>();
+            services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>();
+            services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IConfigBaselineProvider>(
+                sp => sp.GetRequiredService<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>());
+        }
+
         return services;
     }
 

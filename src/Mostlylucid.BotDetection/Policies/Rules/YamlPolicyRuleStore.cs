@@ -602,7 +602,7 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
         {
             "allow" => new PolicyAction.Allow(),
             "observe" => new PolicyAction.Observe(),
-            "block" => new PolicyAction.Block(),
+            "block" => new PolicyAction.Block { Status = action.Status },
             "tag" => new PolicyAction.Tag(
                 action.TagName ?? throw new InvalidDataException("tag action requires 'tag_name'")),
             "challenge" => new PolicyAction.Challenge(

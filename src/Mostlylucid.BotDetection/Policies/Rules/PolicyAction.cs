@@ -88,6 +88,14 @@ public abstract record PolicyAction
     /// <summary>Block the request outright.</summary>
     public sealed record Block : PolicyAction
     {
+        /// <summary>
+        ///     HTTP status to return. Null (the default) keeps the historical 403 Forbidden.
+        ///     Set to 404 for a "this path does not exist" deflection -- e.g. a raw <c>.env</c> /
+        ///     config-file scan, where a 403 confirms the path is real and worth retrying, but a
+        ///     404 tells the scanner nothing exists (and never leaks even if the upstream would 200).
+        /// </summary>
+        public int? Status { get; init; }
+
         public override PolicyIntentKind Intent => PolicyIntentKind.Block;
     }
 }

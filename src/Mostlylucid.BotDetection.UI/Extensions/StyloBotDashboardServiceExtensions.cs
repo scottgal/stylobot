@@ -204,6 +204,9 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton<DashboardContributionRegistry>();
 
         services.AddSignalR();
+        // AOT gateways (dynamic code disabled) cannot build SignalR's strongly-typed client
+        // proxy via Reflection.Emit; swap in the hand-written wrapper. No-op on JIT hosts.
+        services.AddAotSafeDashboardHubContext();
 
         // Memory cache - used by StyloBotDashboardMiddleware widget render cache (2s TTL per widget)
         services.AddMemoryCache();
@@ -338,7 +341,29 @@ public static class StyloBotDashboardServiceExtensions
         // commercial overlay registered before AddStyloBotDashboard wins.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IEffectivePolicyConfigOverlay,
             Mostlylucid.BotDetection.UI.Services.PassthroughEffectivePolicyConfigOverlay>();
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>();
+        // The composer hard-depends on IActionPolicyRegistry (BotTypeActionPolicies -> real
+        // ActionType, data-driven), which only AddBotDetection registers -- i.e. only on a
+        // LOCAL-detection host. A remote / thin-client dashboard (Stylobot.Ui rest mode, the
+        // commercial website factory) runs AddStyloBotDashboard WITHOUT AddBotDetection, so the
+        // registry is absent and an unconditional registration fails ValidateOnBuild.
+        //
+        // The config baseline is LOCAL config -- composing it on a thin client would show the
+        // client's empty options, not the gateway's. So register the composer ONLY where its real
+        // dependency exists. We do NOT fake IActionPolicyRegistry with a null/empty stand-in: an
+        // empty registry would silently render a wrong (blank / mis-coloured) effective policy --
+        // the null-object degradation class. Remote surfaces the gateway's baseline via the read
+        // path, never a locally-fabricated one; the config-baseline view component invocation is
+        // gated on this same registration (see _Policies.cshtml).
+        if (services.Any(sd => sd.ServiceType == typeof(Mostlylucid.BotDetection.Actions.IActionPolicyRegistry)))
+        {
+            services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>();
+            // Local-detection host: the composer IS the config-baseline provider (composes in-process
+            // from local config). A remote / thin-client host registers RemoteConfigBaselineProvider
+            // instead (AddStyloBotDashboardRemote), so SbConfigBaselineViewComponent resolves the seam
+            // in both modes and reads the gateway's baseline when remote -- never a fabricated one.
+            services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IConfigBaselineProvider>(
+                sp => sp.GetRequiredService<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>());
+        }
         // Editor debounce timings carried to the JS via data-* attributes on
         // the edit-row article. Defaults match the historical FOSS literals
         // (80ms parse, 500ms backtest); commercial widens these via
@@ -381,16 +406,14 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver,
             Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver>();
 
-        // Pack Metrics C1 -- dashboard overview pack-health row. The three FOSS
+        // Pack Metrics C1 -- dashboard overview pack-health row. The FOSS
         // providers ship here; each one wraps an existing summary builder in
         // process (no HTTP loopback into the gateway's own JSON endpoints). The
         // commercial overlay registers additional providers via the same
         // IPackHealthSummaryProvider interface so its packs slot in alongside.
-        // Ordering: Policy (100, leftmost) -- AspNet (200) -- Metrics (300).
+        // Ordering: Policy (100, leftmost) -- Metrics (300).
         services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
             Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.PolicyStackHealthSummaryProvider>();
-        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
-            Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHealthSummaryProvider>();
         // Factory variant: IMeterStream is only registered when a host calls
         // AddPrometheusPack. A Demo / dev-bench host won't have it, but the
         // dashboard wiring registers this provider unconditionally. Resolving
@@ -438,7 +461,6 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardFreshnessBeacon>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackSummaryCache>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>();
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHubTileCache>();
 
         // Site-health widget: sampler subscribes to Tick10s and persists
         // DegradationAtom snapshots via IDashboardEventStore. The view
@@ -988,6 +1010,7 @@ public static class StyloBotDashboardServiceExtensions
 
         services.AddMemoryCache();
         services.AddSignalR();
+        services.AddAotSafeDashboardHubContext(); // AOT-safe typed-hub wrapper (no-op on JIT)
 
         // Ensure MVC/Razor services are available for view rendering (idempotent)
         services.AddControllersWithViews();
@@ -1074,6 +1097,7 @@ public static class StyloBotDashboardServiceExtensions
 
         // SignalR for broadcasting to connected dashboard clients
         services.AddSignalR();
+        services.AddAotSafeDashboardHubContext(); // AOT-safe typed-hub wrapper (no-op on JIT)
 
         // Event store: SQLite by default (persists across restarts).
         // PostgreSQL package overrides via RemoveAll + AddSingleton when configured.

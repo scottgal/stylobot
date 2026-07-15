@@ -57,6 +57,22 @@ public sealed class PolicyActionHandlerTests
     }
 
     [Fact]
+    public async Task BlockActionHandler_honors_a_rule_supplied_status_404()
+    {
+        // A block rule may deflect with 404 (e.g. a raw .env / config-file scan) so the response
+        // never confirms the path is real. Backward-compat: a Block with no Status stays 403
+        // (covered by BlockActionHandler_writes_403_with_legacy_body_shape).
+        var handler = new BlockActionHandler();
+        var rule = NewRule(new PolicyAction.Block { Status = 404 });
+        var ctx = NewHttpContext();
+
+        var result = await handler.HandleAsync(ctx, rule, rule.Action, CancellationToken.None);
+
+        Assert.Equal(PolicyDispatchResult.Handled, result);
+        Assert.Equal((int)HttpStatusCode.NotFound, ctx.Response.StatusCode);
+    }
+
+    [Fact]
     public async Task BlockActionHandler_writes_403_with_legacy_body_shape()
     {
         var handler = new BlockActionHandler();

@@ -66,12 +66,3 @@ public class PackHealthTileCache
 public sealed class MeterStreamHealthTileCache : PackHealthTileCache
 {
 }
-
-/// <summary>
-///     DI marker: the cache instance for the ASP.NET pack hub tile.
-///     Separated as a subclass so the DI container can resolve a distinct
-///     singleton per surface without keyed-services machinery.
-/// </summary>
-public sealed class AspNetPackHubTileCache : PackHealthTileCache
-{
-}

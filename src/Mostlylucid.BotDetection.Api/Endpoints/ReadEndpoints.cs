@@ -40,9 +40,39 @@ public static class ReadEndpoints
         group.MapGet("/endpoints/{method}/{**path}", HandleEndpointDetail).WithName("GetEndpointDetail");
         group.MapGet("/topbots", HandleTopBots).WithName("GetTopBots");
         group.MapGet("/threats", HandleThreats).WithName("GetThreats");
+        group.MapGet("/policies/config-baseline", HandleConfigBaseline).WithName("GetConfigBaseline");
         group.MapPost("/compose-batch", HandleComposeBatch).WithName("ComposeBatch");
 
         return endpoints;
+    }
+
+    /// <summary>
+    ///     <c>GET /api/v1/policies/config-baseline</c> -- the composed config-baseline rows
+    ///     (BotTypeActionPolicies + DefaultActionPolicyName -> action policy) so a remote /
+    ///     thin-client dashboard can render the GATEWAY's config baseline instead of its own empty
+    ///     one. Served canEdit=false: a remote FOSS dashboard is read-only; the commercial overlay
+    ///     handles edit affordances on its own surface.
+    ///     <para>
+    ///     Returns an empty list (not an error) when the host has no <see cref="IConfigBaselineProvider"/>
+    ///     -- an API-only gateway without the composer genuinely has no baseline to serve, so remote
+    ///     renders nothing rather than a fabricated one.
+    ///     </para>
+    /// </summary>
+    private static async Task<Ok<SingleResponse<IReadOnlyList<ConfigPolicyRowViewModel>>>> HandleConfigBaseline(
+        [FromServices] IConfigBaselineProvider? baseline,
+        CancellationToken ct)
+    {
+        IReadOnlyList<ConfigPolicyRowViewModel> rows = baseline is null
+            ? []
+            : (await baseline.GetConfigRowsAsync(canEdit: false, ct))
+                .Where(r => r.ConfigRow is not null)
+                .Select(r => r.ConfigRow!)
+                .ToList();
+        return TypedResults.Ok(new SingleResponse<IReadOnlyList<ConfigPolicyRowViewModel>>
+        {
+            Data = rows,
+            Meta = new ResponseMeta()
+        });
     }
 
     private static async Task<Ok<PaginatedResponse<DashboardDetectionEvent>>> HandleDetections(
