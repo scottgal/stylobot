@@ -1010,12 +1010,27 @@ else
             Mostlylucid.BotDetection.UI.Services.Dashboard.DashboardContributionSlot.VisitorDetailSection);
         if (visitorContribs is { Count: > 0 })
         {
+            @* Locked slot-arg contract (edit- effective-policy VC): fingerprintId +
+               botType + botName + domain, matched by name so a contribution reads only
+               the keys it needs and ignores the rest (backward-compatible with any other
+               contribution on this slot). Without botType + domain the panel resolves the
+               GLOBAL default instead of scoping to this signature. domain is not on the
+               model; it is the request host -- the site this detail page is being viewed
+               for -- which is exactly the per-domain scope the panel needs. Built as a C#
+               local (not a multi-line implicit expression) so it is unambiguous Razor. *@
             foreach (var c in visitorContribs)
             {
+                var slotArgs = new
+                {
+                    fingerprintId = Model.FingerprintId,
+                    botType = Model.BotType,
+                    botName = Model.BotName,
+                    domain = Context?.Request.Host.Host
+                };
                 <section class="rounded-xl border p-4 mb-4"
                          style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
                     <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">@c.ContributionName</div>
-                    @await Component.InvokeAsync(c.ViewComponentName, new { fingerprintId = Model.FingerprintId })
+                    @await Component.InvokeAsync(c.ViewComponentName, slotArgs)
                 </section>
             }
         }
