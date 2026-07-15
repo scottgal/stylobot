@@ -89,13 +89,6 @@ public sealed class DashboardFreshnessBeacon
         public const string PolicyStackSummary = "policy-stack-summary";
 
         /// <summary>
-        ///     ASP.NET pack hub summary (endpoint + meter family counts).
-        ///     Producer: commercial AspNetPack bridge that ticks on the
-        ///     same Tick10s the underlying meter snapshot rebuilds on.
-        /// </summary>
-        public const string AspNetPackHub = "aspnet-pack-hub";
-
-        /// <summary>
         ///     Meter-stream catalog health (count of currently published
         ///     instruments). Producer: <see cref="DashboardFreshnessBridge"/>
         ///     subscribing to the schedule coordinator's Tick10s tick;

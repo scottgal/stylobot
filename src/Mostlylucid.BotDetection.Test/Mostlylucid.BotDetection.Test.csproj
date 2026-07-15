@@ -43,7 +43,6 @@
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Holodeck\Mostlylucid.BotDetection.Llm.Holodeck.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
-        <ProjectReference Include="..\Mostlylucid.BotDetection.AspNetPack\Mostlylucid.BotDetection.AspNetPack.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.PrometheusPack\Mostlylucid.BotDetection.PrometheusPack.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Sidecar\Mostlylucid.BotDetection.Sidecar.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Sidecar.Client\Mostlylucid.BotDetection.Sidecar.Client.csproj" />

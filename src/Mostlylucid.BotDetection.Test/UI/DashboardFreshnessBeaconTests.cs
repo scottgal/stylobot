@@ -31,7 +31,6 @@ public sealed class DashboardFreshnessBeaconTests
         // The keys are baked into producer + consumer code AND tests, so a
         // rename is a breaking change that needs a deliberate edit here.
         DashboardFreshnessBeacon.Surfaces.PolicyStackSummary.Should().Be("policy-stack-summary");
-        DashboardFreshnessBeacon.Surfaces.AspNetPackHub.Should().Be("aspnet-pack-hub");
         DashboardFreshnessBeacon.Surfaces.MeterStreamHealth.Should().Be("meter-stream-health");
 
         // Existing dashboard surfaces catalogued through the beacon stay
@@ -74,7 +73,6 @@ public sealed class DashboardFreshnessBeaconTests
         var act = () =>
         {
             beacon.BroadcastStale(DashboardFreshnessBeacon.Surfaces.PolicyStackSummary);
-            beacon.BroadcastStale(DashboardFreshnessBeacon.Surfaces.AspNetPackHub);
             beacon.BroadcastStale(DashboardFreshnessBeacon.Surfaces.MeterStreamHealth);
         };
 

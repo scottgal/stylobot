@@ -516,14 +516,6 @@ public class StyloBotDashboardMiddleware
                 await ServeBdfExportApiAsync(context, relativePath.Substring(BdfExportPrefix.Length));
                 break;
 
-            // Pack Metrics B2 -- rollup summary for the FOSS AspNetPack hub.
-            // Anonymous-readable: payload is rollup-only (counts + 15m totals
-            // + a health band), no PII. Lives at /api/v1/* so fleet-rollup
-            // tooling can hit the same surface across versions.
-            case "api/v1/packs/aspnet/summary":
-                await ServeAspNetPackSummaryAsync(context);
-                break;
-
             // Pack Metrics B8 -- rollup summary for the policy-stack pack.
             // Mirrors the AspNet summary contract: per-mode rule counts +
             // 15-minute decision count + a HealthBand the C1 dashboard
@@ -2886,33 +2878,6 @@ public class StyloBotDashboardMiddleware
         context.Response.Headers["Content-Disposition"] = $"attachment; filename=\"bdf-{decodedSignature[..Math.Min(8, decodedSignature.Length)]}.json\"";
         context.Response.Headers["X-PII-Level"] = "none";
         await JsonSerializer.SerializeAsync(context.Response.Body, document, CamelCaseJson);
-    }
-
-    /// <summary>
-    ///     Pack Metrics B2 -- <c>GET /api/v1/packs/aspnet/summary</c>. Returns
-    ///     the same numbers surfaced on the <c>/dashboard/aspnet-hub</c> page
-    ///     (endpoint count, meter-family count, 15m observation throughput,
-    ///     15m inferred-endpoint count, overall health band) in machine-readable
-    ///     form. Anonymous-readable: payload is rollup-only with no PII.
-    ///     Returns 503 when the AspNetPack builder is not registered on the
-    ///     host (e.g. AddAspNetPackReadOnly was never called).
-    /// </summary>
-    private async Task ServeAspNetPackSummaryAsync(HttpContext context)
-    {
-        var builder = context.RequestServices
-            .GetService(typeof(UI.Services.IAspNetPackHubBuilder)) as UI.Services.IAspNetPackHubBuilder;
-        if (builder is null)
-        {
-            context.Response.StatusCode = 503;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(
-                "{\"error\":\"AspNetPack hub builder not registered on this host\"}");
-            return;
-        }
-
-        var summary = await builder.BuildSummaryAsync(context.RequestAborted);
-        context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, summary, CamelCaseJson);
     }
 
     /// <summary>

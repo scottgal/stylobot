@@ -39,10 +39,6 @@ public static class FossDashboardGroups
         new DashboardGroup("system", "System",
         [
             new DashboardRow("configuration", "Configuration", "~/Views/StyloBot/Dashboard/_ConfigurationEditor.cshtml"),
-            // Per-pack hub page for the FOSS AspNetPack. One-glance summary
-            // of the pack's inventory + meter ingest. Sits next to the
-            // commercial OtelMesh hub and the future per-pack hubs (P3+).
-            new DashboardRow("aspnet-hub",    "ASP.NET Pack",  "~/Views/StyloBot/Dashboard/_AspNetPackHub.cshtml"),
             new DashboardRow("compliance",    "Compliance",    "~/Views/StyloBot/Dashboard/_ComplianceTab.cshtml",    IsCommercialOnly: true),
         ]),
     ];

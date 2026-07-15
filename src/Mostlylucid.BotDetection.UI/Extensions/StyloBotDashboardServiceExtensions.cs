@@ -384,16 +384,14 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver,
             Mostlylucid.BotDetection.UI.Services.DashboardLinkResolver>();
 
-        // Pack Metrics C1 -- dashboard overview pack-health row. The three FOSS
+        // Pack Metrics C1 -- dashboard overview pack-health row. The FOSS
         // providers ship here; each one wraps an existing summary builder in
         // process (no HTTP loopback into the gateway's own JSON endpoints). The
         // commercial overlay registers additional providers via the same
         // IPackHealthSummaryProvider interface so its packs slot in alongside.
-        // Ordering: Policy (100, leftmost) -- AspNet (200) -- Metrics (300).
+        // Ordering: Policy (100, leftmost) -- Metrics (300).
         services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
             Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.PolicyStackHealthSummaryProvider>();
-        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
-            Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHealthSummaryProvider>();
         // Factory variant: IMeterStream is only registered when a host calls
         // AddPrometheusPack. A Demo / dev-bench host won't have it, but the
         // dashboard wiring registers this provider unconditionally. Resolving
@@ -441,7 +439,6 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardFreshnessBeacon>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackSummaryCache>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>();
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.AspNetPackHubTileCache>();
 
         // Site-health widget: sampler subscribes to Tick10s and persists
         // DegradationAtom snapshots via IDashboardEventStore. The view

@@ -112,26 +112,4 @@ public sealed class DashboardFreshnessCacheTests
         cache.Invalidate();
         cache.TryGet().Should().BeNull();
     }
-
-    // ---------- AspNetPackHubTileCache (marker subclass) -----------------
-
-    [Fact]
-    public void AspNetPackHubTileCache_is_a_PackHealthTileCache()
-    {
-        var cache = new AspNetPackHubTileCache();
-        cache.Should().BeAssignableTo<PackHealthTileCache>();
-    }
-
-    [Fact]
-    public void AspNetPackHubTileCache_round_trips_tile()
-    {
-        var cache = new AspNetPackHubTileCache();
-        var tile = new StatTileViewModel("ASP.NET Pack", "38");
-        cache.Set(tile);
-
-        cache.TryGet().Should().BeSameAs(tile);
-
-        cache.Invalidate();
-        cache.TryGet().Should().BeNull();
-    }
 }
