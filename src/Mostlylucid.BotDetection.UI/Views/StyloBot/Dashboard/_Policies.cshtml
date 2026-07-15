@@ -54,8 +54,15 @@
     @* Config-baseline layer -- the BotTypeActionPolicies + DefaultActionPolicyName enforcement
        that this page never showed, so a config-default throttle stops being invisible. Rendered
        above the rule stack (the always-enforced base layer). canEdit is left unset so the
-       registered IPolicyCanEditPolicy decides: FOSS read-only, commercial editable. *@
-    @await Component.InvokeAsync("SbConfigBaseline")
+       registered IPolicyCanEditPolicy decides: FOSS read-only, commercial editable.
+       EffectivePolicyComposer is registered only on a LOCAL-detection host (it needs the real
+       IActionPolicyRegistry). A remote / thin-client dashboard has no local config baseline to
+       compose, so skip the section rather than render a fabricated empty one -- its presence is
+       the local-mode signal (same optional-DI pattern as the pack contribution slots). *@
+    @if (Context?.RequestServices?.GetService(typeof(Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer)) is not null)
+    {
+        @await Component.InvokeAsync("SbConfigBaseline")
+    }
     @if (templateGroups.Count > 0)
     {
         <div class="sb-policy-stack-template-groups" data-policy-stack-template-groups>
