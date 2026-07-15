@@ -104,6 +104,35 @@ A legit-but-abusive client (hammering pulls) is **rate-limited** via the normal 
 orthogonal to archetype recognition, and explicitly allowed by the no-bypass rule. So "recognized as
 legit" ≠ "unlimited"; it means "not treated as a hostile bot".
 
+## Implementation plan (concrete — real FOSS types)
+
+Maps onto the existing machinery; no new subsystem:
+
+1. **Seed the client family** — add docker/OCI registry clients to the well-known-bots catalog as
+   `BotType.Tool` (`Models/BotDetectionResult.cs`; `Tool` + internal already renders "Internal", and
+   `Tool` is a friendly category). Entry per `Definitions/WellKnownBots/WellKnownBotEntry.cs` →
+   `well-known-bots.baseline.json` (UA patterns: `docker/`, `containerd/`, `Helm/`, `skopeo`,
+   `buildkit`, `podman`, `crane`, `oras`, `Go-http-client` scoped to `/v2/`). This is the SEED only.
+2. **Behavioral sensor** — a `RegistryClientSensor` (native `IDetectorAtom`, registered via
+   `AddDetectorAtom<T>` in `BotDetectionModule`) that raises into the `SignalSink`:
+   `registry.v2.ran` always; hints for `registry.v2.step` (ping/token/manifest/blob),
+   `registry.accept.manifest`, `registry.auth.bearer`. The ordered v2 sequence is a per-session
+   molecule (`EphemeralKeyedWorkCoordinator` keyed by signature).
+3. **Archetype/centroid** — register a `RegistryClient` archetype in `IdentityArchetypeRegistry`
+   (`Identity/IdentityArchetypeRegistry.cs`) with an `IdentityVectorLayout` slice for the registry
+   signals; classify nearest-centroid + drift (the existing centroid path). Anchor = the seed; the
+   centroid self-tunes from real registry traffic.
+4. **Spoof resistance is already the model** — `Models/BotTypeClassification.cs` already encodes
+   "above the confidence threshold, even a GoodBot UA earns standard treatment". So a `docker/24` UA
+   *without* the corroborating `registry.v2.*` behavioral signals does NOT reach the friendly branch —
+   it's scored normally. Reuse that threshold; do not add a UA-only fast-path.
+5. **Action mapping** — map `BotType.Tool`/RegistryClient to a low-threat action (no
+   `throttle-stealth`) via the same mechanism as `BotDetectionOptions.InternalNetworkBotTypeActionPolicies`
+   (a per-BotType action-policy map). Rate limits still apply on top (allowed, not a bypass).
+6. **Config** — seed families + accept-media + protocol steps in a `registry-client.archetype.yaml`
+   (StyloFlow manifest, `IConfigProvider` three-tier); thresholds on options classes
+   (`WellKnownBotsOptions` / a new `RegistryClientOptions`). No hard-coded lists in C#.
+
 ## Validation
 
 Once `harbor.stylo.bot` DNS is live: a real `docker login` + `docker pull` from an external client,
