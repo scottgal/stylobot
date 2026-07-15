@@ -1,0 +1,93 @@
+archetype_id: registry-client
+name: Registry Client
+description: >
+  OCI Distribution Spec / Docker Registry HTTP API V2 clients (docker, containerd,
+  podman, skopeo, buildkit, oras, go-containerregistry, Helm OCI). This is the SEED
+  for the RegistryClient archetype, not the runtime rule: the UA family is only a
+  hint. A request scores low-threat ONLY when the UA family is corroborated by the
+  registry v2 protocol behaviour (an OCI /v2/ path, a registry manifest Accept media
+  type, or the bearer auth dance). A scraper spoofing docker/24 that is NOT doing the
+  registry protocol earns no score reduction and gets normal detection. Detection
+  always runs - the archetype changes the SCORE, never whether we look. See
+  docs/architecture/registry-client-archetype.md.
+
+# UA family seed (Model-2 hint). version_token = the token that precedes "/<version>"
+# in the UA (defaults to `pattern`). requires_oci_path = the UA alone is too generic
+# to name a registry client (bare Go HTTP client) - only matched when the request is
+# on an OCI /v2/ path.
+families:
+  - pattern: docker/
+    client_name: Docker
+    vendor: Docker Inc
+    version_token: docker
+
+  - pattern: containerd/
+    client_name: containerd
+    vendor: CNCF
+    version_token: containerd
+
+  - pattern: libpod/
+    client_name: Podman
+    vendor: Red Hat
+    version_token: libpod
+
+  - pattern: Buildah/
+    client_name: Buildah
+    vendor: Red Hat
+    version_token: Buildah
+
+  - pattern: skopeo/
+    client_name: skopeo
+    vendor: Red Hat
+    version_token: skopeo
+
+  - pattern: buildkit/
+    client_name: BuildKit
+    vendor: Docker Inc
+    version_token: buildkit
+
+  - pattern: oras/
+    client_name: ORAS
+    vendor: CNCF
+    version_token: oras
+
+  - pattern: go-containerregistry/
+    client_name: go-containerregistry
+    vendor: Google
+    version_token: go-containerregistry
+
+  - pattern: containers/image
+    client_name: containers/image
+    vendor: containers project
+    version_token: containers/image
+
+  - pattern: Helm/
+    client_name: Helm
+    vendor: CNCF
+    version_token: Helm
+
+  # Bare Go HTTP client - the registry client lib default UA. Too generic to name on
+  # its own; only counts as a registry client on an OCI /v2/ path.
+  - pattern: Go-http-client/
+    client_name: Go registry client
+    vendor: Unknown
+    version_token: Go-http-client
+    requires_oci_path: true
+
+# Registry manifest / blob Accept media types (OCI + Docker distribution). Content
+# negotiation is behavioural truth: a real puller asks for these, a scraper does not.
+accept_media:
+  - application/vnd.docker.distribution.manifest.v2+json
+  - application/vnd.docker.distribution.manifest.list.v2+json
+  - application/vnd.docker.distribution.manifest.v1+json
+  - application/vnd.oci.image.manifest.v1+json
+  - application/vnd.oci.image.index.v1+json
+  - application/vnd.docker.image.rootfs.diff.tar.gzip
+  - application/vnd.oci.image.layer.v1.tar
+
+# Scoring knobs (strong human/good bias WITHOUT early-exit; detection still runs).
+scoring:
+  # Negative confidence delta biases the aggregate score toward low-threat. NOT an
+  # early exit (that would be a skip / bypass) - just a strong contribution.
+  corroborated_confidence_delta: -0.8
+  corroborated_weight: 2.5

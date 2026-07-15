@@ -138,6 +138,7 @@
     <ItemGroup>
         <EmbeddedResource Include="Definitions\Actions\*.yaml" />
         <EmbeddedResource Include="Definitions\BotPatterns\*.yaml" />
+        <EmbeddedResource Include="Definitions\RegistryClients\*.yaml" />
         <EmbeddedResource Include="Definitions\IdentityArchetypes\*.yaml" />
         <EmbeddedResource Include="Definitions\BrowserModes\*.yaml" />
         <EmbeddedResource Include="Definitions\VendorHomeHosts\*.yaml" />
