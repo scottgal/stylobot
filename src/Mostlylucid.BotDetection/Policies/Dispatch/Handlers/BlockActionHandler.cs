@@ -39,9 +39,12 @@ public sealed class BlockActionHandler : IPolicyActionHandler
         PolicyAction action,
         CancellationToken ct)
     {
-        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        // Default 403 Forbidden; a rule may opt into another status (e.g. 404 to deflect a
+        // config-file scan without confirming the path is real). Backward-compatible: existing
+        // block rules carry no Status and stay 403.
+        context.Response.StatusCode = (action as PolicyAction.Block)?.Status ?? StatusCodes.Status403Forbidden;
         // Closed-loop feedback gate: mark so the visitor's NEXT request
-        // doesn't get bot-boosted by stylobot's own 403 block response.
+        // doesn't get bot-boosted by stylobot's own block response.
         context.MarkResponseFromStyloBot();
         context.Response.Headers[PolicyHeader] = $"rule-block ({rule.Id})";
         context.Response.ContentType = "application/json";
