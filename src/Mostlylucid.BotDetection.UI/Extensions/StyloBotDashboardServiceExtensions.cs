@@ -341,7 +341,21 @@ public static class StyloBotDashboardServiceExtensions
         // commercial overlay registered before AddStyloBotDashboard wins.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IEffectivePolicyConfigOverlay,
             Mostlylucid.BotDetection.UI.Services.PassthroughEffectivePolicyConfigOverlay>();
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>();
+        // The composer hard-depends on IActionPolicyRegistry (BotTypeActionPolicies -> real
+        // ActionType, data-driven), which only AddBotDetection registers -- i.e. only on a
+        // LOCAL-detection host. A remote / thin-client dashboard (Stylobot.Ui rest mode, the
+        // commercial website factory) runs AddStyloBotDashboard WITHOUT AddBotDetection, so the
+        // registry is absent and an unconditional registration fails ValidateOnBuild.
+        //
+        // The config baseline is LOCAL config -- composing it on a thin client would show the
+        // client's empty options, not the gateway's. So register the composer ONLY where its real
+        // dependency exists. We do NOT fake IActionPolicyRegistry with a null/empty stand-in: an
+        // empty registry would silently render a wrong (blank / mis-coloured) effective policy --
+        // the null-object degradation class. Remote surfaces the gateway's baseline via the read
+        // path, never a locally-fabricated one; the config-baseline view component invocation is
+        // gated on this same registration (see _Policies.cshtml).
+        if (services.Any(sd => sd.ServiceType == typeof(Mostlylucid.BotDetection.Actions.IActionPolicyRegistry)))
+            services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>();
         // Editor debounce timings carried to the JS via data-* attributes on
         // the edit-row article. Defaults match the historical FOSS literals
         // (80ms parse, 500ms backtest); commercial widens these via
