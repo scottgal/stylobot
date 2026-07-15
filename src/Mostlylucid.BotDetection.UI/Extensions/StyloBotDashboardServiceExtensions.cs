@@ -204,6 +204,9 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton<DashboardContributionRegistry>();
 
         services.AddSignalR();
+        // AOT gateways (dynamic code disabled) cannot build SignalR's strongly-typed client
+        // proxy via Reflection.Emit; swap in the hand-written wrapper. No-op on JIT hosts.
+        services.AddAotSafeDashboardHubContext();
 
         // Memory cache - used by StyloBotDashboardMiddleware widget render cache (2s TTL per widget)
         services.AddMemoryCache();
@@ -988,6 +991,7 @@ public static class StyloBotDashboardServiceExtensions
 
         services.AddMemoryCache();
         services.AddSignalR();
+        services.AddAotSafeDashboardHubContext(); // AOT-safe typed-hub wrapper (no-op on JIT)
 
         // Ensure MVC/Razor services are available for view rendering (idempotent)
         services.AddControllersWithViews();
@@ -1074,6 +1078,7 @@ public static class StyloBotDashboardServiceExtensions
 
         // SignalR for broadcasting to connected dashboard clients
         services.AddSignalR();
+        services.AddAotSafeDashboardHubContext(); // AOT-safe typed-hub wrapper (no-op on JIT)
 
         // Event store: SQLite by default (persists across restarts).
         // PostgreSQL package overrides via RemoveAll + AddSingleton when configured.
