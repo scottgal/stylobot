@@ -336,7 +336,8 @@ var skipDependencyChecks = cmdArgs.Any(a =>
 // /api/v1/* REST endpoints (detect + the full dashboard read surface) so a remote
 // stylobot-ui can be pointed at this gateway. Without it the gateway is a pure
 // reverse-proxy + detection host with no operational endpoints beyond /health.
-// Auth is via X-SB-Api-Key (StyloBot:ApiKeys appsettings section).
+// Auth is via X-SB-Api-Key (BotDetection:ApiKeys appsettings section — the same section
+// InMemoryApiKeyStore binds from, so the fail-fast below guards the real key source).
 var enableApi = cmdArgs.Any(a =>
     a.Equals("--enable-api", StringComparison.OrdinalIgnoreCase));
 
@@ -696,12 +697,19 @@ try
         // ApiKeyAuthenticationHandler rejects every request - the API surface would be
         // mapped and unreachable, which is the worst combination (operator thinks it's
         // working until the first real call fails 401).
-        var apiKeysSection = builder.Configuration.GetSection("StyloBot:ApiKeys");
+        //
+        // Guard the SAME section InMemoryApiKeyStore binds from: BotDetectionOptions.ApiKeys,
+        // which AddBotDetection reads from "BotDetection:ApiKeys". A previous version checked
+        // "StyloBot:ApiKeys" -- a section the store never reads -- so a key configured there
+        // passed the fail-fast yet left the store empty, producing the exact 401-on-every-call
+        // state this guard exists to prevent.
+        var apiKeysSection = builder.Configuration.GetSection("BotDetection:ApiKeys");
         if (!apiKeysSection.Exists() || !apiKeysSection.GetChildren().Any())
         {
             Console.Error.WriteLine(
-                "FATAL: --enable-api requires at least one entry under StyloBot:ApiKeys " +
-                "in appsettings.json (or via env vars / user secrets). Configure a key and restart.");
+                "FATAL: --enable-api requires at least one entry under BotDetection:ApiKeys " +
+                "in appsettings.json (or via env vars / user secrets), e.g. " +
+                "BotDetection__ApiKeys__<keyId>__Key=<secret>. Configure a key and restart.");
             return 1;
         }
         builder.Services.AddStyloBotApi(opts => opts.EnableOpenApi = false);
