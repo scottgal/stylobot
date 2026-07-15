@@ -83,6 +83,22 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
             return ActionResult.Blocked(403, "Honeypot rate-limit");
         }
 
+        // Deflect mode: a fast, plain 404. Skip the jitter AND the simulation-pack engagement so the
+        // scanner sees an honest "not found" and de-prioritises the path, instead of a 200 fake that
+        // invites it to keep probing (the operator's "not just honeypot 200 which means they keep
+        // trying"). Detection already fired via the dedicated honeypot signal pathway -- we are only
+        // choosing the response shape here, never suppressing the verdict.
+        if (_options.CurrentValue.ResponseMode == HoneypotResponseMode.Deflect404)
+        {
+            var deflectPath = context.Request.Path.Value ?? "/";
+            await WriteGenericFakeResponseAsync(context, deflectPath, cancellationToken);
+            _logger.LogInformation(
+                "Honeypot deflect-404 served for {Path} ({Tier})",
+                deflectPath,
+                context.Items[HoneypotPathTagger.ItemKeyTier] ?? "unknown");
+            return ActionResult.Blocked(404, "Honeypot deflect (404)");
+        }
+
         // Apply randomised jitter delay BEFORE any response work so the
         // attacker's first observation is the timing curve. Without jitter
         // every probe gets the same delay -> obvious detection.
