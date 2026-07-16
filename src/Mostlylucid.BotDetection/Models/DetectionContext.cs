@@ -636,6 +636,14 @@ public static partial class SignalKeys
     /// <summary>String: Unified client signature (HMAC-SHA256). Written by SignatureContributor at Priority 1.</summary>
     public const string PrimarySignature = "signature.primary";
 
+    /// <summary>
+    ///     Marker: learning writes are suppressed for this request (bypass key with
+    ///     DisableLearningWrites, or impersonation). Every learning-write path must skip
+    ///     when present. Raised once by SignatureAtom (Priority 1) so downstream write
+    ///     atoms can read it via <c>sink.Detect(SignalKeys.LearningSuppressed)</c>.
+    /// </summary>
+    public const string LearningSuppressed = "learning.suppressed";
+
     /// <summary>MultiFactorSignatures: full per-factor signature set (IP+UA, IP+Plugin, etc.). Written by SignatureContributor.</summary>
     public const string SignatureMultifactor = "signature.multifactor";
 

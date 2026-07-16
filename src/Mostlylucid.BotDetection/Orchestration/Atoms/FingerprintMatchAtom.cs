@@ -162,9 +162,8 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
             if (confirmScore >= _options.Match.MergeThreshold)
             {
                 EmitConfirmedSignals(context, sink, sessionId, vector, l1Candidate, confirmScore, primarySig);
-                await _store.RecordObservationAsync(
-                    ResolveRequestScope(context), l1Candidate.FingerprintId, vector,
-                    ResolveObservedUaFamily(context, sink), ct).ConfigureAwait(false);
+                await RecordObservationIfLearningEnabledAsync(
+                    context, sink, l1Candidate.FingerprintId, vector, ct).ConfigureAwait(false);
                 EmitPostObservationSignals(sink, sessionId, l1Candidate.ObservationCount + 1, l1Candidate.CentroidMaturity);
                 // "wrote once and never again" fix: this clean-L1 hot path previously returned
                 // without ever re-composing the display name, so a fingerprint named with a
@@ -228,9 +227,8 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         if (existing is not null)
         {
             await _store.UpsertKeyAsync(primarySig, canonicalId, ct).ConfigureAwait(false);
-            await _store.RecordObservationAsync(
-                ResolveRequestScope(context), canonicalId, vector,
-                ResolveObservedUaFamily(context, sink), ct).ConfigureAwait(false);
+            await RecordObservationIfLearningEnabledAsync(
+                context, sink, canonicalId, vector, ct).ConfigureAwait(false);
             await AbsorbIntoBrowserModeAsync(context, sink, sessionId, canonicalId, vector, ct).ConfigureAwait(false);
             EmitConfirmedSignals(context, sink, sessionId, vector, existing, matchScore: 1.0, primarySig);
             await BumpAmbiguityAsync(sink, sessionId, canonicalId, isAmbiguous: false, ct).ConfigureAwait(false);
@@ -307,9 +305,8 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
             var isCorrection = l1Candidate is not null
                 && !string.Equals(l1Candidate.FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
             EmitConfirmedSignals(context, sink, sessionId, vector, best, bestScore, primarySig, isCorrection: isCorrection);
-            await _store.RecordObservationAsync(
-                ResolveRequestScope(context), best.FingerprintId, vector,
-                ResolveObservedUaFamily(context, sink), ct).ConfigureAwait(false);
+            await RecordObservationIfLearningEnabledAsync(
+                context, sink, best.FingerprintId, vector, ct).ConfigureAwait(false);
             EmitPostObservationSignals(sink, sessionId, best.ObservationCount + 1, best.CentroidMaturity);
             await AbsorbIntoBrowserModeAsync(context, sink, sessionId, best.FingerprintId, vector, ct).ConfigureAwait(false);
 
@@ -338,9 +335,8 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         if (best is not null && bestScore >= _options.Match.LooseThreshold)
         {
             EmitConfirmedSignals(context, sink, sessionId, vector, best, bestScore, primarySig, rotationCandidate: true);
-            await _store.RecordObservationAsync(
-                ResolveRequestScope(context), best.FingerprintId, vector,
-                ResolveObservedUaFamily(context, sink), ct).ConfigureAwait(false);
+            await RecordObservationIfLearningEnabledAsync(
+                context, sink, best.FingerprintId, vector, ct).ConfigureAwait(false);
             EmitPostObservationSignals(sink, sessionId, best.ObservationCount + 1, best.CentroidMaturity);
             await AbsorbIntoBrowserModeAsync(context, sink, sessionId, best.FingerprintId, vector, ct).ConfigureAwait(false);
             await BumpAmbiguityAsync(sink, sessionId, best.FingerprintId, isAmbiguous: true, ct).ConfigureAwait(false);
@@ -495,11 +491,40 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         sink.Raise($"{SignalKeys.IdentityFingerprintId}:{fallbackId}", sessionId);
     }
 
+    /// <summary>
+    ///     Records a per-request identity observation into the fingerprint
+    ///     observation cloud, UNLESS learning is suppressed for this request
+    ///     (bypass key with DisableLearningWrites, or impersonation). The match
+    ///     itself (Pass 0/1/2) and every scoring signal still run; only this
+    ///     write into the learned observation cloud is skipped so debug /
+    ///     monitoring / impersonated traffic can't poison the centroid.
+    /// </summary>
+    private async Task RecordObservationIfLearningEnabledAsync(
+        HttpContext context, SignalSink sink,
+        string fingerprintId, float[] vector, CancellationToken ct)
+    {
+        if (sink.Detect(SignalKeys.LearningSuppressed)) return;
+        await _store.RecordObservationAsync(
+            ResolveRequestScope(context), fingerprintId, vector,
+            ResolveObservedUaFamily(context, sink), ct).ConfigureAwait(false);
+    }
+
     private async Task AbsorbIntoBrowserModeAsync(
         HttpContext context, SignalSink sink, string sessionId,
         string fingerprintId, float[] vector, CancellationToken ct)
     {
         if (!_modeAbsorbEnabled || string.IsNullOrEmpty(fingerprintId)) return;
+
+        // Learning-suppressed requests score against the resolved mode but must
+        // not write this request into the browser-mode observation cloud.
+        if (sink.Detect(SignalKeys.LearningSuppressed))
+        {
+            // Still surface the resolved mode id so downstream scoring sees it;
+            // just skip RecordModeObservationAsync (the learning write).
+            var suppressedModeId = ResolveBrowserModeId(context, sink);
+            sink.Raise($"{SignalKeys.IdentityBrowserMode}:{suppressedModeId}", sessionId);
+            return;
+        }
 
         try
         {

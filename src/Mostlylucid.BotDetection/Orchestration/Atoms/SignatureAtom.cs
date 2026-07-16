@@ -101,6 +101,15 @@ public sealed class SignatureAtom : DetectorAtomBase
                 sink.Raise($"signature.impersonated:{impersonationTarget}", sessionId);
             }
 
+            // Learning-suppression marker (bypass key with DisableLearningWrites, or
+            // impersonation). Raised once here at Priority 1 -- before any Priority-3+
+            // write atom runs -- so downstream learning-write paths can skip the write
+            // via sink.Detect(SignalKeys.LearningSuppressed). Detection still runs; only
+            // the persist/learn side is suppressed so debug/monitoring traffic can't
+            // poison the model.
+            if (context.IsLearningSuppressedByApiKey())
+                sink.Raise(SignalKeys.LearningSuppressed, sessionId);
+
             // Rich object -> HttpContext.Items (request-scoped, auto-evicted).
             context.Items[MultifactorKey] = signatures;
 

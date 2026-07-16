@@ -139,10 +139,20 @@ public sealed class SessionVectorAtom : DetectorAtomBase
                 PolicyRevision: policyRevision);
 
             var fpContext = BuildFingerprintContext(sink);
-            var completedSession = await _sessionStore.RecordRequestAsync(signature, sessionRequest, fpContext).ConfigureAwait(false);
+
+            // Learning-suppressed requests (bypass key with DisableLearningWrites, or
+            // impersonation) score against existing session history but must NOT record
+            // this request's Markov transition into the store. RecordRequestAsync +
+            // SetHeaderHashes are learning writes -- skip them; the reads below
+            // (GetCurrentSession / GetHistory) still drive scoring off prior knowledge.
+            var learningSuppressed = sink.Detect(SignalKeys.LearningSuppressed);
+
+            var completedSession = learningSuppressed
+                ? null
+                : await _sessionStore.RecordRequestAsync(signature, sessionRequest, fpContext).ConfigureAwait(false);
             var currentSession = _sessionStore.GetCurrentSession(signature);
 
-            if (currentSession is { Count: 1 })
+            if (!learningSuppressed && currentSession is { Count: 1 })
             {
                 var headerHashesJson = sink.ReadHint(SignalKeys.HeaderHashes);
                 if (!string.IsNullOrEmpty(headerHashesJson))
