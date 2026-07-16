@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>StyloBot apt repository</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem">
+<h1>StyloBot apt repository</h1>
+<p>Debian / Ubuntu install:</p>
+<pre style="background:#f4f4f5;padding:1rem;border-radius:8px;overflow:auto">curl -fsSL https://pages.stylo.bot/setup.deb.sh | sudo sh
+sudo apt-get update &amp;&amp; sudo apt-get install stylobot</pre>
+<p>The GPG-signed repository (<code>dists/</code>, <code>pool/</code>, <code>stylobot.gpg</code>,
+<code>setup.deb.sh</code>) is published by CI (<em>Publish apt repo</em> workflow) once the
+release signing key is configured.</p>
+</body></html>
