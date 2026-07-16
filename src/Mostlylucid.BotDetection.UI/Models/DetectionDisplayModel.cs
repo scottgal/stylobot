@@ -33,6 +33,16 @@ public sealed record DetectionDisplayModel
     /// <summary>Processing time in milliseconds</summary>
     public double ProcessingTimeMs { get; init; }
 
+    /// <summary>
+    ///     True when the model carries a REAL verdict (from the in-flight detection, the
+    ///     visitor's fingerprint, or forwarded headers) vs the unhydrated init-default state
+    ///     (BotProbability=0 / ProcessingTimeMs=0 / RiskBand="Unknown"). The view shows the
+    ///     bot-probability % when this is true and "-" when false -- so a real verdict is never
+    ///     rendered as "-" just because per-request timing (ProcessingTimeMs) wasn't available
+    ///     on the viewer/YARP path. The component owns this decision so it is unit-testable.
+    /// </summary>
+    public bool HasVerdict { get; init; }
+
     /// <summary>Top reasons for the detection (up to 5)</summary>
     public List<string> TopReasons { get; set; } = new();
 

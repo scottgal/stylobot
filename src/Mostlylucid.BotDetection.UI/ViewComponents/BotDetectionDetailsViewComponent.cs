@@ -119,6 +119,10 @@ public class BotDetectionDetailsViewComponent : ViewComponent
                             Confidence = fp.InferredTypeConfidence,
                             IsBot = fp.CachedBotProbability >= 0.5,
                             RiskBand = verdict.RiskBand.ToString(),
+                            // Signal that a REAL verdict is present so the view renders the % (not "-").
+                            // Without this the fp headline stays 0-timing -> the old ProcessingTimeMs>0
+                            // gate hid the number (the 408c48ed display regression).
+                            HasVerdict = true,
                         };
                     }
                 }
@@ -129,6 +133,11 @@ public class BotDetectionDetailsViewComponent : ViewComponent
                 // calibrating. Logging happens inside the reader.
             }
         }
+
+        // The view renders the bot-probability % iff the model has a real verdict. In-flight
+        // detection sets ProcessingTimeMs>0; the fp headline path sets HasVerdict above. Fold
+        // the in-flight case in so the view can gate on HasVerdict alone.
+        model = model with { HasVerdict = model.HasVerdict || model.ProcessingTimeMs > 0 };
 
         return View(viewName, model);
     }

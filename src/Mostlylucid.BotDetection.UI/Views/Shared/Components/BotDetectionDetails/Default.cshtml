@@ -20,10 +20,12 @@
     };
     var probPct  = (int)Math.Round(Model.BotProbability * 100);
     // No-plausible-defaults rule: render the percentage ONLY when there is real
-    // detection data behind it. A live detection always has non-zero processing
-    // time; a model still holding init-defaults (BotProbability=0, ProcessingTimeMs=0)
-    // is unhydrated -- show "--" instead of pretending the bot probability is 0%.
-    var hasLiveData = Model.ProcessingTimeMs > 0;
+    // detection data behind it. HasVerdict is set by the component whenever a real verdict is
+    // present (in-flight detection OR the visitor's fingerprint) vs the unhydrated init-default
+    // state -- so a fingerprint-sourced verdict on the viewer/YARP path (ProcessingTimeMs=0)
+    // still shows its %, and only a truly unhydrated model shows "-". The gate lives on the
+    // model so it is unit-testable (the 408c48ed regression was a view-only ProcessingTimeMs gate).
+    var hasLiveData = Model.HasVerdict;
     var verdictClass = Model.IsBot ? "is-bot" : "is-human";
     var verdictLabel = Model.IsBot ? "Bot" : "Human";
     var accent       = Model.IsBot ? "#ef4444" : "#22c55e";

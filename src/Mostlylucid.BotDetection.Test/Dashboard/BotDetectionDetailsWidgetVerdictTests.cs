@@ -91,6 +91,10 @@ public class BotDetectionDetailsWidgetVerdictTests
 
         Assert.Equal(0.9, model.BotProbability); // was 0% before the fix
         Assert.True(model.IsBot);
+        // DISPLAY GATE: the view renders the % iff HasVerdict. The fp path leaves ProcessingTimeMs=0,
+        // so gating on ProcessingTimeMs (the 408c48ed regression) hid the number. HasVerdict must be
+        // true here so the widget shows "90%", not "-".
+        Assert.True(model.HasVerdict);
     }
 
     [Fact]
@@ -111,5 +115,22 @@ public class BotDetectionDetailsWidgetVerdictTests
 
         Assert.Equal(1.0, model.BotProbability);
         Assert.Equal("Low", model.RiskBand);
+        Assert.True(model.HasVerdict); // the % renders
+    }
+
+    [Fact]
+    public async Task NoFingerprint_and_no_inflight_verdict_leaves_HasVerdict_false_so_view_shows_dash()
+    {
+        // Genuinely unhydrated: no fingerprint id, no in-flight verdict. HasVerdict must stay false
+        // so the view shows "-" (not a fabricated 0%). This is the ONLY state that should show "-".
+        var reader = new Mock<IFingerprintReader>(MockBehavior.Loose);
+        var vc = NewComponent(reader.Object);
+        var ctx = new DefaultHttpContext(); // no IdentityFingerprintId, no evidence
+        SetHttpContext(vc, ctx);
+
+        var model = ModelOf(await vc.InvokeAsync());
+
+        Assert.False(model.HasVerdict);
+        Assert.Equal(0, model.ProcessingTimeMs);
     }
 }
