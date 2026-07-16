@@ -170,12 +170,14 @@ public sealed class SessionPersistenceAtom : IDisposable
 
         try
         {
-            var riskBand = DeriveRiskBand(shift.Aggregate.MeanBotProbability).ToString();
+            // No band is computed or passed: RecordVerdictAsync ignores the riskBand arg
+            // (RiskBand is DERIVED at read from the probability via FingerprintRiskProjection,
+            // verified-aware). This write only converges the identity probability.
             await _fingerprintStore
                 .RecordVerdictAsync(
                     shift.FingerprintId,
                     shift.Aggregate.MeanBotProbability,
-                    riskBand,
+                    riskBand: null,
                     ct)
                 .ConfigureAwait(false);
 
@@ -191,23 +193,6 @@ public sealed class SessionPersistenceAtom : IDisposable
         }
     }
 
-    /// <summary>
-    ///     Derives the risk band consistently with the detection
-    ///     orchestrator's mapping so cached verdicts written by this atom
-    ///     do not diverge from what the request path would compute for the
-    ///     same probability. Kept private + duplicated on purpose -- this
-    ///     write is off the hot path and a shared helper import would be
-    ///     coupling for coupling's sake.
-    /// </summary>
-    private static RiskBand DeriveRiskBand(double probability) => probability switch
-    {
-        >= 0.95 => RiskBand.VeryHigh,
-        >= 0.80 => RiskBand.High,
-        >= 0.60 => RiskBand.Medium,
-        >= 0.40 => RiskBand.Elevated,
-        >= 0.20 => RiskBand.Low,
-        _ => RiskBand.VeryLow,
-    };
 
     public void Dispose()
     {

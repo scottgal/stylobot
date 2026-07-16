@@ -109,7 +109,7 @@ public class SessionPersistenceAtomTests
     }
 
     [Fact]
-    public async Task Writes_derived_risk_band_alongside_probability()
+    public async Task Writes_probability_without_a_band_band_is_derived_at_read()
     {
         var store = new CapturingFingerprintStore();
         using var atom = NewSessionAtom();
@@ -118,8 +118,11 @@ public class SessionPersistenceAtomTests
         Raise(atom, NewShift(meanBotProbability: 0.96));
         await WaitForBackground(persistence);
 
-        store.Writes.Should().ContainSingle().Which.RiskBand.Should().Be(RiskBand.VeryHigh.ToString(),
-            "p >= 0.95 maps to VeryHigh -- matches the orchestrator's mapping");
+        var write = store.Writes.Should().ContainSingle().Which;
+        write.BotProbability.Should().Be(0.96);
+        // No band is persisted: RiskBand is DERIVED at read (verified-aware) from the
+        // probability via FingerprintRiskProjection. The atom writes only the probability.
+        write.RiskBand.Should().BeNull();
     }
 
     // ── Store absent ─────────────────────────────────────────────────
