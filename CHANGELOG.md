@@ -5,6 +5,23 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Verifier "fail-trips-bot" class — a failed or missing verification is no longer a spoof.** A verdict could be flipped to *spoofed*/bot by a verification that *couldn't run* (no reference loaded, or a transient failure) rather than a genuine refutation — "verifying against none." Three instances guarded: `VerifiedBotAtom` no longer brands `VerificationMethod = "none"` (no published IP ranges loaded **and** no rDNS channel) as `Spoofed-*`; `VerifyFcrDnsAsync` returns a tri-state so a transient DNS `SocketException`/timeout is treated as "couldn't verify" (retried, un-cached) instead of a false spoof, while a deterministic no-PTR/mismatch stays a refutation; and `FediverseDomainAtom` treats a failed NodeInfo lookup as unverified (neutral) rather than a `+0.3` "likely spoofed" push. A missing expected signal impacts *confidence*, it never asserts a spoof. A codebase-wide hunt for the class found no other instances.
+- **Parasitic verdict store — Top Bots and the signature detail no longer diverge.** `SignatureAggregateCache` kept its own per-row copy of the verdict scalars, so any out-of-band update (AI opinion / drift) left Top Bots stale — the same signature could read `0.9 / VeryHigh / Unknown` on Top Bots but `0% / VeryLow / Human` on the detail page. The aggregate now reads the verdict *through* the fingerprint LFU at projection (the single source), exactly as it already did for the display name; `UpdateCachedVerdictAsync` is LFU-first (no DB-write-then-evict); and the catalogue bot-type is cached on the fingerprint so dashboard Internal-exclusion and the AI/search/tools filters resolve through that same source.
+- **SignalR hub path.** The marketing live-preview SignalR negotiate 404'd because three FOSS hub-path defaults (`/dashboard/hub`, `/_stylobot/hub`) disagreed with the configured `HubPath`; all now default to the mapped `/stylobot/hub`, and a `STYLOBOT_HUB_PATH` override still wins.
+
+### Added
+
+- **RegistryClient archetype (increment 1).** Container-registry / OCI Distribution Spec clients (docker, containerd, podman, skopeo, buildkit, oras, Helm) are recognized by UA family *corroborated* by the registry v2 protocol (a `/v2/` path shape or a registry manifest `Accept` media type) and scored low-threat, so a customer's `docker pull` through the gateway is not tarpitted. The fix is in **detection** — a strong negative-delta contribution, never an early-exit or `/v2/*` allow bypass — so a spoofed `docker/*` UA that is not doing the protocol is still scored normally.
+
+### CI / packaging
+
+- **winget and Chocolatey now auto-publish.** Both moved from the `release:` trigger (which never fired for `GITHUB_TOKEN`-created releases) to `workflow_run` after the binaries build, so a tagged release publishes without a manual dispatch.
+- **Self-serve SQLite-vs-Postgres soak runner** under `scripts/soak/` wraps the k6 plateau so the persistence-backend head-to-head can be run on demand.
+
 ## [8.1.0] - 2026-07-13
 
 8.1 is the atom-orchestrator consolidation and durability-hardening release. Where v8 unified the classifier's *voice*, 8.1 rebuilds the *engine*: the detectors are now first-class `IDetectorAtom`s driven by a single stateless orchestrator (no more per-request re-wiring), the session and identity layers are bounded at the write so high-cardinality floods can no longer balloon memory, and every durable store gained a coalesced write-behind drain plus a commercial PostgreSQL sibling. New detection surfaces (Web Bot Auth, health-endpoint awareness, UA-rotation correlation) land on that foundation.
