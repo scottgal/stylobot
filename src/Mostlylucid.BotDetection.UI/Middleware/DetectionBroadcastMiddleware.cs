@@ -301,6 +301,14 @@ public partial class DetectionBroadcastMiddleware
             return;
         }
 
+        // Record the FINAL response status. _next has now run, so context.Response.StatusCode
+        // is the status the client actually received -- a honeypot Deflect404 (404), a 400, a
+        // throttle 429, etc. A detection built on the pre-_next upstream/gateway path (evidence
+        // already in context.Items before _next) captured the pre-_next default, so every
+        // honeypot 404 / bad-request 400 was persisted as 200 and the dashboard status filter +
+        // honeypot view went empty. Overwrite here so the recorded status_code is the real one.
+        detection = detection with { StatusCode = context.Response.StatusCode };
+
         // Capture everything we need by value BEFORE spawning the task; context may
         // be disposed before the task runs.
         var detectionCapture = detection;

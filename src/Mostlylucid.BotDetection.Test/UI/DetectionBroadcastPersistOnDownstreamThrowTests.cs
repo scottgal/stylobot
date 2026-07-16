@@ -92,6 +92,39 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
     }
 
     [Fact]
+    public async Task Records_the_downstream_final_status_not_the_pre_next_default()
+    {
+        // Honeypot shape: detection evidence is present BEFORE _next (the gateway/upstream
+        // path pre-populates context.Items), and the DOWNSTREAM returns 404 (Deflect404
+        // honeypot mode) or 400. The recorded status_code MUST be the downstream FINAL
+        // status so the dashboard's status filter (400/4xx) and honeypot view show the hit --
+        // not whatever the status was before _next ran. This is the "record status properly"
+        // contract, and the exact class that made the 400 filter + honeypot view go empty.
+        var eventStore = new CapturingEventStore();
+
+        RequestDelegate next = c =>
+        {
+            c.Response.StatusCode = 404; // honeypot deflect / not-found
+            return Task.CompletedTask;
+        };
+
+        var logs = new List<string>();
+        var middleware = new DetectionBroadcastMiddleware(next, new CapturingLogger(logs));
+
+        var ctx = NewHttpContext();
+        ctx.Response.StatusCode = 200; // pre-_next default, before the downstream sets 404
+        SeedDetection(ctx);
+
+        await InvokeAsync(middleware, ctx, eventStore);
+
+        await eventStore.WaitForDetectionsAsync(1);
+        eventStore.Detections.Should().HaveCount(1, "Logs: " + string.Join(" | ", logs));
+        eventStore.Detections[0].StatusCode.Should().Be(404,
+            "the recorded status must be the downstream FINAL status (honeypot 404), not the " +
+            "pre-_next default (200) -- otherwise the dashboard 400/status filter + honeypot view go empty");
+    }
+
+    [Fact]
     public async Task AddDetectionAsync_is_called_on_the_happy_path_no_downstream_throw()
     {
         // Baseline sanity: the happy path must keep persisting. Guards against
