@@ -11,11 +11,10 @@
          flagged stylo.bot as unresolvable; pointing at the GH repo for now. -->
     <projectUrl>https://github.com/scottgal/stylobot</projectUrl>
     <iconUrl>https://raw.githubusercontent.com/scottgal/stylobot/main/Mostlylucid.BotDetection/icon.png</iconUrl>
-    <projectSourceUrl>https://github.com/scottgal/stylobot</projectSourceUrl>
     <packageSourceUrl>https://github.com/scottgal/stylobot/tree/main/scripts/chocolatey</packageSourceUrl>
     <docsUrl>https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection.Console/README.md</docsUrl>
     <bugTrackerUrl>https://github.com/scottgal/stylobot/issues</bugTrackerUrl>
-    <licenseUrl>https://unlicense.org</licenseUrl>
+    <licenseUrl>https://github.com/scottgal/stylobot/blob/main/LICENSE</licenseUrl>
     <releaseNotes>https://github.com/scottgal/stylobot/releases</releaseNotes>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <summary>Self-hosted bot detection with 31 detectors, session vectors, and zero PII. Free forever.</summary>
