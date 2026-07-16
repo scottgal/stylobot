@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Ephemeral;
@@ -112,7 +113,11 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // path) and persists via the shared name drainer -- NO per-request DB connection.
             // Dict-only + no-op when identity is disabled or the fingerprint id is absent.
             var identityFingerprintId = _signalSink.ReadHint(SignalKeys.IdentityFingerprintId);
-            if (!string.IsNullOrEmpty(identityFingerprintId))
+            // Learning-suppressed requests (bypass key with DisableLearningWrites, or
+            // impersonation) score normally but must NOT write back into the identity
+            // headline. RecordVerdictWriteBehind is a learning write -- skip it. Detection
+            // and the response header trail above are unaffected.
+            if (!string.IsNullOrEmpty(identityFingerprintId) && !context.IsLearningSuppressedByApiKey())
                 // PrimaryBotType is the CATALOGUE type (BotType enum: Internal / SearchEngine /
                 // AiBot / Tool / GoodBot / ...). .ToString() yields exactly the vocabulary the
                 // dashboard's Internal-exclusion + ai/search/tools filters match on, cached

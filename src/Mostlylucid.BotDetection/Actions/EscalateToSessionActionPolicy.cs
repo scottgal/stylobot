@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Sessions;
@@ -75,6 +76,15 @@ public sealed class EscalateToSessionActionPolicy : IActionPolicy
         if (evidence.BotProbability < _options.MinBotProbability)
         {
             return ActionResult.Allowed("Escalation skipped: below threshold");
+        }
+
+        // Learning-suppressed requests (bypass key with DisableLearningWrites, or
+        // impersonation) still score, but the session-sample upsert below is a learning
+        // write that feeds fingerprint-shift detection -- skip it so debug/monitoring
+        // traffic can't poison the session model.
+        if (context.IsLearningSuppressedByApiKey())
+        {
+            return ActionResult.Allowed("Escalation skipped: learning suppressed");
         }
 
         var fingerprintId = ResolveFingerprintId(context, evidence);
