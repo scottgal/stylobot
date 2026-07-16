@@ -1,0 +1,15 @@
+@*
+    Default-empty auth slot for the shared sticky navbar (_StylobotNavbar.cshtml).
+
+    Renders NOTHING on the standalone FOSS dashboard: that surface has no auth controls
+    in the navbar, and this default guarantees Html.PartialAsync("_NavbarAuthSlot") never
+    throws when no surface-specific override exists.
+
+    Surfaces that DO have auth (the marketing site, the commercial dashboard) ship their
+    own Views/Shared/_NavbarAuthSlot.cshtml; Razor's view-location resolution prefers the
+    local copy over this one, so their sign-in / account-menu / edit-mode controls render
+    INSIDE the navbar's right-actions group (next to GitHub + the theme picker) rather than
+    as a separate full-width strip below the sticky header.
+
+    Keep this file empty. Do NOT add auth logic here — this is the FOSS no-op default.
+*@
