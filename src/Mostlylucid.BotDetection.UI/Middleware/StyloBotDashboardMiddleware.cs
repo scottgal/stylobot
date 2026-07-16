@@ -6207,10 +6207,10 @@ public class StyloBotDashboardMiddleware
             if (aggCache is not null && aggCache.TryGet(decodedSignature, out var agg) && agg is not null)
             {
                 // BotName no longer lives on the aggregate -- pull from the
-                // resolved-name dict (store-gated) instead. BotType still
-                // tracks the catalogue identity bucket on the aggregate.
+                // resolved-name dict (store-gated). BotType is likewise read through
+                // the fingerprint LFU via the resolved-verdict dict (single source).
                 inferBotName = aggCache.GetResolvedName(decodedSignature);
-                inferBotType = agg.BotType;
+                inferBotType = aggCache.GetResolvedVerdict(decodedSignature)?.BotType;
                 inferFirstSeen = agg.FirstSeen;
                 inferLastSeen = agg.LastSeen;
             }
@@ -6291,29 +6291,16 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     Map a <see cref="SignatureAggregate"/> with no bound fingerprint to the
-    ///     archetype whose label best fits its known bot-type signal plus the
-    ///     resolved display name pulled from <see cref="SignatureAggregateCache.GetResolvedName"/>.
-    ///     Prefer exact name match (e.g. "bingbot" → "bingbot" archetype), fall
-    ///     back to bot-type kind match (Scraper/Crawler/Tool/User), fall back to
-    ///     the human-baseline archetype. Used by
-    ///     <see cref="ResolveFingerprintShapeAsync"/>'s defensive fallback so
-    ///     signatures without a fingerprint_keys row still render an inferred
-    ///     polygon rather than the home-card-only "calibrating" placeholder.
-    /// </summary>
-    private static IdentityArchetype? FindInferredArchetype(
-        IdentityArchetypeRegistry registry,
-        SignatureAggregate aggregate,
-        string? resolvedName)
-        => FindInferredArchetypeFor(registry, resolvedName, aggregate.BotType);
-
-    /// <summary>
-    ///     Field-driven sibling of <see cref="FindInferredArchetype"/>. Drives
-    ///     archetype inference directly from the bot-name / bot-type signal
-    ///     without needing a full <see cref="SignatureAggregate"/>; lets the
-    ///     remote-mode signature-detail page resolve a polygon from the
-    ///     latest <see cref="DashboardDetectionEvent"/> on viewer hosts that
-    ///     have no aggregate cache.
+    ///     Drives archetype inference directly from the bot-name / bot-type signal.
+    ///     Prefer exact name match (e.g. "bingbot" → "bingbot" archetype), fall back to
+    ///     bot-type kind match (Scraper/Crawler/Tool/User), fall back to the
+    ///     human-baseline archetype. Used by <see cref="ResolveFingerprintShapeAsync"/>'s
+    ///     defensive fallback so signatures without a fingerprint_keys row still render
+    ///     an inferred polygon rather than the home-card-only "calibrating" placeholder.
+    ///     Callers supply the bot type read through the fingerprint LFU
+    ///     (<see cref="SignatureAggregateCache.GetResolvedVerdict"/>) or from the latest
+    ///     <see cref="DashboardDetectionEvent"/> on remote-mode viewer hosts that have no
+    ///     aggregate cache.
     /// </summary>
     private static IdentityArchetype? FindInferredArchetypeFor(
         IdentityArchetypeRegistry registry, string? botName, string? botType)

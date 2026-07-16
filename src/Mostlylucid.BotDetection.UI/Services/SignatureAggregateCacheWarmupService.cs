@@ -99,6 +99,18 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
                             _logger.LogInformation(
                                 "Pulled {Count} resolved names from IFingerprintStore for warmed cache entries",
                                 names.Count(kv => !string.IsNullOrEmpty(kv.Value)));
+
+                            // Same read-through for the score/verdict scalars: the
+                            // fingerprint LFU is the single source for probability /
+                            // risk band / bot type / verdict, read through here exactly
+                            // like the names above so warmed rows show the fresh value
+                            // rather than a stale per-detection copy.
+                            var verdicts = await _fingerprintStore.GetResolvedVerdictsBySignaturesAsync(
+                                sigs, stoppingToken);
+                            _cache.ApplyResolvedVerdicts(verdicts);
+                            _logger.LogInformation(
+                                "Pulled {Count} resolved verdicts from IFingerprintStore for warmed cache entries",
+                                verdicts.Count);
                         }
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }

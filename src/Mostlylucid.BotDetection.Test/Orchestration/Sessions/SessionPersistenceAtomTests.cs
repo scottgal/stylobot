@@ -175,7 +175,8 @@ public class SessionPersistenceAtomTests
         }
 
         Task IFingerprintStore.RecordVerdictAsync(
-            string fingerprintId, double botProbability, string? riskBand, CancellationToken ct)
+            string fingerprintId, double botProbability, string? riskBand, CancellationToken ct,
+            string? botType)
         {
             lock (_writes)
                 _writes.Add(new RecordedWrite(fingerprintId, botProbability, riskBand));

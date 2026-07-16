@@ -68,6 +68,14 @@ internal static class IdentitySchema
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN trust_observations INTEGER NOT NULL DEFAULT 0", ct);
 
+        // Cached CATALOGUE bot type. Written alongside cached_bot_probability on the
+        // verdict write path so the dashboard's Internal-exclusion + ai/search/tools
+        // filters read the real catalogue vocabulary (Internal / SearchEngine / AiBot
+        // / Tool / GoodBot / ...) through the LFU, not the inferred_client_type
+        // identity axis. NULL on legacy rows and until the first verdict write lands.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN cached_bot_type TEXT", ct);
+
         // Observation-time UA family. Persisted alongside the vector so the absorption
         // path can pass it to the archetype matcher's UA-family gate; the 2-dim LSH
         // hash baked into the vector is too low-resolution to differentiate hundreds

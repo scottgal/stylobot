@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -39,6 +41,10 @@ public class SignatureAggregateCacheCaseInsensitiveCollapseTests
 
         cache.UpdateFromDetection(MakeDetection("sig-g", "Googlebot", DateTime.UtcNow.AddSeconds(-30)));
         cache.UpdateFromDetection(MakeDetection("sig-b", "bingbot",   DateTime.UtcNow));
+        // is-bot + bot type are read through the fingerprint LFU (single source);
+        // seed the resolved verdicts so the "bots" filter sees both rows as bots.
+        SeedBotVerdict(cache, "sig-g");
+        SeedBotVerdict(cache, "sig-b");
 
         var (items, totalCount, _, _) =
             cache.GetFiltered("bots", "lastSeen", "desc", page: 1, pageSize: 50);
@@ -61,4 +67,18 @@ public class SignatureAggregateCacheCaseInsensitiveCollapseTests
         Method = "GET",
         Path = "/",
     };
+
+    private static void SeedBotVerdict(SignatureAggregateCache cache, string sig)
+        => cache.ApplyResolvedVerdicts(new Dictionary<string, ResolvedVerdict>
+        {
+            [sig] = new ResolvedVerdict(
+                BotProbability: 0.95,
+                RiskBand: "High",
+                BotType: "SearchEngine",
+                Confidence: 0.9,
+                ThreatScore: null,
+                ThreatBand: null,
+                IsBot: true,
+                IsVerifiedBot: false),
+        });
 }

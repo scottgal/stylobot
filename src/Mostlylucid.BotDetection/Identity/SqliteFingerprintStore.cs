@@ -137,7 +137,7 @@ public class SqliteFingerprintStore : IFingerprintStore
     // caller thread; only this durability write rides the shared name drainer, so per-request
     // verdict recording never opens a connection on the request path.
     private sealed record VerdictWrite(
-        string FingerprintId, double Probability, string? RiskBand, DateTime At)
+        string FingerprintId, double Probability, string? RiskBand, string? BotType, DateTime At)
         : NameWrite(FingerprintId, At);
 
     private const int NameWriteQueueCapacity = 4096;
@@ -472,7 +472,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    llm_name, llm_evaluated_at, llm_description,
                    given_name, given_name_updated_at, given_name_operator_id,
                    root_centroid, root_centroid_at, root_source,
-                   claim_status, verification_method, verified_at, trust_observations
+                   claim_status, verification_method, verified_at, trust_observations,
+                   cached_bot_type
               FROM fingerprints WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
@@ -509,7 +510,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                     llm_name, llm_evaluated_at, llm_description,
                     given_name, given_name_updated_at, given_name_operator_id,
                     root_centroid, root_centroid_at, root_source,
-                    claim_status, verification_method, verified_at, trust_observations
+                    claim_status, verification_method, verified_at, trust_observations,
+                    cached_bot_type
                 ) VALUES (
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
@@ -520,7 +522,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                     @llm_name, @llm_evaluated_at, @llm_description,
                     @given_name, @given_name_updated, @given_name_operator,
                     @root_centroid, @root_at, @root_source,
-                    @claim_status, @verification_method, @verified_at, @trust_observations
+                    @claim_status, @verification_method, @verified_at, @trust_observations,
+                    @cached_bot_type
                 )
                 """;
             cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
@@ -547,6 +550,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                 fp.CachedScoreUpdatedAt is null
                     ? DBNull.Value
                     : DeriveConsistentBand(fp.CachedBotProbability, fp.InferredTypeConfidence));
+            cmd.Parameters.AddWithValue("@cached_bot_type", (object?)fp.CachedBotType ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@cached_updated",
                 (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@ambiguity", fp.AmbiguityPersistence);
@@ -926,11 +930,14 @@ public class SqliteFingerprintStore : IFingerprintStore
                     UPDATE fingerprints
                        SET cached_bot_probability  = @prob,
                            cached_risk_band        = @band,
+                           cached_bot_type         = COALESCE(@bottype, cached_bot_type),
                            cached_score_updated_at = @ts
                      WHERE fingerprint_id = @id
                     """;
                 cmd.Parameters.AddWithValue("@prob", verdict.Probability);
                 cmd.Parameters.AddWithValue("@band", (object?)verdict.RiskBand ?? DBNull.Value);
+                // COALESCE keeps a prior catalogue type when this write carries none.
+                cmd.Parameters.AddWithValue("@bottype", (object?)verdict.BotType ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ts", verdict.At.ToString("O"));
                 cmd.Parameters.AddWithValue("@id", verdict.FingerprintId);
                 await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
@@ -1614,7 +1621,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    llm_name, llm_evaluated_at, llm_description,
                    given_name, given_name_updated_at, given_name_operator_id,
                    root_centroid, root_centroid_at, root_source,
-                   claim_status, verification_method, verified_at, trust_observations
+                   claim_status, verification_method, verified_at, trust_observations,
+                   cached_bot_type
               FROM fingerprints
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -1673,7 +1681,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    llm_name, llm_evaluated_at, llm_description,
                    given_name, given_name_updated_at, given_name_operator_id,
                    root_centroid, root_centroid_at, root_source,
-                   claim_status, verification_method, verified_at, trust_observations
+                   claim_status, verification_method, verified_at, trust_observations,
+                   cached_bot_type
               FROM fingerprints
              WHERE observation_count > 0
                AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
@@ -1740,42 +1749,37 @@ public class SqliteFingerprintStore : IFingerprintStore
     public async Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default)
     {
-        // Confidence for the band derivation comes from the existing fingerprint
-        // (dict first, then DB). Absent (brand-new / unknown) → 0.0, the neutral
-        // low-confidence case BucketRisk already handles.
-        double confidence = 0.0;
-        if (_fingerprintById.TryGetValue(fingerprintId, out var existing))
-            confidence = existing.InferredTypeConfidence;
-        else
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+
+        // LFU-FIRST: the in-memory fingerprint dict is the live source of truth. Load it
+        // (cold-load if not resident), update it IN PLACE, then enqueue the durability
+        // write on the same drainer the hot path uses. NEVER write the DB and then evict
+        // -- that leaves every OTHER live reader (the dashboard signature-aggregate LFU)
+        // serving the pre-write score, producing the top-bots/detail divergence. Mirrors
+        // RecordVerdictWriteBehind; the only difference is the operator/AI verdict is
+        // authoritative so the probability is SET directly, not EWMA-blended.
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var existing))
         {
-            var loaded = await GetFingerprintAsync(fingerprintId, ct);
-            if (loaded is not null) confidence = loaded.InferredTypeConfidence;
+            existing = await GetFingerprintAsync(fingerprintId, ct);
+            if (existing is null) return;
         }
 
-        var consistentBand = DeriveConsistentBand(botProbability, confidence);
+        // Band is DERIVED from the probability (never the caller's free-text label) so a
+        // prob/band disagreement can't be introduced.
+        var consistentBand = DeriveConsistentBand(botProbability, existing.InferredTypeConfidence);
+        var now = DateTime.UtcNow;
 
-        await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE fingerprints
-               SET cached_bot_probability  = @prob,
-                   cached_risk_band        = @band,
-                   cached_score_updated_at = @ts
-             WHERE fingerprint_id = @id
-            """;
-        cmd.Parameters.AddWithValue("@prob", botProbability);
-        cmd.Parameters.AddWithValue("@band", consistentBand);
-        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("@id", fingerprintId);
-        await cmd.ExecuteNonQueryAsync(ct);
+        _fingerprintById[fingerprintId] = existing with
+        {
+            CachedBotProbability = botProbability,
+            CachedRiskBand       = consistentBand,
+            CachedScoreUpdatedAt = now
+        };
 
-        // LFU façade invalidation: drop the fingerprint row so the next read reloads
-        // the row we just rewrote, and bump the epoch so a concurrent GetFingerprintAsync
-        // that read the pre-write DB snapshot cannot repopulate the dict with the stale
-        // band after this removal. Matches the Postgres store (InvalidateFingerprintCache).
-        InvalidateFingerprintCache(fingerprintId);
+        EnsureNameDrainerStarted();
+        // BotType null here: the operator AI-opinion path carries no catalogue type;
+        // the drainer's COALESCE preserves any existing stored value.
+        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, botProbability, consistentBand, null, now));
     }
 
     /// <summary>
@@ -1793,7 +1797,7 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     Dict-only: if the fingerprint is not resident it is skipped (the matcher already
     ///     resident-loaded it earlier this request), never a cold-load on the hot path.
     /// </summary>
-    public void RecordVerdictWriteBehind(string fingerprintId, double botProbability)
+    public void RecordVerdictWriteBehind(string fingerprintId, double botProbability, string? botType = null)
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;
         if (!_fingerprintById.TryGetValue(fingerprintId, out var existing)) return;
@@ -1806,22 +1810,26 @@ public class SqliteFingerprintStore : IFingerprintStore
         var now = DateTime.UtcNow;
 
         // Dict-first: source of truth on the hot read path; the drainer write is durability only.
+        // CachedBotType is only overwritten when this write supplies one -- a null botType
+        // preserves the fingerprint's existing catalogue type (mirrors the SQL COALESCE).
         _fingerprintById[fingerprintId] = existing with
         {
             CachedBotProbability = blended,
             CachedRiskBand       = consistentBand,
+            CachedBotType        = botType ?? existing.CachedBotType,
             CachedScoreUpdatedAt = now
         };
 
         EnsureNameDrainerStarted();
-        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, consistentBand, now));
+        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, consistentBand, botType, now));
     }
 
     public async Task RecordVerdictAsync(
         string fingerprintId,
         double botProbability,
         string? riskBand,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? botType = null)
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;
 
@@ -1859,6 +1867,9 @@ public class SqliteFingerprintStore : IFingerprintStore
         {
             CachedBotProbability = blended,
             CachedRiskBand       = consistentBand,
+            // Only overwrite when this write supplies a catalogue type; otherwise
+            // preserve the existing one (mirrors the SQL COALESCE below).
+            CachedBotType        = botType ?? existing.CachedBotType,
             CachedScoreUpdatedAt = now
         };
 
@@ -1875,11 +1886,14 @@ public class SqliteFingerprintStore : IFingerprintStore
             UPDATE fingerprints
                SET cached_bot_probability  = @prob,
                    cached_risk_band        = @band,
+                   cached_bot_type         = COALESCE(@bottype, cached_bot_type),
                    cached_score_updated_at = @ts
              WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@prob", blended);
         cmd.Parameters.AddWithValue("@band", (object?)updated.CachedRiskBand ?? DBNull.Value);
+        // COALESCE: a null botType never clobbers an existing stored value.
+        cmd.Parameters.AddWithValue("@bottype", (object?)botType ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@ts", now.ToString("O"));
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
@@ -2609,6 +2623,73 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
+    ///     Bulk transparent-LFU read for the dashboard's score/verdict scalars. Mirror
+    ///     of <see cref="GetResolvedNamesBySignaturesAsync"/> for the verdict fields:
+    ///     for each signature, resolve <c>sig -&gt; fingerprint_id -&gt; Fingerprint</c>
+    ///     through the same two in-memory LFU dicts (<c>_fingerprintIdByPrimarySig</c> +
+    ///     <c>_fingerprintById</c>) the name read uses, and project the resident
+    ///     fingerprint to a <see cref="ResolvedVerdict"/>. Never touches the DB; reads
+    ///     the in-memory LFU map only. Signatures whose fingerprint is not resident are
+    ///     omitted (caller falls back to 0/null defaults, same as the name read returns
+    ///     null until resolved).
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, ResolvedVerdict>> GetResolvedVerdictsBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct)
+    {
+        var result = new Dictionary<string, ResolvedVerdict>(StringComparer.Ordinal);
+        if (primarySignatures.Count == 0)
+            return Task.FromResult<IReadOnlyDictionary<string, ResolvedVerdict>>(result);
+
+        foreach (var sig in primarySignatures)
+        {
+            if (string.IsNullOrEmpty(sig)) continue;
+            if (result.ContainsKey(sig)) continue;
+
+            if (_fingerprintIdByPrimarySig.TryGetValue(sig, out var fpId)
+                && _fingerprintById.TryGetValue(fpId, out var fp))
+            {
+                result[sig] = ProjectVerdict(fp);
+            }
+            // Cache miss: leave the signature out. Unlike the name read this does NOT
+            // fall back to a SQL roundtrip -- the verdict scalars are the freshest on
+            // the resident dict (write-behind LFU façade owns them), and a cold-miss
+            // signature has no row the dashboard is actively displaying yet. The caller
+            // treats a missing entry as "not resolved yet" and renders 0/null defaults.
+        }
+
+        return Task.FromResult<IReadOnlyDictionary<string, ResolvedVerdict>>(result);
+    }
+
+    /// <summary>
+    ///     Project a resident <see cref="Fingerprint"/> to the dashboard's
+    ///     <see cref="ResolvedVerdict"/>. BotType is the fingerprint's cached CATALOGUE
+    ///     botType (<see cref="Fingerprint.CachedBotType"/> -- Internal / SearchEngine /
+    ///     AiBot / Tool / GoodBot / ...), the vocabulary the dashboard's Internal-exclusion
+    ///     and ai/search/tools filters match on; a null/empty or literal "unknown"/"Unknown"
+    ///     projects to null so the view falls through rather than emitting a placeholder.
+    ///     IsBot is derived from the cached probability with the 0.5 cut the dashboard
+    ///     projection paths already use (the store carries no reachable BotThreshold).
+    ///     IsVerifiedBot reads the fingerprint's persistent claim state.
+    /// </summary>
+    private static ResolvedVerdict ProjectVerdict(Fingerprint fp)
+    {
+        var botType = string.IsNullOrEmpty(fp.CachedBotType)
+                      || fp.CachedBotType.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : fp.CachedBotType;
+
+        return new ResolvedVerdict(
+            BotProbability: fp.CachedBotProbability,
+            RiskBand: fp.CachedRiskBand,
+            BotType: botType,
+            Confidence: fp.InferredTypeConfidence,
+            ThreatScore: null,
+            ThreatBand: null,
+            IsBot: fp.CachedBotProbability >= 0.5,
+            IsVerifiedBot: string.Equals(fp.ClaimStatus, "verified", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     ///     Atom-walk enumeration for the LLM picker. Per spec §3 + NS7 / §4a constraint:
     ///     never opens a DB connection — walks the in-memory <c>_fingerprintById</c>
     ///     dict. Returns hot fingerprints whose induced has drifted since the last LLM
@@ -3144,6 +3225,10 @@ public class SqliteFingerprintStore : IFingerprintStore
             ? null
             : DateTime.Parse(reader.GetString(31), null, System.Globalization.DateTimeStyles.RoundtripKind),
         TrustObservations = reader.IsDBNull(32) ? 0 : reader.GetInt32(32),
+        // Appended to the END of every fingerprint-row SELECT (index 33) so no
+        // prior positional reader index shifts. Nullable-safe: NULL on rows with
+        // no verdict yet / pre-migration rows.
+        CachedBotType = reader.IsDBNull(33) ? null : reader.GetString(33),
     };
 
     /// <summary>

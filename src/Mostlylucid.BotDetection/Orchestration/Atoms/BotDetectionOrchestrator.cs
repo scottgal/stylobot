@@ -113,7 +113,14 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // Dict-only + no-op when identity is disabled or the fingerprint id is absent.
             var identityFingerprintId = _signalSink.ReadHint(SignalKeys.IdentityFingerprintId);
             if (!string.IsNullOrEmpty(identityFingerprintId))
-                _fingerprintStore.RecordVerdictWriteBehind(identityFingerprintId, evidence.BotProbability);
+                // PrimaryBotType is the CATALOGUE type (BotType enum: Internal / SearchEngine /
+                // AiBot / Tool / GoodBot / ...). .ToString() yields exactly the vocabulary the
+                // dashboard's Internal-exclusion + ai/search/tools filters match on, cached
+                // alongside the score so the read-through projects the real type (not the
+                // inferred_client_type identity axis). Null when no type was identified this
+                // request, which preserves any prior stored type in the store.
+                _fingerprintStore.RecordVerdictWriteBehind(
+                    identityFingerprintId, evidence.BotProbability, evidence.PrimaryBotType?.ToString());
 
             // Session-scope promotion (was: SessionSignatureEscalatorAtom
             // fan-out into a per-signature coordinator cache) has moved out

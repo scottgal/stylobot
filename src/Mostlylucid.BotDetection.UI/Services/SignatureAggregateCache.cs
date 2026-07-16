@@ -41,6 +41,22 @@ public sealed class SignatureAggregateCache
     private readonly ConcurrentDictionary<string, string> _resolvedNames =
         new(StringComparer.Ordinal);
 
+    /// <summary>
+    ///     Resolved score/verdict scalars indexed by primary signature. Populated
+    ///     EXCLUSIVELY by <see cref="ApplyResolvedVerdicts"/> -- the read-through of
+    ///     the canonical fingerprint LFU (<c>IFingerprintStore.GetResolvedVerdictsBySignaturesAsync</c>),
+    ///     the single source for probability / risk band / bot type / confidence /
+    ///     threat / is-bot / verified. The per-detection write path does NOT touch
+    ///     this dict, so a stale 0.9 / "Chrome 122" / "Unknown" on a transient
+    ///     detection event can never bleed into the dashboard rows -- EXACTLY the
+    ///     name read-through pattern, applied to the verdict. <see cref="ToEntry"/>,
+    ///     <see cref="Project"/>, and the sorted top-bots list read off this dict;
+    ///     signatures not yet populated read as 0/null defaults until a refresh
+    ///     pulls the verdict from the store.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ResolvedVerdict> _resolvedVerdicts =
+        new(StringComparer.Ordinal);
+
     private readonly object _sortLock = new();
     private readonly StyloBotDashboardOptions _options;
     private readonly IBehaviouralGrouper? _grouper;
@@ -154,6 +170,40 @@ public sealed class SignatureAggregateCache
     /// </summary>
     public string? GetResolvedName(string signature)
         => _resolvedNames.TryGetValue(signature, out var n) ? n : null;
+
+    /// <summary>
+    ///     Push a batch of store-resolved verdict scalars into the projection-time
+    ///     verdict dict. Callers fetch the verdicts via
+    ///     <c>IFingerprintStore.GetResolvedVerdictsBySignaturesAsync</c> -- the
+    ///     read-through of the canonical fingerprint LFU -- and hand them to this
+    ///     method. This is the ONLY writer to <see cref="_resolvedVerdicts"/>; the
+    ///     per-detection write path no longer stores probability / risk band / bot
+    ///     type / verdict anywhere on the aggregate, so a stale detection-event value
+    ///     cannot enter the dashboard surface. Null values clear an existing entry.
+    /// </summary>
+    public void ApplyResolvedVerdicts(IReadOnlyDictionary<string, ResolvedVerdict> resolved)
+    {
+        foreach (var kv in resolved)
+        {
+            if (string.IsNullOrEmpty(kv.Key)) continue;
+            if (kv.Value is null)
+                _resolvedVerdicts.TryRemove(kv.Key, out _);
+            else
+                _resolvedVerdicts[kv.Key] = kv.Value;
+        }
+        _sortDirty = true;
+    }
+
+    /// <summary>
+    ///     Read a previously-applied resolved verdict. Returns null when the cache
+    ///     hasn't been seeded for this signature yet -- callers should treat null as
+    ///     "no verdict yet" and fall through to 0/null defaults, the same way
+    ///     <see cref="GetResolvedName"/> returns null until a store read populates it.
+    ///     Never fall back to a transient detection-event value; that defeats the
+    ///     single-source read-through.
+    /// </summary>
+    public ResolvedVerdict? GetResolvedVerdict(string signature)
+        => _resolvedVerdicts.TryGetValue(signature, out var v) ? v : null;
 
     /// <summary>
     ///     Apply an LLM-generated description (per-signature transient narrative) to
@@ -308,10 +358,13 @@ public sealed class SignatureAggregateCache
         int bots = 0, humans = 0, internalCount = 0;
         foreach (var kvp in _entries)
         {
-            var e = kvp.Value;
-            if (string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
+            // BotType + is-bot are read through the fingerprint LFU (single source);
+            // a signature with no resolved verdict yet counts as a (non-internal) human
+            // until its verdict is pulled, the same latency the top-bots list has.
+            var verdict = GetResolvedVerdict(kvp.Key);
+            if (string.Equals(verdict?.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
                 internalCount++;
-            else if (e.IsBot)
+            else if (verdict?.IsBot == true)
                 bots++;
             else
                 humans++;
@@ -430,20 +483,12 @@ public sealed class SignatureAggregateCache
             var agg = new SignatureAggregate
             {
                 HitCount = bot.HitCount,
-                BotType = bot.BotType,
-                RiskBand = bot.RiskBand,
-                BotProbability = bot.BotProbability,
-                Confidence = bot.Confidence,
-                Action = bot.Action,
                 CountryCode = bot.CountryCode,
                 ProcessingTimeMs = bot.ProcessingTimeMs,
                 TopReasons = bot.TopReasons,
                 LastSeen = bot.LastSeen,
                 Narrative = bot.Narrative,
                 Description = bot.Description,
-                IsBot = bot.IsKnownBot,
-                ThreatScore = bot.ThreatScore,
-                ThreatBand = bot.ThreatBand,
                 // Carry the UA family the event store derived for us at warmup
                 // time. Without this, every seeded row starts with UaFamily=null
                 // and the Live Activity rows read "GB User" instead of
@@ -453,6 +498,28 @@ public sealed class SignatureAggregateCache
                 UserAgent = bot.UserAgent,
                 EntityId = bot.EntityId,
             };
+
+            // Score/verdict scalars are NOT stored on the aggregate -- they are read
+            // THROUGH the fingerprint LFU at projection time (single source). Seed the
+            // verdict dict from the store's top-bots envelope so a warmed row renders
+            // its verdict immediately, superseded by the store read-through as soon as
+            // ApplyResolvedVerdicts runs. Empty botType/"Unknown" projects to null so
+            // the view falls through rather than showing a placeholder.
+            if (!string.IsNullOrEmpty(bot.PrimarySignature))
+            {
+                var seedBotType = string.IsNullOrEmpty(bot.BotType)
+                    || bot.BotType.Equals("Unknown", StringComparison.OrdinalIgnoreCase)
+                    ? null : bot.BotType;
+                _resolvedVerdicts[bot.PrimarySignature] = new ResolvedVerdict(
+                    BotProbability: bot.BotProbability,
+                    RiskBand: bot.RiskBand,
+                    BotType: seedBotType,
+                    Confidence: bot.Confidence,
+                    ThreatScore: bot.ThreatScore,
+                    ThreatBand: bot.ThreatBand,
+                    IsBot: bot.IsKnownBot,
+                    IsVerifiedBot: bot.IsVerifiedBot);
+            }
 
             // Seed the per-minute ring buffer from the source's HitTrend (if any).
             // Remote-mode dashboard hosts get HitTrend already filled in by the
@@ -526,11 +593,6 @@ public sealed class SignatureAggregateCache
         var agg = new SignatureAggregate
         {
             HitCount = detections.Count,
-            BotType = stickyBotType,
-            RiskBand = riskBand,
-            BotProbability = stickyBotProbability,
-            Confidence = latest.Confidence,
-            Action = latest.Action,
             CountryCode = latest.CountryCode,
             ProcessingTimeMs = latest.ProcessingTimeMs,
             MinProcessingTimeMs = minProc,
@@ -540,15 +602,6 @@ public sealed class SignatureAggregateCache
             LastSeen = latest.Timestamp,
             Narrative = latest.Narrative,
             Description = latest.Description,
-            IsBot = latest.IsBot,
-            ThreatScore = latest.ThreatScore,
-            ThreatBand = threatBand,
-            RiskJustification = latest.RiskJustification,
-            // ANY detection in the window that confirmed verification latches the
-            // aggregate as verified -- same sticky-true semantics as the live
-            // Update path. A quorum-exit detection that skipped VerifiedBotContributor
-            // does not erase a verified state observed from an earlier detection.
-            IsVerifiedBot = detections.Any(d => d.IsVerifiedBot),
             // Warmup events have empty ImportantSignals (the SignalR enrichment
             // doesn't survive the persistence round-trip), so we derive UaFamily
             // from the stored UA string the same way VisitorListCache does --
@@ -561,6 +614,27 @@ public sealed class SignatureAggregateCache
                 .Select(d => d.EntityId)
                 .FirstOrDefault(e => !string.IsNullOrEmpty(e)),
         };
+
+        // Score/verdict scalars are read THROUGH the fingerprint LFU at projection
+        // time (single source), not stored on the aggregate. Seed the verdict dict
+        // from the warmed detections (majority-band risk/threat + sticky-max
+        // probability) so a warmed row renders its verdict immediately; the store
+        // read-through supersedes it as soon as ApplyResolvedVerdicts runs. Empty
+        // botType/"Unknown" projects to null so the view falls through.
+        var warmBotType = string.IsNullOrEmpty(stickyBotType)
+            || stickyBotType.Equals("Unknown", StringComparison.OrdinalIgnoreCase)
+            ? null : stickyBotType;
+        _resolvedVerdicts[signature] = new ResolvedVerdict(
+            BotProbability: stickyBotProbability,
+            RiskBand: riskBand,
+            BotType: warmBotType,
+            Confidence: latest.Confidence,
+            ThreatScore: latest.ThreatScore,
+            ThreatBand: threatBand,
+            IsBot: latest.IsBot,
+            // ANY detection in the window that confirmed verification latches verified
+            // -- same sticky-true semantics as the live Update path.
+            IsVerifiedBot: detections.Any(d => d.IsVerifiedBot));
 
         // Score history walks oldest-to-newest so the sparkline reads left-to-right.
         foreach (var d in detections.Reverse())
@@ -704,6 +778,11 @@ public sealed class SignatureAggregateCache
     /// </summary>
     private CachedVisitor Project(string signature, SignatureAggregate agg)
     {
+        // Score/verdict scalars are read THROUGH the fingerprint LFU (single source),
+        // exactly like BotName. Null verdict projects to the CachedVisitor defaults
+        // (IsBot=false, prob=0, RiskBand="Medium", Action="Allow") until the store
+        // read-through has populated it.
+        var verdict = GetResolvedVerdict(signature);
         lock (agg.SyncRoot)
         {
             return new CachedVisitor
@@ -712,15 +791,15 @@ public sealed class SignatureAggregateCache
                 Hits = agg.HitCount,
                 FirstSeen = agg.FirstSeen,
                 LastSeen = agg.LastSeen,
-                IsBot = agg.IsBot,
-                BotProbability = agg.BotProbability,
-                Confidence = agg.Confidence,
-                RiskBand = agg.RiskBand ?? "Medium",
+                IsBot = verdict?.IsBot ?? false,
+                BotProbability = verdict?.BotProbability ?? 0,
+                Confidence = verdict?.Confidence ?? 0,
+                RiskBand = verdict?.RiskBand ?? "Medium",
                 LastPath = agg.LastPath,
                 Paths = agg.Paths.ToList(),
-                Action = agg.Action ?? "Allow",
+                Action = "Allow",
                 BotName = GetResolvedName(signature),
-                BotType = agg.BotType,
+                BotType = verdict?.BotType,
                 CountryCode = agg.CountryCode,
                 UserAgent = agg.UserAgent,
                 Narrative = agg.Narrative,
@@ -733,8 +812,8 @@ public sealed class SignatureAggregateCache
                 BotProbabilityHistory = new Queue<double>(agg.ScoreHistory),
                 ConfidenceHistory = new Queue<double>(agg.ConfidenceHistory),
                 LastRequestId = agg.LastRequestId,
-                ThreatScore = agg.ThreatScore,
-                ThreatBand = agg.ThreatBand,
+                ThreatScore = verdict?.ThreatScore,
+                ThreatBand = verdict?.ThreatBand,
                 Protocol = agg.Protocol,
                 IpSubnetSignature = agg.IpSubnetSignature,
                 UaFamily = agg.UaFamily,
@@ -892,15 +971,13 @@ public sealed class SignatureAggregateCache
         var agg = new SignatureAggregate
         {
             HitCount = 1,
-            // BotName intentionally NOT populated from detection.BotName --
-            // the per-detection event carries a transient, unvetted name
-            // (banned-shape "Win Chrome 149" etc.). Names enter the cache
-            // only via ApplyResolvedNames from IFingerprintStore.
-            BotType = detection.BotType,
-            RiskBand = detection.RiskBand,
-            BotProbability = detection.BotProbability,
-            Confidence = detection.Confidence,
-            Action = detection.Action,
+            // Score/verdict scalars (BotType / RiskBand / BotProbability / Confidence /
+            // Action / IsBot / ThreatScore / ThreatBand / IsVerifiedBot) are NOT stored
+            // here -- they are owned by the fingerprint LFU (single source) and read
+            // THROUGH it at projection time via GetResolvedVerdict, exactly like the
+            // display name. The per-detection event carries a transient, unvetted copy
+            // (a stale 0.9 / "Chrome 122" / "Unknown") that must never bleed into the
+            // dashboard rows -- the same parasitic-store fix already applied to the name.
             CountryCode = detection.CountryCode,
             ProcessingTimeMs = detection.ProcessingTimeMs,
             MinProcessingTimeMs = detection.ProcessingTimeMs,
@@ -910,10 +987,6 @@ public sealed class SignatureAggregateCache
             LastSeen = detection.Timestamp,
             Narrative = detection.Narrative,
             Description = detection.Description,
-            IsBot = detection.IsBot,
-            ThreatScore = detection.ThreatScore,
-            ThreatBand = detection.ThreatBand,
-            IsVerifiedBot = detection.IsVerifiedBot,
             UaFamily = ExtractUaFamilySignal(detection),
             UserAgent = detection.UserAgentRaw ?? detection.UserAgent,
             EntityId = detection.EntityId,
@@ -1008,42 +1081,23 @@ public sealed class SignatureAggregateCache
         lock (existing.SyncRoot)
         {
             existing.HitCount++;
-            existing.IsBot = detection.IsBot;
-            // Name is no longer mutated here -- it lives in _resolvedNames, populated
-            // only by ApplyResolvedNames from IFingerprintStore. BotType still tracks
-            // the latest non-empty value from detections; it carries the catalogue
-            // identity bucket (SearchEngine / AICrawler / Tool / ...) which is
-            // orthogonal to the display name and not gated by the same contract.
-            if (string.IsNullOrEmpty(existing.BotType) && !string.IsNullOrEmpty(detection.BotType))
-            {
-                existing.BotType = detection.BotType;
-            }
-            existing.RiskBand = detection.RiskBand;
-            // BotProbability is sticky-max for fingerprints with a known identity --
-            // pre-spec this keyed off existing.BotName, now it keys off BotType
-            // (catalogue identity bucket: SearchEngine / AICrawler / Tool / ...).
-            // The signal is the same: a catalogue-bound identity scoring at 1.00
-            // shouldn't be dragged down by a later 0.20 detection on the same fp.
-            var hasNamedIdentity = !string.IsNullOrEmpty(existing.BotType)
-                && !existing.BotType.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
-            existing.BotProbability = hasNamedIdentity
-                ? Math.Max(existing.BotProbability, detection.BotProbability)
-                : detection.BotProbability;
-            existing.Confidence = detection.Confidence;
-            existing.Action = detection.Action ?? existing.Action;
+            // Score/verdict scalars (IsBot / BotType / RiskBand / BotProbability /
+            // Confidence / Action / ThreatScore / ThreatBand / IsVerifiedBot /
+            // RiskJustification) are NO LONGER mutated here. They are owned by the
+            // fingerprint LFU (single source) and read THROUGH it at projection time
+            // via GetResolvedVerdict, exactly like the display name. The per-detection
+            // event's copy is transient and unvetted (a stale 0.9 / "Chrome 122" /
+            // "Unknown"); storing a parallel copy here was the dual-store bug where
+            // top-bots showed a stale scalar while the fingerprint detail page showed
+            // the fresh value. The gateway's write-behind LFU façade keeps the
+            // fingerprint's cached_bot_probability / cached_risk_band fresh; the
+            // dashboard reads that, not this aggregate.
             existing.CountryCode = detection.CountryCode ?? existing.CountryCode;
             existing.ProcessingTimeMs = detection.ProcessingTimeMs;
             existing.TopReasons = detection.TopReasons ?? existing.TopReasons;
             existing.LastSeen = detection.Timestamp;
             existing.Narrative = detection.Narrative ?? existing.Narrative;
             existing.Description = detection.Description ?? existing.Description;
-            existing.ThreatScore = detection.ThreatScore ?? existing.ThreatScore;
-            existing.ThreatBand = detection.ThreatBand ?? existing.ThreatBand;
-            // Latch verified-bot true forever. A confirmed Googlebot signature does
-            // not "un-verify" on a subsequent request that happened to skip the
-            // verifier (e.g., quorum-exit before VerifiedBotContributor ran), so
-            // OR-in rather than overwrite.
-            existing.IsVerifiedBot |= detection.IsVerifiedBot;
             // UaFamily can only IMPROVE: seed from the first non-empty signal we
             // see and never overwrite with null (some detection paths quorum-exit
             // before UA-family resolution and emit no ua.family signal).
@@ -1067,15 +1121,11 @@ public sealed class SignatureAggregateCache
             // signature URLs across consecutive detections for the same actor.
             if (string.IsNullOrEmpty(existing.EntityId) && !string.IsNullOrEmpty(detection.EntityId))
                 existing.EntityId = detection.EntityId;
-            // RiskJustification is the rendered "why this band" string -- it must track
-            // the CURRENT band (which we always overwrite on detection at line 363),
-            // not the first one we ever saw. Previously this coalesced with `??`, so
-            // a signature whose first detection produced "AI probability 0.92" would
-            // keep that justification forever even after every subsequent detection
-            // produced a different reason set (or no reason at all). The trace strings
-            // and the band itself disagreed in the signature detail UI.
-            existing.RiskJustification = detection.RiskJustification;
 
+            // Sparkline ring: still fed from the per-detection probability so the
+            // per-row score history reads left-to-right. This is a transient trend
+            // series, not the headline verdict (which is read through the fingerprint
+            // LFU via GetResolvedVerdict), so it stays on the aggregate.
             existing.ScoreHistory.AddLast(detection.BotProbability);
             while (existing.ScoreHistory.Count > ScoreHistorySize)
                 existing.ScoreHistory.RemoveFirst();
@@ -1124,8 +1174,13 @@ public sealed class SignatureAggregateCache
             if (!_sortDirty && _sortedCache != null)
                 return _sortedCache;
 
+            // The is-bot filter now reads THROUGH the fingerprint LFU (the single
+            // source), not a stale scalar on the aggregate. A signature whose verdict
+            // hasn't been resolved yet (GetResolvedVerdict == null) is treated as
+            // not-a-bot for the top-bots list -- it surfaces once ApplyResolvedVerdicts
+            // pulls its verdict, the same latency the resolved name already has.
             _sortedCache = _entries
-                .Where(kvp => kvp.Value.IsBot)
+                .Where(kvp => GetResolvedVerdict(kvp.Key)?.IsBot == true)
                 .Select(kvp => ToEntry(kvp.Key, kvp.Value))
                 .OrderByDescending(b => b.HitCount)
                 .ToList()
@@ -1139,6 +1194,11 @@ public sealed class SignatureAggregateCache
     private DashboardTopBotEntry ToEntry(string signature, SignatureAggregate agg)
     {
         _options.SignatureLabels.TryGetValue(signature, out var customName);
+        // Score/verdict scalars are read THROUGH the fingerprint LFU (single source),
+        // exactly like the display name. Null until ApplyResolvedVerdicts has populated
+        // the entry; a missing verdict projects to 0/null defaults, the same as the
+        // name read returns null until resolved.
+        var verdict = GetResolvedVerdict(signature);
         lock (agg.SyncRoot)
         {
             return new DashboardTopBotEntry
@@ -1151,11 +1211,11 @@ public sealed class SignatureAggregateCache
                 // null and fall through to entity-id / UA-family labels per spec.
                 BotName = GetResolvedName(signature),
                 CustomBotName = customName,
-                BotType = agg.BotType,
-                RiskBand = agg.RiskBand,
-                BotProbability = agg.BotProbability,
-                Confidence = agg.Confidence,
-                Action = agg.Action,
+                BotType = verdict?.BotType,
+                RiskBand = verdict?.RiskBand,
+                BotProbability = verdict?.BotProbability ?? 0,
+                Confidence = verdict?.Confidence ?? 0,
+                Action = null,
                 CountryCode = agg.CountryCode,
                 ProcessingTimeMs = agg.ProcessingTimeMs,
                 TopReasons = agg.TopReasons,
@@ -1163,10 +1223,10 @@ public sealed class SignatureAggregateCache
                 LastSeen = agg.LastSeen,
                 Narrative = agg.Narrative,
                 Description = agg.Description,
-                IsKnownBot = agg.IsBot,
-                ThreatScore = agg.ThreatScore,
-                ThreatBand = agg.ThreatBand,
-                IsVerifiedBot = agg.IsVerifiedBot,
+                IsKnownBot = verdict?.IsBot ?? false,
+                ThreatScore = verdict?.ThreatScore,
+                ThreatBand = verdict?.ThreatBand,
+                IsVerifiedBot = verdict?.IsVerifiedBot ?? false,
                 UaFamily = agg.UaFamily,
                 UserAgent = agg.UserAgent,
                 EntityId = agg.EntityId,
@@ -1235,11 +1295,16 @@ public sealed class SignatureAggregate
     // fetch it at read-time via IFingerprintStore.GetDisplayNamesBySignaturesAsync.
     // Storing a parallel copy here was the parasitic path that produced
     // "Win Chrome 149" / "Akkoma akkoma..." banned-shape names on staging.
-    public string? BotType;
-    public string? RiskBand;
-    public double BotProbability;
-    public double Confidence;
-    public string? Action;
+    //
+    // Score/verdict scalars (BotType / RiskBand / BotProbability / Confidence /
+    // Action / IsBot / ThreatScore / ThreatBand / RiskJustification / IsVerifiedBot)
+    // DELETED per the same single-source rule. They are owned by the fingerprint LFU
+    // (Fingerprint.CachedBotProbability / CachedRiskBand / InferredClientType /
+    // InferredTypeConfidence / ClaimStatus) and read THROUGH it at projection time via
+    // SignatureAggregateCache.GetResolvedVerdict / ApplyResolvedVerdicts -- exactly the
+    // name read-through pattern. Storing a parallel copy here was the dual-store bug
+    // where top-bots showed a stale 0.9 / "Chrome 122" / "Unknown" while the
+    // fingerprint store (detail page) showed the fresh value.
     public string? CountryCode;
     public double ProcessingTimeMs;
     public List<string>? TopReasons;
@@ -1247,18 +1312,6 @@ public sealed class SignatureAggregate
     public DateTime LastSeen;
     public string? Narrative;
     public string? Description;
-    public bool IsBot;
-    public double? ThreatScore;
-    public string? ThreatBand;
-    public string? RiskJustification;
-
-    /// <summary>
-    ///     Latched on the first detection that wrote <c>verifiedbot.confirmed=true</c>.
-    ///     Stays true once verified (a Googlebot signature does not "un-verify" between
-    ///     requests). Flows to <c>DashboardTopBotEntry.IsVerifiedBot</c> so the row's
-    ///     verification badge shows the green tick instead of the amber `?`.
-    /// </summary>
-    public bool IsVerifiedBot;
 
     /// <summary>
     ///     UA family (Chrome / Firefox / curl / ...) extracted from the

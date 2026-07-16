@@ -53,7 +53,8 @@ public interface IFingerprintStore : IFingerprintReader
         string fingerprintId,
         double botProbability,
         string? riskBand,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? botType = null);
 
     /// <summary>
     ///     Hot-path variant of <see cref="RecordVerdictAsync"/>: blends the per-request
@@ -61,10 +62,13 @@ public interface IFingerprintStore : IFingerprintReader
     ///     opening NO connection on the caller thread, so detection can record every request's
     ///     verdict without a per-request DB connection. The risk band is derived from the blended
     ///     score inside the store, never supplied by the caller, so it stays consistent with the
-    ///     probability. Default no-op for stores that hold no resident dict (the null store);
-    ///     SQLite + the commercial store override it.
+    ///     probability. Optional <paramref name="botType"/> is the CATALOGUE bot type
+    ///     (Internal / SearchEngine / AiBot / Tool / GoodBot / ...) cached alongside the score
+    ///     so the dashboard reads the real catalogue vocabulary through the LFU; null preserves
+    ///     any existing stored type. Default no-op for stores that hold no resident dict (the
+    ///     null store); SQLite + the commercial store override it.
     /// </summary>
-    void RecordVerdictWriteBehind(string fingerprintId, double botProbability) { }
+    void RecordVerdictWriteBehind(string fingerprintId, double botProbability, string? botType = null) { }
 
     Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default);
 
@@ -209,6 +213,34 @@ public interface IFingerprintStore : IFingerprintReader
     Task<IReadOnlyDictionary<string, string?>> GetResolvedNamesBySignaturesAsync(
         IReadOnlyCollection<string> primarySignatures,
         CancellationToken ct);
+
+    /// <summary>
+    ///     Bulk LFU read used by the dashboard for the per-signature score/verdict
+    ///     scalars (probability, risk band, bot type, confidence, threat, is-bot,
+    ///     verified). Mirrors <see cref="GetResolvedNamesBySignaturesAsync"/>: the
+    ///     fingerprint LFU is the single source for these values and the dashboard's
+    ///     <c>SignatureAggregateCache</c> reads them THROUGH this method at projection
+    ///     time instead of caching a stale parallel copy per aggregate row. Never
+    ///     touches the DB; reads the in-memory LFU map only. Signatures with no
+    ///     resident fingerprint are omitted from the result (the caller treats a
+    ///     missing entry as "not resolved yet" and falls back to 0/null defaults,
+    ///     the same as names return null until resolved). Default empty so read-only
+    ///     proxies and the null store (Identity:Enabled = false) opt out cleanly;
+    ///     only <see cref="SqliteFingerprintStore"/> (and the commercial store)
+    ///     override it.
+    ///     <para>
+    ///     TODO(commercial): <c>PostgreSQLFingerprintStore</c> in the
+    ///     stylobot-commercial repo must add the matching override — walk its
+    ///     resident fingerprint dict (signature → fingerprint) and map each to a
+    ///     <see cref="ResolvedVerdict"/> exactly as the SQLite store does. It lives
+    ///     in the other repo, so it is NOT touched here.
+    ///     </para>
+    /// </summary>
+    Task<IReadOnlyDictionary<string, ResolvedVerdict>> GetResolvedVerdictsBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures,
+        CancellationToken ct)
+        => Task.FromResult<IReadOnlyDictionary<string, ResolvedVerdict>>(
+            new Dictionary<string, ResolvedVerdict>(StringComparer.Ordinal));
 
     /// <summary>
     ///     Atom-walk enumeration for the LLM picker: returns hot fingerprints
