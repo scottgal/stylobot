@@ -250,7 +250,7 @@ Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`. Returns HTTP 4
 
 ### Hub Path
 
-Default: `/_stylobot/hub`
+Default: `/stylobot/hub` (the mapped hub; `StyloBotDashboardOptions.HubPath`, override via `STYLOBOT_HUB_PATH`)
 
 ### Events
 

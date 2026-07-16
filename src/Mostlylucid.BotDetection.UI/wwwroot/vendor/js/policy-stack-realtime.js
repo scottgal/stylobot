@@ -35,7 +35,7 @@
 
     var hubUrl = (document.querySelector('script[data-policy-stack-hub-url]') || {}).dataset
         ? document.querySelector('script[data-policy-stack-hub-url]').dataset.policyStackHubUrl
-        : '/_stylobot/hub';
+        : '/stylobot/hub';
     var scriptEl = document.querySelector('script[src*="policy-stack-realtime.js"]');
     if (scriptEl && scriptEl.dataset && scriptEl.dataset.hubUrl) {
         hubUrl = scriptEl.dataset.hubUrl;
