@@ -261,7 +261,7 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
             InferredTypeConfidence = 1.0,
             InferredTypeChangedAt = now,
             CachedBotProbability = spoofed ? 0.95 : 0.85,
-            CachedRiskBand = spoofed ? "VeryHigh" : "Medium",
+            // No band stored: RiskBand is derived at read (verified-aware) from the raw facts.
             CachedScoreUpdatedAt = now,
             InducedName = displayName,
             InducedNameUpdatedAt = now,
@@ -460,7 +460,6 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
             InferredTypeConfidence = inferredConfidence,
             InferredTypeChangedAt = now,
             CachedBotProbability = 0.0,
-            CachedRiskBand = null,
             CachedScoreUpdatedAt = null,
             InducedName = persistedDisplayName,
             InducedNameUpdatedAt = now,
@@ -603,8 +602,8 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         if (matched.ArchetypeOrigin is not null)
             sink.Raise($"{SignalKeys.IdentityClientTypeOrigin}:{matched.ArchetypeOrigin}", sessionId);
         sink.Raise($"{SignalKeys.IdentityCachedBotProbability}:{matched.CachedBotProbability.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
-        if (matched.CachedRiskBand is not null)
-            sink.Raise($"{SignalKeys.IdentityCachedRiskBand}:{matched.CachedRiskBand}", sessionId);
+        // No identity risk-band signal is raised: the band is derived at read from the raw
+        // facts, never carried as a stored value on the fingerprint.
 
         var drift = WriteArchetypeSignals(
             sink, sessionId, vector,

@@ -213,13 +213,15 @@ public class FingerprintEvictionGuardianTests : IDisposable
         cmd.CommandText = """
             UPDATE fingerprints
                SET cached_bot_probability = @prob,
-                   cached_risk_band       = @band,
                    last_seen              = @seen,
                    claim_status           = @claim
              WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@prob", botProb);
-        cmd.Parameters.AddWithValue("@band", riskBand);
+        // No cached_risk_band column: the priority scan DERIVES the band from the
+        // probability at read (BucketRisk). Seeded botProb/riskBand pairs are aligned, so
+        // coldness ordering is unchanged; the riskBand arg is advisory only now.
+        _ = riskBand;
         cmd.Parameters.AddWithValue("@seen", now.ToString("O"));
         cmd.Parameters.AddWithValue("@claim", claimStatus);
         cmd.Parameters.AddWithValue("@id", id);

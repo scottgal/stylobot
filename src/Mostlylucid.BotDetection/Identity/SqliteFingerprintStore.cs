@@ -137,7 +137,7 @@ public class SqliteFingerprintStore : IFingerprintStore
     // caller thread; only this durability write rides the shared name drainer, so per-request
     // verdict recording never opens a connection on the request path.
     private sealed record VerdictWrite(
-        string FingerprintId, double Probability, string? RiskBand, string? BotType, DateTime At)
+        string FingerprintId, double Probability, string? BotType, DateTime At)
         : NameWrite(FingerprintId, At);
 
     private const int NameWriteQueueCapacity = 4096;
@@ -466,7 +466,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             SELECT fingerprint_id, centroid, centroid_maturity, weights, member_count,
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
-                   inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                   inferred_type_changed_at, cached_bot_probability,
                    cached_score_updated_at, ambiguity_persistence,
                    induced_name, induced_name_updated_at,
                    llm_name, llm_evaluated_at, llm_description,
@@ -504,7 +504,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                     fingerprint_id, centroid, centroid_maturity, weights, member_count,
                     observation_count, correction_count, first_seen, last_seen, quality,
                     archetype_origin, inferred_client_type, inferred_type_confidence,
-                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                    inferred_type_changed_at, cached_bot_probability,
                     cached_score_updated_at, ambiguity_persistence,
                     induced_name, induced_name_updated_at,
                     llm_name, llm_evaluated_at, llm_description,
@@ -516,7 +516,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
                     @origin, @inferred_type, @inferred_conf,
-                    @inferred_changed, @cached_prob, @cached_band,
+                    @inferred_changed, @cached_prob,
                     @cached_updated, @ambiguity,
                     @induced_name, @induced_name_updated,
                     @llm_name, @llm_evaluated_at, @llm_description,
@@ -541,15 +541,10 @@ public class SqliteFingerprintStore : IFingerprintStore
             cmd.Parameters.AddWithValue("@inferred_conf", fp.InferredTypeConfidence);
             cmd.Parameters.AddWithValue("@inferred_changed", fp.InferredTypeChangedAt.ToString("O"));
             cmd.Parameters.AddWithValue("@cached_prob", fp.CachedBotProbability);
-            // Never persist the matcher's supplied band verbatim (it may be a
-            // hardcoded band from a contributor). When a verdict exists (score
-            // timestamp set) derive the band from THIS row's probability so the
-            // allocation is born consistent; otherwise leave it null (no verdict
-            // yet). Single source of truth — see DeriveConsistentBand.
-            cmd.Parameters.AddWithValue("@cached_band",
-                fp.CachedScoreUpdatedAt is null
-                    ? DBNull.Value
-                    : DeriveConsistentBand(fp.CachedBotProbability, fp.InferredTypeConfidence));
+            // No band is persisted: RiskBand is DERIVED at read from this row's raw
+            // facts (probability, confidence, claim_status, bot type) via
+            // FingerprintRiskProjection. Storing it was the parasite that let a
+            // verified bot read VeryHigh.
             cmd.Parameters.AddWithValue("@cached_bot_type", (object?)fp.CachedBotType ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@cached_updated",
                 (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
@@ -929,13 +924,11 @@ public class SqliteFingerprintStore : IFingerprintStore
                 cmd.CommandText = """
                     UPDATE fingerprints
                        SET cached_bot_probability  = @prob,
-                           cached_risk_band        = @band,
                            cached_bot_type         = COALESCE(@bottype, cached_bot_type),
                            cached_score_updated_at = @ts
                      WHERE fingerprint_id = @id
                     """;
                 cmd.Parameters.AddWithValue("@prob", verdict.Probability);
-                cmd.Parameters.AddWithValue("@band", (object?)verdict.RiskBand ?? DBNull.Value);
                 // COALESCE keeps a prior catalogue type when this write carries none.
                 cmd.Parameters.AddWithValue("@bottype", (object?)verdict.BotType ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ts", verdict.At.ToString("O"));
@@ -1615,7 +1608,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             SELECT fingerprint_id, centroid, centroid_maturity, weights, member_count,
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
-                   inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                   inferred_type_changed_at, cached_bot_probability,
                    cached_score_updated_at, ambiguity_persistence,
                    induced_name, induced_name_updated_at,
                    llm_name, llm_evaluated_at, llm_description,
@@ -1675,7 +1668,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             SELECT fingerprint_id, centroid, centroid_maturity, weights, member_count,
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
-                   inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                   inferred_type_changed_at, cached_bot_probability,
                    cached_score_updated_at, ambiguity_persistence,
                    induced_name, induced_name_updated_at,
                    llm_name, llm_evaluated_at, llm_description,
@@ -1721,30 +1714,12 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     SINGLE SOURCE OF TRUTH for the stored risk band. The band is a pure
-    ///     function of the stored probability and the fingerprint's inferred-type
-    ///     confidence (<see cref="Risk.SignatureRiskVerdictComposer.BucketRisk"/>).
-    ///     No caller-supplied band is EVER persisted verbatim — that is what let a
-    ///     cold-start request (RecordVerdictAsync), an AI opinion whose free-text
-    ///     label disagreed with its own probability (UpdateCachedVerdictAsync), or a
-    ///     matcher's hardcoded band (the insert path) stamp a band that contradicted
-    ///     the probability the dashboard shows (e.g. "prob 0.545 / band VeryHigh").
-    ///     Deriving here guarantees the stored (probability, band) pair is always
-    ///     internally consistent; the dashboard reads both as-is without recomputing.
-    /// </summary>
-    private static string DeriveConsistentBand(double probability, double confidence) =>
-        Risk.SignatureRiskVerdictComposer
-            .BucketRisk(probability, confidence)
-            .ToString();
-
-    /// <summary>
     ///     Writes a new cached verdict to the fingerprint row. Used by the manual AI opinion
     ///     path so an operator-triggered classifier verdict updates the row live without
-    ///     waiting for the next drift tick. Touches <c>cached_bot_probability</c>,
-    ///     <c>cached_risk_band</c>, and <c>cached_score_updated_at</c> in one transaction.
-    ///     The caller's free-text band label is IGNORED for the stored band — it is
-    ///     derived from the probability being written (see <see cref="DeriveConsistentBand"/>)
-    ///     so the AI path cannot introduce a prob/band disagreement.
+    ///     waiting for the next drift tick. Touches <c>cached_bot_probability</c> and
+    ///     <c>cached_score_updated_at</c> in one transaction. NO band is stored: the caller's
+    ///     free-text band label is discarded, and the displayed RiskBand is DERIVED at read
+    ///     from the stored probability (verified-aware) via <see cref="FingerprintRiskProjection"/>.
     /// </summary>
     public async Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default)
@@ -1764,22 +1739,19 @@ public class SqliteFingerprintStore : IFingerprintStore
             if (existing is null) return;
         }
 
-        // Band is DERIVED from the probability (never the caller's free-text label) so a
-        // prob/band disagreement can't be introduced.
-        var consistentBand = DeriveConsistentBand(botProbability, existing.InferredTypeConfidence);
+        // No band is stored -- RiskBand is derived at read from the probability.
         var now = DateTime.UtcNow;
 
         _fingerprintById[fingerprintId] = existing with
         {
             CachedBotProbability = botProbability,
-            CachedRiskBand       = consistentBand,
             CachedScoreUpdatedAt = now
         };
 
         EnsureNameDrainerStarted();
         // BotType null here: the operator AI-opinion path carries no catalogue type;
         // the drainer's COALESCE preserves any existing stored value.
-        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, botProbability, consistentBand, null, now));
+        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, botProbability, null, now));
     }
 
     /// <summary>
@@ -1806,22 +1778,21 @@ public class SqliteFingerprintStore : IFingerprintStore
         var blended = existing.CachedScoreUpdatedAt is null
             ? botProbability
             : existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
-        var consistentBand = DeriveConsistentBand(blended, existing.InferredTypeConfidence);
         var now = DateTime.UtcNow;
 
         // Dict-first: source of truth on the hot read path; the drainer write is durability only.
         // CachedBotType is only overwritten when this write supplies one -- a null botType
         // preserves the fingerprint's existing catalogue type (mirrors the SQL COALESCE).
+        // No band is stored: RiskBand is derived at read from the blended probability.
         _fingerprintById[fingerprintId] = existing with
         {
             CachedBotProbability = blended,
-            CachedRiskBand       = consistentBand,
             CachedBotType        = botType ?? existing.CachedBotType,
             CachedScoreUpdatedAt = now
         };
 
         EnsureNameDrainerStarted();
-        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, consistentBand, botType, now));
+        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, botType, now));
     }
 
     public async Task RecordVerdictAsync(
@@ -1850,23 +1821,15 @@ public class SqliteFingerprintStore : IFingerprintStore
             ? botProbability
             : existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
 
-        // CONSISTENCY: the stored band MUST agree with the stored probability.
-        // The probability is EWMA-blended (smoothed across requests), but the
-        // incoming per-request `riskBand` reflects a SINGLE request — a
-        // cold-start request that scored VeryHigh would stamp the band VeryHigh
-        // while the blended probability settles to e.g. 0.26, leaving the row
-        // "prob 0.26 / band VeryHigh". Derive the band from the blended
-        // probability here (the gateway is the single compute site; the
-        // dashboard only reads). The per-request band still appears per-row in
-        // the detections history; the IDENTITY band is a function of the
-        // identity probability.
-        var consistentBand = DeriveConsistentBand(blended, existing.InferredTypeConfidence);
-
+        // No band is stored. The incoming per-request `riskBand` reflects a SINGLE
+        // request; storing it (or any band derived here) was the parasite that let a
+        // verified bot read VeryHigh. The IDENTITY RiskBand is DERIVED at read from the
+        // blended probability (verified-aware) via FingerprintRiskProjection. The
+        // per-request band still appears per-row in the detections history.
         var now = DateTime.UtcNow;
         var updated = existing with
         {
             CachedBotProbability = blended,
-            CachedRiskBand       = consistentBand,
             // Only overwrite when this write supplies a catalogue type; otherwise
             // preserve the existing one (mirrors the SQL COALESCE below).
             CachedBotType        = botType ?? existing.CachedBotType,
@@ -1885,13 +1848,11 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.CommandText = """
             UPDATE fingerprints
                SET cached_bot_probability  = @prob,
-                   cached_risk_band        = @band,
                    cached_bot_type         = COALESCE(@bottype, cached_bot_type),
                    cached_score_updated_at = @ts
              WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@prob", blended);
-        cmd.Parameters.AddWithValue("@band", (object?)updated.CachedRiskBand ?? DBNull.Value);
         // COALESCE: a null botType never clobbers an existing stored value.
         cmd.Parameters.AddWithValue("@bottype", (object?)botType ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@ts", now.ToString("O"));
@@ -2218,7 +2179,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         // Oldest-first: stale fingerprints are the likeliest eviction candidates.
         // The guardian re-ranks this coarse pre-filter by DecisionNecessity.
         cmd.CommandText = """
-            SELECT fingerprint_id, cached_bot_probability, cached_risk_band,
+            SELECT fingerprint_id, cached_bot_probability, inferred_type_confidence,
                    last_seen, claim_status
               FROM fingerprints
              ORDER BY last_seen ASC
@@ -2230,9 +2191,14 @@ public class SqliteFingerprintStore : IFingerprintStore
         {
             var id = reader.GetString(0);
             var botProb = reader.IsDBNull(1) ? 0.0 : reader.GetDouble(1);
-            var band = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var confidence = reader.IsDBNull(2) ? 0.0 : reader.GetDouble(2);
             var lastSeen = ParseIso(reader.GetString(3));
             var claim = reader.IsDBNull(4) ? "unverified" : reader.GetString(4);
+            // Coldness risk axis: DERIVE the band from the probability at read (never a
+            // stored band). Identical to what the removed cached_risk_band column held
+            // (BucketRisk(prob, confidence)), so guardian coldness is behaviour-preserved;
+            // verified fingerprints are protected below regardless of band.
+            var band = Risk.SignatureRiskVerdictComposer.BucketRisk(botProb, confidence).ToString();
             results.Add(new FingerprintPriorityInfo(
                 id, botProb, band, lastSeen, Protected: claim == "verified"));
         }
@@ -2678,13 +2644,18 @@ public class SqliteFingerprintStore : IFingerprintStore
             ? null
             : fp.CachedBotType;
 
+        // RiskBand / ThreatBand are DERIVED here from the entry's raw facts (never a stored
+        // band), through the composer's verified-aware pins -- so a verified good bot at
+        // probability 1.0 projects RiskBand.Low, not BucketRisk(1.0)=VeryHigh.
+        var verdict = FingerprintRiskProjection.Compose(fp);
+
         return new ResolvedVerdict(
             BotProbability: fp.CachedBotProbability,
-            RiskBand: fp.CachedRiskBand,
+            RiskBand: verdict.RiskBand.ToString(),
             BotType: botType,
             Confidence: fp.InferredTypeConfidence,
             ThreatScore: null,
-            ThreatBand: null,
+            ThreatBand: verdict.ThreatBand.ToString(),
             IsBot: fp.CachedBotProbability >= 0.5,
             IsVerifiedBot: string.Equals(fp.ClaimStatus, "verified", StringComparison.OrdinalIgnoreCase));
     }
@@ -3191,44 +3162,46 @@ public class SqliteFingerprintStore : IFingerprintStore
         InferredTypeConfidence = reader.GetDouble(12),
         InferredTypeChangedAt = DateTime.Parse(reader.GetString(13), null, System.Globalization.DateTimeStyles.RoundtripKind),
         CachedBotProbability = reader.GetDouble(14),
-        CachedRiskBand = reader.IsDBNull(15) ? null : reader.GetString(15),
-        CachedScoreUpdatedAt = reader.IsDBNull(16)
+        // cached_risk_band was removed here (was index 15): the risk band is DERIVED at
+        // read via FingerprintRiskProjection, never stored. Every index below shifted
+        // down by one when the column left the SELECT.
+        CachedScoreUpdatedAt = reader.IsDBNull(15)
             ? null
-            : DateTime.Parse(reader.GetString(16), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        AmbiguityPersistence = reader.GetDouble(17),
+            : DateTime.Parse(reader.GetString(15), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        AmbiguityPersistence = reader.GetDouble(16),
         // Three-slot names (induced / llm / given) replace the old single display_name.
         // Each slot is independent; resolver picks given ?? llm ?? induced.
-        InducedName = reader.IsDBNull(18) ? null : reader.GetString(18),
-        InducedNameUpdatedAt = reader.IsDBNull(19) || string.IsNullOrEmpty(reader.GetString(19))
+        InducedName = reader.IsDBNull(17) ? null : reader.GetString(17),
+        InducedNameUpdatedAt = reader.IsDBNull(18) || string.IsNullOrEmpty(reader.GetString(18))
             ? null
-            : DateTime.Parse(reader.GetString(19), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        LlmName = reader.IsDBNull(20) ? null : reader.GetString(20),
-        LlmEvaluatedAt = reader.IsDBNull(21)
+            : DateTime.Parse(reader.GetString(18), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        LlmName = reader.IsDBNull(19) ? null : reader.GetString(19),
+        LlmEvaluatedAt = reader.IsDBNull(20)
             ? null
-            : DateTime.Parse(reader.GetString(21), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        LlmDescription = reader.IsDBNull(22) ? null : reader.GetString(22),
-        GivenName = reader.IsDBNull(23) ? null : reader.GetString(23),
-        GivenNameUpdatedAt = reader.IsDBNull(24)
+            : DateTime.Parse(reader.GetString(20), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        LlmDescription = reader.IsDBNull(21) ? null : reader.GetString(21),
+        GivenName = reader.IsDBNull(22) ? null : reader.GetString(22),
+        GivenNameUpdatedAt = reader.IsDBNull(23)
             ? null
-            : DateTime.Parse(reader.GetString(24), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        GivenNameOperatorId = reader.IsDBNull(25) ? null : reader.GetString(25),
-        RootCentroid = reader.IsDBNull(26) ? null : BlobToFloats((byte[])reader.GetValue(26)),
-        RootCentroidAt = reader.IsDBNull(27)
+            : DateTime.Parse(reader.GetString(23), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        GivenNameOperatorId = reader.IsDBNull(24) ? null : reader.GetString(24),
+        RootCentroid = reader.IsDBNull(25) ? null : BlobToFloats((byte[])reader.GetValue(25)),
+        RootCentroidAt = reader.IsDBNull(26)
             ? null
-            : DateTime.Parse(reader.GetString(27), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        RootSource = reader.IsDBNull(28) ? null : reader.GetString(28),
+            : DateTime.Parse(reader.GetString(26), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        RootSource = reader.IsDBNull(27) ? null : reader.GetString(27),
         // Trust state (gap #4). Older rows pre-migration default to
         // 'unverified' / NULL / NULL / 0 via the ALTER TABLE column defaults.
-        ClaimStatus = reader.IsDBNull(29) ? "unverified" : reader.GetString(29),
-        VerificationMethod = reader.IsDBNull(30) ? null : reader.GetString(30),
-        VerifiedAt = reader.IsDBNull(31)
+        ClaimStatus = reader.IsDBNull(28) ? "unverified" : reader.GetString(28),
+        VerificationMethod = reader.IsDBNull(29) ? null : reader.GetString(29),
+        VerifiedAt = reader.IsDBNull(30)
             ? null
-            : DateTime.Parse(reader.GetString(31), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        TrustObservations = reader.IsDBNull(32) ? 0 : reader.GetInt32(32),
-        // Appended to the END of every fingerprint-row SELECT (index 33) so no
+            : DateTime.Parse(reader.GetString(30), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        TrustObservations = reader.IsDBNull(31) ? 0 : reader.GetInt32(31),
+        // Appended to the END of every fingerprint-row SELECT (now index 32) so no
         // prior positional reader index shifts. Nullable-safe: NULL on rows with
         // no verdict yet / pre-migration rows.
-        CachedBotType = reader.IsDBNull(33) ? null : reader.GetString(33),
+        CachedBotType = reader.IsDBNull(32) ? null : reader.GetString(32),
     };
 
     /// <summary>

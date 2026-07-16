@@ -166,7 +166,7 @@ public sealed class IdentityAiOpinionService
         - first_seen_utc: {{fp.FirstSeen:O}}
         - last_seen_utc: {{fp.LastSeen:O}}
         - cached_bot_probability: {{fp.CachedBotProbability:F2}}
-        - cached_risk_band: {{fp.CachedRiskBand ?? "(none)"}}
+        - risk_band (derived): {{FingerprintRiskProjection.Compose(fp).RiskBand}}
 
         Reply schema (verbatim, no extra keys, no trailing commas):
         {"is_bot": true|false, "confidence": 0.0..1.0, "risk_band": "Low"|"Medium"|"High"|"Critical", "reason": "<one sentence>"}

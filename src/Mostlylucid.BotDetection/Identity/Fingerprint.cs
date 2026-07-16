@@ -21,7 +21,13 @@ public sealed record Fingerprint
     public required double InferredTypeConfidence { get; init; }
     public required DateTime InferredTypeChangedAt { get; init; }
     public double CachedBotProbability { get; init; }
-    public string? CachedRiskBand { get; init; }
+
+    // NOTE: there is deliberately NO cached risk band here. RiskBand / ThreatBand /
+    // RiskProfile are DERIVED from the raw facts above (probability, confidence,
+    // claim_status, catalogue bot type) at every read via FingerprintRiskProjection --
+    // never stored. Storing a derived band was the parasite that made a verified bot
+    // (probability 1.0) read VeryHigh, because BucketRisk(1.0) bypassed the composer's
+    // verified -> Low friendly-pin. Single source of truth: the entry's raw facts.
 
     /// <summary>
     ///     Cached CATALOGUE bot type -- the dashboard's classification vocabulary
@@ -164,7 +170,7 @@ public sealed record Fingerprint
 ///     <para>
 ///     Population from the fingerprint: <see cref="BotProbability"/> =
 ///     <see cref="Fingerprint.CachedBotProbability"/>; <see cref="RiskBand"/> =
-///     <see cref="Fingerprint.CachedRiskBand"/>; <see cref="BotType"/> =
+///     <see cref="FingerprintRiskProjection"/>; <see cref="BotType"/> =
 ///     <see cref="Fingerprint.CachedBotType"/> (the fingerprint's cached CATALOGUE botType —
 ///     the dashboard's Internal/SearchEngine/AiBot/Tool/GoodBot vocabulary; null when the
 ///     fingerprint carries no type; NEVER the literal placeholder "Unknown",

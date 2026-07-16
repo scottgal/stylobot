@@ -172,23 +172,14 @@ public sealed class SignatureVerdictGate
     private static SignatureVerdict SynthesiseFromIdentity(string signatureId, IdentityCachedVerdict id)
     {
         var confidence = Math.Min(1.0, id.ObservationCount / 10.0);
-        // cached_risk_band is written on every detection by the store's verdict write
-        // path (RecordVerdictAsync / UpdateCachedVerdictAsync), always derived from the
-        // cached bot_probability so band and probability never disagree. So for any
-        // fingerprint that has been through one detection the stored band is present and
-        // authoritative -- use it as-is. The fallback below only fires for a brand-new,
-        // pre-first-verdict row (column NULL) or a legacy pre-fix row that stored
-        // "Unknown"; deriving from bot_probability keeps those out of the dashboard's
-        // Unknown bucket (a 10+-observation fingerprint at prob=0 is structurally VeryLow).
-        RiskBand band;
-        if (Enum.TryParse<RiskBand>(id.RiskBand, ignoreCase: true, out var parsed) && parsed != RiskBand.Unknown)
-        {
-            band = parsed;
-        }
-        else
-        {
-            band = Risk.SignatureRiskVerdictComposer.BucketRisk(id.BotProbability, confidence);
-        }
+        // The identity RiskBand is DERIVED here from the fingerprint's raw facts -- never a
+        // stored band. Going through FingerprintRiskProjection (the composer) makes it
+        // verified-aware: a claim_status='verified' good bot at probability 1.0 synthesises
+        // RiskBand.Low, not BucketRisk(1.0)=VeryHigh. This is the SAME compute site the
+        // dashboard projection uses, so the gate and the dashboard can never disagree.
+        var band = Identity.FingerprintRiskProjection
+            .Compose(id.BotProbability, confidence, id.ClaimStatus, id.BotType, signatureId)
+            .RiskBand;
         return new SignatureVerdict
         {
             SignatureId = signatureId,

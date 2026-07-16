@@ -4603,7 +4603,8 @@ public class StyloBotDashboardMiddleware
                 UnabsorbedObservations = unabsorbed.GetValueOrDefault(fp.FingerprintId, 0),
                 CorrectionCount = fp.CorrectionCount,
                 CachedBotProbability = fp.CachedBotProbability,
-                CachedRiskBand = fp.CachedRiskBand,
+                // RiskBand derived at read (verified-aware), never a stored band.
+                CachedRiskBand = Mostlylucid.BotDetection.Identity.FingerprintRiskProjection.Compose(fp).RiskBand.ToString(),
                 CachedScoreUpdatedAt = fp.CachedScoreUpdatedAt,
                 FirstSeen = fp.FirstSeen,
                 LastSeen = fp.LastSeen,
@@ -4734,7 +4735,8 @@ public class StyloBotDashboardMiddleware
             UnabsorbedObservations = unabsorbed,
             CorrectionCount = fp.CorrectionCount,
             CachedBotProbability = fp.CachedBotProbability,
-            CachedRiskBand = fp.CachedRiskBand,
+            // RiskBand derived at read (verified-aware), never a stored band.
+            CachedRiskBand = Mostlylucid.BotDetection.Identity.FingerprintRiskProjection.Compose(fp).RiskBand.ToString(),
             CachedScoreUpdatedAt = fp.CachedScoreUpdatedAt,
             FirstSeen = fp.FirstSeen,
             LastSeen = fp.LastSeen,
@@ -5853,7 +5855,8 @@ public class StyloBotDashboardMiddleware
                     if (fp is not null)
                     {
                         headlineProb = fp.CachedBotProbability;
-                        headlineRisk = fp.CachedRiskBand ?? latest.RiskBand;
+                        // Derived at read (verified-aware): a verified good bot reads Low here.
+                        headlineRisk = Mostlylucid.BotDetection.Identity.FingerprintRiskProjection.Compose(fp).RiskBand.ToString();
                         headlineConf = fp.InferredTypeConfidence;
                         headlineScoreUpdatedAt = fp.CachedScoreUpdatedAt;
                     }
@@ -6779,14 +6782,16 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         {
             var fp = await reader.GetFingerprintAsync(fpId, context.RequestAborted);
             if (fp is null) return null;
-            // Read the gateway's STORED verdict as-is. The dashboard never
-            // recomputes (that would be a second compute site / parasite). If the
-            // stored probability and band disagree, that is an UPSTREAM bug in
-            // how the gateway writes the fingerprint verdict — fix it there so
-            // every reader sees one consistent object — not by re-deriving here.
+            // The probability is a STORED fact read as-is (single source: the fingerprint
+            // LFU entry). The RiskBand is NOT stored -- it is a DERIVED value, computed here
+            // from that same entry's raw facts (probability + claim_status + bot type) via
+            // FingerprintRiskProjection, the SAME compute site every other reader uses. This
+            // is not a second source: it is the one derivation, run at read. Deriving here
+            // (rather than reading a stored band) is exactly what makes a verified good bot
+            // read Low instead of BucketRisk(1.0)=VeryHigh.
             return new FingerprintVerdict(
                 Probability: fp.CachedBotProbability,
-                RiskBand: fp.CachedRiskBand,
+                RiskBand: BotDetection.Identity.FingerprintRiskProjection.Compose(fp).RiskBand.ToString(),
                 Confidence: fp.InferredTypeConfidence,
                 Name: fp.InducedName ?? fp.LlmName,
                 UpdatedAt: fp.CachedScoreUpdatedAt);
