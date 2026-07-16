@@ -1,0 +1,29 @@
+Origin: StyloBot
+Label: StyloBot
+Suite: stable
+Codename: stable
+Date: Thu, 16 Jul 2026 14:55:19 UTC
+Architectures: amd64 arm64
+Components: main
+Description: StyloBot - self-hosted bot detection gateway (apt repository)
+MD5Sum:
+ 3a48544bd247b637d501ec64c35d9810 614 main/binary-amd64/Packages
+ 3ebae99625bd31c41b9ea35cb9578a41 446 main/binary-amd64/Packages.gz
+ 9e2d38ba39c3c70e15473e4c361d4577 160 main/binary-amd64/Release
+ a8ab9dc79eb7744f56b06befa75d2e90 614 main/binary-arm64/Packages
+ 2d4a53a4590fb3436812cd8f7639fd29 447 main/binary-arm64/Packages.gz
+ 0e665c3008a34af283e0813a9116a921 160 main/binary-arm64/Release
+SHA1:
+ b82de14ac422df3839cca9832c09bc609d55d5d3 614 main/binary-amd64/Packages
+ ab918f14d905e106997d3bc39b4feb7a4013be0f 446 main/binary-amd64/Packages.gz
+ 536177db9fa93adf9d200efdffc081137e9c968a 160 main/binary-amd64/Release
+ 091c2bdb7275153b141bb2df27768ad74b0f9e76 614 main/binary-arm64/Packages
+ 854b2beae5ff2b2158d29679c99a68215920a2db 447 main/binary-arm64/Packages.gz
+ f96bb0b4189388d86c97bca33cddd62a590af539 160 main/binary-arm64/Release
+SHA256:
+ 74f8496bca5b8034b95c3ae18aab5f5e5af016522201dbe1891fa5ccd4d6b660 614 main/binary-amd64/Packages
+ e8cb440643e3e00cd3fd832fccd16b92c395b892a6dbfc99d662284ddb232bf1 446 main/binary-amd64/Packages.gz
+ e31655c96f09e88ef86d30a4b6112fe69005576b66822d87b750f63666b9073d 160 main/binary-amd64/Release
+ 32ae04119403086e14e0453c6b4acbbffb8c221e89f2543c0b1ad4753551f555 614 main/binary-arm64/Packages
+ bf7f357bf642cdd0e9c4b7c840cb8f36455fafdedbaf746f01fa784ce1be5dd5 447 main/binary-arm64/Packages.gz
+ 4213d6a5c33788c481735e8f1341af76c810bf5cce6bf549bcacf9d44e0148c0 160 main/binary-arm64/Release

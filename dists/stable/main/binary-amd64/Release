@@ -1,0 +1,6 @@
+Archive: stable
+Component: main
+Origin: StyloBot
+Label: StyloBot
+Architecture: amd64
+Description: StyloBot - self-hosted bot detection gateway (apt repository)
