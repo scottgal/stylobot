@@ -118,23 +118,25 @@ public sealed partial class FediverseDomainAtom : DetectorAtomBase
         if (string.IsNullOrEmpty(claimedInstance)) claimedInstance = domain;
         await TryForwardDnsConfirmAsync(sink, sessionId, context, claimedInstance, ct).ConfigureAwait(false);
 
-        return Single(verified.Value
-            ? new DetectionContribution
+        if (verified.Value)
+            return Single(new DetectionContribution
             {
                 DetectorName = Name,
                 Category = Category,
                 ConfidenceDelta = -0.4,
                 Weight = 1.0,
                 Reason = $"Fediverse instance verified via NodeInfo: {domain}"
-            }
-            : new DetectionContribution
-            {
-                DetectorName = Name,
-                Category = Category,
-                ConfidenceDelta = 0.3,
-                Weight = 1.0,
-                Reason = $"UA claims fediverse but NodeInfo lookup failed for {domain} (likely spoofed)"
             });
+
+        // NodeInfo did NOT confirm -- but "false" here conflates a TRANSIENT lookup
+        // failure (timeout / 5xx / unreachable) with a resolved non-fediverse response.
+        // A failed/absent verification is a MISSING signal, not proof of spoofing
+        // ("fail trips bot" is the bug class we guard against). Do not push toward bot;
+        // the forward-DNS confirm above binds the claim to the IP when it can. Neutral
+        // note only. (A fuller fix would tri-state the verifier: transient-fail -> neutral,
+        // resolved-mismatch -> weak penalty.)
+        return Single(DetectionContribution.Info(Name, Category,
+            $"Fediverse UA claim for {domain} not confirmed via NodeInfo (unverified, not spoofed)"));
     }
 
     /// <summary>
