@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Risk;
@@ -117,11 +118,14 @@ public static class ReadEndpoints
             var agg = await signatureCache.GetOrLoadAsync(signature);
             if (agg is not null)
             {
-                // Resolved name comes from the cache's store-gated dict, NOT from
-                // a per-detection field (which no longer exists). Null when no
-                // fingerprint has been allocated yet for this signature.
+                // Resolved name AND verdict scalars come from the cache's store-gated
+                // read-through dicts (the fingerprint LFU is the single source), NOT
+                // from per-detection fields (which no longer exist on the aggregate).
+                // Null when no fingerprint has been allocated yet for this signature.
                 var det = SynthesizeDetectionFromAggregate(
-                    signature, agg, signatureCache.GetResolvedName(signature));
+                    signature, agg,
+                    signatureCache.GetResolvedName(signature),
+                    signatureCache.GetResolvedVerdict(signature));
                 return TypedResults.Ok(new PaginatedResponse<DashboardDetectionEvent>
                 {
                     Data = new List<DashboardDetectionEvent> { det },
@@ -157,17 +161,21 @@ public static class ReadEndpoints
     ///     doesn't track per-request rows.
     /// </summary>
     private static DashboardDetectionEvent SynthesizeDetectionFromAggregate(
-        string signature, SignatureAggregate agg, string? resolvedName) => new()
+        string signature, SignatureAggregate agg, string? resolvedName,
+        ResolvedVerdict? verdict) => new()
     {
         RequestId = "cache",
         Timestamp = agg.LastSeen == default ? DateTime.UtcNow : agg.LastSeen,
-        IsBot = agg.IsBot,
-        BotProbability = agg.BotProbability,
-        Confidence = agg.Confidence,
-        RiskBand = agg.RiskBand ?? "Unknown",
-        BotType = agg.BotType,
+        // Score/verdict scalars are read THROUGH the fingerprint LFU (single source)
+        // via the cache's resolved-verdict dict, exactly like the display name; null
+        // verdict projects to 0/null/"Unknown" defaults, the same as the name read.
+        IsBot = verdict?.IsBot ?? false,
+        BotProbability = verdict?.BotProbability ?? 0,
+        Confidence = verdict?.Confidence ?? 0,
+        RiskBand = verdict?.RiskBand ?? "Unknown",
+        BotType = verdict?.BotType,
         BotName = resolvedName,
-        Action = agg.Action,
+        Action = null,
         Method = "GET",
         Path = "/",
         StatusCode = 0,
@@ -178,10 +186,10 @@ public static class ReadEndpoints
         CountryCode = agg.CountryCode,
         Description = agg.Description,
         Narrative = agg.Narrative,
-        ThreatScore = agg.ThreatScore,
-        ThreatBand = agg.ThreatBand,
-        RiskJustification = agg.RiskJustification,
-        IsVerifiedBot = agg.IsVerifiedBot,
+        ThreatScore = verdict?.ThreatScore,
+        ThreatBand = verdict?.ThreatBand,
+        RiskJustification = null,
+        IsVerifiedBot = verdict?.IsVerifiedBot ?? false,
     };
 
     private static async Task<Ok<PaginatedResponse<DashboardSignatureEvent>>> HandleSignatures(

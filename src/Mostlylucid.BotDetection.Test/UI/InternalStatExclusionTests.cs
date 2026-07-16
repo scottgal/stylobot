@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -41,6 +42,29 @@ public sealed class InternalStatExclusionTests
     };
 
     /// <summary>
+    ///     Seed the cache's resolved-verdict dict the way the warmup service does from
+    ///     the fingerprint LFU (the single source). Score/verdict scalars are no longer
+    ///     stored on the aggregate; GetCounts / top-bots read them THROUGH this dict, so
+    ///     a test that feeds detections must also apply the resolved verdict to exercise
+    ///     the projection -- exactly as a name test applies the resolved name.
+    /// </summary>
+    private static void SeedVerdict(
+        SignatureAggregateCache cache, string sig, string botType, bool isBot,
+        double probability = 0.95)
+        => cache.ApplyResolvedVerdicts(new Dictionary<string, ResolvedVerdict>
+        {
+            [sig] = new ResolvedVerdict(
+                BotProbability: probability,
+                RiskBand: "Low",
+                BotType: botType,
+                Confidence: 0.9,
+                ThreatScore: null,
+                ThreatBand: null,
+                IsBot: isBot,
+                IsVerifiedBot: false),
+        });
+
+    /// <summary>
     ///     A health-probe entry (BotType = "Internal") in the signature cache must
     ///     NOT increment the All / Bots / Humans counters, but MUST appear in the
     ///     dedicated Internal counter.
@@ -54,6 +78,10 @@ public sealed class InternalStatExclusionTests
         cache.UpdateFromDetection(MakeDetection("sig-health",  "Internal",      isBot: false, probability: 0.05));
         cache.UpdateFromDetection(MakeDetection("sig-bot",     "SearchEngine",  isBot: true,  probability: 0.95));
         cache.UpdateFromDetection(MakeDetection("sig-human",   "Human",         isBot: false, probability: 0.10));
+        // Verdict scalars are read through the fingerprint LFU (single source); seed them.
+        SeedVerdict(cache, "sig-health", "Internal",     isBot: false, probability: 0.05);
+        SeedVerdict(cache, "sig-bot",    "SearchEngine", isBot: true,  probability: 0.95);
+        SeedVerdict(cache, "sig-human",  "Human",        isBot: false, probability: 0.10);
 
         var counts = cache.GetCounts();
 
@@ -79,6 +107,10 @@ public sealed class InternalStatExclusionTests
         cache.UpdateFromDetection(MakeDetection("sig-kube-2", "Internal", isBot: false, probability: 0.05));
         cache.UpdateFromDetection(MakeDetection("sig-kube-3", "Internal", isBot: false, probability: 0.05));
         cache.UpdateFromDetection(MakeDetection("sig-bot",    "SearchEngine", isBot: true, probability: 0.92));
+        SeedVerdict(cache, "sig-kube-1", "Internal",     isBot: false, probability: 0.05);
+        SeedVerdict(cache, "sig-kube-2", "Internal",     isBot: false, probability: 0.05);
+        SeedVerdict(cache, "sig-kube-3", "Internal",     isBot: false, probability: 0.05);
+        SeedVerdict(cache, "sig-bot",    "SearchEngine", isBot: true,  probability: 0.92);
 
         var counts = cache.GetCounts();
 
@@ -101,6 +133,9 @@ public sealed class InternalStatExclusionTests
         cache.UpdateFromDetection(MakeDetection("sig-bot1", "SearchEngine", isBot: true));
         cache.UpdateFromDetection(MakeDetection("sig-bot2", "AiScraper",   isBot: true));
         cache.UpdateFromDetection(MakeDetection("sig-human", "Human",      isBot: false, probability: 0.05));
+        SeedVerdict(cache, "sig-bot1",  "SearchEngine", isBot: true);
+        SeedVerdict(cache, "sig-bot2",  "AiScraper",    isBot: true);
+        SeedVerdict(cache, "sig-human", "Human",        isBot: false, probability: 0.05);
 
         var counts = cache.GetCounts();
 

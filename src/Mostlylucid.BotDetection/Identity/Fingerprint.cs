@@ -141,6 +141,39 @@ public sealed record Fingerprint
 }
 
 /// <summary>
+///     Projection-time read-through of the score/verdict scalars a dashboard row needs,
+///     resolved from the canonical <see cref="Fingerprint"/> in the LFU. The fingerprint
+///     LFU is the single source for these values; the dashboard's
+///     <c>SignatureAggregateCache</c> reads them through this record at projection time —
+///     EXACTLY like the display name is read through
+///     <see cref="IFingerprintStore.GetResolvedNamesBySignaturesAsync"/> — instead of
+///     storing a stale parallel copy per aggregate row.
+///     <para>
+///     Population from the fingerprint: <see cref="BotProbability"/> =
+///     <see cref="Fingerprint.CachedBotProbability"/>; <see cref="RiskBand"/> =
+///     <see cref="Fingerprint.CachedRiskBand"/>; <see cref="BotType"/> =
+///     <see cref="Fingerprint.InferredClientType"/> (the fingerprint's REAL inferred type —
+///     null when the fingerprint carries no type; NEVER the literal placeholder "Unknown",
+///     so the view falls through to entity-id / UA-family labels);
+///     <see cref="Confidence"/> = <see cref="Fingerprint.InferredTypeConfidence"/>;
+///     <see cref="IsBot"/> derived as <c>CachedBotProbability &gt;= 0.5</c> (the is-bot
+///     derivation the dashboard projection paths already use — the store carries no
+///     reachable BotThreshold); <see cref="IsVerifiedBot"/> from the fingerprint's
+///     <c>ClaimStatus == "verified"</c>. The fingerprint carries no threat scalars, so
+///     <see cref="ThreatScore"/> / <see cref="ThreatBand"/> default to null.
+///     </para>
+/// </summary>
+public sealed record ResolvedVerdict(
+    double BotProbability,
+    string? RiskBand,
+    string? BotType,
+    double Confidence,
+    double? ThreatScore,
+    string? ThreatBand,
+    bool IsBot,
+    bool IsVerifiedBot);
+
+/// <summary>
 ///     A candidate result from the index search — fingerprint id, the distance components that
 ///     drove its inclusion, and (lazily) the loaded fingerprint row.
 /// </summary>

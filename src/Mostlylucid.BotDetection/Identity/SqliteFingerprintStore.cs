@@ -1740,42 +1740,35 @@ public class SqliteFingerprintStore : IFingerprintStore
     public async Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default)
     {
-        // Confidence for the band derivation comes from the existing fingerprint
-        // (dict first, then DB). Absent (brand-new / unknown) → 0.0, the neutral
-        // low-confidence case BucketRisk already handles.
-        double confidence = 0.0;
-        if (_fingerprintById.TryGetValue(fingerprintId, out var existing))
-            confidence = existing.InferredTypeConfidence;
-        else
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+
+        // LFU-FIRST: the in-memory fingerprint dict is the live source of truth. Load it
+        // (cold-load if not resident), update it IN PLACE, then enqueue the durability
+        // write on the same drainer the hot path uses. NEVER write the DB and then evict
+        // -- that leaves every OTHER live reader (the dashboard signature-aggregate LFU)
+        // serving the pre-write score, producing the top-bots/detail divergence. Mirrors
+        // RecordVerdictWriteBehind; the only difference is the operator/AI verdict is
+        // authoritative so the probability is SET directly, not EWMA-blended.
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var existing))
         {
-            var loaded = await GetFingerprintAsync(fingerprintId, ct);
-            if (loaded is not null) confidence = loaded.InferredTypeConfidence;
+            existing = await GetFingerprintAsync(fingerprintId, ct);
+            if (existing is null) return;
         }
 
-        var consistentBand = DeriveConsistentBand(botProbability, confidence);
+        // Band is DERIVED from the probability (never the caller's free-text label) so a
+        // prob/band disagreement can't be introduced.
+        var consistentBand = DeriveConsistentBand(botProbability, existing.InferredTypeConfidence);
+        var now = DateTime.UtcNow;
 
-        await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE fingerprints
-               SET cached_bot_probability  = @prob,
-                   cached_risk_band        = @band,
-                   cached_score_updated_at = @ts
-             WHERE fingerprint_id = @id
-            """;
-        cmd.Parameters.AddWithValue("@prob", botProbability);
-        cmd.Parameters.AddWithValue("@band", consistentBand);
-        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("@id", fingerprintId);
-        await cmd.ExecuteNonQueryAsync(ct);
+        _fingerprintById[fingerprintId] = existing with
+        {
+            CachedBotProbability = botProbability,
+            CachedRiskBand       = consistentBand,
+            CachedScoreUpdatedAt = now
+        };
 
-        // LFU façade invalidation: drop the fingerprint row so the next read reloads
-        // the row we just rewrote, and bump the epoch so a concurrent GetFingerprintAsync
-        // that read the pre-write DB snapshot cannot repopulate the dict with the stale
-        // band after this removal. Matches the Postgres store (InvalidateFingerprintCache).
-        InvalidateFingerprintCache(fingerprintId);
+        EnsureNameDrainerStarted();
+        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, botProbability, consistentBand, now));
     }
 
     /// <summary>
@@ -2606,6 +2599,71 @@ public class SqliteFingerprintStore : IFingerprintStore
                 result[sig] = null;
 
         return result;
+    }
+
+    /// <summary>
+    ///     Bulk transparent-LFU read for the dashboard's score/verdict scalars. Mirror
+    ///     of <see cref="GetResolvedNamesBySignaturesAsync"/> for the verdict fields:
+    ///     for each signature, resolve <c>sig -&gt; fingerprint_id -&gt; Fingerprint</c>
+    ///     through the same two in-memory LFU dicts (<c>_fingerprintIdByPrimarySig</c> +
+    ///     <c>_fingerprintById</c>) the name read uses, and project the resident
+    ///     fingerprint to a <see cref="ResolvedVerdict"/>. Never touches the DB; reads
+    ///     the in-memory LFU map only. Signatures whose fingerprint is not resident are
+    ///     omitted (caller falls back to 0/null defaults, same as the name read returns
+    ///     null until resolved).
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, ResolvedVerdict>> GetResolvedVerdictsBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct)
+    {
+        var result = new Dictionary<string, ResolvedVerdict>(StringComparer.Ordinal);
+        if (primarySignatures.Count == 0)
+            return Task.FromResult<IReadOnlyDictionary<string, ResolvedVerdict>>(result);
+
+        foreach (var sig in primarySignatures)
+        {
+            if (string.IsNullOrEmpty(sig)) continue;
+            if (result.ContainsKey(sig)) continue;
+
+            if (_fingerprintIdByPrimarySig.TryGetValue(sig, out var fpId)
+                && _fingerprintById.TryGetValue(fpId, out var fp))
+            {
+                result[sig] = ProjectVerdict(fp);
+            }
+            // Cache miss: leave the signature out. Unlike the name read this does NOT
+            // fall back to a SQL roundtrip -- the verdict scalars are the freshest on
+            // the resident dict (write-behind LFU façade owns them), and a cold-miss
+            // signature has no row the dashboard is actively displaying yet. The caller
+            // treats a missing entry as "not resolved yet" and renders 0/null defaults.
+        }
+
+        return Task.FromResult<IReadOnlyDictionary<string, ResolvedVerdict>>(result);
+    }
+
+    /// <summary>
+    ///     Project a resident <see cref="Fingerprint"/> to the dashboard's
+    ///     <see cref="ResolvedVerdict"/>. BotType is the fingerprint's REAL inferred
+    ///     type; a null/empty or literal "unknown"/"Unknown" inferred type projects to
+    ///     null so the view falls through rather than emitting a placeholder. IsBot is
+    ///     derived from the cached probability with the 0.5 cut the dashboard projection
+    ///     paths already use (the store carries no reachable BotThreshold). IsVerifiedBot
+    ///     reads the fingerprint's persistent claim state.
+    /// </summary>
+    private static ResolvedVerdict ProjectVerdict(Fingerprint fp)
+    {
+        var botType = string.IsNullOrEmpty(fp.InferredClientType)
+                      || fp.InferredClientType.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : fp.InferredClientType;
+
+        return new ResolvedVerdict(
+            BotProbability: fp.CachedBotProbability,
+            RiskBand: fp.CachedRiskBand,
+            BotType: botType,
+            Confidence: fp.InferredTypeConfidence,
+            ThreatScore: null,
+            ThreatBand: null,
+            IsBot: fp.CachedBotProbability >= 0.5,
+            IsVerifiedBot: string.Equals(fp.ClaimStatus, "verified", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

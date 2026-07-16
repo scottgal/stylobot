@@ -211,6 +211,34 @@ public interface IFingerprintStore : IFingerprintReader
         CancellationToken ct);
 
     /// <summary>
+    ///     Bulk LFU read used by the dashboard for the per-signature score/verdict
+    ///     scalars (probability, risk band, bot type, confidence, threat, is-bot,
+    ///     verified). Mirrors <see cref="GetResolvedNamesBySignaturesAsync"/>: the
+    ///     fingerprint LFU is the single source for these values and the dashboard's
+    ///     <c>SignatureAggregateCache</c> reads them THROUGH this method at projection
+    ///     time instead of caching a stale parallel copy per aggregate row. Never
+    ///     touches the DB; reads the in-memory LFU map only. Signatures with no
+    ///     resident fingerprint are omitted from the result (the caller treats a
+    ///     missing entry as "not resolved yet" and falls back to 0/null defaults,
+    ///     the same as names return null until resolved). Default empty so read-only
+    ///     proxies and the null store (Identity:Enabled = false) opt out cleanly;
+    ///     only <see cref="SqliteFingerprintStore"/> (and the commercial store)
+    ///     override it.
+    ///     <para>
+    ///     TODO(commercial): <c>PostgreSQLFingerprintStore</c> in the
+    ///     stylobot-commercial repo must add the matching override — walk its
+    ///     resident fingerprint dict (signature → fingerprint) and map each to a
+    ///     <see cref="ResolvedVerdict"/> exactly as the SQLite store does. It lives
+    ///     in the other repo, so it is NOT touched here.
+    ///     </para>
+    /// </summary>
+    Task<IReadOnlyDictionary<string, ResolvedVerdict>> GetResolvedVerdictsBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures,
+        CancellationToken ct)
+        => Task.FromResult<IReadOnlyDictionary<string, ResolvedVerdict>>(
+            new Dictionary<string, ResolvedVerdict>(StringComparer.Ordinal));
+
+    /// <summary>
     ///     Atom-walk enumeration for the LLM picker: returns hot fingerprints
     ///     whose induced has drifted since the last LLM eval (or never).
     ///     Never touches the DB; reads the in-memory LFU map only.

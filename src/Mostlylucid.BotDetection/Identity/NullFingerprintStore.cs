@@ -142,6 +142,11 @@ public class NullFingerprintStore : IFingerprintStore
         return Task.FromResult<IReadOnlyDictionary<string, string?>>(result);
     }
 
+    public virtual Task<IReadOnlyDictionary<string, ResolvedVerdict>> GetResolvedVerdictsBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct)
+        => Task.FromResult<IReadOnlyDictionary<string, ResolvedVerdict>>(
+            new Dictionary<string, ResolvedVerdict>(StringComparer.Ordinal));
+
     public virtual IReadOnlyList<Fingerprint> EnumerateLlmRepickCandidates(int maxCount)
         => Array.Empty<Fingerprint>();
 
