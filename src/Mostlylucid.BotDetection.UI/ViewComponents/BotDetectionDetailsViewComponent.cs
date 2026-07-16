@@ -134,10 +134,20 @@ public class BotDetectionDetailsViewComponent : ViewComponent
             }
         }
 
-        // The view renders the bot-probability % iff the model has a real verdict. In-flight
-        // detection sets ProcessingTimeMs>0; the fp headline path sets HasVerdict above. Fold
-        // the in-flight case in so the view can gate on HasVerdict alone.
-        model = model with { HasVerdict = model.HasVerdict || model.ProcessingTimeMs > 0 };
+        // The view renders the bot-probability % iff the model has a real verdict. A detected
+        // request always has at least one of these sources, across every topology:
+        //   - in-flight detection (in-process): ProcessingTimeMs > 0 (AggregatedEvidence path).
+        //   - forwarded verdict (viewer host behind YARP, where AggregatedEvidence + a warm
+        //     fingerprint are BOTH absent -- YARP boundary + bypass-key DisableLearningWrites):
+        //     context.Items["BotDetectionResult"], header-hydrated. The extractor already set
+        //     BotProbability off its ConfidenceScore, but ProcessingTimeMs is 0, so it must be
+        //     its OWN HasVerdict source or the viewer hero shows "-".
+        //   - the visitor's fingerprint (the fp headline path above set HasVerdict).
+        // So the hero shows the real % for any detected request -- never "-".
+        var hasForwardedVerdict = context is not null
+            && context.Items.TryGetValue("BotDetectionResult", out var forwardedObj)
+            && forwardedObj is Mostlylucid.BotDetection.Models.BotDetectionResult;
+        model = model with { HasVerdict = model.HasVerdict || model.ProcessingTimeMs > 0 || hasForwardedVerdict };
 
         return View(viewName, model);
     }

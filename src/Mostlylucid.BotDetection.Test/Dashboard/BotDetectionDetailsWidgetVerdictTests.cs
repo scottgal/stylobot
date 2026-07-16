@@ -119,6 +119,25 @@ public class BotDetectionDetailsWidgetVerdictTests
     }
 
     [Fact]
+    public async Task ForwardedBotDetectionResult_viewer_host_shows_the_percent_never_dash()
+    {
+        // Viewer host behind YARP: no AggregatedEvidence (doesn't cross the boundary), fingerprint
+        // cold (bypass-key DisableLearningWrites suppresses the cached write), BUT the gateway
+        // forwarded the verdict -> context.Items["BotDetectionResult"] (header-hydrated). The hero
+        // MUST show that %, never "-". (Regression deploy caught on staging after 8b47b1cb.)
+        var reader = new Mock<IFingerprintReader>(MockBehavior.Loose); // GetFingerprintAsync -> null (cold)
+        var vc = NewComponent(reader.Object);
+        var ctx = new DefaultHttpContext();
+        ctx.Items["BotDetectionResult"] = new BotDetectionResult { ConfidenceScore = 0.86, IsBot = true };
+        SetHttpContext(vc, ctx);
+
+        var model = ModelOf(await vc.InvokeAsync());
+
+        Assert.True(model.HasVerdict);                        // the % renders, not "-"
+        Assert.Equal(0.86, model.BotProbability, precision: 3);
+    }
+
+    [Fact]
     public async Task NoFingerprint_and_no_inflight_verdict_leaves_HasVerdict_false_so_view_shows_dash()
     {
         // Genuinely unhydrated: no fingerprint id, no in-flight verdict. HasVerdict must stay false
