@@ -217,7 +217,13 @@ public sealed class VerifiedBotRegistry : IDisposable
         if (matchedBot.FcrDnsDomains is { Length: > 0 })
         {
             var verified = await VerifyFcrDnsAsync(clientIp, matchedBot.FcrDnsDomains);
-            return new VerifiedBotResult(matchedBot.Name, "fcrdns", verified);
+            // null = the DNS check couldn't run (transient failure/timeout). That is a
+            // MISSING signal, not a refutation -- report it as "none" (unverifiable) so
+            // the consumer does NOT brand it spoofed. Only a deterministic true/false
+            // is a real FCrDNS verdict.
+            return verified is null
+                ? new VerifiedBotResult(matchedBot.Name, "none", false)
+                : new VerifiedBotResult(matchedBot.Name, "fcrdns", verified.Value);
         }
 
         // No verification method available (shouldn't happen with current definitions)
@@ -442,7 +448,11 @@ public sealed class VerifiedBotRegistry : IDisposable
     ///     to claim "googlebot.com", but the forward lookup of that hostname won't resolve
     ///     back to the attacker's IP.
     /// </summary>
-    private async Task<bool> VerifyFcrDnsAsync(string clientIp, string[] allowedDomainPatterns)
+    // Returns true = FCrDNS verified, false = a DETERMINISTIC refutation (lookup ran,
+    // no PTR / hostname mismatch / forward mismatch), null = the check could NOT run
+    // (transient DNS failure or timeout). Null must NOT be read as spoofed -- "fail
+    // trips bot" is the bug we guard against; a failed check is a missing signal.
+    private async Task<bool?> VerifyFcrDnsAsync(string clientIp, string[] allowedDomainPatterns)
     {
         // Cache key includes the first domain pattern to prevent cross-bot cache pollution.
         // Without this, a Googlebot IP verified against *.googlebot.com could incorrectly
@@ -455,10 +465,8 @@ public sealed class VerifiedBotRegistry : IDisposable
         try
         {
             if (!IPAddress.TryParse(clientIp, out var ip))
-            {
-                CacheDnsResult(cacheKey, false, null);
-                return false;
-            }
+                // Unusable input, not a refutation -- couldn't verify. Don't poison the cache.
+                return null;
 
             // Step 1: Reverse DNS (PTR lookup) with timeout
             using var cts = new CancellationTokenSource(_dnsTimeout);
@@ -469,14 +477,13 @@ public sealed class VerifiedBotRegistry : IDisposable
             }
             catch (SocketException)
             {
-                CacheDnsResult(cacheKey, false, null);
-                return false;
+                // DNS infrastructure failure -- our check couldn't run. Not a spoof; retry next time.
+                return null;
             }
             catch (OperationCanceledException)
             {
                 _logger.LogDebug("FCrDNS reverse lookup timed out for {MaskedIP}", MaskIp(clientIp));
-                CacheDnsResult(cacheKey, false, null);
-                return false;
+                return null;
             }
 
             var hostname = hostEntry.HostName;
@@ -525,14 +532,13 @@ public sealed class VerifiedBotRegistry : IDisposable
             }
             catch (SocketException)
             {
-                CacheDnsResult(cacheKey, false, hostname);
-                return false;
+                // Forward-lookup infrastructure failure -- couldn't run the confirm. Not a spoof.
+                return null;
             }
             catch (OperationCanceledException)
             {
                 _logger.LogDebug("FCrDNS forward lookup timed out for hostname {Hostname}", hostname);
-                CacheDnsResult(cacheKey, false, hostname);
-                return false;
+                return null;
             }
 
             // Step 4: Verify the original IP is in the forward result

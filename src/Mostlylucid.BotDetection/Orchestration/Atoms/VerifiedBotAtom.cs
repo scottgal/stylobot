@@ -112,11 +112,11 @@ public sealed partial class VerifiedBotAtom : DetectorAtomBase
         sink.Raise($"{SignalKeys.VerifiedBotChecked}:true", sessionId);
         sink.Raise($"{SignalKeys.VerifiedBotName}:{result.BotName}", sessionId);
         sink.Raise($"{SignalKeys.VerifiedBotMethod}:{result.VerificationMethod}", sessionId);
-        sink.Raise($"{SignalKeys.VerifiedBotConfirmed}:{(result.IsVerified ? "true" : "false")}", sessionId);
-        sink.Raise($"{SignalKeys.VerifiedBotSpoofed}:{(result.IsVerified ? "false" : "true")}", sessionId);
 
         if (result.IsVerified)
         {
+            sink.Raise($"{SignalKeys.VerifiedBotConfirmed}:true", sessionId);
+            sink.Raise($"{SignalKeys.VerifiedBotSpoofed}:false", sessionId);
             _logger.LogInformation("Verified bot: {BotName} via {Method}",
                 result.BotName, result.VerificationMethod);
 
@@ -130,6 +130,25 @@ public sealed partial class VerifiedBotAtom : DetectorAtomBase
                 });
         }
 
+        // "none" = we verified against NOTHING: no published IP ranges loaded AND no
+        // rDNS channel (or the rDNS check was transiently unavailable, which the
+        // registry maps to "none"). A MISSING expected signal is not evidence of
+        // spoofing -- do NOT raise verifiedbot.spoofed and do NOT brand the claim.
+        // Leave it unverified so the score stays uncertain (confidence impacted by
+        // the ABSENT signal), never falsely hostile. Verifying against none is invalid.
+        if (string.Equals(result.VerificationMethod, "none", StringComparison.Ordinal))
+        {
+            _logger.LogDebug(
+                "VerifiedBot: {BotName} UA claim could not be verified (no channel / lookup unavailable) -- not spoofed",
+                result.BotName);
+            return Single(DetectionContribution.Info(Name, Category,
+                $"{result.BotName} UA claim unverified: no published ranges and rDNS unavailable"));
+        }
+
+        // Genuine spoof: a deterministic reference WAS present and the IP failed it
+        // (ip_range with ranges loaded + IP not in them, or a resolved rDNS mismatch).
+        sink.Raise($"{SignalKeys.VerifiedBotConfirmed}:false", sessionId);
+        sink.Raise($"{SignalKeys.VerifiedBotSpoofed}:true", sessionId);
         _logger.LogWarning(
             "Spoofed bot UA: claims {BotName} but IP doesn't verify via {Method}",
             result.BotName, result.VerificationMethod);
