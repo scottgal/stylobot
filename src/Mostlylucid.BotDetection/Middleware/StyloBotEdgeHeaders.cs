@@ -38,24 +38,12 @@ public static class StyloBotEdgeHeaderNames
     public const string ProcessingMs = "X-Bot-Detection-ProcessingMs";
     public const string RequestId = "X-Bot-Detection-RequestId";
     public const string Result = "X-Bot-Detection-Result";
-    // The 8 behavioural-shape radar axes (VectorRadarProjection order:
-    // Browsing,APIActivity,Scan,Auth,Timing,Burst,Fingerprint,PathDiversity),
-    // comma-joined F3. Lets a downstream self-detection surface draw the SAME
-    // polygon the dashboard does without recomputing or reading the DB.
-    public const string RadarAxes = "X-Bot-Detection-RadarAxes";
-
-    /// <summary>
-    ///     HttpContext.Items key the hydrator writes the parsed radar axes (double[8])
-    ///     under, and downstream self-detection surfaces read. Shared const so the
-    ///     writer/hydrator/reader can't drift on a magic string.
-    /// </summary>
-    public const string RadarAxesItemKey = "BotDetection.RadarAxes";
 
     public static readonly string[] All =
     [
         IdentityFingerprint, PrimarySignature, IpSignature, UaSignature, EntityId,
         Probability, Confidence, RiskBand, ThreatBand, BotName, BotType, Action, Policy, ProcessingMs,
-        RequestId, Result, RadarAxes
+        RequestId, Result
     ];
 }
 
@@ -136,7 +124,6 @@ public sealed class StyloBotForwardedHeadersMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly bool _enabled;
-    private readonly bool _emitRadarAxes;
     private readonly ILogger<StyloBotForwardedHeadersMiddleware> _logger;
 
     public StyloBotForwardedHeadersMiddleware(
@@ -146,7 +133,6 @@ public sealed class StyloBotForwardedHeadersMiddleware
     {
         _next = next;
         _enabled = options.Value.ForwardedHeaders.EmitOnForwardedRequest;
-        _emitRadarAxes = options.Value.ForwardedHeaders.EmitRadarAxes;
         _logger = logger;
     }
 
@@ -192,37 +178,6 @@ public sealed class StyloBotForwardedHeadersMiddleware
 
         if (!string.IsNullOrEmpty(primarySig))
             context.Request.Headers[StyloBotEdgeHeaderNames.PrimarySignature] = primarySig;
-
-        // Behavioural-shape radar axes: project the visitor's HOT session vector
-        // (encoder LFU cache — their own fingerprint is high in the LFU by definition)
-        // with the SAME VectorRadarProjection the dashboard uses, and forward the 8
-        // axes so a downstream self-detection surface (the marketing "Your Detection"
-        // radar) draws an identical polygon without recomputing it or reading the DB.
-        // Defensive: a cache miss or throw omits the header (downstream renders no
-        // radar) but never fails the proxied request.
-        if (_emitRadarAxes && !string.IsNullOrEmpty(primarySig))
-        {
-            try
-            {
-                var encoderCache = context.RequestServices.GetService<Identity.EncoderResultCache>();
-                if (encoderCache is not null
-                    && encoderCache.TryGet(primarySig, out var sessionVector)
-                    && sessionVector is { Length: > 0 })
-                {
-                    var axes = Analysis.VectorRadarProjection.Project(sessionVector);
-                    if (axes is { Length: 8 })
-                    {
-                        var inv = System.Globalization.CultureInfo.InvariantCulture;
-                        context.Request.Headers[StyloBotEdgeHeaderNames.RadarAxes] =
-                            string.Join(",", Array.ConvertAll(axes, a => a.ToString("F3", inv)));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Radar-axes forward failed for primarySig={Sig}", primarySig);
-            }
-        }
 
         // Entity id: the durable handle the downstream dashboard URLs against.
         // PrimarySignature can rotate (UA / IP shift), the fingerprint id can

@@ -4555,17 +4555,6 @@ public class EdgeForwardedHeadersOptions
     ///     never needs to see detection state.
     /// </summary>
     public bool EmitOnForwardedRequest { get; set; } = true;
-
-    /// <summary>
-    ///     Also emit the 8 behavioural-shape radar axes (projected from the visitor's
-    ///     hot session vector in the encoder LFU cache via
-    ///     <see cref="Analysis.VectorRadarProjection"/>) as a compact header, so a
-    ///     downstream self-detection surface (the marketing "Your Detection" radar)
-    ///     renders the SAME polygon the dashboard does without recomputing it or
-    ///     reading the DB. Requires <see cref="EmitOnForwardedRequest"/>. Default on;
-    ///     turn off to shave the header on gateways whose upstreams don't draw a radar.
-    /// </summary>
-    public bool EmitRadarAxes { get; set; } = true;
 }
 
 /// <summary>

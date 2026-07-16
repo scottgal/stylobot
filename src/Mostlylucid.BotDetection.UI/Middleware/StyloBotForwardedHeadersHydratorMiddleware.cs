@@ -86,31 +86,6 @@ public sealed class StyloBotForwardedHeadersHydratorMiddleware
             };
         }
 
-        // Radar axes: the gateway projected the visitor's hot session vector (encoder
-        // LFU) through VectorRadarProjection and forwarded the 8 axes. Parse them so
-        // the self-detection radar draws the SAME polygon the dashboard does — no
-        // recompute, no DB read. Malformed/absent header just leaves the radar unset.
-        var radarHeader = TryGet(headers, StyloBotEdgeHeaderNames.RadarAxes);
-        if (!string.IsNullOrEmpty(radarHeader))
-        {
-            var parts = radarHeader.Split(',');
-            if (parts.Length == 8)
-            {
-                var axes = new double[8];
-                var ok = true;
-                for (var i = 0; i < 8; i++)
-                {
-                    if (!double.TryParse(parts[i], System.Globalization.NumberStyles.Float,
-                            System.Globalization.CultureInfo.InvariantCulture, out axes[i]))
-                    {
-                        ok = false;
-                        break;
-                    }
-                }
-                if (ok) context.Items[StyloBotEdgeHeaderNames.RadarAxesItemKey] = axes;
-            }
-        }
-
         return _next(context);
     }
 
