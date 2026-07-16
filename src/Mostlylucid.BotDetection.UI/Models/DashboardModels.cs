@@ -18,7 +18,10 @@ public sealed record DashboardDetectionEvent
     public string? PolicyName { get; init; }
     public required string Method { get; init; }
     public required string Path { get; init; }
-    public int StatusCode { get; init; }
+    // Settable (not init) so the broadcast middleware can stamp the FINAL downstream status
+    // after _next without allocating a whole-record `with` copy per request. This is a
+    // transient per-request DTO, not shared/cached state, so a mutable field is safe here.
+    public int StatusCode { get; set; }
     public double ProcessingTimeMs { get; init; }
     /// <summary>Always null. Raw IPs are never persisted (zero-PII design). Present for interface compatibility only.</summary>
     public string? IpAddress { get; init; }

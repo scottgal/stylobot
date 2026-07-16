@@ -306,8 +306,9 @@ public partial class DetectionBroadcastMiddleware
         // throttle 429, etc. A detection built on the pre-_next upstream/gateway path (evidence
         // already in context.Items before _next) captured the pre-_next default, so every
         // honeypot 404 / bad-request 400 was persisted as 200 and the dashboard status filter +
-        // honeypot view went empty. Overwrite here so the recorded status_code is the real one.
-        detection = detection with { StatusCode = context.Response.StatusCode };
+        // honeypot view went empty. Stamp it directly (StatusCode is a settable field on this
+        // transient per-request DTO) so we do NOT allocate a whole-record `with` copy per request.
+        detection.StatusCode = context.Response.StatusCode;
 
         // Capture everything we need by value BEFORE spawning the task; context may
         // be disposed before the task runs.
