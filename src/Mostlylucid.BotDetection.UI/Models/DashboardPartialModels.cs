@@ -319,8 +319,14 @@ public sealed class EndpointDetailModel
     public string NavBasePath { get; init; } = "";
     public string ResolvedNavBasePath => string.IsNullOrEmpty(NavBasePath) ? BasePath : NavBasePath;
 
-    /// <summary>Hub path for SignalR (forwarded to client-side widgets that need it).</summary>
-    public string HubPath { get; init; } = "/dashboard/hub";
+    /// <summary>
+    ///     Hub path for SignalR (forwarded to client-side widgets that need it).
+    ///     Default matches <see cref="Configuration.StyloBotDashboardOptions.HubPath"/>
+    ///     (<c>/stylobot/hub</c>) — the mapped hub. A stale <c>/dashboard/hub</c> here 404'd
+    ///     the marketing live-preview negotiate; renderers should still pass the configured
+    ///     HubPath so a STYLOBOT_HUB_PATH override wins.
+    /// </summary>
+    public string HubPath { get; init; } = "/stylobot/hub";
 }
 
 /// <summary>
