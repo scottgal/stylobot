@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     inferred_type_changed_at    TEXT NOT NULL,
     cached_bot_probability      REAL NOT NULL DEFAULT 0,
     cached_risk_band            TEXT,
+    -- Cached CATALOGUE bot type (Internal / SearchEngine / AiBot / Tool / GoodBot / ...).
+    -- Written alongside cached_bot_probability on the verdict write path so the
+    -- dashboard reads the real catalogue type through the LFU; NULL until a verdict
+    -- write lands. Distinct from inferred_client_type (identity axis).
+    cached_bot_type             TEXT,
     cached_score_updated_at     TEXT,
     ambiguity_persistence       REAL NOT NULL DEFAULT 0,
     -- 2026-06-27 three-slot name model (Induced / Llm / Given), strict

@@ -22,6 +22,19 @@ public sealed record Fingerprint
     public required DateTime InferredTypeChangedAt { get; init; }
     public double CachedBotProbability { get; init; }
     public string? CachedRiskBand { get; init; }
+
+    /// <summary>
+    ///     Cached CATALOGUE bot type -- the dashboard's classification vocabulary
+    ///     (<c>Internal</c>, <c>SearchEngine</c>, <c>AiBot</c>, <c>Tool</c>,
+    ///     <c>GoodBot</c>, ...) from <see cref="Models.BotType"/>. Written alongside
+    ///     <see cref="CachedBotProbability"/> on the verdict write path (same single
+    ///     source of truth), so the dashboard's Internal-exclusion and ai/search/tools
+    ///     filters read the real catalogue type through the LFU. Distinct from
+    ///     <see cref="InferredClientType"/> (the bot/suspicious/human/archetype
+    ///     identity axis, which never produces the catalogue vocabulary). Nullable:
+    ///     null on rows with no verdict yet or written before the column existed.
+    /// </summary>
+    public string? CachedBotType { get; init; }
     public DateTime? CachedScoreUpdatedAt { get; init; }
 
     /// <summary>
@@ -152,8 +165,9 @@ public sealed record Fingerprint
 ///     Population from the fingerprint: <see cref="BotProbability"/> =
 ///     <see cref="Fingerprint.CachedBotProbability"/>; <see cref="RiskBand"/> =
 ///     <see cref="Fingerprint.CachedRiskBand"/>; <see cref="BotType"/> =
-///     <see cref="Fingerprint.InferredClientType"/> (the fingerprint's REAL inferred type —
-///     null when the fingerprint carries no type; NEVER the literal placeholder "Unknown",
+///     <see cref="Fingerprint.CachedBotType"/> (the fingerprint's cached CATALOGUE botType —
+///     the dashboard's Internal/SearchEngine/AiBot/Tool/GoodBot vocabulary; null when the
+///     fingerprint carries no type; NEVER the literal placeholder "Unknown",
 ///     so the view falls through to entity-id / UA-family labels);
 ///     <see cref="Confidence"/> = <see cref="Fingerprint.InferredTypeConfidence"/>;
 ///     <see cref="IsBot"/> derived as <c>CachedBotProbability &gt;= 0.5</c> (the is-bot

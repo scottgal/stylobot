@@ -59,7 +59,8 @@ public class NullFingerprintStore : IFingerprintStore
         => Task.CompletedTask;
 
     public Task RecordVerdictAsync(
-        string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default)
+        string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default,
+        string? botType = null)
         => Task.CompletedTask;
 
     public Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default)

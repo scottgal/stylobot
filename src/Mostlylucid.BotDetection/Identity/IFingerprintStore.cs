@@ -53,7 +53,8 @@ public interface IFingerprintStore : IFingerprintReader
         string fingerprintId,
         double botProbability,
         string? riskBand,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? botType = null);
 
     /// <summary>
     ///     Hot-path variant of <see cref="RecordVerdictAsync"/>: blends the per-request
@@ -61,10 +62,13 @@ public interface IFingerprintStore : IFingerprintReader
     ///     opening NO connection on the caller thread, so detection can record every request's
     ///     verdict without a per-request DB connection. The risk band is derived from the blended
     ///     score inside the store, never supplied by the caller, so it stays consistent with the
-    ///     probability. Default no-op for stores that hold no resident dict (the null store);
-    ///     SQLite + the commercial store override it.
+    ///     probability. Optional <paramref name="botType"/> is the CATALOGUE bot type
+    ///     (Internal / SearchEngine / AiBot / Tool / GoodBot / ...) cached alongside the score
+    ///     so the dashboard reads the real catalogue vocabulary through the LFU; null preserves
+    ///     any existing stored type. Default no-op for stores that hold no resident dict (the
+    ///     null store); SQLite + the commercial store override it.
     /// </summary>
-    void RecordVerdictWriteBehind(string fingerprintId, double botProbability) { }
+    void RecordVerdictWriteBehind(string fingerprintId, double botProbability, string? botType = null) { }
 
     Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default);
 
