@@ -44,7 +44,6 @@ internal static class IdentityTestHelpers
         int centroidMaturity = 1,
         double quality = 0.8,
         double cachedBotProbability = 0.0,
-        string? cachedRiskBand = null,
         DateTime? cachedScoreUpdatedAt = null,
         string? displayName = null)
     {
@@ -68,7 +67,6 @@ internal static class IdentityTestHelpers
             InferredTypeConfidence = 1.0,
             InferredTypeChangedAt = now,
             CachedBotProbability = cachedBotProbability,
-            CachedRiskBand = cachedRiskBand,
             CachedScoreUpdatedAt = cachedScoreUpdatedAt,
             InducedName = displayName,
             InducedNameUpdatedAt = displayName is null ? default(DateTime?) : now

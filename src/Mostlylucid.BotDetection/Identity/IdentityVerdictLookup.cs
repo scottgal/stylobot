@@ -12,7 +12,8 @@ namespace Mostlylucid.BotDetection.Identity;
 public sealed record IdentityCachedVerdict(
     string FingerprintId,
     double BotProbability,
-    string? RiskBand,
+    string ClaimStatus,
+    string? BotType,
     DateTime UpdatedAtUtc,
     int ObservationCount,
     string InferredClientType);
@@ -61,7 +62,8 @@ public sealed class IdentityVerdictLookup
             return new IdentityCachedVerdict(
                 FingerprintId:       fp.FingerprintId,
                 BotProbability:      fp.CachedBotProbability,
-                RiskBand:            fp.CachedRiskBand,
+                ClaimStatus:         fp.ClaimStatus,
+                BotType:             fp.CachedBotType,
                 UpdatedAtUtc:        fp.CachedScoreUpdatedAt.Value,
                 ObservationCount:    fp.ObservationCount,
                 InferredClientType:  fp.InferredClientType ?? string.Empty);

@@ -205,6 +205,15 @@ internal static class IdentitySchema
             "ALTER TABLE fingerprint_modes DROP COLUMN inferred_archetype", ct);
         await TryDropColumnAsync(conn,
             "ALTER TABLE fingerprint_modes DROP COLUMN inferred_confidence", ct);
+
+        // 2026-07-16 -- drop cached_risk_band. It stored a value DERIVED from the
+        // probability (BucketRisk) as if it were a fact, so a verified good bot at
+        // probability 1.0 read VeryHigh (BucketRisk bypasses the composer's verified ->
+        // Low friendly-pin). RiskBand is now derived at read via FingerprintRiskProjection.
+        // The CREATE in identity_core.sql already omits it for fresh schemas; this carries
+        // existing databases forward.
+        await TryDropColumnAsync(conn,
+            "ALTER TABLE fingerprints DROP COLUMN cached_risk_band", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)

@@ -787,8 +787,8 @@ public static partial class SignalKeys
     /// <summary>double in [0,1]: EWMA of post-detection bot probability over recent observations of this fingerprint.</summary>
     public const string IdentityCachedBotProbability = "identity.cached_bot_probability";
 
-    /// <summary>String: cached risk band derived from cached_bot_probability.</summary>
-    public const string IdentityCachedRiskBand = "identity.cached_risk_band";
+    // No IdentityCachedRiskBand signal: the risk band is derived at read from the raw
+    // facts (probability + claim_status + bot type), never stored or signalled.
 
     /// <summary>String: archetype_id this fingerprint currently most resembles (cached on the row).</summary>
     public const string IdentityClientType = "identity.client_type";

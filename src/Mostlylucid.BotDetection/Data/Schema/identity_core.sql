@@ -24,7 +24,11 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     inferred_type_confidence    REAL NOT NULL,
     inferred_type_changed_at    TEXT NOT NULL,
     cached_bot_probability      REAL NOT NULL DEFAULT 0,
-    cached_risk_band            TEXT,
+    -- NOTE: no cached_risk_band column. RiskBand is DERIVED at read from
+    -- cached_bot_probability + claim_status + cached_bot_type via
+    -- FingerprintRiskProjection (verified-aware). Storing the band was the parasite
+    -- that made verified bots read VeryHigh. Legacy DBs carry the column until the
+    -- IdentitySchema DROP COLUMN migration removes it.
     -- Cached CATALOGUE bot type (Internal / SearchEngine / AiBot / Tool / GoodBot / ...).
     -- Written alongside cached_bot_probability on the verdict write path so the
     -- dashboard reads the real catalogue type through the LFU; NULL until a verdict

@@ -59,7 +59,8 @@ public class SbIdentitiesListViewComponent(
                 UnabsorbedObservations = unabsorbedByFp.GetValueOrDefault(fp.FingerprintId, 0),
                 CorrectionCount = fp.CorrectionCount,
                 CachedBotProbability = fp.CachedBotProbability,
-                CachedRiskBand = fp.CachedRiskBand,
+                // RiskBand derived at read (verified-aware), never a stored band.
+                CachedRiskBand = Mostlylucid.BotDetection.Identity.FingerprintRiskProjection.Compose(fp).RiskBand.ToString(),
                 CachedScoreUpdatedAt = fp.CachedScoreUpdatedAt,
                 FirstSeen = fp.FirstSeen,
                 LastSeen = fp.LastSeen,

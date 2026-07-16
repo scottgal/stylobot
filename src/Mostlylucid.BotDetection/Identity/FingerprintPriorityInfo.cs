@@ -8,7 +8,8 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     full <see cref="Fingerprint"/> record.
 ///     <list type="bullet">
 ///       <item><see cref="BotProbability"/> = <c>cached_bot_probability</c>.</item>
-///       <item><see cref="RiskBand"/> = <c>cached_risk_band</c>.</item>
+///       <item><see cref="RiskBand"/> = DERIVED at read from the probability
+///         (<c>BucketRisk</c>) in the priority scan; never a stored band.</item>
 ///       <item><see cref="LastSeen"/> = <c>last_seen</c> (recency term).</item>
 ///       <item><see cref="Protected"/> = <c>claim_status = 'verified'</c>. A
 ///         protected fingerprint is never evicted regardless of its score.</item>
