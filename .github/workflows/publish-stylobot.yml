@@ -498,13 +498,15 @@ jobs:
   # Cloudsmith apt repository publishing
   # -----------------------------------------------
   publish-linux-deb:
-    name: Publish Linux .deb to Cloudsmith
-    needs: [build-binaries, verify-binary]
+    name: Publish Linux .deb
+    # create-release too: this job now uploads the .deb assets to the release
+    # (consumed by publish-apt.yml), so the release must exist first.
+    needs: [build-binaries, verify-binary, create-release]
     runs-on: ubuntu-latest
     environment: production
 
     permissions:
-      contents: read
+      contents: write   # upload .deb assets to the release (consumed by publish-apt.yml)
       id-token: write
 
     steps:
@@ -590,7 +592,21 @@ jobs:
         oidc-namespace: ${{ secrets.CLOUDSMITH_NAMESPACE }}
         oidc-service-slug: ${{ secrets.CLOUDSMITH_SERVICE_SLUG }}
 
+    - name: Upload .deb assets to the release
+      # Primary apt channel: publish-apt.yml downloads these and builds the signed
+      # GitHub Pages apt repo (the self-hosted Cloudsmith replacement).
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION: ${{ steps.get_version.outputs.VERSION }}
+      run: |
+        gh release upload "allbot-v${VERSION}" debs/*.deb \
+          --repo "$GITHUB_REPOSITORY" --clobber
+
+    # Cloudsmith is the legacy apt host, now OFF by default (GitHub Pages via
+    # publish-apt.yml is primary). Set the repo variable PUBLISH_CLOUDSMITH=true
+    # to re-enable the mirror.
     - name: Push .deb packages to Cloudsmith
+      if: vars.PUBLISH_CLOUDSMITH == 'true'
       env:
         NS: ${{ secrets.CLOUDSMITH_NAMESPACE }}
       run: |
@@ -602,7 +618,8 @@ jobs:
             "$deb"
         done
 
-    - name: Published
+    - name: Published (Cloudsmith mirror)
+      if: vars.PUBLISH_CLOUDSMITH == 'true'
       env:
         DEB_VERSION: ${{ steps.get_version.outputs.DEB_VERSION }}
         NS: ${{ secrets.CLOUDSMITH_NAMESPACE }}
