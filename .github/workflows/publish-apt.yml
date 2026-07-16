@@ -81,17 +81,45 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         run: sudo apt-get update && sudo apt-get install -y reprepro
 
-      - name: Download .deb assets from the release
+      - name: Build .deb packages from the release linux tarballs
+        # Self-contained: build the .debs here from the release's linux tarballs rather
+        # than depending on pre-uploaded stylobot_*.deb assets (releases before the
+        # asset-upload change carry only the tarballs). Same recipe as
+        # publish-stylobot.yml's build_deb. Works on workflow_dispatch and on release.
         if: steps.guard.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          mkdir -p incoming
-          gh release download "allbot-v${VERSION}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "stylobot_*.deb" \
-            --dir incoming
+          set -euo pipefail
+          DEB_VERSION="${VERSION//-/\~}"   # debian versions use ~ for prereleases
+          mkdir -p incoming dl
+          gh release download "allbot-v${VERSION}" --repo "$GITHUB_REPOSITORY" --dir dl \
+            --pattern "stylobot-linux-x64.tar.gz" --pattern "stylobot-linux-arm64.tar.gz"
+
+          build_deb() {
+            local ARCH="$1" TARBALL="$2"
+            mkdir -p "extract/$ARCH"
+            tar -xzf "dl/$TARBALL" -C "extract/$ARCH"
+            local PKG="pkg_${ARCH}"
+            mkdir -p "$PKG/DEBIAN" "$PKG/usr/local/lib/stylobot" "$PKG/usr/local/bin" "$PKG/etc/ld.so.conf.d"
+            cp "extract/$ARCH/stylobot" "$PKG/usr/local/lib/stylobot/stylobot"
+            chmod 755 "$PKG/usr/local/lib/stylobot/stylobot"
+            find "extract/$ARCH" -maxdepth 1 -name "*.so" -exec cp {} "$PKG/usr/local/lib/stylobot/" \;
+            cp "extract/$ARCH/appsettings.json" "$PKG/usr/local/lib/stylobot/" 2>/dev/null || true
+            cp "extract/$ARCH/appsettings.production.json" "$PKG/usr/local/lib/stylobot/" 2>/dev/null || true
+            ln -sf /usr/local/lib/stylobot/stylobot "$PKG/usr/local/bin/stylobot"
+            echo "/usr/local/lib/stylobot" > "$PKG/etc/ld.so.conf.d/stylobot.conf"
+            printf '#!/bin/sh\nset -e\nldconfig\n' > "$PKG/DEBIAN/postinst"; chmod 755 "$PKG/DEBIAN/postinst"
+            printf '#!/bin/sh\nset -e\nldconfig\n' > "$PKG/DEBIAN/postrm";  chmod 755 "$PKG/DEBIAN/postrm"
+            printf 'Package: stylobot\nVersion: %s\nArchitecture: %s\nMaintainer: Scott Galloway <scott@mostlylucid.net>\nDescription: StyloBot - self-hosted bot detection gateway\n YARP reverse proxy with bot detection middleware. Blocks scrapers,\n AI crawlers, and malicious bots with <1ms overhead. Native AOT binary.\nHomepage: https://github.com/scottgal/stylobot\nSection: net\nPriority: optional\n' \
+              "${DEB_VERSION}" "${ARCH}" > "$PKG/DEBIAN/control"
+            dpkg-deb --build --root-owner-group "$PKG" "incoming/stylobot_${DEB_VERSION}_${ARCH}.deb"
+          }
+
+          build_deb amd64 stylobot-linux-x64.tar.gz
+          build_deb arm64 stylobot-linux-arm64.tar.gz
+          ls -lh incoming/
           ls -l incoming
 
       - name: Import signing key + preset passphrase for non-interactive reprepro signing
