@@ -16,7 +16,7 @@ namespace Mostlylucid.BotDetection.UI.Models.Dashboard.Site;
 ///         <item><description>
 ///             Top visitors for this endpoint, filtered out of
 ///             <see cref="Services.SignatureAggregateCache"/> by
-///             <see cref="CachedVisitor.LastPath"/>.
+///             <see cref="ProjectedVisitor.LastPath"/>.
 ///         </description></item>
 ///         <item><description>
 ///             Optional PolicyStack indicator scoped to the endpoint via the
@@ -53,7 +53,7 @@ public sealed record SiteEndpointDetailModel(
     string Method,
     string Path,
     SiteEndpointTimeseries Timeseries,
-    IReadOnlyList<CachedVisitor> TopVisitors,
+    IReadOnlyList<ProjectedVisitor> TopVisitors,
     PolicyScope? PolicyScope,
     SiteEndpointPerf? Perf);
 

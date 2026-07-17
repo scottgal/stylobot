@@ -123,7 +123,7 @@
     var countriesData = countriesTask.Result;
     var endpointsData = endpointsTask.Result;
 
-    // Project to the shared CachedVisitor shape — same helper Visitors page
+    // Project to the shared ProjectedVisitor shape — same helper Visitors page
     // uses, so all post-filter semantics (country / bot_type / threat) match
     // exactly. Applied AFTER the audience pill so chip + pill compose.
     var (visitors, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
@@ -213,7 +213,7 @@
         var restFams = byFamily.Skip(famTopN).ToList();
         var famNames = topFams.Select(t => t.Family).ToList();
         var famSeries = new List<IReadOnlyList<int>>(topFams.Count + (restFams.Count > 0 ? 1 : 0));
-        int[] BucketFamily(IReadOnlyList<CachedVisitor> rows)
+        int[] BucketFamily(IReadOnlyList<ProjectedVisitor> rows)
         {
             var arr = new int[bucketCount];
             foreach (var v in rows)

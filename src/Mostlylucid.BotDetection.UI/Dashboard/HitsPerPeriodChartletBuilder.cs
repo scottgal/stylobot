@@ -5,7 +5,7 @@ using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
 namespace Mostlylucid.BotDetection.UI.Dashboard;
 
 /// <summary>
-///     Projects the same <see cref="CachedVisitor"/> rows that feed the Traffic
+///     Projects the same <see cref="ProjectedVisitor"/> rows that feed the Traffic
 ///     page's side panels into a <see cref="ChartletViewModel"/> ready for the
 ///     shared <c>SbChartlet</c> view component. One series per known bot family
 ///     (plus Human / Suspicious / Unknown bucket), stacked on the period
@@ -31,7 +31,7 @@ namespace Mostlylucid.BotDetection.UI.Dashboard;
 ///         No new data path: the rows come from the existing
 ///         event-store-driven projection in <c>TrafficController.Index</c>.
 ///         Each visitor's full hit count lands in its
-///         <see cref="CachedVisitor.LastSeen"/> bucket -- the same
+///         <see cref="ProjectedVisitor.LastSeen"/> bucket -- the same
 ///         single-bucket limitation the SVG timeseries chart already lives
 ///         with.
 ///     </para>
@@ -66,7 +66,7 @@ public static class HitsPerPeriodChartletBuilder
     ///     are still accepted so bookmarked URLs keep rendering; bucket
     ///     density adapts so the X-axis stays readable in every case.
     /// </summary>
-    public static ChartletViewModel Build(IReadOnlyList<CachedVisitor> rows, string window)
+    public static ChartletViewModel Build(IReadOnlyList<ProjectedVisitor> rows, string window)
     {
         // UX1: 6h / 12h / 24h target a constant 72-bucket density at
         // 5-min / 10-min / 20-min granularity. Legacy tokens still work
@@ -273,11 +273,11 @@ public static class HitsPerPeriodChartletBuilder
     ///     Audience class for a row. Mirrors the thresholds the controller
     ///     already uses in <c>BuildTimeseries</c> / <c>BuildBotFamilies</c>:
     ///     &lt; 0.3 human, 0.3–0.8 suspicious, ≥ 0.8 bot. When the row is a
-    ///     bot, we prefer its <see cref="CachedVisitor.BotType"/> -- but only
+    ///     bot, we prefer its <see cref="ProjectedVisitor.BotType"/> -- but only
     ///     when it matches one of the known family keys; an unfamiliar value
     ///     routes to Unknown so the legend stays bounded.
     /// </summary>
-    private static string ResolveFamilyKey(CachedVisitor v)
+    private static string ResolveFamilyKey(ProjectedVisitor v)
     {
         var isBot = v.IsBot || v.BotProbability >= 0.8;
         if (!isBot)

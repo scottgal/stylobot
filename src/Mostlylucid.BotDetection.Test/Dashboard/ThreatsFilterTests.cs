@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Test.Dashboard;
 /// </summary>
 public class ThreatsFilterTests
 {
-    private static CachedVisitor Row(double prob, string? band, string? botType = "Scraper")
+    private static ProjectedVisitor Row(double prob, string? band, string? botType = "Scraper")
         => new()
         {
             PrimarySignature = $"sig-{prob:F2}-{band ?? "null"}",

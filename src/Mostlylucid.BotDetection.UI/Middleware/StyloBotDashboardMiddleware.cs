@@ -2775,7 +2775,7 @@ public class StyloBotDashboardMiddleware
 
         List<double> processingTimes, botProbabilities, confidences;
 
-        // CachedVisitor is a per-call projection (SignatureAggregateCache.Project copies
+        // ProjectedVisitor is a per-call projection (SignatureAggregateCache.Project copies
         // the ring buffers under the aggregate's SyncRoot before returning), so the
         // history queues are already stable snapshots -- no lock needed here.
         if (visitor != null)
@@ -3143,7 +3143,7 @@ public class StyloBotDashboardMiddleware
         model.BotBounceRate = botVisitors.Count > 0
             ? Math.Round((double)botVisitors.Count(v => v.Hits == 1) / botVisitors.Count * 100, 1) : 0;
 
-        static double AvgDuration(IReadOnlyList<CachedVisitor> visitors)
+        static double AvgDuration(IReadOnlyList<ProjectedVisitor> visitors)
         {
             var withDuration = visitors.Where(v => v.Hits > 1).ToList();
             if (withDuration.Count == 0) return 0;
@@ -5712,7 +5712,7 @@ public class StyloBotDashboardMiddleware
         List<double> botProbHistory = detections.AsEnumerable().Reverse().Select(d => d.BotProbability).ToList();
         List<double> confHistory = detections.AsEnumerable().Reverse().Select(d => d.Confidence).ToList();
         List<double> procTimeHistory = detections.AsEnumerable().Reverse().Select(d => (double)d.ProcessingTimeMs).ToList();
-        // CachedVisitor is a per-call projection; the underlying lock happens inside
+        // ProjectedVisitor is a per-call projection; the underlying lock happens inside
         // SignatureAggregateCache.Project so the fields read here are already stable.
         if (visitor != null)
         {

@@ -13,7 +13,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// </summary>
 public sealed class VisitorListModel
 {
-    public required IReadOnlyList<CachedVisitor> Visitors { get; init; }
+    public required IReadOnlyList<ProjectedVisitor> Visitors { get; init; }
     public required FilterCounts Counts { get; init; }
     public required string Filter { get; init; }
     public required string SortField { get; init; }
@@ -414,7 +414,7 @@ public sealed class SignatureDetailModel
     public string? RiskJustification { get; init; }
     public List<double>? SparklineData { get; init; }
 
-    // From CachedVisitor
+    // From ProjectedVisitor
     public List<string> Paths { get; init; } = [];
 
     /// <summary>

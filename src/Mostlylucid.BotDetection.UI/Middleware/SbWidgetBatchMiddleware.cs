@@ -1011,8 +1011,8 @@ public sealed class SbWidgetBatchMiddleware
     private static void PopulateSessionAnalytics(SummaryStatsModel model, SignatureAggregateCache signatureCache)
     {
         // pageSize > cache's MaxEntries returns the whole snapshot in one page.
-        const int maxCachedVisitors = 1_000;
-        var (allVisitors, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, maxCachedVisitors);
+        const int maxProjectedVisitors = 1_000;
+        var (allVisitors, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, maxProjectedVisitors);
 
         // Single pass to collect all counters — avoids 6 separate LINQ iterations over the same list.
         var activeThreshold = DateTime.UtcNow.AddMinutes(-5);

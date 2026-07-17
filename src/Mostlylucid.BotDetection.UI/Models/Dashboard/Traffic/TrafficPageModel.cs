@@ -17,7 +17,7 @@ public sealed record TrafficPageModel(
     IReadOnlyList<CountryRow> Countries,
     IReadOnlyList<BotTypeRow> BotTypes,
     IReadOnlyList<EndpointRow> TopEndpoints,
-    IReadOnlyList<CachedVisitor> TopVisitors,
+    IReadOnlyList<ProjectedVisitor> TopVisitors,
     IReadOnlyList<ThreatRow> Threats);
 
 /// <summary>

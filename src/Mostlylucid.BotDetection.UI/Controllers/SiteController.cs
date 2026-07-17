@@ -123,7 +123,7 @@ public sealed class SiteController : Controller
     ///     neither is available -- the view treats empty as the no-visitor
     ///     empty-state.
     /// </summary>
-    private async Task<IReadOnlyList<CachedVisitor>> ResolveVisitorsForEndpointAsync(
+    private async Task<IReadOnlyList<ProjectedVisitor>> ResolveVisitorsForEndpointAsync(
         string path, int windowMinutes, CancellationToken ct)
     {
         if (_events is not null)
@@ -150,7 +150,7 @@ public sealed class SiteController : Controller
             }
         }
 
-        if (_cache is null) return Array.Empty<CachedVisitor>();
+        if (_cache is null) return Array.Empty<ProjectedVisitor>();
 
         var (all, _, _, _) = _cache.GetFiltered(
             filter: "all", sortField: "lastSeen", sortDir: "desc",
@@ -169,7 +169,7 @@ public sealed class SiteController : Controller
     ///     operator pivots from the Traffic chart into a single endpoint.
     /// </summary>
     private static SiteEndpointTimeseries BuildEndpointTimeseries(
-        IReadOnlyList<CachedVisitor> rows, int minutes)
+        IReadOnlyList<ProjectedVisitor> rows, int minutes)
     {
         var now = DateTime.UtcNow;
         var bucketCount = Math.Min(60, Math.Max(1, minutes));

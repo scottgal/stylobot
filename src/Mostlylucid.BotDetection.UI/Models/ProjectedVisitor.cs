@@ -12,7 +12,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     allocating; nothing outside the cache should hold a reference long enough
 ///     for that to matter.
 /// </summary>
-public class CachedVisitor
+public class ProjectedVisitor
 {
     public required string PrimarySignature { get; set; }
     public int Hits { get; set; }

@@ -20,7 +20,7 @@ public sealed record BdfExportDocument
 
     public BdfSignatureInfo? Signature { get; init; }
 
-    // ── v2: behavioral history (ring buffers from CachedVisitor) ──
+    // ── v2: behavioral history (ring buffers from ProjectedVisitor) ──
 
     public BdfBehavioralHistory? BehavioralHistory { get; init; }
 

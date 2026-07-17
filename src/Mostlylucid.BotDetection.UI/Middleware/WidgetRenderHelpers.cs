@@ -11,7 +11,7 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 ///     Helpers shared between the FOSS dashboard middleware, view components, and
 ///     external dashboard consumers (the marketing website, third-party
 ///     embedders). Anything here is pure projection / shaping logic against the
-///     canonical <see cref="DashboardTopBotEntry"/> and <see cref="CachedVisitor"/>
+///     canonical <see cref="DashboardTopBotEntry"/> and <see cref="ProjectedVisitor"/>
 ///     shapes; no IO, no state. Public so remote-mode hosts (the website
 ///     controllers) can use the same projection logic the view components do --
 ///     stops controllers re-inventing visitor shaping and ending up with the
@@ -268,7 +268,7 @@ public static class WidgetRenderHelpers
 
     /// <summary>
     ///     Primitive-typed predicate overload so non-DashboardTopBotEntry surfaces
-    ///     (CachedVisitor in SignatureAggregateCache.GetFiltered, anything else) can
+    ///     (ProjectedVisitor in SignatureAggregateCache.GetFiltered, anything else) can
     ///     share the same "is safe to collapse" rule without re-implementing it.
     ///     A recognised <c>BotName</c> in the BotPatternLoader catalog is enough to
     ///     collapse -- BotType propagation through the persistence layer is best-
@@ -367,7 +367,7 @@ public static class WidgetRenderHelpers
 
     /// <summary>
     ///     Project a top-bots fetch (read-through path via IDashboardEventStore) into the
-    ///     CachedVisitor shape the Visitors-tab view consumes, applying the same audience
+    ///     ProjectedVisitor shape the Visitors-tab view consumes, applying the same audience
     ///     filter / sort / page rules <see cref="Services.SignatureAggregateCache.GetFiltered"/>
     ///     does. Counts header is computed from the full unfiltered projection so the
     ///     All / Humans / Bots header stays honest when an audience switch is active.
@@ -378,7 +378,7 @@ public static class WidgetRenderHelpers
     ///     up-to-date visitors.
     ///     </para>
     /// </summary>
-    public static (IReadOnlyList<CachedVisitor> Items, int TotalCount, FilterCounts Counts) ProjectAsVisitors(
+    public static (IReadOnlyList<ProjectedVisitor> Items, int TotalCount, FilterCounts Counts) ProjectAsVisitors(
         IEnumerable<DashboardTopBotEntry> source,
         string? filter,
         string sortField,
@@ -399,7 +399,7 @@ public static class WidgetRenderHelpers
         // case-insensitive identity key, every list view consistent.
         var collapsed = CollapseGroupableIdentities(source.ToList());
 
-        var snapshot = collapsed.Select(e => new CachedVisitor
+        var snapshot = collapsed.Select(e => new ProjectedVisitor
         {
             PrimarySignature = e.PrimarySignature,
             Hits = e.HitCount,
@@ -449,7 +449,7 @@ public static class WidgetRenderHelpers
         // Default (and humans/bots) EXCLUDE self-traffic, matching the middleware / store /
         // Postgres AudiencePredicate. "internal" shows only self; "all" shows the full mix.
         // ai/search/tools already exclude internal via their bot-type check.
-        IEnumerable<CachedVisitor> items = filter switch
+        IEnumerable<ProjectedVisitor> items = filter switch
         {
             "humans"   => snapshot.Where(v => !v.IsBot && !IsInternal(v)),
             "bots"     => snapshot.Where(v => v.IsBot && !IsInternal(v)),
@@ -544,6 +544,6 @@ public static class WidgetRenderHelpers
     // StyloBot talking to itself). Matches the middleware + Postgres definition
     // (SbWidgetBatchMiddleware.IsInternal, PostgreSQLDashboardEventStore.AudiencePredicate);
     // replaces the former fuzzy "no-geo + not-bot + low-prob" guess that misclassified.
-    private static bool IsInternal(CachedVisitor v)
+    private static bool IsInternal(ProjectedVisitor v)
         => string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
 }

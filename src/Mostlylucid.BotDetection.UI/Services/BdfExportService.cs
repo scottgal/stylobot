@@ -169,7 +169,7 @@ public class BdfExportService
         // 6. Filter important signals (FULL zero-PII pass)
         var importantSignals = FilterPiiSignals(latest.ImportantSignals, isBotDetected);
 
-        // 7. Build behavioral history from visitor cache. CachedVisitor is a per-call
+        // 7. Build behavioral history from visitor cache. ProjectedVisitor is a per-call
         // projection copied under the underlying aggregate's SyncRoot in
         // SignatureAggregateCache.Project, so the ring buffers are already stable
         // snapshots -- no lock needed at this layer.

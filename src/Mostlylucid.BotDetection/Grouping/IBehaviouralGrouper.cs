@@ -38,7 +38,7 @@ public interface IBehaviouralGrouper
 
 /// <summary>
 ///     Lightweight value passed to the grouper. Built from a
-///     <c>CachedVisitor</c>, <c>DashboardTopBotEntry</c>, or any other
+///     <c>ProjectedVisitor</c>, <c>DashboardTopBotEntry</c>, or any other
 ///     row-shaped type so consumers don't have to know about each other's
 ///     view-models. All fields optional except <see cref="Signature"/>.
 /// </summary>

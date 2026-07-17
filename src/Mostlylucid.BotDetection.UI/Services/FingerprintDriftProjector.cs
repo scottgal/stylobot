@@ -112,7 +112,7 @@ public static class FingerprintDriftProjector
     ///     there is no private cache.
     /// </summary>
     public static async Task EnrichVisitorsAsync(
-        IReadOnlyList<CachedVisitor> visitors,
+        IReadOnlyList<ProjectedVisitor> visitors,
         IServiceProvider services,
         CancellationToken ct = default,
         ILogger? logger = null)

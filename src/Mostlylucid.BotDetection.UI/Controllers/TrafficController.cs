@@ -316,10 +316,10 @@ public sealed class TrafficController : Controller
 
     /// <summary>
     ///     Bucket the visitor rows into a fixed-resolution timeseries split by
-    ///     audience class derived from <see cref="CachedVisitor.BotProbability"/>
+    ///     audience class derived from <see cref="ProjectedVisitor.BotProbability"/>
     ///     (&lt; 0.3 human, 0.3-0.8 suspicious, &gt;= 0.8 bot). The bucket count is
     ///     capped at 60 regardless of window so the chart axis stays readable.
-    ///     Limitation: <c>CachedVisitor</c> only carries the LastSeen timestamp,
+    ///     Limitation: <c>ProjectedVisitor</c> only carries the LastSeen timestamp,
     ///     so the visitor's full hit-count lands in the single LastSeen bucket
     ///     -- a precise per-event histogram is a follow-up that needs the
     ///     event store's per-bucket time-series endpoint. The headline counters
@@ -336,7 +336,7 @@ public sealed class TrafficController : Controller
     ///     null/blank BotType as "Unknown bot" so unclassified bots still show up
     ///     in the sub-stack instead of vanishing.
     /// </summary>
-    private static BotFamilySeries BuildBotFamilies(IReadOnlyList<CachedVisitor> rows, int windowMinutes)
+    private static BotFamilySeries BuildBotFamilies(IReadOnlyList<ProjectedVisitor> rows, int windowMinutes)
     {
         var (buckets, bucketSizeMin, _) = BuildBucketAxis(windowMinutes);
         var bucketCount = buckets.Length;
@@ -374,7 +374,7 @@ public sealed class TrafficController : Controller
     }
 
     private static int[] BucketFamily(
-        IReadOnlyList<CachedVisitor> rows, DateTime now,
+        IReadOnlyList<ProjectedVisitor> rows, DateTime now,
         int windowMinutes, int bucketSizeMin, int bucketCount)
     {
         var arr = new int[bucketCount];
@@ -468,7 +468,7 @@ public sealed class TrafficController : Controller
     // visitors come from a filter:"all" projection (which keeps internal for the Top
     // Visitors list), so exclude it here at the breakdown -- consistent with the
     // exclude-internal default on the summary bot-type breakdown + Top Bots.
-    private static IReadOnlyList<BotTypeRow> TopByBotType(IReadOnlyList<CachedVisitor> rows, int topN) =>
+    private static IReadOnlyList<BotTypeRow> TopByBotType(IReadOnlyList<ProjectedVisitor> rows, int topN) =>
         rows.Where(v => v.IsBot && !string.IsNullOrEmpty(v.BotType)
                         && !string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
             .GroupBy(v => v.BotType!)

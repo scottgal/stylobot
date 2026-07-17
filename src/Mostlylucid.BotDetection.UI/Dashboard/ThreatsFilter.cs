@@ -17,14 +17,14 @@ public static class ThreatsFilter
     /// <summary>
     ///     Selects, orders, and caps the visitor rows that surface on the
     ///     Threats panel. Inclusion rule: row is included when either
-    ///     <see cref="CachedVisitor.ThreatBand"/> is in the severe set
-    ///     (Medium / High / Critical) OR <see cref="CachedVisitor.BotProbability"/>
+    ///     <see cref="ProjectedVisitor.ThreatBand"/> is in the severe set
+    ///     (Medium / High / Critical) OR <see cref="ProjectedVisitor.BotProbability"/>
     ///     meets the configured floor. Ordering: severity band desc, then
-    ///     <see cref="CachedVisitor.BotProbability"/> desc — pin Critical
+    ///     <see cref="ProjectedVisitor.BotProbability"/> desc — pin Critical
     ///     above a high-probability None even when their probabilities tie.
     /// </summary>
-    public static IReadOnlyList<CachedVisitor> Apply(
-        IEnumerable<CachedVisitor> rows,
+    public static IReadOnlyList<ProjectedVisitor> Apply(
+        IEnumerable<ProjectedVisitor> rows,
         ThreatsOptions options)
     {
         ArgumentNullException.ThrowIfNull(rows);

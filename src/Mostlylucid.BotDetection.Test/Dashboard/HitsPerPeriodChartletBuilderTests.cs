@@ -5,7 +5,7 @@ namespace Mostlylucid.BotDetection.Test.Dashboard;
 
 /// <summary>
 ///     Pins the contract <c>HitsPerPeriodChartletBuilder</c> exposes to the
-///     Traffic page. The builder reads the same <see cref="CachedVisitor"/>
+///     Traffic page. The builder reads the same <see cref="ProjectedVisitor"/>
 ///     projection feeding the rest of the page (no new data store) and emits a
 ///     <c>ChartletViewModel</c> the shared <c>&lt;vc:sb-chartlet&gt;</c> partial
 ///     can render as a stacked bar with a click-to-drill on bot family.
@@ -18,9 +18,9 @@ public sealed class HitsPerPeriodChartletBuilderTests
         var now = DateTime.UtcNow;
         var rows = new[]
         {
-            new CachedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true,  Hits = 5, LastSeen = now.AddMinutes(-1) },
-            new CachedVisitor { PrimarySignature = "b", BotType = null,      IsBot = false, Hits = 3, LastSeen = now.AddMinutes(-1) },
-            new CachedVisitor { PrimarySignature = "c", BotType = "Scraper", IsBot = true,  Hits = 2, LastSeen = now.AddMinutes(-2) }
+            new ProjectedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true,  Hits = 5, LastSeen = now.AddMinutes(-1) },
+            new ProjectedVisitor { PrimarySignature = "b", BotType = null,      IsBot = false, Hits = 3, LastSeen = now.AddMinutes(-1) },
+            new ProjectedVisitor { PrimarySignature = "c", BotType = "Scraper", IsBot = true,  Hits = 2, LastSeen = now.AddMinutes(-2) }
         };
 
         var model = HitsPerPeriodChartletBuilder.Build(rows, window: "1h");
@@ -38,8 +38,8 @@ public sealed class HitsPerPeriodChartletBuilderTests
         var now = DateTime.UtcNow;
         var rows = new[]
         {
-            new CachedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true,  Hits = 5, LastSeen = now.AddMinutes(-1), BotProbability = 0.95 },
-            new CachedVisitor { PrimarySignature = "b", BotType = null,      IsBot = false, Hits = 3, LastSeen = now.AddMinutes(-1), BotProbability = 0.1 }
+            new ProjectedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true,  Hits = 5, LastSeen = now.AddMinutes(-1), BotProbability = 0.95 },
+            new ProjectedVisitor { PrimarySignature = "b", BotType = null,      IsBot = false, Hits = 3, LastSeen = now.AddMinutes(-1), BotProbability = 0.1 }
         };
 
         var model = HitsPerPeriodChartletBuilder.Build(rows, window: "1h");
@@ -53,7 +53,7 @@ public sealed class HitsPerPeriodChartletBuilderTests
     [Fact]
     public void Build_bucket_count_matches_window()
     {
-        var empty = Array.Empty<CachedVisitor>();
+        var empty = Array.Empty<ProjectedVisitor>();
 
         // UX1: 6h / 12h / 24h target a constant 72-bucket density (5/10/20 min).
         // 15m / 1h / 7d still resolve for bookmarked URLs.
@@ -72,7 +72,7 @@ public sealed class HitsPerPeriodChartletBuilderTests
         // UX1: 96%-bot column squashed the 4% human slice to one pixel on
         // a linear scale; switching to log makes both visible. This pins
         // the YScale so a regression doesn't silently revert to linear.
-        var model = HitsPerPeriodChartletBuilder.Build(Array.Empty<CachedVisitor>(), "6h");
+        var model = HitsPerPeriodChartletBuilder.Build(Array.Empty<ProjectedVisitor>(), "6h");
         Assert.Equal("logarithmic", model.Axes.YScale);
     }
 
@@ -82,7 +82,7 @@ public sealed class HitsPerPeriodChartletBuilderTests
         // UX2: gateway self-probes (Internal) are the largest series by
         // volume because StyloBot monitors itself. Default-hiding lets
         // the operator see actual customer traffic on first paint.
-        var model = HitsPerPeriodChartletBuilder.Build(Array.Empty<CachedVisitor>(), "6h");
+        var model = HitsPerPeriodChartletBuilder.Build(Array.Empty<ProjectedVisitor>(), "6h");
         var internalSeries = model.Series.Single(s => s.Key == "Internal");
         Assert.True(internalSeries.Hidden, "Internal series must start hidden so the chart doesn't open dominated by self-probes.");
 
@@ -99,7 +99,7 @@ public sealed class HitsPerPeriodChartletBuilderTests
     {
         var rows = new[]
         {
-            new CachedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true, Hits = 1, LastSeen = DateTime.UtcNow }
+            new ProjectedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true, Hits = 1, LastSeen = DateTime.UtcNow }
         };
 
         var model = HitsPerPeriodChartletBuilder.Build(rows, "1h");
@@ -115,7 +115,7 @@ public sealed class HitsPerPeriodChartletBuilderTests
         var now = DateTime.UtcNow;
         var rows = new[]
         {
-            new CachedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true, Hits = 7, LastSeen = now }
+            new ProjectedVisitor { PrimarySignature = "a", BotType = "Scraper", IsBot = true, Hits = 7, LastSeen = now }
         };
 
         var model = HitsPerPeriodChartletBuilder.Build(rows, "1h");
@@ -129,7 +129,7 @@ public sealed class HitsPerPeriodChartletBuilderTests
     [Fact]
     public void Build_uses_dashboard_color_semantics_per_family()
     {
-        var model = HitsPerPeriodChartletBuilder.Build(Array.Empty<CachedVisitor>(), "1h");
+        var model = HitsPerPeriodChartletBuilder.Build(Array.Empty<ProjectedVisitor>(), "1h");
 
         // Per project_dashboard_color_semantics: human=success, suspicious=warning,
         // bot families=danger, search/good=info, unknown=uncertain/info.

@@ -21,9 +21,9 @@ public sealed class ThreatsOptions
     public const string SectionName = "BotDetection:Ui:Threats";
 
     /// <summary>
-    ///     <see cref="Models.CachedVisitor.BotProbability"/> threshold (0..1)
+    ///     <see cref="Models.ProjectedVisitor.BotProbability"/> threshold (0..1)
     ///     at and above which a row qualifies for the Threats panel even when
-    ///     its <see cref="Models.CachedVisitor.ThreatBand"/> is not in the
+    ///     its <see cref="Models.ProjectedVisitor.ThreatBand"/> is not in the
     ///     severe set. 0.8 catches confidently-classified bot rows while
     ///     keeping ambiguous (0.4..0.7) traffic in the broader visitor table.
     /// </summary>

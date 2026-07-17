@@ -37,8 +37,8 @@ public class SbSummaryStatsViewComponent(
         // Fetch all cached visitors for summary totals. The cache's MaxEntries cap
         // (200 by default) bounds the snapshot; passing a larger pageSize just
         // returns everything in one page.
-        const int maxCachedVisitors = 1_000;
-        var (allVisitors, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, maxCachedVisitors);
+        const int maxProjectedVisitors = 1_000;
+        var (allVisitors, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, maxProjectedVisitors);
         var humanVisitors = allVisitors.Where(v => !v.IsBot).ToList();
         var botVisitors = allVisitors.Where(v => v.IsBot).ToList();
 
@@ -55,7 +55,7 @@ public class SbSummaryStatsViewComponent(
         model.BotBounceRate = botVisitors.Count > 0
             ? Math.Round((double)botVisitors.Count(v => v.Hits == 1) / botVisitors.Count * 100, 1) : 0;
 
-        static double AvgDuration(IReadOnlyList<CachedVisitor> visitors)
+        static double AvgDuration(IReadOnlyList<ProjectedVisitor> visitors)
         {
             var withDuration = visitors.Where(v => v.Hits > 1).ToList();
             if (withDuration.Count == 0) return 0;

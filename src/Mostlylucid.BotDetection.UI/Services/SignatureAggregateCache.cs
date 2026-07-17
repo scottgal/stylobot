@@ -34,7 +34,7 @@ public sealed class SignatureAggregateCache
     ///     per-detection write path does NOT touch this dict, so a banned-shape name
     ///     ("Win Chrome 149", "Akkoma ...") on a transient <c>DashboardDetectionEvent.BotName</c>
     ///     can never bleed into the dashboard rows. <see cref="ToEntry"/>,
-    ///     <see cref="ToCachedVisitor"/>, and the warmed cold-load paths read off this
+    ///     <see cref="ToProjectedVisitor"/>, and the warmed cold-load paths read off this
     ///     dict; lookups not yet populated leave the row's name null until a refresh
     ///     pulls it from the store.
     /// </summary>
@@ -661,7 +661,7 @@ public sealed class SignatureAggregateCache
     ///     in the hot tier. Callers wanting cold-tier fallback should use
     ///     <see cref="TryGet" /> + cold-tier seed.
     /// </summary>
-    public CachedVisitor? GetVisitor(string primarySignature)
+    public ProjectedVisitor? GetVisitor(string primarySignature)
     {
         return _entries.TryGetValue(primarySignature, out var agg)
             ? Project(primarySignature, agg)
@@ -675,12 +675,12 @@ public sealed class SignatureAggregateCache
     ///     against the canonical aggregate state; collapse-by-group folds
     ///     verified-bot identity rows into one card via the behavioural grouper.
     /// </summary>
-    public (IReadOnlyList<CachedVisitor> Items, int TotalCount, int Page, int PageSize) GetFiltered(
+    public (IReadOnlyList<ProjectedVisitor> Items, int TotalCount, int Page, int PageSize) GetFiltered(
         string? filter, string sortField, string sortDir, int page, int pageSize)
     {
         var snapshot = SnapshotAllAsVisitors();
 
-        IEnumerable<CachedVisitor> items = snapshot;
+        IEnumerable<ProjectedVisitor> items = snapshot;
 
         items = filter switch
         {
@@ -713,7 +713,7 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>Convenience overload preserving the old VisitorListCache shape.</summary>
-    public IReadOnlyList<CachedVisitor> GetFilteredVisitors(
+    public IReadOnlyList<ProjectedVisitor> GetFilteredVisitors(
         string? filter, string sortField, string sortDir, int limit = 50)
         => GetFiltered(filter, sortField, sortDir, page: 1, pageSize: limit).Items;
 
@@ -728,7 +728,7 @@ public sealed class SignatureAggregateCache
         // Exact marker, matching WidgetRenderHelpers.IsInternal + the middleware + Postgres, so
         // every read site (cache fast-path + event-store projection path) reports the same count
         // to the operator. Replaces the former fuzzy "no-geo + not-bot + low-prob" guess.
-        bool IsInternal(CachedVisitor v)
+        bool IsInternal(ProjectedVisitor v)
             => string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
         return new FilterCounts
         {
@@ -748,7 +748,7 @@ public sealed class SignatureAggregateCache
     ///     surface from <see cref="GetTopBots" /> which returns
     ///     <see cref="DashboardTopBotEntry" /> for the SbTopBots widget.
     /// </summary>
-    public IReadOnlyList<CachedVisitor> GetTopBotVisitors(int count = 5)
+    public IReadOnlyList<ProjectedVisitor> GetTopBotVisitors(int count = 5)
     {
         return SnapshotAllAsVisitors()
             .Where(v => v.IsBot)
@@ -759,9 +759,9 @@ public sealed class SignatureAggregateCache
 
     // ─── Visitor projection internals ─────────────────────────────────────
 
-    private List<CachedVisitor> SnapshotAllAsVisitors()
+    private List<ProjectedVisitor> SnapshotAllAsVisitors()
     {
-        var result = new List<CachedVisitor>(_entries.Count);
+        var result = new List<ProjectedVisitor>(_entries.Count);
         foreach (var kvp in _entries)
             result.Add(Project(kvp.Key, kvp.Value));
         return result;
@@ -769,23 +769,23 @@ public sealed class SignatureAggregateCache
 
     /// <summary>
     ///     Project a stable, lock-bounded snapshot of an aggregate as a
-    ///     <see cref="CachedVisitor" /> for the visitor card / list surfaces.
+    ///     <see cref="ProjectedVisitor" /> for the visitor card / list surfaces.
     ///     Held under SyncRoot so mutable collections (Paths, ring buffers)
     ///     don't tear during the copy. The visible <c>BotName</c> on the
     ///     projection is pulled from <see cref="_resolvedNames"/>, the
     ///     store-gated read of <c>Fingerprint.DisplayName</c>; null when no
     ///     <see cref="ApplyResolvedNames"/> has populated it yet.
     /// </summary>
-    private CachedVisitor Project(string signature, SignatureAggregate agg)
+    private ProjectedVisitor Project(string signature, SignatureAggregate agg)
     {
         // Score/verdict scalars are read THROUGH the fingerprint LFU (single source),
-        // exactly like BotName. Null verdict projects to the CachedVisitor defaults
+        // exactly like BotName. Null verdict projects to the ProjectedVisitor defaults
         // (IsBot=false, prob=0, RiskBand="Medium", Action="Allow") until the store
         // read-through has populated it.
         var verdict = GetResolvedVerdict(signature);
         lock (agg.SyncRoot)
         {
-            return new CachedVisitor
+            return new ProjectedVisitor
             {
                 PrimarySignature = signature,
                 Hits = agg.HitCount,
@@ -828,7 +828,7 @@ public sealed class SignatureAggregateCache
 
     // ─── Collapse-by-group (verified-bot identity folding) ────────────────
 
-    private string ResolveGroupCanonical(CachedVisitor v)
+    private string ResolveGroupCanonical(ProjectedVisitor v)
     {
         if (_grouper is not null)
             return _grouper.Resolve(BuildGrouperInput(v)).Canonical;
@@ -839,7 +839,7 @@ public sealed class SignatureAggregateCache
             : "sig:" + v.PrimarySignature;
     }
 
-    private IEnumerable<CachedVisitor> CollapseGroupable(IEnumerable<CachedVisitor> source)
+    private IEnumerable<ProjectedVisitor> CollapseGroupable(IEnumerable<ProjectedVisitor> source)
     {
         var list = source.ToList();
         // Case-insensitive grouping IS the centroid rule for bot rows. Even after
@@ -855,7 +855,7 @@ public sealed class SignatureAggregateCache
 
             var canonical = members.OrderByDescending(v => v.LastSeen).First();
             var resolvedKey = _grouper?.Resolve(BuildGrouperInput(canonical));
-            yield return new CachedVisitor
+            yield return new ProjectedVisitor
             {
                 PrimarySignature = canonical.PrimarySignature,
                 Hits = members.Sum(v => v.Hits),
@@ -901,7 +901,7 @@ public sealed class SignatureAggregateCache
         }
     }
 
-    private static GroupingInput BuildGrouperInput(CachedVisitor v) => new()
+    private static GroupingInput BuildGrouperInput(ProjectedVisitor v) => new()
     {
         Signature = v.PrimarySignature,
         BotProbability = v.BotProbability,
@@ -918,10 +918,10 @@ public sealed class SignatureAggregateCache
 
     // ─── Filter predicates + ordering (formerly VisitorListCache statics) ─
 
-    private static bool IsAiBot(CachedVisitor v) => v.BotType is "AiBot";
-    private static bool IsSearchBot(CachedVisitor v) =>
+    private static bool IsAiBot(ProjectedVisitor v) => v.BotType is "AiBot";
+    private static bool IsSearchBot(ProjectedVisitor v) =>
         v.BotType is "SearchEngine" or "VerifiedBot" or "GoodBot";
-    private static bool IsToolBot(CachedVisitor v) =>
+    private static bool IsToolBot(ProjectedVisitor v) =>
         v.BotType is "Scraper" or "MonitoringBot" or "SocialMediaBot" or "Tool";
 
     private static int RiskOrder(string? band) => band switch
@@ -990,7 +990,7 @@ public sealed class SignatureAggregateCache
             UaFamily = ExtractUaFamilySignal(detection),
             UserAgent = detection.UserAgentRaw ?? detection.UserAgent,
             EntityId = detection.EntityId,
-            // CachedVisitor-equivalents moved onto the aggregate so the visitor
+            // ProjectedVisitor-equivalents moved onto the aggregate so the visitor
             // card and the signature detail page read off the same record.
             LastPath = path,
             Paths = string.IsNullOrEmpty(path) ? new List<string>() : new List<string> { path },
@@ -1130,7 +1130,7 @@ public sealed class SignatureAggregateCache
             while (existing.ScoreHistory.Count > ScoreHistorySize)
                 existing.ScoreHistory.RemoveFirst();
 
-            // CachedVisitor-equivalents -- maintained under the same SyncRoot
+            // ProjectedVisitor-equivalents -- maintained under the same SyncRoot
             // lock so visitor-card / signature-detail reads see consistent state.
             existing.LastPath = detection.Path;
             if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
@@ -1345,7 +1345,7 @@ public sealed class SignatureAggregate
     /// </summary>
     public string? EntityId;
 
-    // ─── Fields moved off CachedVisitor in the cache-collapse refactor ────
+    // ─── Fields moved off ProjectedVisitor in the cache-collapse refactor ────
     // These were duplicated state on VisitorListCache; the visitor card and
     // the signature detail page now both read them off this aggregate so the
     // "two names / two paths at the same instant" regression cannot happen.
