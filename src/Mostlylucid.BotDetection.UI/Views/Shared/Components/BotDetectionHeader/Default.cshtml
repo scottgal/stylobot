@@ -8,6 +8,9 @@
     // /dashboard, custom mounts) without re-rendering.
     var initialSignature = Model.Signatures?.PrimarySignature ?? "";
     var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
+    // Dashboard mount base path (ViewData["BasePath"] on mounted hosts, else FOSS default).
+    // Was a literal "/_stylobot" -> 404'd the "Open Dashboard" link on the commercial /dashboard mount.
+    var dashBase = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
 }
 
 <div class="stylobot-header"
@@ -50,7 +53,7 @@
             </template>
             <template x-for="(item, idx) in tickerItems" :key="item._id || idx">
                 <a class="stylobot-header-ticker-item"
-                   :href="'/_stylobot/signature/' + encodeURIComponent(item.primarySignature || '')"
+                   :href="'@dashBase/signature/' + encodeURIComponent(item.primarySignature || '')"
                    :class="{ 'is-bot': item.isBot, 'ticker-new': item._isNew }">
                     <span class="ticker-icon-sm" x-text="item.isBot ? 'R' : 'H'"></span>
                     <span class="ticker-narrative-sm"
@@ -62,7 +65,7 @@
         <!-- Right: Live indicator + Dashboard link -->
         <div class="stylobot-header-right">
             <span class="stylobot-header-live" x-show="connected">LIVE</span>
-            <a href="/_stylobot" class="stylobot-header-dashboard" title="Open Dashboard">Dashboard</a>
+            <a href="@dashBase" class="stylobot-header-dashboard" title="Open Dashboard">Dashboard</a>
         </div>
     </div>
 
@@ -110,7 +113,7 @@
         </div>
 
         <div class="stylobot-header-details-footer">
-            <a :href="'/_stylobot/signature/' + encodeURIComponent(signature || '')" class="dashboard-link">
+            <a :href="'@dashBase/signature/' + encodeURIComponent(signature || '')" class="dashboard-link">
                 View Full Dashboard & All Signals &rarr;
             </a>
         </div>

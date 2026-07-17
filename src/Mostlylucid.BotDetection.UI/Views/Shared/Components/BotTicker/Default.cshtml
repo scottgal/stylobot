@@ -3,6 +3,10 @@
    works on every host (FOSS default /_stylobot, commercial /dashboard, custom mounts). *@
 @{
     var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
+    // Dashboard mount base path. Threaded via ViewData["BasePath"] on hosts that mount the
+    // dashboard elsewhere (commercial = /dashboard); defaults to the FOSS-standalone mount.
+    // Was a literal "/_stylobot" -> 404'd the "Open Dashboard" + signature links on mounted hosts.
+    var dashBase = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
 }
 
 <div class="stylobot-ticker"
@@ -21,7 +25,7 @@
         <div class="ticker-scroll" x-ref="tickerScroll">
             <template x-for="(detection, idx) in detections" :key="detection._id || idx">
                 <a class="ticker-item"
-                   :href="'/_stylobot/signature/' + encodeURIComponent(detection.primarySignature || '')"
+                   :href="'@dashBase/signature/' + encodeURIComponent(detection.primarySignature || '')"
                    :class="{ 'is-bot': detection.isBot, 'ticker-item-new': detection._isNew }">
                     <span class="ticker-item-icon" x-text="detection.isBot ? 'R' : 'H'"></span>
                     <span class="ticker-item-risk"
@@ -67,7 +71,7 @@
         </div>
 
         <!-- Dashboard link -->
-        <a href="/_stylobot" class="ticker-dashboard-link" title="Open Dashboard">
+        <a href="@dashBase" class="ticker-dashboard-link" title="Open Dashboard">
             Dashboard
         </a>
     </div>
