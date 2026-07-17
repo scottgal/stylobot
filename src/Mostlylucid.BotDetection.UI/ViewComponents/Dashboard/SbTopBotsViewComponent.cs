@@ -60,11 +60,19 @@ public class SbTopBotsViewComponent(
                 endTime: rangeEnd,
                 audienceFilter: fetchAudience);
         }
+        // Collapse groupable identities BEFORE counting so the header badges
+        // (All / Bots / Humans / Internal) match the collapsed rows shown here AND the
+        // Visitors tab, which also counts post-collapse (ProjectAsVisitors -> snapshot).
+        // Counting the raw set over-counted -- one entry per fingerprint that resolved to
+        // an identity -- so Top Bots read e.g. 66 while Visitors read 45 for the same
+        // window and looked like a separate/stale source. One collapse, one identity
+        // semantics.
+        var collapsed = WidgetRenderHelpers.CollapseGroupableIdentities(raw);
         // See SbWidgetBatchMiddleware.BuildTopBotsModel for the Internal rationale.
         static bool IsInternal(DashboardTopBotEntry e) =>
             string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
-        var publicTraffic = raw.Where(b => !IsInternal(b)).ToList();
-        var internalCount = raw.Count - publicTraffic.Count;
+        var publicTraffic = collapsed.Where(b => !IsInternal(b)).ToList();
+        var internalCount = collapsed.Count - publicTraffic.Count;
         var bots = publicTraffic.Count(b => b.IsKnownBot);
         var humans = publicTraffic.Count - bots;
 
@@ -72,12 +80,11 @@ public class SbTopBotsViewComponent(
         {
             "bots"     => publicTraffic.Where(b => b.IsKnownBot),
             "humans"   => publicTraffic.Where(b => !b.IsKnownBot),
-            "internal" => raw.Where(IsInternal),
+            "internal" => collapsed.Where(IsInternal),
             _          => publicTraffic
         };
         var sorted = WidgetRenderHelpers.SortTopBots(filtered, sortBy, sortDir).ToList();
-        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
-        grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, q);
+        var grouped = WidgetRenderHelpers.ApplySearchFilter(sorted, q);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return View(new TopBotsListModel
         {
