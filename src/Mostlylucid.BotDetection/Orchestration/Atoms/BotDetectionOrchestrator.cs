@@ -118,6 +118,7 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // headline. RecordVerdictWriteBehind is a learning write -- skip it. Detection
             // and the response header trail above are unaffected.
             if (!string.IsNullOrEmpty(identityFingerprintId) && !context.IsLearningSuppressedByApiKey())
+            {
                 // PrimaryBotType is the CATALOGUE type (BotType enum: Internal / SearchEngine /
                 // AiBot / Tool / GoodBot / ...). .ToString() yields exactly the vocabulary the
                 // dashboard's Internal-exclusion + ai/search/tools filters match on, cached
@@ -126,6 +127,26 @@ public sealed class BotDetectionOrchestrator : IDisposable
                 // request, which preserves any prior stored type in the store.
                 _fingerprintStore.RecordVerdictWriteBehind(
                     identityFingerprintId, evidence.BotProbability, evidence.PrimaryBotType?.ToString());
+
+                // Latch the DURABLE verified claim when a verification channel (IP-range / rDNS /
+                // forward-DNS) CONFIRMED a good bot this request. FingerprintRiskProjection derives
+                // the risk band at read and its verified -> Low friendly-pin fires ONLY on a stored
+                // claim_status='verified'. Without this write the claim is never set --
+                // UpdateClaimVerificationAsync shipped with the persistent-trust-state feature but
+                // had NO production caller -- so every fingerprint stays 'unverified' and every known
+                // good bot (Googlebot/Bingbot) reads VeryHigh, defeating the #115 derive-at-read fix.
+                // EarlyExitVerdict.VerifiedGoodBot is the atom-agnostic, spoof-safe marker (the same
+                // predicate BlockResponseGate uses; a spoofed UA never produces it). The store no-ops
+                // the SQL write when the claim is already 'verified', so hot re-crawls don't touch the
+                // DB, and existing 'unverified' rows self-heal on the next verified hit (no prod DB op).
+                if (evidence.EarlyExit && evidence.EarlyExitVerdict == EarlyExitVerdict.VerifiedGoodBot)
+                {
+                    var verificationMethod =
+                        _signalSink.ReadHint(SignalKeys.VerifiedBotMethod) ?? "verified_bot";
+                    await _fingerprintStore.UpdateClaimVerificationAsync(
+                        identityFingerprintId, "verified", verificationMethod, DateTime.UtcNow, ct);
+                }
+            }
 
             // Session-scope promotion (was: SessionSignatureEscalatorAtom
             // fan-out into a per-signature coordinator cache) has moved out

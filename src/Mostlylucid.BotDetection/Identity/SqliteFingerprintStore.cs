@@ -1032,6 +1032,19 @@ public class SqliteFingerprintStore : IFingerprintStore
         // RecordVerdictAsync (cached_bot_probability / cached_risk_band).
         if (_fingerprintById.TryGetValue(fingerprintId, out var existing))
         {
+            // Hot-path guard: a verified good bot re-crawls continuously, and the
+            // orchestrator latches claim_status='verified' on EVERY confirmed request.
+            // If the resident row is already in the target claim state, skip the SQL
+            // write entirely -- opening a fresh connection per request just to re-write
+            // the same row is the "no per-request DB connection" breach. The dict is
+            // authoritative (write-behind LFU façade), so a cached match is trustworthy.
+            // (verified_at is intentionally NOT part of the equality: re-stamping it every
+            // request would defeat the guard, and the read-time friendly-pin only needs the
+            // claim_status value, not its freshness.)
+            if (string.Equals(existing.ClaimStatus, claimStatus, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(existing.VerificationMethod, verificationMethod, StringComparison.Ordinal))
+                return;
+
             _fingerprintById[fingerprintId] = existing with
             {
                 ClaimStatus = claimStatus,
