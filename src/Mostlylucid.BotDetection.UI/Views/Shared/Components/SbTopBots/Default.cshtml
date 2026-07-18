@@ -230,12 +230,16 @@
 
                             var intentIcon = new IntentIconModel(displayIntent);
                             var riskBar    = new RiskBarModel(bot.BotProbability, threatBand, bot.Confidence);
-                            // ThreatBand is the orthogonal axis -- "is this hostile" -- driven
-                            // by honeypot / CVE / known-bad-shape signals, NOT by bot probability.
-                            // We pass it through unmodified; the ThreatIcon paints a shield that's
-                            // green for None / Low and red for Critical / High, independent of
-                            // how confident detection is that the actor is automated.
-                            var threatIconModel = new ThreatIconModel(threatBand, bot.BotProbability);
+                            // The prominent per-row shield reflects the RISK band (RiskBand), NOT
+                            // threat. On this fingerprint-derived list threat is structurally always
+                            // "None" -- FingerprintRiskProjection has no per-request threat score to
+                            // carry (threat is not a durable fingerprint fact) -- so a threat shield
+                            // read grey for EVERY row and never reflected the row's risk. RiskBand IS
+                            // derived at read (verified-good bots pin friendly -> green; confident bad
+                            // -> red), so the shield now tracks "how concerning is this row". The
+                            // threat shield stays where ThreatBand is genuinely computed (per-request
+                            // detail views + the endpoint list's AvgThreatScore).
+                            var riskBadge = new RiskBadgeModel(bot.RiskBand, bot.BotProbability);
                             // Confidence is now carried by the BOT% cell as opacity (see
                             // RiskBarModel.Confidence), so the standalone ConfidenceMeter
                             // primitive is no longer rendered on this widget. The downstream
@@ -285,7 +289,7 @@
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", riskBar)
                                 </td>
                                 <td class="py-1 px-1.5 text-center">
-                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIconModel)
+                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBadge.cshtml", riskBadge)
                                 </td>
                                 <td class="py-1 px-1.5 text-right text-xs text-base-content/60 font-mono">@bot.HitCount</td>
                                 <td class="py-1 px-1.5 text-center align-middle">
@@ -294,18 +298,19 @@
                                         // human/bot split per signature is a follow-on that needs the
                                         // ring buffer to track is_bot per minute. Today every detection
                                         // on this signature falls in one bucket.
-                                        // ThreatBand flows the row's resolved threat into the
-                                        // sparkline stroke so the trend line agrees with the
-                                        // threat shield (the row's authoritative danger signal).
-                                        // Without this, every bot row paints red regardless of
-                                        // whether the actor is hostile -- a Googlebot at high
-                                        // volume reads as threatening when it should read as
-                                        // routine indexing.
+                                        // The sparkline stroke follows the SAME axis as the row's
+                                        // shield -- now RISK, not threat -- so the trend line agrees
+                                        // with the risk shield above. The SparklineModel band param is
+                                        // still named ThreatBand (shared primitive), but _Sparkline's
+                                        // colour switch handles the RiskBand vocabulary too (VeryHigh
+                                        // -> red, Medium/Elevated -> amber, Low/VeryLow/Unknown ->
+                                        // muted), so a routine indexing bot reads muted, a confident
+                                        // bad actor reads red -- in lock-step with the shield.
                                         var spark = new SparklineModel(
                                             BotTrend: bot.HitTrend,
                                             HumanTrend: System.Array.Empty<int>(),
                                             WindowMinutes: 60,
-                                            ThreatBand: threatBand);
+                                            ThreatBand: bot.RiskBand);
                                     }
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_Sparkline.cshtml", spark)
                                 </td>
