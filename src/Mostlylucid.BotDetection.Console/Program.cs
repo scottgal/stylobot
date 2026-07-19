@@ -905,15 +905,6 @@ try
     // Health check endpoint (AOT-compatible) - mapped BEFORE YARP to avoid being proxied
     app.MapGet("/health", () => Results.Text("{\"status\":\"healthy\"}", "application/json"));
 
-    // Persistence stats endpoint. Used by the multi-day soak harness to verify the
-    // RequestPersistenceService backpressure sampler actually engages under load.
-    // Hand-rolled JSON to stay AOT-friendly. All fields are integers.
-    app.MapGet("/admin/persistence-stats", ([Microsoft.AspNetCore.Mvc.FromServices] RequestPersistenceService svc) =>
-    {
-        var json = $"{{\"pendingWrites\":{svc.PendingWrites},\"writeStateCount\":{svc.WriteStateCount},\"writtenAlways\":{svc.WrittenAlwaysCount},\"writtenSampledIn\":{svc.WrittenSampledInCount},\"droppedSampledOut\":{svc.DroppedSampledOutCount}}}";
-        return Results.Text(json, "application/json");
-    });
-
     // REST API surface (opt-in via --enable-api). Maps /api/v1/* before YARP so the
     // proxy never sees those requests. Auth enforced per-route by ApiKeyAuthenticationHandler.
     if (enableApi)
@@ -925,6 +916,9 @@ try
         // place to write detection data.
         app.UseBotDetectionPersistence();
         app.MapStyloBotApi();
+        // Used by the soak harness to observe persistence backpressure. Keep this
+        // operational surface opt-in and protected by the same API-key policy.
+        app.MapPersistenceStatsEndpoints();
     }
 
     // Attach X-Bot-Detection-* headers to the proxied request so any downstream
