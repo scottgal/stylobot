@@ -1,5 +1,9 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.UI.Configuration;
 
@@ -12,13 +16,16 @@ namespace Mostlylucid.BotDetection.UI.Hubs;
 public class StyloBotDashboardHub : Hub<IStyloBotDashboardHub>
 {
     private readonly StyloBotDashboardOptions _options;
+    private readonly IWebHostEnvironment _environment;
     private readonly ILogger<StyloBotDashboardHub> _logger;
 
     public StyloBotDashboardHub(
         StyloBotDashboardOptions options,
+        IWebHostEnvironment environment,
         ILogger<StyloBotDashboardHub> logger)
     {
         _options = options;
+        _environment = environment;
         _logger = logger;
     }
 
@@ -28,7 +35,7 @@ public class StyloBotDashboardHub : Hub<IStyloBotDashboardHub>
     public override async Task OnConnectedAsync()
     {
         var httpContext = Context.GetHttpContext();
-        if (httpContext != null && !await IsAuthorizedAsync(httpContext))
+        if (httpContext != null && !await IsAuthorizedAsync(httpContext, _options, _environment))
         {
             _logger.LogWarning("SignalR connection rejected for {IP} - dashboard auth failed",
                 httpContext.Connection.RemoteIpAddress);
@@ -40,29 +47,55 @@ public class StyloBotDashboardHub : Hub<IStyloBotDashboardHub>
         await base.OnConnectedAsync();
     }
 
-    private async Task<bool> IsAuthorizedAsync(HttpContext context)
+    /// <summary>
+    /// Matches the dashboard middleware's authorization decision so the hub
+    /// cannot become an unauthenticated side door to dashboard updates.
+    /// </summary>
+    internal static async Task<bool> IsAuthorizedAsync(
+        HttpContext context,
+        StyloBotDashboardOptions options,
+        IWebHostEnvironment environment)
     {
-        // Custom filter takes precedence
-        if (_options.AuthorizationFilter != null)
-            return await _options.AuthorizationFilter(context);
+        if (options.RequireAuthentication)
+        {
+            var authentication = context.RequestServices?.GetService(typeof(IAuthenticationService))
+                as IAuthenticationService;
+            if (authentication is null) return false;
 
-        // Policy-based auth
-        if (!string.IsNullOrEmpty(_options.RequireAuthorizationPolicy))
+            AuthenticateResult result;
+            try
+            {
+                result = await authentication.AuthenticateAsync(context, scheme: null);
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+            if (result?.Principal != null)
+                context.User = result.Principal;
+            return context.User.Identity?.IsAuthenticated == true;
+        }
+
+        if (options.AuthorizationFilter != null)
+            return await options.AuthorizationFilter(context);
+
+        if (!string.IsNullOrEmpty(options.RequireAuthorizationPolicy))
         {
             var authService = context.RequestServices
-                .GetService(typeof(Microsoft.AspNetCore.Authorization.IAuthorizationService))
-                as Microsoft.AspNetCore.Authorization.IAuthorizationService;
+                .GetService(typeof(IAuthorizationService)) as IAuthorizationService;
 
             if (authService != null)
             {
                 var result = await authService.AuthorizeAsync(
-                    context.User, null, _options.RequireAuthorizationPolicy);
+                    context.User, null, options.RequireAuthorizationPolicy);
                 return result.Succeeded;
             }
+
+            return false;
         }
 
-        // No auth configured - allow (same as dashboard middleware default)
-        return true;
+        if (options.AllowUnauthenticatedAccess) return true;
+        return environment.IsDevelopment();
     }
 
     /// <summary>
