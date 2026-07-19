@@ -1241,11 +1241,22 @@ public class StyloBotDashboardMiddleware
         // stats card (PopulateSessionAnalytics reads per-visitor session aggregates from
         // it).
         var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
-        var visitorRaw = await _eventStore.GetTopBotsAsync(
+        var visitorTask = _eventStore.GetTopBotsAsync(
             count: _visitorListMaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),
             endTime: DateTime.UtcNow,
             audienceFilter: "all");
+        var summaryTask = _aggregateCache.Current.Summary is { } cachedSummary
+            ? Task.FromResult(cachedSummary)
+            : SafeGetSummaryAsync();
+        var countriesTask = SafeGetCountriesDataAsync();
+        var endpointsTask = SafeGetEndpointsDataAsync(context);
+        var userAgentsTask = _aggregateCache.Current.UserAgents.Count > 0
+            ? Task.FromResult(_aggregateCache.Current.UserAgents)
+            : ComputeUserAgentsFallbackAsync();
+
+        await Task.WhenAll(visitorTask, summaryTask, countriesTask, endpointsTask, userAgentsTask);
+        var visitorRaw = visitorTask.Result;
         var (visitors, visitorTotal, visitorCounts) = WidgetRenderHelpers.ProjectAsVisitors(
             visitorRaw, filter: "all", sortField: "lastSeen", sortDir: "desc", page: 1, pageSize: 24);
 
@@ -1257,23 +1268,10 @@ public class StyloBotDashboardMiddleware
         await Services.FingerprintDriftProjector.EnrichVisitorsAsync(
             visitors, context.RequestServices, context.RequestAborted, _logger);
 
-        DashboardSummary summary;
-        // Serve the broadcaster-precomputed summary; only fall through to the
-        // (unbounded full-table) store query when the cache is cold.
-        try { summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync(); }
-        catch { summary = new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
-
-        List<DashboardCountryStats> countriesData;
-        try { countriesData = await GetCountriesDataAsync(); }
-        catch { countriesData = []; }
-
-        List<DashboardEndpointStats> endpointsData;
-        try { endpointsData = await GetEndpointsDataAsync(context); }
-        catch { endpointsData = []; }
-
-        var allUserAgents = _aggregateCache.Current.UserAgents.Count > 0
-            ? _aggregateCache.Current.UserAgents
-            : await ComputeUserAgentsFallbackAsync();
+        var summary = summaryTask.Result;
+        var countriesData = countriesTask.Result;
+        var endpointsData = endpointsTask.Result;
+        var allUserAgents = userAgentsTask.Result;
 
         // M2: investigate surface deleted. The Investigation view model on the
         // shell model now always renders as null; readers (Index.cshtml's
@@ -1281,6 +1279,13 @@ public class StyloBotDashboardMiddleware
         // "skip the block", which is the legacy behaviour for every non-
         // investigate tab.
         ShapeInvestigationViewModel? investigationVm = null;
+
+        var yourDetectionTask = BuildYourDetectionPartialModel(context);
+        var clustersTask = BuildClustersModelAsync(context);
+        var topBotsTask = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc");
+        var sessionsTask = BuildSessionsModel(context);
+        var threatsTask = BuildThreatsModelAsync();
+        await Task.WhenAll(yourDetectionTask, clustersTask, topBotsTask, sessionsTask, threatsTask);
 
         var model = new DashboardShellModel
         {
@@ -1297,14 +1302,14 @@ public class StyloBotDashboardMiddleware
                 Filter = "all", SortField = "lastSeen", SortDir = "desc",
                 Page = 1, PageSize = 24, TotalCount = visitorTotal, BasePath = basePath
             },
-            YourDetection = await BuildYourDetectionPartialModel(context),
+            YourDetection = yourDetectionTask.Result,
             Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData),
             Endpoints = BuildEndpointsModel(context, "total", "desc", 1, 20, endpointsData),
-            Clusters = await BuildClustersModelAsync(context),
+            Clusters = clustersTask.Result,
             UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
-            TopBots = await BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
-            Sessions = await BuildSessionsModel(context),
-            Threats = await BuildThreatsModelAsync(),
+            TopBots = topBotsTask.Result,
+            Sessions = sessionsTask.Result,
+            Threats = threatsTask.Result,
             License = BuildLicenseCardModel(context),
             // Only build the editor model when the operator is on the Configuration tab --
             // listing all 30+ embedded manifests on every dashboard render is wasteful.
@@ -1330,6 +1335,24 @@ public class StyloBotDashboardMiddleware
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", model, context, isMainPage: true);
         await context.Response.WriteAsync(html);
+
+        async Task<DashboardSummary> SafeGetSummaryAsync()
+        {
+            try { return await _eventStore.GetSummaryAsync(); }
+            catch { return new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
+        }
+
+        async Task<List<DashboardCountryStats>> SafeGetCountriesDataAsync()
+        {
+            try { return await GetCountriesDataAsync(); }
+            catch { return []; }
+        }
+
+        async Task<List<DashboardEndpointStats>> SafeGetEndpointsDataAsync(HttpContext requestContext)
+        {
+            try { return await GetEndpointsDataAsync(requestContext); }
+            catch { return []; }
+        }
     }
 
     /// <summary>

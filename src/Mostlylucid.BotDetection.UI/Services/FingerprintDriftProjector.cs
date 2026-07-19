@@ -30,6 +30,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// </summary>
 public static class FingerprintDriftProjector
 {
+    private const int MaxConcurrentRemoteLookups = 4;
     /// <summary>
     ///     Build the badge model for a fingerprint. <paramref name="threshold"/>
     ///     is <c>IdentityOptions.Drift.DriftBadgeThreshold</c> (default 0.15).
@@ -130,18 +131,24 @@ public static class FingerprintDriftProjector
         var layout = services.GetService<IdentityVectorLayout>();
         var signalCatalog = services.GetService<ISignalCatalog>();
 
-        foreach (var v in visitors)
+        await Parallel.ForEachAsync(
+            visitors.Where(v => !string.IsNullOrEmpty(v.PrimarySignature)),
+            new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = MaxConcurrentRemoteLookups },
+            async (v, token) =>
         {
-            if (string.IsNullOrEmpty(v.PrimarySignature)) continue;
             try
             {
-                var fpId = await reader.LookupFingerprintIdAsync(v.PrimarySignature, ct);
-                if (string.IsNullOrEmpty(fpId)) continue;
+                var fpId = await reader.LookupFingerprintIdAsync(v.PrimarySignature, token);
+                if (string.IsNullOrEmpty(fpId)) return;
 
-                var fp = await reader.GetFingerprintAsync(fpId, ct);
-                if (fp is null) continue;
+                var fp = await reader.GetFingerprintAsync(fpId, token);
+                if (fp is null) return;
 
                 v.DriftBadge = Project(fp, threshold, layout, signalCatalog);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -149,7 +156,7 @@ public static class FingerprintDriftProjector
                     "Drift badge enrichment failed for visitor signature {Signature}; row renders without badge",
                     v.PrimarySignature);
             }
-        }
+        });
     }
 
     /// <summary>
