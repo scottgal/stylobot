@@ -99,6 +99,21 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
         Assert.DoesNotContain("hx-get=\"/stylobot/policystack/edit?ruleId=", html);
     }
 
+    [Fact]
+    public async Task Showcase_demo_configuration_renders_readonly_controls_with_the_foss_gate()
+    {
+        // This is the production dashboard path: the FOSS binding remains deny-by-default, while
+        // the host's explicit showcase configuration changes presentation only.
+        var client = await BuildClientAsync(new AlwaysReadOnlyPolicyCanEditPolicy(), showcaseDemo: true);
+
+        var html = await GetHtmlAsync(client);
+
+        Assert.Contains("Demo mode: editing is read-only", html);
+        Assert.Contains("aria-label=\"Edit rule unavailable in demo mode\"", html);
+        Assert.DoesNotContain("data-policy-stack-drag-handle", html);
+        Assert.DoesNotContain("hx-get=\"/stylobot/policystack/edit?ruleId=", html);
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var app in _apps)
@@ -107,11 +122,13 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
 
     // -------- Helpers --------
 
-    private async Task<HttpClient> BuildClientAsync(IPolicyCanEditPolicy canEditPolicy)
+    private async Task<HttpClient> BuildClientAsync(IPolicyCanEditPolicy canEditPolicy, bool showcaseDemo = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+        if (showcaseDemo)
+            builder.Configuration[PolicyEditAffordanceResolver.ShowcaseDemoConfigKey] = "true";
 
         builder.Services
             .AddControllersWithViews()

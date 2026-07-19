@@ -52,6 +52,17 @@ public sealed class SbConfigBaselineRenderTests : IAsyncDisposable
         Assert.Contains("data-config-edit", html);
     }
 
+    [Fact]
+    public async Task Showcase_demo_configuration_renders_disabled_config_edit_affordance_without_write_wiring()
+    {
+        var html = await RenderAsync(new AlwaysReadOnlyPolicyCanEditPolicy(), showcaseDemo: true);
+
+        Assert.Contains("Demo mode: editing is read-only", html);
+        Assert.Contains("aria-label=\"Edit Scraper action policy unavailable in demo mode\"", html);
+        Assert.Contains("disabled", html);
+        Assert.DoesNotContain("data-config-edit", html);
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var app in _apps)
@@ -61,11 +72,13 @@ public sealed class SbConfigBaselineRenderTests : IAsyncDisposable
 
     // -------- Render helper --------
 
-    private async Task<string> RenderAsync(IPolicyCanEditPolicy canEditPolicy)
+    private async Task<string> RenderAsync(IPolicyCanEditPolicy canEditPolicy, bool showcaseDemo = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+        if (showcaseDemo)
+            builder.Configuration[PolicyEditAffordanceResolver.ShowcaseDemoConfigKey] = "true";
 
         builder.Services
             .AddControllersWithViews()

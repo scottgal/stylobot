@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -19,21 +20,37 @@ public sealed class SbConfigBaselineViewComponent : ViewComponent
 {
     private readonly IConfigBaselineProvider _baseline;
     private readonly IPolicyCanEditPolicy _canEditPolicy;
+    private readonly IConfiguration _configuration;
 
     public SbConfigBaselineViewComponent(
         IConfigBaselineProvider baseline,
-        IPolicyCanEditPolicy canEditPolicy)
+        IPolicyCanEditPolicy canEditPolicy,
+        IConfiguration configuration)
     {
         _baseline = baseline;
         _canEditPolicy = canEditPolicy;
+        _configuration = configuration;
     }
 
     // Async: the provider is the local composer (in-process) on a detection host, or the remote
     // reader (HTTP to the gateway) on a thin-client dashboard. Same rows either way.
     public async Task<IViewComponentResult> InvokeAsync(bool? canEdit = null)
     {
-        var effectiveCanEdit = canEdit ?? _canEditPolicy.CanEdit(HttpContext?.User);
+        var affordance = canEdit switch
+        {
+            true => PolicyEditAffordance.Editable,
+            false => PolicyEditAffordance.Hidden,
+            null => PolicyEditAffordanceResolver.Resolve(_canEditPolicy, HttpContext?.User, _configuration)
+        };
+        var effectiveCanEdit = affordance == PolicyEditAffordance.Editable;
         var rows = await _baseline.GetConfigRowsAsync(effectiveCanEdit, HttpContext?.RequestAborted ?? default);
+        if (affordance == PolicyEditAffordance.ReadOnly)
+        {
+            rows = rows.Select(row => row.ConfigRow is null
+                ? row
+                : row with { ConfigRow = row.ConfigRow with { ShowReadOnlyEditAffordance = true } })
+                .ToArray();
+        }
         return View(rows);
     }
 }

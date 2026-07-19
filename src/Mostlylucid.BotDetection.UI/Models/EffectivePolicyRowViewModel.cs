@@ -80,7 +80,8 @@ public sealed record ConfigPolicyRowViewModel(
     string ConfigKey,
     EffectivePolicyConfigSource Source,
     Guid? SupersededByRuleId = null,
-    bool CanEdit = false);
+    bool CanEdit = false,
+    bool ShowReadOnlyEditAffordance = false);
 
 /// <summary>Which <c>BotDetectionOptions</c> section a config-baseline row came from.</summary>
 public enum EffectivePolicyConfigSource

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Mostlylucid.BotDetection.Policies.Rules;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -18,13 +19,16 @@ public sealed class SbPolicyStackViewComponent : ViewComponent
 {
     private readonly PolicyStackPresenter _presenter;
     private readonly IPolicyCanEditPolicy _canEditPolicy;
+    private readonly IConfiguration _configuration;
 
     public SbPolicyStackViewComponent(
         PolicyStackPresenter presenter,
-        IPolicyCanEditPolicy canEditPolicy)
+        IPolicyCanEditPolicy canEditPolicy,
+        IConfiguration configuration)
     {
         _presenter = presenter;
         _canEditPolicy = canEditPolicy;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -64,7 +68,7 @@ public sealed class SbPolicyStackViewComponent : ViewComponent
         {
             true => PolicyEditAffordance.Editable,
             false => PolicyEditAffordance.Hidden,
-            null => _canEditPolicy.GetEditAffordance(HttpContext?.User)
+            null => PolicyEditAffordanceResolver.Resolve(_canEditPolicy, HttpContext?.User, _configuration)
         };
         var effectiveCanEdit = affordance == PolicyEditAffordance.Editable;
 

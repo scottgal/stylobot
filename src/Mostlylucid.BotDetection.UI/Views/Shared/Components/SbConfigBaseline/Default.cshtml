@@ -41,6 +41,12 @@
                                 data-config-edit data-config-key="@row.ConfigKey"
                                 aria-label="Edit @row.Target action policy">Edit</button>
                     }
+                    else if (row.ShowReadOnlyEditAffordance)
+                    {
+                        <button type="button" class="sb-config-baseline-edit" disabled
+                                aria-label="Edit @row.Target action policy unavailable in demo mode"
+                                title="Demo mode: editing is read-only">Edit</button>
+                    }
                 </li>
             }
         </ul>

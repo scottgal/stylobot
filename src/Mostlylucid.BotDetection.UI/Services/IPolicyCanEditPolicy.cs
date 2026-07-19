@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.Extensions.Configuration;
 
 namespace Mostlylucid.BotDetection.UI.Services;
 
@@ -42,6 +43,29 @@ public enum PolicyEditAffordance
     Hidden,
     ReadOnly,
     Editable
+}
+
+/// <summary>
+///     Resolves the presentation state shared by the policy dashboard components. A showcase
+///     dashboard deliberately exposes disabled controls even when the host has not installed the
+///     commercial policy implementation; it never turns that configuration switch into write
+///     permission.
+/// </summary>
+public static class PolicyEditAffordanceResolver
+{
+    public const string ShowcaseDemoConfigKey = "Dashboard:ShowcaseDemo";
+
+    public static PolicyEditAffordance Resolve(
+        IPolicyCanEditPolicy policy,
+        ClaimsPrincipal? user,
+        IConfiguration configuration)
+    {
+        var affordance = policy.GetEditAffordance(user);
+        return affordance == PolicyEditAffordance.Hidden &&
+               bool.TryParse(configuration[ShowcaseDemoConfigKey], out var showcaseDemo) && showcaseDemo
+            ? PolicyEditAffordance.ReadOnly
+            : affordance;
+    }
 }
 
 /// <summary>
