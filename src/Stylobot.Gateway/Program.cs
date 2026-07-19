@@ -9,6 +9,7 @@ using Mostlylucid.BotDetection.Llm.Ollama.Extensions;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Telemetry;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.StyloExtract.Extensions;
@@ -19,6 +20,7 @@ using Mostlylucid.GeoDetection.Models;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Endpoints;
@@ -194,6 +196,9 @@ try
     // Add Bot Detection - the core feature of this gateway!
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
+    // Public gateway requests do not activate API endpoint authentication. Register the same key
+    // store for the narrow pre-detection overlay middleware; commercial hosts may replace it.
+    builder.Services.TryAddSingleton<IApiKeyStore, InMemoryApiKeyStore>();
 
     // Explicit persistence default: the gateway owns a local SQLite store, so give
     // DatabasePath a writable default when neither appsettings nor env sets it.
@@ -359,6 +364,9 @@ try
     // SessionAtom + SessionPersistenceAtom react off-thread. Enforcement (LoadShed /
     // PolicyDispatch / PostDetectionAction / BlockResponse / ResponsePiiMask) is wired
     // under Mostlylucid.BotDetection.Enforcement.
+    // Establish a validated rich API-key detection/action overlay before UseBotDetection. Invalid
+    // keys retain existing public-request behaviour; protected API auth remains policy-owned.
+    app.UseApiKeyContext();
     app.UseBotDetection();
 
     // DetectionPolicyMiddleware: dispatches IActionPolicy entries by name from
