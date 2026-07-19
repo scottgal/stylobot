@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Microsoft.Extensions.Options;
@@ -12,6 +13,21 @@ namespace Stylobot.Gateway.Tests.Integration;
 /// </summary>
 public class ConfigurationTests
 {
+    [Fact]
+    public void AddYarpServices_WithoutAdditionalTransforms_PreservesFossRegistration()
+    {
+        // The optional transform hook is a composition seam. A normal FOSS
+        // caller does not supply it, so service registration must remain valid.
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder().Build();
+
+        Action register = () => services.AddYarpServices(configuration);
+
+        register.Should().NotThrow();
+        services.BuildServiceProvider().GetService<Yarp.ReverseProxy.Configuration.IProxyConfigProvider>()
+            .Should().NotBeNull();
+    }
+
     [Fact]
     public void GatewayOptions_DefaultValues_AreCorrect()
     {

@@ -13,6 +13,7 @@ using Stylobot.Gateway.Health;
 using Stylobot.Gateway.Services;
 using Stylobot.Gateway.Transforms;
 using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Transforms.Builder;
 
 namespace Stylobot.Gateway.Configuration;
 
@@ -112,7 +113,8 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddYarpServices(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        Action<TransformBuilderContext>? configureAdditionalTransforms = null)
     {
         var proxyBuilder = services.AddReverseProxy()
             .ConfigureHttpClient((context, handler) =>
@@ -149,6 +151,12 @@ public static class ServiceCollectionExtensions
 
                 // Add bot detection headers transform based on demo mode
                 builderContext.AddDemoModeTransform(configuration);
+
+                // Extension seam for an optional host/product transform. FOSS
+                // callers leave this null and retain the existing pipeline;
+                // composed hosts can append their transform after the base
+                // fingerprinting, timing and header transforms.
+                configureAdditionalTransforms?.Invoke(builderContext);
             });
 
         // Check for DEFAULT_UPSTREAM first (highest priority - zero-config mode)
