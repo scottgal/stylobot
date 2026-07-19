@@ -135,6 +135,19 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
     }
 
     [Fact]
+    public void Site_row_partial_exposes_the_stable_site_and_showcase_readonly_contract()
+    {
+        // The middleware maps /dashboard/site to this row partial (not to the MVC Site/Index
+        // view). The verifier must use data-dashboard-page="site", never the Traffic marker.
+        var source = File.ReadAllText(LocatePartial("_Endpoints.cshtml"));
+        Assert.Contains("data-dashboard-page=\"site\"", source);
+        Assert.Contains("data-showcase-readonly", source);
+        Assert.Contains("data-control-readonly=\"true\"", source);
+        Assert.Contains("data-showcase-readonly-control", source);
+        Assert.Contains("disabled", source);
+    }
+
+    [Fact]
     public void SignatureDetail_partial_source_uses_status_badge_embed()
     {
         // The signature-detail surface uses the compact StatusBadge embed --
@@ -174,6 +187,17 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         // rather than the bare token.
         Assert.DoesNotContain("<sb-policies-tab />", source);
         Assert.DoesNotContain("<sb-policies-tab/>", source);
+    }
+
+    [Fact]
+    public void Policies_row_partial_exposes_the_stable_showcase_readonly_contract()
+    {
+        var source = File.ReadAllText(LocatePartial("_Policies.cshtml"));
+        Assert.Contains("data-dashboard-page=\"policies\"", source);
+        Assert.Contains("data-showcase-readonly", source);
+        Assert.Contains("data-control-readonly=\"true\"", source);
+        Assert.Contains("data-showcase-readonly-control", source);
+        Assert.Contains("disabled", source);
     }
 
     [Fact]

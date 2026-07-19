@@ -1,9 +1,11 @@
 @using Microsoft.Extensions.DependencyInjection
+@using Microsoft.Extensions.Configuration
 @using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.Policies.Templates
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
+@inject IConfiguration Configuration
 @*
     /dashboard/policies surface. Decode the scope from the URL (?scope=)
     so deep-links round-trip; default to Wildcard for the bare URL.
@@ -24,6 +26,7 @@
     var filter = Context.Request.Query["policystack-filter"].ToString();
     var sortKey = Context.Request.Query["policystack-sort"].ToString();
     var sortDir = Context.Request.Query["policystack-dir"].ToString();
+    var showcaseDemo = PolicyEditAffordanceResolver.IsShowcaseDemo(Configuration);
 
     // Pull the same presenter + registry the SbPolicyStack uses so the
     // grouped view shows the same rule set the editor surface does. The
@@ -50,7 +53,16 @@
         templateGroups = PolicyTemplateGrouping.Group(vm.Rows, registry);
     }
 }
-<section class="dashboard-policies">
+<section class="dashboard-policies" data-dashboard-page="policies" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
+    @if (showcaseDemo)
+    {
+        <aside class="sb-showcase-readonly-notice" data-showcase-readonly data-control-readonly="true" role="note">
+            <span>Showcase demo: policy editing is read-only.</span>
+            <button type="button" class="btn btn-sm" disabled data-showcase-readonly-control
+                    aria-label="Edit policies unavailable in demo mode"
+                    title="Demo mode: editing is read-only">Edit policies</button>
+        </aside>
+    }
     @* Config-baseline layer -- the BotTypeActionPolicies + DefaultActionPolicyName enforcement
        that this page never showed, so a config-default throttle stops being invisible. Rendered
        above the rule stack (the always-enforced base layer). canEdit is left unset so the

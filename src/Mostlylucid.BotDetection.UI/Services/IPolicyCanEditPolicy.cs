@@ -66,6 +66,9 @@ public static class PolicyEditAffordanceResolver
             ? PolicyEditAffordance.ReadOnly
             : affordance;
     }
+
+    public static bool IsShowcaseDemo(IConfiguration configuration) =>
+        bool.TryParse(configuration[ShowcaseDemoConfigKey], out var showcaseDemo) && showcaseDemo;
 }
 
 /// <summary>

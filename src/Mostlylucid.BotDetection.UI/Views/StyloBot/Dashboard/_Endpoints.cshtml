@@ -2,6 +2,7 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @inject IDashboardLinkResolver DashboardLinks
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @{
     var bp = Model.BasePath;
@@ -15,7 +16,18 @@
         ? PolicyScope.Wildcard()
         : PolicyScope.Domain(host);
     var policyRowsUrl = DashboardLinks.Resolve($"/policystack/rows?scope={PolicyScopeUrl.Encode(pageScope)}&tab=effective");
+    var showcaseDemo = PolicyEditAffordanceResolver.IsShowcaseDemo(Configuration);
 }
+<section data-dashboard-page="site" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
+    @if (showcaseDemo)
+    {
+        <aside class="sb-showcase-readonly-notice mb-4" data-showcase-readonly data-control-readonly="true" role="note">
+            <span>Showcase demo: site changes are read-only.</span>
+            <button type="button" class="btn btn-sm" disabled data-showcase-readonly-control
+                    aria-label="Pin endpoint unavailable in demo mode"
+                    title="Demo mode: editing is read-only">Pin endpoint</button>
+        </aside>
+    }
 <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
     <div class="lg:col-span-3">
         <sb-endpoints-list />
@@ -47,6 +59,7 @@
         </div>
     </div>
 </div>
+</section>
 
 @* Deep-link handler: when /dashboard/endpoints?selected=METHOD|PATH loads
    (from a row-click hx-push-url or a redirect off the retired
@@ -81,4 +94,3 @@
         }
     })();
 </script>
-
