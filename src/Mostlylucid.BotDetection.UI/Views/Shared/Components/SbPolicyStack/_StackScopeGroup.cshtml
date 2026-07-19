@@ -120,6 +120,11 @@
                    hx-swap="beforeend transition:true"
                    data-scope="@scopeEncoded">+ Add rule at this scope</a>
             }
+            else if (Model.ShowReadOnlyAddAffordance)
+            {
+                <button type="button" class="sb-policy-scope-group-add" disabled
+                        title="Demo mode: editing is read-only">+ Add rule at this scope</button>
+            }
         </div>
 
         <div id="@effectivePanelId"

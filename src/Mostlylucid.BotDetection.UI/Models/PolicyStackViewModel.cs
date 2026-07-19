@@ -61,4 +61,8 @@ public sealed record PolicyStackViewModel(
     PolicyStackAggregateStrip? AggregateStrip,
     PolicyExplainerViewModel? Explainer = null,
     bool HideRuleList = false,
-    IReadOnlyList<PolicyRule>? EffectiveRulesSnapshot = null);
+    IReadOnlyList<PolicyRule>? EffectiveRulesSnapshot = null)
+{
+    /// <summary>Visibility state for commercial edit affordances.</summary>
+    public Services.PolicyEditAffordance EditAffordance { get; init; }
+}

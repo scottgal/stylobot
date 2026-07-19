@@ -59,11 +59,11 @@
                     aria-selected="false">Templates</button>
         </div>
 
-        @if (Model.CanEdit)
+        @if (Model.CanEdit || Model.EditAffordance == Mostlylucid.BotDetection.UI.Services.PolicyEditAffordance.ReadOnly)
         {
             @* The marker span stays for backwards compatibility with B6 glue
                that may already be probing for [data-can-edit]. *@
-            <span class="sb-policy-stack-edit-affordance" data-can-edit="true" hidden></span>
+            <span class="sb-policy-stack-edit-affordance" data-can-edit="@(Model.CanEdit ? "true" : "false")" hidden></span>
             @* Two siblings: T4's Apply Template is the primary affordance
                (operators pick from the catalog and parameterise); C6's
                Raw rule stays as the advanced fallback for hand-authored
@@ -72,6 +72,7 @@
                 <button type="button"
                         class="btn btn-primary btn-sm join-item sb-policy-stack-apply-template"
                         data-action="apply-template"
+                        disabled="@(!Model.CanEdit)"
                         hx-get="@applyTemplateUrl"
                         hx-target="closest section"
                         hx-swap="afterbegin">+ Apply template</button>
@@ -79,6 +80,7 @@
                         class="btn btn-ghost btn-sm join-item sb-policy-stack-add-rule"
                         data-action="add-rule"
                         data-add-raw-rule
+                        disabled="@(!Model.CanEdit)"
                         hx-get="@newRuleUrl"
                         hx-target="closest section"
                         hx-swap="afterbegin">+ Raw rule</button>

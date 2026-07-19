@@ -42,8 +42,18 @@
         <span class="sb-policy-card-priority">#@Model.Priority</span>
         <span class="sb-policy-card-target" title="@scopeTarget">@scopeTarget</span>
         <div class="sb-policy-card-actions">
-            @if (Model.CanEdit && !Model.IsInherited)
+            @if ((Model.CanEdit || Model.ShowReadOnlyEditAffordance) && !Model.IsInherited)
             {
+                @if (Model.ShowReadOnlyEditAffordance)
+                {
+                    <button type="button"
+                            class="sb-policy-card-edit"
+                            disabled
+                            aria-label="Edit rule unavailable in demo mode"
+                            title="Demo mode: editing is read-only">&#x270e;</button>
+                }
+                else
+                {
                 <button type="button"
                         class="sb-policy-card-edit"
                         data-action="edit"
@@ -56,6 +66,7 @@
                         aria-label="Drag to reorder"
                         data-policy-stack-drag-handle
                         draggable="true">&#x22EE;&#x22EE;</button>
+                }
             }
         </div>
     </header>

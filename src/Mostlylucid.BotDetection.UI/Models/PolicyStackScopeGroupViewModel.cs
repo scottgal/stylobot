@@ -117,6 +117,9 @@ public sealed record PolicyStackScopeGroupViewModel(
     /// </summary>
     public bool AddRuleEnabled { get; init; }
 
+    /// <summary>Shows a disabled add-rule indicator on commercial demo/showcase hosts.</summary>
+    public bool ShowReadOnlyAddAffordance { get; init; }
+
     private static string StackScopeKindLabel(PolicyScope scope) => scope.Host switch
     {
         null => "Wildcard",

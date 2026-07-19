@@ -60,7 +60,13 @@ public sealed class SbPolicyStackViewComponent : ViewComponent
         // tests + snapshot views; when unset the service decision wins.
         // Service is consulted lazily so callers that pin canEdit don't
         // pay for the principal lookup.
-        var effectiveCanEdit = canEdit ?? _canEditPolicy.CanEdit(HttpContext?.User);
+        var affordance = canEdit switch
+        {
+            true => PolicyEditAffordance.Editable,
+            false => PolicyEditAffordance.Hidden,
+            null => _canEditPolicy.GetEditAffordance(HttpContext?.User)
+        };
+        var effectiveCanEdit = affordance == PolicyEditAffordance.Editable;
 
         // Per-VC render budget: cap presenter.BuildAsync at 2s so a slow
         // upstream (remote-viewer HttpClient, DB query) can't block the
@@ -108,10 +114,28 @@ public sealed class SbPolicyStackViewComponent : ViewComponent
                 AggregateStrip: null);
         }
 
+        if (affordance == PolicyEditAffordance.ReadOnly)
+            vm = WithReadOnlyAffordances(vm);
+
+        vm = vm with { EditAffordance = affordance };
+
         // Default.cshtml is the single entry point -- it dispatches to the
         // embed-shape partial based on vm.Embed. Returning View() (i.e.
         // Default) keeps the view-component locator happy without us having
         // to publish three sibling top-level views.
         return View(vm);
+    }
+
+    private static PolicyStackViewModel WithReadOnlyAffordances(PolicyStackViewModel model)
+    {
+        var rows = model.Rows.Select(row => row with { ShowReadOnlyEditAffordance = !row.IsInherited }).ToArray();
+        var groups = model.StackGroups.Select(group => group with
+        {
+            Rows = group.Rows.Select(row => row with { ShowReadOnlyEditAffordance = !row.IsInherited }).ToArray(),
+            OwnedRules = group.OwnedRules.Select(row => row with { ShowReadOnlyEditAffordance = !row.IsInherited }).ToArray(),
+            ShowReadOnlyAddAffordance = true
+        }).ToArray();
+
+        return model with { Rows = rows, StackGroups = groups };
     }
 }

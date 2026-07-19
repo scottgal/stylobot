@@ -26,6 +26,22 @@ public interface IPolicyCanEditPolicy
     ///     a <c>null</c> or unauthenticated principal as read-only.
     /// </summary>
     bool CanEdit(ClaimsPrincipal? user);
+
+    /// <summary>
+    /// Controls how edit affordances are presented. FOSS and unentitled
+    /// viewers remain hidden; commercial demo/showcase hosts can expose the
+    /// real controls in a disabled, explanatory state without granting any
+    /// write capability.
+    /// </summary>
+    PolicyEditAffordance GetEditAffordance(ClaimsPrincipal? user) =>
+        CanEdit(user) ? PolicyEditAffordance.Editable : PolicyEditAffordance.Hidden;
+}
+
+public enum PolicyEditAffordance
+{
+    Hidden,
+    ReadOnly,
+    Editable
 }
 
 /// <summary>

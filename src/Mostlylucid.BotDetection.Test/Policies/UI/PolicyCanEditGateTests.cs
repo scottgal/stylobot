@@ -86,6 +86,19 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
         Assert.DoesNotContain("data-policy-stack-drag-handle", html);
     }
 
+    [Fact]
+    public async Task Demo_gate_renders_disabled_edit_affordances_without_write_wiring()
+    {
+        var client = await BuildClientAsync(canEditPolicy: new DemoReadOnlyPolicy());
+
+        var html = await GetHtmlAsync(client);
+
+        Assert.Contains("Demo mode: editing is read-only", html);
+        Assert.Contains("aria-label=\"Edit rule unavailable in demo mode\"", html);
+        Assert.DoesNotContain("data-policy-stack-drag-handle", html);
+        Assert.DoesNotContain("hx-get=\"/stylobot/policystack/edit?ruleId=", html);
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var app in _apps)
@@ -172,5 +185,11 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
     private sealed class AlwaysCanEditPolicy : IPolicyCanEditPolicy
     {
         public bool CanEdit(ClaimsPrincipal? user) => true;
+    }
+
+    private sealed class DemoReadOnlyPolicy : IPolicyCanEditPolicy
+    {
+        public bool CanEdit(ClaimsPrincipal? user) => false;
+        public PolicyEditAffordance GetEditAffordance(ClaimsPrincipal? user) => PolicyEditAffordance.ReadOnly;
     }
 }

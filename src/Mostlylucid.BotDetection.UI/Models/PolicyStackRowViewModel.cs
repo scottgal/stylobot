@@ -110,7 +110,11 @@ public sealed record PolicyStackRowViewModel(
     bool IsDiverged = false,
     DateTimeOffset? AutoPromoteAt = null,
     PolicyAction? Action = null,
-    RuleTriggerOptions? Trigger = null);
+    RuleTriggerOptions? Trigger = null)
+{
+    /// <summary>Shows a disabled edit indicator on commercial demo/showcase hosts.</summary>
+    public bool ShowReadOnlyEditAffordance { get; init; }
+}
 
 /// <summary>
 ///     One predicate chip on the compact rule row. Either a real term
