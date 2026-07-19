@@ -40,11 +40,6 @@ public class GatewayOptions
     public string LogLevel { get; set; } = "Information";
 
     /// <summary>
-    /// Demo mode configuration.
-    /// </summary>
-    public DemoModeOptions DemoMode { get; set; } = new();
-
-    /// <summary>
     /// TLS/HTTPS configuration. Disabled by default (expects termination upstream).
     /// </summary>
     public TlsOptions Tls { get; set; } = new();

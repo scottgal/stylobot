@@ -288,9 +288,6 @@ try
     // PostgreSQL persistence is a commercial feature (stylobot-commercial repo)
     Log.Information("Gateway persistence: SQLite (FOSS default)");
 
-    // Configure demo mode if enabled
-    ConfigureDemoMode(builder.Configuration, builder.Services);
-
     // Add YARP reverse proxy
     builder.Services.AddYarpServices(builder.Configuration);
 
@@ -463,47 +460,11 @@ static void ConfigureProfileMode(IConfiguration configuration, IServiceCollectio
 
     if (!profileModeEnabled) return;
 
-    var demoModeEnv = Environment.GetEnvironmentVariable("GATEWAY_DEMO_MODE");
-    var demoEnabled = (bool.TryParse(demoModeEnv, out var de) && de)
-        || configuration.GetValue<bool>("Gateway:DemoMode:Enabled");
-    if (demoEnabled)
-        Log.Warning("Both GATEWAY_PROFILE_MODE and GATEWAY_DEMO_MODE are set -- profile mode takes precedence");
-
     Log.Information("Profile mode active -- fingerprint-only inline detection, background calibration enabled");
     services.PostConfigure<BotDetectionOptions>(opts =>
     {
         opts.PathPolicies.Clear();
         opts.PathPolicies["/*"] = "profile";
-    });
-}
-
-/// <summary>
-/// Configure demo mode: switches to 'demo' policy if demo mode is enabled.
-/// </summary>
-static void ConfigureDemoMode(IConfiguration configuration, IServiceCollection services)
-{
-    // Check if demo mode is enabled
-    var demoModeEnv = Environment.GetEnvironmentVariable("GATEWAY_DEMO_MODE");
-    var demoModeEnabled = bool.TryParse(demoModeEnv, out var demoEnabled) && demoEnabled;
-
-    if (!demoModeEnabled)
-    {
-        demoModeEnabled = configuration.GetValue<bool>("Gateway:DemoMode:Enabled");
-    }
-
-    if (!demoModeEnabled)
-    {
-        return;
-    }
-
-    // Override PathPolicies to use 'demo' policy for all paths
-    services.PostConfigure<BotDetectionOptions>(opts =>
-    {
-        // Clear existing path policies and set all paths to 'demo'
-        opts.PathPolicies.Clear();
-        opts.PathPolicies["/*"] = "demo";
-
-        Log.Information("Demo mode active - using 'demo' policy with ALL detectors enabled");
     });
 }
 

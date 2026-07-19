@@ -347,29 +347,6 @@ The gateway adds `X-Bot-*` headers to every proxied request. Your backend can re
 </details>
 
 <details>
-<summary><strong>Headers Reference (Demo Mode - GATEWAY_DEMO_MODE=true)</strong></summary>
-
-All production headers plus:
-
-| Header | Value | Description |
-|--------|-------|-------------|
-| `X-Bot-Detection-Result` | `true` / `false` | Detection result |
-| `X-Bot-Detection-Probability` | `0.0000` - `1.0000` | Raw probability |
-| `X-Bot-Detection-Confidence` | `0.0000` - `1.0000` | Confidence score |
-| `X-Bot-Detection-RiskBand` | `Low`/`Medium`/`High`/`VeryHigh`/`Verified` | Risk band |
-| `X-Bot-Detection-BotType` | Bot type enum | Detected type |
-| `X-Bot-Detection-BotName` | String | Identified bot name |
-| `X-Bot-Detection-Policy` | String | Detection policy used |
-| `X-Bot-Detection-Action` | String | Action taken |
-| `X-Bot-Detection-ProcessingMs` | `0.00` - `999.99` | Processing time |
-| `X-Bot-Detection-Reasons` | JSON array | Top 5 detection reasons |
-| `X-Bot-Detection-Contributions` | JSON array | All detector contributions |
-| `X-Bot-Detection-RequestId` | String | Request trace ID |
-| `X-Signature-ID` | String | Request signature hash |
-
-</details>
-
-<details>
 <summary><strong>Network Fingerprinting Headers (always added)</strong></summary>
 
 | Header | Value | Description |
@@ -858,7 +835,6 @@ curl -H "X-Admin-Secret: your-secret" http://localhost:8080/admin/health
 | `DB_PROVIDER` | `none` | `none`, `postgres`, `sqlserver` |
 | `DB_CONNECTION_STRING` | - | Database connection string |
 | `DB_MIGRATE_ON_STARTUP` | `true` | Auto-run migrations |
-| `GATEWAY_DEMO_MODE` | `false` | Pass all detection headers downstream |
 | `LOG_LEVEL` | `Information` | Serilog minimum level |
 
 ### Bot Detection via Environment

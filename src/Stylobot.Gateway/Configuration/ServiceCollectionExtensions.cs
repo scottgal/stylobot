@@ -39,12 +39,6 @@ public static class ServiceCollectionExtensions
             opts.AllowInsecureAdminAccess = GetEnvBool("ADMIN_ALLOW_INSECURE", false);
             opts.LogLevel = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information";
 
-            // Demo mode can be enabled via environment variable
-            var demoModeEnv = Environment.GetEnvironmentVariable("GATEWAY_DEMO_MODE");
-            if (bool.TryParse(demoModeEnv, out var demoEnabled))
-            {
-                opts.DemoMode.Enabled = demoEnabled;
-            }
         });
 
         services.Configure<DatabaseOptions>(opts =>
@@ -149,13 +143,10 @@ public static class ServiceCollectionExtensions
                 // duration into upstream RTT vs StyloBot processing time.
                 builderContext.AddUpstreamTimingTransforms();
 
-                // Add bot detection headers transform based on demo mode
-                builderContext.AddDemoModeTransform(configuration);
-
                 // Extension seam for an optional host/product transform. FOSS
                 // callers leave this null and retain the existing pipeline;
-                // composed hosts can append their transform after the base
-                // fingerprinting, timing and header transforms.
+                // composed hosts can append their transform after the FOSS
+                // fingerprinting and timing transforms.
                 configureAdditionalTransforms?.Invoke(builderContext);
             });
 
