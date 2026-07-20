@@ -1,5 +1,21 @@
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @{
     var bp = Model.BasePath;
+    var query = Context!.Request.Query;
+
+    // Extract query parameters and treat empty/whitespace as null. Matches the pattern
+    // used by _Traffic.cshtml so all URL-filtered views render consistently.
+    string? Nullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+    var country = Nullable(query["country"].FirstOrDefault());
+    var botType = Nullable(query["bot_type"].FirstOrDefault());
+    var threat = Nullable(query["threat"].FirstOrDefault());
+    var fingerprintId = Nullable(query["fingerprint"].FirstOrDefault());
+    var internalOnly = query["internal"].FirstOrDefault() == "true";
 }
-<sb-visitor-list />
+@await Component.InvokeAsync("SbVisitorList", new {
+    country = country,
+    botType = botType,
+    threat = threat,
+    fingerprintId = fingerprintId,
+    @internal = internalOnly
+})
