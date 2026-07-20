@@ -29,7 +29,8 @@ internal static class DashboardMaterializationServiceExtensions
     /// </summary>
     public static IServiceCollection AddDashboardMaterialization(this IServiceCollection services)
     {
-        services.AddOptions<DashboardMaterializerOptions>();
+        services.AddOptions<DashboardMaterializerOptions>()
+            .BindConfiguration("BotDetection:Dashboard:Materializer");
 
         services.TryAddSingleton<IDashboardContentCache>(sp =>
         {
