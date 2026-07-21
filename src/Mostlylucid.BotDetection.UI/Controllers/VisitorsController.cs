@@ -49,27 +49,34 @@ public sealed class VisitorsController : Controller
             ? "/dashboard"
             : "/dashboard";
 
-        // Fetch summary data for accurate counters (same as Traffic page)
+        // Fetch authoritative segment counts from the store (single source for summary + tabs)
         var now = DateTime.UtcNow;
         var start = now.AddHours(-24);
 
-        DashboardSummary? summary = null;
-        List<DashboardTopBotEntry> topBots = new();
+        TrafficCounters? counters = null;
 
         try
         {
-            summary = await _eventStore.GetSummaryAsync(startTime: start, endTime: now, domains: null);
-            topBots = await _eventStore.GetTopBotsAsync(
-                startTime: start, endTime: now, limit: 500,
-                ProbMin: null, Domains: null, TopN: 500, BucketMinutes: 1440);
+            var segmentCounts = await _eventStore.GetVisitorSegmentCountsAsync(
+                start, now, country: country, botType: botType, threat: threat);
+
+            // Convert segment counts to TrafficCounters (same format as summary row)
+            counters = new TrafficCounters(
+                Total: segmentCounts.All,
+                Humans: segmentCounts.Humans,
+                Bots: segmentCounts.Bots,
+                BotShare: segmentCounts.All > 0 ? segmentCounts.Bots / (double)segmentCounts.All : 0,
+                TotalDelta: 0,
+                HumansDelta: 0,
+                BotsDelta: 0,
+                TotalDeltaPct: 0,
+                HumansDeltaPct: 0,
+                BotsDeltaPct: 0);
         }
         catch
         {
             // Graceful degradation: show page without counters if event store fails
         }
-
-        // Build counters using the same logic as TrafficController
-        var counters = BuildCounters(summary, topBots);
 
         var model = new VisitorsPageModel(
             Filter: string.IsNullOrWhiteSpace(filter) ? "all" : filter,
@@ -86,39 +93,6 @@ public sealed class VisitorsController : Controller
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
-
-    private static TrafficCounters BuildCounters(
-        DashboardSummary? current,
-        IReadOnlyList<DashboardTopBotEntry> currentBots)
-    {
-        var (curTotal, curHumans, curBots) = current is null
-            ? SumHits(currentBots)
-            : (current.TotalRequests, current.HumanRequests, current.BotRequests);
-
-        return new TrafficCounters(
-            Total: curTotal,
-            Humans: curHumans,
-            Bots: curBots,
-            BotShare: curBots / (double)Math.Max(1, curTotal),
-            TotalDelta: 0,
-            HumansDelta: 0,
-            BotsDelta: 0,
-            TotalDeltaPct: 0,
-            HumansDeltaPct: 0,
-            BotsDeltaPct: 0);
-    }
-
-    private static (int Total, int Humans, int Bots) SumHits(IReadOnlyList<DashboardTopBotEntry> rows)
-    {
-        var total = 0; var humans = 0; var bots = 0;
-        foreach (var v in rows)
-        {
-            total += v.HitCount;
-            if (v.BotProbability >= 0.8) bots += v.HitCount;
-            else if (v.BotProbability < 0.3) humans += v.HitCount;
-        }
-        return (total, humans, bots);
-    }
 }
 
 /// <summary>

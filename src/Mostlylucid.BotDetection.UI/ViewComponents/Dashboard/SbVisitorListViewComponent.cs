@@ -28,19 +28,36 @@ public class SbVisitorListViewComponent(
         string? fingerprintId = null,
         bool @internal = false)
     {
+        var now = DateTime.UtcNow;
+        var start = now.AddHours(-24);
+
         // Read through the event store so remote-mode hosts (no in-process
         // DetectionBroadcastMiddleware feeding the local cache) still get fresh
         // data. ProjectAsVisitors mirrors ServeVisitorListPartialAsync so the
         // SSR pass and the HTMX partial swap render the same rows.
         var raw = await eventStore.GetTopBotsAsync(
             count: MaxEntries,
-            startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow,
+            startTime: start,
+            endTime: now,
             audienceFilter: "all");
         var (items, total, counts) = WidgetRenderHelpers.ProjectAsVisitors(
             raw, filter, sort, dir, page, pageSize,
             country: country, botType: botType, threat: threat,
             fingerprintId: fingerprintId, internalOnly: @internal);
+
+        // Fetch authoritative segment counts from the store (single source of truth
+        // for both tabs and summary). This replaces the parasitic dual-query approach.
+        FilterCounts accurateCounts = counts;
+        try
+        {
+            accurateCounts = await eventStore.GetVisitorSegmentCountsAsync(
+                start, now,
+                filter: filter, country: country, botType: botType, threat: threat);
+        }
+        catch
+        {
+            // Graceful degradation: fall back to projection counts
+        }
 
         // Plan task 19: same gateway-projected drift badge enrichment the
         // dedicated visitor-list endpoints run. No-ops on a remote-mode host
@@ -53,7 +70,7 @@ public class SbVisitorListViewComponent(
         return View(new VisitorListModel
         {
             Visitors = items,
-            Counts = counts,
+            Counts = accurateCounts,
             Filter = filter,
             SortField = sort,
             SortDir = dir,

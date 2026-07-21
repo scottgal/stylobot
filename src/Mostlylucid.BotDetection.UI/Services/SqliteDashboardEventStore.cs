@@ -858,6 +858,79 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return results;
     }
 
+    public async Task<FilterCounts> GetVisitorSegmentCountsAsync(
+        DateTime startTime, DateTime endTime,
+        string? filter = null, string? country = null, string? botType = null,
+        string? threat = null, IReadOnlyList<string>? domains = null)
+    {
+        await EnsureInitializedAsync();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // Build WHERE clause for filters
+        var whereParts = new List<string>
+        {
+            "d.timestamp >= @startTime AND d.timestamp <= @endTime"
+        };
+
+        if (domains is { Count: > 0 })
+        {
+            whereParts.Add($"d.domain IN ({string.Join(",", domains.Select((_, i) => $"@domain{i}"))})");
+        }
+        if (!string.IsNullOrEmpty(country))
+            whereParts.Add("s.country_code = @country");
+        if (!string.IsNullOrEmpty(botType))
+            whereParts.Add("s.bot_type = @botType");
+        if (!string.IsNullOrEmpty(threat))
+            whereParts.Add("CASE WHEN s.threat_band = 'Critical' OR s.threat_band = 'High' THEN 3 WHEN s.threat_band = 'Elevated' OR s.threat_band = 'Medium' THEN 2 WHEN s.threat_band = 'Low' THEN 1 ELSE 0 END >= @threatRank");
+
+        var whereClause = string.Join(" AND ", whereParts);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT
+              COUNT(DISTINCT d.signature) as all_count,
+              COUNT(DISTINCT CASE WHEN s.bot_probability < @botFloor AND s.bot_type IS NOT 'Internal' THEN d.signature END) as humans,
+              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type IS NOT 'Internal' THEN d.signature END) as bots,
+              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'AI%' THEN d.signature END) as ai,
+              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'Search%' THEN d.signature END) as search,
+              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND (s.bot_type LIKE 'Tool%' OR s.bot_type = 'Tools') THEN d.signature END) as tools,
+              COUNT(DISTINCT CASE WHEN s.bot_type = 'Internal' THEN d.signature END) as internal
+            FROM detections d
+            JOIN signatures s ON d.signature = s.signature
+            WHERE {whereClause}
+            """;
+
+        cmd.Parameters.AddWithValue("@startTime", startTime);
+        cmd.Parameters.AddWithValue("@endTime", endTime);
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
+        if (!string.IsNullOrEmpty(country))
+            cmd.Parameters.AddWithValue("@country", country);
+        if (!string.IsNullOrEmpty(botType))
+            cmd.Parameters.AddWithValue("@botType", botType);
+        if (!string.IsNullOrEmpty(threat))
+            cmd.Parameters.AddWithValue("@threatRank", ThreatRank(threat));
+        for (int i = 0; i < (domains?.Count ?? 0); i++)
+            cmd.Parameters.AddWithValue($"@domain{i}", domains![i]);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new FilterCounts
+            {
+                All = reader.GetInt32(0),
+                Humans = reader.GetInt32(1),
+                Bots = reader.GetInt32(2),
+                Ai = reader.GetInt32(3),
+                Search = reader.GetInt32(4),
+                Tools = reader.GetInt32(5),
+                Internal = reader.GetInt32(6)
+            };
+        }
+
+        return new FilterCounts();
+    }
+
     /// <summary>
     ///     Windowed variant of <see cref="GetTopBotsAsync"/>: aggregates directly from the
     ///     <c>detections</c> table so hit counts are bounded by the supplied time window.
