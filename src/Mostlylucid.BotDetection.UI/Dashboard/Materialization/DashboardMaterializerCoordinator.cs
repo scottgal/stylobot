@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.Common.Scheduling;
 
@@ -38,6 +40,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly IScheduleCoordinator? _schedule;
     private readonly DashboardMaterializerOptions _options;
     private readonly ILogger<DashboardMaterializerCoordinator>? _logger;
+    private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? _hubContext;
     private IDisposable? _tickSub;
 
     public DashboardMaterializerCoordinator(
@@ -45,7 +48,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         IDashboardChangeCursor cursor,
         IOptions<DashboardMaterializerOptions> options,
         IScheduleCoordinator? schedule = null,
-        ILogger<DashboardMaterializerCoordinator>? logger = null)
+        ILogger<DashboardMaterializerCoordinator>? logger = null,
+        IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null)
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(cursor);
@@ -54,6 +58,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _options = options.Value;
         _schedule = schedule;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -91,6 +96,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     Compute happens here, off the request thread. Budget-capped
     ///     (<see cref="DashboardMaterializerOptions.MaxPagesPerTick"/>) and
     ///     fault-isolated per envelope so one failure doesn't stop the rest.
+    ///     After warming, emits SignalR invalidation beacons for changed surfaces.
     /// </summary>
     internal async Task MaterializeTickAsync(DateTimeOffset _, CancellationToken ct)
     {
@@ -100,6 +106,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
         var budget = _options.MaxPagesPerTick;
         var warmed = 0;
+        var warmedPages = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var (manifest, window) in live)
         {
@@ -117,6 +124,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             {
                 await _cache.WarmAsync(manifest, window, tick, ct).ConfigureAwait(false);
                 warmed++;
+                warmedPages.Add(manifest.PageKey);
             }
             catch (OperationCanceledException)
             {
@@ -125,6 +133,19 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             catch (Exception ex)
             {
                 _logger?.LogDebug(ex, "DashboardMaterializerCoordinator: warm failed for {Page}.", manifest.PageKey);
+            }
+        }
+
+        // Broadcast invalidation signals for warmed surfaces. The constrainer handles
+        // rate-limiting (coalescing multiple signals into a single 10s flush window).
+        // The cursor is bumped when signals are queued so BroadcastDirty carries the
+        // tick at which these surfaces changed.
+        if (warmedPages.Count > 0 && _hubContext is not null)
+        {
+            foreach (var pageKey in warmedPages)
+            {
+                _cursor.Bump(pageKey);
+                SignalRBroadcastConstrainer.Queue(_hubContext, pageKey, _options.MaterializerBroadcastIntervalMs);
             }
         }
     }

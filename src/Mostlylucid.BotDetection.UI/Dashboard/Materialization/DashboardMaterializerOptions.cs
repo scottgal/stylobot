@@ -43,4 +43,11 @@ public sealed class DashboardMaterializerOptions
 
     /// <summary>Master switch for the tick-driven materializer (the read path's cache still works when off).</summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     Interval (milliseconds) for SignalR broadcast coalescing when the materializer emits
+    ///     invalidation signals. Queued signals are batched and emitted once per window so multiple
+    ///     warmed pages don't flood the hub with individual beacons. Default 500ms (2x per 10s tick).
+    /// </summary>
+    public int MaterializerBroadcastIntervalMs { get; set; } = 500;
 }
