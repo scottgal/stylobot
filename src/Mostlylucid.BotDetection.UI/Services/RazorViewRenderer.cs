@@ -61,7 +61,14 @@ public sealed class RazorViewRenderer
             await using var writer = new StringWriter();
             var viewContext = new ViewContext(actionContext, viewResult.View, viewData, tempData, writer,
                 new HtmlHelperOptions());
-            await viewResult.View.RenderAsync(viewContext);
+            try
+            {
+                await viewResult.View.RenderAsync(viewContext);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("ViewDataDictionary"))
+            {
+                throw new InvalidOperationException($"View '{viewPath}': {ex.Message}", ex);
+            }
             return writer.ToString();
         }
         finally
