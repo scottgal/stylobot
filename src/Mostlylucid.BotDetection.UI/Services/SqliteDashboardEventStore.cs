@@ -890,8 +890,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.CommandText = $"""
             SELECT
               COUNT(DISTINCT d.signature) as all_count,
-              COUNT(DISTINCT CASE WHEN s.bot_probability < @botFloor AND s.bot_type <> 'Internal' THEN d.signature END) as humans,
-              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type <> 'Internal' THEN d.signature END) as bots,
+              COUNT(DISTINCT CASE WHEN s.bot_probability < @botFloor AND s.bot_type IS NOT 'Internal' THEN d.signature END) as humans,
+              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type IS NOT 'Internal' THEN d.signature END) as bots,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'AI%' THEN d.signature END) as ai,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'Search%' THEN d.signature END) as search,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND (s.bot_type LIKE 'Tool%' OR s.bot_type = 'Tools') THEN d.signature END) as tools,
@@ -1020,7 +1020,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ThreatBand       = reader.IsDBNull(8)  ? null : reader.GetString(8),
                 CountryCode      = reader.IsDBNull(9)  ? null : reader.GetString(9),
                 BytesOut         = reader.IsDBNull(10) ? 0L   : Convert.ToInt64(reader.GetValue(10)),
-                IsKnownBot       = reader.GetInt32(11) == 1,
+                // Classification is derived from the same probability floor as
+                // GetVisitorSegmentCountsAsync and never from the persisted
+                // is_bot compatibility flag, which can be stale after a verdict
+                // changes for a signature.
+                IsKnownBot       = (reader.IsDBNull(3) ? 0 : reader.GetDouble(3)) >= _botFloor,
                 UserAgent        = reader.IsDBNull(12) ? null : reader.GetString(12),
                 // narrative and top_reasons_json live on the signatures table, not detections;
                 // they are not available in the windowed path.
