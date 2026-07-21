@@ -1255,16 +1255,10 @@ public class StyloBotDashboardMiddleware
                 var trafficManifest = _manifests.For("dashboard.traffic");
                 if (trafficManifest is not null)
                 {
+                    var pageWindow = BuildVisitorsPageWindow(context);
                     var candidatePage = await _contentCache.GetCurrentAsync(
                         trafficManifest,
-                        new DashboardPageWindow(
-                            StartTime: DateTime.UtcNow.AddHours(-24),
-                            EndTime: DateTime.UtcNow,
-                            AudienceFilter: "all",
-                            ProbMin: null,
-                            Domains: null,
-                        TopN: 500,
-                        BucketMinutes: 60),
+                        pageWindow,
                         context.RequestAborted);
 
                     // Remote compose can degrade to a non-null bundle with empty slices
@@ -1296,11 +1290,13 @@ public class StyloBotDashboardMiddleware
         // Visitor list reads through the composed bundle when available. The
         // event-store path remains a safe fallback for lightweight hosts.
         var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
+        var visitorWindow = BuildVisitorsPageWindow(context);
         var visitorTask = _eventStore.GetTopBotsAsync(
             count: _visitorListMaxEntries,
-            startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow,
-            audienceFilter: "all");
+            startTime: visitorWindow.StartTime,
+            endTime: visitorWindow.EndTime,
+            audienceFilter: visitorWindow.AudienceFilter,
+            domains: visitorWindow.Domains);
         Task<DashboardSummary> summaryTask = composedPage?.Summary is { } composedSummary
             ? Task.FromResult(composedSummary)
             : _aggregateCache.Current.Summary is { } cachedSummary
@@ -7151,6 +7147,56 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var routeWidgetId = q["widgetId"].FirstOrDefault() ?? widgetId;
         var searchQuery = q["q"].FirstOrDefault();
         return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, routeWidgetId, searchQuery);
+    }
+
+    /// <summary>
+    ///     Builds the same content-cache envelope as the Traffic page. Visitors is
+    ///     rendered by this middleware, so a hard-coded window would miss the Traffic
+    ///     bundle already warmed for the request's selected period and domain scope.
+    /// </summary>
+    internal static DashboardPageWindow BuildVisitorsPageWindow(HttpContext context)
+    {
+        var layout = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<UI.Models.Dashboard.Layout.DashboardLayoutOptions>>()
+            ?.Value;
+        var configuredMinutes = layout?.DefaultTimeWindowMinutes ?? 1440;
+        var configuredToken = configuredMinutes switch
+        {
+            15 => "15m",
+            60 => "1h",
+            360 => "6h",
+            720 => "12h",
+            1440 => "24h",
+            7 * 24 * 60 => "7d",
+            _ => "24h"
+        };
+        var token = context.Request.Query["window"].FirstOrDefault() ?? configuredToken;
+        var minutes = token switch
+        {
+            "15m" => 15,
+            "60m" or "1h" => 60,
+            "6h" => 6 * 60,
+            "12h" => 12 * 60,
+            "24h" or "1d" => 24 * 60,
+            "7d" => 7 * 24 * 60,
+            "30d" => 30 * 24 * 60,
+            _ => configuredMinutes
+        };
+        var end = DateTime.UtcNow;
+        var domains = context.Request.Query["domain"]
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return new DashboardPageWindow(
+            StartTime: end.AddMinutes(-minutes),
+            EndTime: end,
+            AudienceFilter: "all",
+            ProbMin: null,
+            Domains: domains.Length == 0 ? null : domains,
+            TopN: 500,
+            BucketMinutes: (int)Dashboard.HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
     }
 
     private async Task<List<DashboardCountryStats>> GetCountriesDataAsync()
