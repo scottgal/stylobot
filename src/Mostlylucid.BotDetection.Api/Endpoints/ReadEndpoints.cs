@@ -34,6 +34,7 @@ public static class ReadEndpoints
         group.MapGet("/detections", HandleDetections).WithName("GetDetections");
         group.MapGet("/signatures", HandleSignatures).WithName("GetSignatures");
         group.MapGet("/summary", HandleSummary).WithName("GetSummary");
+        group.MapGet("/visitor-segments", HandleVisitorSegments).WithName("GetVisitorSegments");
         group.MapGet("/timeseries", HandleTimeseries).WithName("GetTimeseries");
         group.MapGet("/countries", HandleCountries).WithName("GetCountries");
         group.MapGet("/countries/{code}", HandleCountryDetail).WithName("GetCountryDetail");
@@ -221,6 +222,27 @@ public static class ReadEndpoints
 
         var summary = await store.GetSummaryAsync();
         return TypedResults.Ok(new SingleResponse<DashboardSummary> { Data = summary, Meta = new ResponseMeta() });
+    }
+
+    private static async Task<Ok<SingleResponse<FilterCounts>>> HandleVisitorSegments(
+        [FromServices] IDashboardEventStore store,
+        DateTime? since = null, DateTime? until = null,
+        string? filter = null, string? country = null, string? bot_type = null,
+        string? threat = null)
+    {
+        var now = DateTime.UtcNow;
+        var startTime = since ?? now.AddHours(-24);
+        var endTime = until ?? now;
+
+        var counts = await store.GetVisitorSegmentCountsAsync(
+            startTime, endTime, filter: filter, country: country,
+            botType: bot_type, threat: threat);
+
+        return TypedResults.Ok(new SingleResponse<FilterCounts>
+        {
+            Data = counts,
+            Meta = new ResponseMeta()
+        });
     }
 
     private static async Task<Ok<PaginatedResponse<DashboardTimeSeriesPoint>>> HandleTimeseries(
