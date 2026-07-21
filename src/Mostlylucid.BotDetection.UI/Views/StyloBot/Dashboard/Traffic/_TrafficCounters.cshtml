@@ -1,7 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
-@model TrafficPageModel
+@model TrafficCounters
 @{
-    var c = Model.Counters;
+    var c = Model;
     var humanShare = 1d - c.BotShare;
 
     string DeltaText(int delta, double pct)

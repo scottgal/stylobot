@@ -1,0 +1,20 @@
+# stylobot- context (refreshed 2026-07-21, pre-compaction)
+
+- **Identity/scope:** FOSS architect/overview agent for StyloBot FOSS repo `/Users/scottgalloway/RiderProjects/stylobot`. I HOLD the shape (spec/architecture/fleet) and MANAGE FOSS specialists. Operator feedback this session: manage specialists, don't grind/re-derive, use saved context, present designs directly (no A/B/C, no em-dashes). Coordinate over the bus per `.styloagent/PROTOCOL.md`.
+- **Fleet:** overview- (commercial architect, stylobot-commercial repo), me (stylobot-), foss- (MY CHILD — FOSS RCL + detection-engine owner), dash- (commercial dashboard read-path), mae- (membership/ecom/trial), deploy- (infra), docs- (copy).
+
+## ACTIVE WORK 1 — Dashboard-fork collapse (operator GO, EXECUTING NOW, top priority)
+- Ruling (overview- broadcast 2026-07-21): ONE dashboard = FOSS `Mostlylucid.BotDetection.UI` RCL / `Stylobot.Ui`; marketing site DOGFOODS it; extend FOSS with seams (slot/config/VC param) both use; DELETE commercial copies; no shadow fork. Memory: `project_dashboard_dogfood_ruling.md`.
+- **Plan (co-signed w/ foss-, de-gated by operator GO):** `/Users/scottgalloway/RiderProjects/stylobot/.styloagent/dashboard-collapse-plan.md`. foss- is implementing in order:
+  1. **Live-feed relay FIRST** (frozen-dashboard root cause): `AddStyloBotDashboard` registers `SignalRBeaconRelay` when a live source is configured; broadcast off ScheduleCoordinator/materializer tick dirtyKinds→beacon→HTMX OOB. **NO BackgroundService, NO timer** (operator hard rule).
+  2. Extension points #1-#7: #1 named render slot in Traffic/_Body (slot host; commercial fills multi-domain filter license-gated); #2 country config-selectable bar|map (FOSS default bar) + "by source" FOSS option + RESTORE dropped pack Contributions loop via slot; #3 detection shape config-selectable radar|triangle (FOSS default radar); #4 delete _VisitorsSection shim if ec6907af forwards URL filters; #5 FOSS SiteController single-endpoint compose (SbEndpointsList filtered to one path+method); #6/#7 FOSS slot hosts (location-tree already <vc:location-tree>) + commercial fills license-gated. #8 config editor = edit- lane, out of scope.
+- **CRITICAL commercial-side config dep (dash- flag, section C of plan):** website must set `StyloBot:Source:Live:Type=signalr` + gateway hub URL or it STAYS FROZEN after the code fix (deploy-/config lane). Commercial config also sets `Dashboard:CountryWidget:Style=map` (operator-confirmed want). Detection shape stays `radar` commercial-side — triangle is agent-introduced/unconfirmed, dropped as default but config-available.
+- **Sequence:** foss- implements → dash- deletes copies (3 overrides + 2 shims + Overview.cshtml + DashboardController) + wires slots + reverts `33be9b8d` + registers relay on website → deploy-/config sets live-source + map + redeploys → overview- browser-verifies. Report to overview- when site renders real FOSS dashboard WITH live updates.
+- **I OWE (send if not already sent pre-compaction):** deploy- (live-feed config dep); reply dash- (2 flags ack + triangle-drop); reply overview- (ack approved/de-gated + triangle-drop decision); brief foss- FYI (its code seam needs website config, deploy-/dash- lane).
+
+## ACTIVE WORK 2 — FOSS security review (PARKED at checkpoint; resume AFTER collapse)
+- Read-only audit I started 2026-07-19. Two findings FILED: (HIGH) `StyloBotDashboardHub` connect-by-default + skips RequireAuthentication; (MEDIUM) `/_sb/metrics/snapshot` unauth + CLI `/admin/persistence-stats` unauth. Apparently FIXED by `95e5988d` (hub auth parity) + `37c28046` (protect operational endpoints) — foss- verifying closed.
+- UNAUDITED (still owed): input handling, dashboard rendering (encoding/XSS), egress (SSRF + zero-PII leak). foss- to report checkpoint state to me.
+
+## Worktree / git
+- PRESERVE uncommitted: `.gitignore`, `wwwroot/vendor/css/tailwind.min.css`, `docs/soak-sqlite-vs-postgres-plan.md`, `soak-results/`. My WIP = `.styloagent/dashboard-collapse-plan.md` (design artifact; `.styloagent/` is coordination state). FOSS branch = main.

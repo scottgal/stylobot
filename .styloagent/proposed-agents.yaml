@@ -1,0 +1,134 @@
+# StyloBot — Proposed Fleet (migrated from /private/tmp/agent-channel, 2026-07-17)
+#
+# Reconstructed from the old channel's PROTOCOL.md routing table + the mae- launch prompt. The old
+# manual-fswatch / ping-redirect machinery is superseded by current Styloagent (native MCP delivery,
+# hook-state badges, ownership gate) — only the ROSTER + scopes carried over. Colours from agent_color().
+#
+# The StyloBot fleet spans TWO repos: FOSS detection engine (/Users/scottgalloway/RiderProjects/stylobot)
+# and this commercial layer. Commercial agents run here (dir '.'); FOSS-side agents point at the FOSS repo.
+# Each agent's full brief is in launch-prompts/<prefix>-mission.md (only mae- is verbatim-migrated; the
+# rest are reconstructed from the old PROTOCOL scopes — REVIEW/refine before relying on them).
+
+agents:
+  - prefix: overview-
+    responsibility: >-
+      Architecture & coordination (guardian) — FOSS+commercial architecture, DI wiring, cross-cutting
+      design, and the arbiter for cross-agent scope disputes.
+    dir: .
+    worktree: false
+    color: "#A1887F"
+    launchPrompt: |
+      You are the `overview-` agent for StyloBot Commercial. Read and follow your mission at the ABSOLUTE
+      path /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/launch-prompts/overview-mission.md.
+      Coordinate over the bus per .styloagent/PROTOCOL.md. Commit verified work straight to main.
+
+  - prefix: foss-
+    responsibility: >-
+      FOSS StyloBot detection engine — atom contract tests, manifests, orchestrator, detector code. Owns
+      live-system/runtime incidents (prod/staging misbehaviour, request-path + detection-pipeline bugs).
+      Works the FOSS repo.
+    dir: /Users/scottgalloway/RiderProjects/stylobot
+    worktree: false
+    color: "#E57373"
+    launchPrompt: |
+      You are the `foss-` agent for StyloBot. Read and follow your mission at the ABSOLUTE path
+      /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/launch-prompts/foss-mission.md.
+      You work the FOSS repo at /Users/scottgalloway/RiderProjects/stylobot. Coordinate over the bus per
+      .styloagent/PROTOCOL.md. Commit verified work straight to main.
+
+  - prefix: mae-
+    responsibility: >-
+      Marketing-site membership (Keycloak / portal auth / signup / edit-mode gating) + ecommerce (Stripe /
+      cart / checkout / billing / per-domain licensing purchase + license issuance).
+    dir: .
+    worktree: false
+    color: "#A1887F"
+    launchPrompt: |
+      You are the `mae-` agent for StyloBot Commercial. Read and follow your mission at the ABSOLUTE path
+      /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/launch-prompts/mae-mission.md.
+      Coordinate over the bus per .styloagent/PROTOCOL.md. Commit verified work straight to main.
+
+  - prefix: dash-
+    responsibility: >-
+      Dashboard READ-path / render-perf (commercial) — widget ledger, batch composition, SSR/SignalR fill
+      orchestration, Postgres index/view design, website-host cache removal. Not detection writes/centroid.
+    dir: .
+    worktree: false
+    color: "#4DB6AC"
+    launchPrompt: |
+      You are the `dash-` agent for StyloBot Commercial. Read and follow your mission at the ABSOLUTE path
+      /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/launch-prompts/dash-mission.md.
+      Coordinate over the bus per .styloagent/PROTOCOL.md. Commit verified work straight to main.
+
+  - prefix: edit-
+    responsibility: >-
+      Dashboard WRITE-path / editing surface (commercial) — apply-policy controls, effective-policy stack
+      rendering, config-editor UI, demo-mode vs owner gating. IConfigOverrideStore write + EffectivePolicyResolver.
+    dir: .
+    worktree: false
+    color: "#F06292"
+    launchPrompt: |
+      You are the `edit-` agent for StyloBot Commercial. Read and follow your mission at the ABSOLUTE path
+      /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/launch-prompts/edit-mission.md.
+      Coordinate over the bus per .styloagent/PROTOCOL.md. Commit verified work straight to main.
+
+  - prefix: deploy-
+    responsibility: >-
+      Deployment / infra ops — staging + prod deployment, Maxo image builds, DNS/TLS, deployment-incident
+      diagnosis + recovery. Owns the Maxo -> staging -> k8s-prod (Helm) flow.
+    dir: .
+    worktree: false
+    color: "#AED581"
+    launchPrompt: |
+      You are the `deploy-` agent for StyloBot. Read and follow your mission at the ABSOLUTE path
+      /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/launch-prompts/deploy-mission.md.
+      Coordinate over the bus per .styloagent/PROTOCOL.md. Commit verified work straight to main.
+
+  - prefix: prod-
+    responsibility: >-
+      Platform / infra security — Harbor registry (commercial docker distribution), Keycloak OIDC, cluster
+      security findings + hardening. Adjacent to deploy-.
+    dir: .
+    worktree: false
+    color: "#4FC3F7"
+    launchPrompt: |
+      You are the `prod-` agent for StyloBot. Read and follow your mission at the ABSOLUTE path
+      /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/launch-prompts/prod-mission.md.
+      Coordinate over the bus per .styloagent/PROTOCOL.md. Commit verified work straight to main.
+
+  # ── STANDBY / PAUSED (from the old PROTOCOL — spawn only if their thread reopens) ──────────────────
+  - prefix: wba-
+    responsibility: >-
+      STANDBY — Web Bot Auth foundation (FOSS): RFC 9421 verifier, PublicKeyRegistry, ITokenVerifier,
+      ISignatureValidator seam. Signed off end-to-end; spawn only on a wire-contract question.
+    dir: /Users/scottgalloway/RiderProjects/stylobot
+    worktree: false
+    color: "#DCE775"
+    launchPrompt: |
+      You are the `wba-` (Web Bot Auth foundation) agent — STANDBY. Read launch-prompts/wba-mission.md at the
+      ABSOLUTE path under /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/. Work the FOSS
+      repo. Coordinate over the bus per .styloagent/PROTOCOL.md.
+
+  - prefix: wba-atom-
+    responsibility: >-
+      STANDBY — Web Bot Auth atom (FOSS extractor): WebBotAuthAtom Stage 1, RFC 9421 header extraction
+      (emits webbotauth.keyid/signature/base signals; does NOT verify).
+    dir: /Users/scottgalloway/RiderProjects/stylobot
+    worktree: false
+    color: "#7986CB"
+    launchPrompt: |
+      You are the `wba-atom-` agent — STANDBY. Read launch-prompts/wba-atom-mission.md at the ABSOLUTE path
+      under /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/. Work the FOSS repo.
+      Coordinate over the bus per .styloagent/PROTOCOL.md.
+
+  - prefix: caps-
+    responsibility: >-
+      PAUSED — Capability token atom (commercial): CapabilityTokenAtom parses `Authorization: License`,
+      calls FOSS ITokenVerifier. Paused pending the FOSS IEndpointPolicyRuleExtension seam.
+    dir: .
+    worktree: false
+    color: "#FFB74D"
+    launchPrompt: |
+      You are the `caps-` agent — PAUSED. Read launch-prompts/caps-mission.md at the ABSOLUTE path under
+      /Users/scottgalloway/RiderProjects/stylobot-commercial/.styloagent/. Coordinate over the bus per
+      .styloagent/PROTOCOL.md.

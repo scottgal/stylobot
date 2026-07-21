@@ -128,7 +128,7 @@
         </div>
     }
 
-    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model)
+    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
 
     @{
         // The shared sb-chartlet view component renders a Chart.js stacked bar
