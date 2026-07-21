@@ -909,7 +909,16 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (!string.IsNullOrEmpty(botType))
             cmd.Parameters.AddWithValue("@botType", botType);
         if (!string.IsNullOrEmpty(threat))
-            cmd.Parameters.AddWithValue("@threatRank", ThreatRank(threat));
+        {
+            var threatRank = threat switch
+            {
+                "critical" or "high" => 3,
+                "elevated" or "medium" => 2,
+                "low" => 1,
+                _ => 0
+            };
+            cmd.Parameters.AddWithValue("@threatRank", threatRank);
+        }
         for (int i = 0; i < (domains?.Count ?? 0); i++)
             cmd.Parameters.AddWithValue($"@domain{i}", domains![i]);
 

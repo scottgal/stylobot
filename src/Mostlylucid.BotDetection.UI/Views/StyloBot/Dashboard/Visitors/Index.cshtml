@@ -1,34 +1,178 @@
 @using Mostlylucid.BotDetection.UI.Controllers
+@using System.Text.Json
 @model VisitorsPageModel
 @{
     ViewData["Title"] = "Visitors";
 }
 
 @*
-    V1 (dashboard IA collapse plan) — Visitors landing page. The filter pills +
-    visitor table live in SbVisitorList/Default.cshtml; this page binds the URL
-    filter set (?country, ?bot_type, ?threat, ?fingerprint, ?internal) into the
-    view component invocation so the first paint and any subsequent HTMX swap of
-    /dashboard/partials/visitors render in the same shape. The accurate visitor
-    summary (matching the Traffic page) is rendered above the list from the
-    same TrafficCounters data source.
+    Visitors overview page — repurposed components:
+    1. Top: accurate summary row (_TrafficCounters) — full width
+    2. Below: two-column grid
+       - LEFT: visitor list (SbVisitorList) with filters
+       - RIGHT: stacked with signature shapes + world map
 *@
 <section class="space-y-4">
     <header class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold">Visitors</h2>
     </header>
 
+    @* Row 1: Accurate summary *@
     @if (Model.Counters is not null)
     {
         @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
     }
 
-    @await Component.InvokeAsync("SbVisitorList", new {
-        filter      = Model.Filter,
-        country     = Model.Country,
-        botType     = Model.BotType,
-        threat      = Model.Threat,
-        fingerprintId = Model.FingerprintId,
-        @internal   = Model.Internal
-    })
+    @* Row 2: Two-column layout *@
+    <div class="grid grid-cols-3 gap-4">
+        @* LEFT: Visitor list (2/3 width) *@
+        <div class="col-span-2">
+            @await Component.InvokeAsync("SbVisitorList", new {
+                filter      = Model.Filter,
+                country     = Model.Country,
+                botType     = Model.BotType,
+                threat      = Model.Threat,
+                fingerprintId = Model.FingerprintId,
+                @internal   = Model.Internal
+            })
+        </div>
+
+        @* RIGHT: Signature shapes + world map (1/3 width, stacked) *@
+        <div class="space-y-4">
+            @* Bot vs Human average signature shapes *@
+            <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-3">
+                    <div class="text-xs font-bold text-base-content mb-2">Signature Patterns</div>
+                    <div class="flex gap-3 justify-center text-[9px]">
+                        <div class="text-center">
+                            <div class="text-base-content/60">Bot</div>
+                            @* Reused from _YourDetection: 12-axis clock radar SVG *@
+                            <svg viewBox="0 0 80 80" width="60" height="60" xmlns="http://www.w3.org/2000/svg" class="mx-auto mt-1">
+                                <g transform="translate(40,40)">
+                                    <circle r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.5"/>
+                                    <circle r="21" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="0.5"/>
+                                    <circle r="11" fill="none" stroke="rgba(148,163,184,0.08)" stroke-width="0.5"/>
+                                    @for (var i = 0; i < 12; i++)
+                                    {
+                                        var theta = -Math.PI / 2 + i * 2 * Math.PI / 12;
+                                        var x = 32 * Math.Cos(theta);
+                                        var y = 32 * Math.Sin(theta);
+                                        <line x1="0" y1="0" x2="@x.ToString("F2")" y2="@y.ToString("F2")"
+                                              stroke="rgba(148,163,184,0.10)" stroke-width="0.5"/>
+                                    }
+                                    <polygon points="0,-20 17,-5 -17,-5" fill="rgba(239,68,68,0.22)" stroke="#ef4444" stroke-width="1"/>
+                                </g>
+                            </svg>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-base-content/60">Human</div>
+                            <svg viewBox="0 0 80 80" width="60" height="60" xmlns="http://www.w3.org/2000/svg" class="mx-auto mt-1">
+                                <g transform="translate(40,40)">
+                                    <circle r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.5"/>
+                                    <circle r="21" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="0.5"/>
+                                    <circle r="11" fill="none" stroke="rgba(148,163,184,0.08)" stroke-width="0.5"/>
+                                    @for (var i = 0; i < 12; i++)
+                                    {
+                                        var theta = -Math.PI / 2 + i * 2 * Math.PI / 12;
+                                        var x = 32 * Math.Cos(theta);
+                                        var y = 32 * Math.Sin(theta);
+                                        <line x1="0" y1="0" x2="@x.ToString("F2")" y2="@y.ToString("F2")"
+                                              stroke="rgba(148,163,184,0.10)" stroke-width="0.5"/>
+                                    }
+                                    <polygon points="0,-20 17,-5 -17,-5" fill="rgba(34,197,94,0.22)" stroke="#22c55e" stroke-width="1"/>
+                                </g>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* World map (reused from Traffic/_TrafficPanels) *@
+            @if (Model.Countries is not null && Model.Countries.Count > 0)
+            {
+                <div class="card bg-base-100 border border-base-300">
+                    <div class="card-body p-3">
+                        <div class="text-xs font-bold text-base-content mb-2">By Country</div>
+                        @{
+                            var countriesJson = JsonSerializer.Serialize(
+                                Model.Countries.Select(c => new
+                                {
+                                    countryCode = c.CountryCode,
+                                    hits = c.TotalCount,
+                                    botRate = c.BotRate
+                                }));
+                        }
+                        <div id="countries-map-visitors" data-countries="@countriesJson" style="width:100%;height:140px;"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
 </section>
+
+@section Scripts {
+    <script nonce="@(Context.Items["CspNonce"] as string ?? "")">
+    (function() {
+        'use strict';
+        function initMapFromData(containerId) {
+            var el = document.getElementById(containerId);
+            if (!el || typeof jsVectorMap === 'undefined') return;
+
+            function themeVar(name, fallback) {
+                var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+                return v || fallback;
+            }
+            var mapBase   = themeVar('--color-base-300', '#1e3a5f');
+            var mapStroke = themeVar('--color-base-content', '#3b82f6');
+            var mapHover  = themeVar('--color-primary', '#3b82f6');
+
+            var countriesJson = el.getAttribute('data-countries');
+            var countries = [];
+            try {
+                countries = JSON.parse(countriesJson || '[]');
+            } catch (e) {}
+
+            var vals = {};
+            countries.forEach(function(c) {
+                if (c.countryCode) vals[c.countryCode] = c.botRate || 0;
+            });
+
+            var map = new jsVectorMap({
+                selector: '#' + containerId,
+                map: 'world_merc',
+                zoomOnScroll: true,
+                zoomButtons: false,
+                showTooltip: true,
+                backgroundColor: 'transparent',
+                regionStyle: {
+                    initial:  { fill: mapBase,   stroke: mapStroke, strokeWidth: 0.5, fillOpacity: 0.55 },
+                    hover:    { fill: mapHover,  fillOpacity: 0.75 },
+                    selected: { fill: mapHover,  fillOpacity: 0.9 }
+                },
+                series: {
+                    regions: [{
+                        attribute: 'fill',
+                        scale: { low: '#22d3ee', mid: '#f59e0b', high: '#ef4444' },
+                        values: vals,
+                        min: 0, max: 1,
+                        normalizeFunction: 'polynomial'
+                    }]
+                },
+                onRegionTooltipShow: function(e, tooltip, code) {
+                    var regionVals = map.series.regions[0]?.values;
+                    if (!regionVals) return;
+                    var rate = regionVals[code];
+                    if (rate !== undefined) {
+                        var span = document.createElement('span');
+                        span.textContent = ' - Bot rate: ' + (rate * 100).toFixed(0) + '%';
+                        tooltip.selector.appendChild(span);
+                    }
+                }
+            });
+            return map;
+        }
+
+        initMapFromData('countries-map-visitors');
+    })();
+    </script>
+}

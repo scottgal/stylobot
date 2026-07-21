@@ -350,6 +350,17 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return list;
     }
 
+    /// <summary>
+    ///     Remote stub. Returns empty counts so the Visitors page gracefully degrades
+    ///     on remote-mode hosts (e.g., marketing site embed). A future API addition
+    ///     can wire a proper endpoint through without changing the call site.
+    /// </summary>
+    public Task<FilterCounts> GetVisitorSegmentCountsAsync(
+        DateTime startTime, DateTime endTime,
+        string? filter = null, string? country = null, string? botType = null,
+        string? threat = null, IReadOnlyList<string>? domains = null)
+        => Task.FromResult(new FilterCounts { All = 0, Humans = 0, Bots = 0, Ai = 0, Tools = 0, Internal = 0 });
+
     // === Write surface: not supported on the remote viewer ===
 
     public Task AddDetectionAsync(DashboardDetectionEvent detection)

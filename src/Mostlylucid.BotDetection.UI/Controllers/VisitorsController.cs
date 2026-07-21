@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Dashboard;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
@@ -17,18 +19,26 @@ namespace Mostlylucid.BotDetection.UI.Controllers;
 ///     <c>?fingerprint=</c>, <c>?internal=true</c>) into the model so the
 ///     SSR-first page renders with the active filter chips + Internal pill in
 ///     the same shape an HTMX swap of the same partial would produce.
+///
+///     The Visitors layout includes a map and signature patterns (reused from Traffic).
 /// </summary>
 [Route("dashboard/visitors")]
 public sealed class VisitorsController : Controller
 {
     private readonly IDashboardEventStore _eventStore;
+    private readonly IDashboardContentCache _contentCache;
+    private readonly IDashboardPageManifestSource _manifests;
     private readonly IOptions<DashboardLayoutOptions> _layout;
 
     public VisitorsController(
         IDashboardEventStore eventStore,
+        IDashboardContentCache contentCache,
+        IDashboardPageManifestSource manifests,
         IOptions<DashboardLayoutOptions> layout)
     {
         _eventStore = eventStore;
+        _contentCache = contentCache;
+        _manifests = manifests;
         _layout = layout;
     }
 
@@ -54,6 +64,7 @@ public sealed class VisitorsController : Controller
         var start = now.AddHours(-24);
 
         TrafficCounters? counters = null;
+        IReadOnlyList<DashboardCountryStats>? countriesData = null;
 
         try
         {
@@ -78,6 +89,30 @@ public sealed class VisitorsController : Controller
             // Graceful degradation: show page without counters if event store fails
         }
 
+        // Fetch countries data for the map (reused from Traffic page)
+        try
+        {
+            var manifest = _manifests.For("dashboard.visitors")
+                ?? _manifests.For("dashboard.traffic");
+            if (manifest != null)
+            {
+                var pageWindow = new DashboardPageWindow(
+                    StartTime: start,
+                    EndTime: now,
+                    AudienceFilter: "all",
+                    ProbMin: null,
+                    Domains: null,
+                    TopN: 500,
+                    BucketMinutes: 60);
+                var page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
+                countriesData = (IReadOnlyList<DashboardCountryStats>)(page.Geo ?? new List<DashboardCountryStats>());
+            }
+        }
+        catch
+        {
+            // Graceful degradation: show page without countries map if cache fails
+        }
+
         var model = new VisitorsPageModel(
             Filter: string.IsNullOrWhiteSpace(filter) ? "all" : filter,
             Country: NullIfEmpty(country),
@@ -86,7 +121,8 @@ public sealed class VisitorsController : Controller
             FingerprintId: NullIfEmpty(fingerprint),
             Internal: @internal,
             BasePath: basePath,
-            Counters: counters);
+            Counters: counters,
+            Countries: countriesData ?? new List<DashboardCountryStats>());
 
         return View("/Views/StyloBot/Dashboard/Visitors/Index.cshtml", model);
     }
@@ -100,7 +136,8 @@ public sealed class VisitorsController : Controller
 ///     wires these into an HTMX <c>hx-get</c> against
 ///     <c>/dashboard/partials/visitors</c> so the first-paint and subsequent
 ///     swaps share the same filter shape. Counters provide accurate visitor
-///     summary matching the Traffic page numbers.
+///     summary matching the Traffic page numbers. Countries data powers the
+///     world map in the right-column sidebar.
 /// </summary>
 public sealed record VisitorsPageModel(
     string Filter,
@@ -110,4 +147,5 @@ public sealed record VisitorsPageModel(
     string? FingerprintId,
     bool Internal,
     string BasePath,
-    TrafficCounters? Counters = null);
+    TrafficCounters? Counters = null,
+    IReadOnlyList<DashboardCountryStats>? Countries = null);
