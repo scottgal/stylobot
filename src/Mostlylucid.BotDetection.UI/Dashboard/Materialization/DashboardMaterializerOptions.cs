@@ -50,4 +50,16 @@ public sealed class DashboardMaterializerOptions
     ///     warmed pages don't flood the hub with individual beacons. Default 500ms (2x per 10s tick).
     /// </summary>
     public int MaterializerBroadcastIntervalMs { get; set; } = 500;
+
+    /// <summary>Country widget visualization: "bar" (default, data-focused) or "map" (geographic).</summary>
+    public string CountryWidgetStyle { get; set; } = "bar";
+
+    /// <summary>Detection shape visualization: "radar" (default, 12-axis behavioral) or "triangle" (simplified).</summary>
+    public string DetectionShapeViz { get; set; } = "radar";
+
+    /// <summary>Source breakdown: exclude internal (LAN) traffic from country/source aggregates.</summary>
+    public bool SourceBreakdownExcludeInternal { get; set; } = true;
+
+    /// <summary>Domain-filter widget: enable/disable the domain filtering panel on Traffic page.</summary>
+    public bool DomainFilterEnabled { get; set; } = true;
 }
