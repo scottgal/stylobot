@@ -63,6 +63,35 @@ public sealed class VisitorsController : Controller
         var now = DateTime.UtcNow;
         var start = now.AddHours(-24);
 
+        // Visitors and Traffic must consume the same composed page bundle. In
+        // remote mode the bundle is the live gateway read-through; asking the
+        // view component to open a second direct store path can legitimately
+        // return an empty fallback while Traffic is populated.
+        DashboardPageResult? page = null;
+        try
+        {
+            var manifest = _manifests.For("dashboard.traffic");
+            if (manifest is not null)
+            {
+                page = await _contentCache.GetCurrentAsync(
+                    manifest,
+                    new DashboardPageWindow(
+                        StartTime: start,
+                        EndTime: now,
+                        AudienceFilter: "all",
+                        ProbMin: null,
+                        Domains: null,
+                        TopN: 500,
+                        BucketMinutes: 60),
+                    ct);
+                HttpContext.Items["sb.dashboard.pageresult"] = page;
+            }
+        }
+        catch
+        {
+            // The event-store fallback below remains available on a cold/error path.
+        }
+
         TrafficCounters? counters = null;
         IReadOnlyList<DashboardCountryStats>? countriesData = null;
 
@@ -92,19 +121,8 @@ public sealed class VisitorsController : Controller
         // Fetch countries data for the map (reused from Traffic page)
         try
         {
-            var manifest = _manifests.For("dashboard.visitors")
-                ?? _manifests.For("dashboard.traffic");
-            if (manifest != null)
+            if (page is not null)
             {
-                var pageWindow = new DashboardPageWindow(
-                    StartTime: start,
-                    EndTime: now,
-                    AudienceFilter: "all",
-                    ProbMin: null,
-                    Domains: null,
-                    TopN: 500,
-                    BucketMinutes: 60);
-                var page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
                 countriesData = (IReadOnlyList<DashboardCountryStats>)(page.Geo ?? new List<DashboardCountryStats>());
             }
         }

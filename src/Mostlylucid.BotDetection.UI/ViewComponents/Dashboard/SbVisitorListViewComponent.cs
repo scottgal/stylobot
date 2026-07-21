@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -35,7 +36,8 @@ public class SbVisitorListViewComponent(
         // DetectionBroadcastMiddleware feeding the local cache) still get fresh
         // data. ProjectAsVisitors mirrors ServeVisitorListPartialAsync so the
         // SSR pass and the HTMX partial swap render the same rows.
-        var raw = await eventStore.GetTopBotsAsync(
+        var pageResult = HttpContext.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        var raw = pageResult?.BotAggregate ?? await eventStore.GetTopBotsAsync(
             count: MaxEntries,
             startTime: start,
             endTime: now,
@@ -48,15 +50,18 @@ public class SbVisitorListViewComponent(
         // Fetch authoritative segment counts from the store (single source of truth
         // for both tabs and summary). This replaces the parasitic dual-query approach.
         FilterCounts accurateCounts = counts;
-        try
+        if (pageResult is null)
         {
-            accurateCounts = await eventStore.GetVisitorSegmentCountsAsync(
-                start, now,
-                filter: filter, country: country, botType: botType, threat: threat);
-        }
-        catch
-        {
-            // Graceful degradation: fall back to projection counts
+            try
+            {
+                accurateCounts = await eventStore.GetVisitorSegmentCountsAsync(
+                    start, now,
+                    filter: filter, country: country, botType: botType, threat: threat);
+            }
+            catch
+            {
+                // Graceful degradation: fall back to projection counts
+            }
         }
 
         // Plan task 19: same gateway-projected drift badge enrichment the
