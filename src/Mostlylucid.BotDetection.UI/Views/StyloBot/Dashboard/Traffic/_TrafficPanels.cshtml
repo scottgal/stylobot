@@ -1,8 +1,12 @@
 @using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @using Mostlylucid.BotDetection.UI.Services.Dashboard
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Configuration
+@using System.Text.Json
 @model TrafficPageModel
 @inject DashboardContributionRegistry Contributions
+@inject IOptions<DashboardMaterializerOptions> MaterializerOptions
 @*
     Side panels partial. Rendered three ways:
       1. Inlined by _Body.cshtml on the initial SSR pass (single render, no
@@ -23,18 +27,98 @@
     place when the user picks a slice.
 *@
 @{
+    var showMap = MaterializerOptions.Value.CountryWidgetStyle == "map";
+    var showBySource = MaterializerOptions.Value.SourceBreakdownExcludeInternal;
+
+    // For bar chart variants
     var countryChart = CountryChartletBuilder.Build(Model.Countries);
     var botTypeChart = BotTypeChartletBuilder.Build(Model.BotTypes);
+
+    // For map and by-source variants
+    var countriesJson = JsonSerializer.Serialize(
+        Model.Countries.Select(c => new
+        {
+            code = c.CountryCode,
+            totalCount = c.Hits,
+            botRate = c.BotShare,
+            label = c.CountryCode
+        }));
+
+    var sources = Model.BotTypes
+        .Where(b => !string.Equals(b.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(b => b.Hits)
+        .ToList();
+    var sourceTotal = sources.Sum(b => b.Hits);
+    var internalHits = Model.BotTypes
+        .Where(b => string.Equals(b.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
+        .Sum(b => b.Hits);
 }
 <div id="traffic-panels" class="sb-widget-grid">
-    <sb-widget width="third" height="tall" heading="By country"
-               empty-when="@(Model.Countries.Count == 0)" empty-text="No data in this window">
-        <vc:sb-chartlet model="countryChart" />
-    </sb-widget>
-    <sb-widget width="third" height="tall" heading="By bot type"
-               empty-when="@(Model.BotTypes.Count == 0)" empty-text="No data in this window">
-        <vc:sb-chartlet model="botTypeChart" />
-    </sb-widget>
+    @if (showMap)
+    {
+        <sb-widget width="third" height="tall" heading="Traffic by country">
+            @if (Model.Countries.Count == 0)
+            {
+                <div class="text-center text-base-content/30 py-12 text-sm">No location data in this window</div>
+            }
+            else
+            {
+                <div id="countries-map" data-countries="@countriesJson" style="width:100%;height:100%;min-height:17rem;"></div>
+            }
+        </sb-widget>
+    }
+    else
+    {
+        <sb-widget width="third" height="tall" heading="By country"
+                   empty-when="@(Model.Countries.Count == 0)" empty-text="No data in this window">
+            <vc:sb-chartlet model="countryChart" />
+        </sb-widget>
+    }
+
+    @if (showBySource)
+    {
+        <sb-widget width="third" height="tall" heading="By source">
+            @if (sources.Count == 0)
+            {
+                <div class="text-center text-base-content/30 py-12 text-sm">No external traffic in this window</div>
+            }
+            else
+            {
+                <div class="space-y-2 pt-1">
+                    @foreach (var bt in sources.Take(10))
+                    {
+                        var pct = sourceTotal > 0 ? bt.Hits * 100.0 / sourceTotal : 0;
+                        <a href="/dashboard/visitors?bot_type=@Uri.EscapeDataString(bt.BotType)"
+                           class="block group no-underline" title="@bt.BotType — @bt.Hits.ToString("N0") hits">
+                            <div class="flex items-baseline justify-between text-xs mb-1">
+                                <span class="font-medium text-base-content/80 group-hover:text-base-content truncate">@bt.BotType</span>
+                                <span class="tabular-nums text-base-content/70 shrink-0 ml-2">
+                                    @bt.Hits.ToString("N0")<span class="text-base-content/35"> · @pct.ToString("F0")%</span>
+                                </span>
+                            </div>
+                            <div class="h-2 rounded-full bg-base-300/60 overflow-hidden">
+                                <div class="h-full rounded-full bg-base-content/40 group-hover:bg-base-content/60 transition-colors"
+                                     style="width:@pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)%"></div>
+                            </div>
+                        </a>
+                    }
+                </div>
+                @if (internalHits > 0)
+                {
+                    <div class="mt-2 pt-2 border-t border-base-content/10 text-[11px] text-base-content/40">
+                        + @internalHits.ToString("N0") internal hits (health probes / loopback), excluded
+                    </div>
+                }
+            }
+        </sb-widget>
+    }
+    else
+    {
+        <sb-widget width="third" height="tall" heading="By bot type"
+                   empty-when="@(Model.BotTypes.Count == 0)" empty-text="No data in this window">
+            <vc:sb-chartlet model="botTypeChart" />
+        </sb-widget>
+    }
     @* self-carding partials: wrap in a tier cell so the grid bounds their height *@
     <div class="sb-w-third sb-h-tall">
         @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopEndpointsCard.cshtml", Model.TopEndpoints)
