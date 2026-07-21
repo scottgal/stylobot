@@ -75,6 +75,16 @@ public interface IDashboardEventStore
     Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null);
 
     /// <summary>
+    ///     Get authoritative visitor segment counts (All/Humans/Bots/AI/Tools/Internal)
+    ///     using the store's classification logic. Returns true totals, not capped.
+    ///     Used by both dashboard summary and filter tabs to ensure consistent counts.
+    /// </summary>
+    Task<FilterCounts> GetVisitorSegmentCountsAsync(
+        DateTime startTime, DateTime endTime,
+        string? filter = null, string? country = null, string? botType = null,
+        string? threat = null, IReadOnlyList<string>? domains = null);
+
+    /// <summary>
     ///     Get country-level statistics (total requests, bot count, bot rate).
     ///     When startTime/endTime are provided, only detections within that range are considered.
     ///     <paramref name="domains"/> restricts to detections whose <c>domain</c> column matches one
