@@ -196,7 +196,18 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardTopBotEntry>>(query);
-            return list ?? new List<DashboardTopBotEntry>();
+            if (list is { Count: > 0 } || (startTime is null && endTime is null) || domains is { Count: > 0 })
+                return list ?? new List<DashboardTopBotEntry>();
+
+            // The gateway's live SignatureAggregateCache is the authoritative source
+            // while write-behind persistence catches up. A windowed store query can be
+            // empty during that interval even though the no-window aggregate endpoint
+            // is populated (the same source used by the working Traffic render).
+            var liveQuery = BuildRangedQuery("/api/v1/topbots", count, null, null);
+            if (!string.IsNullOrEmpty(audienceFilter))
+                liveQuery += $"&audience={Uri.EscapeDataString(audienceFilter)}";
+            var live = await _api.GetEnvelopeAsync<List<DashboardTopBotEntry>>(liveQuery);
+            return live is { Count: > 0 } ? live : list ?? new List<DashboardTopBotEntry>();
         });
     }
 
@@ -210,7 +221,12 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardCountryStats>>(query);
-            return list ?? new List<DashboardCountryStats>();
+            if (list is { Count: > 0 } || (startTime is null && endTime is null) || domains is { Count: > 0 })
+                return list ?? new List<DashboardCountryStats>();
+
+            var liveQuery = BuildRangedQuery("/api/v1/countries", count, null, null);
+            var live = await _api.GetEnvelopeAsync<List<DashboardCountryStats>>(liveQuery);
+            return live is { Count: > 0 } ? live : list ?? new List<DashboardCountryStats>();
         });
     }
 

@@ -127,6 +127,61 @@ public sealed class RemoteDashboardEventStoreComposeBatchTests
         Assert.Null(bundle.BotAggregate);
     }
 
+    [Fact]
+    public async Task Windowed_topbots_falls_back_to_populated_live_aggregate()
+    {
+        var live = new DashboardTopBotEntry
+        {
+            PrimarySignature = "visitor-1",
+            HitCount = 7,
+            BotName = "Human",
+            LastSeen = DateTime.UtcNow,
+        };
+        var handler = new WindowedTopBotsHandler(live);
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://gw.test/") };
+        var api = new GatewayApiClient(http, NullLogger<GatewayApiClient>.Instance);
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        IDashboardEventStore store = new RemoteDashboardEventStore(api, cache);
+
+        var rows = await store.GetTopBotsAsync(
+            count: 500,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: "all");
+
+        Assert.Single(rows);
+        Assert.Equal("visitor-1", rows[0].PrimarySignature);
+        Assert.Equal(2, handler.CallCount);
+        Assert.Contains(handler.Paths, p => p.Contains("since=", StringComparison.Ordinal));
+        Assert.Contains(handler.Paths, p => !p.Contains("since=", StringComparison.Ordinal));
+    }
+
+    private sealed class WindowedTopBotsHandler(DashboardTopBotEntry live) : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+        public List<string> Paths { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            CallCount++;
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            Paths.Add(path);
+            var body = path.Contains("since=", StringComparison.Ordinal)
+                ? "{\"data\":[],\"pagination\":{\"offset\":0,\"limit\":500,\"total\":0},\"meta\":{}}"
+                : JsonSerializer.Serialize(new
+                {
+                    data = new[] { live },
+                    pagination = new { offset = 0, limit = 500, total = 1 },
+                    meta = new { }
+                });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
     private sealed class CapturingHandler(HttpStatusCode status, string body) : HttpMessageHandler
     {
         public int CallCount { get; private set; }
