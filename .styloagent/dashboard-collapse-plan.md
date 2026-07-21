@@ -1,6 +1,6 @@
 # FOSS dashboard-collapse extension-point plan
 
-**Author:** stylobot- (FOSS architect) · **Status:** DRAFT awaiting foss- co-sign, then overview- ack
+**Author:** stylobot- (FOSS architect) · **Status:** CO-SIGNED by foss-; implementation cleared
 **Design input:** overview-'s relayed catalog (dash-'s approved classified inventory), 2026-07-21.
 
 ## Principle (from the operator ruling)
@@ -10,16 +10,15 @@ copy. Delete the duplicates. Novel marketing chrome stays a thin add-on. Config 
 hardcoded.
 
 ## A. Live-feed fix — HIGHEST PRIORITY (the frozen-dashboard root cause)
-Problem: only `Stylobot.Ui` registers `SignalRBeaconRelay`; a dogfooding host (the website) never does, so it
-never live-updates.
-Design: make the relay part of the dashboard registration so ANY host that dogfoods the FOSS dashboard gets
-the live feed uniformly, not per-host hand-wiring. Preferred seam: `AddStyloBotDashboard(...)` registers
-`SignalRBeaconRelay` **conditionally, when a live source is configured** (`StyloBot:Source:Live:Type = signalr`
-/ the broadcast source present). Fallback seam if that's wrong: extract the `Stylobot.Ui` host-registration
-into a shared extension both hosts call. Broadcast stays off the **ScheduleCoordinator/materializer tick**:
-dirtyKinds envelope to beacon to HTMX OOB. **NO BackgroundService, NO timer** (operator hard rule).
-→ foss- to confirm: the exact registration seam + condition predicate, and that the materializer tick already
-surfaces dirtyKinds (or name what's missing).
+Problem: the marketing site appeared frozen because its live-source configuration was absent; the local
+dogfood host was incorrectly assumed to need the remote relay.
+Validated design: `SignalRBeaconRelay` remains in the `Stylobot.Ui` remote-mode host and is enabled only when
+`StyloBot:Source:Live:Type = signalr`. The marketing site is local dogfood: its materializer already broadcasts
+invalidation beacons directly from the `ScheduleCoordinator` tick, so `AddStyloBotDashboard(...)` does not
+register a relay. The materializer tracks warmed page keys, bumps the change cursor, and queues dirty-kind
+beacons through `SignalRBroadcastConstrainer` for HTMX OOB refreshes. **NO BackgroundService, NO timer** for
+the local path (operator hard rule).
+→ foss- validated the registration seam, remote-only predicate, and dirty-kind availability on the tick.
 
 ## B. Extension points for the shadow-override deltas (kill the copies)
 For each: seam + FOSS home + what commercial deletes.
@@ -61,7 +60,8 @@ config must set these or the site regresses (dash- flags, 2026-07-21):
    (:157, REST-only) and sets NO live source — that is why it's frozen. `deploy-`/config must set
    `StyloBot:Source:Live:Type=signalr` + the gateway hub URL on the website, or it stays frozen AFTER the code
    fix. This is in the sequence, not a post-deploy discovery.
-2. **Country widget:** commercial deployment config sets `Dashboard:CountryWidget:Style=map` (operator-
+2. **Country widget:** commercial deployment config sets
+`BotDetection:Dashboard:Materializer:CountryWidgetStyle=map` (operator-
    confirmed want — dash- verified via the `_TrafficPanels` "rebuilt per the operator's call" comment). FOSS
    out-of-box default stays `bar`.
 3. **Detection shape:** commercial stays on the FOSS default `radar`. The 3-axis triangle is agent-introduced
@@ -75,15 +75,16 @@ options conventions in the RCL. Slots use the existing VC/named-section pattern 
 not a new mechanism.
 
 ## Sequence (de-gated by operator GO — no overview- ack between steps)
-co-sign (stylobot- + foss-, done) → foss- implements FOSS side (live-feed relay FIRST, then extension points)
-→ dash- deletes commercial copies (3 overrides + 2 shims + Overview.cshtml + DashboardController) + wires FOSS
-slots + reverts `33be9b8d` + registers the relay on the website → **deploy-/config sets the website live
-source (`StyloBot:Source:Live:Type=signalr` + gateway hub URL) and `Dashboard:CountryWidget:Style=map`
+co-sign (stylobot- + foss-, done) → foss- implements FOSS side (materializer/live-feed validation FIRST, then
+extension points) → dash- deletes commercial copies (3 overrides + 2 shims + Overview.cshtml + DashboardController)
+wires FOSS slots + reverts `33be9b8d` → **deploy-/config sets the website live
+source (`StyloBot:Source:Live:Type=signalr` + gateway hub URL) and
+`BotDetection:Dashboard:Materializer:CountryWidgetStyle=map`
 (section C) — without this the site stays frozen / loses the map** → deploy- redeploy → overview-
 browser-verifies live updates.
 
-## For foss- to confirm / correct before co-sign
-1. Live-feed seam (section A): registration point, condition predicate, dirtyKinds availability on the tick.
-2. #4: does `ec6907af` already make FOSS Visitors forward URL filters (making #4 delete-only)?
-3. Any delta in dash-'s catalog not covered here, or any seam above that's infeasible against the real RCL.
-4. The two proposed defaults (#2 bar, #3 radar): agree, or push to operator.
+## Validation record (foss- co-sign)
+1. Live-feed seam: relay remains remote-only; local materializer broadcasts from the scheduler tick.
+2. #4: `ec6907af` forwards all five Visitors URL filters, making the commercial shim delete-only.
+3. All catalog deltas and proposed slots are feasible against the real RCL.
+4. Defaults agreed: country widget `bar`; detection shape `radar`.
