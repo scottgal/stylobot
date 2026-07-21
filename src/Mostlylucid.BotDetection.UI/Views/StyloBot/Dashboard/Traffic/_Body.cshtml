@@ -175,6 +175,13 @@
         </div>
     </div>
 
+    @* Empty affordance slot for commercial location-tree widget.
+        Commercial code plugs the location/domain tree into this slot from the commercial side (DI).
+        FOSS renders this slot host only; no feature logic lives here. *@
+    <div id="location-tree-slot" class="sb-widget">
+        @* Commercial location-tree widget renders here *@
+    </div>
+
     @* Detail target for the "Top content pages" rows. SbEndpointsList rows hx-get the
        endpoint-detail partial into #endpoint-detail-panel (shared with the full Endpoints
        tab). The compact overview embed must provide that target too, or every content-page
