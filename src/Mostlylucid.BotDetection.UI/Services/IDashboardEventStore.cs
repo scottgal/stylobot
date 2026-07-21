@@ -79,10 +79,14 @@ public interface IDashboardEventStore
     ///     using the store's classification logic. Returns true totals, not capped.
     ///     Used by both dashboard summary and filter tabs to ensure consistent counts.
     /// </summary>
-    Task<FilterCounts> GetVisitorSegmentCountsAsync(
+    async Task<FilterCounts> GetVisitorSegmentCountsAsync(
         DateTime startTime, DateTime endTime,
         string? filter = null, string? country = null, string? botType = null,
-        string? threat = null, IReadOnlyList<string>? domains = null);
+        string? threat = null, IReadOnlyList<string>? domains = null)
+    {
+        await Task.CompletedTask;
+        return new FilterCounts { All = 0, Humans = 0, Bots = 0, Ai = 0, Tools = 0, Internal = 0 };
+    }
 
     /// <summary>
     ///     Get country-level statistics (total requests, bot count, bot rate).
