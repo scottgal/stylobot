@@ -1255,7 +1255,7 @@ public class StyloBotDashboardMiddleware
                 var trafficManifest = _manifests.For("dashboard.traffic");
                 if (trafficManifest is not null)
                 {
-                    composedPage = await _contentCache.GetCurrentAsync(
+                    var candidatePage = await _contentCache.GetCurrentAsync(
                         trafficManifest,
                         new DashboardPageWindow(
                             StartTime: DateTime.UtcNow.AddHours(-24),
@@ -1263,10 +1263,28 @@ public class StyloBotDashboardMiddleware
                             AudienceFilter: "all",
                             ProbMin: null,
                             Domains: null,
-                            TopN: 500,
-                            BucketMinutes: 60),
+                        TopN: 500,
+                        BucketMinutes: 60),
                         context.RequestAborted);
-                    context.Items["sb.dashboard.pageresult"] = composedPage;
+
+                    // Remote compose can degrade to a non-null bundle with empty slices
+                    // when the gateway endpoint is unavailable or returns an incomplete
+                    // response. Do not stash that as authoritative: view components treat
+                    // non-null empty lists as a successful read and skip their populated
+                    // IDashboardEventStore fallback. The direct store path is the same
+                    // source used by the working Traffic render on remote hosts.
+                    if (candidatePage.Summary is not null
+                        && candidatePage.BotAggregate is { Count: > 0 }
+                        && candidatePage.Geo is { Count: > 0 })
+                    {
+                        composedPage = candidatePage;
+                        context.Items["sb.dashboard.pageresult"] = candidatePage;
+                    }
+                    else
+                    {
+                        _logger.LogDebug(
+                            "Visitors shell page bundle was incomplete; using direct event-store reads");
+                    }
                 }
             }
             catch (Exception ex)
