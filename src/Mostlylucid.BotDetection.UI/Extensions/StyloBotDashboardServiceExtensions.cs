@@ -655,6 +655,16 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton<DashboardSummaryBroadcaster>();
         services.AddHostedService<UiHostedSingletonsBootstrap>();
 
+        // Live-feed relay: remote-mode hosts (pulling data from a gateway) need to relay
+        // SignalR beacons from the gateway back to the local hub so browsers live-update.
+        // Local-mode hosts (detection in-process like the marketing site) don't need this —
+        // the materializer broadcasts directly. Register only when remote mode is detected.
+        // Self-disables on startup if Live.Type != SignalR.
+        if (services.Any(s => s.ServiceType == typeof(Mostlylucid.BotDetection.UI.Adapters.Remote.DashboardSourceOptions)))
+        {
+            services.AddHostedService<SignalRBeaconRelay>();
+        }
+
         // BDF export service. Also registered in AddStyloBotApi for hosts that call
         // AddStyloBotApi but not AddStyloBotDashboard (the gateway); TryAdd is safe.
         services.TryAddSingleton<BdfExportService>();
