@@ -890,8 +890,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.CommandText = $"""
             SELECT
               COUNT(DISTINCT d.signature) as all_count,
-              COUNT(DISTINCT CASE WHEN s.bot_probability < @botFloor AND s.bot_type IS NOT 'Internal' THEN d.signature END) as humans,
-              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type IS NOT 'Internal' THEN d.signature END) as bots,
+              COUNT(DISTINCT CASE WHEN s.bot_probability < @botFloor AND s.bot_type <> 'Internal' THEN d.signature END) as humans,
+              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type <> 'Internal' THEN d.signature END) as bots,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'AI%' THEN d.signature END) as ai,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'Search%' THEN d.signature END) as search,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND (s.bot_type LIKE 'Tool%' OR s.bot_type = 'Tools') THEN d.signature END) as tools,
