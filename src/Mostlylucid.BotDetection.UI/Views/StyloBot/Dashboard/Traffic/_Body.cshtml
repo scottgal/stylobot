@@ -14,6 +14,11 @@
     source of truth (per feedback_centralised_change_detection).
 *@
 @{
+    // Empty affordance slot for commercial domain-filter widget.
+    // FOSS provides only the slot host; the commercial feature (edit control + write endpoints)
+    // lives entirely in Stylobot.Commercial.Ui and plugs in from the commercial side.
+    var showDomainFilterSlot = true;  // FOSS read-only slot; commercial feature plugs in via DI
+
     string LinkWith(
         string? country = null,
         string? botType = null,
@@ -112,6 +117,16 @@
             }
         </div>
     </header>
+
+    @* Empty affordance slot for commercial domain-filter widget.
+        Commercial code plugs the filter control into this slot from the commercial side (DI).
+        FOSS renders this slot host only; no feature logic lives here. *@
+    @if (showDomainFilterSlot)
+    {
+        <div id="domain-filter-slot" class="sb-widget">
+            @* Commercial domain-filter widget renders here *@
+        </div>
+    }
 
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model)
 
