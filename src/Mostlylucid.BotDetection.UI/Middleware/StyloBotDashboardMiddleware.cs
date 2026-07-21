@@ -25,6 +25,8 @@ using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Auth;
 using Mostlylucid.BotDetection.UI.Policies;
@@ -47,6 +49,8 @@ public class StyloBotDashboardMiddleware
     private readonly StyloBotDashboardOptions _options;
     private readonly RazorViewRenderer _razorViewRenderer;
     private readonly IMemoryCache _widgetCache;
+    private readonly IDashboardContentCache? _contentCache;
+    private readonly IDashboardPageManifestSource? _manifests;
 
     private static readonly TimeSpan WidgetCacheTtl = TimeSpan.FromSeconds(2);
 
@@ -162,7 +166,9 @@ public class StyloBotDashboardMiddleware
         RazorViewRenderer razorViewRenderer,
         IMemoryCache widgetCache,
         IWebHostEnvironment env,
-        ILogger<StyloBotDashboardMiddleware> logger)
+        ILogger<StyloBotDashboardMiddleware> logger,
+        IDashboardContentCache? contentCache = null,
+        IDashboardPageManifestSource? manifests = null)
     {
         _next = next;
         _options = options;
@@ -173,6 +179,8 @@ public class StyloBotDashboardMiddleware
         _widgetCache = widgetCache;
         _env = env;
         _logger = logger;
+        _contentCache = contentCache;
+        _manifests = manifests;
     }
 
     private string GetOrCreateCspNonce(HttpContext context)
@@ -1236,17 +1244,48 @@ public class StyloBotDashboardMiddleware
         var tab = rowRef.Area;
 
         // Build all partial models server-side - fully rendered, no JSON serialization needed.
-        // Visitor list reads through the event store (audience=all) so remote-mode hosts
-        // get fresh data. The cache is still resolved for Session Analytics on the Summary
-        // stats card (PopulateSessionAnalytics reads per-visitor session aggregates from
-        // it).
+        // Compose the same Traffic bundle used by the TrafficController first. The
+        // middleware owns /dashboard/visitors, so the MVC VisitorsController cannot
+        // supply this data on hosts where the dashboard middleware is enabled.
+        DashboardPageResult? composedPage = null;
+        if (_contentCache is not null && _manifests is not null)
+        {
+            try
+            {
+                var trafficManifest = _manifests.For("dashboard.traffic");
+                if (trafficManifest is not null)
+                {
+                    composedPage = await _contentCache.GetCurrentAsync(
+                        trafficManifest,
+                        new DashboardPageWindow(
+                            StartTime: DateTime.UtcNow.AddHours(-24),
+                            EndTime: DateTime.UtcNow,
+                            AudienceFilter: "all",
+                            ProbMin: null,
+                            Domains: null,
+                            TopN: 500,
+                            BucketMinutes: 60),
+                        context.RequestAborted);
+                    context.Items["sb.dashboard.pageresult"] = composedPage;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Visitors shell page-bundle compose failed; using event-store fallback");
+            }
+        }
+
+        // Visitor list reads through the composed bundle when available. The
+        // event-store path remains a safe fallback for lightweight hosts.
         var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitorTask = _eventStore.GetTopBotsAsync(
             count: _visitorListMaxEntries,
             startTime: DateTime.UtcNow.AddHours(-24),
             endTime: DateTime.UtcNow,
             audienceFilter: "all");
-        var summaryTask = _aggregateCache.Current.Summary is { } cachedSummary
+        Task<DashboardSummary> summaryTask = composedPage?.Summary is { } composedSummary
+            ? Task.FromResult(composedSummary)
+            : _aggregateCache.Current.Summary is { } cachedSummary
             ? Task.FromResult(cachedSummary)
             : SafeGetSummaryAsync();
         var countriesTask = SafeGetCountriesDataAsync();
@@ -1256,7 +1295,7 @@ public class StyloBotDashboardMiddleware
             : ComputeUserAgentsFallbackAsync();
 
         await Task.WhenAll(visitorTask, summaryTask, countriesTask, endpointsTask, userAgentsTask);
-        var visitorRaw = visitorTask.Result;
+        var visitorRaw = composedPage?.BotAggregate ?? visitorTask.Result;
         var (visitors, visitorTotal, visitorCounts) = WidgetRenderHelpers.ProjectAsVisitors(
             visitorRaw, filter: "all", sortField: "lastSeen", sortDir: "desc", page: 1, pageSize: 24);
 
@@ -1269,7 +1308,7 @@ public class StyloBotDashboardMiddleware
             visitors, context.RequestServices, context.RequestAborted, _logger);
 
         var summary = summaryTask.Result;
-        var countriesData = countriesTask.Result;
+        var countriesData = composedPage?.Geo?.ToList() ?? countriesTask.Result;
         var endpointsData = endpointsTask.Result;
         var allUserAgents = userAgentsTask.Result;
 
