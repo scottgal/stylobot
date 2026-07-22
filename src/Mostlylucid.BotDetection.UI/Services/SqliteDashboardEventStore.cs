@@ -1040,6 +1040,53 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     // Crude but consistent with the GetEndpointStatsAsync convention; the Postgres backend
     // returns true p95 via PERCENTILE_CONT (Task 10).
     // Column order (0-based): country_code(0), total(1), bots(2), avg_ms(3), max_ms(4), bytes_out(5)
+    public async Task<IReadOnlyList<DashboardDomainStat>> GetDomainStatsAsync(
+        DateTime? startTime = null, DateTime? endTime = null, int limit = 200, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // ALL observed domains, one row each. Internal self-traffic is FLAGGED (not excluded) —
+        // the licensed-vs-pool classification is the commercial overlay's job, so no audience
+        // filter and no domain predicate here. A domain is internal iff it has zero non-Internal
+        // rows (pure gateway health/loopback host); the bot count uses the shared BotFloor so it
+        // reconciles with the summary/Traffic counter.
+        var where = new System.Text.StringBuilder("WHERE domain IS NOT NULL AND domain != ''");
+        if (startTime.HasValue) where.Append(" AND timestamp >= @start");
+        if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT domain,
+                   COUNT(*) as requests,
+                   SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) as bots,
+                   CASE WHEN SUM(CASE WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) = 0
+                        THEN 1 ELSE 0 END as is_internal
+            FROM detections
+            {where}
+            GROUP BY domain
+            ORDER BY requests DESC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@botFloor", _botFloor);
+        cmd.Parameters.AddWithValue("@limit", limit);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+
+        var results = new List<DashboardDomainStat>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new DashboardDomainStat(
+                Domain: reader.GetString(0),
+                Requests: reader.GetInt64(1),
+                Bots: reader.IsDBNull(2) ? 0L : reader.GetInt64(2),
+                IsInternal: !reader.IsDBNull(3) && reader.GetInt64(3) == 1));
+        }
+        return results;
+    }
+
     public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
     {
         await EnsureInitializedAsync();

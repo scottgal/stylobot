@@ -413,6 +413,24 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         });
     }
 
+    public Task<IReadOnlyList<DashboardDomainStat>> GetDomainStatsAsync(
+        DateTime? startTime = null, DateTime? endTime = null, int limit = 200, CancellationToken ct = default)
+    {
+        // Forwards to GET /api/v1/domain-stats?start=&end=&limit= (same auth/JWT as the sibling reads).
+        // No local re-tally: the gateway is the single source; empty fallback if the gateway has none.
+        var query = "/api/v1/domain-stats";
+        var sep = '?';
+        if (startTime.HasValue) { query += $"{sep}start={Uri.EscapeDataString(startTime.Value.ToString("o"))}"; sep = '&'; }
+        if (endTime.HasValue)   { query += $"{sep}end={Uri.EscapeDataString(endTime.Value.ToString("o"))}"; sep = '&'; }
+        query += $"{sep}limit={limit}";
+
+        return GetOrFetchAsync<IReadOnlyList<DashboardDomainStat>>(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardDomainStat>>(query);
+            return list ?? new List<DashboardDomainStat>();
+        });
+    }
+
     // === Write surface: not supported on the remote viewer ===
 
     public Task AddDetectionAsync(DashboardDetectionEvent detection)

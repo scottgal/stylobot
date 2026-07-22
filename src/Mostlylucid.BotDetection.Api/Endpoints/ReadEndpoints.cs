@@ -35,6 +35,7 @@ public static class ReadEndpoints
         group.MapGet("/signatures", HandleSignatures).WithName("GetSignatures");
         group.MapGet("/summary", HandleSummary).WithName("GetSummary");
         group.MapGet("/visitor-segments", HandleVisitorSegments).WithName("GetVisitorSegments");
+        group.MapGet("/domain-stats", HandleDomainStats).WithName("GetDomainStats");
         group.MapGet("/timeseries", HandleTimeseries).WithName("GetTimeseries");
         group.MapGet("/countries", HandleCountries).WithName("GetCountries");
         group.MapGet("/countries/{code}", HandleCountryDetail).WithName("GetCountryDetail");
@@ -241,6 +242,32 @@ public static class ReadEndpoints
         return TypedResults.Ok(new SingleResponse<FilterCounts>
         {
             Data = counts,
+            Meta = new ResponseMeta()
+        });
+    }
+
+    /// <summary>
+    ///     <c>GET /api/v1/domain-stats</c> -- raw per-host domain rows
+    ///     (<c>Domain, Requests, Bots, IsInternal</c>) for ALL observed domains, one row each,
+    ///     ordered by requests descending and capped at <c>limit</c> (default 200). Window bounds
+    ///     mirror <c>/summary</c> (<c>start</c>/<c>end</c>, default last 24h). The licensed-vs-pool
+    ///     classification is the commercial overlay's job; this exposes RAW counts only, same
+    ///     read-only contract as <c>/countries</c>.
+    /// </summary>
+    private static async Task<Ok<SingleResponse<IReadOnlyList<DashboardDomainStat>>>> HandleDomainStats(
+        [FromServices] IDashboardEventStore store,
+        DateTime? start = null, DateTime? end = null, int? limit = null,
+        CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var startTime = start ?? now.AddHours(-24);
+        var endTime = end ?? now;
+
+        var rows = await store.GetDomainStatsAsync(startTime, endTime, limit ?? 200, ct);
+
+        return TypedResults.Ok(new SingleResponse<IReadOnlyList<DashboardDomainStat>>
+        {
+            Data = rows,
             Meta = new ResponseMeta()
         });
     }

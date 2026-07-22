@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.1] - 2026-07-22
+
+### Added
+
+- **`GET /api/v1/domain-stats`** — raw per-host domain rows (`Domain`, `Requests`, `Bots`, `IsInternal`) for **all** observed domains, one row each, ordered by request count descending and capped at `limit` (default 200). A thin/remote dashboard now gets true per-domain splits from the gateway rather than a domains filter the REST reads ignored. `IDashboardEventStore.GetDomainStatsAsync` is a default-empty interface method (SQLite and PostgreSQL override it; `RemoteDashboardEventStore` forwards to the endpoint, no local re-tally). Bot counts use the shared `Classification.BotFloor` so they reconcile with the Traffic counter, and internal self-traffic is **flagged, not excluded** — the licensed-vs-pool classification stays in the commercial overlay.
+
 ## [8.2.0] - 2026-07-22
 
 8.2 is the **dashboard V2** release. The real-time dashboard is consolidated into a single FOSS RCL that the marketing site dogfoods (no commercial fork); the Visitors surface is rebuilt around an authoritative single-source segment aggregate; live SignalR delta updates are driven off the materialiser tick; and a set of empty FOSS extension slots let the commercial UI layer in license-gated. Alongside the dashboard work: operational-endpoint hardening, a NativeAOT hot-path fix, and a security-dependency sweep.

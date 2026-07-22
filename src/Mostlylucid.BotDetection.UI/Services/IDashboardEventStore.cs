@@ -89,6 +89,21 @@ public interface IDashboardEventStore
     }
 
     /// <summary>
+    ///     Raw per-host domain statistics: one row per distinct observed domain, ordered by
+    ///     request count descending and capped at <paramref name="limit"/>. Returns ALL observed
+    ///     domains including internal self-traffic (flagged via <see cref="DashboardDomainStat.IsInternal"/>,
+    ///     never excluded) — the licensed-vs-pool split is the commercial overlay's job, not the store's.
+    ///     Default returns empty so in-memory / test fakes need no override; the SQLite and PostgreSQL
+    ///     stores supply the real aggregate.
+    /// </summary>
+    async Task<IReadOnlyList<DashboardDomainStat>> GetDomainStatsAsync(
+        DateTime? startTime = null, DateTime? endTime = null, int limit = 200, CancellationToken ct = default)
+    {
+        await Task.CompletedTask;
+        return [];
+    }
+
+    /// <summary>
     ///     Get country-level statistics (total requests, bot count, bot rate).
     ///     When startTime/endTime are provided, only detections within that range are considered.
     ///     <paramref name="domains"/> restricts to detections whose <c>domain</c> column matches one
