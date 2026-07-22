@@ -13,5 +13,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1"
+  },
+  "dependencies": {
+    "body-parser": "^2.3.0"
   }
 }
