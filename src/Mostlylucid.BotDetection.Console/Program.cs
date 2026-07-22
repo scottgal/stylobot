@@ -11,6 +11,7 @@ using Mostlylucid.BotDetection.Console.Models;
 using Mostlylucid.BotDetection.Console.Services;
 using Mostlylucid.BotDetection.Console.Transforms;
 using Mostlylucid.BotDetection.Api;
+using Mostlylucid.BotDetection.Api.Endpoints;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.UI.Extensions;
