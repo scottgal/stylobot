@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
@@ -26,16 +27,26 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 public partial class DetectionBroadcastMiddleware
 {
     /// <summary>
-    ///     Per-Type cache of a compiled <c>obj =&gt; ((SomeGeoLocationType)obj).CountryCode</c>
-    ///     accessor. The dashboard layer doesn't build-time reference the GeoDetection
-    ///     <c>GeoLocation</c> class (we accept any GeoLocation provider that exposes a
-    ///     <c>CountryCode</c> property on its result object), so the historical implementation
-    ///     called <c>Type.GetProperty("CountryCode")?.GetValue(obj)</c> on every request that
-    ///     had a populated GeoLocation context item. Reflection invocation per request is
-    ///     measurably slower than a one-time Expression-compiled delegate; this cache pays
-    ///     the expression compile cost once per distinct type and amortises it across every
-    ///     subsequent request. Returns null for a type that has no readable
-    ///     <c>CountryCode</c> string property so the upstream-header fallback still kicks in.
+    ///     Per-Type cache of an <c>obj =&gt; ((SomeGeoLocationType)obj).CountryCode</c> accessor.
+    ///     The dashboard layer doesn't build-time reference the GeoDetection <c>GeoLocation</c>
+    ///     class (we accept any GeoLocation provider that exposes a <c>CountryCode</c> property
+    ///     on its result object), so the accessor is discovered reflectively per distinct type
+    ///     and cached here so the discovery cost is paid once. Returns null for a type that has
+    ///     no readable <c>CountryCode</c> string property so the upstream-header fallback still
+    ///     kicks in.
+    ///     <para>
+    ///     JIT vs AOT: on a JIT runtime the cached accessor is an Expression-compiled delegate
+    ///     (fastest per call). NativeAOT — which the <c>stylobot</c> Console gateway ships — has
+    ///     no JIT, so <c>Expression.Compile</c> silently falls back to the expression
+    ///     <em>interpreter</em>: ~20x slower than the JIT-compiled delegate AND slower + allocating
+    ///     vs plain reflection (measured 54 ns / 152 B interpreter vs 9.7 ns / 0 B reflection).
+    ///     So under AOT we cache a <see cref="PropertyInfo"/> reflection read instead. The
+    ///     <see cref="RuntimeFeature.IsDynamicCodeSupported"/> guard is a compile-time constant
+    ///     under NativeAOT, so the compiler dead-code-eliminates the Expression branch entirely
+    ///     (no interpreter fallback, no IL3050). Mirrors the AOT/JIT split in
+    ///     <see cref="Hubs.AotSafeDashboardHubContext"/>; see issue
+    ///     <c>nativeaot-pessimizes-the-compiled-delegate-count</c>.
+    ///     </para>
     /// </summary>
     private static readonly ConcurrentDictionary<Type, Func<object, string?>?> CountryCodeAccessorCache = new();
 
@@ -44,13 +55,36 @@ public partial class DetectionBroadcastMiddleware
         {
             var prop = type.GetProperty("CountryCode");
             if (prop is null || !prop.CanRead || prop.PropertyType != typeof(string)) return null;
-            var param = System.Linq.Expressions.Expression.Parameter(typeof(object), "o");
-            var cast = System.Linq.Expressions.Expression.Convert(param, type);
-            var access = System.Linq.Expressions.Expression.Property(cast, prop);
-            return System.Linq.Expressions.Expression
-                .Lambda<Func<object, string?>>(access, param)
-                .Compile();
+            // JIT: Expression-compiled delegate (fastest). AOT: no JIT to emit into, so
+            // Expression.Compile falls back to the slow, allocating interpreter — a cached
+            // PropertyInfo read is faster and 0-alloc there. The guard is constant-folded by
+            // the AOT compiler, so the compiled branch is trimmed away on AOT builds.
+            if (RuntimeFeature.IsDynamicCodeSupported)
+                return BuildCompiledCountryCodeAccessor(type, prop);
+            return BuildReflectionCountryCodeAccessor(prop);
         });
+
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Expression.Compile emits IL at runtime; only invoked behind a RuntimeFeature.IsDynamicCodeSupported guard so the AOT compiler eliminates the call.")]
+    private static Func<object, string?> BuildCompiledCountryCodeAccessor(Type type, PropertyInfo prop)
+    {
+        var param = System.Linq.Expressions.Expression.Parameter(typeof(object), "o");
+        var cast = System.Linq.Expressions.Expression.Convert(param, type);
+        var access = System.Linq.Expressions.Expression.Property(cast, prop);
+        return System.Linq.Expressions.Expression
+            .Lambda<Func<object, string?>>(access, param)
+            .Compile();
+    }
+
+    /// <summary>
+    ///     AOT / no-JIT country-code accessor: a cached <see cref="PropertyInfo"/> read. For a
+    ///     <see cref="string"/> property this allocates nothing per call (no boxing) and avoids
+    ///     the Expression-interpreter fallback that pessimizes <see cref="Expression.Compile"/>
+    ///     under NativeAOT. <c>internal</c> so a JIT test host can cover the AOT path directly
+    ///     (the runtime guard above would otherwise always pick the compiled delegate under JIT).
+    /// </summary>
+    internal static Func<object, string?> BuildReflectionCountryCodeAccessor(PropertyInfo prop)
+        => obj => (string?)prop.GetValue(obj);
 
     // Outbound broadcasts route through SignalRBroadcastConstrainer so the
     // detection-rate doesn't dictate the beacon rate. See that class for the
