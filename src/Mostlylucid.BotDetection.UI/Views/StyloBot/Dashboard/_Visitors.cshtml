@@ -1,33 +1,62 @@
 @using Mostlylucid.BotDetection.UI.Controllers
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
+@inject IDashboardEventStore EventStore
 @{
     // The middleware registry supplies DashboardShellModel to row partials. Bridge
     // that shell model into the canonical Visitors landing view so middleware-owned
     // /dashboard/visitors renders the same counters, list, shapes, and map as the
     // MVC page instead of silently selecting the legacy list-only wrapper.
-    var summary = Model.Summary.Summary;
-    var counters = new TrafficCounters(
-        Total: summary.TotalRequests,
-        Humans: summary.HumanRequests,
-        Bots: summary.BotRequests,
-        BotShare: summary.TotalRequests > 0 ? summary.BotRequests / (double)summary.TotalRequests : 0,
-        TotalDelta: 0,
-        HumansDelta: 0,
-        BotsDelta: 0,
-        TotalDeltaPct: 0,
-        HumansDeltaPct: 0,
-        BotsDeltaPct: 0,
-        TotalFingerprints: summary.UniqueSignatures,
-        HumanFingerprints: summary.HumanFingerprints,
-        BotFingerprints: summary.BotFingerprints);
     var query = Context!.Request.Query;
     string? Nullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+    var country = Nullable(query["country"].FirstOrDefault());
+    var botType = Nullable(query["bot_type"].FirstOrDefault());
+    var threat = Nullable(query["threat"].FirstOrDefault());
+
+    // The summary row MUST show the authoritative visitor-segment aggregate (same
+    // source VisitorsController.Index() uses, and the same one SbVisitorList's tab
+    // pills use) -- Model.Summary.Summary is the general DashboardSummary, a
+    // different count that doesn't match, which is what "counts are still wrong"
+    // meant even once this view started rendering.
+    var now = DateTime.UtcNow;
+    var start = now.AddHours(-24);
+    TrafficCounters counters;
+    try
+    {
+        var segmentCounts = await EventStore.GetVisitorSegmentCountsAsync(
+            start, now, country: country, botType: botType, threat: threat)
+            ?? throw new InvalidOperationException("GetVisitorSegmentCountsAsync returned null");
+        counters = new TrafficCounters(
+            Total: segmentCounts.All,
+            Humans: segmentCounts.Humans,
+            Bots: segmentCounts.Bots,
+            BotShare: segmentCounts.All > 0 ? segmentCounts.Bots / (double)segmentCounts.All : 0,
+            TotalDelta: 0, HumansDelta: 0, BotsDelta: 0,
+            TotalDeltaPct: 0, HumansDeltaPct: 0, BotsDeltaPct: 0);
+    }
+    catch
+    {
+        // Graceful degradation: fall back to the general summary if the
+        // authoritative segment aggregate is unavailable.
+        var summary = Model.Summary.Summary;
+        counters = new TrafficCounters(
+            Total: summary.TotalRequests,
+            Humans: summary.HumanRequests,
+            Bots: summary.BotRequests,
+            BotShare: summary.TotalRequests > 0 ? summary.BotRequests / (double)summary.TotalRequests : 0,
+            TotalDelta: 0, HumansDelta: 0, BotsDelta: 0,
+            TotalDeltaPct: 0, HumansDeltaPct: 0, BotsDeltaPct: 0,
+            TotalFingerprints: summary.UniqueSignatures,
+            HumanFingerprints: summary.HumanFingerprints,
+            BotFingerprints: summary.BotFingerprints);
+    }
+
     var pageModel = new VisitorsPageModel(
         Filter: Nullable(query["filter"].FirstOrDefault()) ?? "all",
-        Country: Nullable(query["country"].FirstOrDefault()),
-        BotType: Nullable(query["bot_type"].FirstOrDefault()),
-        Threat: Nullable(query["threat"].FirstOrDefault()),
+        Country: country,
+        BotType: botType,
+        Threat: threat,
         FingerprintId: Nullable(query["fingerprint"].FirstOrDefault()),
         Internal: query["internal"].FirstOrDefault() == "true",
         BasePath: Model.BasePath,

@@ -67,19 +67,22 @@ public class SbVisitorListViewComponent(
 
         // Fetch authoritative segment counts from the store (single source of truth
         // for both tabs and summary). This replaces the parasitic dual-query approach.
+        // ALWAYS fetch it -- pageResult (when present) only supplies the raw visitor
+        // ROWS (BotAggregate), a windowed/capped list; it says nothing about the true
+        // segment totals, so gating this fetch on "no composed bundle" silently served
+        // the cheap row-count projection as if it were the authoritative aggregate.
         FilterCounts accurateCounts = counts;
-        if (pageResult is null)
+        try
         {
-            try
-            {
-                accurateCounts = await eventStore.GetVisitorSegmentCountsAsync(
-                    start, now,
-                    filter: filter, country: country, botType: botType, threat: threat);
-            }
-            catch
-            {
-                // Graceful degradation: fall back to projection counts
-            }
+            var segmentCounts = await eventStore.GetVisitorSegmentCountsAsync(
+                start, now,
+                filter: filter, country: country, botType: botType, threat: threat);
+            if (segmentCounts is not null)
+                accurateCounts = segmentCounts;
+        }
+        catch
+        {
+            // Graceful degradation: fall back to projection counts
         }
 
         // Plan task 19: same gateway-projected drift badge enrichment the
