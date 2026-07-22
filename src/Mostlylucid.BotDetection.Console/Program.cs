@@ -454,6 +454,15 @@ TaskScheduler.UnobservedTaskException += (sender, e) =>
 
 try
 {
+    // Internet-facing edge: raise our own soft fd ceiling toward the hard limit so a burst of
+    // concurrent connections can't exhaust the default 1024 soft limit and crash the process
+    // with EMFILE on accept()/connect() (no managed exception, looks like a hard crash under
+    // load). The shipped systemd unit sets LimitNOFILE=65536, but a bare/docker/CI launch
+    // inherits the shell default; self-raising makes the binary robust regardless of launcher.
+    var fdLimit = Mostlylucid.BotDetection.Runtime.FileDescriptorLimit.RaiseSoftToHard();
+    if (fdLimit is { } fd)
+        Log.Information("File-descriptor limit (RLIMIT_NOFILE): soft={Soft} hard={Hard}", fd.Soft, fd.Hard);
+
     if (verbose)
     {
         Log.Information("");
