@@ -2,6 +2,7 @@
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @using Mostlylucid.BotDetection.UI.Services
 @using Mostlylucid.BotDetection.UI.Helpers
+@inject IFingerprintNameActionSlot NameActionSlot
 @model TopBotsListModel
 @{
     var bp = Model.BasePath;
@@ -279,6 +280,7 @@
                                            class="hover:underline truncate @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_VerificationBadge.cshtml", verificationBadge)
                                         @if (isCustomNamed) {<span class="text-[9px] text-base-content/60" title="Custom label">&#9632;</span>}
+                                        @NameActionSlot.Render(bot.PrimarySignature, displayName ?? bot.PrimarySignature, bot.BotType, bot.BotProbability >= 0.5)
                                     </span>
                                 </td>
                                 <td class="py-1 px-1.5 text-center">

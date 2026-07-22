@@ -38,6 +38,7 @@ public sealed class VisitorsLandingViewRenderingTests
         services.AddSingleton<IOptions<DashboardMaterializerOptions>>(
             Options.Create(new DashboardMaterializerOptions()));
         services.AddSingleton(new Mock<IDashboardEventStore>().Object);
+        services.AddSingleton<IFingerprintNameActionSlot, EmptyFingerprintNameActionSlot>();
 
         await using var provider = services.BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = provider };

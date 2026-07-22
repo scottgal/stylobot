@@ -2,6 +2,7 @@
 @using Mostlylucid.BotDetection.Policies.Signals
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Helpers
+@using Mostlylucid.BotDetection.UI.Services
 @* ISignalCatalog: signal-key -> human label/description lookup. Without
    the inject, the Signal Intelligence panel rendered raw keys
    (fastpath.ip.score) as both visible text AND tooltip body, which was
@@ -11,6 +12,7 @@
    the raw key, same as today) instead of throwing on a host that
    somehow lost the registration. *@
 @inject IServiceProvider _services
+@inject IFingerprintNameActionSlot NameActionSlot
 @model SignatureDetailModel
 @{
     // No Layout = null here. The host's _ViewStart picks the layout (the website's
@@ -171,6 +173,7 @@ else
                     </svg>
                 </button>
             }
+            @NameActionSlot.Render(Model.SignatureId, signatureDisplayName ?? Model.SignatureId, Model.BotType, Model.IsBot)
         </span>
         @* Operator "correct decision" control (commercial). Lazy-loads the correction
            editor fragment from the gateway; under FOSS the endpoint returns 402 and the
@@ -422,6 +425,11 @@ else
                             {
                                 <span class="text-[10px] text-base-content/40 ml-1">(@n.InferredClientType)</span>
                             }
+                            @* NearestFingerprint carries no bot-type/verdict field -- unlike
+                               the other 4 slot sites, this data genuinely isn't available
+                               here without an extra lookup, so botType/isBot go through as
+                               unknown (null/false) rather than a real classification. *@
+                            @NameActionSlot.Render(n.FingerprintId, label, null, false)
                         </span>
                         <span class="tabular-nums text-base-content/55 text-[10px] whitespace-nowrap" sb-tooltip="lookslike.distance">
                             d = @n.Distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)

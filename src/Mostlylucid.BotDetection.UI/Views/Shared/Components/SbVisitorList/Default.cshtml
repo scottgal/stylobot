@@ -1,6 +1,8 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @using Mostlylucid.BotDetection.UI.Helpers
+@using Mostlylucid.BotDetection.UI.Services
+@inject IFingerprintNameActionSlot NameActionSlot
 @model VisitorListModel
 @{
     var bp = Model.BasePath;
@@ -227,7 +229,10 @@
                                on a block-level child whose max-width is the cell's max-width. *@
                             <td class="py-1 max-w-[200px]"
                                 title="@displayName — Signature: @v.PrimarySignature">
-                                <div class="block truncate font-medium text-xs hover:underline">@displayName</div>
+                                <div class="flex items-center gap-1 min-w-0">
+                                    <div class="block truncate font-medium text-xs hover:underline">@displayName</div>
+                                    @NameActionSlot.Render(v.PrimarySignature, displayName ?? v.PrimarySignature, v.BotType, v.IsBot)
+                                </div>
                             </td>
                             <td class="py-1 w-6">
                                 @* Drift badge -- gateway-projected, threshold-crossed.

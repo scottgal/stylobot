@@ -341,6 +341,12 @@ public static class StyloBotDashboardServiceExtensions
         // commercial overlay registered before AddStyloBotDashboard wins.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IEffectivePolicyConfigOverlay,
             Mostlylucid.BotDetection.UI.Services.PassthroughEffectivePolicyConfigOverlay>();
+        // Inline action slot next to every fingerprint/signature name (visitor list,
+        // Top Bots, signature-detail header, "looks like" list, visitor card). FOSS
+        // renders nothing; a commercial host's real allow/block affordance wins via the
+        // same TryAdd-before-AddStyloBotDashboard convention as the overlay above.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IFingerprintNameActionSlot,
+            Mostlylucid.BotDetection.UI.Services.EmptyFingerprintNameActionSlot>();
         // The composer hard-depends on IActionPolicyRegistry (BotTypeActionPolicies -> real
         // ActionType, data-driven), which only AddBotDetection registers -- i.e. only on a
         // LOCAL-detection host. A remote / thin-client dashboard (Stylobot.Ui rest mode, the
