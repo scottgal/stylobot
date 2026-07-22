@@ -25,11 +25,24 @@
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj" />
+        <!-- Direct refs for types that Api RE-EXPORTS through its public surface (via UI)
+             but only reached transitively. Without these, a project that references Api
+             directly (e.g. the commercial test suite) fails with CS0012 — "the type is
+             defined in an assembly that is not referenced" — because the leaked types'
+             assemblies aren't in Api's own reference closure. Making them direct
+             references flows them to Api's consumers. Mostlylucid.BotDetection.OpenApi
+             is the FOSS project (distinct from the Microsoft.OpenApi package below);
+             Mostlylucid.Ephemeral.Atoms.Taxonomy comes in via the core lib. -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.OpenApi\Mostlylucid.BotDetection.OpenApi.csproj" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
       <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+      <!-- See the OpenApi ProjectReference note above: Api's public surface exposes
+           Ephemeral.Atoms.Taxonomy types transitively; pin the direct ref so consumers
+           of Api don't hit CS0012. Version matches the core lib's pin. -->
+      <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.9.1" />
     </ItemGroup>
 
 </Project>
