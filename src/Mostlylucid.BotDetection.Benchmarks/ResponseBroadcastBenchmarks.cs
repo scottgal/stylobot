@@ -91,6 +91,34 @@ public class ResponseBroadcastBenchmarks
         return null;
     }
 
+    /// <summary>
+    ///     Tracks the SHIPPED accessor behaviour after the AOT fix
+    ///     (<c>nativeaot-pessimizes-the-compiled-delegate-count</c>): the real
+    ///     <c>DetectionBroadcastMiddleware.GetCountryCodeAccessor</c> selects the compiled
+    ///     delegate under JIT and a cached <see cref="System.Reflection.PropertyInfo"/> read
+    ///     under NativeAOT, behind a <see cref="System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported"/>
+    ///     guard that the AOT compiler constant-folds (so the Expression.Compile branch is
+    ///     dead-code-eliminated — no 54 ns/152 B interpreter fallback). This regression guard
+    ///     mirrors that selection: on JIT it should track the compiled delegate (~2.7 ns), on
+    ///     AOT the reflection read (~9.7 ns/0 B), never the interpreter. The private method is
+    ///     replicated here by shape (it is not accessible from the benchmark assembly).
+    /// </summary>
+    [Benchmark(Description = "Guarded CountryCode accessor (shipped: compiled on JIT, reflection on AOT)")]
+    public string? CountryCodeAccessor_GuardedShipped()
+    {
+        var t = typeof(FakeGeo);
+        if (System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+        {
+            if (_accessorCache.TryGetValue(t, out var del))
+                return del?.Invoke(_geoSample);
+            return null;
+        }
+
+        if (_propInfoCache.TryGetValue(t, out var pi) && pi is not null)
+            return pi.GetValue(_geoSample) as string;
+        return null;
+    }
+
     [Benchmark(Description = "LINQ baseline aggregate (15 contributions)")]
     public (List<string>, Dictionary<string, DashboardDetectorContribution>) LinqBaseline_Typical()
     {

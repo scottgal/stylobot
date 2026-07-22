@@ -114,16 +114,24 @@ Allocations identical JIT↔AOT throughout; string-normalization regresses modes
 | Aggregate (5 contributions) | 233.9 | 310.0 | 1.33 | 2024 B | 2024 B |
 | Aggregate (15 — typical request) | 598.6 | 853.9 | 1.43 | 4680 B | 4680 B |
 | Aggregate (40 — heavy request) | 1322.9 | 1732.6 | 1.31 | 8504 B | 8504 B |
-| **Compiled-delegate CountryCode accessor** | **2.7** | **54.4** | **20.1** | **0** | **152 B** |
-| Reflection PropertyInfo CountryCode (baseline) | 6.1 | 9.7 | 1.58 | 0 | 0 |
+| Compiled-delegate CountryCode accessor (old, unguarded) | 2.7 | **55.3** | 20.4 | 0 | 152 B |
+| Reflection PropertyInfo CountryCode (baseline) | 5.8 | 9.7 | 1.67 | 0 | 0 |
+| **Guarded CountryCode accessor (shipped fix)** | **2.9** | **9.8** | **3.35** | **0** | **0** |
 | LINQ baseline aggregate (15) | 1381.6 | 2563.9 | 1.86 | 6448 B | 7992 B |
 
-> **⚠ AOT finding (filed as issue `nativeaot-pessimizes-the-compiled-delegate-count`).** The
-> compiled-delegate accessor is 2.7 ns / 0 B under JIT but **54.4 ns / 152 B under AOT — 20x slower,
-> and 5.6x slower than plain reflection (9.7 ns).** `Expression.Compile` needs dynamic IL codegen;
-> NativeAOT has none, so it falls back to the expression *interpreter*. Under the shipped-AOT target
-> the "compiled" fast path is a net pessimization; reflection or a source-generated accessor would be
-> faster and zero-alloc. Product-code fix belongs to `foss-`, not bench-.
+> **✅ AOT finding — FOUND, FIXED, VERIFIED (issue `nativeaot-pessimizes-the-compiled-delegate-count`).**
+> The unguarded compiled-delegate accessor was 2.7 ns / 0 B under JIT but **55.3 ns / 152 B under AOT —
+> ~20x slower, and 5.6x slower than plain reflection (9.7 ns).** Cause: `Expression.Compile` needs
+> dynamic IL codegen; NativeAOT has none, so it silently falls back to the expression *interpreter*.
+> foss- fixed it (main `af0a12a0`): `DetectionBroadcastMiddleware.GetCountryCodeAccessor` now guards the
+> `Expression.Compile` path behind `RuntimeFeature.IsDynamicCodeSupported` — a compile-time constant the
+> ILC constant-folds, so the compiled branch is dead-code-eliminated under AOT (no interpreter fallback,
+> no IL3050) and a cached `PropertyInfo` read is used instead. **Measured before/after under AOT: 55.3 ns
+> / 152 B → 9.8 ns / 0 B** (the `Guarded` row above); JIT keeps the 2.9 ns compiled delegate. The
+> `Guarded` benchmark is a regression guard — it tracks the shipped selection and would resurface the
+> 55 ns interpreter cost if the guard is ever removed. Durable lesson: **avoid `Expression.Compile` on
+> AOT hot paths; gate it behind `RuntimeFeature.IsDynamicCodeSupported` with a reflection/source-gen
+> fallback.**
 
 ### Session-mode resolver (SessionModeResolverAtom, priority 15)
 
