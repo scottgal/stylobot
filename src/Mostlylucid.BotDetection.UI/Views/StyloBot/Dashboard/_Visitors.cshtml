@@ -14,13 +14,17 @@
     var botType = Nullable(query["bot_type"].FirstOrDefault());
     var threat = Nullable(query["threat"].FirstOrDefault());
 
-    // The summary row MUST show the authoritative visitor-segment aggregate (same
-    // source VisitorsController.Index() uses, and the same one SbVisitorList's tab
-    // pills use) -- Model.Summary.Summary is the general DashboardSummary, a
-    // different count that doesn't match, which is what "counts are still wrong"
-    // meant even once this view started rendering.
+    // The summary row's PRIMARY numbers (_TrafficCounters renders TotalFingerprints/
+    // HumanFingerprints/BotFingerprints as the big VISITORS/HUMAN/BOT figures --
+    // Total/Humans/Bots only feed the secondary "req" line + tooltips) must come
+    // from the authoritative visitor-segment aggregate (same source
+    // VisitorsController.Index() uses, and the same one SbVisitorList's tab pills
+    // use) -- Model.Summary.Summary is a DIFFERENT count (request volume, not
+    // distinct visitors) and doesn't match, which is what "counts are still wrong"
+    // meant even once this view started rendering and the tabs were already fixed.
     var now = DateTime.UtcNow;
     var start = now.AddHours(-24);
+    var summary = Model.Summary.Summary;
     TrafficCounters counters;
     try
     {
@@ -28,18 +32,20 @@
             start, now, country: country, botType: botType, threat: threat)
             ?? throw new InvalidOperationException("GetVisitorSegmentCountsAsync returned null");
         counters = new TrafficCounters(
-            Total: segmentCounts.All,
-            Humans: segmentCounts.Humans,
-            Bots: segmentCounts.Bots,
+            Total: summary.TotalRequests,
+            Humans: summary.HumanRequests,
+            Bots: summary.BotRequests,
             BotShare: segmentCounts.All > 0 ? segmentCounts.Bots / (double)segmentCounts.All : 0,
             TotalDelta: 0, HumansDelta: 0, BotsDelta: 0,
-            TotalDeltaPct: 0, HumansDeltaPct: 0, BotsDeltaPct: 0);
+            TotalDeltaPct: 0, HumansDeltaPct: 0, BotsDeltaPct: 0,
+            TotalFingerprints: segmentCounts.All,
+            HumanFingerprints: segmentCounts.Humans,
+            BotFingerprints: segmentCounts.Bots);
     }
     catch
     {
-        // Graceful degradation: fall back to the general summary if the
-        // authoritative segment aggregate is unavailable.
-        var summary = Model.Summary.Summary;
+        // Graceful degradation: fall back to the general summary for everything if
+        // the authoritative segment aggregate is unavailable.
         counters = new TrafficCounters(
             Total: summary.TotalRequests,
             Humans: summary.HumanRequests,
