@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.2] - 2026-07-22
+
+### Fixed
+
+- **Traffic `/summary` counter frozen across the window switcher on remote/thin-viewer hosts.** The gateway's `GET /api/v1/summary` served the warmed `DashboardAggregateCache` snapshot — a single fixed default-window materialisation — for *every* request, ignoring `since`/`until`, so the Traffic counter was byte-identical at 6h/24h/7d/30d (the sibling `/countries`, `/visitor-segments`, and `/domain-stats` reads all windowed correctly; only summary didn't). `HandleSummary` now binds `since`/`until`/`audience` and hits the store windowed when any is present, serving the cache only for the unqualified default view; and the dashboard middleware's summary fetches (KPI strip, `/summary` JSON, and the Traffic page-bundle fallback) now pass the resolved page window to `GetSummaryAsync` instead of reading the audience- and window-agnostic cache snapshot. The underlying `SqliteDashboardEventStore.GetSummaryAsync` already honoured the window; only the gateway handler and the callers dropped it. With this, the Traffic counter reconciles with the per-domain aggregate at the same window.
+
 ## [8.2.1] - 2026-07-22
 
 ### Added

@@ -211,17 +211,28 @@ public static class ReadEndpoints
 
     private static async Task<Ok<SingleResponse<DashboardSummary>>> HandleSummary(
         [FromServices] IDashboardEventStore store,
-        [FromServices] DashboardAggregateCache aggregateCache)
+        [FromServices] DashboardAggregateCache aggregateCache,
+        DateTime? since = null, DateTime? until = null,
+        string? audience = null)
     {
-        aggregateCache.MarkHit();
-        var snapshot = aggregateCache.Current;
-        if (snapshot.Summary is not null && snapshot.ComputedAt != DateTime.MinValue)
-            return TypedResults.Ok(new SingleResponse<DashboardSummary>
-            {
-                Data = snapshot.Summary, Meta = new ResponseMeta()
-            });
+        // The warmed aggregateCache snapshot is a single fixed (default-window) materialisation.
+        // A request that carries an explicit window (since/until) or an audience filter MUST hit
+        // the store with those bounds — otherwise every window returns the byte-identical cached
+        // snapshot, which is exactly why the remote/thin-viewer Traffic counter froze across
+        // 6h/24h/7d/30d. Only the unqualified default view is served from the cache fast path.
+        var qualified = since is not null || until is not null || !string.IsNullOrEmpty(audience);
+        if (!qualified)
+        {
+            aggregateCache.MarkHit();
+            var snapshot = aggregateCache.Current;
+            if (snapshot.Summary is not null && snapshot.ComputedAt != DateTime.MinValue)
+                return TypedResults.Ok(new SingleResponse<DashboardSummary>
+                {
+                    Data = snapshot.Summary, Meta = new ResponseMeta()
+                });
+        }
 
-        var summary = await store.GetSummaryAsync();
+        var summary = await store.GetSummaryAsync(since, until, audienceFilter: audience);
         return TypedResults.Ok(new SingleResponse<DashboardSummary> { Data = summary, Meta = new ResponseMeta() });
     }
 

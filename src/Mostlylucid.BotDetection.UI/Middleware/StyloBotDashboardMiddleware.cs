@@ -1292,11 +1292,15 @@ public class StyloBotDashboardMiddleware
         var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitorWindow = BuildVisitorsPageWindow(context);
         var visitorTask = SafeGetVisitorsAsync();
+        // An explicit window must skip the audience-agnostic, fixed-window aggregateCache snapshot
+        // and read the store windowed — otherwise a remote host whose page-bundle compose degrades
+        // (composedPage null) falls back to the frozen cached summary across every window.
+        var summaryHasWindow = context.Request.Query.ContainsKey("window");
         Task<DashboardSummary> summaryTask = composedPage?.Summary is { } composedSummary
             ? Task.FromResult(composedSummary)
-            : _aggregateCache.Current.Summary is { } cachedSummary
+            : (!summaryHasWindow && _aggregateCache.Current.Summary is { } cachedSummary)
             ? Task.FromResult(cachedSummary)
-            : SafeGetSummaryAsync();
+            : SafeGetSummaryAsync(visitorWindow.StartTime, visitorWindow.EndTime);
         var countriesTask = SafeGetCountriesDataAsync();
         var endpointsTask = SafeGetEndpointsDataAsync(context);
         var userAgentsTask = _aggregateCache.Current.UserAgents.Count > 0
@@ -1400,9 +1404,9 @@ public class StyloBotDashboardMiddleware
             "/Views/StyloBot/Dashboard/Index.cshtml", model, context, isMainPage: true);
         await context.Response.WriteAsync(html);
 
-        async Task<DashboardSummary> SafeGetSummaryAsync()
+        async Task<DashboardSummary> SafeGetSummaryAsync(DateTime? start = null, DateTime? end = null)
         {
-            try { return await _eventStore.GetSummaryAsync(); }
+            try { return await _eventStore.GetSummaryAsync(start, end); }
             catch { return new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
         }
 
@@ -1983,9 +1987,21 @@ public class StyloBotDashboardMiddleware
         // store hit so the SQL is_bot predicate gates the counts; otherwise
         // a humans-only API consumer sees full traffic.
         var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
-        var summary = audienceFilter is "humans" or "bots"
-            ? await _eventStore.GetSummaryAsync(audienceFilter: audienceFilter)
-            : _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
+        // Audience OR an explicit window must go through the store: the aggregateCache snapshot is
+        // audience-agnostic AND fixed to the default window, so serving it would freeze the Traffic
+        // counter across the window switcher (the remote/thin-viewer symptom mae- reported).
+        var hasExplicitWindow = context.Request.Query.ContainsKey("window");
+        DashboardSummary summary;
+        if (audienceFilter is "humans" or "bots" || hasExplicitWindow)
+        {
+            var w = BuildVisitorsPageWindow(context);
+            var aud = audienceFilter is "humans" or "bots" ? audienceFilter : null;
+            summary = await _eventStore.GetSummaryAsync(w.StartTime, w.EndTime, audienceFilter: aud);
+        }
+        else
+        {
+            summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
+        }
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, summary, CamelCaseJson);
@@ -3287,9 +3303,21 @@ public class StyloBotDashboardMiddleware
         // so the SQL is_bot predicate applies. Otherwise the summary KPI strip would
         // show full-traffic totals regardless of the audience toggle.
         var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
-        var summary = audienceFilter is "humans" or "bots"
-            ? await _eventStore.GetSummaryAsync(audienceFilter: audienceFilter)
-            : _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
+        // Audience OR an explicit window must go through the store: the aggregateCache snapshot is
+        // audience-agnostic AND fixed to the default window, so serving it would freeze the Traffic
+        // counter across the window switcher (the remote/thin-viewer symptom mae- reported).
+        var hasExplicitWindow = context.Request.Query.ContainsKey("window");
+        DashboardSummary summary;
+        if (audienceFilter is "humans" or "bots" || hasExplicitWindow)
+        {
+            var w = BuildVisitorsPageWindow(context);
+            var aud = audienceFilter is "humans" or "bots" ? audienceFilter : null;
+            summary = await _eventStore.GetSummaryAsync(w.StartTime, w.EndTime, audienceFilter: aud);
+        }
+        else
+        {
+            summary = _aggregateCache.Current.Summary ?? await _eventStore.GetSummaryAsync();
+        }
         var basePath = _options.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
