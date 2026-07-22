@@ -8,9 +8,9 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     classification lives in the commercial overlay, not here.
 /// </summary>
 /// <param name="Domain">RAW Host as stored in the detections <c>domain</c> column — not pre-filtered or relabelled.</param>
-/// <param name="Requests">Total detection rows for this domain in the window.</param>
-/// <param name="Bots">Rows classified bot (<c>bot_probability &gt;= BotFloor</c>) — the same floor the summary uses, so numbers reconcile with the Traffic counter.</param>
-/// <param name="IsInternal">True when the domain is in-cluster gateway self-traffic (health/loopback): every row is <c>bot_type = 'Internal'</c>.</param>
+/// <param name="Requests">Non-internal detection rows for this domain in the window (rows where <c>bot_type != 'Internal'</c>), matching the summary's bot universe so the pool reconciles with the Traffic counter.</param>
+/// <param name="Bots">Non-internal rows classified bot (<c>bot_probability &gt;= BotFloor</c> and <c>bot_type != 'Internal'</c>) — the same floor and universe the summary uses.</param>
+/// <param name="IsInternal">True when the domain is in-cluster gateway self-traffic (health/loopback): classified over ALL rows, so true iff the domain has zero non-Internal rows (its <see cref="Requests"/> is then 0).</param>
 public sealed record DashboardDomainStat(
     string Domain,
     long Requests,

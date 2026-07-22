@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.3] - 2026-07-22
+
+### Fixed
+
+- **`/api/v1/domain-stats` per-host counts now row-level-exclude internal self-traffic**, matching the `/summary` bot universe so the Domains pool reconciles with the Traffic counter. A mixed host (real external traffic plus gateway health/loopback rows classified `bot_type='Internal'`) previously counted every row in `Requests`/`Bots`, while `/summary` excludes Internal rows via `AudiencePredicate` — so the pool ran orders of magnitude (53–256× on the staging bench corpus) above the counter. `Requests` and `Bots` now count only `bot_type != 'Internal'` rows; `IsInternal` is still classified over all rows (true iff the domain has zero non-Internal rows, whose `Requests` is then 0). Mirrors the commercial PostgreSQL store's `COUNT(*) FILTER (... IS DISTINCT FROM 'Internal')` so the FOSS SQLite and commercial stores don't drift.
+
 ## [8.2.2] - 2026-07-22
 
 ### Fixed

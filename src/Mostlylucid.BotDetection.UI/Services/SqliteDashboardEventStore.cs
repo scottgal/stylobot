@@ -1047,11 +1047,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
-        // ALL observed domains, one row each. Internal self-traffic is FLAGGED (not excluded) —
-        // the licensed-vs-pool classification is the commercial overlay's job, so no audience
-        // filter and no domain predicate here. A domain is internal iff it has zero non-Internal
-        // rows (pure gateway health/loopback host); the bot count uses the shared BotFloor so it
-        // reconciles with the summary/Traffic counter.
+        // ALL observed domains, one row each. Requests + Bots row-level EXCLUDE internal
+        // self-traffic (bot_type='Internal') so they share /summary's bot universe
+        // (AudiencePredicate excludes Internal rows) and the pool reconciles with the Traffic
+        // counter at the same window — a mixed host (real traffic + gateway health/loopback rows)
+        // would otherwise inflate the pool by orders of magnitude. is_internal is still classified
+        // over ALL rows (a domain is internal iff it has zero non-Internal rows). No audience
+        // filter and no domain predicate: the licensed-vs-pool split is the commercial overlay's
+        // job. Mirrors the commercial Postgres GetDomainStatsAsync (COUNT(*) FILTER ... IS DISTINCT
+        // FROM 'Internal').
         var where = new System.Text.StringBuilder("WHERE domain IS NOT NULL AND domain != ''");
         if (startTime.HasValue) where.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
@@ -1059,8 +1063,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
             SELECT domain,
-                   COUNT(*) as requests,
-                   SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) as bots,
+                   SUM(CASE WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) as requests,
+                   SUM(CASE WHEN bot_probability >= @botFloor AND bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) as bots,
                    CASE WHEN SUM(CASE WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) = 0
                         THEN 1 ELSE 0 END as is_internal
             FROM detections
@@ -1080,7 +1084,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             results.Add(new DashboardDomainStat(
                 Domain: reader.GetString(0),
-                Requests: reader.GetInt64(1),
+                Requests: reader.IsDBNull(1) ? 0L : reader.GetInt64(1),
                 Bots: reader.IsDBNull(2) ? 0L : reader.GetInt64(2),
                 IsInternal: !reader.IsDBNull(3) && reader.GetInt64(3) == 1));
         }

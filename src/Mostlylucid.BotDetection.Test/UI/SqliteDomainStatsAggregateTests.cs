@@ -48,13 +48,16 @@ public class SqliteDomainStatsAggregateTests
 
         var rows = await fx.Store.GetDomainStatsAsync();
 
-        // ALL observed domains returned — internal is flagged, never excluded (commercial overlay decides)
+        // ALL observed domains returned — internal is flagged, never dropped (commercial overlay decides)
         rows.Should().HaveCount(2);
 
-        rows.Single(r => r.Domain == "localhost").IsInternal
-            .Should().BeTrue("every row is Internal self-traffic");
-        rows.Single(r => r.Domain == "shop.com").IsInternal
-            .Should().BeFalse("it has non-Internal rows, so it is a real domain");
+        var localhost = rows.Single(r => r.Domain == "localhost");
+        localhost.IsInternal.Should().BeTrue("every row is Internal self-traffic");
+        localhost.Requests.Should().Be(0, "Internal rows are row-level excluded from Requests");
+
+        var shop = rows.Single(r => r.Domain == "shop.com");
+        shop.IsInternal.Should().BeFalse("it has non-Internal rows, so it is a real domain");
+        shop.Requests.Should().Be(1, "the one stray Internal row is excluded; only the real row counts");
     }
 
     [Fact]
