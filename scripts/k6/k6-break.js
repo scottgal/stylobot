@@ -11,6 +11,12 @@ const detectionTime = new Trend('detection_time_ms', true);
 const reqsPerSec = new Counter('successful_reqs');
 
 const BASE = __ENV.BASE_URL || 'http://localhost';
+// Poison-guard: carry the debug key (DisableLearningWrites) on EVERY request so this
+// synthetic flood is NOT learned into the model. Spread KEYHDR into each headers object;
+// when API_KEY is unset it spreads to nothing (never send an empty X-SB-Api-Key — the
+// bench gateway runs RejectUnknownApiKeys=true). See feedback_always_api_key_on_stylobot_traffic.
+const API_KEY = __ENV.API_KEY || '';
+const KEYHDR = API_KEY ? { 'X-SB-Api-Key': API_KEY } : {};
 
 export const options = {
     scenarios: {
@@ -74,6 +80,7 @@ function humanBrowsing() {
     const path = PATHS[Math.floor(Math.random() * PATHS.length)];
     const res = http.get(`${BASE}${path}`, {
         headers: {
+            ...KEYHDR,
             'User-Agent': ua,
             'Accept': 'text/html,application/xhtml+xml',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -98,7 +105,7 @@ function botScraping() {
     const ua = BOT_UAS[Math.floor(Math.random() * BOT_UAS.length)];
     const path = PATHS[Math.floor(Math.random() * PATHS.length)];
     const res = http.get(`${BASE}${path}`, {
-        headers: { 'User-Agent': ua, 'Accept': '*/*' },
+        headers: { ...KEYHDR, 'User-Agent': ua, 'Accept': '*/*' },
         tags: { scenario: 'bot' },
     });
     recordMetrics(res);
@@ -122,7 +129,7 @@ const ATTACKS = [
 function attackTraffic() {
     const attack = ATTACKS[Math.floor(Math.random() * ATTACKS.length)];
     const res = http.get(`${BASE}${attack.path}${attack.qs}`, {
-        headers: { 'User-Agent': 'sqlmap/1.7.12', 'Accept': '*/*' },
+        headers: { ...KEYHDR, 'User-Agent': 'sqlmap/1.7.12', 'Accept': '*/*' },
         tags: { scenario: 'attack' },
     });
     recordMetrics(res);
@@ -138,6 +145,7 @@ function credentialStuffing() {
         password: 'password123',
     }), {
         headers: {
+            ...KEYHDR,
             'User-Agent': 'python-requests/2.31.0',
             'Content-Type': 'application/json',
         },
@@ -160,6 +168,7 @@ function dashboardPolling() {
     const endpoint = DASHBOARD_ENDPOINTS[Math.floor(Math.random() * DASHBOARD_ENDPOINTS.length)];
     const res = http.get(`${BASE}${endpoint}`, {
         headers: {
+            ...KEYHDR,
             'Accept': 'application/json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         },

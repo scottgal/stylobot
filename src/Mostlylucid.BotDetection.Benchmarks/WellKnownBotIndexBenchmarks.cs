@@ -18,21 +18,12 @@ namespace Mostlylucid.BotDetection.Benchmarks;
 ///       ColdHit   — unique bot UA each call (L1 passes → L2 literal match → result).
 ///       WarmCache — same UA repeated (BoundedCache hit, fastest path).
 /// </summary>
-[Config(typeof(WellKnownBotIndexConfig))]
+// External-process default toolchain (SimpleJob) so the suite runs under NativeAOT via
+// `--runtimes nativeaot10.0`; InProcessEmit (in-host JIT) cannot cross-compile to AOT.
+[SimpleJob(warmupCount: 3, iterationCount: 15)]
 [MemoryDiagnoser]
 public class WellKnownBotIndexBenchmarks
 {
-    private sealed class WellKnownBotIndexConfig : ManualConfig
-    {
-        public WellKnownBotIndexConfig()
-        {
-            AddJob(Job.Default
-                .WithToolchain(InProcessEmitToolchain.Instance)
-                .WithWarmupCount(3)
-                .WithIterationCount(15));
-            AddDiagnoser(MemoryDiagnoser.Default);
-        }
-    }
 
     // The real arcjet catalog, loaded from the bundled baseline embedded in the
     // core library (635 entries: 521 pure literals + 116 regex patterns). Same

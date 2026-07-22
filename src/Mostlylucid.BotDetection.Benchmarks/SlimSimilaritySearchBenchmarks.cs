@@ -15,23 +15,6 @@ using Mostlylucid.BotDetection.Similarity;
 
 namespace Mostlylucid.BotDetection.Benchmarks;
 
-// Uses InProcessEmitToolchain to avoid BenchmarkDotNet project-file discovery
-// collisions when git worktrees share the same project name.
-public class InProcessConfig : ManualConfig
-{
-    public InProcessConfig()
-    {
-        AddJob(Job.Default
-            .WithToolchain(InProcessEmitToolchain.Instance)
-            .WithWarmupCount(3)
-            .WithIterationCount(10));
-        AddDiagnoser(MemoryDiagnoser.Default);
-        AddColumnProvider(DefaultColumnProviders.Instance);
-        AddExporter(MarkdownExporter.GitHub);
-        WithOptions(ConfigOptions.DisableOptimizationsValidator);
-    }
-}
-
 /// <summary>
 ///     Benchmarks for the BoundedVectorCache, VectorMath SIMD helpers,
 ///     and the Slim* similarity search hot paths.
@@ -39,8 +22,13 @@ public class InProcessConfig : ManualConfig
 ///     Run from the project directory to avoid worktree csproj collisions:
 ///       cd src/Mostlylucid.BotDetection.Benchmarks
 ///       dotnet run -c Release -- --filter *SlimSimilarity*
+///
+///     Uses the external-process default toolchain (SimpleJob) so the suite can also be
+///     run under the NativeAOT toolchain via `--runtimes nativeaot10.0`, which the
+///     InProcessEmit toolchain (in-host JIT) cannot cross-compile to.
 /// </summary>
-[Config(typeof(InProcessConfig))]
+[SimpleJob(warmupCount: 3, iterationCount: 10)]
+[MemoryDiagnoser]
 public class SlimSimilaritySearchBenchmarks
 {
     [Params(100, 500, 2_000, 5_000)]
