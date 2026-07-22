@@ -95,8 +95,14 @@
     </div>
 </section>
 
-@section Scripts {
-    <script nonce="@(Context.Items["CspNonce"] as string ?? "")">
+@* The map init script MUST be a plain inline <script>, not @section Scripts --
+   this view is always rendered as a nested Html.PartialAsync (via _Visitors.cshtml
+   -> Visitors/Index.cshtml, itself invoked from the row-registry dispatch in the
+   outer Index.cshtml shell), never as a top-level View() result. @section content
+   only emits when a Layout explicitly calls RenderSectionAsync for it; nothing in
+   this partial chain does, so the section was silently dropping the whole script --
+   the div rendered with real data but jsVectorMap was never initialized against it. *@
+<script nonce="@(Context.Items["CspNonce"] as string ?? "")">
     (function() {
         'use strict';
         function initMapFromData(containerId) {
@@ -159,5 +165,4 @@
 
         initMapFromData('countries-map-visitors');
     })();
-    </script>
-}
+</script>

@@ -110,6 +110,14 @@ public sealed class VisitorsLandingViewRenderingTests
         Assert.Contains("42", html);
         Assert.Contains("visitor-1", html);
         Assert.Contains("countries-map-visitors", html);
+        // The map init script must be a plain inline <script>, not @section Scripts --
+        // this view is always rendered as a nested Html.PartialAsync (never a
+        // top-level View() result via the registry path), and @section content is
+        // silently dropped unless a Layout calls RenderSectionAsync for it. A
+        // regression back to @section would leave the div rendered with real data
+        // but jsVectorMap never initialized against it -- the map would be blank
+        // with a clean console, exactly as reported on staging.
+        Assert.Contains("initMapFromData('countries-map-visitors')", html);
         Assert.Contains("Representative behavioural fingerprint", html);
         Assert.Contains("95% bot", html);
         Assert.Contains("8% bot", html);
