@@ -64,7 +64,7 @@ public sealed class VisitorsListFetchFailureIntegrationTests : IAsyncDisposable
         Assert.Contains("77", html);
         // Hardcoded representative shapes have no data dependency; their absence means
         // the canonical Visitors/Index.cshtml partial never rendered at all.
-        Assert.Contains("Representative bot", html);
+        Assert.Contains("Representative behavioural fingerprint", html);
         Assert.Contains("countries-map-visitors", html);
     }
 

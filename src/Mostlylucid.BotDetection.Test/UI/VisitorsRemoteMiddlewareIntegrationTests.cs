@@ -64,7 +64,12 @@ public sealed class VisitorsRemoteMiddlewareIntegrationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("remote-visitor", html);
         Assert.Contains("countries-map-visitors", html);
-        Assert.Contains("Representative bot", html);
+        // "Representative bot/browser" UA labels were dropped when the Signature
+        // Patterns cards moved to YourDetectionModel.Compact (fixes duplicate
+        // "Your Detection" chrome + overlapping text in the narrow side-by-side
+        // slot); the aria-label on the compact shape is the equivalent proof this
+        // partial rendered.
+        Assert.Contains("Representative behavioural fingerprint", html);
         Assert.Contains("42", html);
         Assert.Contains("/api/v1/compose-batch", gateway.Paths);
         Assert.Contains("/api/v1/summary", gateway.Paths);

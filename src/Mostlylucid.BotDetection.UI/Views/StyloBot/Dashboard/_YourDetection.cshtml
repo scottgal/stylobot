@@ -70,8 +70,48 @@
     var shapePoints = $"{shapeTopX},{shapeTopY} {shapeBrX},{shapeBrY} {shapeBlX},{shapeBlY}";
 
     var topReason = Model.TopReasons.FirstOrDefault();
+
+    // Compact mode's radar shape: the full radar variant computes its polygon
+    // client-side from the JSON island (see the script block below), but a static
+    // representative sample has no live data to hot-swap, so compute it once here.
+    string? compactRadarPoints = null;
+    if (Model.Compact && !useTriangle && Model.ClockAxes is { Length: 12 } axes)
+    {
+        const double radarR = 48.0;
+        compactRadarPoints = string.Join(" ", axes.Select((v, i) =>
+        {
+            var c = Math.Max(0.0, Math.Min(1.0, v));
+            var theta = -Math.PI / 2 + i * 2 * Math.PI / 12;
+            return $"{(radarR * c * Math.Cos(theta)).ToString("F2")},{(radarR * c * Math.Sin(theta)).ToString("F2")}";
+        }));
+    }
 }
-@if (useTriangle)
+@if (Model.Compact)
+{
+    <div class="flex flex-col items-center gap-1">
+        @if (useTriangle)
+        {
+            <svg width="56" height="56" viewBox="0 0 60 60" class="shrink-0">
+                <polygon points="@ringPoints" fill="none" stroke="currentColor" stroke-width="0.5" opacity="0.15"/>
+                <polygon points="@shapePoints" fill="@accentHex" fill-opacity="0.2" stroke="@accentHex" stroke-width="1.5"/>
+            </svg>
+        }
+        else
+        {
+            <svg viewBox="0 0 120 120" width="72" height="72" xmlns="http://www.w3.org/2000/svg"
+                 aria-label="Representative behavioural fingerprint">
+                <g transform="translate(60,60)">
+                    <circle r="48" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.5"/>
+                    <circle r="32" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="0.5"/>
+                    <circle r="16" fill="none" stroke="rgba(148,163,184,0.08)" stroke-width="0.5"/>
+                    <polygon points="@compactRadarPoints" fill="@accentHex" fill-opacity="0.2" stroke="@accentHex" stroke-width="1.5"/>
+                </g>
+            </svg>
+        }
+        <div class="text-[10px] font-semibold @riskClass">@(probPct)% bot</div>
+    </div>
+}
+else if (useTriangle)
 {
     @* Triangle variant: 3-axis visualization (BOT probability / UNCertainty / THReat) *@
     <div id="your-detection"
@@ -293,7 +333,7 @@ else
     </div>
 }
 
-@if (!useTriangle && Model.HasData && Model.ClockAxes is { Length: 12 })
+@if (!Model.Compact && !useTriangle && Model.HasData && Model.ClockAxes is { Length: 12 })
 {
     <script nonce="@Context.Items["CspNonce"]">
     (function () {

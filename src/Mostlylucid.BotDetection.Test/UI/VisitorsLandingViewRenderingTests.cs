@@ -110,8 +110,9 @@ public sealed class VisitorsLandingViewRenderingTests
         Assert.Contains("42", html);
         Assert.Contains("visitor-1", html);
         Assert.Contains("countries-map-visitors", html);
-        Assert.Contains("Representative bot", html);
-        Assert.Contains("Representative browser", html);
+        Assert.Contains("Representative behavioural fingerprint", html);
+        Assert.Contains("95% bot", html);
+        Assert.Contains("8% bot", html);
         Assert.DoesNotContain("Detection pending", html);
     }
 }

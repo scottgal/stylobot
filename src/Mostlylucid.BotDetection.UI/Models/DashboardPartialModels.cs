@@ -87,6 +87,17 @@ public sealed class YourDetectionModel
     public string? BotType { get; init; }
     /// <summary>12-axis ClockProjection vector, [0,1]-clamped, ready for direct radar rendering.</summary>
     public double[]? ClockAxes { get; init; }
+
+    /// <summary>
+    ///     When true, renders ONLY the small shape (triangle or radar, matching the
+    ///     configured DetectionShapeViz) with a one-line probability label -- no
+    ///     "Your Detection" header, badge, "View profile" link, or Prob/Conf/Risk
+    ///     grid. For side-by-side representative-sample use (e.g. the Visitors page's
+    ///     "Signature Patterns" card), where the full card's chrome doesn't fit a
+    ///     narrow slot and "Your Detection" is nonsensical for a sample that isn't
+    ///     the viewer's own.
+    /// </summary>
+    public bool Compact { get; init; }
 }
 
 /// <summary>
