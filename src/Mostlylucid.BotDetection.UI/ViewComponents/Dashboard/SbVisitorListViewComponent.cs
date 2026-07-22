@@ -37,11 +37,29 @@ public class SbVisitorListViewComponent(
         // data. ProjectAsVisitors mirrors ServeVisitorListPartialAsync so the
         // SSR pass and the HTMX partial swap render the same rows.
         var pageResult = HttpContext.Items["sb.dashboard.pageresult"] as DashboardPageResult;
-        var raw = pageResult?.BotAggregate ?? await eventStore.GetTopBotsAsync(
-            count: MaxEntries,
-            startTime: start,
-            endTime: now,
-            audienceFilter: "all");
+        IReadOnlyList<DashboardTopBotEntry> raw;
+        if (pageResult?.BotAggregate is { } composedAggregate)
+        {
+            raw = composedAggregate;
+        }
+        else
+        {
+            try
+            {
+                raw = await eventStore.GetTopBotsAsync(
+                    count: MaxEntries,
+                    startTime: start,
+                    endTime: now,
+                    audienceFilter: "all");
+            }
+            catch
+            {
+                // Graceful degradation: an empty list still renders a valid (if
+                // momentarily rowless) visitor list instead of taking down the
+                // whole Visitors/Traffic page the component is embedded in.
+                raw = [];
+            }
+        }
         var (items, total, counts) = WidgetRenderHelpers.ProjectAsVisitors(
             raw, filter, sort, dir, page, pageSize,
             country: country, botType: botType, threat: threat,

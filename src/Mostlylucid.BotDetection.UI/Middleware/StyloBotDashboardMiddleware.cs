@@ -1291,12 +1291,7 @@ public class StyloBotDashboardMiddleware
         // event-store path remains a safe fallback for lightweight hosts.
         var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitorWindow = BuildVisitorsPageWindow(context);
-        var visitorTask = _eventStore.GetTopBotsAsync(
-            count: _visitorListMaxEntries,
-            startTime: visitorWindow.StartTime,
-            endTime: visitorWindow.EndTime,
-            audienceFilter: visitorWindow.AudienceFilter,
-            domains: visitorWindow.Domains);
+        var visitorTask = SafeGetVisitorsAsync();
         Task<DashboardSummary> summaryTask = composedPage?.Summary is { } composedSummary
             ? Task.FromResult(composedSummary)
             : _aggregateCache.Current.Summary is { } cachedSummary
@@ -1306,7 +1301,7 @@ public class StyloBotDashboardMiddleware
         var endpointsTask = SafeGetEndpointsDataAsync(context);
         var userAgentsTask = _aggregateCache.Current.UserAgents.Count > 0
             ? Task.FromResult(_aggregateCache.Current.UserAgents)
-            : ComputeUserAgentsFallbackAsync();
+            : SafeComputeUserAgentsFallbackAsync();
 
         await Task.WhenAll(visitorTask, summaryTask, countriesTask, endpointsTask, userAgentsTask);
         var visitorRaw = composedPage?.BotAggregate ?? visitorTask.Result;
@@ -1333,11 +1328,27 @@ public class StyloBotDashboardMiddleware
         // investigate tab.
         ShapeInvestigationViewModel? investigationVm = null;
 
-        var yourDetectionTask = BuildYourDetectionPartialModel(context);
-        var clustersTask = BuildClustersModelAsync(context);
-        var topBotsTask = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc");
-        var sessionsTask = BuildSessionsModel(context);
-        var threatsTask = BuildThreatsModelAsync();
+        // These five feed DashboardShellModel fields for tabs OTHER than the one being
+        // rendered (required properties, so the model always builds them). A failure
+        // fetching any one of them must not crash the page the operator actually asked
+        // for -- same isolation as the visitor-list / summary / countries / endpoints
+        // fetches above.
+        var yourDetectionTask = SafeBuild(
+            () => BuildYourDetectionPartialModel(context),
+            new YourDetectionModel { BasePath = basePath }, "YourDetection");
+        var clustersTask = SafeBuild(
+            () => BuildClustersModelAsync(context),
+            new ClustersListModel { Clusters = [], BasePath = basePath }, "Clusters");
+        var topBotsTask = SafeBuild(
+            () => BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
+            new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
+            "TopBots");
+        var sessionsTask = SafeBuild(
+            () => BuildSessionsModel(context),
+            new SessionsListModel { Sessions = [], BasePath = basePath }, "Sessions");
+        var threatsTask = SafeBuild(
+            () => BuildThreatsModelAsync(),
+            new ThreatsListModel { BasePath = basePath }, "Threats");
         await Task.WhenAll(yourDetectionTask, clustersTask, topBotsTask, sessionsTask, threatsTask);
 
         var model = new DashboardShellModel
@@ -1393,6 +1404,44 @@ public class StyloBotDashboardMiddleware
         {
             try { return await _eventStore.GetSummaryAsync(); }
             catch { return new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
+        }
+
+        async Task<List<DashboardTopBotEntry>> SafeGetVisitorsAsync()
+        {
+            try
+            {
+                return await _eventStore.GetTopBotsAsync(
+                    count: _visitorListMaxEntries,
+                    startTime: visitorWindow.StartTime,
+                    endTime: visitorWindow.EndTime,
+                    audienceFilter: visitorWindow.AudienceFilter,
+                    domains: visitorWindow.Domains);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Visitors list fetch failed; rendering the page without visitor rows");
+                return [];
+            }
+        }
+
+        async Task<List<DashboardUserAgentSummary>> SafeComputeUserAgentsFallbackAsync()
+        {
+            try { return await ComputeUserAgentsFallbackAsync(); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "User agents fallback fetch failed; rendering the page without user agent data");
+                return [];
+            }
+        }
+
+        async Task<T> SafeBuild<T>(Func<Task<T>> factory, T fallback, string what)
+        {
+            try { return await factory(); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "{What} fetch failed; rendering the page without it", what);
+                return fallback;
+            }
         }
 
         async Task<List<DashboardCountryStats>> SafeGetCountriesDataAsync()
