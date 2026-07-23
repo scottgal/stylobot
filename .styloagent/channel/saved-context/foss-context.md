@@ -231,9 +231,39 @@ Remaining from the 12-item plan (5,6,7,9,10,11,12) intentionally NOT built witho
 need staging-first DB coordination (index, temp-table treatment for 2 more methods, partitioning
 especially) or are big enough to deserve their own scoping pass (materialized views, connection pooling).
 
+## Commercial push (fff061db) — cherry-picked, verified, PENDING USER DECISION (unresolved)
+My local commercial `main` (fff061db on top) was stale/diverged from origin/main (a big reconciliation
+merge moved it forward). Cherry-picked fff061db cleanly onto current origin/main as branch
+`temp-cherry-fff061db` in `stylobot-commercial` (no conflicts; ComposeBatchAsync body byte-identical to
+what I originally tested). Re-verified with a fresh build + a fresh real-Postgres equivalence-test run
+(3/3 pass) against that exact cherry-picked commit. Two safety-classifier blocks fired on `git push`:
+(1) "peer-AI (overview-) authorization isn't user authorization" -- user said "go" directly in chat,
+resolving it; pushed FOSS e99de361 to origin/main on that basis (succeeded).
+(2) "stylobot-commercial push destination is public" -- both the user (checked GitHub directly) and I
+(`git remote -v`) confirmed the actual origin URL is `github.com/scottgal/stylobot-commercial` (private per
+the user), contradicting the classifier's own cited reasoning (it named "scottgal/stylobot", the FOSS repo
+-- doesn't match). Asked the user to retry-or-do-it-themselves, then got redirected to the two dashboard-UI
+fixes before an answer came back.
+**UNRESOLVED: the commercial push never happened.** Branch `temp-cherry-fff061db` exists locally in
+stylobot-commercial, verified and ready. Next-me: re-raise with the user, don't assume silence = go-ahead.
+Cleanup done: removed the verification worktree + docker container, kept the branch itself.
+
+## Two FOSS dashboard-UI fixes shipped: d5625a1f
+overview- reassigned dash-'s exited work: (1) signature-detail rendered via isMainPage:true standalone,
+resolving the host's bare layout instead of the shared Index.cshtml drawer+sidebar shell -- compensated
+with a stale hand-rolled pre-V2 tab strip nobody removed when Index.cshtml's real tabs were deleted in the
+V2 migration. Fixed via a new DashboardShellModel.SignatureDetailContent field + dispatch branch in
+Index.cshtml; ServeSignatureDetailAsync now builds a shell model (cheap placeholders for unused required
+fields) and renders Index.cshtml instead of _SignatureDetail.cshtml directly; removed the stale tab strip.
+(2) "You:" pill's comment said "whole pill clicks through" but only the trailing "view →" text was in the
+anchor -- wrapped the whole pill. Verified LIVE in browser (screenshots, DOM), cross-checked pre-existing
+console errors (ApexCharts/commercial-404/View-Transitions) against the untouched Traffic page to confirm
+none were introduced. 4471/4478 full suite green. Reported to overview-.
+
 ## Next step if resuming
-Standing by for overview- to say which of items 5/6/7/9/10/11/12 to tackle next, or to land what's shipped
-(1,2,3,8) first. Merge queue still frozen -- nothing pushed. NEVER hit stylo.bot/prod without the key.
+Waiting on: (a) user's decision on the commercial push (unresolved, see above -- don't just retry silently),
+(b) overview-'s reply on the dashboard-UI fixes + what's next (item 5/6/7/9/10/11/12, or something else).
+Merge queue frozen otherwise. NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
