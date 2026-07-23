@@ -260,10 +260,21 @@ anchor -- wrapped the whole pill. Verified LIVE in browser (screenshots, DOM), c
 console errors (ApexCharts/commercial-404/View-Transitions) against the untouched Traffic page to confirm
 none were introduced. 4471/4478 full suite green. Reported to overview-.
 
+## FOSS origin/main now at d5625a1f — PUSHED, confirmed
+overview- explicitly asked to push d5625a1f (dashboard-UI fixes, ff6bef9c riding along as pre-approved) to
+FOSS main so it's ready for the bundled next cut (with the commercial compose-batch perf fix). Pushed
+clean, no classifier block (fast-forward from e99de361, no conflicts) -- confirmed via fresh fetch. Also
+told explicitly: do NOT rebuild/restage the .15 staging stack right now (bench- is mid k6 perf run against
+the current staged image) -- deploy- rebuilds the BUNDLED cut from main once bench- finishes + overview-
+confirms; overview- sequences the restage, not me. bot_probability covering index (§2) is approved as the
+NEXT thing to build but explicitly AFTER this bundle ships, not now.
+
 ## Next step if resuming
-Waiting on: (a) user's decision on the commercial push (unresolved, see above -- don't just retry silently),
-(b) overview-'s reply on the dashboard-UI fixes + what's next (item 5/6/7/9/10/11/12, or something else).
-Merge queue frozen otherwise. NEVER hit stylo.bot/prod without the key.
+Waiting on: (a) user's decision on the COMMERCIAL push (fff061db, still unresolved -- branch
+temp-cherry-fff061db in stylobot-commercial, verified+ready, blocked on a repo-visibility classifier flag
+only the user can resolve; don't assume silence = go-ahead), (b) overview- to confirm bench-'s k6 run is
+done + give the go to build the bot_probability index. Do NOT touch .15/staging or restage anything --
+overview- sequences that. NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
