@@ -152,12 +152,24 @@ as a product-call follow-up if #1+#2 aren't enough. Didn't/won't touch prod to v
 rule + I don't hold the key) — reasoned from query structure + `dashboard-schema.sql`'s index list; offered
 deploy- the exact EXPLAIN ANALYZE query if empirical before/after confirmation is wanted.
 
+## URGENT stabiliser lever answered: prod dashboard grinding to a halt
+overview- needed the fastest config-only stop for compose-batch hammering the DB. Answer: set
+`BotDetection:Dashboard:Materializer:Enabled=false` (env `BotDetection__Dashboard__Materializer__Enabled`).
+Reasoning: Tick10s fires every 10s regardless of whether the PREVIOUS tick's compose-batch (now 11-60s) has
+finished -> ticks pile up/overlap, each hammering Postgres -> matches "tick + in-request both hammering".
+Disabling stops the pile-up; reads still serve the last-warmed snapshot from `DashboardContentCache`
+(single-flighted per envelope, not per-request) until it ages out (5min sliding / 30min absolute), so it's
+stale-but-served, not blank, and residual load drops to ~1 compose-batch call per 5-30min per viewed page.
+**Caught two important gotchas before they'd have caused a bad outcome under pressure:** (1) this option is
+bound via plain `IOptions<T>` (captured once at boot in both DashboardContentCache + the materializer
+hosted service), NOT `IOptionsMonitor<T>` — so it needs a PROCESS RESTART to take effect, `/admin/reload`
+won't pick it up; (2) `DashboardMaterializerOptions.ComputeOnColdMiss` is DEAD CODE — declared, documented,
+but nothing reads it; `SlidingCacheAtom.GetOrComputeAsync` always computes on a miss regardless. Flagged
+both clearly so deploy- doesn't expect a hot-reload or rely on a flag that does nothing.
+
 ## Next step if resuming
-Standing by: merge queue is frozen until overview- verifies the reconciled deploy on prod, then reopens it.
-Waiting on overview- to gate the compose-batch fix plan (touches commercial-repo
-PostgreSQLDashboardEventStore.cs, not FOSS — asked who to coordinate the actual patch with). If picking up
-new work meanwhile: Task 2b (Logs view) stays routed to otel-/aspnet-. NEVER hit stylo.bot/prod without the
-key (I don't hold one — route through deploy-).
+Standing by for overview-'s response on the stabiliser lever + the compose-batch fix-plan gate (commercial
+PostgreSQLDashboardEventStore.cs). Merge queue still frozen. NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
