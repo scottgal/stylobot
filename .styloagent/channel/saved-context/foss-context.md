@@ -1,13 +1,61 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: HALTED mid-Fix-1 — operator/user hard rule "NO IOptionsMonitor in FOSS ever" (hot-reload is commercial-only). Audit done: 30 files/16 option types use it in FOSS incl. ff6bef9c (DashboardMaterializerOptions, already on origin/main d5625a1f) AND the documented /admin/reload feature (CLAUDE.md, admin-endpoints.md). Flagged the conflict to overview-, awaiting scope decision (narrow: just ff6bef9c+§7, vs broad: all 30 files + admin-reload feature itself) before writing any revert code.
+description: DONE (180f64d3) — narrow scope from overview-. Reverted DashboardMaterializerOptions IOptionsMonitor→IOptions (FOSS hard rule, ff6bef9c) + built §8 Fix 1 (structural: request path never computes on cold miss, DashboardPageResult.Warming placeholder, stale-snapshot serving). 4485/4486 tests green (1 pre-existing unrelated failure). NOT pushed to FOSS main yet (ff6bef9c already there) — reported plan, awaiting overview-/operator sequencing.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
 
-## HALTED — hard rule conflict: IOptionsMonitor pervasive in FOSS vs "never in FOSS"
+## DONE — narrow revert + §8 Fix 1, committed 180f64d3, NOT pushed to main yet
+overview- resolved the scope split: narrow only (DashboardMaterializerOptions/§7, not the other 29
+files or /admin/reload — that's a separate operator decision). Executed:
+
+1. **IOptions revert**: `DashboardContentCache`, `DashboardMaterializerCoordinator`,
+   `DashboardMaterializationServiceExtensions` — IOptionsMonitor→IOptions<T> throughout. Startup
+   snapshot only; a config change now needs a process restart (matches FOSS convention). All
+   `MutableOptionsMonitor<DashboardMaterializerOptions>` test usages replaced with
+   `Options.Create(...)` across 8 test files. Removed the two "live config flip without restart"
+   tests (their premise no longer exists). `MutableOptionsMonitor<T>` itself is now unused anywhere
+   in the codebase — left in place (out of scope for this cut, harmless dead test helper; flag as a
+   future cleanup if anyone cares).
+
+2. **§8 Fix 1** (the actual measure-gate root-cause fix, resumed after the halt): `GetAsync`/
+   `GetCurrentAsync` NEVER compute on a cold miss now — unconditional, no config valve. Only
+   `WarmAsync` (materializer, off the request thread) calls the atom's factory. Fixed a latent bug
+   in the old code: `RecordWarm` was called even on a miss, which would have clobbered the pointer
+   to an older tick's real data — now only recorded on a genuine hit. New `DashboardPageResult.
+   Warming` static placeholder distinguishes "truly never warmed" from a normal null-slice result.
+   `GetCurrentAsync` already resolved to the latest WARMED tick (not strictly current), so a
+   request while the materializer is behind now correctly serves that stale-but-real snapshot
+   instead of either computing or blanking out.
+
+3. **Test fallout fixed**: ~10 controller/composition tests (TrafficController*, WidgetBatchCompose,
+   TopEndpointsPerfProjection, VisitorsLanding) assumed a cold miss would eagerly compute — added a
+   test-only `AutoWarmingContentCache` decorator (`Test/Helpers/`) that pre-warms before
+   `GetCurrentAsync` so these tests can keep asserting composition/batching correctness without
+   reconstructing the controller's internal window-building logic. Also fixed
+   `VisitorsRemoteMiddlewareIntegrationTests` (a REAL end-to-end TestServer integration test) —
+   its "compose-batch gets called and returns empty, page still renders via per-widget self-fetch"
+   assertion flipped to "compose-batch is NEVER called, page still renders via self-fetch" — same
+   content assertions pass either way since `Warming` has the same null-slices shape.
+
+**Result**: 4485/4486 tests green (the 1 failure is the pre-existing unrelated `_TrafficPanels.cshtml`
+one, another agent's in-flight file). Committed **180f64d3** on `foss/dashboard-collapse`. **NOT
+pushed to FOSS origin main** — `ff6bef9c` (the violation) is already on main (`d5625a1f`), so this
+revert needs to reach main too; per overview-'s instruction I prepared it on the branch and am
+reporting the plan rather than pushing directly — the branch itself, once the bundle is approved,
+carries the revert to main.
+
+## Next step if resuming
+Report 180f64d3 to overview-, hand deploy- the rebuild for bench-'s re-gate (this was the original
+ask before the IOptionsMonitor halt interrupted it). Still open/unresolved: the broader
+IOptionsMonitor question (29 other files + documented /admin/reload) is a SEPARATE operator decision,
+not touched, not blocking this cut.
+
+---
+
+## (historical) HALTED — hard rule conflict: IOptionsMonitor pervasive in FOSS vs "never in FOSS"
 Mid-build on §8 Fix 1 (kill the synchronous request-thread compose fallback — see below for that
 work, which is UNCOMMITTED, in-progress, includes a new `AutoWarmingContentCache` test helper and
 `DashboardPageResult.IsWarming` already built). overview- relayed an operator hard rule: hot-reload
