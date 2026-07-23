@@ -477,6 +477,14 @@ try
         Args = args
     });
 
+    // FOSS hard rule: no runtime options-reload, by any path -- CreateBuilder's OWN
+    // default appsettings.json/appsettings.{env}.json sources reload-on-change
+    // regardless of the explicit AddJsonFile calls below (those are ADDITIONAL
+    // sources, they don't replace the default ones). A config change needs a
+    // process restart.
+    foreach (var defaultSource in builder.Configuration.Sources.OfType<Microsoft.Extensions.Configuration.Json.JsonConfigurationSource>())
+        defaultSource.ReloadOnChange = false;
+
     // Use Serilog
     builder.Host.UseSerilog();
 
@@ -537,11 +545,14 @@ try
         }
     });
 
-    // Load configuration from appsettings.json (with mode override + CLI config)
-    builder.Configuration.AddJsonFile("appsettings.json", true, true);
-    builder.Configuration.AddJsonFile($"appsettings.{mode}.json", true, true);
+    // Load configuration from appsettings.json (with mode override + CLI config).
+    // reloadOnChange: false everywhere -- FOSS hard rule: no runtime options-reload,
+    // by any path (not just /admin/reload, which was removed separately). A config
+    // change needs a process restart.
+    builder.Configuration.AddJsonFile("appsettings.json", true, false);
+    builder.Configuration.AddJsonFile($"appsettings.{mode}.json", true, false);
     if (configPath != null)
-        builder.Configuration.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: true);
+        builder.Configuration.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: false);
     builder.Configuration.AddEnvironmentVariables();
     builder.Configuration.AddEnvironmentVariables("STYLOBOT_");
 

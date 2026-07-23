@@ -26,6 +26,12 @@ using Stylobot.Ui;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// FOSS hard rule: no runtime options-reload, by any path -- including the
+// default appsettings.json/appsettings.{env}.json file-watch reload CreateBuilder
+// wires up. A config change needs a process restart.
+foreach (var source in builder.Configuration.Sources.OfType<Microsoft.Extensions.Configuration.Json.JsonConfigurationSource>())
+    source.ReloadOnChange = false;
+
 if (string.IsNullOrEmpty(builder.Configuration["urls"])
     && Environment.GetEnvironmentVariable("ASPNETCORE_URLS") is null or "")
 {

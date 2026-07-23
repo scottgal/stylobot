@@ -47,6 +47,13 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
+    // FOSS hard rule: no runtime options-reload, by any path -- CreateBuilder's
+    // OWN default appsettings.json/appsettings.{env}.json sources reload-on-change
+    // regardless of the explicit AddJsonFile call below (that's an ADDITIONAL
+    // source, it doesn't replace the default ones).
+    foreach (var defaultSource in builder.Configuration.Sources.OfType<Microsoft.Extensions.Configuration.Json.JsonConfigurationSource>())
+        defaultSource.ReloadOnChange = false;
+
     // Operator-mounted config volume. CreateBuilder loads the baked-in
     // src/Stylobot.Gateway/appsettings.json; adding the volume here makes
     // /config/appsettings.json an override layer, the same role the
@@ -57,10 +64,15 @@ try
     // and never fired). Listed after env vars in CreateBuilder so the
     // file takes precedence over env (the documented convention for an
     // operator-mounted volume override).
+    // reloadOnChange: false -- FOSS hard rule: no runtime options-reload, by any
+    // path. An edit to the mounted /config/appsettings.json now needs a container
+    // restart to take effect (this is a behavior change from the prior file-watch
+    // reload; the override-layer semantics from PR #38 -- the volume file still
+    // wins over the baked-in one -- are unaffected).
     builder.Configuration.AddJsonFile(
         Path.Combine(GatewayPaths.Config, "appsettings.json"),
         optional: true,
-        reloadOnChange: true);
+        reloadOnChange: false);
 
     // PROXY protocol: when stylobot sits behind an L4 TCP proxy / SNI router /
     // tunnel (which can't add X-Forwarded-For because it never sees plaintext
