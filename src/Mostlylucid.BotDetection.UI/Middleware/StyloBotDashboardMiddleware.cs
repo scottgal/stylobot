@@ -1243,6 +1243,19 @@ public class StyloBotDashboardMiddleware
         // Keep it as an alias of rowRef.Area to minimize touched lines below.
         var tab = rowRef.Area;
 
+        // Root-cause fix for the concurrent-load measure-gate collapse (§8 follow-up):
+        // _Traffic.cshtml reads NONE of the shell model's Summary/Visitors/Countries/
+        // Endpoints/UserAgents/Clusters/TopBots/Sessions/Threats fields -- it fetches its
+        // own data directly from IDashboardEventStore (6 of its own calls). Building all
+        // nine of those shell-level fields unconditionally on every /traffic request was
+        // pure redundant DB load: Fix 1 (never compute the traffic content-cache bundle
+        // synchronously) never touched this, because these are a completely different set
+        // of calls. Confirmed via TrafficRowLazyFetchTests which of the nine fields each
+        // row's generically-dispatched partial actually reads; only "traffic" is skipped
+        // here (the row that's actually measured/reported) -- every other row keeps the
+        // existing unconditional-fetch behavior rather than risk an unverified skip.
+        var isTrafficRow = string.Equals(tab, "traffic", StringComparison.OrdinalIgnoreCase);
+
         // Build all partial models server-side - fully rendered, no JSON serialization needed.
         // Compose the same Traffic bundle used by the TrafficController first. The
         // middleware owns /dashboard/visitors, so the MVC VisitorsController cannot
@@ -1291,19 +1304,33 @@ public class StyloBotDashboardMiddleware
         // event-store path remains a safe fallback for lightweight hosts.
         var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitorWindow = BuildVisitorsPageWindow(context);
-        var visitorTask = SafeGetVisitorsAsync();
+        // isTrafficRow: _Traffic.cshtml reads none of Visitors/Summary/Countries/Endpoints/
+        // UserAgents off the shell model (it fetches its own data independently) -- skip the
+        // redundant shell-level fetch and use the same cheap empty defaults SafeBuild already
+        // establishes for the other unused-per-row fields below.
+        var visitorTask = isTrafficRow
+            ? Task.FromResult(new List<DashboardTopBotEntry>())
+            : SafeGetVisitorsAsync();
         // An explicit window must skip the audience-agnostic, fixed-window aggregateCache snapshot
         // and read the store windowed — otherwise a remote host whose page-bundle compose degrades
         // (composedPage null) falls back to the frozen cached summary across every window.
         var summaryHasWindow = context.Request.Query.ContainsKey("window");
-        Task<DashboardSummary> summaryTask = composedPage?.Summary is { } composedSummary
+        Task<DashboardSummary> summaryTask = isTrafficRow
+            ? Task.FromResult(EmptyDashboardSummary())
+            : composedPage?.Summary is { } composedSummary
             ? Task.FromResult(composedSummary)
             : (!summaryHasWindow && _aggregateCache.Current.Summary is { } cachedSummary)
             ? Task.FromResult(cachedSummary)
             : SafeGetSummaryAsync(visitorWindow.StartTime, visitorWindow.EndTime);
-        var countriesTask = SafeGetCountriesDataAsync();
-        var endpointsTask = SafeGetEndpointsDataAsync(context);
-        var userAgentsTask = _aggregateCache.Current.UserAgents.Count > 0
+        var countriesTask = isTrafficRow
+            ? Task.FromResult(new List<DashboardCountryStats>())
+            : SafeGetCountriesDataAsync();
+        var endpointsTask = isTrafficRow
+            ? Task.FromResult(new List<DashboardEndpointStats>())
+            : SafeGetEndpointsDataAsync(context);
+        var userAgentsTask = isTrafficRow
+            ? Task.FromResult(new List<DashboardUserAgentSummary>())
+            : _aggregateCache.Current.UserAgents.Count > 0
             ? Task.FromResult(_aggregateCache.Current.UserAgents)
             : SafeComputeUserAgentsFallbackAsync();
 
@@ -1340,17 +1367,30 @@ public class StyloBotDashboardMiddleware
         var yourDetectionTask = SafeBuild(
             () => BuildYourDetectionPartialModel(context),
             new YourDetectionModel { BasePath = basePath }, "YourDetection");
-        var clustersTask = SafeBuild(
-            () => BuildClustersModelAsync(context),
-            new ClustersListModel { Clusters = [], BasePath = basePath }, "Clusters");
-        var topBotsTask = SafeBuild(
-            () => BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
-            new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
-            "TopBots");
-        var sessionsTask = SafeBuild(
-            () => BuildSessionsModel(context),
-            new SessionsListModel { Sessions = [], BasePath = basePath }, "Sessions");
-        var threatsTask = SafeBuild(
+        // Clusters/TopBots/Sessions/Threats: Index.cshtml only reads Model.Clusters for the
+        // legacy "clusters" row, and Model.TopBots/Sessions/Threats aren't read by the chrome
+        // or any generically-dispatched row partial at all (confirmed by trace) -- so for
+        // /traffic these are unconditional, unused compute. Skip straight to the same empty
+        // placeholder SafeBuild would fall back to on a failure.
+        var clustersTask = isTrafficRow
+            ? Task.FromResult(new ClustersListModel { Clusters = [], BasePath = basePath })
+            : SafeBuild(
+                () => BuildClustersModelAsync(context),
+                new ClustersListModel { Clusters = [], BasePath = basePath }, "Clusters");
+        var topBotsTask = isTrafficRow
+            ? Task.FromResult(new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath })
+            : SafeBuild(
+                () => BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
+                new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
+                "TopBots");
+        var sessionsTask = isTrafficRow
+            ? Task.FromResult(new SessionsListModel { Sessions = [], BasePath = basePath })
+            : SafeBuild(
+                () => BuildSessionsModel(context),
+                new SessionsListModel { Sessions = [], BasePath = basePath }, "Sessions");
+        var threatsTask = isTrafficRow
+            ? Task.FromResult(new ThreatsListModel { BasePath = basePath })
+            : SafeBuild(
             () => BuildThreatsModelAsync(),
             new ThreatsListModel { BasePath = basePath }, "Threats");
         await Task.WhenAll(yourDetectionTask, clustersTask, topBotsTask, sessionsTask, threatsTask);
@@ -1412,8 +1452,15 @@ public class StyloBotDashboardMiddleware
         async Task<DashboardSummary> SafeGetSummaryAsync(DateTime? start = null, DateTime? end = null)
         {
             try { return await _eventStore.GetSummaryAsync(start, end); }
-            catch { return new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
+            catch { return EmptyDashboardSummary(); }
         }
+
+        static DashboardSummary EmptyDashboardSummary() => new()
+        {
+            Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0,
+            UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(),
+            UniqueSignatures = 0
+        };
 
         async Task<List<DashboardTopBotEntry>> SafeGetVisitorsAsync()
         {
