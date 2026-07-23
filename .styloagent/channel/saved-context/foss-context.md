@@ -212,9 +212,28 @@ dashboard_signatures/degradation_history, no materialized views (TimescaleDB tri
 and a previously-documented-but-unfixed connection-pool-exhaustion incident. 12-item gated fix-plan table
 at the end (3 shipped: fff061db/e99de361 x2; 1 not needed; 8 proposed/design-only).
 
+## Item 8 also shipped: IOptionsMonitor promotion, commit ff6bef9c
+User said "go" -- kept building from the review's fix-plan table (judgment call: picked the safe,
+fully-designed, non-DB-migration items rather than everything). Promoted DashboardMaterializerOptions to
+IOptionsMonitor across DashboardContentCache + DashboardMaterializerCoordinator + the DI registration.
+Real behavior change: Enabled used to gate the tick SUBSCRIPTION itself at StartAsync (one-time decision),
+so a later config flip had nothing running to affect -- now the coordinator always subscribes when a
+schedule exists, and Enabled is checked LIVE as the first line of MaterializeTickAsync, so next incident's
+`Enabled=false` stabiliser actually works via /admin/reload, no restart. Added a shared test double
+(Mostlylucid.BotDetection.Test.Helpers.MutableOptionsMonitor<T>, settable CurrentValue) since 22 call
+sites across 8 test files construct DashboardMaterializerOptions via IOptions -- mechanical but real
+churn, all fixed. Updated the one test whose contract intentionally changed (disabled coordinator now
+still subscribes, tick just no-ops) + added 2 new live-flip regression tests. 18 targeted tests green,
+4471/4478 full suite green (1 pre-existing unrelated failure, 6 skipped). Doc's fix-plan table + main repo
+commit both updated (970240ee doc, 3b59dbd8 status update), reported to overview-.
+
+Remaining from the 12-item plan (5,6,7,9,10,11,12) intentionally NOT built without further gate -- several
+need staging-first DB coordination (index, temp-table treatment for 2 more methods, partitioning
+especially) or are big enough to deserve their own scoping pass (materialized views, connection pooling).
+
 ## Next step if resuming
-Standing by for overview- to gate any of the 12 fix-plan items. Merge queue still frozen -- nothing pushed.
-NEVER hit stylo.bot/prod without the key.
+Standing by for overview- to say which of items 5/6/7/9/10/11/12 to tackle next, or to land what's shipped
+(1,2,3,8) first. Merge queue still frozen -- nothing pushed. NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
