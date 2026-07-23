@@ -43,6 +43,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly DashboardMaterializerOptions _options;
     private readonly ILogger<DashboardMaterializerCoordinator>? _logger;
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? _hubContext;
+    private readonly TimeProvider _time;
     private IDisposable? _tickSub;
 
     public DashboardMaterializerCoordinator(
@@ -52,7 +53,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         IOptions<DashboardMaterializerOptions> options,
         IScheduleCoordinator? schedule = null,
         ILogger<DashboardMaterializerCoordinator>? logger = null,
-        IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null)
+        IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(cursor);
@@ -64,6 +66,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _schedule = schedule;
         _logger = logger;
         _hubContext = hubContext;
+        _time = timeProvider ?? TimeProvider.System;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -133,6 +136,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         var budget = _options.MaxPagesPerTick;
         var warmed = 0;
         var warmedPages = new HashSet<string>(StringComparer.Ordinal);
+        var deadline = _time.GetUtcNow() + TimeSpan.FromMilliseconds(_options.MaxTickDurationMs);
 
         foreach (var (manifest, window) in live)
         {
@@ -141,6 +145,19 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 _logger?.LogDebug(
                     "DashboardMaterializerCoordinator: MaxPagesPerTick={Budget} reached; {Deferred} live envelope(s) deferred to next tick.",
                     budget, live.Count - warmed);
+                break;
+            }
+
+            // Count alone doesn't bound cost when compose cost isn't uniform (a corpus-scale
+            // query regression). This is the guard that stops one tick invocation from running
+            // back-to-back for minutes and monopolizing the store: once elapsed exceeds the
+            // budget, defer the rest to the next tick instead of grinding through the whole
+            // live set regardless of how slow each compose has become.
+            if (_time.GetUtcNow() >= deadline)
+            {
+                _logger?.LogWarning(
+                    "DashboardMaterializerCoordinator: MaxTickDurationMs={Budget}ms exceeded after warming {Warmed}; {Deferred} live envelope(s) deferred to next tick.",
+                    _options.MaxTickDurationMs, warmed, live.Count - warmed);
                 break;
             }
 

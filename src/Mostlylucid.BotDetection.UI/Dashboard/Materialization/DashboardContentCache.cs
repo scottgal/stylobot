@@ -69,8 +69,19 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         // that this tick is warm so GetCurrentAsync can resolve to it.
         _live[key.Envelope] = new LiveEntry(manifest, window, _currentTick());
         RecordWarm(key.Envelope, tick);
+
+        // ComputeOnColdMiss=false is the request-path safety valve: an operator can stop
+        // request threads from ever computing a (potentially expensive, e.g. compose-batch)
+        // read themselves, leaving that work to the tick materializer only. Only gates a
+        // genuine miss -- an entry the materializer already warmed is still served normally.
+        if (!_options.ComputeOnColdMiss)
+            return Task.FromResult(_atom.TryGet(key, out var existing) ? existing! : EmptyResult);
+
         return _atom.GetOrComputeAsync(key, ct);
     }
+
+    private static readonly DashboardPageResult EmptyResult =
+        new(new Models.DashboardDatasetBundle(null, null, null, null, null));
 
     public Task<DashboardPageResult> GetCurrentAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, CancellationToken ct)

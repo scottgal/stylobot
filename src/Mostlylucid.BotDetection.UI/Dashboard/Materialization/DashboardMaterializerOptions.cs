@@ -34,6 +34,22 @@ public sealed class DashboardMaterializerOptions
     public int MaxPagesPerTick { get; set; } = 32;
 
     /// <summary>
+    ///     Wall-clock budget (milliseconds) for a single tick's sequential warm loop.
+    ///     <see cref="MaxPagesPerTick"/> bounds by COUNT, but a page's compose cost
+    ///     isn't uniform -- if the underlying query degrades (e.g. corpus-scale slowness),
+    ///     a handful of slow composes can still make one tick invocation run for minutes.
+    ///     Since <c>ScheduleCoordinator</c>'s single-flight guard means the next Tick10s
+    ///     is skipped for as long as this invocation is still running, an unbounded tick
+    ///     effectively runs back-to-back with zero pacing between passes, continuously
+    ///     occupying the store alongside any concurrent in-request cold-misses. Checked
+    ///     between envelopes (not mid-compose): once elapsed exceeds this budget, the
+    ///     remaining live envelopes defer to the next tick rather than warming regardless
+    ///     of cost. Default 8000ms -- comfortably under the 10s cadence so a tick that
+    ///     hits budget still leaves the coordinator idle before the next one fires.
+    /// </summary>
+    public int MaxTickDurationMs { get; set; } = 8000;
+
+    /// <summary>
     ///     An envelope is "live" (kept warm by the materializer) for this many ticks
     ///     after its last read. Approximates demand-gating until SignalR presence
     ///     lands: recently-viewed envelopes stay warm; long-unviewed ones age out so

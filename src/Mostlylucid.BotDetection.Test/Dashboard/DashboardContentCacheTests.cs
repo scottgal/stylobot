@@ -127,6 +127,43 @@ public sealed class DashboardContentCacheTests
     }
 
     [Fact]
+    public async Task GetAsync_returns_empty_without_composing_on_a_cold_miss_when_ComputeOnColdMiss_is_false()
+    {
+        // Cleanup while touching this subsystem for the compose-batch-overload incident:
+        // ComputeOnColdMiss was declared + documented but never actually read anywhere,
+        // so setting it to false had zero effect -- every request-path cold miss always
+        // computed synchronously regardless. Wiring it up gives operators a real "never
+        // let a request thread compute compose-batch" safety valve for a future incident.
+        var composes = 0;
+        await using var cache = new DashboardContentCache(
+            (_, _, _) => { composes++; return Task.FromResult(Result()); },
+            () => 5L, Options.Create(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
+
+        var result = await cache.GetAsync(Traffic, Window(), 5, default);
+
+        Assert.Equal(0, composes);
+        Assert.Null(result.Summary);
+    }
+
+    [Fact]
+    public async Task GetAsync_still_serves_an_already_warmed_entry_when_ComputeOnColdMiss_is_false()
+    {
+        // The gate is only for genuine cold misses -- an entry the materializer already
+        // warmed must still be served, not blanked out.
+        var composes = 0;
+        long tick = 5;
+        await using var cache = new DashboardContentCache(
+            (_, _, _) => { composes++; return Task.FromResult(Result()); },
+            () => tick, Options.Create(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
+
+        var warmed = await cache.WarmAsync(Traffic, Window(), 5, default); // materializer warms it first
+        var result = await cache.GetAsync(Traffic, Window(), 5, default); // request-path read hits the warm entry
+
+        Assert.Equal(1, composes); // only the warm computed, not the read
+        Assert.Same(warmed, result);
+    }
+
+    [Fact]
     public async Task GetCurrentAsync_hits_a_materializer_warm_at_a_later_current_tick()
     {
         var composes = 0;

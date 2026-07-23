@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
@@ -89,6 +90,55 @@ public sealed class DashboardMaterializerCoordinatorTests
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody has ever viewed the page
 
         Assert.Equal(1, composes); // prewarmed anyway
+    }
+
+    [Fact]
+    public async Task Tick_stops_warming_once_the_time_budget_is_exceeded_even_with_pages_left_in_budget()
+    {
+        // Regression guard for the compose-batch-overload incident: a single tick's
+        // sequential warm loop must not be allowed to run unbounded when individual
+        // composes are slow (the query itself might momentarily degrade) -- it should
+        // defer the rest to a later tick instead of monopolizing the DB back-to-back.
+        // MaxPagesPerTick alone doesn't catch this: 3 pages is well under the default
+        // budget of 32, but each "compose" here advances the clock past MaxTickDurationMs.
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var composed = new List<string>();
+        long tick = 1;
+        var cache = new DashboardContentCache((manifest, _, _) =>
+            {
+                composed.Add(manifest.PageKey);
+                time.Advance(TimeSpan.FromMilliseconds(50)); // simulates one slow compose-batch call
+                return Task.FromResult(Result());
+            },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var pages = new[]
+        {
+            new DashboardPageManifest("dashboard.traffic", new[] { "summary" }),
+            new DashboardPageManifest("dashboard.visitors", new[] { "summary" }),
+            new DashboardPageManifest("dashboard.site", new[] { "summary" }),
+        };
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions
+            {
+                PrewarmDefaultEnvelope = false,
+                MaxTickDurationMs = 90, // budget check runs BEFORE each compose: page 1 (0ms elapsed) and
+                                        // page 2 (50ms elapsed) both pass; after page 2 elapsed is 100ms,
+                                        // so page 3's pre-compose check (100ms >= 90ms budget) defers it.
+            }),
+            sched, timeProvider: time);
+
+        foreach (var page in pages)
+            await cache.GetAsync(page, Window(), tick, default); // make each page live
+        composed.Clear();
+
+        await coord.StartAsync(default);
+        tick = 2;
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        Assert.True(composed.Count < pages.Length, "expected the time budget to defer at least one page");
+        Assert.True(composed.Count > 0, "expected at least one page to be warmed before the budget was hit");
     }
 
     [Fact]
