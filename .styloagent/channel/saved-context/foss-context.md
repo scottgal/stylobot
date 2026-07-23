@@ -167,9 +167,40 @@ won't pick it up; (2) `DashboardMaterializerOptions.ComputeOnColdMiss` is DEAD C
 but nothing reads it; `SlidingCacheAtom.GetOrComputeAsync` always computes on a miss regardless. Flagged
 both clearly so deploy- doesn't expect a hot-reload or rely on a flag that does nothing.
 
+## Both materializer + compose-batch fixes BUILT + REAL-Postgres VERIFIED, reported to overview-
+overview- approved building both root-cause fixes (not just the temporary disable). Corrected overview-'s
+"add an overlap guard" framing first: `ScheduleCoordinator.InvokeSubscriberAsync` ALREADY single-flights
+each subscriber via a BusyFlag CAS -- the "busy >2 ticks" log deploy- saw IS that guard firing correctly,
+not unguarded overlap. Real gap: one `MaterializeTickAsync` invocation sequentially warms up to
+MaxPagesPerTick (32) envelopes with no TIME bound, so a slow compose-batch let one tick run for minutes,
+and since the BusyFlag keeps the next tick skipped meanwhile, an unbounded tick ran back-to-back with zero
+pacing -- same "tick + in-request both hammering" symptom, different mechanism.
+
+**FOSS fix, commit `e99de361`** (`foss/dashboard-collapse`, not pushed): `DashboardMaterializerOptions.
+MaxTickDurationMs` (new, 8000ms default) + `DashboardMaterializerCoordinator` takes an optional
+`TimeProvider` and defers remaining live envelopes once the budget is hit mid-loop. Also wired up
+`ComputeOnColdMiss` (was dead code -- declared, documented, never read; `DashboardContentCache.GetAsync`
+now actually gates on it, returning an empty bundle instead of computing on a genuine cold miss when false).
+TDD throughout, 16 tests green, 349/350 Dashboard tests green (1 pre-existing unrelated failure already
+flagged).
+
+**Commercial fix, commit `fff061db`** (`main`, not pushed, freeze in effect): collapsed the 6x redundant
+`windowed` CTE into one shared TEMP TABLE created once per `ComposeBatchAsync` call (explicit DROP-then-
+CREATE as its own round-trip, not ON COMMIT DROP, so pooled-connection reuse can't see stale state).
+**Docker happened to be available this session** -- spun up `pgvector/pgvector:pg16`, applied the full
+schema via the same fixture `PostgresComposeBatchTests` uses, ran the existing equivalence suite BEFORE
+(3/3 baseline) and AFTER (3/3, byte-for-byte same as individual Get*Async reads) my change, then the full
+non-skipped Postgres integration suite (54/54, no regressions). This is genuinely verified against a real
+Postgres, not just reasoned about the SQL text -- a meaningfully higher confidence bar than most of this
+session's other findings. Also caught and corrected my own earlier claim: `idx_detections_domain_timestamp`
+already exists via `analytics-capture-migration.sql` (confirmed live) -- no index migration needed, I'd
+only checked one of the several schema files before.
+
 ## Next step if resuming
-Standing by for overview-'s response on the stabiliser lever + the compose-batch fix-plan gate (commercial
-PostgreSQLDashboardEventStore.cs). Merge queue still frozen. NEVER hit stylo.bot/prod without the key.
+Standing by for overview- to gate both fixes for landing + deploy. After they land: overview- plans to
+revert materializer Enabled=true (currently false from the stabiliser) since both root causes are fixed.
+User separately asked (mid-turn) to research broader DB-strategy improvements -- follow up on that as its
+own non-urgent thread once these land. Merge queue still frozen. NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
