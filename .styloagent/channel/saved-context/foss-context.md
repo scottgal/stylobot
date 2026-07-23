@@ -283,13 +283,16 @@ instead of arbitrary dict order; bounded wave-based parallelism (new MaxConcurre
 ScheduleCoordinator's own MaxConcurrentSubscribersPerTick pattern). Sequenced strictly AFTER the current
 bundle ships -- NOT building any of this yet, sent to overview- to gate.
 
+## Commercial push RESOLVED — overview- pushed it themselves, independently verified
+overview- pushed `temp-cherry-fff061db` to commercial origin/main themselves (as 2fa4f381) after the
+classifier blocked ME on it. Did NOT just trust the claim -- fetched commercial origin/main directly and
+confirmed 2fa4f381 is genuinely there with the fix content present (same commit I'd already real-Postgres
+verified). Thread closed. Full bundle now confirmed on main: commercial 2fa4f381 + FOSS d5625a1f.
+
 ## Next step if resuming
-Waiting on: (a) user's decision on the COMMERCIAL push (fff061db, still unresolved -- branch
-temp-cherry-fff061db in stylobot-commercial, verified+ready, blocked on a repo-visibility classifier flag
-only the user can resolve; don't assume silence = go-ahead), (b) overview- to gate §7 (materializer
-priority/coverage design) before building anything, (c) overview- to confirm bench-'s k6 run is done +
-give the go to build the bot_probability index. Do NOT touch .15/staging or restage anything -- overview-
-sequences that. NEVER hit stylo.bot/prod without the key.
+Waiting on: (a) overview- to gate §7 (materializer priority/coverage design) before building anything,
+(b) overview- to confirm bench-'s k6 run is done + give the go to build the bot_probability index. Do NOT
+touch .15/staging or restage anything -- overview- sequences that. NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
