@@ -1,13 +1,52 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: MAJOR FINDING — the 6.7s p95 on /dashboard/traffic under load is NOT a Fix-1 gap, it's architectural: StyloBotDashboardMiddleware.ServeDashboardPageAsync (the ACTUAL page handler — TrafficController is dead code on real hosts) unconditionally builds ALL dashboard rows' data (clusters/topbots/sessions/threats/countries/endpoints/useragents) on EVERY request, only 1 of ~8 datasets (composedPage/traffic) is Fix-1-protected. Reported to overview- with exact line numbers (StyloBotDashboardMiddleware.cs:1310,1356), 2 fix options proposed, NOT building either without steer. Both repos already shipped to main (FOSS d142b4ea, commercial ffacf2fa) — this finding is about what's NEEDED NEXT, not a blocker on what shipped.
+description: Lazy-per-row fix (a8c53f61) SHIPPED to foss/dashboard-collapse branch (NOT main yet) — gates all 9 unused shell-data fetches behind isTrafficRow in ServeDashboardPageAsync, TDD-verified (GetThreatsAsync==0 for /traffic), 4485/4486 tests green. Handed deploy- the ref for an :8390 rebuild + asked bench- (via deploy-/overview-) for the same sustained-concurrent re-measure. Reported to overview-. Awaiting re-measure result before deciding Fix 2 (pre-aggregation) or main-merge.
 metadata:
   type: project
 ---
 
-# foss- saved context (2026-07-23, re-engaged)
+# foss- saved context (2026-07-24, re-engaged)
 
-## MAJOR FINDING — the real root cause of the 6.7s p95 (architectural, not Fix-1 bug)
+## CURRENT STATE — lazy-per-row fix shipped to branch, awaiting bench- re-measure
+Built the fix that MAJOR FINDING (below) proposed as option (a). Ownership-checked first (who_touched +
+fleet_status: no active owner on StyloBotDashboardMiddleware.cs or row views, dash- fully exited;
+read docs/dashboard-fork-collapse-inventory.md in full — orthogonal to my change, but flagged its
+stale item-D assumption about TrafficController to whoever resumes that doc).
+
+**Fix**: `ServeDashboardPageAsync` now computes `isTrafficRow = (tab == "traffic")` and gates all 9
+previously-unconditional shell fetches (Visitors/Summary/Countries/Endpoints/UserAgents/Clusters/
+TopBots/Sessions/Threats) behind it — empty placeholders for /traffic instead. `yourDetectionTask`/
+License/chrome stay unconditional (page-level, not row-level). Scoped to "traffic" only — other rows
+(Visitors/Site/Policies/Configuration) would need their own read-trace before the same treatment.
+
+**TDD**: new `TrafficRowLazyFetchTests.cs`, RED confirmed `GetThreatsAsync` count=1 pre-fix (that
+field has zero legitimate caller for a traffic render), GREEN=0 post-fix. TopBots/Countries/Endpoints
+assertions loosened to upper bounds (<=3/<=2/<=2) after discovering `_Traffic.cshtml`'s own internal
+fetch pattern is richer than my first manual grep predicted — `GetThreatsAsync==0` remains the
+precise, unambiguous regression proof. Full solution build green, 4485/4486 tests green (1
+pre-existing unrelated `DashboardLinkIntegrityTests` failure, confirmed stable across reruns).
+
+**Committed a8c53f61, pushed to `foss/dashboard-collapse` BRANCH only** (NOT main — same
+measure-first-then-merge pattern used for Fix 1: build → branch push → deploy- rebuild → bench-
+re-measure → THEN decide on main). Sent deploy- the ref for an :8390 rebuild + bench- loop-in;
+reported full writeup to overview-. **Standing by for bench-'s numbers** — that determines whether
+Fix 2 (pre-aggregation, still deferred) is needed, and whether/when this merges to main (will NOT
+push main without a fresh direct user AskUserQuestion confirmation, regardless of outcome, per this
+session's standing rule).
+
+## Next step if resuming
+Check inbox for deploy-'s rebuild confirmation and bench-'s re-measure numbers. If the fix resolved
+the p95 (or got it close): report to overview-, scope Fix 2 against the clean remainder (per
+overview-'s explicit sequencing — "measure how much of the 6.7s survives the lazy fix, and scope
+Fix 2 against THAT clean remainder"), and separately raise whether a8c53f61 should go to main (ask
+user directly, don't assume). If the fix DIDN'T move the number much: that's a real, useful negative
+result — re-open systematic-debugging Phase 1 rather than guessing at a second cause. Also still
+outstanding, on its own track: the focused live-apply round-trip integration test (commercial moat
+regression guard) — deferred while this took priority, not started yet.
+
+---
+
+## (historical) MAJOR FINDING — the real root cause of the 6.7s p95 (architectural, not Fix-1 bug) — RESOLVED, see CURRENT STATE above
 overview- disproved my "stale container" theory (deploy- confirmed :8390's digest matched
 50fb696d exactly) — the 6.7s p95 on /dashboard/traffic under concurrent load is REAL against the
 correct build. Per overview-'s explicit instruction, instrumented/traced the actual serving path
