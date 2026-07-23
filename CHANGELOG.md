@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.4] - 2026-07-23
+
+### Added
+
+- **`ISignaturePolicyActionSlot`** — a FOSS render seam on the signature-detail header "Policy:" row, companion to `IFingerprintNameActionSlot`. The FOSS default (`EmptySignaturePolicyActionSlot`, registered via `TryAddSingleton`) renders nothing; a commercial host fills it with the top policy-action block (Allow / Block / Throttle / Transform). Same synchronous-singleton discipline as the name slot (resolved once, no per-render DI). This is the FOSS half of the signature-detail redesign; the header view host and the signed per-signal contribution surfacing follow.
+
 ## [8.2.3] - 2026-07-22
 
 ### Fixed
