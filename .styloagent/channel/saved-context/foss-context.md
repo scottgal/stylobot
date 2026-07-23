@@ -1,13 +1,65 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: DONE (180f64d3) — narrow scope from overview-. Reverted DashboardMaterializerOptions IOptionsMonitor→IOptions (FOSS hard rule, ff6bef9c) + built §8 Fix 1 (structural: request path never computes on cold miss, DashboardPageResult.Warming placeholder, stale-snapshot serving). 4485/4486 tests green (1 pre-existing unrelated failure). NOT pushed to FOSS main yet (ff6bef9c already there) — reported plan, awaiting overview-/operator sequencing.
+description: DONE (40dc82e9) — FULL scope (operator overrode narrow to broad mid-stream). Every IOptionsMonitor<T> removed from FOSS production code except 2 framework-mandated AuthenticationSchemeOptions refs (can't compile otherwise). POST /admin/reload deleted entirely + docs updated. §8 Fix 1 (structural cold-miss fix) also done. 4485/4486 tests green. NOT pushed to FOSS main (main is d5625a1f, ancestor of HEAD, ff6bef9c already there) — reported plan, awaiting overview-/operator sequencing.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
 
-## DONE — narrow revert + §8 Fix 1, committed 180f64d3, NOT pushed to main yet
+## DONE — FULL IOptionsMonitor sweep (scope broadened mid-stream), committed through 40dc82e9
+overview- relayed the operator's scope reversal ("REMOVE ALL OF THEM — NON NEGOTIABLE", "/admin/reload
+was NEVER intended to be in FOSS, it's a hallucination") superseding the earlier narrow-scope gate.
+Executed the full sweep, "GO NOW, don't wait for plan review," in 4 commits on top of the narrow
+180f64d3:
+
+1. **1869ae2d** — full IOptionsMonitor→IOptions sweep, 12 of 13 option types (BotDetectionOptions,
+   EndpointPolicyOptions, DetectionPolicyOptions, GroupingOptions, PublicKeyRegistryOptions,
+   GatewayWarmupOptions, HoneypotDetectionOptions, RateLimitOptions, AdaptiveScalingOptions,
+   UpstreamHealthOptions, NavVisibilityOptions) across ~46 files (production + ~20 test-file local
+   fakes/mocks). Removed IEndpointPolicyResolver's one real `.OnChange` (Recompile already runs once
+   at construction). Deleted GatewayWarmupGate/UpstreamHealthGate's dead WithMonitor()/StaticMonitor
+   shims (confirmed unused anywhere via grep before deleting). 7 of the 12 types were already
+   config-dead in production (never bound to any appsettings section) — zero live behavior lost there.
+2. **e8b41cb3** — StyloExtractActionOptions (3 files, named options via `.Get(name)`) switched to
+   `IOptionsFactory<T>` (the non-reload-observing factory IOptionsMonitor/IOptionsSnapshot are
+   themselves built on) — resolves the named section ONCE at construction, frozen thereafter. Correct
+   fix, not an exception: plain IOptions<T> has no named-lookup at all, and these 3 policies are
+   AddSingleton so IOptionsSnapshot<T> can't inject.
+3. **85cb6238** — deleted `POST /admin/reload` entirely (handler, route case, dead `IConfiguration`
+   ctor param/field, doc references in CLAUDE.md/admin-endpoints.md/README.md/2 other docs — historical
+   CHANGELOG/RELEASE_NOTES entries left untouched, changelogs are append-only). Deleted the now-fully-
+   unused `MutableOptionsMonitor<T>` test helper (existed solely to simulate live-reload).
+4. **40dc82e9** — trivial stale-comment fixup.
+
+**Deliberately NOT touched**: `AuthenticationSchemeOptions` in `ApiKeyAuthenticationHandler.cs` —
+ASP.NET's `AuthenticationHandler<T>` base class has ONLY an `IOptionsMonitor<T>` constructor overload;
+this is framework-mandated, not stylobot's reload mechanism, and converting it would not compile. This
+is the ONLY `IOptionsMonitor<T>` left anywhere in FOSS production code (confirmed via final grep).
+
+**Moat check** (background agent, before the scope broadened): zero commercial dependency on
+IOptionsMonitor for any of the 13 FOSS option types — commercial's live-config-apply runs entirely
+through `IConfigurationOverrideSource` → `DetectorConfigProvider`, already `IConfiguration`-based,
+untouched by any of this.
+
+**Verification**: full solution builds clean; 4485/4486 tests green throughout (1 pre-existing
+unrelated `DashboardLinkIntegrityTests`/`_TrafficPanels.cshtml` failure, another agent's in-flight
+file, not touched). One transient flake (`SidebarV2PackNavTests`, unrelated to these changes, passed
+on rerun and in isolation — not a real regression).
+
+**Not pushed to FOSS main.** `ff6bef9c` (the original DashboardMaterializerOptions violation) is
+already on FOSS origin/main (`d5625a1f`, confirmed still an ancestor of current HEAD `40dc82e9`) — this
+whole branch (`foss/dashboard-collapse`) carries the full revert forward; it reaches main once the
+bundle merges. Reported the complete summary to overview- for sequencing with the operator.
+
+## Next step if resuming
+Report 40dc82e9 to overview- (send this exact commit as the final state). Await push sequencing.
+Original ask before the IOptionsMonitor detour (hand deploy- the rebuild for bench-'s Fix-1 re-gate)
+is still outstanding — once overview- is satisfied on this sweep, resume that.
+
+---
+
+## (historical) DONE — narrow revert + §8 Fix 1, committed 180f64d3, NOT pushed to main yet
 overview- resolved the scope split: narrow only (DashboardMaterializerOptions/§7, not the other 29
 files or /admin/reload — that's a separate operator decision). Executed:
 
