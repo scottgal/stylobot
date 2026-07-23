@@ -1,6 +1,6 @@
 ---
-name: foss-session-2026-07-23-task2-shipped
-description: Task 2 APPROVED + BUILT + COMMITTED (9e6d1f0c) — DegradationAtom/UpstreamHealthGate wired to real traffic via TDD. Task 1 (csproj gaps) does not reproduce, awaiting ecommerce- repro info. Task 2b (Logs view) routed to otel-/aspnet-, not mine.
+name: foss-session-2026-07-23-llamasharp-fix-shipped
+description: Task 2 shipped (9e6d1f0c). LlamaSharp missing-PackageReference build bug (mae- found it) fixed + shipped (d50fd0f1) — confirmed IS in the gateway SKU build path. Task 1 (csproj gaps ecommerce- reported) still doesn't reproduce, standing by.
 metadata:
   type: project
 ---
@@ -70,10 +70,28 @@ gate/latency), 152 RateLimit/middleware/DI tests green, full solution builds cle
 pre-existing test failure in passing: `DashboardLinkIntegrityTests...` — `_TrafficPanels.cshtml` hardcoded
 `/dashboard/…` mount, not touched by me, flagged to overview- in case dash- doesn't already have it.
 
+## LlamaSharp build bug — SHIPPED, commit d50fd0f1 on foss/dashboard-collapse (not pushed)
+mae- found a real one during an isolated-worktree verify: `Mostlylucid.BotDetection.Llm.LlamaSharp.csproj`
+called `OptionsBuilder<T>.BindConfiguration()` (LlamaSharpServiceExtensions.cs:20) without referencing
+`Microsoft.Extensions.Options.ConfigurationExtensions` — only had the base `Microsoft.Extensions.Options`.
+Added the missing `PackageReference` (10.0.9, matches sibling ref). **Confirmed this project IS in the
+gateway SKU build path** — `Stylobot.Gateway.csproj` has a direct ProjectReference to it — so overview-
+is treating as urgent for the Maxo deploy.
+
+Honest note for next-me: I could NOT reproduce the CS1061 on a clean rebuild of this checkout even before
+the fix (0 errors either way) — dug in and confirmed `project.assets.json` genuinely has NO trace of
+`Microsoft.Extensions.Options.ConfigurationExtensions` anywhere in the resolved graph for this project (no
+direct ref, nothing transitive), so my local build succeeding was the anomaly (likely some warm-cache/SDK
+quirk on this machine), not evidence the fix was unneeded. Opposite of the Task-1 VYaml/Mostlylucid.Common
+situation, where the "missing" refs actually already existed elsewhere in the graph. Applied it anyway
+since the reference being truly absent means a cold restore (Maxo/CI/fresh clone) would hit the same
+CS1061 regardless of what my machine does. Verified clean rebuilds of the LlamaSharp project alone, the
+full Gateway project, and the whole solution — 0 errors after the fix in all three.
+
 ## Next step if resuming
-Waiting on overview- reply on: Task 1 repro info (ecommerce-'s exact working dir/command), and general ack
-on Task 2 commit. Task 2b (Logs view) is routed to otel-/aspnet-, not mine unless overview- comes back with
-a specific FOSS-side seam ask. Nothing else pending.
+Waiting on: overview- ack on the LlamaSharp fix + gateway-blocking answer; ecommerce-'s exact repro for
+Task 1 (still doesn't reproduce here, standing by, not chasing blind). Task 2b (Logs view) is routed to
+otel-/aspnet-, not mine unless overview- comes back with a specific FOSS-side seam ask. Nothing else pending.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
