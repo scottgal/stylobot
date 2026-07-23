@@ -17,14 +17,18 @@ namespace Mostlylucid.BotDetection.StyloExtract.Actions;
 /// </summary>
 public sealed class ExtractSidecarActionPolicy : IActionPolicy
 {
-    private readonly IOptionsMonitor<StyloExtractActionOptions> _optionsMonitor;
+    // Startup snapshot only (FOSS hard rule: no runtime options-reload). Named options have no
+    // IOptions<T> equivalent, so IOptionsFactory<T> -- the non-reload-observing factory
+    // IOptionsMonitor/IOptionsSnapshot are themselves built on -- resolves the named section
+    // ONCE here; the frozen result is never re-read from the factory again.
+    private readonly StyloExtractActionOptions _options;
     private readonly ILogger<ExtractSidecarActionPolicy> _logger;
 
     public ExtractSidecarActionPolicy(
-        IOptionsMonitor<StyloExtractActionOptions> optionsMonitor,
+        IOptionsFactory<StyloExtractActionOptions> optionsFactory,
         ILogger<ExtractSidecarActionPolicy> logger)
     {
-        _optionsMonitor = optionsMonitor;
+        _options = optionsFactory.Create(Name);
         _logger = logger;
     }
 
@@ -43,7 +47,7 @@ public sealed class ExtractSidecarActionPolicy : IActionPolicy
         AggregatedEvidence evidence,
         CancellationToken cancellationToken = default)
     {
-        var opts = _optionsMonitor.Get(Name);
+        var opts = _options;
 
         try
         {

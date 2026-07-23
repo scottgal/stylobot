@@ -88,9 +88,13 @@ internal sealed class ThrowingExtractor : ILayoutExtractor
 }
 
 // ---------------------------------------------------------------------------
-// IOptionsMonitor<StyloExtractActionOptions> - simple in-memory stub
+// IOptionsFactory<StyloExtractActionOptions> - simple in-memory stub. Matches
+// production's named-options resolution (IOptionsFactory<T>.Create(name)),
+// which the 3 policies now call once at construction (FOSS hard rule: no
+// runtime options-reload -- IOptions<T> has no named-lookup, so the factory
+// is the correct non-reload-observing primitive for this).
 // ---------------------------------------------------------------------------
-internal sealed class StaticOptions : IOptionsMonitor<StyloExtractActionOptions>
+internal sealed class StaticOptions : IOptionsFactory<StyloExtractActionOptions>
 {
     private readonly StyloExtractActionOptions _value;
 
@@ -99,9 +103,7 @@ internal sealed class StaticOptions : IOptionsMonitor<StyloExtractActionOptions>
         _value = value ?? new StyloExtractActionOptions();
     }
 
-    public StyloExtractActionOptions CurrentValue => _value;
-    public StyloExtractActionOptions Get(string? name) => _value;
-    public IDisposable? OnChange(Action<StyloExtractActionOptions, string?> listener) => null;
+    public StyloExtractActionOptions Create(string name) => _value;
 }
 
 // ---------------------------------------------------------------------------

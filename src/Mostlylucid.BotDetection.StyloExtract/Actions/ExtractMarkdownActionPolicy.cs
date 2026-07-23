@@ -27,20 +27,24 @@ namespace Mostlylucid.BotDetection.StyloExtract.Actions;
 public sealed class ExtractMarkdownActionPolicy : IActionPolicy
 {
     private readonly ILayoutExtractor _extractor;
-    private readonly IOptionsMonitor<StyloExtractActionOptions> _optionsMonitor;
+    // Startup snapshot only (FOSS hard rule: no runtime options-reload). Named options have no
+    // IOptions<T> equivalent, so IOptionsFactory<T> -- the non-reload-observing factory
+    // IOptionsMonitor/IOptionsSnapshot are themselves built on -- resolves the named section
+    // ONCE here; the frozen result is never re-read from the factory again.
+    private readonly StyloExtractActionOptions _options;
     private readonly ILogger<ExtractMarkdownActionPolicy> _logger;
     private readonly ResponseBodyCapture _capture;
     private readonly CacheControlWriter _cacheWriter;
 
     public ExtractMarkdownActionPolicy(
         ILayoutExtractor extractor,
-        IOptionsMonitor<StyloExtractActionOptions> optionsMonitor,
+        IOptionsFactory<StyloExtractActionOptions> optionsFactory,
         ILogger<ExtractMarkdownActionPolicy> logger,
         ResponseBodyCapture capture,
         CacheControlWriter cacheWriter)
     {
         _extractor = extractor;
-        _optionsMonitor = optionsMonitor;
+        _options = optionsFactory.Create(Name);
         _logger = logger;
         _capture = capture;
         _cacheWriter = cacheWriter;
@@ -61,7 +65,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
         AggregatedEvidence evidence,
         CancellationToken cancellationToken = default)
     {
-        var opts = _optionsMonitor.Get(Name);
+        var opts = _options;
 
         // EnableQueryOverride / QueryParamName / QueryParamValue describe a debug-time
         // "?format=markdown" override. By the time this policy is dispatched the rule
