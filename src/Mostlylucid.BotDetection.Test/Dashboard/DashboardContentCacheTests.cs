@@ -28,42 +28,44 @@ public sealed class DashboardContentCacheTests
     private static DashboardContentCache NewCache(
         Func<DashboardPageManifest, DashboardPageWindow, CancellationToken, Task<DashboardPageResult>> compose,
         long currentTick = 5)
-        => new(compose, () => currentTick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+        => new(compose, () => currentTick, Options.Create(new DashboardMaterializerOptions()));
 
     [Fact]
-    public async Task GetAsync_composes_once_then_serves_cached()
+    public async Task WarmAsync_composes_once_then_GetAsync_serves_cached_without_composing_again()
     {
+        // Structural fix (measure-gate incident, §8): the request path (GetAsync/GetCurrentAsync)
+        // NEVER composes -- only WarmAsync (the tick materializer, off the request thread) does.
         var composes = 0;
         await using var cache = NewCache((_, _, _) => { composes++; return Task.FromResult(Result()); }, currentTick: 5);
 
-        var r1 = await cache.GetAsync(Traffic, Window(), 5, default);
-        var r2 = await cache.GetAsync(Traffic, Window(), 5, default);
+        var warmed = await cache.WarmAsync(Traffic, Window(), 5, default);
+        var read = await cache.GetAsync(Traffic, Window(), 5, default);
 
         Assert.Equal(1, composes);
-        Assert.Same(r1, r2);
+        Assert.Same(warmed, read);
     }
 
     [Fact]
-    public async Task GetAsync_recomputes_for_a_new_tick()
+    public async Task WarmAsync_recomputes_for_a_new_tick()
     {
         var composes = 0;
         await using var cache = NewCache((_, _, _) => { composes++; return Task.FromResult(Result()); }, currentTick: 6);
 
-        await cache.GetAsync(Traffic, Window(), 5, default);
-        await cache.GetAsync(Traffic, Window(), 6, default);
+        await cache.WarmAsync(Traffic, Window(), 5, default);
+        await cache.WarmAsync(Traffic, Window(), 6, default);
 
         Assert.Equal(2, composes); // distinct ticks -> distinct keys
     }
 
     [Fact]
-    public async Task GetAsync_collapses_sub_bucket_windows_to_one_entry()
+    public async Task WarmAsync_collapses_sub_bucket_windows_to_one_entry()
     {
         var composes = 0;
         await using var cache = NewCache((_, _, _) => { composes++; return Task.FromResult(Result()); }, currentTick: 5);
 
         // same 60-minute bucket, 50 seconds apart -> same envelope -> one compute
-        await cache.GetAsync(Traffic, Window(start: new DateTime(2026, 7, 8, 12, 0, 5, DateTimeKind.Utc)), 5, default);
-        await cache.GetAsync(Traffic, Window(start: new DateTime(2026, 7, 8, 12, 0, 55, DateTimeKind.Utc)), 5, default);
+        await cache.WarmAsync(Traffic, Window(start: new DateTime(2026, 7, 8, 12, 0, 5, DateTimeKind.Utc)), 5, default);
+        await cache.WarmAsync(Traffic, Window(start: new DateTime(2026, 7, 8, 12, 0, 55, DateTimeKind.Utc)), 5, default);
 
         Assert.Equal(1, composes);
     }
@@ -74,8 +76,8 @@ public sealed class DashboardContentCacheTests
         var composes = 0;
         await using var cache = NewCache((_, _, _) => { composes++; return Task.FromResult(Result()); }, currentTick: 5);
 
-        await cache.GetAsync(Traffic, Window(audience: "all"), 5, default);
-        await cache.GetAsync(Traffic, Window(audience: "bots"), 5, default);
+        await cache.WarmAsync(Traffic, Window(audience: "all"), 5, default);
+        await cache.WarmAsync(Traffic, Window(audience: "bots"), 5, default);
 
         Assert.Equal(2, composes);
     }
@@ -85,7 +87,7 @@ public sealed class DashboardContentCacheTests
     {
         long tick = 1;
         await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            Options.Create(new DashboardMaterializerOptions()));
 
         await cache.WarmAsync(Traffic, Window(), 1, default);
         Assert.Empty(cache.LiveEnvelopes()); // a warm must not keep an envelope alive
@@ -103,11 +105,11 @@ public sealed class DashboardContentCacheTests
         // (envelope, tick) key should show up here with no extra bookkeeping in the cache itself.
         long tick = 1;
         await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            Options.Create(new DashboardMaterializerOptions()));
 
-        await cache.GetAsync(Traffic, Window(), 1, default); // creates the atom entry (AccessCount 1)
-        await cache.GetAsync(Traffic, Window(), 1, default); // hit (AccessCount 2)
-        await cache.GetAsync(Traffic, Window(), 1, default); // hit (AccessCount 3)
+        await cache.WarmAsync(Traffic, Window(), 1, default); // materializer creates the atom entry (AccessCount 1)
+        await cache.GetAsync(Traffic, Window(), 1, default);  // request-path hit (AccessCount 2)
+        await cache.GetAsync(Traffic, Window(), 1, default);  // request-path hit (AccessCount 3)
 
         var live = Assert.Single(cache.LiveEnvelopes());
         Assert.Equal(3, live.AccessCount);
@@ -118,7 +120,7 @@ public sealed class DashboardContentCacheTests
     {
         long tick = 1;
         await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { LiveEnvelopeMaxAgeTicks = 3 }));
+            Options.Create(new DashboardMaterializerOptions { LiveEnvelopeMaxAgeTicks = 3 }));
 
         await cache.GetAsync(Traffic, Window(), 1, default);
 
@@ -136,51 +138,86 @@ public sealed class DashboardContentCacheTests
         long tick = 5;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
 
-        await cache.GetCurrentAsync(Traffic, Window(), default); // composes at tick 5, warm=5
+        await cache.WarmAsync(Traffic, Window(), 5, default); // materializer warms tick 5
         Assert.Equal(1, composes);
 
         tick = 6; // tick advanced; nothing warmed tick 6 yet
-        await cache.GetCurrentAsync(Traffic, Window(), default); // resolves to warm tick 5 -> HIT
-        Assert.Equal(1, composes); // the fix: was 2 (a cold miss per tick) before the re-key
+        await cache.GetCurrentAsync(Traffic, Window(), default); // resolves to warm tick 5 -> HIT, no compose
+        Assert.Equal(1, composes);
     }
 
     [Fact]
-    public async Task GetAsync_returns_empty_without_composing_on_a_cold_miss_when_ComputeOnColdMiss_is_false()
+    public async Task GetAsync_returns_a_warming_placeholder_without_composing_on_a_genuine_cold_miss()
     {
-        // Cleanup while touching this subsystem for the compose-batch-overload incident:
-        // ComputeOnColdMiss was declared + documented but never actually read anywhere,
-        // so setting it to false had zero effect -- every request-path cold miss always
-        // computed synchronously regardless. Wiring it up gives operators a real "never
-        // let a request thread compute compose-batch" safety valve for a future incident.
+        // §8 Fix 1 (measure-gate incident): structural, not a config valve -- the request path
+        // NEVER computes on a cold miss, unconditionally. No option can turn this back on.
         var composes = 0;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => 5L, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
+            () => 5L, Options.Create(new DashboardMaterializerOptions()));
 
         var result = await cache.GetAsync(Traffic, Window(), 5, default);
 
         Assert.Equal(0, composes);
-        Assert.Null(result.Summary);
+        Assert.True(result.IsWarming);
     }
 
     [Fact]
-    public async Task GetAsync_still_serves_an_already_warmed_entry_when_ComputeOnColdMiss_is_false()
+    public async Task GetAsync_serves_an_already_warmed_entry_without_composing_again()
     {
-        // The gate is only for genuine cold misses -- an entry the materializer already
-        // warmed must still be served, not blanked out.
         var composes = 0;
         long tick = 5;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
 
         var warmed = await cache.WarmAsync(Traffic, Window(), 5, default); // materializer warms it first
         var result = await cache.GetAsync(Traffic, Window(), 5, default); // request-path read hits the warm entry
 
         Assert.Equal(1, composes); // only the warm computed, not the read
         Assert.Same(warmed, result);
+        Assert.False(result.IsWarming);
+    }
+
+    [Fact]
+    public async Task GetCurrentAsync_serves_a_stale_but_present_snapshot_instead_of_a_placeholder()
+    {
+        // The heart of §8 Fix 1: a request landing while the materializer hasn't yet caught up
+        // to the CURRENT tick must still get the last REAL snapshot (stale, but genuinely useful),
+        // not a blank/placeholder -- GetCurrentAsync already resolves to the latest warmed tick.
+        var composes = 0;
+        long tick = 5;
+        await using var cache = new DashboardContentCache(
+            (_, _, _) => { composes++; return Task.FromResult(Result()); },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+
+        await cache.WarmAsync(Traffic, Window(), 5, default); // last real snapshot is at tick 5
+
+        tick = 50; // materializer is many ticks behind (contention, slow compose, whatever)
+        var result = await cache.GetCurrentAsync(Traffic, Window(), default);
+
+        Assert.Equal(1, composes); // GetCurrentAsync never triggers a second compose
+        Assert.False(result.IsWarming); // stale-but-real data, not a placeholder
+    }
+
+    [Fact]
+    public async Task Concurrent_cold_reads_never_compose_even_under_load()
+    {
+        // Directly matches the §8 Fix 1 requirement: assert cold-miss never calls the sync
+        // compose, even under concurrent request pressure against a never-warmed envelope.
+        var composes = 0;
+        await using var cache = new DashboardContentCache(
+            (_, _, _) => { Interlocked.Increment(ref composes); return Task.FromResult(Result()); },
+            () => 5L, Options.Create(new DashboardMaterializerOptions()));
+
+        var reads = Enumerable.Range(0, 50)
+            .Select(_ => cache.GetCurrentAsync(Traffic, Window(), default));
+        var results = await Task.WhenAll(reads);
+
+        Assert.Equal(0, Volatile.Read(ref composes));
+        Assert.All(results, r => Assert.True(r.IsWarming));
     }
 
     [Fact]
@@ -190,7 +227,7 @@ public sealed class DashboardContentCacheTests
         long tick = 5;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
 
         await cache.WarmAsync(Traffic, Window(), 5, default); // materializer warms env at tick 5
         Assert.Equal(1, composes);

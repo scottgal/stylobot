@@ -23,13 +23,6 @@ public sealed class DashboardMaterializerOptions
     /// </summary>
     public int RetentionRecentTicks { get; set; } = 3;
 
-    /// <summary>
-    ///     When true, a request-path read for a not-yet-materialized (envelope, tick)
-    ///     composes once synchronously (the cold-miss fallback) rather than returning
-    ///     empty. The tick materializer normally keeps hot pages warm ahead of reads.
-    /// </summary>
-    public bool ComputeOnColdMiss { get; set; } = true;
-
     /// <summary>Max live envelopes the materializer will warm in a single tick (backpressure budget).</summary>
     public int MaxPagesPerTick { get; set; } = 32;
 

@@ -217,10 +217,16 @@ public sealed class WidgetBatchComposeTests
     {
         var composes = 0;
         long tick = 1;
-        var cache = new DashboardContentCache(
-            (_, _, _) => { composes++; return Task.FromResult(MakeResult()); },
-            () => tick,
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+        // Structural §8 fix: GetCurrentAsync never composes on the request thread anymore --
+        // this test-only decorator simulates "the materializer already warmed it" so the
+        // delta-path routing (prefer the warm bundle over a subset compose) can still be
+        // asserted in isolation.
+        var cache = new Mostlylucid.BotDetection.Test.Helpers.AutoWarmingContentCache(
+            new DashboardContentCache(
+                (_, _, _) => { composes++; return Task.FromResult(MakeResult()); },
+                () => tick,
+                Options.Create(new DashboardMaterializerOptions())),
+            () => tick);
         var manifests = new DefaultDashboardPageManifestSource();
         var ctx = new DefaultHttpContext();
         var window = new DashboardPageWindow(null, null, "all", null, null, 500, 60);

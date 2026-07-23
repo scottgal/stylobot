@@ -41,11 +41,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly IDashboardChangeCursor _cursor;
     private readonly IDashboardPageManifestSource _manifests;
     private readonly IScheduleCoordinator? _schedule;
-    private readonly IOptionsMonitor<DashboardMaterializerOptions> _optionsMonitor;
+    private readonly IOptions<DashboardMaterializerOptions> _optionsAccessor;
 
-    // Live-read (not a startup snapshot) so Enabled/MaxTickDurationMs/etc. can be changed
-    // via config reload without a restart -- see the Enabled handling in MaterializeTickAsync.
-    private DashboardMaterializerOptions _options => _optionsMonitor.CurrentValue;
+    // Startup-snapshot only (FOSS hard rule: no runtime options-reload -- hot-reload is
+    // commercial-only). Enabled/MaxTickDurationMs/etc. are fixed at process start.
+    private DashboardMaterializerOptions _options => _optionsAccessor.Value;
     private readonly ILogger<DashboardMaterializerCoordinator>? _logger;
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? _hubContext;
     private readonly TimeProvider _time;
@@ -55,7 +55,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         IDashboardContentCache cache,
         IDashboardChangeCursor cursor,
         IDashboardPageManifestSource manifests,
-        IOptionsMonitor<DashboardMaterializerOptions> options,
+        IOptions<DashboardMaterializerOptions> options,
         IScheduleCoordinator? schedule = null,
         ILogger<DashboardMaterializerCoordinator>? logger = null,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null,
@@ -68,7 +68,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _cache = cache;
         _cursor = cursor;
         _manifests = manifests;
-        _optionsMonitor = options;
+        _optionsAccessor = options;
         _schedule = schedule;
         _logger = logger;
         _hubContext = hubContext;
@@ -78,10 +78,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     public Task StartAsync(CancellationToken cancellationToken)
     {
         // Self-disable only when there's no tick fabric to subscribe to (viewer-mode host).
-        // Enabled is deliberately NOT checked here: it's read live inside MaterializeTickAsync
-        // instead, so an operator can flip it off/on via config reload (the exact incident
-        // stabiliser this subsystem needed) without a process restart. Subscribing
-        // unconditionally costs one no-op Task per idle 10s tick when disabled -- negligible.
+        // Enabled is checked inside MaterializeTickAsync instead of gating the subscription --
+        // structurally simpler (one code path) even though FOSS has no runtime reload to benefit
+        // from it. Subscribing unconditionally costs one no-op Task per idle 10s tick when
+        // disabled -- negligible.
         if (_schedule is null) return Task.CompletedTask;
 
         try
@@ -118,8 +118,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     /// </summary>
     internal async Task MaterializeTickAsync(DateTimeOffset _, CancellationToken ct)
     {
-        // Read live so an operator can disable/re-enable via config reload without a
-        // restart (StartAsync always subscribes when a schedule exists; this is the gate).
+        // Checked here rather than gating the subscription in StartAsync -- keeps a single
+        // code path (StartAsync always subscribes when a schedule exists; this is the gate).
         if (!_options.Enabled) return;
 
         var tick = _cursor.CurrentTick;

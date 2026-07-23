@@ -71,7 +71,13 @@ public sealed class VisitorsRemoteMiddlewareIntegrationTests : IAsyncDisposable
         // partial rendered.
         Assert.Contains("Representative behavioural fingerprint", html);
         Assert.Contains("42", html);
-        Assert.Contains("/api/v1/compose-batch", gateway.Paths);
+        // §8 Fix 1 (structural, compose-batch-overload measure-gate incident): the request
+        // path never calls compose-batch synchronously on a cold miss anymore -- a fresh
+        // TestServer with nothing pre-warmed gets a Warming placeholder (same all-null-slices
+        // shape as this test's deliberately-empty compose-batch fixture), so every widget
+        // falls back to its per-endpoint self-fetch just as it would for a genuinely empty
+        // compose result. The page still renders correctly; compose-batch is simply never hit.
+        Assert.DoesNotContain("/api/v1/compose-batch", gateway.Paths);
         Assert.Contains("/api/v1/summary", gateway.Paths);
         Assert.Contains("/api/v1/topbots", gateway.Paths);
         Assert.Contains("/api/v1/countries", gateway.Paths);

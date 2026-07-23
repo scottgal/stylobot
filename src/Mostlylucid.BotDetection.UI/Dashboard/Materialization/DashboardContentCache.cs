@@ -18,15 +18,11 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
 {
     private readonly SlidingCacheAtom<DashboardContentKey, DashboardPageResult> _atom;
     private readonly Func<long> _currentTick;
-    private readonly IOptionsMonitor<DashboardMaterializerOptions> _optionsMonitor;
+    private readonly IOptions<DashboardMaterializerOptions> _optionsAccessor;
 
-    // Live-reads through the monitor (not a snapshot captured once at construction) so an
-    // operator's config change -- e.g. ComputeOnColdMiss as a request-thread stabiliser --
-    // takes effect on /admin/reload without a process restart. The cache atom's OWN
-    // construction params (sliding/absolute expiration, max size) are still baked in once
-    // below; only the per-call reads (ComputeOnColdMiss, LiveEnvelopeMaxAgeTicks,
-    // RetentionRecentTicks) benefit from live reload.
-    private DashboardMaterializerOptions _options => _optionsMonitor.CurrentValue;
+    // Startup-snapshot only (FOSS hard rule: no runtime options-reload -- hot-reload is
+    // commercial-only). Captured once at construction; a config change needs a process restart.
+    private DashboardMaterializerOptions _options => _optionsAccessor.Value;
 
     // Live-envelope registry: the (manifest, window) pairs read recently enough that
     // the materializer should keep warming them. Keyed by envelope so re-reads of the
@@ -48,14 +44,14 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
     public DashboardContentCache(
         Func<DashboardPageManifest, DashboardPageWindow, CancellationToken, Task<DashboardPageResult>> compose,
         Func<long> currentTick,
-        IOptionsMonitor<DashboardMaterializerOptions> options,
+        IOptions<DashboardMaterializerOptions> options,
         SignalSink? signals = null)
     {
         ArgumentNullException.ThrowIfNull(compose);
         ArgumentNullException.ThrowIfNull(currentTick);
         ArgumentNullException.ThrowIfNull(options);
         _currentTick = currentTick;
-        _optionsMonitor = options;
+        _optionsAccessor = options;
 
         var sink = signals ?? new SignalSink(
             Math.Max(2, _options.ContentCacheMaxEntries * 2),
@@ -74,31 +70,33 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
     {
         var key = new DashboardContentKey(manifest, window, tick);
-        // Mark this view live so the materializer keeps it warm at future ticks, and record
-        // that this tick is warm so GetCurrentAsync can resolve to it.
+        // Mark this view live so the materializer keeps it warm at future ticks.
         _live[key.Envelope] = new LiveEntry(manifest, window, _currentTick());
-        RecordWarm(key.Envelope, tick);
 
-        // ComputeOnColdMiss=false is the request-path safety valve: an operator can stop
-        // request threads from ever computing a (potentially expensive, e.g. compose-batch)
-        // read themselves, leaving that work to the tick materializer only. Only gates a
-        // genuine miss -- an entry the materializer already warmed is still served normally.
-        if (!_options.ComputeOnColdMiss)
-            return Task.FromResult(_atom.TryGet(key, out var existing) ? existing! : EmptyResult);
+        // STRUCTURAL, not a config valve (§8 Fix 1 of the compose-batch-overload measure-gate
+        // incident): the request path NEVER composes on a cold miss, unconditionally. Only
+        // WarmAsync -- driven by the tick materializer, off the request thread -- ever calls
+        // the atom's factory. A prior ComputeOnColdMiss=false option existed but was a toggle
+        // (defaulted true, i.e. off) and had a bug: it recorded ANY read as "warm" even on a
+        // miss, clobbering the pointer to an older tick's genuinely-warmed (stale-but-real)
+        // snapshot. RecordWarm is now only called on an actual hit.
+        if (_atom.TryGet(key, out var existing))
+        {
+            RecordWarm(key.Envelope, tick);
+            return Task.FromResult(existing!);
+        }
 
-        return _atom.GetOrComputeAsync(key, ct);
+        return Task.FromResult(DashboardPageResult.Warming);
     }
-
-    private static readonly DashboardPageResult EmptyResult =
-        new(new Models.DashboardDatasetBundle(null, null, null, null, null));
 
     public Task<DashboardPageResult> GetCurrentAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, CancellationToken ct)
     {
         // Resolve to the LATEST warmed tick for this envelope (current or a recent previous),
-        // NOT strictly the current tick — so the read hits the materializer's most recent warm
-        // instead of cold-missing a not-yet-composed current tick. Only a brand-new envelope
-        // (never warmed) composes once, at the current tick.
+        // NOT strictly the current tick — so a request while the materializer is behind (slow
+        // compose, contention, whatever) still gets the last REAL snapshot instead of a
+        // placeholder. Only a truly never-warmed envelope (no entry in _latestWarmTick at all)
+        // falls through to a genuine miss at the current tick.
         var env = DashboardContentEnvelope.From(manifest, window);
         var readTick = _latestWarmTick.TryGetValue(env, out var warmed) ? warmed : _currentTick();
         return GetAsync(manifest, window, readTick, ct);

@@ -36,8 +36,8 @@ public sealed class VisitorsLandingViewRenderingTests
         services.AddSingleton<RazorViewRenderer>();
         services.AddSingleton<IOptions<StyloBotDashboardOptions>>(
             Options.Create(new StyloBotDashboardOptions { BasePath = "/dashboard" }));
-        services.AddSingleton<IOptionsMonitor<DashboardMaterializerOptions>>(
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+        services.AddSingleton<IOptions<DashboardMaterializerOptions>>(
+            Options.Create(new DashboardMaterializerOptions()));
         services.AddSingleton(new Mock<IDashboardEventStore>().Object);
         services.AddSingleton<IFingerprintNameActionSlot, EmptyFingerprintNameActionSlot>();
 

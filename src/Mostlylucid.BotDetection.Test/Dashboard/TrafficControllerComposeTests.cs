@@ -49,10 +49,15 @@ public sealed class TrafficControllerComposeTests
     // The controller now reads through the content cache (Task 3). The cache's
     // factory is the composer, so a cold miss still issues exactly one
     // ComposeBatchAsync — the "one compose per current window" contract holds,
-    // and repeated reads at the same tick are served from the cache.
-    private static DashboardContentCache ContentCache(DefaultDashboardPageComposer composer, long tick = 1) =>
-        new((m, w, ct) => composer.ComposeAsync(m, w, ct), () => tick,
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+    // and repeated reads at the same tick are served from the cache. Structural §8
+    // fix: GetCurrentAsync never composes on the request thread anymore, so this
+    // test-only decorator simulates "the materializer already warmed it" so the
+    // controller's own batching behavior can still be asserted in isolation.
+    private static IDashboardContentCache ContentCache(DefaultDashboardPageComposer composer, long tick = 1) =>
+        new Mostlylucid.BotDetection.Test.Helpers.AutoWarmingContentCache(
+            new DashboardContentCache((m, w, ct) => composer.ComposeAsync(m, w, ct), () => tick,
+                Options.Create(new DashboardMaterializerOptions())),
+            () => tick);
 
     // ---------- recording store ----------
 

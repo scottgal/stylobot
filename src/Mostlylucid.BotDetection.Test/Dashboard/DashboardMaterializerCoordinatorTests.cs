@@ -27,28 +27,29 @@ public sealed class DashboardMaterializerCoordinatorTests
         var composes = 0;
         long tick = 1;
         var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         // Prewarm (Tier 1 pinned coverage) is orthogonal to this test's concern -- it has its
         // own dedicated test below -- so it's off here to isolate the demand-gated (Tier 2) path.
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
+            Options.Create(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
 
-        // A user read at tick 1 makes the envelope live and composes once.
+        // A user read at tick 1 makes the envelope live but does NOT compose (structural
+        // §8 fix -- the request path never computes; it's a genuine cold miss/placeholder).
         await cache.GetAsync(Traffic, Window(), tick, default);
-        Assert.Equal(1, composes);
+        Assert.Equal(0, composes);
 
         await coord.StartAsync(default);
         tick = 2;                                    // tick advances
         await sched.RaiseTickAsync(TickCadence.Tick10s);
 
-        // The materializer warmed the live envelope at tick 2 (composed for the new tick).
-        Assert.Equal(2, composes);
+        // The materializer warmed the live envelope at tick 2 (the only compose).
+        Assert.Equal(1, composes);
 
-        // A user read at tick 2 now hits the warmed entry — no in-request compose.
+        // A user read at tick 2 now hits the warmed entry — no additional compose.
         await cache.GetAsync(Traffic, Window(), 2, default);
-        Assert.Equal(2, composes);
+        Assert.Equal(1, composes);
 
         await coord.StopAsync(default);
     }
@@ -59,14 +60,14 @@ public sealed class DashboardMaterializerCoordinatorTests
         var composes = 0;
         long tick = 1;
         var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         // PrewarmDefaultEnvelope explicitly off here -- this test asserts the pure
         // demand-gate contract in isolation; the default-on prewarm behavior has its
         // own test below.
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
+            Options.Create(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
 
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody viewed anything
@@ -83,11 +84,11 @@ public sealed class DashboardMaterializerCoordinatorTests
         var composes = 0;
         long tick = 1;
         var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()), sched); // default: PrewarmDefaultEnvelope = true
+            Options.Create(new DashboardMaterializerOptions()), sched); // default: PrewarmDefaultEnvelope = true
 
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody has ever viewed the page
@@ -103,11 +104,11 @@ public sealed class DashboardMaterializerCoordinatorTests
         var composedWindows = new List<DashboardPageWindow>();
         long tick = 1;
         var cache = new DashboardContentCache((_, window, _) => { composedWindows.Add(window); return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()), sched);
+            Options.Create(new DashboardMaterializerOptions()), sched);
 
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s);
@@ -136,7 +137,7 @@ public sealed class DashboardMaterializerCoordinatorTests
                 time.Advance(TimeSpan.FromMilliseconds(50)); // simulates one slow compose-batch call
                 return Task.FromResult(Result());
             },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         var pages = new[]
         {
@@ -146,7 +147,7 @@ public sealed class DashboardMaterializerCoordinatorTests
         };
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions
+            Options.Create(new DashboardMaterializerOptions
             {
                 PrewarmDefaultEnvelope = false,
                 MaxTickDurationMs = 90, // budget check runs BEFORE each wave: page 1 (0ms elapsed) and
@@ -179,19 +180,25 @@ public sealed class DashboardMaterializerCoordinatorTests
         var composedPages = new List<string>();
         long tick = 1;
         var cache = new DashboardContentCache((manifest, _, _) => { composedPages.Add(manifest.PageKey); return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
         var cool = new DashboardPageManifest("dashboard.site", new[] { "summary" });
         var hot = new DashboardPageManifest("dashboard.visitors", new[] { "summary" });
 
-        await cache.GetAsync(cool, Window(), tick, default); // AccessCount 1
-        await cache.GetAsync(hot, Window(), tick, default);  // AccessCount 1
-        await cache.GetAsync(hot, Window(), tick, default);  // AccessCount 2 -- now the hotter envelope
+        // GetAsync alone no longer creates an atom entry (structural §8 fix — the request
+        // path never composes), so WarmAsync seeds the entry and GetAsync marks liveness +
+        // bumps AccessCount via a genuine hit.
+        await cache.WarmAsync(cool, Window(), tick, default); // AccessCount 1 (created)
+        await cache.GetAsync(cool, Window(), tick, default);  // live + AccessCount 2
+
+        await cache.WarmAsync(hot, Window(), tick, default);  // AccessCount 1 (created)
+        await cache.GetAsync(hot, Window(), tick, default);   // live + AccessCount 2
+        await cache.GetAsync(hot, Window(), tick, default);   // AccessCount 3 -- now the hotter envelope
         composedPages.Clear();
 
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions
+            Options.Create(new DashboardMaterializerOptions
             {
                 PrewarmDefaultEnvelope = false,
                 MaxPagesPerTick = 1, // only room for one of the two live envelopes
@@ -229,7 +236,7 @@ public sealed class DashboardMaterializerCoordinatorTests
                 }
                 return Result();
             },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
 
         var a = new DashboardPageManifest("dashboard.a", new[] { "summary" });
         var b = new DashboardPageManifest("dashboard.b", new[] { "summary" });
@@ -239,7 +246,7 @@ public sealed class DashboardMaterializerCoordinatorTests
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions
+            Options.Create(new DashboardMaterializerOptions
             {
                 PrewarmDefaultEnvelope = false,
                 MaxConcurrentWarmsPerTick = 2,
@@ -263,18 +270,18 @@ public sealed class DashboardMaterializerCoordinatorTests
     [Fact]
     public async Task Disabled_coordinator_still_subscribes_but_a_tick_does_no_work()
     {
-        // Contract change: Enabled is now read live inside MaterializeTickAsync (not
-        // gated at subscribe time) so an operator can flip it via config reload without a
-        // restart -- the exact stabiliser this subsystem needed during the incident. The
-        // coordinator therefore always subscribes when a schedule exists; disabled just
-        // means every tick is a no-op.
+        // Enabled is a startup snapshot (FOSS hard rule: no runtime options-reload) checked
+        // inside MaterializeTickAsync rather than gating the subscription in StartAsync -- a
+        // single code path, even though there's no live flip to benefit from it. The
+        // coordinator always subscribes when a schedule exists; disabled just means every
+        // tick is a no-op for the life of the process.
         var composes = 0;
         var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); }, () => 1L,
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => 1L), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { Enabled = false }), sched);
+            Options.Create(new DashboardMaterializerOptions { Enabled = false }), sched);
 
         await coord.StartAsync(default);
         Assert.Equal(1, sched.SubscriberCount);
@@ -284,67 +291,13 @@ public sealed class DashboardMaterializerCoordinatorTests
     }
 
     [Fact]
-    public async Task Tick_honors_a_live_config_flip_to_disabled_without_restart()
-    {
-        var composes = 0;
-        long tick = 1;
-        var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
-        var sched = new FakeScheduleCoordinator();
-        var monitor = new MutableOptionsMonitor<DashboardMaterializerOptions>(
-            new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false });
-        var coord = new DashboardMaterializerCoordinator(
-            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(), monitor, sched);
-
-        await cache.GetAsync(Traffic, Window(), tick, default); // real read -> live envelope
-        composes = 0;
-        await coord.StartAsync(default);
-
-        tick = 2;
-        await sched.RaiseTickAsync(TickCadence.Tick10s);
-        Assert.Equal(1, composes); // enabled: tick warms the live envelope
-
-        monitor.CurrentValue.Enabled = false; // live flip (config reload), no restart
-        tick = 3;
-        await sched.RaiseTickAsync(TickCadence.Tick10s);
-        Assert.Equal(1, composes); // disabled: the next tick does no work
-    }
-
-    [Fact]
-    public async Task Tick_honors_a_live_config_flip_back_to_enabled_without_restart()
-    {
-        var composes = 0;
-        long tick = 1;
-        var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
-        var sched = new FakeScheduleCoordinator();
-        var monitor = new MutableOptionsMonitor<DashboardMaterializerOptions>(
-            new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false, Enabled = false });
-        var coord = new DashboardMaterializerCoordinator(
-            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(), monitor, sched);
-
-        await cache.GetAsync(Traffic, Window(), tick, default);
-        composes = 0;
-        await coord.StartAsync(default);
-
-        tick = 2;
-        await sched.RaiseTickAsync(TickCadence.Tick10s);
-        Assert.Equal(0, composes); // starts disabled: no work
-
-        monitor.CurrentValue.Enabled = true; // live flip (config reload), no restart
-        tick = 3;
-        await sched.RaiseTickAsync(TickCadence.Tick10s);
-        Assert.Equal(1, composes); // re-enabled: the next tick resumes warming
-    }
-
-    [Fact]
     public async Task No_schedule_coordinator_is_a_safe_noop()
     {
         var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => 1L,
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+            Options.Create(new DashboardMaterializerOptions()));
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => 1L), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()), schedule: null);
+            Options.Create(new DashboardMaterializerOptions()), schedule: null);
 
         await coord.StartAsync(default); // viewer-mode host: must not throw
         await coord.StopAsync(default);

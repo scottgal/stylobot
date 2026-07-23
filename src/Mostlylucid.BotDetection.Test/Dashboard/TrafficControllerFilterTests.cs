@@ -115,9 +115,13 @@ public sealed class TrafficControllerFilterTests
         store ??= new TestEventStore();
         var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
         var composer = new DefaultDashboardPageComposer(catalog, store);
-        var contentCache = new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardContentCache(
+        var innerCache = new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardContentCache(
             (m, w, ct) => composer.ComposeAsync(m, w, ct), () => 1L,
-            new Mostlylucid.BotDetection.Test.Helpers.MutableOptionsMonitor<Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions>(new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions()));
+            Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.UI.Dashboard.Materialization.DashboardMaterializerOptions()));
+        // Structural §8 fix: GetCurrentAsync never composes on the request thread anymore --
+        // this test-only decorator simulates "the materializer already warmed it" so the
+        // controller's own batching/filter behavior can still be asserted in isolation.
+        var contentCache = new Mostlylucid.BotDetection.Test.Helpers.AutoWarmingContentCache(innerCache, () => 1L);
         var manifests = new DefaultDashboardPageManifestSource();
         var controller = new TrafficController(
             store,
