@@ -1,6 +1,6 @@
 ---
-name: foss-session-2026-07-23-reengaged-task1-task2
-description: Re-engaged by overview-. Task 1 (csproj gaps) does NOT reproduce — reported, awaiting ecommerce- repro info. Task 2 (upstream-always-200) root cause FOUND — DegradationAtom/UpstreamHealthGate never wired to real traffic in production. Design sent to overview-, gated for approval, NOT built yet.
+name: foss-session-2026-07-23-task2-shipped
+description: Task 2 APPROVED + BUILT + COMMITTED (9e6d1f0c) — DegradationAtom/UpstreamHealthGate wired to real traffic via TDD. Task 1 (csproj gaps) does not reproduce, awaiting ecommerce- repro info. Task 2b (Logs view) routed to otel-/aspnet-, not mine.
 metadata:
   type: project
 ---
@@ -56,8 +56,24 @@ than duplicate/guess at commercial internals I can't see: either route 2b to ote
 it, or tell me the specific FOSS-side seam needed (if any) once they've scoped the read contract. Task 2a
 (the factual "does the gateway mask 5xx to 200" answer) is reconfirmed and closed — no.
 
+## Task 2 — SHIPPED, commit 9e6d1f0c on foss/dashboard-collapse (not pushed)
+overview- approved the minimal fix. Built via TDD (RED confirmed on CS0117 for the not-yet-existing members
+first): `BotDetectionModule.TryAddSingleton<DegradationAtom>()` + `<UpstreamHealthGate>()`; new
+`internal static BotDetectionMiddleware.RecordDegradation(context, atom, requestStartTicks)` called from
+`EmitResponseSignals`, gated on `IsResponseFromUpstream()`, resolves the atom per-request via
+`context.RequestServices.GetService<DegradationAtom>()` (null-safe, matches DegradationStoreSampler's own
+established safe pattern rather than an optional ctor param — its own comments warn that pattern bit them
+before). Latency via new `ResolveUpstreamLatencyMs`: prefers gateway-stamped
+`HttpContext.Items["StyloBot.ProxyTiming.UpstreamElapsedMs"]` (literal-duplicated, core can't reference
+Gateway project), falls back to a stopwatch spanning `_next`. 7 new tests (2 DI registration + 5 middleware
+gate/latency), 152 RateLimit/middleware/DI tests green, full solution builds clean. Noted one *unrelated*
+pre-existing test failure in passing: `DashboardLinkIntegrityTests...` — `_TrafficPanels.cshtml` hardcoded
+`/dashboard/…` mount, not touched by me, flagged to overview- in case dash- doesn't already have it.
+
 ## Next step if resuming
-Waiting on overview- reply on: Task 1 repro info, Task 2b routing decision. Nothing else pending.
+Waiting on overview- reply on: Task 1 repro info (ecommerce-'s exact working dir/command), and general ack
+on Task 2 commit. Task 2b (Logs view) is routed to otel-/aspnet-, not mine unless overview- comes back with
+a specific FOSS-side seam ask. Nothing else pending.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
