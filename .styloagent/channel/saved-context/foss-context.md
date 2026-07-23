@@ -1,11 +1,63 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: Task 2 shipped (9e6d1f0c). LlamaSharp missing-PackageReference build bug (mae- found it) fixed + shipped (d50fd0f1) — confirmed IS in the gateway SKU build path. Task 1 (csproj gaps ecommerce- reported) still doesn't reproduce, standing by.
+description: §7 materializer tuning (Tier 1 pinned windows + Tier 2 demand ranking + Tier 3 bounded parallelism) shipped as 70956ca1, 34/34 tests green. bot_probability index shipped commercial 9760d2ab. Reporting SHAs+measurements to overview- next.
 metadata:
   type: project
 ---
 
-# foss- saved context (2026-07-23, re-engaged) — AWAITING overview- GATE
+# foss- saved context (2026-07-23, re-engaged)
+
+## §7 materializer priority/coverage tuning — SHIPPED (70956ca1)
+Built per overview-'s "GO — build the §7 prewarm tuning + the bot_probability index" instruction,
+following the doc's measure->tune sequence. All three tiers landed in one commit on
+`foss/dashboard-collapse` (FOSS repo):
+
+- **Tier 1 (pinned coverage)**: `DashboardMaterializerOptions.PrewarmWindows` (new, default
+  `["6h","24h","7d","30d"]`) replaces the old single-window `PrewarmWindowMinutes`/
+  `PrewarmBucketMinutes`. Every tick, Traffic is warmed at all 4 tokens unconditionally (not just
+  one), via the same `DashboardRoutingHelpers.WindowTokenToMinutes` + `HitsPerPeriodChartletBuilder.
+  BucketSizeForWindow` helpers `BuildVisitorsPageWindow` uses for a real request, so pinned envelope
+  keys always match what a real request looks up.
+- **Tier 2 (demand ranking)**: `DashboardContentCache.LiveEnvelopes()` now returns `HitCount` +
+  `LastSeenTick` per envelope (interface signature changed — only one prod implementation, no mocks,
+  confirmed via grep before changing it). Coordinator sorts live envelopes by
+  `(HitCount desc, LastSeenTick desc)` before warming, so a hot page wins the tick's budget over
+  whatever the dictionary happened to enumerate first.
+- **Tier 3 (bounded parallelism)**: new `MaxConcurrentWarmsPerTick` option (default 4, conservative
+  re pool per the doc's guidance) — warms in wave-based bounded concurrency mirroring
+  `ScheduleCoordinator`'s own pattern. `MaxTickDurationMs` is now checked BETWEEN waves, not
+  per-item — this is an intentional semantics change from the original single-item-checked version.
+
+**TDD discipline**: RED/GREEN throughout. `WindowTokenToMinutes` extracted+tested first (10 tests),
+then `HitCount` tracking (RED confirmed via CS1061 compile error before implementing), then Tier 1
+multi-window prewarm (RED via composes-count assertion), then Tier 2 ranking test + Tier 3
+wave-concurrency test (semaphore/TCS-based, would fail under old sequential/unranked code). 3
+pre-existing tests needed updating for the new intentional semantics (not regressions): the
+single-window prewarm assertion (now 4 composes not 1), the time-budget test (now pins
+`MaxConcurrentWarmsPerTick=1` to isolate per-item deadline granularity, since default concurrency=4
+would otherwise let all 3 test pages compose in one wave), and the live-envelope warm test (prewarm
+now explicitly off to isolate Tier 2 from Tier 1). 34/34 dashboard-materializer/content-cache/
+routing-helper tests green; full solution build green; only unrelated pre-existing failure is
+`DashboardLinkIntegrityTests` on `_TrafficPanels.cshtml` (not a file I touched — another agent's
+in-flight work, left alone).
+
+**Git housekeeping note**: mid-verification, `git stash`/`pop` hit the pre-existing uncommitted
+`tailwind.min.css` drift (present since session start, unrelated to this work — looks like a
+regenerating vendored build artifact touched by a concurrent process in this shared checkout).
+Recovered cleanly by stashing that file alone first, then popping the real work stash. Committed
+**70956ca1** with only the 9 intentional files; left `tailwind.min.css` and other agents'
+`.styloagent/` scratch files untouched.
+
+## Next step if resuming
+Report **70956ca1** (FOSS) + **9760d2ab** (commercial, bot_probability index, already shipped
+earlier this session) to overview- with the measurements above (34/34 green, build clean). No
+live prod measurement pass done yet (would need `bench-` or a real traffic sample against staging)
+— that's the natural follow-up if overview-/bench- want the "measure" half of measure->tune
+validated against real cold-miss/valve-trip rates rather than just unit-test behavior.
+
+---
+
+# Prior session history (2026-07-23, earlier in the day) — AWAITING overview- GATE
 
 ## Task 1 — build gaps (P1) — does not reproduce
 Wiped obj/bin for PrometheusPack/UI/core, `dotnet build mostlylucid.stylobot.sln` clean = 0 errors. VYaml
