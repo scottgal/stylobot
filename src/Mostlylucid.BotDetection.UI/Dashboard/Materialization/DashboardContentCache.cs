@@ -33,7 +33,7 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
     // same view refresh the last-seen tick. Age-pruned in LiveEnvelopes().
     private readonly ConcurrentDictionary<DashboardContentEnvelope, LiveEntry> _live = new();
 
-    private sealed record LiveEntry(DashboardPageManifest Manifest, DashboardPageWindow Window, long LastSeenTick, int HitCount);
+    private sealed record LiveEntry(DashboardPageManifest Manifest, DashboardPageWindow Window, long LastSeenTick);
 
     // Envelope -> the most recent tick that was warmed (by the materializer or a read).
     // Reads resolve to THIS tick, not strictly the current tick — so a read never cold-
@@ -75,11 +75,8 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
     {
         var key = new DashboardContentKey(manifest, window, tick);
         // Mark this view live so the materializer keeps it warm at future ticks, and record
-        // that this tick is warm so GetCurrentAsync can resolve to it. HitCount accumulates
-        // across reads (not reset by re-seeing the envelope) so the materializer's Tier 2
-        // ranking can tell a once-viewed page apart from a repeatedly-hit one.
-        var priorHits = _live.TryGetValue(key.Envelope, out var prior) ? prior.HitCount : 0;
-        _live[key.Envelope] = new LiveEntry(manifest, window, _currentTick(), priorHits + 1);
+        // that this tick is warm so GetCurrentAsync can resolve to it.
+        _live[key.Envelope] = new LiveEntry(manifest, window, _currentTick());
         RecordWarm(key.Envelope, tick);
 
         // ComputeOnColdMiss=false is the request-path safety valve: an operator can stop
@@ -121,11 +118,11 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, out DashboardPageResult? result)
         => _atom.TryGet(new DashboardContentKey(manifest, window, tick), out result);
 
-    public IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window, int HitCount, long LastSeenTick)> LiveEnvelopes()
+    public IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window)> LiveEnvelopes()
     {
         var current = _currentTick();
         var maxAge = _options.LiveEnvelopeMaxAgeTicks;
-        var live = new List<(DashboardPageManifest, DashboardPageWindow, int, long)>();
+        var live = new List<(DashboardPageManifest, DashboardPageWindow)>();
         foreach (var kvp in _live)
         {
             if (current - kvp.Value.LastSeenTick > maxAge)
@@ -133,7 +130,7 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
                 _live.TryRemove(kvp.Key, out _); // aged out — stop warming it
                 continue;
             }
-            live.Add((kvp.Value.Manifest, kvp.Value.Window, kvp.Value.HitCount, kvp.Value.LastSeenTick));
+            live.Add((kvp.Value.Manifest, kvp.Value.Window));
         }
         return live;
     }

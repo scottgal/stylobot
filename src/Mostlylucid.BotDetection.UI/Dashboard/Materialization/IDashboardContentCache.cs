@@ -45,9 +45,6 @@ public interface IDashboardContentCache
     ///     instead of composing. Prunes envelopes older than the configured max age.
     ///     This is the demand signal until SignalR presence lands: only viewed
     ///     envelopes are warmed, and they age out when no longer read.
-    ///     HitCount/LastSeenTick let the materializer rank which live envelopes to warm
-    ///     first under budget pressure (§7 Tier 2) — the cache sees every request-path
-    ///     read, so it's the natural owner of demand.
     /// </summary>
-    IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window, int HitCount, long LastSeenTick)> LiveEnvelopes();
+    IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window)> LiveEnvelopes();
 }
