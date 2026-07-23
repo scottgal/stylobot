@@ -88,10 +88,23 @@ since the reference being truly absent means a cold restore (Maxo/CI/fresh clone
 CS1061 regardless of what my machine does. Verified clean rebuilds of the LlamaSharp project alone, the
 full Gateway project, and the whole solution — 0 errors after the fix in all three.
 
+## DEFINITIVE main-build verify — origin/main @ 15c8f63c builds clean, cold + network
+overview- asked for a genuinely cold, network-forced check of FOSS origin/main (not the shared checkout,
+which had another agent's active uncommitted WIP at the time -- did NOT touch it). Used an isolated
+`git worktree add --detach <scratch> origin/main` + `dotnet restore -p:RestorePackagesPath=<fresh empty
+folder>` (forces every package through the network, bypassing my warm ~/.nuget/packages) + full solution
+build. **0 errors**, both suspect projects (UI: ephemeral 2.9.1 consistent, no type mismatch; LlamaSharp:
+builds fine even WITHOUT my d50fd0f1 fix, on origin/main which predates it). Conclusion: main is not
+broken; benchviz-/ecommerce-'s reported errors are environmental on their side (likely no nuget.org egress
+or a restricted source list) -- reported this to overview- with the exact repro steps, and reconfirmed
+9e6d1f0c + d50fd0f1 are both ready to fold into main whenever operator go lands. Cleaned up the worktree
+after.
+
 ## Next step if resuming
-Waiting on: overview- ack on the LlamaSharp fix + gateway-blocking answer; ecommerce-'s exact repro for
-Task 1 (still doesn't reproduce here, standing by, not chasing blind). Task 2b (Logs view) is routed to
-otel-/aspnet-, not mine unless overview- comes back with a specific FOSS-side seam ask. Nothing else pending.
+Waiting on: overview- ack on the main-build verdict + operator go to push 9e6d1f0c/d50fd0f1 to FOSS main;
+ecommerce-'s/benchviz-'s exact environment details if they want the environmental gap chased further.
+Task 2b (Logs view) is routed to otel-/aspnet-, not mine unless overview- comes back with a specific
+FOSS-side seam ask. Nothing else pending.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
