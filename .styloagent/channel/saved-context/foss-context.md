@@ -1,11 +1,47 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: SHIPPED TO MAIN both repos (FOSS d142b4ea, commercial ffacf2fa), user-confirmed. bench- saw bad numbers (13.9s/23.1s) on :8390 contradicting Fix1 — CONFIRMED via direct code inspection (not just git ancestry) that Fix1 + compose-batch fix are genuinely present; almost certainly a stale-container artifact, deploy- rebuilding now. NEXT TASK: build a focused live-apply round-trip integration test (commercial moat regression guard) per overview-'s explicit ask — separate track, starting now.
+description: MAJOR FINDING — the 6.7s p95 on /dashboard/traffic under load is NOT a Fix-1 gap, it's architectural: StyloBotDashboardMiddleware.ServeDashboardPageAsync (the ACTUAL page handler — TrafficController is dead code on real hosts) unconditionally builds ALL dashboard rows' data (clusters/topbots/sessions/threats/countries/endpoints/useragents) on EVERY request, only 1 of ~8 datasets (composedPage/traffic) is Fix-1-protected. Reported to overview- with exact line numbers (StyloBotDashboardMiddleware.cs:1310,1356), 2 fix options proposed, NOT building either without steer. Both repos already shipped to main (FOSS d142b4ea, commercial ffacf2fa) — this finding is about what's NEEDED NEXT, not a blocker on what shipped.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
+
+## MAJOR FINDING — the real root cause of the 6.7s p95 (architectural, not Fix-1 bug)
+overview- disproved my "stale container" theory (deploy- confirmed :8390's digest matched
+50fb696d exactly) — the 6.7s p95 on /dashboard/traffic under concurrent load is REAL against the
+correct build. Per overview-'s explicit instruction, instrumented/traced the actual serving path
+instead of guessing, and found the real cause via direct code read:
+
+**`TrafficController.Index()` is DEAD CODE on any real host** — `StyloBotDashboardMiddleware`
+(registered BEFORE `MapControllers()`, `Extensions/StyloBotDashboardServiceExtensions.cs:882-960`)
+intercepts `/dashboard/traffic` via its row-dispatch switch (`StyloBotDashboardMiddleware.cs:343`),
+calls `ServeDashboardPageAsync`, and fully writes the response WITHOUT ever calling `_next()` — MVC
+routing (and TrafficController) never executes.
+
+**`ServeDashboardPageAsync` (line 1149) unconditionally builds ALL dashboard rows' data on EVERY
+request**, not just the active row:
+- Line 1259: `_contentCache.GetCurrentAsync(trafficManifest, ...)` — the ONE Fix-1-protected read,
+  feeds `composedPage` only.
+- Line 1310 `Task.WhenAll`: `visitorTask, summaryTask, countriesTask, endpointsTask, userAgentsTask`
+  — countries/endpoints/useragents are separate UNCACHED direct `_eventStore` calls, not gated by
+  Fix 1 or by which row is being viewed.
+- Line 1356 `Task.WhenAll`: `yourDetectionTask, clustersTask, topBotsTask, sessionsTask,
+  threatsTask` — `BuildClustersModelAsync`/`BuildTopBotsModel`/`BuildSessionsModel`/
+  `BuildThreatsModelAsync`, ALL separate uncached direct event-store reads, ALL unconditional
+  regardless of the requested row.
+
+So even a perfect Fix-1 cache hit on `composedPage` still leaves ~7 other independent, uncached,
+synchronous DB round-trips before the response writes — these are almost certainly the real source
+of the 6.7s p95 under concurrent load, since Fix 1 was never wired to touch them (they're outside
+DashboardContentCache/the materializer entirely). This is architectural (the shell renders every
+row's data for every row's request), not a small Fix-1 bug.
+
+**Reported to overview- with exact evidence, proposed 2 fix shapes, NOT building either without a
+steer**: (a) make the handler lazy per-row (only fetch what the active row needs — smaller, directly
+fixes the measured symptom), or (b) generalize Fix 1's out-of-request pattern to the other 7
+datasets too (bigger lift, more thorough). **Standing by for direction — this is the next real task
+once picked up.**
 
 ## bench- saw bad numbers on :8390 — CONFIRMED not a code bug (stale container)
 After shipping to main, overview- relayed bench- seeing 13.9s first-hit + 23.1s compose-batch on
