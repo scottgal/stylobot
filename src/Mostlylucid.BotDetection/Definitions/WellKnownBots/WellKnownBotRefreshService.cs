@@ -28,7 +28,7 @@ public sealed class WellKnownBotRefreshService : IDisposable
 
     public const string HttpClientName = "stylobot.well-known-bots";
 
-    private readonly IOptionsMonitor<BotDetectionOptions> _options;
+    private readonly IOptions<BotDetectionOptions> _options;
     private readonly WellKnownBotIndex _index;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<WellKnownBotRefreshService> _logger;
@@ -38,7 +38,7 @@ public sealed class WellKnownBotRefreshService : IDisposable
     private int _disposed;
 
     public WellKnownBotRefreshService(
-        IOptionsMonitor<BotDetectionOptions> options,
+        IOptions<BotDetectionOptions> options,
         WellKnownBotIndex index,
         IHttpClientFactory httpClientFactory,
         ILogger<WellKnownBotRefreshService> logger,
@@ -83,7 +83,7 @@ public sealed class WellKnownBotRefreshService : IDisposable
     {
         if (_disposed != 0) return;
 
-        var opts = _options.CurrentValue.WellKnownBots;
+        var opts = _options.Value.WellKnownBots;
         if (string.IsNullOrWhiteSpace(opts.Url)) return;
 
         var interval = opts.RefreshInterval < MinimumInterval ? MinimumInterval : opts.RefreshInterval;
@@ -95,7 +95,7 @@ public sealed class WellKnownBotRefreshService : IDisposable
 
     public async Task<bool> RefreshOnceAsync(CancellationToken ct = default)
     {
-        var opts = _options.CurrentValue.WellKnownBots;
+        var opts = _options.Value.WellKnownBots;
         var url = opts.Url;
         if (string.IsNullOrWhiteSpace(url)) return false;
 

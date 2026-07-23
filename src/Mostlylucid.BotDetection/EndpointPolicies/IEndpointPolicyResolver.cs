@@ -34,10 +34,10 @@ internal enum SourceFilter { Internal, External }
 
 internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
 {
-    private readonly IOptionsMonitor<EndpointPolicyOptions> _options;
+    private readonly IOptions<EndpointPolicyOptions> _options;
     private readonly ILogger<ConfigEndpointPolicyResolver> _logger;
     private readonly IBrowserModeResolver? _modes;
-    private readonly IOptionsMonitor<BotDetectionOptions>? _botOptions;
+    private readonly IOptions<BotDetectionOptions>? _botOptions;
 
     // Registered external rule matchers, deduped by RuleName (last wins).
     // Empty for the FOSS core product, which ships zero extensions.
@@ -46,16 +46,17 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
     private static readonly IReadOnlyDictionary<string, object?> EmptyPayload =
         new Dictionary<string, object?>();
 
-    // Compiled matchers in declaration order. Recomputed when options
-    // change (cheap; rule list is small).
+    // Compiled matchers in declaration order, compiled once at startup from
+    // the snapshot options (FOSS is startup-snapshot only -- no runtime
+    // options-reload, so there is nothing to recompile after construction).
     private CompiledRule[] _compiled = Array.Empty<CompiledRule>();
     private bool _enabled;
 
     public ConfigEndpointPolicyResolver(
-        IOptionsMonitor<EndpointPolicyOptions> options,
+        IOptions<EndpointPolicyOptions> options,
         ILogger<ConfigEndpointPolicyResolver> logger,
         IBrowserModeResolver? modes = null,
-        IOptionsMonitor<BotDetectionOptions>? botOptions = null,
+        IOptions<BotDetectionOptions>? botOptions = null,
         IEnumerable<IEndpointPolicyRuleExtension>? extensions = null)
     {
         _options = options;
@@ -70,11 +71,10 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         // When absent (tests, minimal hosts) only loopback/RFC-1918 are
         // treated as internal — the safe / conservative default.
         _botOptions = botOptions;
-        Recompile(options.CurrentValue);
-        options.OnChange(Recompile);
+        Recompile(options.Value);
     }
 
-    public IReadOnlyList<EndpointPolicyRule> Rules => _options.CurrentValue.Rules;
+    public IReadOnlyList<EndpointPolicyRule> Rules => _options.Value.Rules;
 
     public EndpointPolicyMatch? Match(HttpContext context)
     {
@@ -276,7 +276,7 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
 
         if (peer is null) return false;
 
-        var trustedIps = _botOptions.CurrentValue.TransportTrust.TrustedProxyIps;
+        var trustedIps = _botOptions.Value.TransportTrust.TrustedProxyIps;
         if (trustedIps.Count == 0) return false;
 
         // Dual-stack Kestrel can present an IPv4 peer as an IPv4-mapped IPv6 address

@@ -22,11 +22,11 @@ namespace Mostlylucid.BotDetection.RateLimiting;
 /// </summary>
 public class ScopedRateLimitResolver
 {
-    private readonly IOptionsMonitor<RateLimitOptions> _options;
+    private readonly IOptions<RateLimitOptions> _options;
     private readonly DomainNormalizer? _domainNormalizer;
 
     public ScopedRateLimitResolver(
-        IOptionsMonitor<RateLimitOptions> options,
+        IOptions<RateLimitOptions> options,
         DomainNormalizer? domainNormalizer = null)
     {
         _options = options;
@@ -42,7 +42,7 @@ public class ScopedRateLimitResolver
         string path,
         string method)
     {
-        var options = _options.CurrentValue;
+        var options = _options.Value;
         if (!options.Enabled) return Array.Empty<RateLimitRule>();
 
         // Walk from outermost (global) to innermost (method); collect scopes

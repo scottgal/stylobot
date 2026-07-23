@@ -68,7 +68,7 @@ public sealed class IpAtom : DetectorAtomBase
     private readonly IProxyEnvironment? _proxyEnvironment;
     private readonly IDetectorConfigProvider _configProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly IOptionsMonitor<BotDetectionOptions>? _options;
+    private readonly IOptions<BotDetectionOptions>? _options;
 
     public IpAtom(
         ILogger<IpAtom> logger,
@@ -77,7 +77,7 @@ public sealed class IpAtom : DetectorAtomBase
         IBotListDatabase? botListDatabase = null,
         IAsnLookupService? asnLookup = null,
         IProxyEnvironment? proxyEnvironment = null,
-        IOptionsMonitor<BotDetectionOptions>? options = null)
+        IOptions<BotDetectionOptions>? options = null)
         : base(name: "Ip", category: "IP")
     {
         _logger = logger;
@@ -141,7 +141,7 @@ public sealed class IpAtom : DetectorAtomBase
         // Internal -> logonly and bypass enforcement.
         var isTrustedInternal = InternalTrustEvaluator.IsTrustedInternalPeer(
             context.Connection.RemoteIpAddress,
-            _options?.CurrentValue.InternalTrust ?? new InternalTrustOptions());
+            _options?.Value.InternalTrust ?? new InternalTrustOptions());
         sink.Raise($"{SignalKeys.IpIsTrustedInternal}:{(isTrustedInternal ? "true" : "false")}", sessionId);
 
         if (isLocal)

@@ -49,9 +49,9 @@ public interface INavVisibilityPolicy
 /// </summary>
 public sealed class DefaultNavVisibilityPolicy : INavVisibilityPolicy
 {
-    private readonly IOptionsMonitor<NavVisibilityOptions> _options;
+    private readonly IOptions<NavVisibilityOptions> _options;
 
-    public DefaultNavVisibilityPolicy(IOptionsMonitor<NavVisibilityOptions> options)
+    public DefaultNavVisibilityPolicy(IOptions<NavVisibilityOptions> options)
     {
         _options = options;
     }
@@ -62,7 +62,7 @@ public sealed class DefaultNavVisibilityPolicy : INavVisibilityPolicy
         // Privileged viewers always see everything -- exactly one bypass tier, no further gating.
         if (isPrivilegedViewer) return true;
 
-        var hiddenPaths = _options.CurrentValue.HiddenPaths;
+        var hiddenPaths = _options.Value.HiddenPaths;
         if (hiddenPaths is not { Count: > 0 }) return true;
 
         foreach (var glob in hiddenPaths)

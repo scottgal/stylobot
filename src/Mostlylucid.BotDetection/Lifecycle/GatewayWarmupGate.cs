@@ -54,7 +54,7 @@ namespace Mostlylucid.BotDetection.Lifecycle;
 public sealed class GatewayWarmupGate
 {
     private readonly DegradationAtom _atom;
-    private readonly IOptionsMonitor<GatewayWarmupOptions> _options;
+    private readonly IOptions<GatewayWarmupOptions> _options;
     private readonly TimeProvider _timeProvider;
     private readonly DateTimeOffset _startedAt;
 
@@ -64,35 +64,7 @@ public sealed class GatewayWarmupGate
         TimeProvider? timeProvider = null)
     {
         _atom = atom ?? throw new ArgumentNullException(nameof(atom));
-        _options = new StaticMonitor(options?.Value ?? new GatewayWarmupOptions());
-        _timeProvider = timeProvider ?? TimeProvider.System;
-        _startedAt = _timeProvider.GetUtcNow();
-    }
-
-    /// <summary>
-    ///     Hot-reload-aware overload: same as the primary constructor but
-    ///     binds to an <see cref="IOptionsMonitor{T}"/> so options reload
-    ///     without restarting the gate. The DI container picks the
-    ///     <see cref="IOptions{T}"/> overload to avoid ambiguous-ctor
-    ///     resolution; consumers wanting reload construct via this factory.
-    /// </summary>
-    public static GatewayWarmupGate WithMonitor(
-        DegradationAtom atom,
-        IOptionsMonitor<GatewayWarmupOptions> options,
-        TimeProvider? timeProvider = null)
-    {
-        ArgumentNullException.ThrowIfNull(atom);
-        ArgumentNullException.ThrowIfNull(options);
-        return new GatewayWarmupGate(atom, options, timeProvider);
-    }
-
-    private GatewayWarmupGate(
-        DegradationAtom atom,
-        IOptionsMonitor<GatewayWarmupOptions> options,
-        TimeProvider? timeProvider)
-    {
-        _atom = atom;
-        _options = options;
+        _options = options ?? Microsoft.Extensions.Options.Options.Create(new GatewayWarmupOptions());
         _timeProvider = timeProvider ?? TimeProvider.System;
         _startedAt = _timeProvider.GetUtcNow();
     }
@@ -126,7 +98,7 @@ public sealed class GatewayWarmupGate
     /// </param>
     public bool IsWarmedUp(long signatureObservationCount)
     {
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
         if (!opts.EnableWarmupGate)
             return true;
 
@@ -144,14 +116,5 @@ public sealed class GatewayWarmupGate
             return false;
 
         return true;
-    }
-
-    private sealed class StaticMonitor : IOptionsMonitor<GatewayWarmupOptions>
-    {
-        public StaticMonitor(GatewayWarmupOptions value) { CurrentValue = value; }
-        public GatewayWarmupOptions CurrentValue { get; }
-        public GatewayWarmupOptions Get(string? name) => CurrentValue;
-        public IDisposable OnChange(Action<GatewayWarmupOptions, string?> listener) => new Noop();
-        private sealed class Noop : IDisposable { public void Dispose() { } }
     }
 }

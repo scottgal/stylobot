@@ -50,15 +50,14 @@ public class HoneypotDeflectModeTests
     {
         var opts = new HoneypotDetectionOptions { ResponseMode = mode };
         opts.RateLimit.Enabled = false; // no jitter delay in the test
-        var monitor = new Mock<IOptionsMonitor<HoneypotDetectionOptions>>();
-        monitor.Setup(m => m.CurrentValue).Returns(opts);
+        var options = Microsoft.Extensions.Options.Options.Create(opts);
 
         var registry = new Mock<ISimulationPackRegistry>();
         registry.Setup(r => r.GetLoadedPacks()).Returns(Array.Empty<SimulationPack>());
 
         var responder = new SimulationPackResponder(registry.Object, NullLogger<SimulationPackResponder>.Instance);
         return new HoneypotResponseActionPolicy(
-            monitor.Object, responder, new HoneypotRateLimiter(),
+            options, responder, new HoneypotRateLimiter(),
             NullLogger<HoneypotResponseActionPolicy>.Instance);
     }
 

@@ -35,13 +35,13 @@ public sealed class SessionAtomizerService : IDisposable
 
     private readonly IDetectionArchive _store;
     private readonly ILogger<SessionAtomizerService> _logger;
-    private readonly IOptionsMonitor<BotDetectionOptions> _options;
+    private readonly IOptions<BotDetectionOptions> _options;
     private readonly IDisposable _subscription;
     private DateTime _lastSuccessfulPassUtc = DateTime.MinValue;
     private int _disposed;
 
-    private RetentionOptions      Retention      => _options.CurrentValue.Retention;
-    private ClassificationOptions Classification => _options.CurrentValue.Classification;
+    private RetentionOptions      Retention      => _options.Value.Retention;
+    private ClassificationOptions Classification => _options.Value.Classification;
     private TimeSpan SessionGap     => Retention.SessionGap;
     private TimeSpan RunInterval    => Retention.AtomizerRunInterval;
     private TimeSpan GraceAge       => Retention.SessionGraceAge;
@@ -50,7 +50,7 @@ public sealed class SessionAtomizerService : IDisposable
     public SessionAtomizerService(
         IDetectionArchive store,
         ILogger<SessionAtomizerService> logger,
-        IOptionsMonitor<BotDetectionOptions> options,
+        IOptions<BotDetectionOptions> options,
         IScheduleCoordinator coordinator)
     {
         ArgumentNullException.ThrowIfNull(coordinator);

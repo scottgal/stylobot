@@ -40,13 +40,13 @@ public sealed class HoneypotPathTagger
     public const string LegacyItemKeyMatchedPath = "Holodeck.MatchedPath";
 
     private readonly RequestDelegate _next;
-    private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
+    private readonly IOptions<HoneypotDetectionOptions> _options;
     private readonly IHoneypotExemptStore _exemptStore;
     private readonly SiteProfiles.ISiteProfileResolver? _profileResolver;
 
     public HoneypotPathTagger(
         RequestDelegate next,
-        IOptionsMonitor<HoneypotDetectionOptions> options,
+        IOptions<HoneypotDetectionOptions> options,
         IHoneypotExemptStore exemptStore,
         SiteProfiles.ISiteProfileResolver? profileResolver = null)
     {
@@ -58,7 +58,7 @@ public sealed class HoneypotPathTagger
 
     public Task InvokeAsync(HttpContext context)
     {
-        if (!_options.CurrentValue.Enabled) return _next(context);
+        if (!_options.Value.Enabled) return _next(context);
 
         var raw = context.Request.Path.Value;
         if (string.IsNullOrEmpty(raw)) return _next(context);
@@ -69,7 +69,7 @@ public sealed class HoneypotPathTagger
         // Honour additional operator-supplied paths if the catalog missed.
         if (tier == HoneypotTier.None)
         {
-            var extras = _options.CurrentValue.AdditionalPaths;
+            var extras = _options.Value.AdditionalPaths;
             if (extras is { Count: > 0 })
             {
                 foreach (var p in extras)

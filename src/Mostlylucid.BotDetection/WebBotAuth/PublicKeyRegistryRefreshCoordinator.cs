@@ -19,7 +19,7 @@ public sealed class PublicKeyRegistryRefreshCoordinator : IDisposable
     public const string HttpClientName = "stylobot.public-key-registry";
     private static readonly TimeSpan MinimumInterval = TimeSpan.FromHours(1);
 
-    private readonly IOptionsMonitor<PublicKeyRegistryOptions> _options;
+    private readonly IOptions<PublicKeyRegistryOptions> _options;
     private readonly PublicKeyRegistry _registry;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<PublicKeyRegistryRefreshCoordinator> _logger;
@@ -30,7 +30,7 @@ public sealed class PublicKeyRegistryRefreshCoordinator : IDisposable
     private int _disposed;
 
     public PublicKeyRegistryRefreshCoordinator(
-        IOptionsMonitor<PublicKeyRegistryOptions> options,
+        IOptions<PublicKeyRegistryOptions> options,
         PublicKeyRegistry registry,
         IHttpClientFactory httpClientFactory,
         ILogger<PublicKeyRegistryRefreshCoordinator> logger,
@@ -61,7 +61,7 @@ public sealed class PublicKeyRegistryRefreshCoordinator : IDisposable
     {
         if (_disposed != 0) return;
 
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
         if (!opts.Enabled) return;
 
         // Manual keys may have been reconfigured since boot — re-seed cheaply.
@@ -77,7 +77,7 @@ public sealed class PublicKeyRegistryRefreshCoordinator : IDisposable
 
     public async Task<bool> RefreshOnceAsync(CancellationToken ct = default)
     {
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
         if (!opts.Enabled) return false;
 
         var url = opts.ManifestUrl;
@@ -129,7 +129,7 @@ public sealed class PublicKeyRegistryRefreshCoordinator : IDisposable
 
     private void SeedManualKeys()
     {
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
         if (!opts.Enabled || opts.ManualKeys.Count == 0) return;
 
         var manual = new List<PublicKeyEntry>(opts.ManualKeys.Count);

@@ -30,12 +30,12 @@ namespace Mostlylucid.BotDetection.Middleware;
 public sealed class UrlRewriteSignalsMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly IOptionsMonitor<BotDetectionOptions> _options;
+    private readonly IOptions<BotDetectionOptions> _options;
     private readonly ILogger<UrlRewriteSignalsMiddleware> _logger;
 
     public UrlRewriteSignalsMiddleware(
         RequestDelegate next,
-        IOptionsMonitor<BotDetectionOptions> options,
+        IOptions<BotDetectionOptions> options,
         ILogger<UrlRewriteSignalsMiddleware> logger)
     {
         _next = next;
@@ -45,7 +45,7 @@ public sealed class UrlRewriteSignalsMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var rewriteOpts = _options.CurrentValue.UrlRewrite;
+        var rewriteOpts = _options.Value.UrlRewrite;
 
         if (UrlSignalProjection.ShouldRewrite(context.Request.Path, rewriteOpts))
         {
@@ -96,7 +96,7 @@ public sealed class UrlRewriteSignalsMiddleware
     private byte[]? ResolveSigningKey(UrlRewriteOptions opts)
     {
         if (!opts.Sign) return null;
-        var key = _options.CurrentValue.SignatureHashKey;
+        var key = _options.Value.SignatureHashKey;
         return string.IsNullOrEmpty(key) ? null : Encoding.UTF8.GetBytes(key);
     }
 

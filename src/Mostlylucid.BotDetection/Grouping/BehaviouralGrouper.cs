@@ -20,13 +20,13 @@ namespace Mostlylucid.BotDetection.Grouping;
 /// </remarks>
 public sealed class BehaviouralGrouper : IBehaviouralGrouper
 {
-    private readonly IOptionsMonitor<GroupingOptions> _options;
+    private readonly IOptions<GroupingOptions> _options;
     private readonly ISubnetRotationTracker _subnetTracker;
     private readonly ISessionSimilarityLookup? _vectorLookup;
     private readonly ILogger<BehaviouralGrouper> _logger;
 
     public BehaviouralGrouper(
-        IOptionsMonitor<GroupingOptions> options,
+        IOptions<GroupingOptions> options,
         ILogger<BehaviouralGrouper> logger,
         ISubnetRotationTracker subnetTracker,
         ISessionSimilarityLookup? vectorLookup = null)
@@ -39,7 +39,7 @@ public sealed class BehaviouralGrouper : IBehaviouralGrouper
 
     public GroupKey Resolve(GroupingInput input)
     {
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
 
         if (!opts.Enabled)
             return new GroupKey(GroupKeySource.RawSignature, input.Signature, "(grouping disabled)");

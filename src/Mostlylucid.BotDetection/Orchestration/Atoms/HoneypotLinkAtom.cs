@@ -51,13 +51,13 @@ public sealed class HoneypotLinkAtom : DetectorAtomBase
     public const double Tier2ThreatScore = 0.60;
 
     private readonly ILogger<HoneypotLinkAtom> _logger;
-    private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
+    private readonly IOptions<HoneypotDetectionOptions> _options;
     private readonly IHoneypotExemptStore _exemptStore;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public HoneypotLinkAtom(
         ILogger<HoneypotLinkAtom> logger,
-        IOptionsMonitor<HoneypotDetectionOptions> options,
+        IOptions<HoneypotDetectionOptions> options,
         IHoneypotExemptStore exemptStore,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "HoneypotLink", category: "Honeypot")
@@ -78,7 +78,7 @@ public sealed class HoneypotLinkAtom : DetectorAtomBase
         string sessionId,
         CancellationToken ct = default)
     {
-        if (!_options.CurrentValue.Enabled) return Task.FromResult(None());
+        if (!_options.Value.Enabled) return Task.FromResult(None());
 
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return Task.FromResult(None());
@@ -102,7 +102,7 @@ public sealed class HoneypotLinkAtom : DetectorAtomBase
 
         if (matchedTier == HoneypotTier.None)
         {
-            foreach (var p in _options.CurrentValue.AdditionalPaths)
+            foreach (var p in _options.Value.AdditionalPaths)
             {
                 if (string.IsNullOrEmpty(p)) continue;
                 if (AdditionalMatches(path, p))

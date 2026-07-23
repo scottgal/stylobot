@@ -105,12 +105,8 @@ public class ConfigBaselineReadThroughTests
     }
 
     // --- helpers ----------------------------------------------------------------------------------
-    private static IOptionsMonitor<BotDetectionOptions> OptionsMonitor(BotDetectionOptions opts)
-    {
-        var m = new Mock<IOptionsMonitor<BotDetectionOptions>>();
-        m.Setup(x => x.CurrentValue).Returns(opts);
-        return m.Object;
-    }
+    private static IOptions<BotDetectionOptions> OptionsMonitor(BotDetectionOptions opts)
+        => Microsoft.Extensions.Options.Options.Create(opts);
 
     private static IActionPolicyRegistry Registry(params (string Name, ActionType Type)[] policies)
     {

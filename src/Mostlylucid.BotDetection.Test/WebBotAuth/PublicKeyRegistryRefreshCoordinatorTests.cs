@@ -21,11 +21,9 @@ public sealed class PublicKeyRegistryRefreshCoordinatorTests
 {
     private const string ValidKeyB64 = "AAECAwQFBgcICQoLDA0ODw==";
 
-    private sealed class StubOptionsMonitor(PublicKeyRegistryOptions value) : IOptionsMonitor<PublicKeyRegistryOptions>
+    private sealed class StubOptionsMonitor(PublicKeyRegistryOptions value) : IOptions<PublicKeyRegistryOptions>
     {
-        public PublicKeyRegistryOptions CurrentValue { get; } = value;
-        public PublicKeyRegistryOptions Get(string? name) => CurrentValue;
-        public IDisposable? OnChange(Action<PublicKeyRegistryOptions, string?> listener) => null;
+        public PublicKeyRegistryOptions Value { get; } = value;
     }
 
     private sealed class ManifestHttpClientFactory(string json, HttpStatusCode status = HttpStatusCode.OK)

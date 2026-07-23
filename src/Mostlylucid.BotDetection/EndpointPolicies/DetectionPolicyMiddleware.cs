@@ -29,13 +29,13 @@ public sealed class DetectionPolicyMiddleware
     public const string ItemKeyMatch = "DetectionPolicy.Match";
 
     private readonly RequestDelegate _next;
-    private readonly IOptionsMonitor<DetectionPolicyOptions> _options;
+    private readonly IOptions<DetectionPolicyOptions> _options;
     private readonly IActionPolicyRegistry _registry;
     private readonly ILogger<DetectionPolicyMiddleware> _logger;
 
     public DetectionPolicyMiddleware(
         RequestDelegate next,
-        IOptionsMonitor<DetectionPolicyOptions> options,
+        IOptions<DetectionPolicyOptions> options,
         IActionPolicyRegistry registry,
         ILogger<DetectionPolicyMiddleware> logger)
     {
@@ -47,7 +47,7 @@ public sealed class DetectionPolicyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var options = _options.CurrentValue;
+        var options = _options.Value;
         if (!options.Enabled || options.Rules.Count == 0)
         {
             await _next(context);

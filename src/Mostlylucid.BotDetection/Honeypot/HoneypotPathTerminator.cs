@@ -44,11 +44,11 @@ namespace Mostlylucid.BotDetection.Honeypot;
 public sealed class HoneypotPathTerminator
 {
     private readonly RequestDelegate _next;
-    private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
+    private readonly IOptions<HoneypotDetectionOptions> _options;
 
     public HoneypotPathTerminator(
         RequestDelegate next,
-        IOptionsMonitor<HoneypotDetectionOptions> options)
+        IOptions<HoneypotDetectionOptions> options)
     {
         _next = next;
         _options = options;
@@ -56,7 +56,7 @@ public sealed class HoneypotPathTerminator
 
     public Task InvokeAsync(HttpContext context)
     {
-        if (!_options.CurrentValue.Enabled) return _next(context);
+        if (!_options.Value.Enabled) return _next(context);
 
         // Only Tier 1 (Always) terminates. Tier 2 falls through to the rest
         // of the pipeline; the operator's existing detection-policy chain or

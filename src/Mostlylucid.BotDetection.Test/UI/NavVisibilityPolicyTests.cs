@@ -12,12 +12,10 @@ namespace Mostlylucid.BotDetection.Test.UI;
 /// </summary>
 public sealed class NavVisibilityPolicyTests
 {
-    private static IOptionsMonitor<NavVisibilityOptions> Options(params string[] hiddenPaths)
+    private static IOptions<NavVisibilityOptions> Options(params string[] hiddenPaths)
     {
         var opts = new NavVisibilityOptions { HiddenPaths = hiddenPaths.ToList() };
-        var mock = new Mock<IOptionsMonitor<NavVisibilityOptions>>();
-        mock.Setup(m => m.CurrentValue).Returns(opts);
-        return mock.Object;
+        return Microsoft.Extensions.Options.Options.Create(opts);
     }
 
     [Fact]
@@ -57,9 +55,7 @@ public sealed class NavVisibilityPolicyTests
         // section has no HiddenPaths key at all -- same code path as Empty_config_shows_everything,
         // pinned separately because it's the actual FOSS out-of-the-box scenario (no appsettings
         // entry, not an explicit empty array).
-        var mock = new Mock<IOptionsMonitor<NavVisibilityOptions>>();
-        mock.Setup(m => m.CurrentValue).Returns(new NavVisibilityOptions());
-        var policy = new DefaultNavVisibilityPolicy(mock.Object);
+        var policy = new DefaultNavVisibilityPolicy(Microsoft.Extensions.Options.Options.Create(new NavVisibilityOptions()));
 
         Assert.True(policy.IsVisible("purchase", isPrivilegedViewer: false));
     }

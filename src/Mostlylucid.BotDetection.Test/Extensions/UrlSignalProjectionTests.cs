@@ -285,16 +285,8 @@ public class UrlSignalProjectionTests
         Assert.Equal("?v=1", ctx.Request.QueryString.Value);
     }
 
-    private sealed class StaticOptionsMonitor<T>(T value) : IOptionsMonitor<T>
+    private sealed class StaticOptionsMonitor<T>(T value) : IOptions<T> where T : class
     {
-        public T CurrentValue { get; } = value;
-        public T Get(string? name) => CurrentValue;
-        public IDisposable OnChange(Action<T, string?> listener) => NullDisposable.Instance;
-
-        private sealed class NullDisposable : IDisposable
-        {
-            public static readonly NullDisposable Instance = new();
-            public void Dispose() { }
-        }
+        public T Value { get; } = value;
     }
 }

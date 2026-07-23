@@ -37,12 +37,12 @@ public interface IEffectivePolicyResolver
 internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
 {
     private readonly ISiteProfileResolver _profiles;
-    private readonly IOptionsMonitor<BotDetectionOptions> _options;
+    private readonly IOptions<BotDetectionOptions> _options;
     private readonly DomainNormalizer _domainNormalizer;
 
     public EffectivePolicyResolver(
         ISiteProfileResolver profiles,
-        IOptionsMonitor<BotDetectionOptions> options,
+        IOptions<BotDetectionOptions> options,
         DomainNormalizer domainNormalizer)
     {
         _profiles = profiles;
@@ -58,7 +58,7 @@ internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
 
         // Level 0 — global. Read from IOptionsMonitor so live reloads take
         // effect on subsequent requests without a restart.
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
 #pragma warning disable CS0618 // BotThreshold is obsolete on BotDetectionOptions but still the canonical field for this overlay level.
         double botThreshold = opts.BotThreshold;
 #pragma warning restore CS0618

@@ -36,7 +36,7 @@ public sealed class AdaptiveScalingTracker : IAdaptiveScalingTracker
 {
     private readonly DegradationAtom _degradation;
     private readonly HysteresisTracker _hysteresis;
-    private readonly IOptionsMonitor<AdaptiveScalingOptions> _options;
+    private readonly IOptions<AdaptiveScalingOptions> _options;
     private readonly ILogger<AdaptiveScalingTracker>? _logger;
 
     private string? _currentTier;
@@ -47,7 +47,7 @@ public sealed class AdaptiveScalingTracker : IAdaptiveScalingTracker
     public AdaptiveScalingTracker(
         DegradationAtom degradation,
         HysteresisTracker hysteresis,
-        IOptionsMonitor<AdaptiveScalingOptions> options,
+        IOptions<AdaptiveScalingOptions> options,
         ILogger<AdaptiveScalingTracker>? logger = null)
     {
         _degradation = degradation;
@@ -78,7 +78,7 @@ public sealed class AdaptiveScalingTracker : IAdaptiveScalingTracker
 
     private void EvaluateTier()
     {
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
         if (!opts.Enabled || opts.Tiers.Count == 0)
         {
             lock (_stateLock)

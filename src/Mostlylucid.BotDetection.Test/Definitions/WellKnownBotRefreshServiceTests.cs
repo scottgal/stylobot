@@ -63,12 +63,10 @@ public sealed class WellKnownBotRefreshServiceTests
 
     // ── Options helpers ──────────────────────────────────────────────────────
 
-    private sealed class StubOptionsMonitor : IOptionsMonitor<BotDetectionOptions>
+    private sealed class StubOptionsMonitor : IOptions<BotDetectionOptions>
     {
-        public StubOptionsMonitor(BotDetectionOptions value) { CurrentValue = value; }
-        public BotDetectionOptions CurrentValue { get; }
-        public BotDetectionOptions Get(string? name) => CurrentValue;
-        public IDisposable? OnChange(Action<BotDetectionOptions, string?> listener) => null;
+        public StubOptionsMonitor(BotDetectionOptions value) { Value = value; }
+        public BotDetectionOptions Value { get; }
     }
 
     private static StubOptionsMonitor EmptyUrlOptions() =>

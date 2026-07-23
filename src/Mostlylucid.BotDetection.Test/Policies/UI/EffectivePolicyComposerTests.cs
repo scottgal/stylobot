@@ -20,12 +20,8 @@ namespace Mostlylucid.BotDetection.Test.Policies.UI;
 /// </summary>
 public sealed class EffectivePolicyComposerTests
 {
-    private static IOptionsMonitor<BotDetectionOptions> Options(BotDetectionOptions opts)
-    {
-        var mock = new Mock<IOptionsMonitor<BotDetectionOptions>>();
-        mock.Setup(m => m.CurrentValue).Returns(opts);
-        return mock.Object;
-    }
+    private static IOptions<BotDetectionOptions> Options(BotDetectionOptions opts)
+        => Microsoft.Extensions.Options.Options.Create(opts);
 
     private static IActionPolicy Stub(string name, ActionType type)
     {

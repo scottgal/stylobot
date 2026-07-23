@@ -46,7 +46,7 @@ public sealed class Ja3CorpusRefreshService : IDisposable
 {
     private static readonly TimeSpan MinimumInterval = TimeSpan.FromMinutes(5);
 
-    private readonly IOptionsMonitor<BotDetectionOptions> _options;
+    private readonly IOptions<BotDetectionOptions> _options;
     private readonly Ja3ReferenceIndex _index;
     private readonly Ja3CorpusEnvelopeVerifier _verifier;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -56,7 +56,7 @@ public sealed class Ja3CorpusRefreshService : IDisposable
     private int _disposed;
 
     public Ja3CorpusRefreshService(
-        IOptionsMonitor<BotDetectionOptions> options,
+        IOptions<BotDetectionOptions> options,
         Ja3ReferenceIndex index,
         Ja3CorpusEnvelopeVerifier verifier,
         IHttpClientFactory httpClientFactory,
@@ -96,7 +96,7 @@ public sealed class Ja3CorpusRefreshService : IDisposable
         // Initial guard: idle when the operator registered the service
         // without a URL or key. We don't crash -- the embedded baseline
         // corpus continues to serve.
-        var opts = _options.CurrentValue.TlsCorpus;
+        var opts = _options.Value.TlsCorpus;
         if (string.IsNullOrWhiteSpace(opts.RefreshUrl))
         {
             _logger.LogDebug("TLS corpus refresh enabled but RefreshUrl is empty; tick idle");
@@ -126,7 +126,7 @@ public sealed class Ja3CorpusRefreshService : IDisposable
     /// </summary>
     public async Task<bool> RefreshOnceAsync(CancellationToken cancellationToken)
     {
-        var opts = _options.CurrentValue.TlsCorpus;
+        var opts = _options.Value.TlsCorpus;
         var url = opts.RefreshUrl;
         var publicKey = opts.ResolvePublicKey();
         if (string.IsNullOrWhiteSpace(url) || publicKey is null) return false;

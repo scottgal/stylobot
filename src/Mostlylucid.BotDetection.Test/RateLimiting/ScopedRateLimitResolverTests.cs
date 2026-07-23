@@ -149,11 +149,9 @@ public class ScopedRateLimitResolverTests
         Assert.Equal(new[] { "GB", "RU", "BY" }, spec3.Effective());
     }
 
-    private sealed class TestOptionsMonitor<T> : IOptionsMonitor<T>
+    private sealed class TestOptionsMonitor<T> : IOptions<T> where T : class
     {
-        public TestOptionsMonitor(T value) { CurrentValue = value; }
-        public T CurrentValue { get; }
-        public T Get(string? name) => CurrentValue;
-        public IDisposable? OnChange(Action<T, string?> listener) => null;
+        public TestOptionsMonitor(T value) { Value = value; }
+        public T Value { get; }
     }
 }

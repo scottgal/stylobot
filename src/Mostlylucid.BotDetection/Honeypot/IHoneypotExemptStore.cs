@@ -38,34 +38,33 @@ public interface IHoneypotExemptStore
 
 /// <summary>
 ///     Config-backed exempt store -- reads
-///     <see cref="HoneypotDetectionOptions.ExemptPaths"/> via
-///     <see cref="IOptionsMonitor{TOptions}"/> so live config reloads
-///     (see <c>/stylobot/admin/reload</c>) take effect without restart.
+///     <see cref="HoneypotDetectionOptions.ExemptPaths"/> as a startup snapshot
+///     (FOSS has no runtime config reload; a change needs a restart).
 ///     When a <see cref="HttpContext"/> is supplied to <see cref="IsExempt"/>,
 ///     the active site profile's <c>framework_paths</c> are layered on top
 ///     of the global exempt list (per-host stack-aware exemptions).
 /// </summary>
 public sealed class ConfigHoneypotExemptStore : IHoneypotExemptStore
 {
-    private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
+    private readonly IOptions<HoneypotDetectionOptions> _options;
     private readonly ISiteProfileResolver? _profileResolver;
 
     public ConfigHoneypotExemptStore(
-        IOptionsMonitor<HoneypotDetectionOptions> options,
+        IOptions<HoneypotDetectionOptions> options,
         ISiteProfileResolver? profileResolver = null)
     {
         _options = options;
         _profileResolver = profileResolver;
     }
 
-    public IReadOnlyCollection<string> GetExemptPaths() => _options.CurrentValue.ExemptPaths;
+    public IReadOnlyCollection<string> GetExemptPaths() => _options.Value.ExemptPaths;
 
     public bool IsExempt(string normalizedPath, HttpContext? context = null)
     {
         if (string.IsNullOrEmpty(normalizedPath)) return false;
 
         // 1. Operator-supplied global list (appsettings).
-        if (MatchesAny(normalizedPath, _options.CurrentValue.ExemptPaths))
+        if (MatchesAny(normalizedPath, _options.Value.ExemptPaths))
             return true;
 
         // 2. Per-host site profile framework_paths.

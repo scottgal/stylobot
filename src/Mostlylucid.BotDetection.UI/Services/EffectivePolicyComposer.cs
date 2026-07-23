@@ -21,12 +21,12 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// </summary>
 public sealed class EffectivePolicyComposer : IConfigBaselineProvider
 {
-    private readonly IOptionsMonitor<BotDetectionOptions> _options;
+    private readonly IOptions<BotDetectionOptions> _options;
     private readonly IActionPolicyRegistry _registry;
     private readonly IEffectivePolicyConfigOverlay _overlay;
 
     public EffectivePolicyComposer(
-        IOptionsMonitor<BotDetectionOptions> options,
+        IOptions<BotDetectionOptions> options,
         IActionPolicyRegistry registry,
         IEffectivePolicyConfigOverlay overlay)
     {
@@ -49,7 +49,7 @@ public sealed class EffectivePolicyComposer : IConfigBaselineProvider
     /// </summary>
     public IReadOnlyList<EffectivePolicyRowViewModel> ComposeConfigRows(bool canEdit)
     {
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
 
         var rows = opts.BotTypeActionPolicies
             .Select(kv =>

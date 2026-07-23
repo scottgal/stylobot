@@ -501,15 +501,16 @@ public sealed class BotDetectionModule : IStyloflowWebModule
                     });
                 }
             });
-        // Endpoint-policy resolver: maps IOptionsMonitor<EndpointPolicyOptions> to
-        // a compiled rule list. Optional IOptionsMonitor<BotDetectionOptions> enables
+        // Endpoint-policy resolver: maps IOptions<EndpointPolicyOptions> to
+        // a compiled rule list (startup snapshot -- FOSS has no runtime
+        // options-reload). Optional IOptions<BotDetectionOptions> enables
         // the TrustedProxyIps check in the Source matcher.
         services.TryAddSingleton<EndpointPolicies.IEndpointPolicyResolver>(sp =>
             new EndpointPolicies.ConfigEndpointPolicyResolver(
-                sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<EndpointPolicies.EndpointPolicyOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EndpointPolicies.EndpointPolicyOptions>>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<EndpointPolicies.ConfigEndpointPolicyResolver>>(),
                 sp.GetService<Identity.BrowserModes.IBrowserModeResolver>(),
-                sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Models.BotDetectionOptions>>(),
+                sp.GetService<Microsoft.Extensions.Options.IOptions<Models.BotDetectionOptions>>(),
                 // Zero extensions in FOSS: GetServices returns empty and the seam
                 // stays inert. Commercial packages register their own matchers.
                 sp.GetServices<EndpointPolicies.IEndpointPolicyRuleExtension>()));

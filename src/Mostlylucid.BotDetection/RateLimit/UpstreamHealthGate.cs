@@ -38,7 +38,7 @@ namespace Mostlylucid.BotDetection.RateLimit;
 public sealed class UpstreamHealthGate
 {
     private readonly DegradationAtom _atom;
-    private readonly IOptionsMonitor<UpstreamHealthOptions> _options;
+    private readonly IOptions<UpstreamHealthOptions> _options;
     private readonly IActiveUpstreamProbeState? _probeState;
 
     public UpstreamHealthGate(
@@ -47,33 +47,7 @@ public sealed class UpstreamHealthGate
         IActiveUpstreamProbeState? probeState = null)
     {
         _atom = atom ?? throw new ArgumentNullException(nameof(atom));
-        _options = new StaticMonitor(options?.Value ?? new UpstreamHealthOptions());
-        _probeState = probeState;
-    }
-
-    /// <summary>
-    ///     Convenience overload that allows hot-reload via
-    ///     <see cref="IOptionsMonitor{T}"/>. The DI container always selects
-    ///     the <see cref="IOptions{T}"/> overload to avoid ambiguous-ctor
-    ///     resolution; consumers wanting reload can construct directly.
-    /// </summary>
-    public static UpstreamHealthGate WithMonitor(
-        DegradationAtom atom,
-        IOptionsMonitor<UpstreamHealthOptions> options,
-        IActiveUpstreamProbeState? probeState = null)
-    {
-        ArgumentNullException.ThrowIfNull(atom);
-        ArgumentNullException.ThrowIfNull(options);
-        return new UpstreamHealthGate(atom, options, probeState);
-    }
-
-    private UpstreamHealthGate(
-        DegradationAtom atom,
-        IOptionsMonitor<UpstreamHealthOptions> options,
-        IActiveUpstreamProbeState? probeState)
-    {
-        _atom = atom;
-        _options = options;
+        _options = options ?? Microsoft.Extensions.Options.Options.Create(new UpstreamHealthOptions());
         _probeState = probeState;
     }
 
@@ -107,7 +81,7 @@ public sealed class UpstreamHealthGate
     /// </remarks>
     public bool IsUpstreamHealthy()
     {
-        var opts = _options.CurrentValue;
+        var opts = _options.Value;
         if (_atom.TotalSamples >= opts.MinSampleCount)
         {
             // Passive has enough samples: passive decides (unchanged existing verdict).
@@ -124,14 +98,5 @@ public sealed class UpstreamHealthGate
 
         // Passive data-starved (cold-start / idle): active fills the gap.
         return _probeState?.AggregateHealthy() ?? true;
-    }
-
-    private sealed class StaticMonitor : IOptionsMonitor<UpstreamHealthOptions>
-    {
-        public StaticMonitor(UpstreamHealthOptions value) { CurrentValue = value; }
-        public UpstreamHealthOptions CurrentValue { get; }
-        public UpstreamHealthOptions Get(string? name) => CurrentValue;
-        public IDisposable OnChange(Action<UpstreamHealthOptions, string?> listener) => new Noop();
-        private sealed class Noop : IDisposable { public void Dispose() { } }
     }
 }

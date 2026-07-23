@@ -33,13 +33,13 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
 {
     public const string PolicyName = "honeypot-response";
 
-    private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
+    private readonly IOptions<HoneypotDetectionOptions> _options;
     private readonly SimulationPackResponder _packResponder;
     private readonly HoneypotRateLimiter _rateLimiter;
     private readonly ILogger<HoneypotResponseActionPolicy> _logger;
 
     public HoneypotResponseActionPolicy(
-        IOptionsMonitor<HoneypotDetectionOptions> options,
+        IOptions<HoneypotDetectionOptions> options,
         SimulationPackResponder packResponder,
         HoneypotRateLimiter rateLimiter,
         ILogger<HoneypotResponseActionPolicy> logger)
@@ -59,7 +59,7 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
         AggregatedEvidence evidence,
         CancellationToken cancellationToken = default)
     {
-        var rate = _options.CurrentValue.RateLimit;
+        var rate = _options.Value.RateLimit;
 
         // Per-fingerprint rate limit -- protects against attackers hammering
         // a single trap. Over the cap we fast-403, no jitter, no fake body.
@@ -88,7 +88,7 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
         // invites it to keep probing (the operator's "not just honeypot 200 which means they keep
         // trying"). Detection already fired via the dedicated honeypot signal pathway -- we are only
         // choosing the response shape here, never suppressing the verdict.
-        if (_options.CurrentValue.ResponseMode == HoneypotResponseMode.Deflect404)
+        if (_options.Value.ResponseMode == HoneypotResponseMode.Deflect404)
         {
             var deflectPath = context.Request.Path.Value ?? "/";
             await WriteGenericFakeResponseAsync(context, deflectPath, cancellationToken);
