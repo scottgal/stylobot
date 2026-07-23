@@ -1,13 +1,42 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: §7 Tier1 (pinned)+Tier3 (bounded parallelism) shipped 70956ca1. Tier 2 hit-counter REVERTED (86c6c96d) — was a parasitic store, operator hard-constraint. Tier2 now blocked on adding a public per-key AccessCount/LastAccess accessor to SlidingCacheAtom in the mostlylucid.atoms sibling repo + package version bump — proposed to overview-, awaiting confirm before building.
+description: §7 FULLY WIRED single-source-correct — Tier1 pinned + Tier2 (SlidingCacheAtom.TryGetEntryStats, v2.10.0 published) + Tier3 bounded parallelism, all on foss/dashboard-collapse @ 0377e1ba (local, not pushed). Ephemeral.Atoms.SlidingCache v2.10.0 published to nuget.org from mostlylucid.atoms 5538ac6/tag v2.10.0 (operator + user directly approved). Next: bench- measure pass gates prod bundle.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
 
-## URGENT CORRECTION — §7 Tier 2 hit-counter reverted (86c6c96d)
+## §7 FULLY WIRED, single-source-correct (0377e1ba) — DONE except bench- measure pass
+Sequence completed this session: parasitic HitCount reverted (86c6c96d) → accessor built in
+mostlylucid.atoms sibling repo (`SlidingCacheAtom.TryGetEntryStats`, commit 5538ac6) → user
+DIRECTLY approved the public NuGet publish (AskUserQuestion, not just overview-/operator relay,
+per this session's standing git-safety rule for irreversible/public actions) → tagged v2.10.0,
+pushed, CI (`publish-nuget.yml`) succeeded, package confirmed live on nuget.org → bumped ALL
+`Mostlylucid.Ephemeral.*` PackageReferences (including a lowercase `mostlylucid.ephemeral` ref in
+the UI csproj my first sed pass missed — case-sensitive grep caught it) across
+Mostlylucid.BotDetection/.Api/.Observability/.UI csproj files to 2.10.0 → wired
+`DashboardContentCache.LiveEnvelopes()` to compute AccessCount/LastAccess AT READ TIME via
+`_atom.TryGetEntryStats(latestWarmTick key)` (no stored field) → coordinator ranks live envelopes
+by that. All on `foss/dashboard-collapse` @ **0377e1ba**, local only, NOT pushed to origin (bundle
+held). 22/22 targeted tests green (TDD RED/GREEN throughout, including a new coordinator-level
+"hotter envelope wins under budget pressure" test using the real atom-sourced ranking). Full
+solution build green; only unrelated pre-existing failure is `DashboardLinkIntegrityTests` on
+`_TrafficPanels.cshtml` (another agent's in-flight file, not touched).
+
+**Full commit chain this session on foss/dashboard-collapse**: 70956ca1 (Tier1+2[parasitic]+3
+shipped) → 6dcf824a (checkpoint) → 86c6c96d (Tier2 reverted) → 6e0faf96 (checkpoint) → 0377e1ba
+(Tier2 rewired to real source + package bump, current tip).
+
+## Next step if resuming
+Report 0377e1ba + published v2.10.0 to overview-. Then: bench- measure pass is the remaining gate
+before the full bundle (commercial 2fa4f381 compose-batch fix + bot_probability index 9760d2ab +
+FOSS d5625a1f UI fixes + §7 Tier1/2/3 @ 0377e1ba) can build→stage→prod. Nothing further to build on
+§7 itself unless the measure pass finds a problem.
+
+---
+
+## (historical) URGENT CORRECTION — §7 Tier 2 hit-counter reverted (86c6c96d)
 Shipped `70956ca1` included a NEW `HitCount` field on `DashboardContentCache`'s `LiveEntry`,
 ranking Tier 2 by it. overview- flagged this urgent, hard constraint: "NO PARASITIC STORES" —
 `SlidingCacheAtom` (the content cache's own backing LFU, in the `mostlylucid.atoms` sibling
