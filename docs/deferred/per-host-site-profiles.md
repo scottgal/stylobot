@@ -73,7 +73,7 @@ sites:
 
 ## FOSS vs commercial split
 
-- **FOSS:** ~12 embedded profile YAMLs, operator-edited `sites.yaml`, reload via `/admin/reload`, dashboard chip read-only.
+- **FOSS:** ~12 embedded profile YAMLs, operator-edited `sites.yaml`, applied via `/admin/restart` or a redeploy (no runtime options-reload in FOSS), dashboard chip read-only.
 - **Commercial:** live profile editing in the dashboard, per-tenant overrides, optional passive auto-detection that *suggests* a profile when none is mapped (uses `PathLifecycleStore` 2xx fingerprints + cookie/header fingerprints), pack-install flow.
 
 ## Why operator-declared beats auto-detection

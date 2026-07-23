@@ -1,12 +1,17 @@
 # Admin endpoints
 
-Two operator endpoints let you apply config changes without redeploying. Both are
+Operator endpoints for setup/observability without redeploying. Both are
 **off by default** and only respond when an admin token is configured.
 
 | Endpoint | Effect | Returns |
 |---|---|---|
-| `POST /stylobot/admin/reload`  | Reloads `IConfigurationRoot`; `IOptionsMonitor` consumers see the new values on their next read. No process restart. | `200 {"status":"reloaded"}` |
 | `POST /stylobot/admin/restart` | Calls `IHostApplicationLifetime.StopApplication()` after flushing the response. The supervisor (Docker, systemd, launchctl) brings a fresh process up. | `202 {"status":"restarting"}` |
+| `GET\|POST /stylobot/admin/learning/health` | Returns the identity calibration service's last decision + drift metrics. | `200` JSON |
+
+FOSS has no runtime options-reload (`POST /admin/reload` was removed) -- config
+changes need `restart` above, or a full redeploy. Hot-reload / live-apply is a
+commercial-only capability (via `IConfigurationOverrideSource`, independent of
+this endpoint).
 
 ## Enabling the endpoints
 
@@ -42,7 +47,7 @@ it on any incident or operator handover.
 Every request must carry a bearer header:
 
 ```http
-POST /stylobot/admin/reload HTTP/1.1
+POST /stylobot/admin/restart HTTP/1.1
 Authorization: Bearer <token>
 ```
 

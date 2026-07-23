@@ -34,7 +34,9 @@ public interface INavVisibilityPolicy
 
 Config-bound glob match against `Dashboard:HiddenPaths` (a `List<string>`, e.g. `["purchase**", "membership**"]`), reusing the existing `GlobToRegexCompiler` (`Compile(glob) -> anchored regex`) rather than writing a second glob matcher. A row is hidden (`IsVisible` returns `false`) only when a pattern matches AND the viewer is not privileged. Empty/missing config hides nothing — the safe FOSS default, no behaviour change out of the box.
 
-Bound the same way `DashboardLayoutOptions` is bound (`services.AddOptions<NavVisibilityOptions>().BindConfiguration("Dashboard")`), consumed via `IOptionsMonitor<NavVisibilityOptions>.CurrentValue` (the same live-read pattern `EffectivePolicyComposer` uses for `BotDetectionOptions`, rather than caching a snapshot at construction) so a config reload (`POST /admin/reload`) picks up changed hidden-path patterns without a restart.
+Bound the same way `DashboardLayoutOptions` is bound (`services.AddOptions<NavVisibilityOptions>().BindConfiguration("Dashboard")`).
+
+> **Superseded (2026-07-23, later same day):** this section originally specified `IOptionsMonitor<NavVisibilityOptions>.CurrentValue` + `POST /admin/reload` for live pattern updates. Operator hard rule: FOSS has NO runtime options-reload, ever — `POST /admin/reload` was removed entirely and `NavVisibilityOptions` (like every other FOSS option type) is now consumed via plain `IOptions<T>` (startup snapshot only). A changed `Dashboard:HiddenPaths` pattern needs a process restart. Left the original text below for historical context; do not implement against it.
 
 Registered via `TryAddSingleton` (mirrors `ISignaturePolicyActionSlot`) so a commercial host can register a richer implementation ahead of `AddStyloBotDashboard` if config-glob ever stops being enough — per the operator's ruling it isn't needed initially; FOSS config-glob is the whole feature for now.
 

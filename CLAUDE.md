@@ -344,11 +344,13 @@ The Gateway image ships with `BlockDetectedBots = false` and `DefaultActionPolic
 
 ### Admin endpoints (off by default)
 
-Two operator endpoints under `/stylobot/admin/` let you apply config changes without redeploying:
-- `POST /admin/reload` triggers `IConfigurationRoot.Reload()`; `IOptionsMonitor` consumers see new values on next read.
+Operator endpoints under `/stylobot/admin/` for setup/observability:
 - `POST /admin/restart` calls `IHostApplicationLifetime.StopApplication()` after flushing; the supervisor (Docker / systemd / launchctl) restarts the process.
+- `GET|POST /admin/learning/health` returns the identity calibration service's last decision + drift metrics.
 
 Fail-closed: routing is unmapped unless `StyloBot:Dashboard:Admin:Enabled = true` AND a non-empty `Token` is configured. Bearer comparison is constant-time; attempts log at Warning with source IP. See [`docs/admin-endpoints.md`](docs/admin-endpoints.md).
+
+**No runtime options-reload in FOSS.** `POST /admin/reload` (`IConfigurationRoot.Reload()` + `IOptionsMonitor` consumers picking up new values) was removed — FOSS options are `IOptions<T>` startup snapshots everywhere, by hard rule; a config change needs a process restart. Hot-reload / live-apply is commercial-only (via `IConfigurationOverrideSource` → `DetectorConfigProvider`, which was already `IConfiguration`-based and independent of the Options-monitor system).
 
 ### Edge-injected client signals (behind a reverse proxy)
 

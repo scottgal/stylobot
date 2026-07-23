@@ -311,10 +311,10 @@ public sealed class StyloBotDashboardOptions
     public OpenApiSeedOptions OpenApi { get; set; } = new();
 
     /// <summary>
-    ///     Admin control-plane endpoints (POST /admin/reload, POST /admin/restart) for
-    ///     applying config changes during operator setup. Both endpoints require a
-    ///     Bearer token; when <see cref="AdminOptions.Token"/> is null/empty the routes
-    ///     return 404 so their existence isn't advertised.
+    ///     Admin control-plane endpoints (POST /admin/restart, GET|POST /admin/learning/health)
+    ///     for operator setup/observability. Endpoints require a Bearer token; when
+    ///     <see cref="AdminOptions.Token"/> is null/empty the routes return 404 so their
+    ///     existence isn't advertised.
     /// </summary>
     public AdminOptions Admin { get; set; } = new();
 }

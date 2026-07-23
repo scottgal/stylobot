@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,10 +14,6 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 ///     Operator admin endpoints used by the setup flow to apply config changes without
 ///     a manual container restart.
 ///     <para>
-///     <c>POST {BasePath}/reload</c> -- triggers <see cref="IConfigurationRoot.Reload"/>;
-///     IOptionsMonitor consumers pick up the new values on their next read. Returns 200.
-///     </para>
-///     <para>
 ///     <c>POST {BasePath}/restart</c> -- requests graceful shutdown via
 ///     <see cref="IHostApplicationLifetime.StopApplication"/>; the supervisor
 ///     (Docker, systemd, launchctl) starts a fresh process. Returns 202.
@@ -28,28 +23,25 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 ///     <see cref="AdminOptions.Token"/>. Comparison is constant-time. There is no
 ///     anonymous fallback -- when the token is unset the endpoints return 401
 ///     with a body that tells the operator to configure
-///     <c>StyloBot:Dashboard:Admin:Token</c>. Requests never reach the reload or
-///     restart handlers without a matching bearer.
+///     <c>StyloBot:Dashboard:Admin:Token</c>. Requests never reach the restart
+///     handler without a matching bearer.
 ///     </para>
 /// </summary>
 public sealed class StyloBotAdminMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly StyloBotDashboardOptions _options;
-    private readonly IConfiguration _configuration;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<StyloBotAdminMiddleware> _logger;
 
     public StyloBotAdminMiddleware(
         RequestDelegate next,
         StyloBotDashboardOptions options,
-        IConfiguration configuration,
         IHostApplicationLifetime lifetime,
         ILogger<StyloBotAdminMiddleware> logger)
     {
         _next = next;
         _options = options;
-        _configuration = configuration;
         _lifetime = lifetime;
         _logger = logger;
     }
@@ -121,9 +113,6 @@ public sealed class StyloBotAdminMiddleware
         var subPath = path[(basePath.Length + 1)..];
         switch (subPath.TrimEnd('/').ToLowerInvariant())
         {
-            case "reload":
-                await HandleReloadAsync(context);
-                return;
             case "restart":
                 await HandleRestartAsync(context);
                 return;
@@ -263,26 +252,6 @@ public sealed class StyloBotAdminMiddleware
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
                 WriteIndented = false,
             });
-    }
-
-    private async Task HandleReloadAsync(HttpContext context)
-    {
-        if (_configuration is IConfigurationRoot root)
-        {
-            root.Reload();
-            _logger.LogInformation("Admin reload: configuration reloaded by {IP}",
-                context.Connection.RemoteIpAddress);
-            context.Response.StatusCode = StatusCodes.Status200OK;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"status\":\"reloaded\"}");
-            return;
-        }
-
-        _logger.LogWarning("Admin reload requested but IConfiguration is not IConfigurationRoot ({Type})",
-            _configuration.GetType().FullName);
-        context.Response.StatusCode = StatusCodes.Status501NotImplemented;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync("{\"status\":\"reload_unsupported\"}");
     }
 
     private async Task HandleRestartAsync(HttpContext context)
