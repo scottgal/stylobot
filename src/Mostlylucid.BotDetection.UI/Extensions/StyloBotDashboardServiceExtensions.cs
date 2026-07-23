@@ -351,6 +351,14 @@ public static class StyloBotDashboardServiceExtensions
         // FOSS renders nothing; a commercial host's real policy block wins via the same TryAdd.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.ISignaturePolicyActionSlot,
             Mostlylucid.BotDetection.UI.Services.EmptySignaturePolicyActionSlot>();
+        // Nav-link visibility seam (hidden-nav-links feature): lets a host hide specific sidebar
+        // rows (e.g. "purchase*", "membership*") without touching routing or detection -- the
+        // underlying route stays fully reachable. FOSS default is config-glob match against
+        // Dashboard:HiddenPaths; TryAdd so a commercial host can register something richer.
+        services.AddOptions<Mostlylucid.BotDetection.UI.Services.NavVisibilityOptions>()
+            .BindConfiguration("Dashboard");
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.INavVisibilityPolicy,
+            Mostlylucid.BotDetection.UI.Services.DefaultNavVisibilityPolicy>();
         // The composer hard-depends on IActionPolicyRegistry (BotTypeActionPolicies -> real
         // ActionType, data-driven), which only AddBotDetection registers -- i.e. only on a
         // LOCAL-detection host. A remote / thin-client dashboard (Stylobot.Ui rest mode, the

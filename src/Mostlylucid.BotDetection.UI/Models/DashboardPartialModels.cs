@@ -771,6 +771,25 @@ public sealed class DashboardShellModel
 
     public bool HasPackTabs => Packs.Count > 0;
     public bool IsPackTab(string id) => Packs.Any(p => p.Id == id);
+
+    /// <summary>
+    ///     HttpContext.Items key a commercial host can set to <c>true</c> before this middleware
+    ///     builds the shell model, to flip <see cref="IsPrivilegedViewer" /> without another FOSS
+    ///     code-path change. Read at the model-construction call site in
+    ///     <c>StyloBotDashboardMiddleware.ServeDashboardPageAsync</c>.
+    /// </summary>
+    public const string PrivilegedViewerItemsKey = "sb.dashboard.privileged_viewer";
+
+    /// <summary>
+    ///     Whether the current viewer is privileged (sees every nav row regardless of
+    ///     <see cref="Services.INavVisibilityPolicy" /> hidden-path config). Defaults to
+    ///     <c>false</c> -- the safe FOSS default. Threaded from <see cref="PrivilegedViewerItemsKey" />
+    ///     on <c>HttpContext.Items</c> rather than a new constructor parameter, so a future
+    ///     commercial host (e.g. after resolving license/role) can flip it with an
+    ///     <c>HttpContext.Items</c> write in its own middleware, upstream of this one, with zero
+    ///     FOSS call-site changes.
+    /// </summary>
+    public bool IsPrivilegedViewer { get; init; } = false;
 }
 
 /// <summary>

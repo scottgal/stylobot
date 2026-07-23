@@ -1397,7 +1397,12 @@ public class StyloBotDashboardMiddleware
             TunnelDocsUrl = context.RequestServices
                 .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()
                 ?.Value.TunnelEnvironment.DocsUrl
-                ?? "https://stylo.bot/articles/tunnel-trade-off"
+                ?? "https://stylo.bot/articles/tunnel-trade-off",
+            // Hidden-nav-links seam: HttpContext.Items key so a commercial host can flip this
+            // (after resolving license/role) without a FOSS code-path change. FOSS never sets
+            // the key, so this is always false here.
+            IsPrivilegedViewer = context.Items.TryGetValue(DashboardShellModel.PrivilegedViewerItemsKey, out var privilegedViewerFlag)
+                && privilegedViewerFlag is true
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(

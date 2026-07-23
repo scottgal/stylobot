@@ -1,5 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @model DashboardShellModel
+@inject INavVisibilityPolicy NavVisibility
 @{
     var bp = Model.BasePath;
     var currentPath = Context.Request.Path.Value ?? string.Empty;
@@ -19,9 +21,18 @@
 
     @* Aggregate group: Traffic / Visitors / Site *@
     <div class="mb-3">
-        <a href="@bp/traffic"  class="@rowClass(IsActivePath("traffic"))">Traffic</a>
-        <a href="@bp/visitors" class="@rowClass(IsActivePath("visitors"))">Visitors</a>
-        <a href="@bp/site"     class="@rowClass(IsActivePath("site"))">Site</a>
+        @if (NavVisibility.IsVisible("traffic", Model.IsPrivilegedViewer))
+        {
+            <a href="@bp/traffic" class="@rowClass(IsActivePath("traffic"))">Traffic</a>
+        }
+        @if (NavVisibility.IsVisible("visitors", Model.IsPrivilegedViewer))
+        {
+            <a href="@bp/visitors" class="@rowClass(IsActivePath("visitors"))">Visitors</a>
+        }
+        @if (NavVisibility.IsVisible("site", Model.IsPrivilegedViewer))
+        {
+            <a href="@bp/site" class="@rowClass(IsActivePath("site"))">Site</a>
+        }
     </div>
 
     @* Packs group: every registered IDashboardPack, each with its sub-nav. This
@@ -36,6 +47,7 @@
         <div class="mb-3" x-data="sbPacksNav()">
             @foreach (var pack in Model.Packs)
             {
+                if (!NavVisibility.IsVisible(pack.Id, Model.IsPrivilegedViewer)) { continue; }
                 var packActive = IsActivePath(pack.Id);
                 var firstSub = pack.SubRows.Count > 0 ? pack.SubRows[0].Id : null;
                 var headerHref = firstSub is null ? $"{bp}/{pack.Id}" : $"{bp}/{pack.Id}/{firstSub}";
@@ -54,6 +66,7 @@
                     <div x-show="isOpen('@pack.Id')" x-cloak class="ml-3">
                         @foreach (var sub in pack.SubRows)
                         {
+                            if (!NavVisibility.IsVisible($"{pack.Id}/{sub.Id}", Model.IsPrivilegedViewer)) { continue; }
                             <a href="@bp/@pack.Id/@sub.Id" class="@rowClass(IsActivePath($"{pack.Id}/{sub.Id}"))">@sub.Label</a>
                         }
                     </div>
@@ -64,9 +77,18 @@
 
     @* Manage group: Policies / Configuration / Compliance *@
     <div class="mb-3">
-        <a href="@bp/policies"      class="@rowClass(IsActivePath("policies"))">Policies</a>
-        <a href="@bp/configuration" class="@rowClass(IsActivePath("configuration"))">Configuration</a>
-        <a href="@bp/compliance"    class="@rowClass(IsActivePath("compliance"))">Compliance</a>
+        @if (NavVisibility.IsVisible("policies", Model.IsPrivilegedViewer))
+        {
+            <a href="@bp/policies" class="@rowClass(IsActivePath("policies"))">Policies</a>
+        }
+        @if (NavVisibility.IsVisible("configuration", Model.IsPrivilegedViewer))
+        {
+            <a href="@bp/configuration" class="@rowClass(IsActivePath("configuration"))">Configuration</a>
+        }
+        @if (NavVisibility.IsVisible("compliance", Model.IsPrivilegedViewer))
+        {
+            <a href="@bp/compliance" class="@rowClass(IsActivePath("compliance"))">Compliance</a>
+        }
     </div>
 </nav>
 <script nonce="@Model.CspNonce">

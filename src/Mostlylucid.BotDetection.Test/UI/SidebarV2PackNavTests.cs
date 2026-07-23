@@ -44,6 +44,12 @@ public sealed class SidebarV2PackNavTests
         services.AddSingleton<RazorViewRenderer>();
         services.AddSingleton<IOptions<DashboardLayoutOptions>>(
             Options.Create(new DashboardLayoutOptions { V2Enabled = true }));
+        // _SidebarV2.cshtml @injects INavVisibilityPolicy (hidden-nav-links seam); this hand-built
+        // container needs the same FOSS default a real host gets via AddStyloBotDashboard.
+        // AddOptions<NavVisibilityOptions>() with no binding source is enough to make
+        // IOptionsMonitor<NavVisibilityOptions> resolvable with the default (empty HiddenPaths).
+        services.AddOptions<NavVisibilityOptions>();
+        services.AddSingleton<INavVisibilityPolicy, DefaultNavVisibilityPolicy>();
 
         await using var provider = services.BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = provider };
