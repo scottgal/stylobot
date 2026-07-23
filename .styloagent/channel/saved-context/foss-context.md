@@ -107,10 +107,27 @@ pushes without coordinating through overview- first; feature branches keep worki
 reopens after. I have nothing queued to push (all local commits per instructions all along), so this is a
 no-op for me — just holding.
 
+## Fleet rule: ZERO keyless hits to prod (stylo.bot), ever
+overview- hard-stop 2026-07-23 ~16:38: no agent hits the prod surface without the prod GUID key (keyless
+hits poison the corpus + tarpit legit users, incl. the operator). I never have (only ever hit the local
+Demo app on localhost) and I don't hold the key — deploy- owns that path. Just internalizing; no change
+needed on my end.
+
+## nuget.config/SDK comparison sent to ecommerce- (low-pri, bounded, done)
+overview- confirmed the main-clean verdict was accepted + deploy unblocked; d50fd0f1/9e6d1f0c already on
+FOSS origin/main, nothing pending from me this cycle. Follow-up ask: one bounded comparison with
+ecommerce- to help their local-build gap. Sent: SDK 10.0.201 (matches theirs), no repo-local nuget.config/
+global.json in either repo, my user-level NuGet.Config sources = nuget.org + two /tmp-local machine-
+specific feeds (neither of which carries VYaml/Mostlylucid.Common). Best guess handed over: check whether
+their nuget.config has nuget.org in the source list at all, or is `<clear/>`'d to internal-only. Told them
+to drop it and verify on staging if it doesn't unstick quickly — not chasing further myself per the
+"low-pri, don't rabbit-hole" instruction.
+
 ## Next step if resuming
 Standing by: merge queue is frozen until overview- verifies the reconciled deploy on prod, then reopens it.
 No pending push needed from me. If picking up new work meanwhile: Task 2b (Logs view) stays routed to
-otel-/aspnet-; ecommerce-'s/benchviz-'s environmental build-gap detail if they send it. Otherwise idle.
+otel-/aspnet-. Otherwise idle. NEVER hit stylo.bot/prod without the key (I don't hold one — route through
+deploy-).
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
