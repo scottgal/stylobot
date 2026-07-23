@@ -1,11 +1,35 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: SHIPPED TO MAIN, both repos, user-confirmed directly. FOSS origin/main = d142b4ea (was d5625a1f). Commercial origin/main = ffacf2fa (was 2fa4f381). Carries the whole session: full IOptionsMonitor sweep + admin/reload removal + reload seal, §7 tuning + Fix1, compose-batch fix + bot_probability index, UI fixes, ephemeral pin fix. deploy- pinged to build from main via build-gateway.ps1 (registry+staging, NOT prod). Standing by for staging verify + bench- re-gate + operator go.
+description: SHIPPED TO MAIN both repos (FOSS d142b4ea, commercial ffacf2fa), user-confirmed. bench- saw bad numbers (13.9s/23.1s) on :8390 contradicting Fix1 — CONFIRMED via direct code inspection (not just git ancestry) that Fix1 + compose-batch fix are genuinely present; almost certainly a stale-container artifact, deploy- rebuilding now. NEXT TASK: build a focused live-apply round-trip integration test (commercial moat regression guard) per overview-'s explicit ask — separate track, starting now.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
+
+## bench- saw bad numbers on :8390 — CONFIRMED not a code bug (stale container)
+After shipping to main, overview- relayed bench- seeing 13.9s first-hit + 23.1s compose-batch on
+:8390, contradicting Fix 1. Verified directly (code inspection, not just git ancestry):
+- `git show 50fb696d:.../DashboardContentCache.cs` — GetAsync uses `_atom.TryGet` +
+  `DashboardPageResult.Warming` on miss; `GetOrComputeAsync` only inside WarmAsync;
+  `ComputeOnColdMiss` has zero hits in DashboardMaterializerOptions.cs. Fix 1 genuinely present.
+- `git show 73b15b04:.../PostgreSQLDashboardEventStore.cs` — the single shared
+  `DROP TABLE...CREATE TEMP TABLE windowed` scan is present. Compose-batch fix genuinely present.
+- Clarified for overview-: bench-'s "direct compose-batch POST" stream bypasses the dashboard
+  entirely (Fix 1 never touched that path — only Fix 2 pre-aggregation would). The 13.9s
+  traffic-page number is the one that WOULD matter if real, but deploy- was mid-rebuild of :8390
+  with 50fb696d when bench- measured — near-certain stale-container artifact, not a code bug.
+Reported this back to overview-. **Awaiting re-measure once deploy- confirms fresh :8390 is live.**
+
+## NEXT (in progress): focused live-apply round-trip integration test
+overview- approved the seal/pin/diff-proof and asked for a NEW permanent regression-guard test
+(separate track from the re-gate): drive the REAL commercial live-apply path end-to-end —
+`POST /api/config/overrides` (UserAgentContributor weights.bot_signal 1.5→1.6) → next
+`ControlPlaneConfigurationSource.TryGetParameterAsync`/`DetectorConfigProvider.GetParameterAsync`
+resolves 1.6, no restart, uncached re-fetch-every-call (change again → next call sees it
+immediately). Use `GatewayPluginTests`' full-stack infra as the base but with
+`EnableLiveConfig=true`. Commit on the branch, report when green. This is what's IN PROGRESS as
+of this checkpoint — pick up here if resuming.
 
 ## SHIPPED TO MAIN — both repos (user-confirmed directly before either push)
 overview- relayed "operator wants it off the branch, merge to main now" — per this session's
