@@ -44,4 +44,22 @@ public static class DashboardRoutingHelpers
             .ToList();
         return kept.Count == 0 ? "" : "?" + string.Join('&', kept);
     }
+
+    /// <summary>
+    ///     The single window-token -> minutes mapping, shared between a real request's window
+    ///     (<c>StyloBotDashboardMiddleware.BuildVisitorsPageWindow</c>) and the materializer's
+    ///     Tier 1 pinned-prewarm construction, so the two can never independently drift into
+    ///     computing different windows for what's meant to be the same cache envelope.
+    /// </summary>
+    public static int WindowTokenToMinutes(string token, int fallbackMinutes) => token switch
+    {
+        "15m" => 15,
+        "60m" or "1h" => 60,
+        "6h" => 6 * 60,
+        "12h" => 12 * 60,
+        "24h" or "1d" => 24 * 60,
+        "7d" => 7 * 24 * 60,
+        "30d" => 30 * 24 * 60,
+        _ => fallbackMinutes
+    };
 }

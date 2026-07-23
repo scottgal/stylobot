@@ -29,9 +29,11 @@ public sealed class DashboardMaterializerCoordinatorTests
         var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
             () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
+        // Prewarm (Tier 1 pinned coverage) is orthogonal to this test's concern -- it has its
+        // own dedicated test below -- so it's off here to isolate the demand-gated (Tier 2) path.
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()), sched);
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
 
         // A user read at tick 1 makes the envelope live and composes once.
         await cache.GetAsync(Traffic, Window(), tick, default);
@@ -90,7 +92,30 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody has ever viewed the page
 
-        Assert.Equal(1, composes); // prewarmed anyway
+        // §7 Tier 1: pinned coverage is now the FOSS UI's full window set (6h/24h/7d/30d),
+        // not a single default window -- one prewarmed compose per configured token.
+        Assert.Equal(4, composes);
+    }
+
+    [Fact]
+    public async Task Tick_prewarms_every_configured_window_token_at_the_default_page()
+    {
+        var composedWindows = new List<DashboardPageWindow>();
+        long tick = 1;
+        var cache = new DashboardContentCache((_, window, _) => { composedWindows.Add(window); return Task.FromResult(Result()); },
+            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()), sched);
+
+        await coord.StartAsync(default);
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        // Distinct bucket sizes prove 4 DIFFERENT envelopes were warmed (not the same window
+        // composed 4 times) -- matching HitsPerPeriodChartletBuilder.BucketSizeForWindow per token.
+        var bucketMinutes = composedWindows.Select(w => w.BucketMinutes).OrderBy(m => m).ToArray();
+        Assert.Equal(new[] { 5, 20, 120, 480 }, bucketMinutes);
     }
 
     [Fact]
@@ -124,9 +149,12 @@ public sealed class DashboardMaterializerCoordinatorTests
             new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions
             {
                 PrewarmDefaultEnvelope = false,
-                MaxTickDurationMs = 90, // budget check runs BEFORE each compose: page 1 (0ms elapsed) and
+                MaxTickDurationMs = 90, // budget check runs BEFORE each wave: page 1 (0ms elapsed) and
                                         // page 2 (50ms elapsed) both pass; after page 2 elapsed is 100ms,
-                                        // so page 3's pre-compose check (100ms >= 90ms budget) defers it.
+                                        // so page 3's pre-wave check (100ms >= 90ms budget) defers it.
+                MaxConcurrentWarmsPerTick = 1, // one page per wave -- isolates the per-item deadline
+                                                // granularity this test asserts; §7 Tier 3's own wave-
+                                                // concurrency behavior has its own dedicated test.
             }),
             sched, timeProvider: time);
 
@@ -140,6 +168,96 @@ public sealed class DashboardMaterializerCoordinatorTests
 
         Assert.True(composed.Count < pages.Length, "expected the time budget to defer at least one page");
         Assert.True(composed.Count > 0, "expected at least one page to be warmed before the budget was hit");
+    }
+
+    [Fact]
+    public async Task Tick_warms_the_hotter_live_envelope_first_when_the_budget_cant_cover_both()
+    {
+        // §7 Tier 2: under budget pressure, the envelope with more request-path hits should
+        // win the tick's (scarce) warm slot over an envelope read only once, instead of
+        // whichever happened to enumerate first out of the live dictionary.
+        var composedPages = new List<string>();
+        long tick = 1;
+        var cache = new DashboardContentCache((manifest, _, _) => { composedPages.Add(manifest.PageKey); return Task.FromResult(Result()); },
+            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+        var cool = new DashboardPageManifest("dashboard.site", new[] { "summary" });
+        var hot = new DashboardPageManifest("dashboard.visitors", new[] { "summary" });
+
+        await cache.GetAsync(cool, Window(), tick, default); // 1 hit
+        await cache.GetAsync(hot, Window(), tick, default);  // hit #1
+        await cache.GetAsync(hot, Window(), tick, default);  // hit #2 -- now the hotter envelope
+        composedPages.Clear();
+
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions
+            {
+                PrewarmDefaultEnvelope = false,
+                MaxPagesPerTick = 1, // only room for one of the two live envelopes
+            }),
+            sched);
+
+        tick = 2;
+        await coord.StartAsync(default);
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        Assert.Equal(new[] { hot.PageKey }, composedPages);
+    }
+
+    [Fact]
+    public async Task Tick_warms_a_wave_of_envelopes_concurrently_up_to_MaxConcurrentWarmsPerTick()
+    {
+        // §7 Tier 3: MaxConcurrentWarmsPerTick=2 with 2 live envelopes should run BOTH
+        // composes concurrently (a single wave), not serialize them. Each compose blocks
+        // (once armed) until released, so if the coordinator ran them sequentially, only
+        // one would ever be in flight at a time and maxObserved would stay at 1.
+        var sync = new object();
+        var inFlight = 0;
+        var maxObserved = 0;
+        var block = false;
+        var gate = new TaskCompletionSource();
+
+        long tick = 1;
+        var cache = new DashboardContentCache(async (_, _, _) =>
+            {
+                if (block)
+                {
+                    lock (sync) { inFlight++; maxObserved = Math.Max(maxObserved, inFlight); }
+                    await gate.Task;
+                    lock (sync) { inFlight--; }
+                }
+                return Result();
+            },
+            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+
+        var a = new DashboardPageManifest("dashboard.a", new[] { "summary" });
+        var b = new DashboardPageManifest("dashboard.b", new[] { "summary" });
+        await cache.GetAsync(a, Window(), tick, default); // seed liveness -- non-blocking (block=false)
+        await cache.GetAsync(b, Window(), tick, default);
+
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions
+            {
+                PrewarmDefaultEnvelope = false,
+                MaxConcurrentWarmsPerTick = 2,
+            }),
+            sched);
+
+        await coord.StartAsync(default);
+        tick = 2;
+        block = true;
+        var tickTask = sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (Volatile.Read(ref maxObserved) < 2 && DateTime.UtcNow < deadline)
+            await Task.Delay(5);
+        gate.TrySetResult();
+        await tickTask;
+
+        Assert.Equal(2, maxObserved);
     }
 
     [Fact]

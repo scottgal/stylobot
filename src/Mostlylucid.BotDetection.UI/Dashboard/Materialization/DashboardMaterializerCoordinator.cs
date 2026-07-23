@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Services;
@@ -122,73 +123,100 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         if (!_options.Enabled) return;
 
         var tick = _cursor.CurrentTick;
-        var live = _cache.LiveEnvelopes().ToList();
 
-        // Unconditional prewarm: keep the default page warm every tick even with zero live
-        // watchers, so a visit after any idle gap (startup, or a quiet dashboard) reads warm
-        // instead of paying a synchronous in-request compose. LiveEnvelopes() alone only
-        // sustains pages a real request already touched -- this is the "before requested" half.
-        if (_options.PrewarmDefaultEnvelope
-            && !live.Any(e => e.Manifest.PageKey == _options.PrewarmPageKey)
-            && _manifests.For(_options.PrewarmPageKey) is { } prewarmManifest)
+        // §7 Tier 2 (demand ranking): live envelopes ordered hottest-first (hit count, then
+        // recency) so a page a request actually hammers gets first claim on the tick's budget
+        // instead of arbitrary dictionary-enumeration order.
+        var ranked = _cache.LiveEnvelopes()
+            .OrderByDescending(e => e.HitCount)
+            .ThenByDescending(e => e.LastSeenTick)
+            .Select(e => (e.Manifest, e.Window))
+            .ToList();
+
+        var warmQueue = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window)>();
+
+        // §7 Tier 1 (pinned coverage): Traffic at every configured window token, warmed every
+        // tick regardless of live/demand status -- inserted first so it's never displaced by
+        // the tick's budget. Generalizes the old single-window unconditional prewarm to the
+        // FOSS UI's full window-switcher set.
+        if (_options.PrewarmDefaultEnvelope && _manifests.For(_options.PrewarmPageKey) is { } prewarmManifest)
         {
             var now = DateTime.UtcNow;
-            var prewarmWindow = new DashboardPageWindow(
-                StartTime: now.AddMinutes(-_options.PrewarmWindowMinutes),
-                EndTime: now,
-                AudienceFilter: "all",
-                ProbMin: null,
-                Domains: null,
-                TopN: 500,
-                BucketMinutes: _options.PrewarmBucketMinutes);
-            live.Insert(0, (prewarmManifest, prewarmWindow));
+            foreach (var token in _options.PrewarmWindows)
+            {
+                var minutes = DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: 1440);
+                var pinnedWindow = new DashboardPageWindow(
+                    StartTime: now.AddMinutes(-minutes),
+                    EndTime: now,
+                    AudienceFilter: "all",
+                    ProbMin: null,
+                    Domains: null,
+                    TopN: 500,
+                    BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
+                warmQueue.Add((prewarmManifest, pinnedWindow));
+            }
         }
 
-        if (live.Count == 0) return;
+        warmQueue.AddRange(ranked);
+
+        if (warmQueue.Count == 0) return;
 
         var budget = _options.MaxPagesPerTick;
         var warmed = 0;
         var warmedPages = new HashSet<string>(StringComparer.Ordinal);
         var deadline = _time.GetUtcNow() + TimeSpan.FromMilliseconds(_options.MaxTickDurationMs);
+        var waveSize = Math.Max(1, _options.MaxConcurrentWarmsPerTick);
 
-        foreach (var (manifest, window) in live)
+        // §7 Tier 3 (bounded parallelism): warm in waves of at most MaxConcurrentWarmsPerTick
+        // concurrent composes, mirroring ScheduleCoordinator's own bounded-parallelism pattern.
+        // MaxTickDurationMs is checked BETWEEN waves (not per item within a wave) -- count alone
+        // doesn't bound cost when compose cost isn't uniform (a corpus-scale query regression),
+        // so once elapsed exceeds the budget the remaining envelopes defer to the next tick
+        // rather than grinding through the whole queue regardless of how slow composes have become.
+        for (var start = 0; start < warmQueue.Count; start += waveSize)
         {
             if (warmed >= budget)
             {
                 _logger?.LogDebug(
-                    "DashboardMaterializerCoordinator: MaxPagesPerTick={Budget} reached; {Deferred} live envelope(s) deferred to next tick.",
-                    budget, live.Count - warmed);
+                    "DashboardMaterializerCoordinator: MaxPagesPerTick={Budget} reached; {Deferred} envelope(s) deferred to next tick.",
+                    budget, warmQueue.Count - start);
                 break;
             }
 
-            // Count alone doesn't bound cost when compose cost isn't uniform (a corpus-scale
-            // query regression). This is the guard that stops one tick invocation from running
-            // back-to-back for minutes and monopolizing the store: once elapsed exceeds the
-            // budget, defer the rest to the next tick instead of grinding through the whole
-            // live set regardless of how slow each compose has become.
             if (_time.GetUtcNow() >= deadline)
             {
                 _logger?.LogWarning(
-                    "DashboardMaterializerCoordinator: MaxTickDurationMs={Budget}ms exceeded after warming {Warmed}; {Deferred} live envelope(s) deferred to next tick.",
-                    _options.MaxTickDurationMs, warmed, live.Count - warmed);
+                    "DashboardMaterializerCoordinator: MaxTickDurationMs={Budget}ms exceeded after warming {Warmed}; {Deferred} envelope(s) deferred to next tick.",
+                    _options.MaxTickDurationMs, warmed, warmQueue.Count - start);
                 break;
             }
 
             ct.ThrowIfCancellationRequested();
 
-            try
+            var wave = warmQueue.Skip(start).Take(Math.Min(waveSize, budget - warmed)).ToList();
+            var waveResults = await Task.WhenAll(wave.Select(async item =>
             {
-                await _cache.WarmAsync(manifest, window, tick, ct).ConfigureAwait(false);
+                try
+                {
+                    await _cache.WarmAsync(item.Manifest, item.Window, tick, ct).ConfigureAwait(false);
+                    return item.Manifest.PageKey;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "DashboardMaterializerCoordinator: warm failed for {Page}.", item.Manifest.PageKey);
+                    return null;
+                }
+            })).ConfigureAwait(false);
+
+            foreach (var pageKey in waveResults)
+            {
+                if (pageKey is null) continue;
                 warmed++;
-                warmedPages.Add(manifest.PageKey);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogDebug(ex, "DashboardMaterializerCoordinator: warm failed for {Page}.", manifest.PageKey);
+                warmedPages.Add(pageKey);
             }
         }
 

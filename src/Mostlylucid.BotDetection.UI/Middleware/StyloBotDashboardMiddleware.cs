@@ -7314,17 +7314,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             _ => "24h"
         };
         var token = context.Request.Query["window"].FirstOrDefault() ?? configuredToken;
-        var minutes = token switch
-        {
-            "15m" => 15,
-            "60m" or "1h" => 60,
-            "6h" => 6 * 60,
-            "12h" => 12 * 60,
-            "24h" or "1d" => 24 * 60,
-            "7d" => 7 * 24 * 60,
-            "30d" => 30 * 24 * 60,
-            _ => configuredMinutes
-        };
+        var minutes = UI.Dashboard.DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: configuredMinutes);
         var end = DateTime.UtcNow;
         var domains = context.Request.Query["domain"]
             .Where(v => !string.IsNullOrWhiteSpace(v))

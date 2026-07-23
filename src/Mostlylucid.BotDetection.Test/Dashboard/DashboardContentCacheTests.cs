@@ -165,6 +165,27 @@ public sealed class DashboardContentCacheTests
     }
 
     [Fact]
+    public async Task LiveEnvelopes_reports_hit_count_and_last_seen_tick_for_ranking()
+    {
+        // §7 Tier 2 (materializer priority ranking): the coordinator needs to know which
+        // live envelopes are actually hot so it can warm them first under budget pressure,
+        // instead of arbitrary dictionary-enumeration order. The cache is the one place that
+        // sees every request-path read, so it's the natural owner of the hit count.
+        long tick = 1;
+        await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+
+        await cache.GetAsync(Traffic, Window(), 1, default);
+        tick = 2;
+        await cache.GetAsync(Traffic, Window(), 2, default);
+        await cache.GetAsync(Traffic, Window(), 2, default);
+
+        var live = Assert.Single(cache.LiveEnvelopes());
+        Assert.Equal(3, live.HitCount);
+        Assert.Equal(2, live.LastSeenTick);
+    }
+
+    [Fact]
     public async Task GetCurrentAsync_hits_a_materializer_warm_at_a_later_current_tick()
     {
         var composes = 0;

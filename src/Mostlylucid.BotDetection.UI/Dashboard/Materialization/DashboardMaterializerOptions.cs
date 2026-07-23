@@ -95,19 +95,28 @@ public sealed class DashboardMaterializerOptions
     public string PrewarmPageKey { get; set; } = "dashboard.traffic";
 
     /// <summary>
-    ///     Window length (minutes) for the unconditional prewarm. Mirrors
-    ///     <c>DashboardLayoutOptions.DefaultTimeWindowMinutes</c>'s default (24h) — the envelope a
-    ///     plain, no-query-string visit to the Traffic page resolves to. Kept as its own setting
-    ///     (rather than a cross-reference) so the materializer has no dependency on layout options;
-    ///     if the site's default window changes, update both.
+    ///     §7 Tier 1 (pinned coverage): the window tokens kept warm every tick for
+    ///     <see cref="PrewarmPageKey"/>, regardless of live/demand status. Defaults to the
+    ///     FOSS Traffic UI's own window-switcher buttons, so a visit at ANY of them after
+    ///     an idle gap reads warm instead of paying a synchronous in-request compose —
+    ///     the single-window prewarm only covered the one default window a plain,
+    ///     no-query-string visit resolves to. Each token is resolved via
+    ///     <c>DashboardRoutingHelpers.WindowTokenToMinutes</c> (minutes) and
+    ///     <c>HitsPerPeriodChartletBuilder.BucketSizeForWindow</c> (bucket size) — the SAME
+    ///     helpers a real request's window uses, so a pinned envelope's key always matches
+    ///     what a real request looks up.
     /// </summary>
-    public int PrewarmWindowMinutes { get; set; } = 1440;
+    public IReadOnlyList<string> PrewarmWindows { get; set; } = new[] { "6h", "24h", "7d", "30d" };
 
     /// <summary>
-    ///     Bucket width (minutes) for the unconditional prewarm envelope. Must match
-    ///     <c>HitsPerPeriodChartletBuilder.BucketSizeForWindow</c>'s bucket for the same window
-    ///     length (20 min for the 24h default) — the content envelope keys on this value, so a
-    ///     mismatch prewarm a DIFFERENT cache entry than the one the real request reads.
+    ///     §7 Tier 3 (bounded parallelism): live envelopes are warmed in waves of at most
+    ///     this many concurrent composes, mirroring <c>ScheduleCoordinator</c>'s own
+    ///     <c>MaxConcurrentSubscribersPerTick</c> bounded-parallelism pattern. Kept
+    ///     deliberately conservative by default — the store (SQLite FOSS / Postgres
+    ///     commercial) is the shared resource a burst of concurrent composes would put
+    ///     pressure on, which is exactly the failure mode the compose-batch-overload
+    ///     incident this tuning follows from was about. <see cref="MaxTickDurationMs"/> is
+    ///     checked BETWEEN waves (not between every item within a wave).
     /// </summary>
-    public int PrewarmBucketMinutes { get; set; } = 20;
+    public int MaxConcurrentWarmsPerTick { get; set; } = 4;
 }
