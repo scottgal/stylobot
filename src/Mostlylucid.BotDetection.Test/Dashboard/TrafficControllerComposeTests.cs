@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.Test.Helpers;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.RateLimit;
@@ -51,7 +52,7 @@ public sealed class TrafficControllerComposeTests
     // and repeated reads at the same tick are served from the cache.
     private static DashboardContentCache ContentCache(DefaultDashboardPageComposer composer, long tick = 1) =>
         new((m, w, ct) => composer.ComposeAsync(m, w, ct), () => tick,
-            Options.Create(new DashboardMaterializerOptions()));
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
 
     // ---------- recording store ----------
 

@@ -40,7 +40,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly IDashboardChangeCursor _cursor;
     private readonly IDashboardPageManifestSource _manifests;
     private readonly IScheduleCoordinator? _schedule;
-    private readonly DashboardMaterializerOptions _options;
+    private readonly IOptionsMonitor<DashboardMaterializerOptions> _optionsMonitor;
+
+    // Live-read (not a startup snapshot) so Enabled/MaxTickDurationMs/etc. can be changed
+    // via config reload without a restart -- see the Enabled handling in MaterializeTickAsync.
+    private DashboardMaterializerOptions _options => _optionsMonitor.CurrentValue;
     private readonly ILogger<DashboardMaterializerCoordinator>? _logger;
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? _hubContext;
     private readonly TimeProvider _time;
@@ -50,7 +54,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         IDashboardContentCache cache,
         IDashboardChangeCursor cursor,
         IDashboardPageManifestSource manifests,
-        IOptions<DashboardMaterializerOptions> options,
+        IOptionsMonitor<DashboardMaterializerOptions> options,
         IScheduleCoordinator? schedule = null,
         ILogger<DashboardMaterializerCoordinator>? logger = null,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null,
@@ -59,10 +63,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(cursor);
         ArgumentNullException.ThrowIfNull(manifests);
+        ArgumentNullException.ThrowIfNull(options);
         _cache = cache;
         _cursor = cursor;
         _manifests = manifests;
-        _options = options.Value;
+        _optionsMonitor = options;
         _schedule = schedule;
         _logger = logger;
         _hubContext = hubContext;
@@ -71,8 +76,12 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Self-disable when turned off or on a viewer-mode host with no tick fabric.
-        if (!_options.Enabled || _schedule is null) return Task.CompletedTask;
+        // Self-disable only when there's no tick fabric to subscribe to (viewer-mode host).
+        // Enabled is deliberately NOT checked here: it's read live inside MaterializeTickAsync
+        // instead, so an operator can flip it off/on via config reload (the exact incident
+        // stabiliser this subsystem needed) without a process restart. Subscribing
+        // unconditionally costs one no-op Task per idle 10s tick when disabled -- negligible.
+        if (_schedule is null) return Task.CompletedTask;
 
         try
         {
@@ -108,6 +117,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     /// </summary>
     internal async Task MaterializeTickAsync(DateTimeOffset _, CancellationToken ct)
     {
+        // Read live so an operator can disable/re-enable via config reload without a
+        // restart (StartAsync always subscribes when a schedule exists; this is the gate).
+        if (!_options.Enabled) return;
+
         var tick = _cursor.CurrentTick;
         var live = _cache.LiveEnvelopes().ToList();
 

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.Test.Helpers;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.RateLimit;
@@ -219,7 +220,7 @@ public sealed class WidgetBatchComposeTests
         var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(MakeResult()); },
             () => tick,
-            Options.Create(new DashboardMaterializerOptions()));
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
         var manifests = new DefaultDashboardPageManifestSource();
         var ctx = new DefaultHttpContext();
         var window = new DashboardPageWindow(null, null, "all", null, null, 500, 60);

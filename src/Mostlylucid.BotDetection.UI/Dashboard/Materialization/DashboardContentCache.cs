@@ -18,7 +18,15 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
 {
     private readonly SlidingCacheAtom<DashboardContentKey, DashboardPageResult> _atom;
     private readonly Func<long> _currentTick;
-    private readonly DashboardMaterializerOptions _options;
+    private readonly IOptionsMonitor<DashboardMaterializerOptions> _optionsMonitor;
+
+    // Live-reads through the monitor (not a snapshot captured once at construction) so an
+    // operator's config change -- e.g. ComputeOnColdMiss as a request-thread stabiliser --
+    // takes effect on /admin/reload without a process restart. The cache atom's OWN
+    // construction params (sliding/absolute expiration, max size) are still baked in once
+    // below; only the per-call reads (ComputeOnColdMiss, LiveEnvelopeMaxAgeTicks,
+    // RetentionRecentTicks) benefit from live reload.
+    private DashboardMaterializerOptions _options => _optionsMonitor.CurrentValue;
 
     // Live-envelope registry: the (manifest, window) pairs read recently enough that
     // the materializer should keep warming them. Keyed by envelope so re-reads of the
@@ -40,13 +48,14 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
     public DashboardContentCache(
         Func<DashboardPageManifest, DashboardPageWindow, CancellationToken, Task<DashboardPageResult>> compose,
         Func<long> currentTick,
-        IOptions<DashboardMaterializerOptions> options,
+        IOptionsMonitor<DashboardMaterializerOptions> options,
         SignalSink? signals = null)
     {
         ArgumentNullException.ThrowIfNull(compose);
         ArgumentNullException.ThrowIfNull(currentTick);
+        ArgumentNullException.ThrowIfNull(options);
         _currentTick = currentTick;
-        _options = options.Value;
+        _optionsMonitor = options;
 
         var sink = signals ?? new SignalSink(
             Math.Max(2, _options.ContentCacheMaxEntries * 2),

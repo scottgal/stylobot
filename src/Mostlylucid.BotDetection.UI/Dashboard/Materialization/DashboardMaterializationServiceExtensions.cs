@@ -36,7 +36,7 @@ internal static class DashboardMaterializationServiceExtensions
         {
             var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
             var cursor = sp.GetRequiredService<IDashboardChangeCursor>();
-            var options = sp.GetRequiredService<IOptions<DashboardMaterializerOptions>>();
+            var options = sp.GetRequiredService<IOptionsMonitor<DashboardMaterializerOptions>>();
             return new DashboardContentCache(
                 compose: async (manifest, window, ct) =>
                 {

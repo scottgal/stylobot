@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Test.Helpers;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
@@ -27,7 +28,7 @@ public sealed class DashboardContentCacheTests
     private static DashboardContentCache NewCache(
         Func<DashboardPageManifest, DashboardPageWindow, CancellationToken, Task<DashboardPageResult>> compose,
         long currentTick = 5)
-        => new(compose, () => currentTick, Options.Create(new DashboardMaterializerOptions()));
+        => new(compose, () => currentTick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
 
     [Fact]
     public async Task GetAsync_composes_once_then_serves_cached()
@@ -84,7 +85,7 @@ public sealed class DashboardContentCacheTests
     {
         long tick = 1;
         await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
-            Options.Create(new DashboardMaterializerOptions()));
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
 
         await cache.WarmAsync(Traffic, Window(), 1, default);
         Assert.Empty(cache.LiveEnvelopes()); // a warm must not keep an envelope alive
@@ -98,7 +99,7 @@ public sealed class DashboardContentCacheTests
     {
         long tick = 1;
         await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
-            Options.Create(new DashboardMaterializerOptions { LiveEnvelopeMaxAgeTicks = 3 }));
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { LiveEnvelopeMaxAgeTicks = 3 }));
 
         await cache.GetAsync(Traffic, Window(), 1, default);
 
@@ -116,7 +117,7 @@ public sealed class DashboardContentCacheTests
         long tick = 5;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, Options.Create(new DashboardMaterializerOptions()));
+            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
 
         await cache.GetCurrentAsync(Traffic, Window(), default); // composes at tick 5, warm=5
         Assert.Equal(1, composes);
@@ -137,7 +138,7 @@ public sealed class DashboardContentCacheTests
         var composes = 0;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => 5L, Options.Create(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
+            () => 5L, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
 
         var result = await cache.GetAsync(Traffic, Window(), 5, default);
 
@@ -154,7 +155,7 @@ public sealed class DashboardContentCacheTests
         long tick = 5;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, Options.Create(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
+            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions { ComputeOnColdMiss = false }));
 
         var warmed = await cache.WarmAsync(Traffic, Window(), 5, default); // materializer warms it first
         var result = await cache.GetAsync(Traffic, Window(), 5, default); // request-path read hits the warm entry
@@ -170,7 +171,7 @@ public sealed class DashboardContentCacheTests
         long tick = 5;
         await using var cache = new DashboardContentCache(
             (_, _, _) => { composes++; return Task.FromResult(Result()); },
-            () => tick, Options.Create(new DashboardMaterializerOptions()));
+            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
 
         await cache.WarmAsync(Traffic, Window(), 5, default); // materializer warms env at tick 5
         Assert.Equal(1, composes);
