@@ -1,13 +1,50 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: §7 FULLY WIRED single-source-correct — Tier1 pinned + Tier2 (SlidingCacheAtom.TryGetEntryStats, v2.10.0 published) + Tier3 bounded parallelism, all on foss/dashboard-collapse @ 0377e1ba (local, not pushed). Ephemeral.Atoms.SlidingCache v2.10.0 published to nuget.org from mostlylucid.atoms 5538ac6/tag v2.10.0 (operator + user directly approved). Next: bench- measure pass gates prod bundle.
+description: §7 shipped (FOSS foss/dashboard-collapse@092c8c9a, pushed as branch) but FAILED bench-'s concurrent-load measure gate. Root cause found + documented in commercial §8 (d60af031): ComputeOnColdMiss defaulted true in the tested build, so the synchronous request-thread compose fallback stayed active and spiraled under load. 3-fix design sent to overview- for gate, nothing built yet.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
 
-## §7 FULLY WIRED, single-source-correct (0377e1ba) — DONE except bench- measure pass
+## Measure gate FAILED under concurrent load — root cause found, fix designed (not built)
+bench- ran the §7-tuned bundle (FOSS 092c8c9a / commercial measure-pass-bundle@73b15b04, both pushed as
+branches, both on origin, main untouched on both repos) against the 1.15M-row corpus. Light load: fast
+median but 14.7% cold-miss (p95 ~11.6-12.8s on 7d/30d). Sustained concurrent load (5 VUs traffic + 5 VUs
+compose-batch POST): NO improvement over untuned baseline — the tuning's benefit vanished entirely.
+
+**Root cause CONFIRMED** (checked the actual deployed appsettings.json, not guessed):
+`DashboardMaterializerOptions.ComputeOnColdMiss` was left at its code default (`true`) in the tested
+build — never overridden in config. So the synchronous request-thread compose-batch fallback (meant to be
+a rare safety net) was fully active, reintroducing the in-request-render anti-pattern under load: request
+threads and the materializer's own warm attempts both hit the same contended Postgres, cold misses beget
+more synchronous computes beget more contention — a self-reinforcing spiral, exactly matching every
+symptom bench- observed (fine under light load, no better than baseline under concurrent load, doesn't
+recover cleanly with time).
+
+Wrote up **§8** in the compose-batch-overload review doc (commercial `d60af031`, docs-only, nothing built):
+- **Fix 1** (primary, cheap, high-confidence): stop the sync fallback firing — serve the last known warm
+  snapshot (the request path's `GetCurrentAsync` already resolves to the latest-warmed tick, close to
+  already-there) instead of either computing synchronously or returning a blank `EmptyResult`.
+- **Fix 2** (necessary, larger lift): pre-aggregation/rollup for 7d/30d — item #11 from §5/§6, now
+  confirmed critical-path not strategic-someday. Single-source design (Postgres-native rollup, one writer,
+  no shadow store) per the same "no parasitic store" principle as §7 Tier 2. Needs its own scoped design
+  doc before code.
+- **Fix 3** (supporting): separate materializer vs request-thread Postgres connections (#12).
+
+Recommended sequencing sent to overview-: Fix 1 first → re-measure with bench- under the SAME concurrent
+profile → Fix 3 → Fix 2 (own design doc). Sent full writeup to overview- for scope gate with the operator.
+**Nothing built yet on any of the 3 fixes — awaiting gate.**
+
+## Next step if resuming
+Wait for overview-'s gate/scope decision on the §8 fix design. If approved to build Fix 1: it's a
+FOSS-side change (`DashboardContentCache`/`GetCurrentAsync` path + a "warming up"/stale-snapshot UI
+affordance), TDD per this session's discipline, on `foss/dashboard-collapse` (currently @ 092c8c9a).
+Re-measure with bench- under the identical concurrent-load profile before considering the gate passed.
+
+---
+
+## (historical) §7 FULLY WIRED, single-source-correct (0377e1ba) — shipped, then failed measure gate (see above)
 Sequence completed this session: parasitic HitCount reverted (86c6c96d) → accessor built in
 mostlylucid.atoms sibling repo (`SlidingCacheAtom.TryGetEntryStats`, commit 5538ac6) → user
 DIRECTLY approved the public NuGet publish (AskUserQuestion, not just overview-/operator relay,
