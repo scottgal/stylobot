@@ -1,13 +1,42 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: §7 shipped (FOSS foss/dashboard-collapse@092c8c9a, pushed as branch) but FAILED bench-'s concurrent-load measure gate. Root cause found + documented in commercial §8 (d60af031): ComputeOnColdMiss defaulted true in the tested build, so the synchronous request-thread compose fallback stayed active and spiraled under load. 3-fix design sent to overview- for gate, nothing built yet.
+description: HALTED mid-Fix-1 — operator/user hard rule "NO IOptionsMonitor in FOSS ever" (hot-reload is commercial-only). Audit done: 30 files/16 option types use it in FOSS incl. ff6bef9c (DashboardMaterializerOptions, already on origin/main d5625a1f) AND the documented /admin/reload feature (CLAUDE.md, admin-endpoints.md). Flagged the conflict to overview-, awaiting scope decision (narrow: just ff6bef9c+§7, vs broad: all 30 files + admin-reload feature itself) before writing any revert code.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
 
-## Measure gate FAILED under concurrent load — root cause found, fix designed (not built)
+## HALTED — hard rule conflict: IOptionsMonitor pervasive in FOSS vs "never in FOSS"
+Mid-build on §8 Fix 1 (kill the synchronous request-thread compose fallback — see below for that
+work, which is UNCOMMITTED, in-progress, includes a new `AutoWarmingContentCache` test helper and
+`DashboardPageResult.IsWarming` already built). overview- relayed an operator hard rule: hot-reload
+(IOptionsMonitor) is COMMERCIAL-ONLY, never FOSS; ff6bef9c (IOptions→IOptionsMonitor for
+DashboardMaterializerOptions, part of §7) is "the violation" and needs reverting.
+
+Ran the audit before touching anything (per "verify don't assume"): **IOptionsMonitor is used in 30
+FOSS production files across ~16 option types** (BotDetectionOptions, EndpointPolicyOptions,
+DetectionPolicyOptions, GroupingOptions, PublicKeyRegistryOptions, GatewayWarmupOptions,
+HoneypotDetectionOptions ×4, RateLimitOptions, AdaptiveScalingOptions, UpstreamHealthOptions,
+NavVisibilityOptions, StyloExtractActionOptions ×3, DashboardMaterializerOptions) — on BOTH FOSS
+origin/main (d5625a1f) and foss/dashboard-collapse. This is NOT recent drift: it's the documented
+mechanism behind the FOSS `/admin/reload` endpoint (CLAUDE.md:348, docs/admin-endpoints.md:8 — "no
+process restart" reload is described as a FOSS feature). Flagged this conflict to overview- and am
+**awaiting a scope decision**: narrow (just ff6bef9c + the new §7 options) vs broad (all 30 files +
+deprecating the documented admin-reload feature itself). Sent, not yet answered.
+
+**Do NOT resume Fix 1 or write any IOptionsMonitor revert code until overview- answers scope.**
+
+## Next step if resuming
+Check for overview-'s scope answer first. If narrow: revert DashboardMaterializerOptions consumers
+(DashboardContentCache, DashboardMaterializerCoordinator, DashboardMaterializationServiceExtensions)
+from IOptionsMonitor back to IOptions, keep the rest of the codebase's 29 other files untouched, then
+resume §8 Fix 1. If broad: this is a much bigger separate piece of work needing its own scoping (does
+/admin/reload get removed or replaced for FOSS?) — do not start it without an explicit go.
+
+---
+
+## (historical) Measure gate FAILED under concurrent load — root cause found, fix designed (not built)
 bench- ran the §7-tuned bundle (FOSS 092c8c9a / commercial measure-pass-bundle@73b15b04, both pushed as
 branches, both on origin, main untouched on both repos) against the 1.15M-row corpus. Light load: fast
 median but 14.7% cold-miss (p95 ~11.6-12.8s on 7d/30d). Sustained concurrent load (5 VUs traffic + 5 VUs
