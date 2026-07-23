@@ -1,52 +1,89 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: Lazy-per-row fix (a8c53f61) SHIPPED to foss/dashboard-collapse branch (NOT main yet) — gates all 9 unused shell-data fetches behind isTrafficRow in ServeDashboardPageAsync, TDD-verified (GetThreatsAsync==0 for /traffic), 4485/4486 tests green. Handed deploy- the ref for an :8390 rebuild + asked bench- (via deploy-/overview-) for the same sustained-concurrent re-measure. Reported to overview-. Awaiting re-measure result before deciding Fix 2 (pre-aggregation) or main-merge.
+description: PIVOTED — operator went straight to the proper fix, past interim (a). a8c53f61 (lazy-per-row) SET ASIDE, not shipped as interim, sits on foss/dashboard-collapse branch unused for now. Designing the real fix: upstream whole-page-chunk cache on the website, fed by ONE gateway-batched fetch, LFU-driven refresh priority (reuses §7 Tier2 TryGetEntryStats), adaptive-toward-static under load (tick-overrun-ratio control loop), SignalR-pulse-triggered out-of-request refresh. KEY TRACE FINDING: website's DashboardAggregateCache is structurally ALWAYS EMPTY on remote-mode hosts (broadcaster skips its tick entirely) — all 9 shell reads are unconditionally direct REST-to-gateway today, confirming the operator's ~10-parallel-conns pool-exhaustion diagnosis exactly. 3 design messages sent to overview- (topology, trace, consolidated design w/ 2 pinned decisions). Awaiting gate + mae- coordination on site-hosting/SignalR wiring. NOTHING BUILT YET on this design.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
 
-## CURRENT STATE — lazy-per-row fix shipped to branch, awaiting bench- re-measure
-Built the fix that MAJOR FINDING (below) proposed as option (a). Ownership-checked first (who_touched +
-fleet_status: no active owner on StyloBotDashboardMiddleware.cs or row views, dash- fully exited;
-read docs/dashboard-fork-collapse-inventory.md in full — orthogonal to my change, but flagged its
-stale item-D assumption about TrafficController to whoever resumes that doc).
+## CURRENT STATE — design phase, gated with operator via overview-, NOTHING BUILT YET
+overview- relayed a STOP on shipping (a) (lazy-per-row, a8c53f61) even as an interim — operator said
+"go straight to the proper solution." a8c53f61 is committed + pushed to `foss/dashboard-collapse`
+branch but explicitly NOT to be treated as the fix; deploy-'s :8390 rebuild of it was told to finish
+harmlessly as a reference point only, not gating anything further. Told deploy- this directly.
 
-**Fix**: `ServeDashboardPageAsync` now computes `isTrafficRow = (tab == "traffic")` and gates all 9
-previously-unconditional shell fetches (Visitors/Summary/Countries/Endpoints/UserAgents/Clusters/
-TopBots/Sessions/Threats) behind it — empty placeholders for /traffic instead. `yourDetectionTask`/
-License/chrome stay unconditional (page-level, not row-level). Scoped to "traffic" only — other rows
-(Visitors/Site/Policies/Configuration) would need their own read-trace before the same treatment.
+**The real design, built up across 3 messages to overview- this session (all sent, none built)**:
 
-**TDD**: new `TrafficRowLazyFetchTests.cs`, RED confirmed `GetThreatsAsync` count=1 pre-fix (that
-field has zero legitimate caller for a traffic render), GREEN=0 post-fix. TopBots/Countries/Endpoints
-assertions loosened to upper bounds (<=3/<=2/<=2) after discovering `_Traffic.cshtml`'s own internal
-fetch pattern is richer than my first manual grep predicted — `GetThreatsAsync==0` remains the
-precise, unambiguous regression proof. Full solution build green, 4485/4486 tests green (1
-pre-existing unrelated `DashboardLinkIntegrityTests` failure, confirmed stable across reruns).
+1. **Topology** (confirmed via grep, not assumed): website (`Stylobot.Website/Program.cs:148`) runs
+   `AddStyloBotDashboardRemote` — REST-remote `IDashboardEventStore` against the gateway. GatewayHost
+   (`Stylobot.Commercial.GatewayHost/Program.cs:450`) owns the real `PostgreSQLDashboardEventStore` —
+   gateway is truth, website renders. `ServeDashboardPageAsync`/`DashboardContentCache`/materializer
+   all run IN-PROCESS ON THE WEBSITE.
 
-**Committed a8c53f61, pushed to `foss/dashboard-collapse` BRANCH only** (NOT main — same
-measure-first-then-merge pattern used for Fix 1: build → branch push → deploy- rebuild → bench-
-re-measure → THEN decide on main). Sent deploy- the ref for an :8390 rebuild + bench- loop-in;
-reported full writeup to overview-. **Standing by for bench-'s numbers** — that determines whether
-Fix 2 (pre-aggregation, still deferred) is needed, and whether/when this merges to main (will NOT
-push main without a fresh direct user AskUserQuestion confirmation, regardless of outcome, per this
-session's standing rule).
+2. **Trace finding (the sharp one)**: `DashboardSummaryBroadcaster._isRemoteMode` (true on the
+   website) makes `OnTickAsync` return immediately every tick WITHOUT ever calling
+   `_cache.Update(...)` (`DashboardSummaryBroadcaster.cs:137-145`) — so `DashboardAggregateCache
+   .Current` is `AggregateSnapshot.Empty` FOREVER on this host, by design gap (comment says "gateway
+   owns aggregation, this host just renders" but nothing actually populates the render side). The 2
+   reads in `ServeDashboardPageAsync` that LOOK cache-checked (`_aggregateCache.Current.Summary`/
+   `.UserAgents`) always miss in production. **All 9 shell reads are unconditionally direct
+   REST-to-gateway calls, every request, always** — confirms the operator's exact mechanism: ~10
+   parallel outbound calls (2 `Task.WhenAll` blocks) × N concurrent requests = Npgsql pool exhaustion
+   on the gateway. Not periodic drift — a structural gap (nothing ever fills the website-side cache).
+
+3. **Consolidated design sent** (folds operator's 3 refinements):
+   - **Whole page as ONE chunk**: cache key = `(row/manifest, window)` → a fully-hydrated MODEL
+     (not raw HTML, avoids per-request-state staleness), Razor render stays in-request (sub-ms),
+     only the DATA fetch moves out. Miss → `Warming`-placeholder (Fix-1 rule, whole-page granularity).
+   - **LFU-driven priority**: directly reuses §7 Tier1/2/3 (already shipped this session) widened
+     from 1 manifest (Traffic) to all 9 rows × windows. Tier2 ranking via `SlidingCacheAtom
+     .TryGetEntryStats` (built + published this session). Gateway batched fetch (compose-batch,
+     extended to all 8 datasets) requests only the union of chunks due, never a blind full refetch.
+   - **Adaptive-toward-static**: signal = tick-overrun ratio (actual tick duration ÷ target interval),
+     reusing `MaxTickDurationMs` instrumentation already in `DashboardMaterializerCoordinator` (§8
+     Fix 3). Rising ratio → refresh interval scales up, coordinator skips due-but-not-yet-due pulses →
+     converges to serving the last chunk untouched under load, structurally can't collapse.
+   - **Pinned decisions**: (a) adaptive signal = tick-overrun ratio; (b) chunk granularity = (row,
+     window) only, ~36 chunks total — signature/fingerprint detail pages explicitly OUT of scope
+     (separate existing cache mechanisms); filtered views (domain/country/bot_type params) stay live
+     per-request, same as `DashboardAggregateCache`'s existing precedent — flagged as NOT my call to
+     make unilaterally if operator wants filters covered too.
+
+**Consistency mechanism** (from the original shingle-cache brief, still stands): stamped/versioned
+chunks by tick/generation, SignalR pulse (reuse existing gateway hub + website's
+`SignalRBeaconRelay`) triggers out-of-request refresh, resync-on-reconnect closes the missed-pulse
+gap, bounded-TTL fallback treats over-age chunks as cold rather than serving indefinitely stale data.
 
 ## Next step if resuming
-Check inbox for deploy-'s rebuild confirmation and bench-'s re-measure numbers. If the fix resolved
-the p95 (or got it close): report to overview-, scope Fix 2 against the clean remainder (per
-overview-'s explicit sequencing — "measure how much of the 6.7s survives the lazy fix, and scope
-Fix 2 against THAT clean remainder"), and separately raise whether a8c53f61 should go to main (ask
-user directly, don't assume). If the fix DIDN'T move the number much: that's a real, useful negative
-result — re-open systematic-debugging Phase 1 rather than guessing at a second cause. Also still
-outstanding, on its own track: the focused live-apply round-trip integration test (commercial moat
-regression guard) — deferred while this took priority, not started yet.
+Check inbox for overview-'s gate decision (operator sign-off) and mae-'s reply on website-side
+SignalR/DI wiring specifics (overview- notified them to expect coordination). Do NOT start building
+until gated — this is explicitly a "tight design → fast gate → build" sequence, not build-first.
+Once gated: this is FOSS-side work (extend `DashboardMaterializerCoordinator`/`DashboardContentCache`
+to cover all 9 rows' chunks + the adaptive controller) coordinated with mae- on the website hosting
+side and with commercial's compose-batch (gateway-side batched-fetch extension, likely commercial
+repo work, not mine to build). a8c53f61 remains on the branch, unshipped, available to cherry-pick
+concepts from (the `isTrafficRow` gating pattern) but not itself the deliverable. Also still
+outstanding on its own track: the focused live-apply round-trip integration test (commercial moat
+regression guard) — deprioritized behind this, not started.
 
 ---
 
-## (historical) MAJOR FINDING — the real root cause of the 6.7s p95 (architectural, not Fix-1 bug) — RESOLVED, see CURRENT STATE above
+## (historical) Lazy-per-row fix (a8c53f61) — built, TDD-verified, then SET ASIDE by operator pivot
+Built exactly what MAJOR FINDING (below) proposed as option (a): `ServeDashboardPageAsync` gates all
+9 previously-unconditional shell fetches (Visitors/Summary/Countries/Endpoints/UserAgents/Clusters/
+TopBots/Sessions/Threats) behind `isTrafficRow`, empty placeholders for /traffic instead.
+`yourDetectionTask`/License/chrome stay unconditional. TDD: `TrafficRowLazyFetchTests.cs`, RED
+confirmed `GetThreatsAsync` count=1 pre-fix (zero legitimate caller for a traffic render), GREEN=0
+post-fix; TopBots/Countries/Endpoints loosened to upper bounds after `_Traffic.cshtml`'s own fetch
+pattern proved richer than predicted. 4485/4486 tests green. Committed **a8c53f61**, pushed to
+`foss/dashboard-collapse` branch (not main). Reported to overview-, handed deploy- for an :8390
+rebuild — then, before bench- could re-measure, overview- relayed the operator's STOP: skip this as
+interim, go straight to the proper upstream-chunk-cache solution (see CURRENT STATE above). Not
+wasted — same root-cause evidence (9 unconditional shell reads) directly fed the bigger design, and
+deploy-'s in-flight rebuild was left to finish as a harmless reference point.
+
+## (historical) MAJOR FINDING — the real root cause of the 6.7s p95 (architectural, not Fix-1 bug) — RESOLVED, see above
 overview- disproved my "stale container" theory (deploy- confirmed :8390's digest matched
 50fb696d exactly) — the 6.7s p95 on /dashboard/traffic under concurrent load is REAL against the
 correct build. Per overview-'s explicit instruction, instrumented/traced the actual serving path
