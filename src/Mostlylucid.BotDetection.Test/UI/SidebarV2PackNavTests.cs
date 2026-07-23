@@ -47,7 +47,7 @@ public sealed class SidebarV2PackNavTests
         // _SidebarV2.cshtml @injects INavVisibilityPolicy (hidden-nav-links seam); this hand-built
         // container needs the same FOSS default a real host gets via AddStyloBotDashboard.
         // AddOptions<NavVisibilityOptions>() with no binding source is enough to make
-        // IOptionsMonitor<NavVisibilityOptions> resolvable with the default (empty HiddenPaths).
+        // IOptions<NavVisibilityOptions> resolvable with the default (empty HiddenPaths).
         services.AddOptions<NavVisibilityOptions>();
         services.AddSingleton<INavVisibilityPolicy, DefaultNavVisibilityPolicy>();
 
