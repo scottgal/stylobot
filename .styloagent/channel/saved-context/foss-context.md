@@ -1,17 +1,49 @@
 ---
-name: foss-session-2026-07-20-checkpoint
-description: FOSS dashboard regressions fixed; seam analysis complete, awaiting overview- approval
+name: foss-session-2026-07-23-checkpoint
+description: Re-verified same Visitors/Top-Content regressions from 2026-07-18 mission — confirmed ALREADY FIXED, no code change needed
 metadata:
   type: project
 ---
 
-# foss- saved context (2026-07-20, checkpointed)
+# foss- saved context (2026-07-23, checkpointed)
 
 ## Current state
-- **Branch:** main
-- **HEAD:** ec6907af (dashboard: visitors partial now extracts and passes URL filter parameters)
-- **Repo:** /Users/scottgalloway/RiderProjects/stylobot (FOSS)
+- **Branch:** foss/dashboard-collapse
+- **HEAD:** 15c8f63c (feat(dashboard): shared _DetectionReasons partial for signature-detail)
+- **Repo:** /Users/scottgalloway/RiderProjects/stylobot (FOSS) — shared checkout, fixing in place
 - **Coordination:** commercial repo at /Users/scottgalloway/RiderProjects/stylobot-commercial
+
+## 2026-07-23: re-dispatch of the same 2026-07-18 mission — stale, no action taken
+`.styloagent/missions/foss-.md` handed me the identical Visitors-bare-table / Top-Content-lost-links
+mission already closed out in the 2026-07-20 checkpoint below. Re-verified from scratch (not just trusting
+the old checkpoint) since the user was described as furious about a recurrence:
+- Read current source: `_Visitors.cshtml` → `Visitors/Index.cshtml` → `SbVisitorList` ViewComponent →
+  `Default.cshtml` — full UA/Ver/bot-type/risk/prob/hits/action/seen columns + filter pills + drift badges,
+  all intact.
+- Read current source: `Traffic/_Body.cshtml` — `<sb-endpoints-list compact="true" content-only="true">`
+  + `#endpoint-detail-panel` target, both intact (this is the ec6907af/4bb79e26 fix).
+- Ran the Demo app locally and loaded both pages in a real browser (`/stylobot/visitors`,
+  `/stylobot/traffic`): Visitors rendered the full rich table with real rows; Traffic's "Top content
+  pages" rendered the SbEndpointsList empty state correctly (no content-page hits landed in the 24h
+  window during this manual smoke test — loopback curl traffic classifies as `botType=Internal`, which
+  the content-pages aggregate appears to exclude from "external" traffic; that's a data/classification
+  question, not a rendering regression, and out of scope for this mission).
+- git-log swept 7 days of Views/ViewComponents commits: continuous fix trail from 4bb79e26 (07-16) through
+  ec6907af (07-20) to a18963b6 (07-22) — all ancestors of current HEAD.
+
+**Conclusion: neither regression reproduces on current HEAD. No fix commit made this session — there was
+nothing to fix.** Told overview- to check whether the "recurrence" report is against a stale deployment /
+browser cache rather than this checkout, since this IS the shared checkout the whole fleet's local builds
+reference.
+
+**Gotcha for future me:** the dashboard route is `{BasePath}/{area}` (e.g. `/stylobot/visitors`), NOT
+`{BasePath}/dashboard/{area}` — hitting `/stylobot/dashboard/visitors` 404s/renders "Unknown dashboard
+section" because `ParseRowRef` treats `dashboard` as the area segment. CLAUDE.md's `/dashboard/traffic`
+examples describe the *commercial* mount path convention, not this Demo host's `/stylobot` BasePath.
+
+---
+
+# Prior checkpoint (2026-07-20)
 
 ## Missions completed this session
 
