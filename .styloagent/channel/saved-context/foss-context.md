@@ -79,19 +79,40 @@ shingles carry fingerprint/name/score — committed to the standard triple-check
 shingle contents, in-memory only, any future debug surface redacts Live-class by default). Sent, full
 detail in the message thread with overview-.
 
+## UPDATE — FINAL design written up as §9, one doc, sent for single gate pass
+overview- asked for ONE complete design doc (no more piecemeal bus messages) after a last batch of
+operator refinements (schedule-lives-on-signature Grafana-style, configurable cadence Options,
+adaptive signal = measured-refresh-cost-vs-budget, planned widget-chrome cadence display). Also
+mae- delivered critical grounding that changed a real assumption: **the website does NOT host the
+SignalR hub and the browser already connects DIRECTLY to the gateway's hub, bypassing the website
+entirely** — so the website process itself has ZERO invalidation signal today. mae- recommended (and
+I adopted): each website pod (3 stateless replicas, no Redis backplane) opens its own `HubConnection`
+to the gateway's existing hub, same client shape already proven in `Traffic/Index.cshtml`, moved
+server-side.
+
+Wrote the consolidated design as **§9** in `stylobot-commercial/docs/incidents/2026-07-23-dashboard-
+compose-batch-overload-db-review.md` (commercial repo, local commit **918855dc**, NOT pushed to
+origin/main — pending gate). Covers: topology (incl. the SignalR correction), both traces (website
+`DashboardAggregateCache` structurally always-empty on remote-mode hosts; gateway `GetTimeSeriesAsync`
+confirmed direct-Postgres-scan-per-call, no bucket/LFU structure — the specific "windowed time-series"
+answer overview- asked for), the full model (signature-carried schedule, whole-page-chunk serve,
+per-widget freshness-class cadence, measured-cost-vs-budget adaptive controller, per-class consistency,
+PII discipline), a cadence Options table, the planned (not-v1) widget-chrome cadence display, and a
+build sequence splitting gateway-side work (commercial repo, not mine) from website-side work (FOSS
+repo, mine, coordinated with mae-). Sent to overview- + replied to mae- confirming their SignalR
+approach was adopted. `a8c53f61` explicitly noted in the doc as superseded/set-aside.
+
 ## Next step if resuming
-Check inbox for overview-'s gate decision (operator sign-off) and mae-'s reply on website-side
-SignalR/DI wiring specifics (overview- notified them to expect coordination). Do NOT start building
-until gated — this is explicitly a "tight design → fast gate → build" sequence, not build-first.
-Once gated: this is FOSS-side work (extend `DashboardMaterializerCoordinator`/`DashboardContentCache`
-to cover all 9 rows' chunks, freshness-class cadence, + the adaptive controller) coordinated with
-mae- on the website hosting side and with commercial's compose-batch + `TickFreshMaterializer`
-(gateway-side batched-fetch extension — likely commercial repo work, not mine to build, though
-TickFreshMaterializer may end up redundant once the website-side cache covers everything — flag,
-don't decide unilaterally). a8c53f61 remains on the branch, unshipped, available to cherry-pick the
-`isTrafficRow` gating pattern from but not itself the deliverable. Also still outstanding on its own
-track: the focused live-apply round-trip integration test (commercial moat regression guard) —
-deprioritized behind this, not started.
+Check inbox for overview-'s gate decision (operator sign-off on §9) — this is the single remaining
+blocker before any building starts. If gated: build sequence in §9 is the plan — start with the
+FOSS-side pieces (widen `DashboardMaterializerCoordinator`/`DashboardContentCache` from Traffic-only
+to all 9 rows × windows, whole-page-chunk shaped, freshness-class cadence, adaptive controller) and
+ping mae- to lock down the `HubConnection` DI/wiring specifics (lifetime across 3 replicas, relation
+to the existing `ScheduleCoordinator` subscription, reconnect-triggers-resync). Gateway-side bucket
+storage + compose-batch widening is commercial-repo work, not mine to build. a8c53f61 remains on the
+FOSS branch, unshipped — its `isTrafficRow` gating pattern may still be a useful reference during the
+real build but is not itself the deliverable. Also still outstanding on its own track: the focused
+live-apply round-trip integration test (commercial moat regression guard) — deprioritized, not started.
 
 ---
 
