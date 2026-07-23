@@ -269,12 +269,27 @@ the current staged image) -- deploy- rebuilds the BUNDLED cut from main once ben
 confirms; overview- sequences the restage, not me. bot_probability covering index (§2) is approved as the
 NEXT thing to build but explicitly AFTER this bundle ships, not now.
 
+## Materializer priority/coverage design (§7) — DESIGNED, NOT BUILT, sent to gate
+Operator's tuning direction (full out-of-request coverage, priority ordering, stay generic/no-marketing-
+special-casing) for the test-and-tune loop with bench-. Coverage audit found: only ONE (manifest,window)
+combo pre-warmed today (dashboard.traffic @ 24h default), despite Traffic's own UI offering 4 standard
+windows (6h/24h/7d/30d) -- clicking anything but 24h is ALWAYS a cold miss. Visitors/Site opportunistically
+share the cache when filters match; Policies/Configuration are out of scope (different data domain).
+Design (in docs/incidents/2026-07-23-dashboard-compose-batch-overload-db-review.md §7, commercial commit
+f71a501f, not pushed): Tier 1 pinned = traffic manifest x the SAME window list the UI already offers
+(new PrewarmWindows option, default DERIVED from FOSS's own UI -- satisfies "keep it generic" directly,
+not hardcoded per-host); Tier 2 live-ranked = LiveEnvelopes() ordered by a new hit-counter + recency
+instead of arbitrary dict order; bounded wave-based parallelism (new MaxConcurrentWarmsPerTick, mirrors
+ScheduleCoordinator's own MaxConcurrentSubscribersPerTick pattern). Sequenced strictly AFTER the current
+bundle ships -- NOT building any of this yet, sent to overview- to gate.
+
 ## Next step if resuming
 Waiting on: (a) user's decision on the COMMERCIAL push (fff061db, still unresolved -- branch
 temp-cherry-fff061db in stylobot-commercial, verified+ready, blocked on a repo-visibility classifier flag
-only the user can resolve; don't assume silence = go-ahead), (b) overview- to confirm bench-'s k6 run is
-done + give the go to build the bot_probability index. Do NOT touch .15/staging or restage anything --
-overview- sequences that. NEVER hit stylo.bot/prod without the key.
+only the user can resolve; don't assume silence = go-ahead), (b) overview- to gate §7 (materializer
+priority/coverage design) before building anything, (c) overview- to confirm bench-'s k6 run is done +
+give the go to build the bot_probability index. Do NOT touch .15/staging or restage anything -- overview-
+sequences that. NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
