@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.RateLimit;
@@ -84,5 +85,70 @@ public class BotDetectionMiddlewareDegradationAtomGateTests
 
         ctx.MarkResponseFromStyloBot();
         Assert.False(ctx.IsResponseFromUpstream());
+    }
+
+    // ---- Production wiring (was missing entirely -- these pin the real
+    // BotDetectionMiddleware.RecordDegradation / ResolveUpstreamLatencyMs,
+    // not the local SimulateOnCompleted copy above) ----
+
+    [Fact]
+    public void Production_RecordDegradation_feeds_atom_when_response_is_from_upstream()
+    {
+        var atom = new DegradationAtom();
+        var ctx = new DefaultHttpContext();
+        ctx.Response.StatusCode = 500;
+        ctx.Request.Path = "/dashboard/traffic";
+
+        BotDetectionMiddleware.RecordDegradation(ctx, atom, requestStartTicks: Stopwatch.GetTimestamp());
+
+        Assert.Equal(1, atom.TotalSamples);
+    }
+
+    [Fact]
+    public void Production_RecordDegradation_skips_when_stylobot_marked_response()
+    {
+        var atom = new DegradationAtom();
+        var ctx = new DefaultHttpContext();
+        ctx.Response.StatusCode = 429;
+        ctx.MarkResponseFromStyloBot();
+
+        BotDetectionMiddleware.RecordDegradation(ctx, atom, requestStartTicks: Stopwatch.GetTimestamp());
+
+        Assert.Equal(0, atom.TotalSamples);
+    }
+
+    [Fact]
+    public void Production_RecordDegradation_is_noop_when_atom_not_registered()
+    {
+        // Remote-mode / marketing-site hosts don't register DegradationAtom.
+        var ctx = new DefaultHttpContext();
+        ctx.Response.StatusCode = 500;
+
+        var ex = Record.Exception(() =>
+            BotDetectionMiddleware.RecordDegradation(ctx, degradationAtom: null, requestStartTicks: Stopwatch.GetTimestamp()));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Production_ResolveUpstreamLatencyMs_prefers_gateway_stamped_elapsed()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Items[BotDetectionMiddleware.UpstreamElapsedMsItemKey] = 42.7;
+
+        var latencyMs = BotDetectionMiddleware.ResolveUpstreamLatencyMs(ctx, requestStartTicks: Stopwatch.GetTimestamp());
+
+        Assert.Equal(43, latencyMs);
+    }
+
+    [Fact]
+    public void Production_ResolveUpstreamLatencyMs_falls_back_to_stopwatch_when_no_gateway_stamp()
+    {
+        var ctx = new DefaultHttpContext();
+        var start = Stopwatch.GetTimestamp();
+
+        var latencyMs = BotDetectionMiddleware.ResolveUpstreamLatencyMs(ctx, start);
+
+        Assert.True(latencyMs >= 0);
     }
 }

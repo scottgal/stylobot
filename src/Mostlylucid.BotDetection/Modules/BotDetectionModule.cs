@@ -167,6 +167,18 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Data.IPatternReputationCache, Data.InMemoryPatternReputationCache>();
         services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
         services.TryAddSingleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>();
+
+        // Passive upstream-health tracking: DegradationAtom is the in-process
+        // EWMA of real response status codes (fed by BotDetectionMiddleware
+        // post-_next), UpstreamHealthGate reads it to stand down status-derived
+        // bot-signal contributors during an outage. Both were defined and unit
+        // tested but never registered, so the aggregate 5xx/4xx rate was never
+        // fed from real traffic and the dashboard's site-health card always
+        // showed the empty-data default. In-process only per the transient
+        // per-request state carve-out; DegradationStoreSampler (UI) persists
+        // periodic snapshots via IDashboardEventStore for dashboard history.
+        services.TryAddSingleton<RateLimit.DegradationAtom>();
+        services.TryAddSingleton<RateLimit.UpstreamHealthGate>();
         // Fingerprint store — FOSS default is SQLite (SqliteFingerprintStore),
         // which the BrowserModes subsystem also depends on directly. Commercial
         // pack replaces with a shared-schema Postgres variant via TryAdd-loses.

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Test.Extensions;
@@ -244,6 +245,46 @@ public class ServiceCollectionExtensionsTests
 
         // Assert
         Assert.Same(services, result);
+    }
+
+    #endregion
+
+    #region Upstream health / degradation tracking (passive per-request wiring)
+
+    /// <summary>
+    ///     Regression guard: <see cref="RateLimit.DegradationAtom"/> was defined and
+    ///     unit-tested but never registered in DI, so the aggregate upstream 5xx/4xx
+    ///     rate it tracks was never fed from real traffic and the dashboard's
+    ///     "Upstream healthy" card always showed the empty-data default regardless of
+    ///     actual outages.
+    /// </summary>
+    [Fact]
+    public void AddBotDetection_RegistersDegradationAtom()
+    {
+        var services = new ServiceCollection();
+        AddTestDependencies(services);
+
+        services.AddBotDetection();
+
+        var provider = services.BuildServiceProvider();
+        Assert.NotNull(provider.GetService<DegradationAtom>());
+    }
+
+    /// <summary>
+    ///     Companion registration: without this, <see cref="RateLimit.UpstreamHealthGate"/>
+    ///     consumers (ClaimedIdentityAtom, HeuristicDetector, GatewayWarmupGate) always
+    ///     resolve null and the outage-protection gate never engages.
+    /// </summary>
+    [Fact]
+    public void AddBotDetection_RegistersUpstreamHealthGate()
+    {
+        var services = new ServiceCollection();
+        AddTestDependencies(services);
+
+        services.AddBotDetection();
+
+        var provider = services.BuildServiceProvider();
+        Assert.NotNull(provider.GetService<UpstreamHealthGate>());
     }
 
     #endregion
