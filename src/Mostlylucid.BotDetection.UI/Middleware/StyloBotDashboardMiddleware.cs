@@ -6089,9 +6089,68 @@ public class StyloBotDashboardMiddleware
             FingerprintId = headingFingerprintId,
         };
 
+        // Render inside the SAME drawer/sidebar shell every other dashboard page uses
+        // (Index.cshtml), instead of standalone -- see DashboardShellModel.
+        // SignatureDetailContent. Fixes the "old legacy shell" bug: this page used to
+        // render _SignatureDetail.cshtml directly with isMainPage: true, which falls
+        // back to the HOST's own bare _ViewStart/_Layout (no dashboard sidebar at all),
+        // and the view compensated with a hand-rolled fallback nav strip that mirrored
+        // Index.cshtml's pre-V2 tabs -- tabs the V2 IA migration had already deleted
+        // from Index.cshtml itself, so the mirror silently went stale.
+        //
+        // Only the fields the shared shell actually renders are built for real
+        // (YourDetection pill, License card, Packs for the sidebar, TunnelEnvironment
+        // banner); DashboardShellModel's other required fields are cheap empty
+        // placeholders -- the SignatureDetailContent dispatch branch in Index.cshtml
+        // never touches them, so there's no reason to pay for the Visitors/Countries/
+        // Endpoints/etc. queries ServeDashboardPageAsync runs for the tab pages.
+        var registry = context.RequestServices
+            .GetRequiredService<UI.Dashboard.IDashboardRowRegistry>();
+        var shellModel = new DashboardShellModel
+        {
+            CspNonce = cspNonce,
+            BasePath = basePath,
+            HubPath = _options.HubPath,
+            ActiveRow = new UI.Dashboard.DashboardRowRef("signature-detail"),
+            Version = DashboardVersion,
+            RenderShell = _options.RenderShell,
+            Summary = new SummaryStatsModel
+            {
+                BasePath = basePath,
+                Summary = new DashboardSummary
+                {
+                    Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0,
+                    HumanRequests = 0, UncertainRequests = 0,
+                    RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(),
+                    UniqueSignatures = 0
+                }
+            },
+            Visitors = new VisitorListModel { Visitors = [], Counts = new FilterCounts(), Filter = "all", SortField = "lastSeen", SortDir = "desc", Page = 1, PageSize = 24, TotalCount = 0, BasePath = basePath },
+            YourDetection = await BuildYourDetectionPartialModel(context),
+            Countries = new CountriesListModel { Countries = [], BasePath = basePath },
+            Endpoints = new EndpointsListModel { Endpoints = [], BasePath = basePath },
+            Clusters = new ClustersListModel { Clusters = [], BasePath = basePath },
+            UserAgents = new UserAgentsListModel { UserAgents = [], BasePath = basePath },
+            TopBots = new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
+            Sessions = new SessionsListModel { Sessions = [], BasePath = basePath },
+            Threats = new ThreatsListModel { BasePath = basePath },
+            License = BuildLicenseCardModel(context),
+            IsCommercial = IsCommercialMode(context),
+            Packs = registry.Packs,
+            TunnelEnvironment = context.RequestServices
+                .GetService<BotDetection.Proxy.ITunnelEnvironmentInspector>()?.GetSnapshot(),
+            TunnelDocsUrl = context.RequestServices
+                .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()
+                ?.Value.TunnelEnvironment.DocsUrl
+                ?? "https://stylo.bot/articles/tunnel-trade-off",
+            IsPrivilegedViewer = context.Items.TryGetValue(DashboardShellModel.PrivilegedViewerItemsKey, out var privilegedViewerFlag)
+                && privilegedViewerFlag is true,
+            SignatureDetailContent = model,
+        };
+
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", model, context, isMainPage: true);
+            "/Views/StyloBot/Dashboard/Index.cshtml", shellModel, context, isMainPage: true);
         await context.Response.WriteAsync(html);
     }
 

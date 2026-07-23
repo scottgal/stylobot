@@ -99,25 +99,37 @@
            the operator's own detection pill, which is genuinely global. *@
         <div class="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-1.5 mb-3 rounded-lg border text-xs"
              style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            @* Your detection pill, right-aligned. Whole pill clicks through to the user's signature page. *@
-            <span class="ml-auto flex items-center gap-1.5">
-                @if (yd.HasData)
-                {
+            @* Your detection pill, right-aligned. Whole pill clicks through to the user's
+               signature page -- previously only the trailing "view →" text was inside the
+               anchor, so clicking the "You: Human X%" text itself (the part an operator
+               naturally clicks) did nothing. *@
+            @if (yd.HasData && !string.IsNullOrEmpty(yd.Signature))
+            {
+                <a href="@yd.BasePath/signature/@Uri.EscapeDataString(yd.Signature)"
+                   class="ml-auto flex items-center gap-1.5 hover:opacity-80"
+                   title="View your own detection detail">
                     <span class="text-[10px] text-base-content/40 uppercase tracking-wider">You:</span>
                     @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
                     else { <span class="badge badge-xs badge-success">Human</span> }
                     <span class="text-[11px] font-bold @ydRiskClass">@ydProbPct%</span>
                     <span class="text-[10px] text-base-content/50">@yd.RiskBand</span>
-                    @if (!string.IsNullOrEmpty(yd.Signature))
-                    {
-                        <a href="@yd.BasePath/signature/@Uri.EscapeDataString(yd.Signature)" class="text-[10px] text-base-content/40 hover:text-base-content/70 underline">view →</a>
-                    }
-                }
-                else
-                {
-                    <span class="text-[10px] text-base-content/40">Detection pending…</span>
-                }
-            </span>
+                    <span class="text-[10px] text-base-content/40 underline">view →</span>
+                </a>
+            }
+            else if (yd.HasData)
+            {
+                <span class="ml-auto flex items-center gap-1.5">
+                    <span class="text-[10px] text-base-content/40 uppercase tracking-wider">You:</span>
+                    @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
+                    else { <span class="badge badge-xs badge-success">Human</span> }
+                    <span class="text-[11px] font-bold @ydRiskClass">@ydProbPct%</span>
+                    <span class="text-[10px] text-base-content/50">@yd.RiskBand</span>
+                </span>
+            }
+            else
+            {
+                <span class="ml-auto text-[10px] text-base-content/40">Detection pending…</span>
+            }
         </div>
 
         @* B9a: the "N rules effective · last edit" status badge was removed —
@@ -210,7 +222,13 @@
                 .GetRequiredService<Mostlylucid.BotDetection.UI.Dashboard.IDashboardRowRegistry>();
             var match = registry.Resolve(rowRef.Area, rowRef.Sub);
         }
-        @if (match is null)
+        @if (Model.SignatureDetailContent is not null)
+        {
+            @* Per-ID detail page (no static row registration) sharing this shell -- see
+               DashboardShellModel.SignatureDetailContent. Bypasses the registry dispatch below. *@
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", Model.SignatureDetailContent)
+        }
+        else if (match is null)
         {
             <div class="rounded-xl border p-6 text-sm text-base-content/60"
                  style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">

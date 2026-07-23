@@ -790,6 +790,15 @@ public sealed class DashboardShellModel
     ///     FOSS call-site changes.
     /// </summary>
     public bool IsPrivilegedViewer { get; init; } = false;
+
+    /// <summary>
+    ///     When set, <c>Index.cshtml</c> renders <c>_SignatureDetail.cshtml</c> with this model
+    ///     instead of dispatching through <see cref="UI.Dashboard.IDashboardRowRegistry" />. Lets
+    ///     a per-ID detail page (no static row registration) share the same drawer/sidebar shell
+    ///     as the registry-dispatched tabs, instead of rendering standalone with a hand-rolled
+    ///     (and pre-V2, since-deleted-elsewhere) fallback nav. Null for every normal tab render.
+    /// </summary>
+    public SignatureDetailModel? SignatureDetailContent { get; init; }
 }
 
 /// <summary>
