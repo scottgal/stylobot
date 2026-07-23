@@ -13,6 +13,7 @@
    somehow lost the registration. *@
 @inject IServiceProvider _services
 @inject IFingerprintNameActionSlot NameActionSlot
+@inject ISignaturePolicyActionSlot PolicyActionSlot
 @model SignatureDetailModel
 @{
     // No Layout = null here. The host's _ViewStart picks the layout (the website's
@@ -242,37 +243,111 @@ else
                 <span class="font-bold @ActionColor(Model.Action)">@ActionDisplayHelper.GetFriendlyName(Model.Action)</span>
             </div>
         }
+        @* Commercial policy-action block (Allow/Block/Throttle/Transform). FOSS default
+           (EmptySignaturePolicyActionSlot) renders nothing, so this is always safe to call --
+           the commercial host's real implementation is what makes it visible. *@
+        @PolicyActionSlot.Render(Model.SignatureId, Model.Action, Model.BotType, Model.IsBot)
     </div>
 
-    <!-- Stats grid -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
-        <div class="rounded-lg border p-3" sb-tooltip="stat.probability" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Probability</div>
-            <div class="text-lg font-bold @(Model.BotProbability >= 0.7 ? "text-error" : Model.BotProbability >= 0.4 ? "text-warning" : "text-success")">@($"{Model.BotProbability:P0}")</div>
+    @* VERDICT: the probability/confidence/risk tiles + the analysis prose + the signed
+       per-detector signals used to be three separate cards competing for attention
+       (a bare stats grid, then an Analysis card and a Detection Signals card two
+       screens down next to each other). One verdict section, one read: numbers on
+       top, why underneath, signals last. Detector Contributions (the full per-detector
+       table further down) stays separate -- that's the detailed breakdown, a
+       different altitude from this summary. *@
+    <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+            <div class="rounded-lg border p-3" sb-tooltip="stat.probability" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <div class="text-[10px] font-semibold text-base-content/50 uppercase">Probability</div>
+                <div class="text-lg font-bold @(Model.BotProbability >= 0.7 ? "text-error" : Model.BotProbability >= 0.4 ? "text-warning" : "text-success")">@($"{Model.BotProbability:P0}")</div>
+            </div>
+            <div class="rounded-lg border p-3" sb-tooltip="stat.confidence" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <div class="text-[10px] font-semibold text-base-content/50 uppercase">Confidence</div>
+                <div class="text-lg font-bold text-base-content">@($"{Model.Confidence:P0}")</div>
+            </div>
+            <div class="rounded-lg border p-3" sb-tooltip="stat.risk_profile" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <div class="text-[10px] font-semibold text-base-content/50 uppercase">Risk Profile</div>
+                <div class="text-lg font-bold @RiskColor(Model.RiskBand)">@(Model.RiskBand ?? "Unknown")</div>
+                @if (!string.IsNullOrEmpty(Model.RiskJustification))
+                {
+                    <div class="text-[10px] text-base-content/50 mt-1 leading-tight">@Model.RiskJustification</div>
+                }
+            </div>
+            <div class="rounded-lg border p-3" sb-tooltip="stat.threat" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <div class="text-[10px] font-semibold text-base-content/50 uppercase">Threat</div>
+                <div class="text-lg font-bold @ThreatColor(Model.ThreatBand)">@(Model.ThreatBand ?? "None")</div>
+            </div>
+            <div class="rounded-lg border p-3" sb-tooltip="stat.hit_count" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <div class="text-[10px] font-semibold text-base-content/50 uppercase">Hit Count</div>
+                <div class="text-lg font-bold text-base-content">@Model.HitCount.ToString("N0")</div>
+            </div>
+            <div class="rounded-lg border p-3" sb-tooltip="stat.last_seen" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <div class="text-[10px] font-semibold text-base-content/50 uppercase">Last Seen</div>
+                <div class="text-lg font-bold text-base-content">@timeAgo</div>
+            </div>
         </div>
-        <div class="rounded-lg border p-3" sb-tooltip="stat.confidence" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Confidence</div>
-            <div class="text-lg font-bold text-base-content">@($"{Model.Confidence:P0}")</div>
-        </div>
-        <div class="rounded-lg border p-3" sb-tooltip="stat.risk_profile" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Risk Profile</div>
-            <div class="text-lg font-bold @RiskColor(Model.RiskBand)">@(Model.RiskBand ?? "Unknown")</div>
-            @if (!string.IsNullOrEmpty(Model.RiskJustification))
+
+        <div class="mb-3">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Analysis</h3>
+            @if (!string.IsNullOrEmpty(Model.Description))
             {
-                <div class="text-[10px] text-base-content/50 mt-1 leading-tight">@Model.RiskJustification</div>
+                <p class="text-sm text-base-content/80 mb-2">@Model.Description</p>
+            }
+            @if (!string.IsNullOrEmpty(Model.Narrative))
+            {
+                <p class="text-xs text-base-content/50 italic">@Model.Narrative</p>
+            }
+            @if (string.IsNullOrEmpty(Model.Description) && string.IsNullOrEmpty(Model.Narrative))
+            {
+                <p class="text-xs text-base-content/40 italic">No analysis available yet.</p>
             }
         </div>
-        <div class="rounded-lg border p-3" sb-tooltip="stat.threat" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Threat</div>
-            <div class="text-lg font-bold @ThreatColor(Model.ThreatBand)">@(Model.ThreatBand ?? "None")</div>
-        </div>
-        <div class="rounded-lg border p-3" sb-tooltip="stat.hit_count" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Hit Count</div>
-            <div class="text-lg font-bold text-base-content">@Model.HitCount.ToString("N0")</div>
-        </div>
-        <div class="rounded-lg border p-3" sb-tooltip="stat.last_seen" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Last Seen</div>
-            <div class="text-lg font-bold text-base-content">@timeAgo</div>
+
+        <div>
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Detection Signals</h3>
+            @* Prefer the real signed per-detector data (DashboardDetectorContribution.
+               ConfidenceDelta -- centroid/belief-delta pipeline output, not a rules
+               lookup) so the operator sees WHICH WAY each signal pushed the verdict,
+               not just a flat reason string. > 0 raised the bot score (error/red,
+               matching the risk-color convention), < 0 lowered it (success/green).
+               Falls back to the flat TopReasons list when DetectorContributions is
+               empty (older rows / upstream-trusted path where it can be null). Capped
+               at the top 6 by magnitude -- the FULL list is the separate Detector
+               Contributions table below; this is the concise verdict-level summary. *@
+            @if (Model.DetectorContributions.Count > 0)
+            {
+                <ul class="space-y-1">
+                    @foreach (var det in Model.DetectorContributions.Take(6))
+                    {
+                        var dirGlyph = det.ConfidenceDelta > 0 ? "&#8593;" : det.ConfidenceDelta < 0 ? "&#8595;" : "&#8226;";
+                        var dirColor = det.ConfidenceDelta > 0 ? "text-error" : det.ConfidenceDelta < 0 ? "text-success" : "text-base-content/40";
+                        var dirTitle = det.ConfidenceDelta > 0 ? "raised the bot score" : det.ConfidenceDelta < 0 ? "lowered the bot score" : "neutral";
+                        var label = string.IsNullOrEmpty(det.Reason) ? det.Name.Replace("Contributor", "", StringComparison.Ordinal) : det.Reason;
+                        <li class="flex items-start gap-2 text-xs text-base-content/70">
+                            <span class="@dirColor font-bold mt-0.5" title="@dirTitle">@Html.Raw(dirGlyph)</span>
+                            <span class="flex-1">@label</span>
+                            <span class="tabular-nums text-[10px] text-base-content/40">@($"{Math.Abs(det.Contribution):F2}")</span>
+                        </li>
+                    }
+                </ul>
+            }
+            else if (Model.TopReasons?.Count > 0)
+            {
+                <ul class="space-y-1">
+                    @foreach (var reason in Model.TopReasons)
+                    {
+                        <li class="flex items-start gap-2 text-xs text-base-content/70">
+                            <span class="text-base-content/30 mt-0.5">&#x2022;</span>
+                            <span>@reason</span>
+                        </li>
+                    }
+                </ul>
+            }
+            else
+            {
+                <p class="text-xs text-base-content/40 italic">No detection signals recorded.</p>
+            }
         </div>
     </div>
 
@@ -751,45 +826,6 @@ else
                   data-testid="sb-signature-user-agent">@Model.UserAgent</code>
         </div>
     }
-
-    <!-- Two-column: Analysis + Detection Signals -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Analysis</h3>
-            @if (!string.IsNullOrEmpty(Model.Description))
-            {
-                <p class="text-sm text-base-content/80 mb-2">@Model.Description</p>
-            }
-            @if (!string.IsNullOrEmpty(Model.Narrative))
-            {
-                <p class="text-xs text-base-content/50 italic">@Model.Narrative</p>
-            }
-            @if (string.IsNullOrEmpty(Model.Description) && string.IsNullOrEmpty(Model.Narrative))
-            {
-                <p class="text-xs text-base-content/40 italic">No analysis available yet.</p>
-            }
-        </div>
-
-        <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Detection Signals</h3>
-            @if (Model.TopReasons?.Count > 0)
-            {
-                <ul class="space-y-1">
-                    @foreach (var reason in Model.TopReasons)
-                    {
-                        <li class="flex items-start gap-2 text-xs text-base-content/70">
-                            <span class="text-base-content/30 mt-0.5">&#x2022;</span>
-                            <span>@reason</span>
-                        </li>
-                    }
-                </ul>
-            }
-            else
-            {
-                <p class="text-xs text-base-content/40 italic">No detection signals recorded.</p>
-            }
-        </div>
-    </div>
 
     <!-- Detector Contributions -->
     @if (Model.DetectorContributions.Count > 0)
