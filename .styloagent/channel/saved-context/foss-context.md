@@ -1,17 +1,50 @@
 ---
-name: foss-session-2026-07-23-checkpoint
-description: Dashboard mission confirmed ALREADY FIXED, no code change needed — overview- confirmed root cause was a stale-obj mission-doc mix-up, stood down. IDLE.
+name: foss-session-2026-07-23-reengaged-task1-task2
+description: Re-engaged by overview-. Task 1 (csproj gaps) does NOT reproduce — reported, awaiting ecommerce- repro info. Task 2 (upstream-always-200) root cause FOUND — DegradationAtom/UpstreamHealthGate never wired to real traffic in production. Design sent to overview-, gated for approval, NOT built yet.
 metadata:
   type: project
 ---
 
-# foss- saved context (2026-07-23, checkpointed) — STOOD DOWN, IDLE
+# foss- saved context (2026-07-23, re-engaged) — AWAITING overview- GATE
 
-`overview-` confirmed the whole mission was a shadowed-stale-doc mix-up on their end (the 07-18
-Visitors/Top-Content mission.md shadowed what they meant to send); separately, benchviz-'s "missing
-IScheduleCoordinator/YamlObject" report was a stale-obj/ref-assembly artifact (CS0006 from an unbuilt FOSS
-checkout), not a real code breakage — `dotnet build` on the FOSS projects is clean. No FOSS engine work
-pending. Waiting to be re-engaged by prefix.
+## Task 1 — build gaps (P1) — does not reproduce
+Wiped obj/bin for PrometheusPack/UI/core, `dotnet build mostlylucid.stylobot.sln` clean = 0 errors. VYaml
+1.4.0 + Mostlylucid.Common 8.0.0-alpha2 are both already direct `PackageReference`s in
+`Mostlylucid.BotDetection.csproj` (flow transitively) and both genuinely published on nuget.org (checked the
+flatcontainer index directly, not just local cache). No fix made — nothing to fix. Reported to overview-,
+asked for ecommerce-'s exact repro (branch/command/log) since I can't reproduce from source.
+
+## Task 2 — "upstream always returns 200" investigation — ROOT CAUSE FOUND, DESIGN SENT (gated, not built)
+**Client status-code propagation is fine**: no YARP transform in `Stylobot.Gateway` touches `Response.StatusCode`
+(checked `AddTransforms` in `ServiceCollectionExtensions.cs`, `UpstreamTimingTransform`,
+`TlsFingerprintingTransform`) — standard passthrough. Per-request capture is also fine
+(`BotDetectionMiddleware.EmitResponseSignals` reads status post-`_next`; PR #117 fix intact, verified live).
+
+**Real gap**: the aggregate upstream-health subsystem is dead code in production —
+- `DegradationAtom` (5xx/4xx/404/429 EWMA + latency) — **never registered in DI** anywhere (not
+  `AddBotDetection*`, not Gateway). Only unit tests construct it directly.
+- `DegradationAtom.RecordResponse(...)` — **zero production call sites**. The intended wiring
+  (`if (context.IsResponseFromUpstream()) degradationAtom?.RecordResponse(...)`) exists only as a doc-comment
+  in `BotDetectionMiddlewareDegradationAtomGateTests.cs` line 15 — never actually added to
+  `BotDetectionMiddleware.EmitResponseSignals`.
+- `UpstreamHealthGate` (reads the atom to suppress status-derived false-positives during outages) —
+  also never registered; that outage-protection feature never engages.
+- `DegradationStoreSampler` (UI) resolves the atom via `GetService<DegradationAtom>()` → always null →
+  permanently inert → **zero `DegradationSnapshot` rows ever persisted**, in any deployment.
+- `SiteHealthChartletBuilder`/`SbSiteHealth` render from that always-empty history → "Upstream healthy, no
+  incidents" is the EMPTY-DATA DEFAULT, not an observed absence of errors. I saw this exact message live on
+  Traffic page during an earlier smoke test, before knowing why. This is why the operator's `/dashboard/traffic`
+  500 went unnoticed.
+
+**Proposed minimal fix (sent to overview-, awaiting gate)**: (1) `TryAddSingleton<DegradationAtom>()` +
+`TryAddSingleton<UpstreamHealthGate>()` in `AddBotDetection`; (2) inject optional `DegradationAtom?` into
+`BotDetectionMiddleware`, call `RecordResponse(statusCode, latencyMs, path)` in `EmitResponseSignals` gated on
+`IsResponseFromUpstream()`, reusing `UpstreamTimingTransform`'s stamped latency when present. No dashboard
+changes needed — the chartlet/card already render whatever snapshot history exists. Small, precisely-scoped
+(one registration line + ~2 lines in one method). **Do not build until overview- gates it.**
+
+## Next step if resuming
+Waiting on overview- reply for both threads. Nothing else pending.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
