@@ -1,13 +1,50 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: DONE (40dc82e9) — FULL scope (operator overrode narrow to broad mid-stream). Every IOptionsMonitor<T> removed from FOSS production code except 2 framework-mandated AuthenticationSchemeOptions refs (can't compile otherwise). POST /admin/reload deleted entirely + docs updated. §8 Fix 1 (structural cold-miss fix) also done. 4485/4486 tests green. NOT pushed to FOSS main (main is d5625a1f, ancestor of HEAD, ff6bef9c already there) — reported plan, awaiting overview-/operator sequencing.
+description: DONE (50fb696d, pushed as branch). Full IOptionsMonitor sweep + admin/reload removal + reloadOnChange:false seal across all hosts. Handed deploy- FOSS 50fb696d + commercial measure-pass-bundle@73b15b04 for bench- re-gate. Found+fixed a real regression (commercial Stylobot.Website.csproj ephemeral pin, commit ebdb92ad). Reported honest gap: no e2e test coverage of commercial live-apply round-trip. Standing by for bench-'s numbers + overview-'s next step.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
 
-## DONE — FULL IOptionsMonitor sweep (scope broadened mid-stream), committed through 40dc82e9
+## DONE — sweep + seal + moat verification, committed through 50fb696d (pushed)
+On top of the full sweep (40dc82e9, see below), closed the remaining loop:
+
+1. **50fb696d** — reloadOnChange seal: Console/Gateway explicit `reloadOnChange:true` flipped to
+   false; ALSO added a defensive sweep after every `WebApplication.CreateBuilder()` call (Demo,
+   Stylobot.All, Stylobot.Ui, Console, Sidecar, Gateway) since CreateBuilder's own DEFAULT
+   appsettings sources reload-on-change independent of any explicit override. Closes the loop so
+   the one remaining IOptionsMonitor<AuthenticationSchemeOptions> (framework-forced, can't convert)
+   is permanently pinned to its startup value — no trigger left anywhere. Pushed to origin (branch,
+   not main — same already-approved push target).
+2. Handed **deploy-** FOSS 50fb696d + commercial measure-pass-bundle@73b15b04 for bench-'s re-gate
+   (supersedes the earlier c14c6ec4 handoff — same work + the seal). Standing by for bench-'s
+   concurrent-load numbers (the open question: does Fix 1 alone kill the collapse, or is Fix 2
+   pre-aggregation still needed).
+3. Verified `DetectorConfigProvider`/`IConfigurationOverrideSource` byte-for-byte untouched by the
+   sweep via actual `git diff dfc6ad51..50fb696d` (not just assertion) — zero hits.
+4. Commercial live-apply integration-test audit (via agent): **genuine gap, reported honestly** — no
+   test exercises the full round-trip (config override write → `ControlPlaneConfigurationSource` →
+   `DetectorConfigProvider` sees the new value, no restart). Adjacent pieces are tested (persistence,
+   resolver precedence, HTTP query shape) but never wired together end-to-end. 25/25 existing
+   adjacent tests pass.
+5. **Found + fixed a real regression** while running those tests: commercial's
+   `Stylobot.Website.csproj` had `mostlylucid.ephemeral` pinned at 2.9.1 (my own earlier §7 Tier2
+   package bump needs 2.10.0) — NU1605 restore failure. Bumped the pin, verified clean build,
+   committed commercial **ebdb92ad**.
+
+Full report sent to overview-. Standing by for bench-'s re-gate result and any follow-up on the
+test-coverage gap.
+
+## Next step if resuming
+Check for bench-'s re-gate numbers (does Fix 1 alone fix the concurrent-load collapse?) and
+overview-'s decision on the live-apply test-coverage gap (build the missing integration test, or
+accept as a known gap pending the future admin-site work). No FOSS-main push yet — branch carries
+everything, overview- sequences the merge with the operator.
+
+---
+
+## (historical) DONE — FULL IOptionsMonitor sweep (scope broadened mid-stream), committed through 40dc82e9
 overview- relayed the operator's scope reversal ("REMOVE ALL OF THEM — NON NEGOTIABLE", "/admin/reload
 was NEVER intended to be in FOSS, it's a hallucination") superseding the earlier narrow-scope gate.
 Executed the full sweep, "GO NOW, don't wait for plan review," in 4 commits on top of the narrow
