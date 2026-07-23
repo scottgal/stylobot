@@ -100,11 +100,17 @@ or a restricted source list) -- reported this to overview- with the exact repro 
 9e6d1f0c + d50fd0f1 are both ready to fold into main whenever operator go lands. Cleaned up the worktree
 after.
 
+## 9e6d1f0c + d50fd0f1 CONFIRMED on FOSS origin/main
+Reconciled deploy landed them (main @ 7732d185 includes both, plus hidden-nav). overview- then broadcast a
+main-push FREEZE for the duration of this deploy cycle (verify on prod first) — no FOSS/commercial main
+pushes without coordinating through overview- first; feature branches keep working locally, merge queue
+reopens after. I have nothing queued to push (all local commits per instructions all along), so this is a
+no-op for me — just holding.
+
 ## Next step if resuming
-Waiting on: overview- ack on the main-build verdict + operator go to push 9e6d1f0c/d50fd0f1 to FOSS main;
-ecommerce-'s/benchviz-'s exact environment details if they want the environmental gap chased further.
-Task 2b (Logs view) is routed to otel-/aspnet-, not mine unless overview- comes back with a specific
-FOSS-side seam ask. Nothing else pending.
+Standing by: merge queue is frozen until overview- verifies the reconciled deploy on prod, then reopens it.
+No pending push needed from me. If picking up new work meanwhile: Task 2b (Logs view) stays routed to
+otel-/aspnet-; ecommerce-'s/benchviz-'s environmental build-gap detail if they send it. Otherwise idle.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
