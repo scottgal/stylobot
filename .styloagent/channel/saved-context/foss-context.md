@@ -43,8 +43,21 @@ asked for ecommerce-'s exact repro (branch/command/log) since I can't reproduce 
 changes needed — the chartlet/card already render whatever snapshot history exists. Small, precisely-scoped
 (one registration line + ~2 lines in one method). **Do not build until overview- gates it.**
 
+## Task 2b update — Logs view spec: FLAGGED as likely duplicate/misrouted, not specced
+overview- refined Task 2 into a bigger "Logs view" ask (list requests/sessions with correlated Warning+
+logs, sourced from the existing LFU, no second store, PII-audited). Before speccing, read
+`stylobot-commercial/.styloagent/channel/saved-context/otel-context.md` — the actual infra
+(`FingerprintTimelineAtom`, `IOtelMeshTimelineReader`, `IRecentLogEntriesProvider`, `LogSinkOptions`/OTLP
+log-sink) all live in `Stylobot.Commercial.OtelMesh` / `Stylobot.Commercial.AspNetPack` (commercial repo,
+otel-/aspnet- owned) — none of it is in my FOSS checkout. `otel-`'s own context already has this exact task
+queued verbatim as "LOOSE END #2" (fingerprint-anchored OTel+logs correlation, gated behind reading
+`project_fingerprint_anchored_otel_logs`, coordinate w/ aspnet-, NOT started). Flagged to overview- rather
+than duplicate/guess at commercial internals I can't see: either route 2b to otel-/aspnet- who already own
+it, or tell me the specific FOSS-side seam needed (if any) once they've scoped the read contract. Task 2a
+(the factual "does the gateway mask 5xx to 200" answer) is reconfirmed and closed — no.
+
 ## Next step if resuming
-Waiting on overview- reply for both threads. Nothing else pending.
+Waiting on overview- reply on: Task 1 repro info, Task 2b routing decision. Nothing else pending.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
