@@ -598,6 +598,7 @@ public sealed class SignatureAggregateCache
             MinProcessingTimeMs = minProc,
             MaxProcessingTimeMs = maxProc,
             TopReasons = latest.TopReasons,
+            DetectionReasons = ProjectDetectionReasons(latest.DetectorContributions),
             FirstSeen = detections[^1].Timestamp,
             LastSeen = latest.Timestamp,
             Narrative = latest.Narrative,
@@ -805,6 +806,7 @@ public sealed class SignatureAggregateCache
                 Narrative = agg.Narrative,
                 Description = agg.Description,
                 TopReasons = agg.TopReasons?.ToList() ?? new List<string>(),
+                DetectionReasons = agg.DetectionReasons?.ToList() ?? new List<DetectionReasonEntry>(),
                 ProcessingTimeMs = agg.ProcessingTimeMs,
                 MaxProcessingTimeMs = agg.MaxProcessingTimeMs,
                 MinProcessingTimeMs = agg.MinProcessingTimeMs,
@@ -875,6 +877,7 @@ public sealed class SignatureAggregateCache
                 Narrative = canonical.Narrative,
                 Description = canonical.Description,
                 TopReasons = canonical.TopReasons,
+                DetectionReasons = canonical.DetectionReasons,
                 ProcessingTimeMs = canonical.ProcessingTimeMs,
                 MaxProcessingTimeMs = members.Max(v => v.MaxProcessingTimeMs),
                 // Min across known mins, 0 when every member is unset. The previous
@@ -983,6 +986,7 @@ public sealed class SignatureAggregateCache
             MinProcessingTimeMs = detection.ProcessingTimeMs,
             MaxProcessingTimeMs = detection.ProcessingTimeMs,
             TopReasons = detection.TopReasons,
+            DetectionReasons = ProjectDetectionReasons(detection.DetectorContributions),
             FirstSeen = detection.Timestamp,
             LastSeen = detection.Timestamp,
             Narrative = detection.Narrative,
@@ -1072,6 +1076,30 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
+    ///     Project the event's raw per-detector dict down to the lean, capped shape the
+    ///     cache stores (see <see cref="SignatureAggregate.DetectionReasons"/>) -- top 6
+    ///     by |Contribution|, label-only (no detector Name/ExecutionTimeMs), so this
+    ///     doesn't bloat the bounded per-fingerprint LFU cache the way carrying the full
+    ///     Dictionary&lt;string, DashboardDetectorContribution&gt; on every entry would.
+    ///     Internal (not private) so StyloBotDashboardMiddleware's event-store fallback
+    ///     path -- which has its own DashboardDetectionEvent.DetectorContributions, no
+    ///     cache involved -- projects the same lean shape without duplicating the logic.
+    /// </summary>
+    internal static List<DetectionReasonEntry> ProjectDetectionReasons(
+        Dictionary<string, DashboardDetectorContribution>? contributions)
+    {
+        if (contributions is null || contributions.Count == 0) return new List<DetectionReasonEntry>();
+        return contributions
+            .Select(kv => new DetectionReasonEntry(
+                string.IsNullOrEmpty(kv.Value.Reason) ? kv.Key.Replace("Contributor", "", StringComparison.Ordinal) : kv.Value.Reason,
+                kv.Value.ConfidenceDelta,
+                kv.Value.Contribution))
+            .OrderByDescending(e => Math.Abs(e.Contribution))
+            .Take(6)
+            .ToList();
+    }
+
+    /// <summary>
     ///     Update an existing aggregate under lock to prevent data races.
     ///     ConcurrentDictionary.AddOrUpdate may retry the factory, but the lock
     ///     ensures only one thread mutates the aggregate at a time.
@@ -1095,6 +1123,8 @@ public sealed class SignatureAggregateCache
             existing.CountryCode = detection.CountryCode ?? existing.CountryCode;
             existing.ProcessingTimeMs = detection.ProcessingTimeMs;
             existing.TopReasons = detection.TopReasons ?? existing.TopReasons;
+            if (detection.DetectorContributions is { Count: > 0 })
+                existing.DetectionReasons = ProjectDetectionReasons(detection.DetectorContributions);
             existing.LastSeen = detection.Timestamp;
             existing.Narrative = detection.Narrative ?? existing.Narrative;
             existing.Description = detection.Description ?? existing.Description;
@@ -1308,6 +1338,11 @@ public sealed class SignatureAggregate
     public string? CountryCode;
     public double ProcessingTimeMs;
     public List<string>? TopReasons;
+
+    /// <summary>Lean signed "why" rows (see <see cref="ProjectedVisitor.DetectionReasons"/>) --
+    /// projected + capped from DashboardDetectionEvent.DetectorContributions at ingest,
+    /// never the raw heavy dict, so this bounded per-fingerprint cache stays lean.</summary>
+    public List<DetectionReasonEntry>? DetectionReasons;
     public DateTime FirstSeen;
     public DateTime LastSeen;
     public string? Narrative;

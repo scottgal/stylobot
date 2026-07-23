@@ -79,6 +79,16 @@ public class ProjectedVisitor
     public string? Narrative { get; set; }
     public string? Description { get; set; }
     public List<string> TopReasons { get; set; } = new();
+
+    /// <summary>
+    ///     Lean signed per-detector "why" rows (label + ConfidenceDelta + Contribution
+    ///     only) for the shared _DetectionReasons partial. Deliberately NOT the full
+    ///     Dictionary&lt;string, DashboardDetectorContribution&gt; the event store
+    ///     carries -- this lives in the bounded per-fingerprint LFU cache, so it's
+    ///     capped + projected down to just what the reasons UI renders at ingest time
+    ///     (see SignatureAggregateCache) to avoid bloating every cached entry.
+    /// </summary>
+    public List<DetectionReasonEntry> DetectionReasons { get; set; } = new();
     public double ProcessingTimeMs { get; set; }
     public double MaxProcessingTimeMs { get; set; }
     public double MinProcessingTimeMs { get; set; }

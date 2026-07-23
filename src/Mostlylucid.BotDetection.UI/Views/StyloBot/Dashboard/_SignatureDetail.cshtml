@@ -309,45 +309,21 @@ else
             @* Prefer the real signed per-detector data (DashboardDetectorContribution.
                ConfidenceDelta -- centroid/belief-delta pipeline output, not a rules
                lookup) so the operator sees WHICH WAY each signal pushed the verdict,
-               not just a flat reason string. > 0 raised the bot score (error/red,
-               matching the risk-color convention), < 0 lowered it (success/green).
-               Falls back to the flat TopReasons list when DetectorContributions is
-               empty (older rows / upstream-trusted path where it can be null). Capped
-               at the top 6 by magnitude -- the FULL list is the separate Detector
-               Contributions table below; this is the concise verdict-level summary. *@
-            @if (Model.DetectorContributions.Count > 0)
-            {
-                <ul class="space-y-1">
-                    @foreach (var det in Model.DetectorContributions.Take(6))
-                    {
-                        var dirGlyph = det.ConfidenceDelta > 0 ? "&#8593;" : det.ConfidenceDelta < 0 ? "&#8595;" : "&#8226;";
-                        var dirColor = det.ConfidenceDelta > 0 ? "text-error" : det.ConfidenceDelta < 0 ? "text-success" : "text-base-content/40";
-                        var dirTitle = det.ConfidenceDelta > 0 ? "raised the bot score" : det.ConfidenceDelta < 0 ? "lowered the bot score" : "neutral";
-                        var label = string.IsNullOrEmpty(det.Reason) ? det.Name.Replace("Contributor", "", StringComparison.Ordinal) : det.Reason;
-                        <li class="flex items-start gap-2 text-xs text-base-content/70">
-                            <span class="@dirColor font-bold mt-0.5" title="@dirTitle">@Html.Raw(dirGlyph)</span>
-                            <span class="flex-1">@label</span>
-                            <span class="tabular-nums text-[10px] text-base-content/40">@($"{Math.Abs(det.Contribution):F2}")</span>
-                        </li>
-                    }
-                </ul>
+               not just a flat reason string. The full Model.DetectorContributions
+               list is the FULL breakdown (the separate Detector Contributions table
+               below); the shared _DetectionReasons partial caps it to a concise
+               verdict-level summary -- same partial + same cap the YOUR DETECTION
+               widget uses, so the two surfaces render identically. *@
+            @{
+                var signedReasons = Model.DetectorContributions
+                    .Select(det => new DetectionReasonEntry(
+                        string.IsNullOrEmpty(det.Reason) ? det.Name.Replace("Contributor", "", StringComparison.Ordinal) : det.Reason,
+                        det.ConfidenceDelta,
+                        det.Contribution))
+                    .ToList();
             }
-            else if (Model.TopReasons?.Count > 0)
-            {
-                <ul class="space-y-1">
-                    @foreach (var reason in Model.TopReasons)
-                    {
-                        <li class="flex items-start gap-2 text-xs text-base-content/70">
-                            <span class="text-base-content/30 mt-0.5">&#x2022;</span>
-                            <span>@reason</span>
-                        </li>
-                    }
-                </ul>
-            }
-            else
-            {
-                <p class="text-xs text-base-content/40 italic">No detection signals recorded.</p>
-            }
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_DetectionReasons.cshtml",
+                new DetectionReasonsModel(signedReasons, Model.TopReasons))
         </div>
     </div>
 

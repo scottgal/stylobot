@@ -1,0 +1,40 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model DetectionReasonsModel
+@{
+    // Capped here (not just at ingest) so a caller that hands over a longer list
+    // (e.g. the signature-detail page's full per-request fetch) still renders the
+    // same concise "why" summary as the cache-backed YOUR DETECTION widget.
+    const int Take = 6;
+}
+@if (Model.Signed.Count > 0)
+{
+    <ul class="space-y-1">
+        @foreach (var reason in Model.Signed.Take(Take))
+        {
+            var dirGlyph = reason.ConfidenceDelta > 0 ? "&#8593;" : reason.ConfidenceDelta < 0 ? "&#8595;" : "&#8226;";
+            var dirColor = reason.ConfidenceDelta > 0 ? "text-error" : reason.ConfidenceDelta < 0 ? "text-success" : "text-base-content/40";
+            var dirTitle = reason.ConfidenceDelta > 0 ? "raised the bot score" : reason.ConfidenceDelta < 0 ? "lowered the bot score" : "neutral";
+            <li class="flex items-start gap-2 text-xs text-base-content/70">
+                <span class="@dirColor font-bold mt-0.5" title="@dirTitle">@Html.Raw(dirGlyph)</span>
+                <span class="flex-1">@reason.Label</span>
+                <span class="tabular-nums text-[10px] text-base-content/40">@($"{Math.Abs(reason.Contribution):F2}")</span>
+            </li>
+        }
+    </ul>
+}
+else if (Model.Fallback?.Count > 0)
+{
+    <ul class="space-y-1">
+        @foreach (var reason in Model.Fallback.Take(Take))
+        {
+            <li class="flex items-start gap-2 text-xs text-base-content/70">
+                <span class="text-base-content/30 mt-0.5">&#x2022;</span>
+                <span>@reason</span>
+            </li>
+        }
+    </ul>
+}
+else
+{
+    <p class="text-xs text-base-content/40 italic">No detection signals recorded.</p>
+}

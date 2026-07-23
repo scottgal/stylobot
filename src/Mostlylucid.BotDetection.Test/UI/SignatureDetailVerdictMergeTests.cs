@@ -33,17 +33,33 @@ public sealed class SignatureDetailVerdictMergeTests
     }
 
     [Fact]
-    public void SignatureDetail_detection_signals_prefer_signed_detector_data_over_flat_reasons()
+    public void SignatureDetail_detection_signals_project_into_the_shared_reasons_partial()
     {
-        // Model.DetectorContributions (real ConfidenceDelta belief-deltas) must be
-        // checked BEFORE falling back to the flat Model.TopReasons strings -- the whole
-        // point of the operator's "show if signals increased/decreased the bot score" ask.
+        // Detection Signals renders via the shared _DetectionReasons partial (also used
+        // by the YOUR DETECTION widget) rather than its own inline branching -- one
+        // rendering path, one place to fix a bug. Model.DetectorContributions (real
+        // ConfidenceDelta belief-deltas) is the Signed source; Model.TopReasons (flat,
+        // no polarity) is the Fallback -- the whole point of the operator's "show if
+        // signals increased/decreased the bot score" ask.
         var source = File.ReadAllText(LocatePartial("_SignatureDetail.cshtml"));
-        var detectorSignalsIdx = source.IndexOf("Model.DetectorContributions.Count > 0", StringComparison.Ordinal);
-        var topReasonsFallbackIdx = source.IndexOf("else if (Model.TopReasons?.Count > 0)", StringComparison.Ordinal);
-        Assert.True(detectorSignalsIdx >= 0, "Expected a DetectorContributions-driven branch in Detection Signals.");
-        Assert.True(topReasonsFallbackIdx > detectorSignalsIdx, "TopReasons must be the fallback, checked after DetectorContributions.");
-        Assert.Contains("det.ConfidenceDelta > 0", source);
+        Assert.Contains("new DetectionReasonEntry(", source);
+        Assert.Contains("det.ConfidenceDelta", source);
+        Assert.Contains("det.Contribution", source);
+        Assert.Contains("_DetectionReasons.cshtml", source);
+        Assert.Contains("new DetectionReasonsModel(signedReasons, Model.TopReasons)", source);
+    }
+
+    [Fact]
+    public void DetectionReasons_partial_prefers_signed_data_over_flat_fallback()
+    {
+        // Signed must be checked BEFORE falling back to Fallback -- the whole point of
+        // showing direction/weight instead of a flat reason string.
+        var source = File.ReadAllText(LocatePartial("_DetectionReasons.cshtml"));
+        var signedIdx = source.IndexOf("Model.Signed.Count > 0", StringComparison.Ordinal);
+        var fallbackIdx = source.IndexOf("Model.Fallback?.Count > 0", StringComparison.Ordinal);
+        Assert.True(signedIdx >= 0, "Expected a Signed-driven branch.");
+        Assert.True(fallbackIdx > signedIdx, "Fallback must be checked after Signed.");
+        Assert.Contains("ConfidenceDelta > 0", source);
     }
 
     [Fact]

@@ -72,6 +72,11 @@ public sealed class YourDetectionModel
     public int DetectorCount { get; init; }
     public string? Narrative { get; init; }
     public List<string> TopReasons { get; init; } = [];
+
+    /// <summary>Lean signed "why" rows for the shared _DetectionReasons partial -- see
+    /// <see cref="ProjectedVisitor.DetectionReasons"/> for why this is a compact
+    /// projection rather than the full per-detector contribution dict.</summary>
+    public List<DetectionReasonEntry> DetectionReasons { get; init; } = [];
     public string? Signature { get; init; }
     public double? ThreatScore { get; init; }
     public string? ThreatBand { get; init; }
@@ -607,6 +612,28 @@ public sealed record SignatureDetectorEntry
     public string? Reason { get; init; }
     public double ExecutionTimeMs { get; init; }
 }
+
+/// <summary>
+///     A single "why" row for the shared <c>_DetectionReasons.cshtml</c> partial:
+///     label + signed direction + weight, nothing else. Deliberately leaner than
+///     <see cref="SignatureDetectorEntry"/> (drops ExecutionTimeMs / the raw detector
+///     Name) because THIS type is what <see cref="Models.ProjectedVisitor"/> /
+///     <c>SignatureAggregate</c> carry in the bounded per-fingerprint LFU cache, one
+///     entry per live visitor -- the signature-detail page's fuller per-request
+///     event-store fetch has no such footprint concern and keeps its own richer type.
+/// </summary>
+public sealed record DetectionReasonEntry(string Label, double ConfidenceDelta, double Contribution);
+
+/// <summary>
+///     View-model for the shared <c>_DetectionReasons.cshtml</c> partial, used by both
+///     the signature-detail Detection Signals section and the YOUR DETECTION widget.
+///     Prefers <see cref="Signed"/> (real signed per-detector data); falls back to
+///     <see cref="Fallback"/> (flat reason strings, no polarity) only when Signed is
+///     empty -- older rows / paths where the richer data was never captured.
+/// </summary>
+public sealed record DetectionReasonsModel(
+    IReadOnlyList<DetectionReasonEntry> Signed,
+    IReadOnlyList<string>? Fallback);
 
 /// <summary>
 ///     View model for the user agent detail panel.
