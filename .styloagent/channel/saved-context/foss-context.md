@@ -123,11 +123,41 @@ their nuget.config has nuget.org in the source list at all, or is `<clear/>`'d t
 to drop it and verify on staging if it doesn't unstick quickly — not chasing further myself per the
 "low-pri, don't rabbit-hole" instruction.
 
+## PERF root cause found: /api/v1/compose-batch — GATED, NOT built yet
+overview- urgent task: prod dashboard /api/v1/compose-batch times out (11-18s, some 60s+) at prod corpus
+scale; clean on staging (small corpus). Traced the call chain: FOSS `ReadEndpoints.HandleComposeBatch` ->
+`IDashboardEventStore.ComposeBatchAsync` -> on prod, commercial `PostgreSQLDashboardEventStore.ComposeBatchAsync`
+(`stylobot-commercial/src/Stylobot.Commercial.Persistence.Postgres/Storage/PostgreSQLDashboardEventStore.cs:2504`).
+
+**Root cause:** each of up to 6 branch SELECT statements (SummaryStats x2, TimeBuckets, BotAggregate,
+GeoBreakdown, EndpointStats), sent together in one `QueryMultipleAsync` batch, independently re-declares
+its OWN copy of the same `WITH windowed AS MATERIALIZED (SELECT * FROM dashboard_detections WHERE
+<time/domain/audience predicate>)` CTE. `MATERIALIZED` only dedupes re-evaluation *within* one statement
+(e.g. BotAggregate's internal filtered/agg/latest chain) — it does NOT share the scan ACROSS the 6 separate
+top-level statements, since each is independently planned by Postgres. So the shared base scan runs up to
+6x per compose-batch call, every time pulling ALL columns (`SELECT *`), not just what each branch needs.
+Cheap on staging's tiny corpus, multiplies to timeout territory on prod's real volume — a mechanical,
+corpus-size-driven explanation that fits "same binary, staging clean, prod times out" exactly.
+Secondary compounders flagged (not the primary fix): EndpointStats' PERCENTILE_CONT/mode() aggregates over
+EVERY distinct (method,path) before its LIMIT; BotAggregate's GROUP BY primary_signature over the whole
+window before its LIMIT; no index on `domain` (existing composite indexes cover is_bot/country_code/
+risk_band/method+path+timestamp, not domain).
+
+**Fix plan sent to overview-, gated, NOT built:** (1) collapse the 6 redundant per-branch CTEs into ONE
+shared materialization (e.g. a TEMP TABLE created once per call, each branch SELECTs from it directly,
+column-pruned to only what's needed) — same round-trip count, 6x->1x base scan; (2) add
+`idx_detections_domain_timestamp (domain, timestamp DESC)`; (3) NOT fixing now — bounding EndpointStats/
+BotAggregate's group cardinality before the expensive aggregates changes result semantics slightly, flagged
+as a product-call follow-up if #1+#2 aren't enough. Didn't/won't touch prod to verify (zero-keyless-hit
+rule + I don't hold the key) — reasoned from query structure + `dashboard-schema.sql`'s index list; offered
+deploy- the exact EXPLAIN ANALYZE query if empirical before/after confirmation is wanted.
+
 ## Next step if resuming
 Standing by: merge queue is frozen until overview- verifies the reconciled deploy on prod, then reopens it.
-No pending push needed from me. If picking up new work meanwhile: Task 2b (Logs view) stays routed to
-otel-/aspnet-. Otherwise idle. NEVER hit stylo.bot/prod without the key (I don't hold one — route through
-deploy-).
+Waiting on overview- to gate the compose-batch fix plan (touches commercial-repo
+PostgreSQLDashboardEventStore.cs, not FOSS — asked who to coordinate the actual patch with). If picking up
+new work meanwhile: Task 2b (Logs view) stays routed to otel-/aspnet-. NEVER hit stylo.bot/prod without the
+key (I don't hold one — route through deploy-).
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
