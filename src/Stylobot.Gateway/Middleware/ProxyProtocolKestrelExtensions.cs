@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
+using Mostlylucid.BotDetection.Domains;
 using Serilog;
 
 namespace Stylobot.Gateway.Middleware;
@@ -100,16 +101,27 @@ public static class ProxyProtocolKestrelExtensions
                     ApplyDefaults(lo);   // PROXY parser FIRST
                     if (extra.Count == 0)
                     {
-                        lo.UseHttps(primary);   // single-cert fast path (unchanged)
+                        // Single-cert = single-domain deployment: every request attributes to the
+                        // primary cert's served domain. Still capture via a selector so the SNI is
+                        // recorded on the connection for domain attribution (a no-SNI / mismatched
+                        // handshake still resolves to the one served domain, per the design).
+                        var single = new List<X509Certificate2> { primary };
+                        var primaryHost = PrimaryServedHost(primary);
+                        lo.UseHttps(https =>
+                            https.ServerCertificateSelector =
+                                (cc, sni) => SelectAndCaptureSni(cc, sni, single, primary, singleDomainFallback: primaryHost));
                     }
                     else
                     {
                         var all = new List<X509Certificate2>(extra.Count + 1) { primary };
                         all.AddRange(extra);
                         // TLS AFTER, selecting the cert by SNI so *.stylo.bot and
-                        // *.stylobot.net each get their own valid chain.
+                        // *.stylobot.net each get their own valid chain. Capture the validated SNI
+                        // (the domain we actually served a cert for) on the connection so the
+                        // detection pipeline can attribute the real domain instead of the Host header.
                         lo.UseHttps(https =>
-                            https.ServerCertificateSelector = (_, sni) => SelectCertBySni(sni, all, primary));
+                            https.ServerCertificateSelector =
+                                (cc, sni) => SelectAndCaptureSni(cc, sni, all, primary, singleDomainFallback: null));
                     }
                 });
                 Log.Information(
@@ -146,6 +158,54 @@ public static class ProxyProtocolKestrelExtensions
         foreach (var cert in certs)
             if (CertCoversHost(cert, sni)) return cert;
         return fallback;
+    }
+
+    // Select the cert for the SNI (as SelectCertBySni) AND record the validated SNI on the
+    // connection so the detection pipeline can attribute the real domain instead of the client's
+    // Host header. SniEvaluated is set for every TLS connection the gateway handles so the core can
+    // tell a gateway-seen-but-unserved connection ("unknown" + tls.sni_not_served) from a
+    // non-gateway topology (Host fallback). ValidatedSni is the served SNI when a SAN covers it; on
+    // a single-domain deployment a no-SNI / mismatched handshake still attributes to the one served
+    // domain (singleDomainFallback). The core normalizes the recorded value (registrable eTLD+1).
+    private static X509Certificate2 SelectAndCaptureSni(
+        ConnectionContext? cc, string? sni,
+        List<X509Certificate2> certs, X509Certificate2 fallback, string? singleDomainFallback)
+    {
+        var items = cc?.Items;
+        if (items is not null) items[TlsConnectionKeys.SniEvaluated] = true;
+
+        if (!string.IsNullOrEmpty(sni))
+            foreach (var cert in certs)
+                if (CertCoversHost(cert, sni))
+                {
+                    if (items is not null) items[TlsConnectionKeys.ValidatedSni] = sni;
+                    return cert;
+                }
+
+        // Not served (no SNI, or SNI covered by no SAN). Single-domain deployments still attribute
+        // to their one served domain; a multi-cert edge leaves it unset -> "unknown" + signal.
+        if (items is not null && singleDomainFallback is not null)
+            items[TlsConnectionKeys.ValidatedSni] = singleDomainFallback;
+        return fallback;
+    }
+
+    // The primary cert's served host: first DNS SAN (wildcard stripped to its registrable base),
+    // else the CN. The single-domain attribution when only one cert is bound.
+    private static string? PrimaryServedHost(X509Certificate2 cert)
+    {
+        foreach (var ext in cert.Extensions)
+        {
+            if (ext.Oid?.Value != "2.5.29.17") continue; // subjectAltName
+            try
+            {
+                var san = new X509SubjectAlternativeNameExtension(ext.RawData);
+                foreach (var dns in san.EnumerateDnsNames())
+                    if (!string.IsNullOrEmpty(dns)) return dns.TrimStart('*', '.');
+            }
+            catch { /* fall through to CN */ }
+        }
+        var cn = cert.GetNameInfo(X509NameType.DnsName, forIssuer: false);
+        return string.IsNullOrEmpty(cn) ? null : cn.TrimStart('*', '.');
     }
 
     private static bool CertCoversHost(X509Certificate2 cert, string host)

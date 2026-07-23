@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.5] - 2026-07-23
+
+### Added
+
+- **SNI-validated domain attribution (keystone).** The request `domain` is now sourced from the TLS-edge-validated SNI — the domain the gateway actually served a cert for on the connection — instead of the client-supplied Host header. A validated SNI is trustworthy where a Host header is not: the gateway only completes the handshake for domains it holds a cert for. `DomainNormalizer.Resolve(HttpContext)` prefers the gateway-recorded validated SNI (`TlsConnectionKeys.ValidatedSni` on the connection), falls back to the Host header **only** on non-gateway topologies (direct `AddBotDetection` / sidecar, where no TLS evaluation is present), and resolves a gateway-evaluated-but-not-served connection to `"unknown"` while flagging `HttpContextItemKeys.TlsSniNotServed` (the implausible-domain-at-TLS tell, feeding the queued spoofed-Host enhancement). The `Stylobot.Gateway` PROXY-protocol cert-selector captures the validated SNI (`SelectAndCaptureSni`); single-cert deployments attribute all traffic to the primary cert's served domain. Fixes prod recording `domain='unknown'` on every row, which zeroed every licensed-domain-scoped query (Domains panel, per-domain filters, pack domain lists). Follow-ups: wire the same capture into the cert-from-file / ACME TLS paths per the deployment's terminator, surface `tls.sni_not_served` as a detector signal, and add the trusted-forwarded-domain-header fallback (ITransportHeaderTrust-gated) for proxy-fronted topologies.
+
 ## [8.2.4] - 2026-07-23
 
 ### Added
