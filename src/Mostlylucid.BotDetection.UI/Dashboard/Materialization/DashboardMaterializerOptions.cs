@@ -62,4 +62,36 @@ public sealed class DashboardMaterializerOptions
 
     /// <summary>Domain-filter widget: enable/disable the domain filtering panel on Traffic page.</summary>
     public bool DomainFilterEnabled { get; set; } = true;
+
+    /// <summary>
+    ///     When true, every tick unconditionally keeps <see cref="PrewarmPageKey"/> warm at the
+    ///     unfiltered default window, regardless of whether any real request has read it yet or
+    ///     recently (the <c>LiveEnvelopeMaxAgeTicks</c> demand-gate only re-warms pages a request
+    ///     already touched). Without this, the very first visit after startup — or any visit after
+    ///     an idle gap longer than the live-envelope age or the content cache's sliding expiration —
+    ///     always pays a synchronous in-request compose. This is the "pre-render before requested"
+    ///     half of the materializer; the demand-gated <c>LiveEnvelopes()</c> path only sustains
+    ///     pages already known to be hot.
+    /// </summary>
+    public bool PrewarmDefaultEnvelope { get; set; } = true;
+
+    /// <summary>The page manifest key kept warm by <see cref="PrewarmDefaultEnvelope"/>.</summary>
+    public string PrewarmPageKey { get; set; } = "dashboard.traffic";
+
+    /// <summary>
+    ///     Window length (minutes) for the unconditional prewarm. Mirrors
+    ///     <c>DashboardLayoutOptions.DefaultTimeWindowMinutes</c>'s default (24h) — the envelope a
+    ///     plain, no-query-string visit to the Traffic page resolves to. Kept as its own setting
+    ///     (rather than a cross-reference) so the materializer has no dependency on layout options;
+    ///     if the site's default window changes, update both.
+    /// </summary>
+    public int PrewarmWindowMinutes { get; set; } = 1440;
+
+    /// <summary>
+    ///     Bucket width (minutes) for the unconditional prewarm envelope. Must match
+    ///     <c>HitsPerPeriodChartletBuilder.BucketSizeForWindow</c>'s bucket for the same window
+    ///     length (20 min for the 24h default) — the content envelope keys on this value, so a
+    ///     mismatch prewarm a DIFFERENT cache entry than the one the real request reads.
+    /// </summary>
+    public int PrewarmBucketMinutes { get; set; } = 20;
 }

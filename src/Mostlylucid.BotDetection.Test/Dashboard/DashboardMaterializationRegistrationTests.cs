@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
@@ -24,9 +25,14 @@ public sealed class DashboardMaterializationRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        // BindConfiguration (inside AddDashboardMaterialization) needs IConfiguration present,
+        // even an empty one -- pre-existing gap this test never hit until options resolution
+        // was exercised on every path (now true since the coordinator also needs manifests).
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         // The deps the materialization registration consumes:
         services.AddScoped<IDashboardPageComposer, FakeComposer>();   // SCOPED, like the real composer
         services.AddSingleton<IDashboardChangeCursor, FakeCursor>();
+        services.AddSingleton<IDashboardPageManifestSource, DefaultDashboardPageManifestSource>();
 
         // Code under test — the actual AddStyloBotDashboard wiring, extracted.
         services.AddDashboardMaterialization();

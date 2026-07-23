@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.Common.Scheduling;
@@ -37,6 +38,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 {
     private readonly IDashboardContentCache _cache;
     private readonly IDashboardChangeCursor _cursor;
+    private readonly IDashboardPageManifestSource _manifests;
     private readonly IScheduleCoordinator? _schedule;
     private readonly DashboardMaterializerOptions _options;
     private readonly ILogger<DashboardMaterializerCoordinator>? _logger;
@@ -46,6 +48,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     public DashboardMaterializerCoordinator(
         IDashboardContentCache cache,
         IDashboardChangeCursor cursor,
+        IDashboardPageManifestSource manifests,
         IOptions<DashboardMaterializerOptions> options,
         IScheduleCoordinator? schedule = null,
         ILogger<DashboardMaterializerCoordinator>? logger = null,
@@ -53,8 +56,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(cursor);
+        ArgumentNullException.ThrowIfNull(manifests);
         _cache = cache;
         _cursor = cursor;
+        _manifests = manifests;
         _options = options.Value;
         _schedule = schedule;
         _logger = logger;
@@ -101,7 +106,28 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     internal async Task MaterializeTickAsync(DateTimeOffset _, CancellationToken ct)
     {
         var tick = _cursor.CurrentTick;
-        var live = _cache.LiveEnvelopes();
+        var live = _cache.LiveEnvelopes().ToList();
+
+        // Unconditional prewarm: keep the default page warm every tick even with zero live
+        // watchers, so a visit after any idle gap (startup, or a quiet dashboard) reads warm
+        // instead of paying a synchronous in-request compose. LiveEnvelopes() alone only
+        // sustains pages a real request already touched -- this is the "before requested" half.
+        if (_options.PrewarmDefaultEnvelope
+            && !live.Any(e => e.Manifest.PageKey == _options.PrewarmPageKey)
+            && _manifests.For(_options.PrewarmPageKey) is { } prewarmManifest)
+        {
+            var now = DateTime.UtcNow;
+            var prewarmWindow = new DashboardPageWindow(
+                StartTime: now.AddMinutes(-_options.PrewarmWindowMinutes),
+                EndTime: now,
+                AudienceFilter: "all",
+                ProbMin: null,
+                Domains: null,
+                TopN: 500,
+                BucketMinutes: _options.PrewarmBucketMinutes);
+            live.Insert(0, (prewarmManifest, prewarmWindow));
+        }
+
         if (live.Count == 0) return;
 
         var budget = _options.MaxPagesPerTick;

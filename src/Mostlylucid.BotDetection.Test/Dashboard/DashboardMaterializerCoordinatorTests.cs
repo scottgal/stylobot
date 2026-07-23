@@ -28,7 +28,8 @@ public sealed class DashboardMaterializerCoordinatorTests
             () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
-            cache, new FakeCursor(() => tick), Options.Create(new DashboardMaterializerOptions()), sched);
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions()), sched);
 
         // A user read at tick 1 makes the envelope live and composes once.
         await cache.GetAsync(Traffic, Window(), tick, default);
@@ -49,20 +50,45 @@ public sealed class DashboardMaterializerCoordinatorTests
     }
 
     [Fact]
-    public async Task No_live_envelopes_means_no_compute()
+    public async Task No_live_envelopes_means_no_compute_when_prewarm_is_off()
     {
         var composes = 0;
         long tick = 1;
         var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
             () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
+        // PrewarmDefaultEnvelope explicitly off here -- this test asserts the pure
+        // demand-gate contract in isolation; the default-on prewarm behavior has its
+        // own test below.
         var coord = new DashboardMaterializerCoordinator(
-            cache, new FakeCursor(() => tick), Options.Create(new DashboardMaterializerOptions()), sched);
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
 
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody viewed anything
 
         Assert.Equal(0, composes); // demand-gated: no viewers -> no work
+    }
+
+    [Fact]
+    public async Task Tick_prewarms_default_page_even_with_zero_live_viewers()
+    {
+        // The gap this closes: without an unconditional prewarm, a visit after any idle
+        // gap (fresh startup, or a quiet dashboard) always cold-misses because
+        // LiveEnvelopes() is empty until a real request seeds it.
+        var composes = 0;
+        long tick = 1;
+        var cache = new DashboardContentCache((_, _, _) => { composes++; return Task.FromResult(Result()); },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions()), sched); // default: PrewarmDefaultEnvelope = true
+
+        await coord.StartAsync(default);
+        await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody has ever viewed the page
+
+        Assert.Equal(1, composes); // prewarmed anyway
     }
 
     [Fact]
@@ -72,7 +98,7 @@ public sealed class DashboardMaterializerCoordinatorTests
             Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
-            cache, new FakeCursor(() => 1L),
+            cache, new FakeCursor(() => 1L), new DefaultDashboardPageManifestSource(),
             Options.Create(new DashboardMaterializerOptions { Enabled = false }), sched);
 
         await coord.StartAsync(default);
@@ -85,7 +111,8 @@ public sealed class DashboardMaterializerCoordinatorTests
         var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => 1L,
             Options.Create(new DashboardMaterializerOptions()));
         var coord = new DashboardMaterializerCoordinator(
-            cache, new FakeCursor(() => 1L), Options.Create(new DashboardMaterializerOptions()), schedule: null);
+            cache, new FakeCursor(() => 1L), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions()), schedule: null);
 
         await coord.StartAsync(default); // viewer-mode host: must not throw
         await coord.StopAsync(default);
