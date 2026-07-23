@@ -95,6 +95,25 @@ public sealed class DashboardContentCacheTests
     }
 
     [Fact]
+    public async Task LiveEnvelopes_reports_AccessCount_sourced_from_the_atoms_own_tracking()
+    {
+        // §7 Tier 2 (materializer priority ranking, single-source-corrected): AccessCount/
+        // LastAccess must be read straight off SlidingCacheAtom's existing per-key tracking
+        // via TryGetEntryStats, not a second counter -- so repeated reads of the SAME
+        // (envelope, tick) key should show up here with no extra bookkeeping in the cache itself.
+        long tick = 1;
+        await using var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()), () => tick,
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+
+        await cache.GetAsync(Traffic, Window(), 1, default); // creates the atom entry (AccessCount 1)
+        await cache.GetAsync(Traffic, Window(), 1, default); // hit (AccessCount 2)
+        await cache.GetAsync(Traffic, Window(), 1, default); // hit (AccessCount 3)
+
+        var live = Assert.Single(cache.LiveEnvelopes());
+        Assert.Equal(3, live.AccessCount);
+    }
+
+    [Fact]
     public async Task LiveEnvelopes_ages_out_views_beyond_max_age()
     {
         long tick = 1;

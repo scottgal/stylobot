@@ -39,7 +39,7 @@
         <PackageReference Include="Markdig" Version="1.3.2" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
         <PackageReference Include="Mostlylucid.Notify" Version="0.1.1" />
-        <PackageReference Include="mostlylucid.ephemeral" Version="2.9.1" />
+        <PackageReference Include="mostlylucid.ephemeral" Version="2.10.0" />
         <PackageReference Include="RazorSlices" Version="0.11.1" />
         <PackageReference Include="MinVer" Version="7.0.0">
             <PrivateAssets>all</PrivateAssets>

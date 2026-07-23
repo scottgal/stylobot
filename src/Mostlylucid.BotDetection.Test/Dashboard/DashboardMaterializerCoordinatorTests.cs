@@ -171,6 +171,41 @@ public sealed class DashboardMaterializerCoordinatorTests
     }
 
     [Fact]
+    public async Task Tick_warms_the_hotter_live_envelope_first_when_the_budget_cant_cover_both()
+    {
+        // §7 Tier 2, single-source-corrected: ranking comes from SlidingCacheAtom's OWN
+        // AccessCount (via DashboardContentCache.LiveEnvelopes() -> TryGetEntryStats), not a
+        // parasitic counter. Under budget pressure, the envelope actually hit more should win.
+        var composedPages = new List<string>();
+        long tick = 1;
+        var cache = new DashboardContentCache((manifest, _, _) => { composedPages.Add(manifest.PageKey); return Task.FromResult(Result()); },
+            () => tick, new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions()));
+        var cool = new DashboardPageManifest("dashboard.site", new[] { "summary" });
+        var hot = new DashboardPageManifest("dashboard.visitors", new[] { "summary" });
+
+        await cache.GetAsync(cool, Window(), tick, default); // AccessCount 1
+        await cache.GetAsync(hot, Window(), tick, default);  // AccessCount 1
+        await cache.GetAsync(hot, Window(), tick, default);  // AccessCount 2 -- now the hotter envelope
+        composedPages.Clear();
+
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            new MutableOptionsMonitor<DashboardMaterializerOptions>(new DashboardMaterializerOptions
+            {
+                PrewarmDefaultEnvelope = false,
+                MaxPagesPerTick = 1, // only room for one of the two live envelopes
+            }),
+            sched);
+
+        tick = 2;
+        await coord.StartAsync(default);
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        Assert.Equal(new[] { hot.PageKey }, composedPages);
+    }
+
+    [Fact]
     public async Task Tick_warms_a_wave_of_envelopes_concurrently_up_to_MaxConcurrentWarmsPerTick()
     {
         // §7 Tier 3: MaxConcurrentWarmsPerTick=2 with 2 live envelopes should run BOTH

@@ -45,6 +45,11 @@ public interface IDashboardContentCache
     ///     instead of composing. Prunes envelopes older than the configured max age.
     ///     This is the demand signal until SignalR presence lands: only viewed
     ///     envelopes are warmed, and they age out when no longer read.
+    ///     AccessCount/LastAccess are computed at read time straight from the atom's own
+    ///     internal per-key tracking (<c>SlidingCacheAtom.TryGetEntryStats</c>) — the SAME
+    ///     hotness/recency the atom already uses for its own eviction scoring — never a
+    ///     second counter maintained alongside it. Lets the materializer rank which live
+    ///     envelopes to warm first under budget pressure (§7 Tier 2) with one source of truth.
     /// </summary>
-    IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window)> LiveEnvelopes();
+    IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window, int AccessCount, DateTimeOffset LastAccess)> LiveEnvelopes();
 }

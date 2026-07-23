@@ -124,14 +124,17 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
         var tick = _cursor.CurrentTick;
 
-        // §7 Tier 2 (demand ranking) is INTENTIONALLY NOT ranked yet: the operator's hard
-        // constraint is no parasitic hit-counter store -- ranking must derive from the hotness
-        // SlidingCacheAtom (the content cache's own LFU) already tracks per key (AccessCount/
-        // LastAccess), not a second counter maintained alongside it. That atom has no public
-        // per-key accessor today; adding one is a cross-repo change (mostlylucid.atoms sibling
-        // repo + package version bump), gated separately. Until then this stays unranked --
-        // exactly the pre-§7 behavior -- rather than shipping a parallel counter that can drift.
-        var ranked = _cache.LiveEnvelopes().ToList();
+        // §7 Tier 2 (demand ranking): live envelopes ordered hottest-first using AccessCount/
+        // LastAccess sourced from SlidingCacheAtom's OWN per-key tracking (DashboardContentCache.
+        // LiveEnvelopes() computes these at read time via TryGetEntryStats) -- the same hotness
+        // the atom already uses for its own eviction scoring, not a second counter maintained
+        // alongside it. A page a request actually hammers wins the tick's budget over whatever
+        // the dictionary happened to enumerate first.
+        var ranked = _cache.LiveEnvelopes()
+            .OrderByDescending(e => e.AccessCount)
+            .ThenByDescending(e => e.LastAccess)
+            .Select(e => (e.Manifest, e.Window))
+            .ToList();
 
         var warmQueue = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window)>();
 

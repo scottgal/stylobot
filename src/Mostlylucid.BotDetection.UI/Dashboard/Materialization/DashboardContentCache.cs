@@ -118,11 +118,11 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, out DashboardPageResult? result)
         => _atom.TryGet(new DashboardContentKey(manifest, window, tick), out result);
 
-    public IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window)> LiveEnvelopes()
+    public IReadOnlyCollection<(DashboardPageManifest Manifest, DashboardPageWindow Window, int AccessCount, DateTimeOffset LastAccess)> LiveEnvelopes()
     {
         var current = _currentTick();
         var maxAge = _options.LiveEnvelopeMaxAgeTicks;
-        var live = new List<(DashboardPageManifest, DashboardPageWindow)>();
+        var live = new List<(DashboardPageManifest, DashboardPageWindow, int, DateTimeOffset)>();
         foreach (var kvp in _live)
         {
             if (current - kvp.Value.LastSeenTick > maxAge)
@@ -130,7 +130,16 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
                 _live.TryRemove(kvp.Key, out _); // aged out — stop warming it
                 continue;
             }
-            live.Add((kvp.Value.Manifest, kvp.Value.Window));
+
+            // Hotness is computed AT READ TIME from the atom's own tracking for this envelope's
+            // latest known warm tick -- never a value stored alongside _live itself.
+            var latestTick = _latestWarmTick.TryGetValue(kvp.Key, out var t) ? t : kvp.Value.LastSeenTick;
+            var statsKey = new DashboardContentKey(kvp.Value.Manifest, kvp.Value.Window, latestTick);
+            var (accessCount, lastAccess) = _atom.TryGetEntryStats(statsKey, out var stats)
+                ? (stats.AccessCount, stats.LastAccess)
+                : (0, DateTimeOffset.MinValue);
+
+            live.Add((kvp.Value.Manifest, kvp.Value.Window, accessCount, lastAccess));
         }
         return live;
     }

@@ -42,7 +42,7 @@
       <!-- See the OpenApi ProjectReference note above: Api's public surface exposes
            Ephemeral.Atoms.Taxonomy types transitively; pin the direct ref so consumers
            of Api don't hit CS0012. Version matches the core lib's pin. -->
-      <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.9.1" />
+      <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.10.0" />
     </ItemGroup>
 
 </Project>
