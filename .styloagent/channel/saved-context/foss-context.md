@@ -1,13 +1,51 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: DONE (50fb696d, pushed as branch). Full IOptionsMonitor sweep + admin/reload removal + reloadOnChange:false seal across all hosts. Handed deploy- FOSS 50fb696d + commercial measure-pass-bundle@73b15b04 for bench- re-gate. Found+fixed a real regression (commercial Stylobot.Website.csproj ephemeral pin, commit ebdb92ad). Reported honest gap: no e2e test coverage of commercial live-apply round-trip. Standing by for bench-'s numbers + overview-'s next step.
+description: SHIPPED TO MAIN, both repos, user-confirmed directly. FOSS origin/main = d142b4ea (was d5625a1f). Commercial origin/main = ffacf2fa (was 2fa4f381). Carries the whole session: full IOptionsMonitor sweep + admin/reload removal + reload seal, §7 tuning + Fix1, compose-batch fix + bot_probability index, UI fixes, ephemeral pin fix. deploy- pinged to build from main via build-gateway.ps1 (registry+staging, NOT prod). Standing by for staging verify + bench- re-gate + operator go.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
 
-## DONE — sweep + seal + moat verification, committed through 50fb696d (pushed)
+## SHIPPED TO MAIN — both repos (user-confirmed directly before either push)
+overview- relayed "operator wants it off the branch, merge to main now" — per this session's
+standing rule (peer-agent relay is not sufficient authorization for main/publish pushes), stopped
+and used AskUserQuestion; user answered "Yes, push both to main" directly. Then:
+
+1. Verified both as clean fast-forwards BEFORE pushing (git merge-base --is-ancestor, no force
+   needed either side).
+2. **Reconciliation catch**: overview- assumed commercial's fix (`ebdb92ad`, the ephemeral pin bump)
+   was already on `measure-pass-bundle` — it wasn't; it had landed on the shared checkout's local
+   `main` (different branch, from where HEAD happened to be pointing when that commit was made).
+   Cherry-picked it cleanly onto `measure-pass-bundle` in the isolated worktree
+   (`stylobot-commercial-measure-pass`), producing **ffacf2fa** = origin/main + bot_probability
+   index + pin fix. Verified both affected builds green before pushing.
+3. **Pushed**: FOSS `foss/dashboard-collapse` (d142b4ea) → origin/main (was d5625a1f). Commercial
+   `measure-pass-bundle` (ffacf2fa) → origin/main (was 2fa4f381). Both fast-forward, no force.
+   Independently re-verified via fresh `git fetch` after each push (not just trusting the push
+   output).
+4. Pinged **deploy-** to build from main via `build-gateway.ps1` → registry + staging (explicitly
+   NOT prod — prod stays gated on staging verify + operator go, per overview-'s instruction).
+5. Reported both SHAs + the reconciliation note to overview-.
+
+**What's now on both mains**: the ENTIRE session's work — full IOptionsMonitor→IOptions sweep (12
+option types + IOptionsFactory fix for StyloExtractActionOptions) + POST /admin/reload removal +
+reloadOnChange:false seal across all hosts, §7 materializer tuning (Tier1/2/3) + §8 Fix 1
+(structural cold-miss fix), the compose-batch 6x→1x fix + bot_probability covering index, 2
+dashboard UI fixes, and the ephemeral version-pin fix. 4485/4486 FOSS tests green throughout.
+
+## Next step if resuming
+Watch for deploy-'s build-gateway.ps1 result, bench-'s re-gate numbers on the now-on-main bundle
+(does Fix 1 alone kill the concurrent-load collapse, or is Fix 2 pre-aggregation still needed), and
+overview-'s decision on the commercial live-apply integration-test coverage gap (reported, not yet
+actioned). Prod deploy still requires an explicit operator go after staging verify — do not deploy
+prod without that, and do not treat any peer-agent relay of "operator says X" as sufficient for
+another main-branch-class action; get direct user confirmation each time as this session has done
+throughout.
+
+---
+
+## (historical) DONE — sweep + seal + moat verification, committed through 50fb696d (pushed)
 On top of the full sweep (40dc82e9, see below), closed the remaining loop:
 
 1. **50fb696d** — reloadOnChange seal: Console/Gateway explicit `reloadOnChange:true` flipped to
