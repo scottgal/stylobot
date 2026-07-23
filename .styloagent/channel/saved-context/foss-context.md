@@ -55,17 +55,43 @@ chunks by tick/generation, SignalR pulse (reuse existing gateway hub + website's
 `SignalRBeaconRelay`) triggers out-of-request refresh, resync-on-reconnect closes the missed-pulse
 gap, bounded-TTL fallback treats over-age chunks as cold rather than serving indefinitely stale data.
 
+## UPDATE — gateway-side trace done + per-widget-cadence refinement folded in
+overview- asked for the GATEWAY-side LFU-vs-rescan trace too (operator: "data is mainly in the LFU,
+why is it slow — drifted to direct DB again?") plus a refinement: per-widget cadence by freshness
+class, not one global re-warm-all-on-pulse.
+
+**Gateway trace** (`PostgreSQLDashboardEventStore.cs`, commercial repo): only `GetTopBotsAsync`
+checks a cache first (`TickFreshMaterializer<TKey,TValue>`, single-flight tick-fresh: warm=no
+connection, stale=serve+background-refresh, cold=sync). Every other read (Summary/TimeSeries/
+Countries/Endpoints/Threats/Detections/Signatures) opens a raw `NpgsqlConnection` directly, every
+call. `TickFreshMaterializer`'s own doc comment: built as the stopgap for "#1 pool-exhaustion holder"
+(TopBots, 1256 connection-opens/300RPS-soak), explicitly says it's meant to be SUBSUMED once "the
+FOSS tick-driven materializer lands and serves the composed dashboard bundle" — i.e. this design.
+Same 1-fixed/7-drifted pattern as the website layer; the gateway code already expects to be replaced.
+
+**Per-widget cadence** (replaces "re-warm-all-on-pulse" from the earlier brief): 9 shell fields split
+into freshness classes — Aggregate (Summary/Countries/Endpoints/UserAgents/Clusters, hour-stale fine,
+refresh rarely) vs Live/sensitive (Visitors/TopBots/Sessions/Threats — fingerprints/names/scores,
+seconds-to-minutes cadence). `effective_interval = base(class) × (1/LFU_hotness) × load_factor
+(tick-overrun_ratio)` — a tick only touches the due-set, not all 9. Consistency bound is per-class
+(tight TTL+resync only matters for Live; Aggregate missed-pulse is a non-event). PII: Live-class
+shingles carry fingerprint/name/score — committed to the standard triple-check (no logging cached
+shingle contents, in-memory only, any future debug surface redacts Live-class by default). Sent, full
+detail in the message thread with overview-.
+
 ## Next step if resuming
 Check inbox for overview-'s gate decision (operator sign-off) and mae-'s reply on website-side
 SignalR/DI wiring specifics (overview- notified them to expect coordination). Do NOT start building
 until gated — this is explicitly a "tight design → fast gate → build" sequence, not build-first.
 Once gated: this is FOSS-side work (extend `DashboardMaterializerCoordinator`/`DashboardContentCache`
-to cover all 9 rows' chunks + the adaptive controller) coordinated with mae- on the website hosting
-side and with commercial's compose-batch (gateway-side batched-fetch extension, likely commercial
-repo work, not mine to build). a8c53f61 remains on the branch, unshipped, available to cherry-pick
-concepts from (the `isTrafficRow` gating pattern) but not itself the deliverable. Also still
-outstanding on its own track: the focused live-apply round-trip integration test (commercial moat
-regression guard) — deprioritized behind this, not started.
+to cover all 9 rows' chunks, freshness-class cadence, + the adaptive controller) coordinated with
+mae- on the website hosting side and with commercial's compose-batch + `TickFreshMaterializer`
+(gateway-side batched-fetch extension — likely commercial repo work, not mine to build, though
+TickFreshMaterializer may end up redundant once the website-side cache covers everything — flag,
+don't decide unilaterally). a8c53f61 remains on the branch, unshipped, available to cherry-pick the
+`isTrafficRow` gating pattern from but not itself the deliverable. Also still outstanding on its own
+track: the focused live-apply round-trip integration test (commercial moat regression guard) —
+deprioritized behind this, not started.
 
 ---
 
