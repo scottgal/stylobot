@@ -1,11 +1,37 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: §7 materializer tuning (Tier 1 pinned windows + Tier 2 demand ranking + Tier 3 bounded parallelism) shipped as 70956ca1, 34/34 tests green. bot_probability index shipped commercial 9760d2ab. Reporting SHAs+measurements to overview- next.
+description: §7 Tier1 (pinned)+Tier3 (bounded parallelism) shipped 70956ca1. Tier 2 hit-counter REVERTED (86c6c96d) — was a parasitic store, operator hard-constraint. Tier2 now blocked on adding a public per-key AccessCount/LastAccess accessor to SlidingCacheAtom in the mostlylucid.atoms sibling repo + package version bump — proposed to overview-, awaiting confirm before building.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-23, re-engaged)
+
+## URGENT CORRECTION — §7 Tier 2 hit-counter reverted (86c6c96d)
+Shipped `70956ca1` included a NEW `HitCount` field on `DashboardContentCache`'s `LiveEntry`,
+ranking Tier 2 by it. overview- flagged this urgent, hard constraint: "NO PARASITIC STORES" —
+`SlidingCacheAtom` (the content cache's own backing LFU, in the `mostlylucid.atoms` sibling
+repo, package `Mostlylucid.Ephemeral.Atoms.SlidingCache` v2.9.1) ALREADY tracks per-key
+`AccessCount`/`LastAccess` internally (private `CacheEntry` class, `SlidingCacheAtom.cs`
+lines 381-409) — a second counter alongside it can drift and "always reads as a bug in this
+system." Reverted immediately: `86c6c96d` removes `HitCount` from `LiveEntry`/
+`IDashboardContentCache.LiveEnvelopes()`/the coordinator's ranking (now unranked again,
+exactly pre-§7 behavior). Tier 1 (pinned multi-window prewarm) and Tier 3 (bounded-parallelism
+waves) are untouched by this — only Tier 2 ranking reverted. 20/20 targeted tests green after
+revert.
+
+**Blocker for the real Tier 2 fix**: `SlidingCacheAtom` has NO public accessor for its internal
+per-key `AccessCount`/`LastAccess` (confirmed via Explore of the sibling repo source at
+`/Users/scottgalloway/RiderProjects/mostlylucid.atoms/mostlylucid.ephemeral/src/mostlylucid.ephemeral.atoms.slidingcache/SlidingCacheAtom.cs`).
+Only aggregate `GetStats()` (`CacheStats` record, no per-key breakdown) is public today. To rank
+Tier 2 off the "one true structure" as instructed, I'd need to: (1) add a public accessor (e.g.
+`TryGetEntryStats(key, out (AccessCount, LastAccess, ...))`) to that class in the sibling repo,
+(2) tag/pack a new version (currently pinned to v2.9.1 across ALL `Mostlylucid.Ephemeral.*`
+package refs, not a ProjectReference despite CLAUDE.md's stated "local project reference for
+development" pattern — reality is a published NuGet dependency), (3) bump stylobot's
+`PackageReference` version. This is a cross-repo, cross-package-version change bigger than an
+in-repo edit — sent to overview- for confirmation before building, per their explicit
+"confirm the revised ranking source before you build it" instruction. AWAITING REPLY.
 
 ## §7 materializer priority/coverage tuning — SHIPPED (70956ca1)
 Built per overview-'s "GO — build the §7 prewarm tuning + the bot_probability index" instruction,
