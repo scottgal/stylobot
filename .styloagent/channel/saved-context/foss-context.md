@@ -196,11 +196,25 @@ session's other findings. Also caught and corrected my own earlier claim: `idx_d
 already exists via `analytics-capture-migration.sql` (confirmed live) -- no index migration needed, I'd
 only checked one of the several schema files before.
 
+## Full subsystem review delivered (operator wanted this instead of the narrow patch)
+Operator declined the temporary stabiliser, wanted a full review of the whole dashboard-aggregation/
+materializer/query subsystem "done properly, not a band-aid." Delivered as
+`stylobot-commercial/docs/incidents/2026-07-23-dashboard-compose-batch-overload-db-review.md` (commit
+`970240ee`, not pushed). Covers: compose-batch (shipped fix + same anti-pattern found smaller-scale in
+GetSummaryAsync/GetCountryDetailAsync), full index audit (domain index correction + new gap: no index on
+bot_probability, the most-used predicate in the store), materializer architecture verdict (sound, doesn't
+need rework -- two real gaps shipped, three more flagged for prioritization incl. IOptions-not-Monitor
+which is WHY this incident's stabiliser needed a restart), corrected two-phase bounding design for
+EndpointStats/BotAggregate (walked back my earlier "changes semantics" hedge -- done right it's
+equivalence-preserving), and DB-strategy findings that doubled as the user's separate research ask: NO
+native time-partitioning on dashboard_detections (the real structural lever), zero retention on
+dashboard_signatures/degradation_history, no materialized views (TimescaleDB tried+dropped historically),
+and a previously-documented-but-unfixed connection-pool-exhaustion incident. 12-item gated fix-plan table
+at the end (3 shipped: fff061db/e99de361 x2; 1 not needed; 8 proposed/design-only).
+
 ## Next step if resuming
-Standing by for overview- to gate both fixes for landing + deploy. After they land: overview- plans to
-revert materializer Enabled=true (currently false from the stabiliser) since both root causes are fixed.
-User separately asked (mid-turn) to research broader DB-strategy improvements -- follow up on that as its
-own non-urgent thread once these land. Merge queue still frozen. NEVER hit stylo.bot/prod without the key.
+Standing by for overview- to gate any of the 12 fix-plan items. Merge queue still frozen -- nothing pushed.
+NEVER hit stylo.bot/prod without the key.
 
 ## Current state
 - **Branch:** foss/dashboard-collapse
