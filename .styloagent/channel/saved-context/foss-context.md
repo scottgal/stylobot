@@ -1,11 +1,28 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: a8c53f61 (FOSS lazy-per-row dashboard fix) superseded by a larger cross-repo perf initiative; full design/build tracking lives in the commercial repo's own (private) checkpoint file, not this public one — see note below (resolved, standing policy now). FOSS-side build (Stage 2, website materializer widening) not yet started; will resume detailed tracking here once that begins.
+description: a8c53f61 (FOSS lazy-per-row dashboard fix) superseded by a larger cross-repo perf initiative; full design/build tracking lives in the commercial repo's own (private) checkpoint file, not this public one — see note below (resolved, standing policy now). FOSS-side build (Stage 2, website materializer widening) not yet started. NEW queued FOSS task: dashboard path-exclusion for display (hide ecommerce/trial/aspnet-pack/post-login paths from endpoints/traffic lists, detection-unaffected) — investigated, no existing mechanism, needs building (mirror NavVisibilityOptions' glob-config pattern), sequenced after Stage 2, awaiting mae-'s exact exclusion patterns.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
+
+## QUEUED — dashboard display path-exclusion (FOSS-only, safe to detail here)
+Operator requirement (relayed via overview-): dashboard must not DISPLAY certain paths (ecommerce/
+checkout, trial, `/aspnet-pack/*`, all post-login/authenticated paths) — DISPLAY-only, detection must
+keep running unaffected on these paths (never a bypass). Investigated whether this already exists:
+**no.** `EndpointPolicyOptions`/`IEndpointPolicyResolver` are pure detection/blocking policy, no
+display-hide field. `INavVisibilityPolicy`/`NavVisibilityOptions` (`Dashboard:HiddenPaths`, glob via
+`GlobToRegexCompiler`, `IOptions<T>` startup-snapshot) is the closest analog but only hides sidebar
+nav rows/feature sections, not individual paths in the endpoints/traffic lists. The endpoints list's
+only existing filtering is hardcoded prefix logic in `EndpointClassifier.cs` (dashboard's own
+self-paths + static assets), not config-driven, not operator-editable.
+
+**Plan**: new `Options` class mirroring `NavVisibilityOptions`'s exact pattern (glob-list config,
+`IOptions<T>`, `TryAddSingleton`), a new hidden-path check at `EndpointClassifier`, threaded into
+`SbEndpointsListViewComponent` + endpoint-stats rendering, plus a "some endpoints are hidden from this
+view" UI note. Reported to overview- as genuinely-needs-building (not trivial). Sequenced after Stage
+2 per overview-'s instruction; waiting on mae- for the exact stylo.bot path patterns before building.
 
 ## NOTE — detailed cross-repo design/build tracking lives off this (public) file, by design now
 This FOSS repo is public. A large dashboard-performance design effort this session ended up spanning
