@@ -341,7 +341,13 @@ public sealed class LiveDetectionTableService : BackgroundService
         var lines = 0;
 
         // ── Line 0: Title bar ─────────────────────────────────────────────────
-        var title = $"  stylobot  {ModeLabel(_mode)}  \u2192 {_upstream}  \u23f1 {FormatUptime(uptime)}  {_totalRequests} req  {reqPerSec:F1}/s  ";
+        // Brand mark: "Stylo" in light-gray italic bold, "bot" in white bold - each
+        // half resets then re-establishes the blue title-bar background so the rest
+        // of the line (mode/upstream/uptime/etc.) renders unaffected.
+        var brand = C.StyloGray + C.Italic + C.Bold + "Stylo" + C.R
+                  + C.BgBlue + C.White + C.Bold + "bot" + C.R
+                  + C.BgBlue + C.White + C.Bold;
+        var title = $"  {brand}  {ModeLabel(_mode)}  \u2192 {_upstream}  \u23f1 {FormatUptime(uptime)}  {_totalRequests} req  {reqPerSec:F1}/s  ";
         var titleVis = VLen(title);
         sb.Append(C.BgBlue + C.White + C.Bold);
         sb.Append(title);
@@ -795,15 +801,17 @@ public sealed class LiveDetectionTableService : BackgroundService
 
     private static class C
     {
-        public const string R      = "\x1b[0m";
-        public const string Bold   = "\x1b[1m";
-        public const string Dim    = "\x1b[2m";
-        public const string Red    = "\x1b[31m";
-        public const string Green  = "\x1b[32m";
-        public const string Yellow = "\x1b[33m";
-        public const string Blue   = "\x1b[34m";
-        public const string White  = "\x1b[97m";
-        public const string BgBlue = "\x1b[44m";
+        public const string R         = "\x1b[0m";
+        public const string Bold      = "\x1b[1m";
+        public const string Dim       = "\x1b[2m";
+        public const string Italic    = "\x1b[3m";
+        public const string Red       = "\x1b[31m";
+        public const string Green     = "\x1b[32m";
+        public const string Yellow    = "\x1b[33m";
+        public const string Blue      = "\x1b[34m";
+        public const string White     = "\x1b[97m";
+        public const string BgBlue    = "\x1b[44m";
+        public const string StyloGray = "\x1b[38;2;221;221;221m"; // #dddddd, 24-bit truecolor
     }
 
     // ── Visual-width string helpers ───────────────────────────────────────────
