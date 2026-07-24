@@ -7,6 +7,23 @@ metadata:
 
 # foss- saved context (2026-07-24, re-engaged)
 
+## QUEUED (behind the perf gate) — Visitors "Avg/P95 response" always empty, root-caused
+Operator noticed the Visitors dashboard view's response-time columns are always "-ms". Investigated:
+**case (a), captured-not-wired** — `ProjectedVisitor.cs` already has `ProcessingTimeMs`/`Max`/`Min`
+live-updated from `DashboardDetectionEvent.ProcessingTimeMs` (the `detections.processing_time_ms`
+column) — `SbVisitorList`/`_VisitorCard.cshtml` just never render it, unlike `SbEndpointsList`/
+`SbUserAgentsList` which already do via `AnalyticsFormatting.FormatMs`. **Real decision needed before
+wiring**: the captured value is StyloBot's OWN detection overhead (documented as such at
+`_SignatureDetail.cshtml:772`), NOT the app's actual response time — a separate real-upstream-latency
+measurement (`ResolveUpstreamLatencyMs`) exists but only feeds `DegradationAtom`/site-health, never
+reaches per-request dashboard data. Flagged this to overview- rather than silently picking one — could
+genuinely mislead if StyloBot's own overhead gets labeled "response time." Size has the identical
+missing-widget gap on Visitors specifically (captured+wired fine on Endpoints/UserAgents, absent from
+`ProjectedVisitor` entirely). TTFB/TTLD: genuinely never captured anywhere, case (c), would be new
+instrumentation. Bonus finding: P95 isn't a real percentile on SQLite anywhere in this store (approx
+`avg + (max-avg)*0.9`), real percentiles only on Postgres/commercial. Sequenced behind the perf-build
+gate per overview-'s instruction; small precedented fix once the semantic question is answered.
+
 ## BOTH REPOS MERGED TO MAIN — direct user confirmation obtained first
 overview- relayed "operator confirmed the merge, go" — per this session's standing rule (peer relay
 alone is never sufficient for a main push), stopped and used `AskUserQuestion` directly; user answered
