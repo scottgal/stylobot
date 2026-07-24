@@ -6938,6 +6938,13 @@ public class StyloBotDashboardMiddleware
         var cspNonce = GetOrCreateCspNonce(context);
         var basePath = _options.BasePath.TrimEnd('/');
 
+        // TEMP DEBUG (issue #2, endpoint-detail 404 investigation): logs the exact raw
+        // method/path this handler received, whichever route dispatched here (segment
+        // route or the legacy query-string route) -- pin whether the server-side parse
+        // itself is the problem before looking further downstream. Remove once #2 is
+        // root-caused.
+        _logger.LogWarning("TEMP-DEBUG endpoint-detail: received method={Method} path={Path}", method, path);
+
         var detailModel = await BuildEndpointDetailModelAsync(context, method, path, standalonePage: true);
 
         // Only the fields the shared shell actually renders are built for real
@@ -7158,6 +7165,16 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         HttpContext context, string method, string path, bool standalonePage)
     {
         var detail = await _eventStore.GetEndpointDetailAsync(method, path);
+
+        // TEMP DEBUG (issue #2): pins whether GetEndpointDetailAsync itself matched any
+        // rows for the exact (method, path) this handler was given -- distinguishes a
+        // parse/routing problem (wrong method/path reaching here, see the log above) from
+        // a query/data problem (right method/path, but the store found nothing). Remove
+        // once #2 is root-caused.
+        _logger.LogWarning(
+            "TEMP-DEBUG endpoint-detail: GetEndpointDetailAsync(method={Method}, path={Path}) returned {Result}",
+            method, path, detail is null ? "null (not found)" : $"TotalCount={detail.TotalCount}");
+
         var epNonce = context.Items.TryGetValue("CspNonce", out var epN) && epN is string epNs ? epNs : "";
 
         var policyRegistry = context.RequestServices.GetService(typeof(BotDetection.Policies.IPolicyRegistry))
