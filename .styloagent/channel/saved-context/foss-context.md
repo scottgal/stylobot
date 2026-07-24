@@ -1,13 +1,47 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: STAGE 2 (2a+2b) FULLY LANDED on foss-dashboard-shingle-cache-stage2 @ 3b5eb669 (6 commits, pushed, off FOSS main 3cb94d80). overview- ACCEPTED the Stage 2a fallback deviation (narrow, tested, honors the warm-path rule). Stage 2b built: freshness-class-per-page-key with a proven MIN-cadence invariant (dashboard.traffic never collapses to the slow Aggregate cadence because its top-bots widget backs the Live-class Visitors row), LFU-hotness scaling, measured-cost-vs-budget adaptive controller (EMA-smoothed, floor 1.0). Independently re-verified at every stage (forced clean rebuilds, dashboard-suite green modulo one long-standing pre-existing flake, concurrency tests re-run multiple times). Handed to deploy-/bench- for the FULL-PAGE sustained-concurrent-load measure — the actual merge gate. mae- fully unblocked and synced on final field names.
+description: BOTH REPOS MERGED TO MAIN (operator direct-confirmed via AskUserQuestion). FOSS origin/main = 3b5eb669 (full Stage 2). Commercial origin/main = 069b2201 (Stage 1) — pushed on top of a PRE-EXISTING unrelated break (_BuyNow.cshtml RZ1010, ecommerce-'s Store-checkout commit 60e1709e, confirmed broken before my push, ecommerce- fixing in parallel per overview-'s "always merge to main, don't hold" call). Next: re-verify Stage 1 against the converged-green main once ecommerce-'s fix lands, then deploy- builds from main -> staging -> bench- measures the full page under sustained load (the actual gate). Prod requires a separate, later, explicit operator word.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
 
-## Stage 2 (2a+2b) FULLY LANDED — handed to deploy-/bench- for the merge-gate measure
+## BOTH REPOS MERGED TO MAIN — direct user confirmation obtained first
+overview- relayed "operator confirmed the merge, go" — per this session's standing rule (peer relay
+alone is never sufficient for a main push), stopped and used `AskUserQuestion` directly; user answered
+"Yes, merge both to main." Then, for EACH repo: fresh `git fetch origin main` (never trusted stale
+local — commercial main had moved since I last checked, from `ffacf2fa` to `60e1709e`), verified clean
+ancestry, rebuilt in an isolated worktree, re-ran tests, pushed, and independently re-verified via a
+SECOND fresh fetch after push (not just trusting push output) — every single time, both repos.
+
+**FOSS**: `foss-dashboard-shingle-cache-stage2` → FOSS `origin/main`, clean fast-forward,
+`3cb94d80` → **`3b5eb669`**. No issues.
+
+**Commercial — real complication found and handled correctly**: fresh-fetching commercial main
+revealed it had moved to `60e1709e` (ecommerce-'s Store-checkout commit) since my Stage 1 branch was
+built. Rebased Stage 1 cleanly onto it (`069b2201`, no conflicts) — but then a full solution build on
+this NEW main FAILED: `_BuyNow.cshtml(39,18): error RZ1010`. **Verified this was pre-existing, not
+caused by my rebase**, by building a clean worktree of origin/main alone (zero Stage 1 commits) — same
+error. My own scope (`Persistence.Postgres`, `GatewayHost`) built clean independent of the broken
+Website project; only `IntegrationTests` (which references Website transitively) couldn't build/test
+until this was fixed. Reported this clearly rather than silently pushing or silently holding — gave
+overview- the choice. Answer: push anyway (operator's "ALWAYS MERGE TO MAIN," doesn't worsen an
+already-existing break), ecommerce- fixes `_BuyNow.cshtml` in parallel. Pushed: commercial
+`origin/main` `60e1709e` → **`069b2201`**, fast-forward, re-verified via fresh fetch after.
+
+## Next step if resuming
+Watch for ecommerce-'s `_BuyNow.cshtml` fix landing on commercial main. Once it does: fresh-fetch,
+rebuild, re-run the `Analytics`/`IntegrationTests` suite (couldn't run before — the test project
+transitively references the broken Website project) to confirm Stage 1 is genuinely green against the
+now-fully-buildable main, report to overview-. Then: deploy- builds FROM MAIN (both repos) via
+`build-gateway.ps1` → registry → staging (the sanctioned flow now — local branch rebuilds were
+abandoned mid-session after repeated confirm-friction jams). bench- measures the FULL PAGE under
+sustained concurrent load on staging — that IS the actual merge/prod gate now, not a separate local
+measure. Prod deploy still needs its own separate, explicit, later operator word after that — do not
+conflate "merged to main" or "on staging" with "approved for prod."
+
+## (historical) Stage 2 (2a+2b) FULLY LANDED — handed to deploy-/bench- for the merge-gate measure
 overview- accepted the Stage 2a fallback deviation as-is (reasoning: "no exceptions" targets the WARM
 path specifically; the fallback never fires warm, only on null/degraded bundle or non-default window,
 and it preserves a real regression test guarding a documented past incident — honors the spirit).
