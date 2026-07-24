@@ -7,6 +7,13 @@ metadata:
 
 # foss- saved context (2026-07-24, re-engaged)
 
+## CURRENT STATE (2026-07-25, latest)
+- **PUSHED TO FOSS MAIN**: window-threading batch, direct operator confirmation obtained via AskUserQuestion (not just overview- relay), pushed + independently re-verified via fresh fetch. FOSS main = `3e76fe8d`. Signaled deploy- for the second standalone build.
+- #2 (endpoint-detail 404): both of overview-'s theories (leading-slash parse bug, stale FOSS deploy) are DISPROVEN — deploy- confirmed the deployed image genuinely had current FOSS at build time. It's a real bug needing runtime data. Added TEMP debug logging to `foss-internal-filter-posture` (commit `aa96b4ca`) per overview-'s spec: logs raw method/path received + whether GetEndpointDetailAsync matched rows. Will remove once root-caused via a live click-through once #1 deploys.
+- `foss-internal-filter-posture` rebased cleanly onto new FOSS main (3e76fe8d) — one real merge conflict in SbEndpointsListViewComponent.cs (both batches touched the same dispatch logic), resolved by ordering: parameter-driven audience/window bypass > warming check > composed pageResult > legacy fallback. Re-verified: clean build, 4633/4639 tests passing. Noted (not fixing) a pre-existing test-infra flakiness pattern: exactly 1 random unrelated test fails on ~50% of full-suite runs, different test each time — matches the ScheduleCoordinatorTests pattern the other batch already flagged.
+- Commercial `commercial-internal-filter-posture` (e8e641df) unchanged, no rebase needed.
+- Both #1 branches ready to build/deploy pending overview-'s word.
+
 ## CURRENT STATE (2026-07-25, later update)
 - #1 posture fix (Internal-exclude-by-default + "Show self-probe" toggle) BUILT + independently verified on both repos, HELD for sign-off (not pushed): FOSS `foss-internal-filter-posture` (worktree `stylobot-internal-filter`, commit `58b2f84b`, build clean, 4604/4610 tests passing x3 runs); commercial `commercial-internal-filter-posture` (worktree `stylobot-commercial-internal-filter`, commit `e8e641df`, `Stylobot.Commercial.Persistence.Postgres` builds clean standalone, predicate logic traced+confirmed by hand).
 - Found + filed a REAL environmental blocker (not caused by either batch): `Stylobot.Website.csproj` hardcodes FOSS project refs to the ONE shared checkout at `/Users/scottgalloway/RiderProjects/stylobot`, which is 22 commits behind FOSS main and missing `DashboardMaterializerCoordinator.MarkDirtyAsync` — breaks `Stylobot.Website.sln` builds for ANY commercial worktree until the shared checkout catches up or the refs change. Filed `local-commercial-repo-builds-broken-stylobotwebs`. Did NOT touch the shared checkout (has uncommitted local changes, not my call).
