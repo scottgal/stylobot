@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Threading.Channels;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 
 namespace Mostlylucid.BotDetection.Console.Services;
 
@@ -57,8 +58,15 @@ public sealed class DetectionTapMiddleware
             var detector = ev.Contributions?.LastOrDefault()?.DetectorName ?? "-";
             var country = ev.Signals?.TryGetValue("geo.country_code", out var cc) == true
                 ? cc?.ToString() : null;
-            var primarySig = ev.Signals?.TryGetValue("signature.primary", out var sig) == true
-                ? sig?.ToString() : null;
+
+            // ev.Signals is a snapshot of ledger.MergedSignals; SignatureAtom raises its primary
+            // signature as a sink-only "signature.primary:<hash>" hint that never lands in a
+            // detector Contribution, so it never reaches MergedSignals. Reading it via
+            // ev.Signals left every entry's PrimarySignature null, so the fingerprint
+            // dictionary the stats bar / Top Fingerprints sidebar are keyed on never
+            // populated - counts rendered "0" once and never moved. Read the rich signature
+            // object SignatureAtom stores directly on HttpContext.Items instead.
+            var primarySig = SignatureAtom.TryGetMultifactor(context)?.PrimarySignature;
 
             _sink.Write(new DetectionEntry(
                 DateTime.Now,
