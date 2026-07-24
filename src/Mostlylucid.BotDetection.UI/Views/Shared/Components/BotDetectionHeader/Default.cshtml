@@ -74,7 +74,18 @@
         <div class="stylobot-header-details-grid">
             <!-- Your Signature -->
             <div class="stylobot-header-section">
-                <div class="section-title">Your Signature</div>
+                @* Links to the signature-detail page when a signature was resolved for this
+                   request (detection ran); degrades to plain text otherwise -- e.g. a request
+                   to an excluded path where no detection/signature exists. Read-only
+                   navigation, no edit affordance -- FOSS-appropriate per the standing rule. *@
+                @if (!string.IsNullOrEmpty(initialSignature))
+                {
+                    <a class="section-title" href="@dashBase/signature/@Uri.EscapeDataString(initialSignature)">Your Signature</a>
+                }
+                else
+                {
+                    <div class="section-title">Your Signature</div>
+                }
                 <div class="section-content">
                     <div><span class="section-label">ID:</span> <code x-text="(signature || '').substring(0, 12) + '...'"></code></div>
                     <div><span class="section-label">Hits:</span> <span x-text="hitCount"></span></div>
@@ -501,6 +512,18 @@ document.addEventListener('alpine:init', () => {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 4px;
+}
+
+/* "Your Signature" renders as a link to the signature-detail page when a signature is
+   resolvable (see the conditional above the details grid); display: inline-block + no
+   default underline keeps it visually identical to the plain-text fallback until hovered. */
+.stylobot-header-section a.section-title {
+    display: inline-block;
+    text-decoration: none;
+}
+
+.stylobot-header-section a.section-title:hover {
+    text-decoration: underline;
 }
 
 .stylobot-header-section .section-content {
