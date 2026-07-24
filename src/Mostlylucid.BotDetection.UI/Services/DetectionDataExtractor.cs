@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -272,7 +273,23 @@ public class DetectionDataExtractor
 
     private MultiFactorSignatureDisplay? ExtractSignatures(HttpContext context)
     {
-        // Canonical: read the signature the orchestrator's foundation wave wrote.
+        // In-process canonical: SignatureAtom writes the rich MultiFactorSignatures object
+        // into Items[SignatureAtom.MultifactorKey] (see SignatureAtom.DetectAsync) -- the
+        // ONLY reliable place to read it from. SignatureAtom raises signature.primary as a
+        // sink-only hint, which ledger.MergedSignals (and therefore AggregatedEvidence.Signals,
+        // checked below) never carries in production -- the same "sink-first" gap documented
+        // in DetectionLedgerExtensions.ToAggregatedEvidence's ReadBool/ReadString comments,
+        // just not on that accessor's list. Checked first so the header's "Your Signature"
+        // link resolves to the SAME signature persistence keys fingerprints on, not the
+        // transient IP+UA fallback at the bottom of this method.
+        if (SignatureAtom.TryGetMultifactor(context) is { PrimarySignature.Length: > 0 } local)
+        {
+            return BuildSignatureDisplay(MultiFactorToDict(local), context);
+        }
+
+        // Canonical fallback: read the signature the orchestrator's foundation wave wrote,
+        // for hosts/tests that populate AggregatedEvidence.Signals directly (premergedSignals
+        // callers) rather than going through SignatureAtom's Items entry.
         if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
             && evObj is AggregatedEvidence ev)
         {
