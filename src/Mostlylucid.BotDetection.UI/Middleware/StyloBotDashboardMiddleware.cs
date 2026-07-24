@@ -52,6 +52,7 @@ public class StyloBotDashboardMiddleware
     private readonly IMemoryCache _widgetCache;
     private readonly IDashboardContentCache? _contentCache;
     private readonly IDashboardPageManifestSource? _manifests;
+    private readonly DashboardMaterializerCoordinator? _materializerCoordinator;
 
     private static readonly TimeSpan WidgetCacheTtl = TimeSpan.FromSeconds(2);
 
@@ -169,7 +170,8 @@ public class StyloBotDashboardMiddleware
         IWebHostEnvironment env,
         ILogger<StyloBotDashboardMiddleware> logger,
         IDashboardContentCache? contentCache = null,
-        IDashboardPageManifestSource? manifests = null)
+        IDashboardPageManifestSource? manifests = null,
+        DashboardMaterializerCoordinator? materializerCoordinator = null)
     {
         _next = next;
         _options = options;
@@ -182,6 +184,7 @@ public class StyloBotDashboardMiddleware
         _logger = logger;
         _contentCache = contentCache;
         _manifests = manifests;
+        _materializerCoordinator = materializerCoordinator;
     }
 
     private string GetOrCreateCspNonce(HttpContext context)
@@ -1573,7 +1576,17 @@ public class StyloBotDashboardMiddleware
             try
             {
                 var page = await _contentCache.GetCurrentAsync(manifest, window, requestContext.RequestAborted);
-                if (page.IsWarming || !hasData(page)) return warmingFallback;
+                if (page.IsWarming || !hasData(page))
+                {
+                    // Cold miss: don't just wait for the next scheduled Tick10s sweep --
+                    // GetCurrentAsync (above) already marked this envelope "live" (see
+                    // DashboardContentCache.GetAsync), so a priority re-warm fires now,
+                    // off the request path, so the NEXT request to this envelope hits
+                    // warm data sooner. Fire-and-forget: never awaited/blocking on this
+                    // request (see TriggerPriorityRewarm's own doc comment for why).
+                    TriggerPriorityRewarm(pageKey);
+                    return warmingFallback;
+                }
                 return shape(page);
             }
             catch (Exception ex)
@@ -1582,6 +1595,42 @@ public class StyloBotDashboardMiddleware
                 return warmingFallback;
             }
         }
+    }
+
+    /// <summary>
+    ///     Fires an out-of-band priority re-warm for <paramref name="pageKey"/> via
+    ///     <see cref="DashboardMaterializerCoordinator.MarkDirtyAsync"/>, WITHOUT awaiting
+    ///     it on the request path -- it exists so the NEXT request to this envelope hits
+    ///     warm data sooner, not so the current request does (that would defeat the entire
+    ///     "never compute on the request thread" structural rule <see cref="GetOrWarmingAsync{T}"/>
+    ///     above enforces). Mirrors the existing fire-and-forget shape in this codebase
+    ///     (<c>DetectionBroadcastMiddleware</c>'s write-behind persist): <c>_ = Task.Run(...)</c>
+    ///     with every exception caught and logged so an unobserved-task fault never crashes
+    ///     the process. Uses <see cref="CancellationToken.None"/> deliberately -- the
+    ///     request's own token is cancelled once the response completes, which would abort
+    ///     the re-warm before <c>MarkDirtyAsync</c>'s compose finishes.
+    ///     <para>
+    ///         No-ops silently when <see cref="_materializerCoordinator"/> is null (a
+    ///         viewer-mode host that never registered the materialization stack) -- the
+    ///         request path degrades to the pre-existing "wait for the next tick" behavior.
+    ///     </para>
+    /// </summary>
+    private void TriggerPriorityRewarm(string pageKey)
+    {
+        if (_materializerCoordinator is null) return;
+
+        var coordinator = _materializerCoordinator;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await coordinator.MarkDirtyAsync(pageKey, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Priority re-warm failed for {PageKey}", pageKey);
+            }
+        });
     }
 
     /// <summary>
