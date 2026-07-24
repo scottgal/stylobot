@@ -63,6 +63,26 @@ public sealed class DashboardMaterializationRegistrationTests
         Assert.Contains(sp.GetServices<IHostedService>(), h => h is DashboardMaterializerCoordinator);
     }
 
+    /// <summary>
+    ///     A caller reacting to an external "data changed" signal (e.g. mae-'s
+    ///     GatewayHubInvalidationClient) needs to inject <see cref="DashboardMaterializerCoordinator"/>
+    ///     directly to call <c>MarkDirtyAsync</c> -- <c>AddHostedService&lt;T&gt;()</c> alone only
+    ///     registers T as an <see cref="IHostedService"/>, not as itself, so a direct
+    ///     <c>GetRequiredService&lt;DashboardMaterializerCoordinator&gt;()</c> throws. And whichever
+    ///     instance IS resolvable must be the SAME one the host starts, not a second independent
+    ///     coordinator with its own tick subscription/state.
+    /// </summary>
+    [Fact]
+    public async Task Coordinator_resolves_directly_and_is_the_same_instance_the_host_starts()
+    {
+        await using var sp = BuildProvider();
+
+        var direct = sp.GetRequiredService<DashboardMaterializerCoordinator>();
+        var hosted = sp.GetServices<IHostedService>().OfType<DashboardMaterializerCoordinator>().Single();
+
+        Assert.Same(direct, hosted);
+    }
+
     // ---------------- fakes ----------------
 
     private sealed class FakeComposer : IDashboardPageComposer

@@ -48,7 +48,14 @@ internal static class DashboardMaterializationServiceExtensions
                 options: options);
         });
 
-        services.AddHostedService<DashboardMaterializerCoordinator>();
+        // Registered as a singleton (not just AddHostedService<T>, which only exposes T as an
+        // IHostedService) so external callers -- e.g. a gateway-push client reacting to an
+        // out-of-band "data changed" signal -- can inject DashboardMaterializerCoordinator
+        // directly and call MarkDirtyAsync. The AddHostedService factory below resolves that
+        // SAME singleton rather than letting the container construct a second, independent
+        // instance with its own tick subscription/state.
+        services.TryAddSingleton<DashboardMaterializerCoordinator>();
+        services.AddHostedService(sp => sp.GetRequiredService<DashboardMaterializerCoordinator>());
 
         return services;
     }
