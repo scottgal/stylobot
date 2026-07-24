@@ -821,6 +821,18 @@ public sealed class DashboardShellModel
     ///     (and pre-V2, since-deleted-elsewhere) fallback nav. Null for every normal tab render.
     /// </summary>
     public SignatureDetailModel? SignatureDetailContent { get; init; }
+
+    /// <summary>
+    ///     Si2 (endpoint-IA unification): when set, <c>Index.cshtml</c> renders
+    ///     <c>_EndpointDetail.cshtml</c> with this model instead of dispatching
+    ///     through <see cref="UI.Dashboard.IDashboardRowRegistry"/>. Mirrors
+    ///     <see cref="SignatureDetailContent"/> -- the endpoint-detail page used to
+    ///     render standalone (isMainPage: true, no dashboard sidebar/drawer,
+    ///     falling back to whatever _ViewStart the host provides) the same way
+    ///     signature-detail did before that was fixed; this closes the same gap
+    ///     for endpoints. Null for every normal tab render.
+    /// </summary>
+    public EndpointDetailModel? EndpointDetailContent { get; init; }
 }
 
 /// <summary>

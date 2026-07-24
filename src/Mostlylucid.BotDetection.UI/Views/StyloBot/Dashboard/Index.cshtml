@@ -228,6 +228,12 @@
                DashboardShellModel.SignatureDetailContent. Bypasses the registry dispatch below. *@
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", Model.SignatureDetailContent)
         }
+        else if (Model.EndpointDetailContent is not null)
+        {
+            @* Per-(method,path) detail page sharing this shell -- see
+               DashboardShellModel.EndpointDetailContent. Bypasses the registry dispatch below. *@
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_EndpointDetail.cshtml", Model.EndpointDetailContent)
+        }
         else if (match is null)
         {
             <div class="rounded-xl border p-6 text-sm text-base-content/60"

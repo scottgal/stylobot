@@ -4,11 +4,16 @@
 @using System.Text.Json
 @model EndpointDetailModel
 @{
-    // When the host's _ViewStart picks up this view (IsStandalonePage=true), let it
-    // wrap us in its _Layout. When we're being rendered as an HTMX-swap fragment
-    // (IsStandalonePage=false), Layout = null so we emit body markup only.
-    if (!Model.IsStandalonePage) { Layout = null; }
-    else { ViewData["Title"] = $"{Model.Method} {Model.Path}, StyloBot endpoint detail"; }
+    // This view always renders as a partial -- either inside Index.cshtml's own
+    // <main> (DashboardShellModel.EndpointDetailContent, the full-page route) or as
+    // an HTMX-swap fragment (the partials/endpoint-detail route) -- so it never
+    // owns its own <html>/<head>/Layout. IsStandalonePage now controls ONLY the
+    // breadcrumb strip below, not layout selection: it used to also decide
+    // whether to fall back to the host's bare _ViewStart/_Layout (no dashboard
+    // sidebar at all), the same "old legacy shell" bug _SignatureDetail.cshtml's
+    // header comment documents -- fixed here the same way.
+    Layout = null;
+    if (Model.IsStandalonePage) { ViewData["Title"] = $"{Model.Method} {Model.Path}, StyloBot endpoint detail"; }
     var bp = Model.BasePath;
     var navBp = Model.ResolvedNavBasePath;
     var chartId = "ep-radar-" + Guid.NewGuid().ToString("N")[..8];
@@ -43,13 +48,19 @@
 }
 @if (Model.IsStandalonePage)
 {
+    @* Breadcrumb for the full-page route (ServeEndpointDetailPageAsync). Mirrors
+       _SignatureDetail.cshtml's breadcrumb -- plain <div>, not gated behind any
+       further chrome, since Index.cshtml's own sidebar/drawer is what supplies
+       real navigation now. The old "?tab=endpoints" link predates the V2 IA
+       (Index.cshtml no longer reads ?tab=) and pointed nowhere; replaced with
+       the real Site route. *@
     <div class="max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40 flex items-center justify-between">
         <div>
             <a href="@navBp" class="hover:text-base-content/70">&larr; Dashboard</a>
             <span class="mx-1">/</span>
             <span class="text-base-content/60">Endpoint Detail</span>
         </div>
-        <a href="@navBp?tab=endpoints" class="hover:text-base-content/70">All endpoints &rarr;</a>
+        <a href="@navBp/site" class="hover:text-base-content/70">All endpoints &rarr;</a>
     </div>
 }
 <div class="p-4 max-w-5xl mx-auto" data-endpoint-detail>

@@ -777,6 +777,38 @@ public class StyloBotDashboardMiddleware
                 }
                 break;
 
+            // Si2 (endpoint-IA unification): {basePath}/endpoint/{method}/{path} -- the real-
+            // navigation target SbEndpointsList rows and _TopEndpointsCard now link to, instead
+            // of the query-string form above or the old htmx inline-swap panel. Manual string
+            // routing (this middleware's convention throughout), not an ASP.NET route template,
+            // so the path segment can itself contain further slashes: only the FIRST segment
+            // after "endpoint/" is the method, everything from the next slash onward (kept
+            // verbatim, including embedded "/") is the endpoint path. A path containing a
+            // literal percent-encoded slash within one logical segment isn't representable
+            // here -- the query-string route above remains available for that edge case.
+            case var p when p.StartsWith("endpoint/", StringComparison.OrdinalIgnoreCase):
+                if (_options.RenderPage)
+                {
+                    var rest = relativePath["endpoint/".Length..];
+                    var slashIdx = rest.IndexOf('/');
+                    if (slashIdx <= 0)
+                    {
+                        context.Response.StatusCode = 400;
+                        await context.Response.WriteAsync("Missing method or path segment");
+                    }
+                    else
+                    {
+                        var segMethod = Uri.UnescapeDataString(rest[..slashIdx]);
+                        var segPath = rest[slashIdx..];
+                        await ServeEndpointDetailPageAsync(context, segMethod, segPath);
+                    }
+                }
+                else
+                {
+                    await _next(context);
+                }
+                break;
+
             case "session":
                 if (_options.RenderPage)
                 {
@@ -6800,38 +6832,91 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    /// <summary>Render the endpoint detail panel partial.</summary>
     /// <summary>
-    ///     Serve the full-page endpoint detail. Mirrors the /signature/{id} pattern -- minimal
-    ///     HTML shell wrapping the rich detail panel from _EndpointDetail.cshtml so the
-    ///     overview's endpoints list can drill into a real per-endpoint page (NOT the
-    ///     endpoints overview tab). Uses the same model builder as the HTMX partial route.
+    ///     Serve the full-page endpoint detail, reading method/path from the legacy
+    ///     query-string route (<c>{basePath}/endpoint?method=&amp;path=</c>).
     /// </summary>
-    private async Task ServeEndpointDetailPageAsync(HttpContext context)
+    private Task ServeEndpointDetailPageAsync(HttpContext context)
     {
         var method = context.Request.Query["method"].FirstOrDefault();
         var path = context.Request.Query["path"].FirstOrDefault();
         if (string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(path))
         {
             context.Response.StatusCode = 400;
-            await context.Response.WriteAsync("Missing method or path parameter");
-            return;
+            return context.Response.WriteAsync("Missing method or path parameter");
         }
+        return ServeEndpointDetailPageAsync(context, method, path);
+    }
 
-        // Same chrome contract as the signature-detail page: render _EndpointDetail.cshtml
-        // as a main page and let the host's _ViewStart pick the layout (marketing-site
-        // _Layout on stylo.bot; whatever the FOSS host provides elsewhere). Previously
-        // this handler hand-rolled <!DOCTYPE>... + vendor CSS links + an embedded navbar,
-        // which guaranteed visual drift the moment the host layout evolved (new theme
-        // tokens, footer rules, vendor bundle updates). The signature-detail page already
-        // moved off that pattern; the endpoint-detail page was the last hand-rolled shell.
+    /// <summary>
+    ///     Serve the full-page endpoint detail for an explicit (method, path) pair --
+    ///     shared by the legacy query-string route and the <c>{basePath}/endpoint/{method}/{path}</c>
+    ///     segment route. Renders INSIDE the same drawer/sidebar shell every other dashboard
+    ///     page uses (Index.cshtml), via DashboardShellModel.EndpointDetailContent -- mirrors
+    ///     ServeSignatureDetailAsync exactly (see that method's comment for the "old legacy
+    ///     shell" bug this fixes: this handler used to render _EndpointDetail.cshtml directly
+    ///     with isMainPage: true, which falls back to the HOST's own bare _ViewStart/_Layout
+    ///     with no dashboard sidebar at all).
+    /// </summary>
+    private async Task ServeEndpointDetailPageAsync(HttpContext context, string method, string path)
+    {
         SetDashboardCsp(context);
+        var cspNonce = GetOrCreateCspNonce(context);
+        var basePath = _options.BasePath.TrimEnd('/');
 
-        var model = await BuildEndpointDetailModelAsync(context, method, path, standalonePage: true);
+        var detailModel = await BuildEndpointDetailModelAsync(context, method, path, standalonePage: true);
+
+        // Only the fields the shared shell actually renders are built for real
+        // (YourDetection pill, License card, Packs for the sidebar, TunnelEnvironment
+        // banner); every other required field is a cheap empty placeholder -- the
+        // EndpointDetailContent dispatch branch in Index.cshtml never touches them.
+        var registry = context.RequestServices
+            .GetRequiredService<UI.Dashboard.IDashboardRowRegistry>();
+        var shellModel = new DashboardShellModel
+        {
+            CspNonce = cspNonce,
+            BasePath = basePath,
+            HubPath = _options.HubPath,
+            ActiveRow = new UI.Dashboard.DashboardRowRef("endpoint-detail"),
+            Version = DashboardVersion,
+            RenderShell = _options.RenderShell,
+            Summary = new SummaryStatsModel
+            {
+                BasePath = basePath,
+                Summary = new DashboardSummary
+                {
+                    Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0,
+                    HumanRequests = 0, UncertainRequests = 0,
+                    RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(),
+                    UniqueSignatures = 0
+                }
+            },
+            Visitors = new VisitorListModel { Visitors = [], Counts = new FilterCounts(), Filter = "all", SortField = "lastSeen", SortDir = "desc", Page = 1, PageSize = 24, TotalCount = 0, BasePath = basePath },
+            YourDetection = await BuildYourDetectionPartialModel(context),
+            Countries = new CountriesListModel { Countries = [], BasePath = basePath },
+            Endpoints = new EndpointsListModel { Endpoints = [], BasePath = basePath },
+            Clusters = new ClustersListModel { Clusters = [], BasePath = basePath },
+            UserAgents = new UserAgentsListModel { UserAgents = [], BasePath = basePath },
+            TopBots = new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
+            Sessions = new SessionsListModel { Sessions = [], BasePath = basePath },
+            Threats = new ThreatsListModel { BasePath = basePath },
+            License = BuildLicenseCardModel(context),
+            IsCommercial = IsCommercialMode(context),
+            Packs = registry.Packs,
+            TunnelEnvironment = context.RequestServices
+                .GetService<BotDetection.Proxy.ITunnelEnvironmentInspector>()?.GetSnapshot(),
+            TunnelDocsUrl = context.RequestServices
+                .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()
+                ?.Value.TunnelEnvironment.DocsUrl
+                ?? "https://stylo.bot/articles/tunnel-trade-off",
+            IsPrivilegedViewer = context.Items.TryGetValue(DashboardShellModel.PrivilegedViewerItemsKey, out var privilegedViewerFlag)
+                && privilegedViewerFlag is true,
+            EndpointDetailContent = detailModel,
+        };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/_EndpointDetail.cshtml", model, context, isMainPage: true);
+            "/Views/StyloBot/Dashboard/Index.cshtml", shellModel, context, isMainPage: true);
         await context.Response.WriteAsync(html);
     }
 
