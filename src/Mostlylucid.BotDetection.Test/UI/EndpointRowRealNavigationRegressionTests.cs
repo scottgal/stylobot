@@ -36,6 +36,22 @@ public class EndpointRowRealNavigationRegressionTests
     }
 
     [Fact]
+    public void Compact_embeds_carry_a_view_all_link_to_the_canonical_site_route()
+    {
+        // Si2 task 4 (consolidation): the Traffic overview's "Top content pages"
+        // widget and the Activity sidebar list both embed this same Default.cshtml
+        // via <sb-endpoints-list compact="true">, not a separate implementation.
+        // A compact glance should point back at the canonical, fully-filterable
+        // list -- source-grepped for the same "disproportionate TestServer scaffold"
+        // reason as the other markup-shape assertions in this file.
+        var src = ReadRepoFile(DefaultCshtmlRelativePath);
+
+        Assert.Contains("Model.IsCompact", src);
+        Assert.Contains("View all", src);
+        Assert.Contains("href=\"@bp/site\"", src);
+    }
+
+    [Fact]
     public void TopEndpointsCard_links_to_the_new_endpoint_detail_route()
     {
         var src = ReadRepoFile(TopEndpointsCardRelativePath);

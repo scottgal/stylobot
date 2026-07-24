@@ -61,7 +61,16 @@
             <h3 class="text-sm font-bold text-base-content">@Model.Heading</h3>
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </div>
-        @if (Model.IsCommercial && Model.AllowEndpointPinning)
+        @if (Model.IsCompact)
+        {
+            @* Compact embeds (Traffic overview's "Top content pages" widget, the
+               Activity sidebar list) are a glance, not the full control -- link back
+               to the canonical, fully-filterable list. /site is the resolved landing
+               page for the unified endpoints control (the legacy /endpoints route
+               301s there). *@
+            <a href="@bp/site" class="text-[10px] text-base-content/40 hover:text-base-content/70">View all &rarr;</a>
+        }
+        else if (Model.IsCommercial && Model.AllowEndpointPinning)
         {
             <button class="btn btn-xs btn-ghost gap-1 text-base-content/60"
                     data-action="toggle-pin-form">

@@ -734,23 +734,6 @@
     min-width: 0;
 }
 
-/* =============================================
-   Endpoints list - inline-detail selection state
-   ============================================= */
-
-/* Highlight the row whose detail is currently shown in
-   #endpoint-detail-panel. Driven by hx-on::before-request on the row
-   in SbEndpointsList/Default.cshtml. Border-only treatment so the
-   selection stays visible across the row's hover state without
-   fighting the table's striping. */
-tr.endpoint-row.is-selected > td {
-    background: color-mix(in srgb, var(--color-primary, #3b82f6) 12%, transparent);
-    box-shadow: inset 2px 0 0 0 var(--color-primary, #3b82f6);
-}
-
-tr.endpoint-row.is-selected > td:first-child {
-    border-left: 2px solid var(--color-primary, #3b82f6);
-}
 
 /* ===========================================================================
    sb-widget sizing system

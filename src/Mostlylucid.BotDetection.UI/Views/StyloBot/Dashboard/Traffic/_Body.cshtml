@@ -190,12 +190,5 @@
         @* Commercial location-tree widget renders here *@
     </div>
 
-    @* Detail target for the "Top content pages" rows. SbEndpointsList rows hx-get the
-       endpoint-detail partial into #endpoint-detail-panel (shared with the full Endpoints
-       tab). The compact overview embed must provide that target too, or every content-page
-       row click finds no htmx target and silently no-ops ("content links don't work").
-       Mirrors the commercial website overview. *@
-    <div id="endpoint-detail-panel"></div>
-
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", Model)
 </div>
