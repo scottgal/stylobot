@@ -40,7 +40,15 @@ public class SbEndpointsListViewComponent(
         string? path = null,
         string? method = null,
         string? threat = null,
-        string? botPressure = null)
+        string? botPressure = null,
+        // Si2 (endpoint-IA unification): MODE filter -- see EndpointClassifier.ClassifyMode.
+        string? mode = null,
+        // Si2: response status-code bucket filter (2xx/3xx/4xx/5xx/all), mirroring
+        // the filter ServeEndpointsPartialAsync already applies for the interactive
+        // hx-get path -- added here too so the VC's own initial-render / non-hx-get
+        // callers (e.g. a direct /dashboard/site?status=5xx page load) filter
+        // identically instead of only working after the first chip click.
+        string? status = null)
     {
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
@@ -89,6 +97,16 @@ public class SbEndpointsListViewComponent(
         if (!string.IsNullOrEmpty(method))
         {
             data = data.Where(e => string.Equals(e.Method, method, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        if (!string.IsNullOrEmpty(mode))
+        {
+            data = data.Where(e => string.Equals(
+                EndpointClassifier.ModeToken(EndpointClassifier.ClassifyMode(e.Method, e.Path)),
+                mode, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        if (status is "2xx" or "3xx" or "4xx" or "5xx")
+        {
+            data = data.Where(e => string.Equals(e.DominantStatusBucket, status, StringComparison.OrdinalIgnoreCase)).ToList();
         }
         if (!string.IsNullOrEmpty(threat))
         {
@@ -140,8 +158,10 @@ public class SbEndpointsListViewComponent(
             IsCompact = compact,
             AllowEndpointPinning = options.Value.EnableEndpointPinning,
             AudienceFilter = string.IsNullOrEmpty(audience) ? "all" : audience,
+            StatusFilter = string.IsNullOrEmpty(status) ? "all" : status,
             PathFilter = path ?? string.Empty,
             MethodFilter = string.IsNullOrEmpty(method) ? null : method,
+            ModeFilter = string.IsNullOrEmpty(mode) ? null : mode,
             ThreatFilter = string.IsNullOrEmpty(threat) ? null : threat,
             BotPressureFilter = string.IsNullOrEmpty(botPressure) ? null : botPressure,
         });

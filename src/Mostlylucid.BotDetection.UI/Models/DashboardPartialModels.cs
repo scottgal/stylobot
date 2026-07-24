@@ -235,6 +235,17 @@ public sealed record EndpointsListModel
     public string? MethodFilter { get; init; }
 
     /// <summary>
+    ///     Si2 (endpoint-IA unification): MODE filter, URL-bound via <c>?mode=</c>.
+    ///     Recognised values are the lowercase <see cref="Helpers.EndpointClassifier.ModeToken"/>
+    ///     tokens (<c>content</c> / <c>api</c> / <c>static</c> / <c>realtime</c> / <c>other</c>).
+    ///     Null/empty renders the unfiltered set. Classification is purely a path/method
+    ///     shape heuristic (<see cref="Helpers.EndpointClassifier.ClassifyMode"/>) -- see
+    ///     that type's doc comment for why it does not reuse the composite
+    ///     browser-mode taxonomy.
+    /// </summary>
+    public string? ModeFilter { get; init; }
+
+    /// <summary>
     ///     Si1: threat-band floor, URL-bound via <c>?threat=</c> on
     ///     <c>/dashboard/site</c>. Recognised values are
     ///     <c>Low</c> / <c>Medium</c> / <c>High</c> / <c>Critical</c>; the
