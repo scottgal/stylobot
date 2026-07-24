@@ -1,21 +1,20 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: a8c53f61 (FOSS lazy-per-row dashboard fix) superseded by a larger cross-repo perf initiative; full design/build tracking has moved to the commercial repo's own (private) checkpoint file rather than this public one — see note below. FOSS-side build (Stage 2, website materializer widening) not yet started; will resume detailed tracking here once that begins.
+description: a8c53f61 (FOSS lazy-per-row dashboard fix) superseded by a larger cross-repo perf initiative; full design/build tracking lives in the commercial repo's own (private) checkpoint file, not this public one — see note below (resolved, standing policy now). FOSS-side build (Stage 2, website materializer widening) not yet started; will resume detailed tracking here once that begins.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
 
-## NOTE — detailed cross-repo design/build tracking moved off this (public) file
+## NOTE — detailed cross-repo design/build tracking lives off this (public) file, by design now
 This FOSS repo is public. A large dashboard-performance design effort this session ended up spanning
-both FOSS and the private `stylobot-commercial` repo, and earlier checkpoint commits here (before this
-note) mirrored substantial commercial-repo architecture/design detail onto this public branch —
-flagged by the safety classifier as an exposure concern, raised with the user, awaiting their decision
-on both the already-pushed history and the go-forward approach. Until resolved: full current-state
-detail lives ONLY in `stylobot-commercial`'s own private checkpoint file (same relative path in that
-repo). This file will get FOSS-scoped, commercial-detail-free updates only, until that question is
-settled.
+both FOSS and the private `stylobot-commercial` repo, and several earlier checkpoint commits here
+mirrored substantial commercial-repo architecture/design detail onto this public branch — flagged by
+the safety classifier, raised with the user directly. Resolved: user's call was to leave the existing
+history as-is (no scrub) and to keep this file FOSS-scoped going forward. Standing policy now: full
+current-state detail for any cross-repo work lives ONLY in `stylobot-commercial`'s own private
+checkpoint file (same relative path in that repo); this file gets FOSS-only content.
 
 ## (historical) CURRENT STATE — design phase, gated with operator via overview-, NOTHING BUILT YET
 overview- relayed a STOP on shipping (a) (lazy-per-row, a8c53f61) even as an interim — operator said
