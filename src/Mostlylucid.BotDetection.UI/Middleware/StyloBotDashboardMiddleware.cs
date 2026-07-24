@@ -1291,7 +1291,15 @@ public class StyloBotDashboardMiddleware
         // event-store path remains a safe fallback for lightweight hosts.
         var sigCacheForSummary = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitorWindow = BuildVisitorsPageWindow(context);
-        var visitorTask = SafeGetVisitorsAsync();
+        // Stage 2a: only fall back to a direct GetTopBotsAsync call when the Traffic
+        // content-cache bundle didn't already carry BotAggregate -- previously this ran
+        // unconditionally on every render even when composedPage had the answer, which
+        // was exactly one of the "up to 9 parallel outbound calls" the content-cache
+        // widening exists to remove. The fallback itself is unchanged (still a genuine
+        // direct store read, preserved for VisitorsListFetchFailureIntegrationTests'
+        // cold-cache-plus-store-failure contract -- see docs/architecture note in
+        // DashboardRowRawFetchers).
+        var visitorTask = ResolveVisitorsRawAsync();
         // An explicit window must skip the audience-agnostic, fixed-window aggregateCache snapshot
         // and read the store windowed — otherwise a remote host whose page-bundle compose degrades
         // (composedPage null) falls back to the frozen cached summary across every window.
@@ -1301,14 +1309,55 @@ public class StyloBotDashboardMiddleware
             : (!summaryHasWindow && _aggregateCache.Current.Summary is { } cachedSummary)
             ? Task.FromResult(cachedSummary)
             : SafeGetSummaryAsync(visitorWindow.StartTime, visitorWindow.EndTime);
-        var countriesTask = SafeGetCountriesDataAsync();
-        var endpointsTask = SafeGetEndpointsDataAsync(context);
+        var countriesTask = composedPage?.Geo is { } composedGeo
+            ? Task.FromResult(composedGeo.ToList())
+            : SafeGetCountriesDataAsync();
+        var endpointsTask = composedPage?.Endpoints is { } composedEndpoints
+            ? Task.FromResult(composedEndpoints.ToList())
+            : SafeGetEndpointsDataAsync(context);
         var userAgentsTask = _aggregateCache.Current.UserAgents.Count > 0
             ? Task.FromResult(_aggregateCache.Current.UserAgents)
             : SafeComputeUserAgentsFallbackAsync();
 
-        await Task.WhenAll(visitorTask, summaryTask, countriesTask, endpointsTask, userAgentsTask);
-        var visitorRaw = composedPage?.BotAggregate ?? visitorTask.Result;
+        // Stage 2a: Clusters/TopBots/Sessions/Threats are pure cache reads through their
+        // own dedicated manifests -- a hit shapes the cached raw dataset (cheap, sync, no
+        // store I/O); a miss renders the row's Warming placeholder instead of computing
+        // synchronously on the request thread (the same "never compute on cold miss" rule
+        // DashboardContentCache.GetCurrentAsync already enforces for Traffic, extended
+        // here to these 4 rows). YourDetection stays a direct per-request compute -- it
+        // resolves the CURRENT VISITOR's own signature/identity, so it can never be a
+        // shared cache entry without leaking one visitor's identity to another.
+        var yourDetectionTask = SafeBuild(
+            () => BuildYourDetectionPartialModel(context),
+            new YourDetectionModel { BasePath = basePath }, "YourDetection");
+        var clustersTask = GetOrWarmingAsync(
+            "dashboard.clusters",
+            page => BuildClustersModelFromRaw(page.ClustersRaw!, page.ClusterDiagnosticsRaw, isWarming: false),
+            new ClustersListModel { Clusters = [], BasePath = basePath, IsWarming = true },
+            page => page.ClustersRaw is not null,
+            context);
+        var topBotsTask = GetOrWarmingAsync(
+            "dashboard.topbots",
+            page => BuildTopBotsModelFromRaw(page.TopBotsRaw!, page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
+            new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath, IsWarming = true },
+            page => page.TopBotsRaw is not null,
+            context);
+        var sessionsTask = GetOrWarmingAsync(
+            "dashboard.sessions",
+            page => BuildSessionsModelFromRaw(page.SessionsRaw!, page.SessionsRawTotalCount ?? 0, page: 1, pageSize: 25, filter: null),
+            new SessionsListModel { Sessions = [], BasePath = basePath, IsWarming = true },
+            page => page.SessionsRaw is not null,
+            context);
+        var threatsTask = GetOrWarmingAsync(
+            "dashboard.threats",
+            page => BuildThreatsModelFromRaw(page.ThreatsRaw!),
+            new ThreatsListModel { BasePath = basePath, IsWarming = true },
+            page => page.ThreatsRaw is not null,
+            context);
+
+        await Task.WhenAll(visitorTask, summaryTask, countriesTask, endpointsTask, userAgentsTask,
+            yourDetectionTask, clustersTask, topBotsTask, sessionsTask, threatsTask);
+        var visitorRaw = visitorTask.Result;
         var (visitors, visitorTotal, visitorCounts) = WidgetRenderHelpers.ProjectAsVisitors(
             visitorRaw, filter: "all", sortField: "lastSeen", sortDir: "desc", page: 1, pageSize: 24);
 
@@ -1321,7 +1370,7 @@ public class StyloBotDashboardMiddleware
             visitors, context.RequestServices, context.RequestAborted, _logger);
 
         var summary = summaryTask.Result;
-        var countriesData = composedPage?.Geo?.ToList() ?? countriesTask.Result;
+        var countriesData = countriesTask.Result;
         var endpointsData = endpointsTask.Result;
         var allUserAgents = userAgentsTask.Result;
 
@@ -1331,29 +1380,6 @@ public class StyloBotDashboardMiddleware
         // "skip the block", which is the legacy behaviour for every non-
         // investigate tab.
         ShapeInvestigationViewModel? investigationVm = null;
-
-        // These five feed DashboardShellModel fields for tabs OTHER than the one being
-        // rendered (required properties, so the model always builds them). A failure
-        // fetching any one of them must not crash the page the operator actually asked
-        // for -- same isolation as the visitor-list / summary / countries / endpoints
-        // fetches above.
-        var yourDetectionTask = SafeBuild(
-            () => BuildYourDetectionPartialModel(context),
-            new YourDetectionModel { BasePath = basePath }, "YourDetection");
-        var clustersTask = SafeBuild(
-            () => BuildClustersModelAsync(context),
-            new ClustersListModel { Clusters = [], BasePath = basePath }, "Clusters");
-        var topBotsTask = SafeBuild(
-            () => BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
-            new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
-            "TopBots");
-        var sessionsTask = SafeBuild(
-            () => BuildSessionsModel(context),
-            new SessionsListModel { Sessions = [], BasePath = basePath }, "Sessions");
-        var threatsTask = SafeBuild(
-            () => BuildThreatsModelAsync(),
-            new ThreatsListModel { BasePath = basePath }, "Threats");
-        await Task.WhenAll(yourDetectionTask, clustersTask, topBotsTask, sessionsTask, threatsTask);
 
         var model = new DashboardShellModel
         {
@@ -1433,6 +1459,15 @@ public class StyloBotDashboardMiddleware
             }
         }
 
+        // Stage 2a: prefer the Traffic content-cache's BotAggregate (already composed for
+        // the request's window/domain) over a direct GetTopBotsAsync call -- only fetches
+        // directly when the cache didn't already carry it (cold miss / degraded compose).
+        async Task<IReadOnlyList<DashboardTopBotEntry>> ResolveVisitorsRawAsync()
+        {
+            if (composedPage?.BotAggregate is { } cached) return cached;
+            return await SafeGetVisitorsAsync();
+        }
+
         async Task<List<DashboardUserAgentSummary>> SafeComputeUserAgentsFallbackAsync()
         {
             try { return await ComputeUserAgentsFallbackAsync(); }
@@ -1463,6 +1498,34 @@ public class StyloBotDashboardMiddleware
         {
             try { return await GetEndpointsDataAsync(requestContext); }
             catch { return []; }
+        }
+
+        // Stage 2a: pure cache-read for a single row's manifest -- a hit shapes the
+        // cached raw dataset (cheap/sync); a miss (never-warmed envelope, or the
+        // materializer failed to populate this row's slice) returns the row's own
+        // Warming placeholder. Never calls the store directly -- that's exactly what
+        // DashboardRowRawFetchers + DefaultDashboardPageComposer's out-of-request warm
+        // path exist to do instead. Mirrors the structural rule DashboardContentCache
+        // already enforces for GetCurrentAsync (never compose on the request thread).
+        async Task<T> GetOrWarmingAsync<T>(
+            string pageKey, Func<DashboardPageResult, T> shape, T warmingFallback,
+            Func<DashboardPageResult, bool> hasData, HttpContext requestContext)
+        {
+            if (_contentCache is null || _manifests is null) return warmingFallback;
+            var manifest = _manifests.For(pageKey);
+            if (manifest is null) return warmingFallback;
+
+            try
+            {
+                var page = await _contentCache.GetCurrentAsync(manifest, RowExtraWindow, requestContext.RequestAborted);
+                if (page.IsWarming || !hasData(page)) return warmingFallback;
+                return shape(page);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "{PageKey} content-cache read failed; rendering the Warming placeholder", pageKey);
+                return warmingFallback;
+            }
         }
     }
 
@@ -4937,17 +5000,31 @@ public class StyloBotDashboardMiddleware
         List<ThreatEntry> threats;
         // Serve the broadcaster-precomputed threats; fall through only when cold.
         var cachedThreats = _aggregateCache.Current.Threats;
-        try { threats = cachedThreats.Count > 0 ? cachedThreats : await _eventStore.GetThreatsAsync(20); }
+        try
+        {
+            threats = cachedThreats.Count > 0
+                ? cachedThreats
+                : (await Dashboard.Composition.DashboardRowRawFetchers.FetchThreatsRawAsync(_eventStore, 20)).ToList();
+        }
         catch { threats = []; }
 
-        return new ThreatsListModel
+        return BuildThreatsModelFromRaw(threats);
+    }
+
+    /// <summary>
+    ///     Wrap an already-fetched threats snapshot into the view model. Pure/sync -- no
+    ///     store I/O -- safe to call on the request thread against a dataset read from
+    ///     <see cref="Dashboard.Composition.DashboardPageResult.ThreatsRaw"/>.
+    /// </summary>
+    private ThreatsListModel BuildThreatsModelFromRaw(IReadOnlyList<ThreatEntry> threats, bool isWarming = false)
+        => new()
         {
             Threats = threats,
             TotalCount = threats.Count,
             ActiveHoneypotSessions = threats.Count(t => t.InHoneypot),
-            BasePath = _options.BasePath.TrimEnd('/')
+            BasePath = _options.BasePath.TrimEnd('/'),
+            IsWarming = isWarming,
         };
-    }
 
     /// <summary>Render the recent activity partial with server-side sort and pagination.</summary>
     private async Task ServeSessionsPartialAsync(HttpContext context)
@@ -7227,6 +7304,26 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // hot path on the gateway, never the source of truth. The cache remains live
         // on gateway hosts; it just isn't this widget's read source.
         //
+        // Fetch extracted to DashboardRowRawFetchers (Stage 2a) so the tick materializer
+        // (DefaultDashboardPageComposer) can warm the identical dataset out-of-request;
+        // this HTMX-endpoint path (real page/sort/filter values from the query string) is
+        // unchanged -- it still fetches fresh on every call, exactly as before.
+        var raw = await Dashboard.Composition.DashboardRowRawFetchers.FetchTopBotsRawAsync(
+            _eventStore, _signatureCache.MaxEntries, default);
+        return BuildTopBotsModelFromRaw(raw, page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
+    }
+
+    /// <summary>
+    ///     Shape (filter/sort/group/paginate) an already-fetched top-bots snapshot. Pure/sync
+    ///     -- no store I/O -- so it's safe to call on the request thread against a dataset
+    ///     read from <see cref="Dashboard.Composition.DashboardPageResult.TopBotsRaw"/>.
+    /// </summary>
+    private TopBotsListModel BuildTopBotsModelFromRaw(
+        IReadOnlyList<DashboardTopBotEntry> raw,
+        int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc",
+        string filter = "bots", string widgetId = "topbots", string? searchQuery = null,
+        bool isWarming = false)
+    {
         // Always pull the unfiltered top-N. Counts header must show the WHOLE distribution
         // (All / Bots / Humans) -- if we passed audienceFilter to the event store it would
         // pre-restrict the rows and the headline counts would collapse to "Bots == All,
@@ -7234,11 +7331,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // filter client-side instead so counts stay honest and the audience switcher does
         // what it says. GetTopBotsAsync returns hit-count DESC; sort client-side after the
         // filter to honour the user's sortBy.
-        var raw = await _eventStore.GetTopBotsAsync(
-            count: _signatureCache.MaxEntries,
-            startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow,
-            audienceFilter: "all");
+        //
         // Mirror SbWidgetBatchMiddleware.BuildTopBotsModel: hide internal traffic
         // (BotType.Internal -> loopback / RFC1918 / docker bridge / self-traffic)
         // from the All / Bots / Humans chips by default. Surfaced only via the
@@ -7276,6 +7369,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             WidgetId = widgetId,
             Counts = new TopBotsCounts(All: publicTraffic.Count, Bots: bots, Humans: humans, Internal: internalCount),
             Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
+            IsWarming = isWarming,
         };
     }
 
@@ -7291,6 +7385,21 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var searchQuery = q["q"].FirstOrDefault();
         return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, routeWidgetId, searchQuery);
     }
+
+    /// <summary>
+    ///     Stage 2a: the cache-key window for the Clusters/TopBots/Sessions/Threats row
+    ///     manifests. Deliberately a constant sentinel (no start/end, no audience/domain
+    ///     filter) -- unlike Traffic's <see cref="BuildVisitorsPageWindow"/>, none of
+    ///     these 4 rows' <c>DashboardRowRawFetchers</c> fetch methods actually read the
+    ///     <see cref="DashboardPageWindow"/>'s fields (TopBots/Threats use their own
+    ///     fixed lookback baked into the fetcher; Clusters/Sessions read the CURRENT
+    ///     snapshot). So the window carries no real compute input for these rows -- it
+    ///     only needs to be a STABLE envelope so the same (page, tick) key is reused
+    ///     across requests; the tick materializer's own tick advance is what drives
+    ///     freshness (see DashboardContentKey's (envelope, tick) design), not the window.
+    /// </summary>
+    private static readonly DashboardPageWindow RowExtraWindow =
+        new(StartTime: null, EndTime: null, AudienceFilter: null, ProbMin: null, Domains: null, TopN: 0, BucketMinutes: 1);
 
     /// <summary>
     ///     Builds the same content-cache envelope as the Traffic page. Visitors is
@@ -7507,122 +7616,67 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     private async Task<SessionsListModel> BuildSessionsModel(HttpContext context, int page = 1, int pageSize = 25, string? filter = null)
     {
         var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
-        if (sessionStore == null)
+
+        // Fetch extracted to DashboardRowRawFetchers (Stage 2a) so the tick materializer
+        // can warm the identical dataset out-of-request; this direct/HTMX-endpoint path is
+        // unchanged in behavior -- it still fetches fresh (fetchCount driven by page/pageSize,
+        // as before) on every call.
+        var (entries, totalCount) = await Dashboard.Composition.DashboardRowRawFetchers.FetchSessionsRawAsync(
+            sessionStore, _eventStore, _signatureCache, _options.DetectionRetention, page, pageSize, filter);
+
+        return BuildSessionsModelFromRaw(entries, totalCount, page, pageSize, filter);
+    }
+
+    /// <summary>
+    ///     Page an already-fetched sessions snapshot. Pure/sync -- no store I/O -- safe to
+    ///     call on the request thread against a dataset read from
+    ///     <see cref="Dashboard.Composition.DashboardPageResult.SessionsRaw"/>. Mirrors the
+    ///     original in-fetch <c>.Skip().Take()</c>: the raw set is already capped at
+    ///     <c>fetchCount</c> (min(page*pageSize+pageSize, 500)) by the fetcher, so pagination
+    ///     here is over that same bounded set, not the full store.
+    /// </summary>
+    private SessionsListModel BuildSessionsModelFromRaw(
+        IReadOnlyList<SessionListEntry> entries, int totalCount,
+        int page = 1, int pageSize = 25, string? filter = null, bool isWarming = false)
+        => new()
         {
-            return new SessionsListModel
-            {
-                Sessions = [],
-                BasePath = _options.BasePath.TrimEnd('/'),
-                Filter = filter
-            };
-        }
-
-        bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
-        var since = DateTime.UtcNow - _options.DetectionRetention;
-        const int maxFetch = 500;
-        var fetchCount = Math.Min(page * pageSize + pageSize, maxFetch);
-        var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
-        var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
-
-        var sigLookup = await _eventStore.LoadSignatureLookupAsync();
-        var uaLookup  = await _eventStore.LoadUserAgentLookupAsync();
-
-        var entries = sessions
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(s => new SessionListEntry
-        {
-            Id = s.Id,
-            Signature = s.Signature,
-            StartedAt = s.StartedAt,
-            EndedAt = s.EndedAt,
-            RequestCount = s.RequestCount,
-            DominantState = s.DominantState,
-            IsBot = s.IsBot,
-            AvgBotProbability = s.AvgBotProbability,
-            RiskBand = s.RiskBand,
-            Action = s.Action,
-            BotName = sigLookup.ResolveBotName(_signatureCache, s.Signature, s.BotName),
-            CountryCode = s.CountryCode,
-            UserAgent = uaLookup.ResolveUserAgent(_signatureCache, s.Signature),
-            ErrorCount = s.ErrorCount,
-            TimingEntropy = s.TimingEntropy,
-            Maturity = s.Maturity,
-            TransitionCounts = s.TransitionCountsJson != null
-                ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                : null
-        }).ToList();
-
-        return new SessionsListModel
-        {
-            Sessions = entries,
+            Sessions = entries.Skip((page - 1) * pageSize).Take(pageSize).ToList(),
             BasePath = _options.BasePath.TrimEnd('/'),
             Page = page,
             PageSize = pageSize,
             TotalCount = totalCount,
-            Filter = filter
+            Filter = filter,
+            IsWarming = isWarming,
         };
-    }
 
     private async Task<ClustersListModel> BuildClustersModelAsync(HttpContext context)
     {
         var clusterService = context.RequestServices.GetService(typeof(IBotClusterReader))
             as IBotClusterReader;
 
-        var ct = context.RequestAborted;
-        var rawClusters = clusterService is null
-            ? Array.Empty<BotCluster>()
-            : await clusterService.GetClustersAsync(ct);
+        // Fetch extracted to DashboardRowRawFetchers (Stage 2a) so the tick materializer
+        // can warm the identical dataset out-of-request; this direct/HTMX-endpoint path is
+        // unchanged in behavior -- it still fetches fresh on every call.
+        var (clusters, diagnostics) = await Dashboard.Composition.DashboardRowRawFetchers.FetchClustersRawAsync(
+            clusterService, context.RequestAborted);
 
-        var clusters = rawClusters
-            .Select(cl => new ClusterViewModel
-            {
-                ClusterId = cl.ClusterId,
-                Label = cl.Label ?? "Unknown",
-                Description = cl.Description,
-                Type = cl.Type.ToString(),
-                MemberCount = cl.MemberCount,
-                AvgBotProb = Math.Round(cl.AverageBotProbability, 3),
-                Country = cl.DominantCountry,
-                AverageSimilarity = Math.Round(cl.AverageSimilarity, 3),
-                TemporalDensity = Math.Round(cl.TemporalDensity, 3),
-                DominantIntent = cl.DominantIntent,
-                AverageThreatScore = Math.Round(cl.AverageThreatScore, 3)
-            })
-            .ToList();
+        return BuildClustersModelFromRaw(clusters, diagnostics);
+    }
 
-        return new ClustersListModel
+    /// <summary>
+    ///     Wrap an already-fetched cluster snapshot into the view model. Pure/sync -- no
+    ///     store I/O -- safe to call on the request thread against a dataset read from
+    ///     <see cref="Dashboard.Composition.DashboardPageResult.ClustersRaw"/>.
+    /// </summary>
+    private ClustersListModel BuildClustersModelFromRaw(
+        IReadOnlyList<ClusterViewModel> clusters, ClusterDiagnosticsViewModel? diagnostics, bool isWarming = false)
+        => new()
         {
             Clusters = clusters,
-            Diagnostics = clusterService == null ? null : await BuildClusterDiagnosticsModelAsync(clusterService, ct),
-            BasePath = _options.BasePath.TrimEnd('/')
+            Diagnostics = diagnostics,
+            BasePath = _options.BasePath.TrimEnd('/'),
+            IsWarming = isWarming,
         };
-    }
-
-    private static async Task<ClusterDiagnosticsViewModel> BuildClusterDiagnosticsModelAsync(IBotClusterReader clusterService, CancellationToken ct)
-    {
-        var diagnostics = await clusterService.GetDiagnosticsAsync(ct);
-        return new ClusterDiagnosticsViewModel
-        {
-            Algorithm = diagnostics.Algorithm,
-            Status = diagnostics.Status,
-            LastRunAt = diagnostics.LastRunAt,
-            InputBehaviorCount = diagnostics.InputBehaviorCount,
-            EdgeCount = diagnostics.EdgeCount,
-            GraphDensity = Math.Round(diagnostics.GraphDensity, 3),
-            RawCommunityCount = diagnostics.RawCommunityCount,
-            ClusterCount = diagnostics.ClusterCount,
-            HumanClusterCount = diagnostics.HumanCount,
-            MachineClusterCount = diagnostics.ProductCount + diagnostics.NetworkCount + diagnostics.EmergentCount,
-            MixedClusterCount = diagnostics.MixedCount,
-            SimilarityThreshold = diagnostics.SimilarityThreshold,
-            MinClusterSize = diagnostics.MinClusterSize,
-            TopWeights = diagnostics.TopWeights
-                .OrderByDescending(w => w.Value)
-                .Take(6)
-                .ToList()
-        };
-    }
 
     private async Task ServeBotBreakdownPartialAsync(HttpContext context)
     {

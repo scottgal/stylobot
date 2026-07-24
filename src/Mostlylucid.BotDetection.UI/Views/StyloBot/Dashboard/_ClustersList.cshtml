@@ -8,7 +8,11 @@
         <h3 class="text-sm font-bold text-base-content">Clusters</h3>
         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "clusters")
     </div>
-    @if (Model.Diagnostics != null)
+    @if (Model.IsWarming)
+    {
+        <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — cluster data will appear shortly.</div>
+    }
+    else if (Model.Diagnostics != null)
     {
         <div class="rounded-xl border p-3 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="flex items-center justify-between gap-3">
@@ -45,7 +49,7 @@
             }
         </div>
     }
-    @if (Model.Clusters.Count == 0)
+    @if (!Model.IsWarming && Model.Clusters.Count == 0)
     {
         <div class="text-center text-base-content/30 py-12 text-sm">
             No bot clusters detected yet. Clusters form when the Leiden algorithm identifies groups of related bot signatures.

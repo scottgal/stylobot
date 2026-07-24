@@ -127,6 +127,16 @@ public sealed class DashboardFreshnessBeacon
         /// <summary>Clusters widget (Leiden grouping).</summary>
         public const string Clusters = "clusters";
 
+        /// <summary>
+        ///     Top-bots list row (Stage 2a: the <c>dashboard.topbots</c> content-cache
+        ///     manifest -- distinct from <see cref="Signature"/>, which is the
+        ///     per-signature DRILL-IN surface, not the list). <c>DashboardMaterializerCoordinator</c>
+        ///     bumps <c>IDashboardChangeCursor</c> with the warmed PageKey directly today
+        ///     (not this constant), but the catalog still documents the surface for any
+        ///     future view that renders <c>data-sb-depends="topbots"</c>.
+        /// </summary>
+        public const string TopBots = "topbots";
+
         /// <summary>Sessions list widget.</summary>
         public const string Sessions = "sessions";
 

@@ -134,6 +134,14 @@ public sealed class ClustersListModel
     public int PageSize { get; init; } = 12;
     public int TotalCount { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
+
+    /// <summary>
+    ///     Stage 2a: true when this model is a cold-miss placeholder from the dashboard
+    ///     content cache (the tick materializer hasn't warmed "dashboard.clusters" yet) --
+    ///     as opposed to a real snapshot that legitimately has zero clusters. Default
+    ///     false for every direct/legacy Build path (HTMX refresh endpoints).
+    /// </summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
@@ -385,6 +393,9 @@ public sealed class TopBotsListModel
     public TopBotsCounts Counts { get; init; } = new(0, 0, 0, 0);
     /// <summary>Active search query (substring on bot name / type / signature). Null = no filter.</summary>
     public string? Query { get; init; }
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
@@ -858,6 +869,9 @@ public sealed class SessionsListModel
     ///     restyle the heading. Null = unscoped global timeline.
     /// </summary>
     public string? PrimarySignature { get; init; }
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
@@ -998,6 +1012,9 @@ public sealed class ThreatsListModel
     public int PageSize { get; init; } = 20;
     public required string BasePath { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
