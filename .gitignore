@@ -497,6 +497,7 @@ docs/legacy/
 signatures-*.jsonl
 /.superpowers/sdd/*
 
-# styloagent ephemeral runtime state -- checkpoints/coordination, never committed
-# (keep .styloagent/team.yaml, proposed-agents.yaml, missions/, PROTOCOL.md tracked)
-.styloagent/channel/saved-context/
+# styloagent fleet-internal state -- this is the public FOSS product repo,
+# it carries zero fleet/agent-coordination internals; tracked in the private
+# commercial repo instead
+.styloagent/
