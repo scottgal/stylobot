@@ -1,6 +1,8 @@
 @using Microsoft.AspNetCore.Mvc.Rendering
 @using Microsoft.Extensions.Options
 @using Mostlylucid.BotDetection.UI.Dashboard
+@using Mostlylucid.BotDetection.UI.Dashboard.Composition
+@using Mostlylucid.BotDetection.UI.Dashboard.Materialization
 @using Mostlylucid.BotDetection.UI.Middleware
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout
@@ -9,7 +11,8 @@
 @model DashboardShellModel
 @inject IOptions<DashboardLayoutOptions> LayoutOpts
 @inject IOptions<ThreatsOptions> ThreatsOpts
-@inject IDashboardEventStore EventStore
+@inject IDashboardContentCache ContentCache
+@inject IDashboardPageManifestSource Manifests
 
 @*
     M2 Traffic row partial. The row registry hands every row a
@@ -18,16 +21,34 @@
     typed @model contract while still rendering inside the dashboard chrome
     served by ServeDashboardPageAsync.
 
-    DATA SOURCE: IDashboardEventStore (canonical, shared change-detection
-    mechanism, per feedback_centralised_change_detection +
-    feedback_remote_mode_optional_di). The marketing-site host doesn't feed
-    the in-process SignatureAggregateCache (gateway-only), so reading the LFU
-    here is what was returning zero across every counter / breakdown card on
-    the remote-mode dashboard (R1 in the v2-traffic-review punch list).
-    Summary counters come from GetSummaryAsync; breakdown cards come from
-    GetCountryStatsAsync / GetEndpointStatsAsync / GetTopBotsAsync projected
-    via WidgetRenderHelpers.ProjectAsVisitors — same shape the Visitors page
-    + DashboardController already use.
+    DATA SOURCE (post p99=10s bimodal-tail fix): IDashboardContentCache, NOT
+    IDashboardEventStore. This partial used to @inject IDashboardEventStore and
+    call GetSummaryAsync / GetTopBotsAsync (x2, current + prior) /
+    GetCountryStatsAsync / GetEndpointStatsAsync / GetTimeSeriesAsync directly,
+    IN THE VIEW, on every render. On the website deployment topology
+    IDashboardEventStore = RemoteDashboardEventStore, so every one of those was
+    a live cross-service REST round-trip on the request thread -- for every
+    single dashboard page view (this row is the default "traffic" row, so it
+    renders on every un-warmed hit AND, since ServeDashboardPageAsync's
+    "traffic" switch case never distinguishes ?partial=1 / HX-Request, on every
+    SignalR-triggered swap too). That is what produced the bimodal p99 (fast
+    when the OS/HTTP connection pool was warm, ~10s when it wasn't).
+    ServeDashboardPageAsync ALREADY composes this exact bundle immediately
+    before rendering this partial (same "dashboard.traffic" manifest, same
+    BuildVisitorsPageWindow(Context) window) and stashes it in
+    HttpContext.Items["sb.dashboard.pageresult"] -- the same convention every
+    other dashboard widget (SbSummaryStatsViewComponent, SbCountriesListViewComponent,
+    SbEndpointsListViewComponent, SbTopBotsViewComponent, SbVisitorListViewComponent)
+    already reads from. So the current-period slice below reads THAT first
+    (zero extra work -- no second cache call) and only falls back to its own
+    ContentCache.GetCurrentAsync read (still cache-only, never a live store
+    call, never compute-on-request per DashboardContentCache's own contract)
+    when the shell's own compose degraded and didn't stash it. The prior-period
+    comparison window is new: it goes through the SAME content cache with a
+    second, disjoint (manifest, window) envelope ("dashboard.traffic.prior"),
+    identical in shape to TrafficController.Index's own prior-window read --
+    the tick materializer warms it the same way it warms any other live
+    envelope, so this is a genuine cache read, never a synchronous compute.
 *@
 @{
     var query = Context!.Request.Query;
@@ -72,56 +93,87 @@
     var startTime = now.AddMinutes(-minutes);
     var topN = opts.TrafficCardTopN;
 
-    // Pull all the windowed slices in parallel. Each call is exception-safe so a
-    // single dead endpoint doesn't blank the whole page.
-    async Task<DashboardSummary?> SafeSummaryAsync(DateTime s, DateTime e)
-    {
-        try { return await EventStore.GetSummaryAsync(startTime: s, endTime: e); }
-        catch { return null; }
-    }
-    async Task<List<DashboardTopBotEntry>> SafeTopBotsAsync(DateTime s, DateTime e)
-    {
-        try { return await EventStore.GetTopBotsAsync(count: 500, startTime: s, endTime: e, audienceFilter: "all"); }
-        catch { return new List<DashboardTopBotEntry>(); }
-    }
-    async Task<List<DashboardCountryStats>> SafeCountryStatsAsync(int n, DateTime s, DateTime e)
-    {
-        try { return await EventStore.GetCountryStatsAsync(count: Math.Max(n, 20), startTime: s, endTime: e); }
-        catch { return new List<DashboardCountryStats>(); }
-    }
-    async Task<List<DashboardEndpointStats>> SafeEndpointStatsAsync(int n, DateTime s, DateTime e)
-    {
-        try { return await EventStore.GetEndpointStatsAsync(count: Math.Max(n, 50), startTime: s, endTime: e); }
-        catch { return new List<DashboardEndpointStats>(); }
-    }
-    async Task<List<DashboardTimeSeriesPoint>> SafeTimeSeriesAsync(DateTime s, DateTime e, TimeSpan bucket)
-    {
-        try { return await EventStore.GetTimeSeriesAsync(s, e, bucket); }
-        catch { return new List<DashboardTimeSeriesPoint>(); }
-    }
-
     // Real hits-per-period bucket width, scaled to the window (shared with the
     // MVC TrafficController path so the two never drift).
     var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(filters.Window);
 
-    var summaryTask  = SafeSummaryAsync(startTime, now);
-    var priorSummaryTask = SafeSummaryAsync(startTime.AddMinutes(-minutes), startTime);
-    var topBotsTask  = SafeTopBotsAsync(startTime, now);
-    var priorBotsTask = SafeTopBotsAsync(startTime.AddMinutes(-minutes), startTime);
-    var countriesTask = SafeCountryStatsAsync(topN, startTime, now);
-    var endpointsTask = SafeEndpointStatsAsync(topN, startTime, now);
-    // The hits-per-period chart is a REAL durable time series from the event
-    // store (Postgres on the gateway, REST-forwarded here), not a re-projection
-    // of the visitor snapshot — survives restart, spans the retention window.
-    var hitsSeriesTask = SafeTimeSeriesAsync(startTime, now, bucketSize);
-    await Task.WhenAll(summaryTask, priorSummaryTask, topBotsTask, priorBotsTask, countriesTask, endpointsTask, hitsSeriesTask);
+    // Current window: prefer the bundle ServeDashboardPageAsync ALREADY composed
+    // for this exact request (same "dashboard.traffic" manifest + the same
+    // BuildVisitorsPageWindow(Context) window) and stashed in HttpContext.Items --
+    // the same convention every other dashboard widget reads from. Only falls
+    // back to a direct content-cache read (still cache-only; DashboardContentCache
+    // never computes on the request thread, see its own GetCurrentAsync contract)
+    // when the shell's own compose degraded and didn't stash a "good enough"
+    // bundle (see ServeDashboardPageAsync's own comment on that check).
+    var page = Context!.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+    if (page is null)
+    {
+        var trafficManifest = Manifests.For("dashboard.traffic");
+        if (trafficManifest is not null)
+        {
+            try
+            {
+                page = await ContentCache.GetCurrentAsync(
+                    trafficManifest,
+                    StyloBotDashboardMiddleware.BuildVisitorsPageWindow(Context),
+                    Context.RequestAborted);
+            }
+            catch
+            {
+                // Degrade to the Warming rendering below -- never fail the page for a
+                // dead cache dependency (adapts the old per-call try/catch's INTENT --
+                // "one dead endpoint doesn't blank the whole page" -- to a cache read,
+                // which can now only throw on a genuine bug/DI failure, not a network hop).
+                page = null;
+            }
+        }
+    }
 
-    var summary = summaryTask.Result;
-    var priorSummary = priorSummaryTask.Result;
-    var topBots = topBotsTask.Result;
-    var priorBots = priorBotsTask.Result;
-    var countriesData = countriesTask.Result;
-    var endpointsData = endpointsTask.Result;
+    // IsWarming distinguishes "no snapshot has ever been composed for this
+    // window yet" from "the window genuinely has zero traffic" -- the same
+    // distinction DashboardPageResult.Warming exists to carry. A null page
+    // (missing manifest / a caught exception above) renders the same warming
+    // state rather than crashing or silently showing an all-zero page.
+    var isWarming = page is null || page.IsWarming;
+    var summary = page?.Summary;
+    var topBots = page?.BotAggregate ?? new List<DashboardTopBotEntry>();
+    var countriesData = (IReadOnlyList<DashboardCountryStats>)(page?.Geo ?? new List<DashboardCountryStats>());
+    var endpointsData = (IReadOnlyList<DashboardEndpointStats>)(page?.Endpoints ?? new List<DashboardEndpointStats>());
+    // The hits-per-period chart is a REAL durable time series from the event
+    // store (Postgres on the gateway), composed as part of the same bundle --
+    // survives restart, spans the retention window.
+    var hitsSeriesRaw = page?.TimeBuckets ?? new List<DashboardTimeSeriesPoint>();
+
+    // Prior window (period-over-period comparison): a genuinely separate
+    // (manifest, window) envelope -- there is no shell-level fetch to reuse
+    // here, so this is a new, but still cache-only, read. Identical shape to
+    // TrafficController.Index's own prior-window read (same synthetic
+    // "dashboard.traffic.prior" manifest of summary + top-bots only) so the
+    // tick materializer treats it as just another live envelope to keep warm.
+    DashboardSummary? priorSummary = null;
+    var priorBots = new List<DashboardTopBotEntry>();
+    try
+    {
+        var priorManifest = new DashboardPageManifest(
+            "dashboard.traffic.prior", new[] { "summary", "top-bots" });
+        var priorWindow = new DashboardPageWindow(
+            StartTime: startTime.AddMinutes(-minutes),
+            EndTime: startTime,
+            AudienceFilter: "all",
+            ProbMin: null,
+            Domains: null,
+            TopN: 500,
+            BucketMinutes: (int)bucketSize.TotalMinutes);
+        var priorPage = await ContentCache.GetCurrentAsync(priorManifest, priorWindow, Context.RequestAborted);
+        priorSummary = priorPage.Summary;
+        priorBots = priorPage.BotAggregate?.ToList() ?? new List<DashboardTopBotEntry>();
+    }
+    catch
+    {
+        // Defensive only (matches the old Safe* behaviour's intent): a failed
+        // prior-window compose degrades to "no comparison" (0% deltas), never
+        // fails the whole page.
+    }
 
     // Project to the shared ProjectedVisitor shape — same helper Visitors page
     // uses, so all post-filter semantics (country / bot_type / threat) match
@@ -134,7 +186,7 @@
     // Real hits-per-period series: floor each durable store point onto the
     // window's bucket grid (gap-filled), rather than dumping each visitor's
     // whole hit count into its LastSeen bucket. Shared with TrafficController.
-    var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(hitsSeriesTask.Result, startTime, now, bucketSize);
+    var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(hitsSeriesRaw, startTime, now, bucketSize);
 
     // BotFamilies sub-stack (feeds the currently-unrendered _TimeseriesBars)
     // stays keyed to the SAME real bucket axis so its arrays align with the
@@ -289,6 +341,7 @@
         BotTypes: botTypes,
         TopEndpoints: endpoints,
         TopVisitors: topVisitors,
-        Threats: threats);
+        Threats: threats,
+        IsWarming: isWarming);
 }
 @await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/Index.cshtml", pageModel)

@@ -18,7 +18,13 @@ public sealed record TrafficPageModel(
     IReadOnlyList<BotTypeRow> BotTypes,
     IReadOnlyList<EndpointRow> TopEndpoints,
     IReadOnlyList<ProjectedVisitor> TopVisitors,
-    IReadOnlyList<ThreatRow> Threats);
+    IReadOnlyList<ThreatRow> Threats,
+    // True for a genuine cold-cache miss (DashboardPageResult.Warming / no bundle
+    // composed yet for this window) -- distinct from a real, warmed snapshot that
+    // happens to show zero traffic. Defaults false so existing callers (e.g.
+    // TrafficController.Index, which always has a real-or-degraded-but-non-null
+    // page bundle) are unaffected.
+    bool IsWarming = false);
 
 /// <summary>
 ///     URL-bound filter set. Empty / null values mean "no filter on this axis".

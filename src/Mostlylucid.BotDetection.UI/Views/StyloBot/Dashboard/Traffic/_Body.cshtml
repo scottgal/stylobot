@@ -128,6 +128,14 @@
         </div>
     }
 
+    @* A genuine cold-cache miss for the current window (see TrafficPageModel.IsWarming) --
+       distinct from a real, warmed snapshot that happens to show zero traffic. Matches the
+       wording/markup convention _ClustersList.cshtml already established for this state. *@
+    @if (Model.IsWarming)
+    {
+        <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — traffic data will appear shortly.</div>
+    }
+
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
 
     @{
