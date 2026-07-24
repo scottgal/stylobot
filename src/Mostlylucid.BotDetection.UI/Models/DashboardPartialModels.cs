@@ -36,6 +36,9 @@ public sealed class VisitorListModel
     public string? Threat { get; init; }
     public string? FingerprintId { get; init; }
     public bool Internal { get; init; }
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
@@ -57,6 +60,9 @@ public sealed class SummaryStatsModel
     public double AvgSessionDurationSecs { get; set; }
     public double HumanAvgSessionDurationSecs { get; set; }
     public double BotAvgSessionDurationSecs { get; set; }
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
@@ -118,6 +124,9 @@ public sealed class CountriesListModel
     public int PageSize { get; init; } = 20;
     public int TotalCount { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
@@ -307,6 +316,9 @@ public sealed record EndpointsListModel
     /// <see cref="IsCommercial"/> are true -- so the public marketing demo
     /// (commercial-tier chrome, anonymous visitors) never sees a write button.</summary>
     public bool AllowEndpointPinning { get; init; }
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>
@@ -389,6 +401,9 @@ public sealed class UserAgentsListModel
     public int PageSize { get; init; } = 25;
     public int TotalCount { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
+
+    /// <summary>Stage 2a: true when this is a cold-miss placeholder from the content cache (see <see cref="ClustersListModel.IsWarming"/>).</summary>
+    public bool IsWarming { get; init; }
 }
 
 /// <summary>

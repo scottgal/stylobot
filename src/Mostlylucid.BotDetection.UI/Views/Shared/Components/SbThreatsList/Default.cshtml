@@ -20,7 +20,11 @@
                 </div>
             </div>
 
-            @if (!Model.Threats.Any())
+            @if (Model.IsWarming)
+            {
+                <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — threat data will appear shortly.</div>
+            }
+            else if (!Model.Threats.Any())
             {
                 <div class="text-center py-6 text-base-content/50">
                     <p class="text-sm">No live threat activity detected yet.</p>

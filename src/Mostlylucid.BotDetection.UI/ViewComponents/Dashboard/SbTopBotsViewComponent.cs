@@ -37,6 +37,21 @@ public class SbTopBotsViewComponent(
         // BotAggregate slice from it directly (zero store calls). Otherwise fall through
         // to the existing self-fetch so VCs rendered on non-composer pages still work.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+
+        // A genuine cold miss (no snapshot has EVER been composed for this envelope) --
+        // render the warming placeholder instead of falling through to a live store call.
+        // Distinct from "pageResult present but BotAggregate null" (composer ran but this
+        // page's manifest didn't request BotAggregate), which still self-fetches below.
+        if (pageResult is { IsWarming: true })
+        {
+            return View(new TopBotsListModel
+            {
+                Bots = [], Page = page, PageSize = pageSize, TotalCount = 0,
+                SortField = sortBy, SortDir = sortDir, BasePath = options.Value.BasePath.TrimEnd('/'),
+                Filter = filter, WidgetId = widgetId, IsWarming = true,
+            });
+        }
+
         IReadOnlyList<DashboardTopBotEntry> raw;
         if (pageResult?.BotAggregate is { } composedBots)
         {

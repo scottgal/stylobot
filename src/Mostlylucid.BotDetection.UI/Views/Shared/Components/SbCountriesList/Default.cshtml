@@ -29,7 +29,11 @@
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "countries")
         </div>
 
-        @if (Model.Countries.Count == 0)
+        @if (Model.IsWarming)
+        {
+            <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — country data will appear shortly.</div>
+        }
+        else if (Model.Countries.Count == 0)
         {
             <div class="text-xs text-base-content/40 py-4 text-center">No country data yet</div>
         }

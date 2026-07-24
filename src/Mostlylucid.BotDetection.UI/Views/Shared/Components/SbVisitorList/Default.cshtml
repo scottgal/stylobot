@@ -158,7 +158,13 @@
     @* Visitors table. Outer .overflow-auto keeps thead frozen above the rolling tbody;
        the tbody itself is the data-region so SignalR-beacon swaps replace just the rows,
        not the table chrome -- no flash, no scroll jump. *@
-    @if (Model.Visitors.Count == 0)
+    @if (Model.IsWarming)
+    {
+        <div id="visitor-rows" data-sb-data-region class="text-xs text-base-content/50 px-3 py-4 text-center">
+            Warming up — visitor data will appear shortly.
+        </div>
+    }
+    else if (Model.Visitors.Count == 0)
     {
         <div id="visitor-rows" data-sb-data-region class="text-center text-base-content/30 py-12 text-sm">
             No visitors match this filter

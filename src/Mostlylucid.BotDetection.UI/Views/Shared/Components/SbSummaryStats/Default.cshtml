@@ -23,65 +23,74 @@
         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "summary-stats")
     </div>
 
-    <div id="summary-analytics" class="grid grid-cols-3 gap-2 text-sm">
-        <div class="p-2 bg-base-200/50 rounded">
-            <div class="text-base-content/50 text-[10px]">Fingerprints</div>
-            <div class="font-bold text-base-content leading-tight">@totalFingerprints.ToString("N0")</div>
-            <div class="text-[10px]">
-                <span class="text-error">@Model.BotSessions.ToString("N0") bot</span>
-                <span class="text-base-content/40 mx-0.5">/</span>
-                <span class="text-success">@Model.HumanSessions.ToString("N0") human</span>
+    @* A genuine cold-cache miss (see ClustersListModel.IsWarming) -- distinct from a real,
+       warmed snapshot that happens to show zero traffic. *@
+    @if (Model.IsWarming)
+    {
+        <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — summary data will appear shortly.</div>
+    }
+    else
+    {
+        <div id="summary-analytics" class="grid grid-cols-3 gap-2 text-sm">
+            <div class="p-2 bg-base-200/50 rounded">
+                <div class="text-base-content/50 text-[10px]">Fingerprints</div>
+                <div class="font-bold text-base-content leading-tight">@totalFingerprints.ToString("N0")</div>
+                <div class="text-[10px]">
+                    <span class="text-error">@Model.BotSessions.ToString("N0") bot</span>
+                    <span class="text-base-content/40 mx-0.5">/</span>
+                    <span class="text-success">@Model.HumanSessions.ToString("N0") human</span>
+                </div>
+            </div>
+            @* Gauge tile: replaces the plain "Requests" tile *@
+            <div class="p-2 bg-base-200/50 rounded flex flex-col items-center justify-center">
+                <svg viewBox="0 0 72 44" class="w-16 h-10" aria-label="Bot traffic @botPct%">
+                    @* Background track (full semicircle) *@
+                    <path d="M 4 40 A 32 32 0 0 1 68 40"
+                          fill="none" stroke="currentColor"
+                          class="text-base-300" stroke-width="7" stroke-linecap="round" />
+                    @* Filled arc (bot fraction) *@
+                    <path d="M 4 40 A 32 32 0 0 1 68 40"
+                          fill="none" stroke="currentColor"
+                          class="@gaugeColor"
+                          stroke-width="7" stroke-linecap="round"
+                          stroke-dasharray="@(arcFilled.ToString("F2")) @(arcCircum.ToString("F2"))"
+                          pathLength="@(arcFull.ToString("F2"))" />
+                    <text x="36" y="38" dominant-baseline="auto" text-anchor="middle"
+                          style="font-size:10px; fill:currentColor;">
+                        @botPct%
+                    </text>
+                </svg>
+                <div class="text-[9px] text-base-content/40 mt-0.5 leading-none">bot traffic</div>
+                <div class="text-[9px] text-base-content/50">@s.TotalRequests.ToString("N0") req</div>
+            </div>
+            <div class="p-2 bg-base-200/50 rounded">
+                <div class="text-base-content/50 text-[10px]">Active now</div>
+                <div class="font-bold text-base-content leading-tight">@Model.ActiveSessions</div>
+                <div class="text-[10px] text-base-content/40">@Model.UniqueVisitors unique</div>
+            </div>
+            <div class="p-2 bg-base-200/50 rounded">
+                <div class="text-base-content/50 text-[10px]">Bounce rate</div>
+                <div class="font-bold text-base-content leading-tight">@Model.HumanBounceRate%</div>
+                @if (Model.BounceRate != Model.HumanBounceRate && Model.BounceRate > 0)
+                {
+                    <div class="text-[10px] text-base-content/40">@Model.BounceRate% w/ bots</div>
+                }
+            </div>
+            <div class="p-2 bg-base-200/50 rounded">
+                <div class="text-base-content/50 text-[10px]">Avg session</div>
+                <div class="font-bold text-base-content leading-tight">@FormatDuration(Model.HumanAvgSessionDurationSecs)</div>
+                @if (Model.BotAvgSessionDurationSecs > 0)
+                {
+                    <div class="text-[10px] text-base-content/40">Bots: @FormatDuration(Model.BotAvgSessionDurationSecs)</div>
+                }
+            </div>
+            <div class="p-2 bg-base-200/50 rounded">
+                <div class="text-base-content/50 text-[10px]">Detection</div>
+                <div class="font-bold text-base-content leading-tight">@s.UncertainRequests.ToString("N0")</div>
+                <div class="text-[10px] text-base-content/40">uncertain</div>
             </div>
         </div>
-        @* Gauge tile: replaces the plain "Requests" tile *@
-        <div class="p-2 bg-base-200/50 rounded flex flex-col items-center justify-center">
-            <svg viewBox="0 0 72 44" class="w-16 h-10" aria-label="Bot traffic @botPct%">
-                @* Background track (full semicircle) *@
-                <path d="M 4 40 A 32 32 0 0 1 68 40"
-                      fill="none" stroke="currentColor"
-                      class="text-base-300" stroke-width="7" stroke-linecap="round" />
-                @* Filled arc (bot fraction) *@
-                <path d="M 4 40 A 32 32 0 0 1 68 40"
-                      fill="none" stroke="currentColor"
-                      class="@gaugeColor"
-                      stroke-width="7" stroke-linecap="round"
-                      stroke-dasharray="@(arcFilled.ToString("F2")) @(arcCircum.ToString("F2"))"
-                      pathLength="@(arcFull.ToString("F2"))" />
-                <text x="36" y="38" dominant-baseline="auto" text-anchor="middle"
-                      style="font-size:10px; fill:currentColor;">
-                    @botPct%
-                </text>
-            </svg>
-            <div class="text-[9px] text-base-content/40 mt-0.5 leading-none">bot traffic</div>
-            <div class="text-[9px] text-base-content/50">@s.TotalRequests.ToString("N0") req</div>
-        </div>
-        <div class="p-2 bg-base-200/50 rounded">
-            <div class="text-base-content/50 text-[10px]">Active now</div>
-            <div class="font-bold text-base-content leading-tight">@Model.ActiveSessions</div>
-            <div class="text-[10px] text-base-content/40">@Model.UniqueVisitors unique</div>
-        </div>
-        <div class="p-2 bg-base-200/50 rounded">
-            <div class="text-base-content/50 text-[10px]">Bounce rate</div>
-            <div class="font-bold text-base-content leading-tight">@Model.HumanBounceRate%</div>
-            @if (Model.BounceRate != Model.HumanBounceRate && Model.BounceRate > 0)
-            {
-                <div class="text-[10px] text-base-content/40">@Model.BounceRate% w/ bots</div>
-            }
-        </div>
-        <div class="p-2 bg-base-200/50 rounded">
-            <div class="text-base-content/50 text-[10px]">Avg session</div>
-            <div class="font-bold text-base-content leading-tight">@FormatDuration(Model.HumanAvgSessionDurationSecs)</div>
-            @if (Model.BotAvgSessionDurationSecs > 0)
-            {
-                <div class="text-[10px] text-base-content/40">Bots: @FormatDuration(Model.BotAvgSessionDurationSecs)</div>
-            }
-        </div>
-        <div class="p-2 bg-base-200/50 rounded">
-            <div class="text-base-content/50 text-[10px]">Detection</div>
-            <div class="font-bold text-base-content leading-tight">@s.UncertainRequests.ToString("N0")</div>
-            <div class="text-[10px] text-base-content/40">uncertain</div>
-        </div>
-    </div>
+    }
 </div>
 
 @functions {

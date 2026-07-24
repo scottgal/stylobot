@@ -540,4 +540,198 @@ public sealed class ViewComponentFromResultTests
         var model = Assert.IsType<UserAgentsListModel>(result!.ViewData!.Model);
         Assert.Equal(1, model.TotalCount);
     }
+
+    // ---------- Task 2: Warming placeholder -- genuine cold miss never self-fetches ----------
+    //
+    // DashboardPageResult.Warming is the cold-miss placeholder: no snapshot has EVER been
+    // composed for this envelope. Every in-scope VC must render its model's own IsWarming=true
+    // + empty data instead of falling through to a live store call. Every store/archive fake
+    // below throws on first use, so a regression back to "self-fetch on Warming" surfaces as an
+    // exception, not a silently-slow request.
+
+    [Fact]
+    public async Task SummaryStats_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var vc = new SbSummaryStatsViewComponent(new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<SummaryStatsModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+    }
+
+    [Fact]
+    public async Task TopBots_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var vc = new SbTopBotsViewComponent(new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<TopBotsListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+        Assert.Empty(model.Bots);
+    }
+
+    [Fact]
+    public async Task Countries_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var aggregateCache = new DashboardAggregateCache();
+        var vc = new SbCountriesListViewComponent(aggregateCache, new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<CountriesListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+        Assert.Empty(model.Countries);
+    }
+
+    [Fact]
+    public async Task Endpoints_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var aggregateCache = new DashboardAggregateCache();
+        var vc = new SbEndpointsListViewComponent(aggregateCache, new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<EndpointsListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+        Assert.Empty(model.Endpoints);
+    }
+
+    [Fact]
+    public async Task Sessions_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var vc = new SbSessionsListViewComponent(new ThrowingDetectionArchive(), new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<SessionsListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+        Assert.Empty(model.Sessions);
+    }
+
+    [Fact]
+    public async Task Sessions_warming_pageresult_scoped_embed_also_renders_placeholder()
+    {
+        // Even the primarySignature-scoped "Hit history" embed must honour a genuinely
+        // Warming pageResult -- it is a different concern from "composed slice doesn't
+        // cover this scope" (which DOES still self-fetch, per the earlier Task 1 test).
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var vc = new SbSessionsListViewComponent(new ThrowingDetectionArchive(), new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync(primarySignature: "sig-scoped") as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<SessionsListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+    }
+
+    [Fact]
+    public async Task Threats_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var vc = new SbThreatsListViewComponent(new ThrowingEventStore(), new StyloBotDashboardOptions { BasePath = "/stylobot" });
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<ThreatsListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+        Assert.Empty(model.Threats);
+    }
+
+    [Fact]
+    public async Task UserAgents_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var throwingStore = new ThrowingEventStore();
+        var aggregateCache = new DashboardAggregateCache();
+        var vc = new SbUserAgentsListViewComponent(aggregateCache, new DashboardUserAgentAggregator(throwingStore), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<UserAgentsListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+        Assert.Empty(model.UserAgents);
+    }
+
+    [Fact]
+    public async Task Visitors_warming_pageresult_renders_placeholder_without_calling_store()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = DashboardPageResult.Warming;
+
+        var vc = new SbVisitorListViewComponent(new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<VisitorListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming);
+        Assert.Empty(model.Visitors);
+    }
+
+    // ---------- Warming vs. "composer ran but didn't request this slice" (unchanged) ----------
+
+    [Fact]
+    public async Task TopBots_non_warming_pageresult_with_null_slice_still_falls_back_to_store()
+    {
+        // pageResult present, NOT warming, but BotAggregate is null (composer ran, this
+        // page's manifest didn't request BotAggregate) -- behavior must be UNCHANGED: self-fetch.
+        var entries = new List<DashboardTopBotEntry>
+        {
+            new() { PrimarySignature = "xyz", HitCount = 1, IsKnownBot = true, FirstSeen = DateTime.UtcNow, LastSeen = DateTime.UtcNow }
+        };
+        var store = new Mock<IDashboardEventStore>();
+        store.Setup(s => s.GetTopBotsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()))
+             .ReturnsAsync(entries);
+
+        var pageResult = MakeResult(); // no BotAggregate, IsWarming defaults to false
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = pageResult;
+
+        var vc = new SbTopBotsViewComponent(store.Object, DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        store.Verify(s => s.GetTopBotsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()), Times.Once);
+    }
 }

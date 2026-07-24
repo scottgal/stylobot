@@ -47,7 +47,11 @@
         }
     </div>
 
-    @if (Model.UserAgents.Count == 0)
+    @if (Model.IsWarming)
+    {
+        <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — user agent data will appear shortly.</div>
+    }
+    else if (Model.UserAgents.Count == 0)
     {
         <div class="text-xs text-base-content/40 py-8 text-center">No user agents match this filter</div>
     }

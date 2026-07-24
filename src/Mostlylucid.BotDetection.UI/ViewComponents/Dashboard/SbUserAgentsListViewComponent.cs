@@ -31,6 +31,19 @@ public class SbUserAgentsListViewComponent(
         // Otherwise fall through to the existing cache-first / parameter-driven self-fetch so
         // VCs rendered on non-composer pages still work.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+
+        // A genuine cold miss -- render the warming placeholder instead of falling through
+        // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
+        if (pageResult is { IsWarming: true })
+        {
+            return View(new UserAgentsListModel
+            {
+                UserAgents = [], BasePath = options.Value.BasePath.TrimEnd('/'), Filter = filter,
+                SortField = sort, SortDir = dir, Page = page, PageSize = pageSize, TotalCount = 0,
+                IsWarming = true,
+            });
+        }
+
         List<DashboardUserAgentSummary> all;
         if (pageResult?.UserAgentsRaw is { } composedUserAgents)
         {

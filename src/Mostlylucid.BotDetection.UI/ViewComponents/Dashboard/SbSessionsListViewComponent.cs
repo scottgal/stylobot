@@ -45,6 +45,20 @@ public class SbSessionsListViewComponent(
         // compute Paths/ScoreDeltaPp -- an accepted Stage 2a limitation shared with the
         // row-dispatch path (StyloBotDashboardMiddleware.BuildSessionsModelFromRaw).
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+
+        // A genuine cold miss -- render the warming placeholder instead of falling through
+        // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
+        // Still applies to the primarySignature-scoped embed: a Warming pageResult means no
+        // snapshot exists for THIS envelope yet, independent of the scoping question below.
+        if (pageResult is { IsWarming: true })
+        {
+            return View(new SessionsListModel
+            {
+                Sessions = [], BasePath = options.Value.BasePath.TrimEnd('/'), Page = page, PageSize = pageSize,
+                TotalCount = 0, Filter = filter, PrimarySignature = primarySignature, IsWarming = true,
+            });
+        }
+
         List<SessionListEntry> allEntries;
         if (string.IsNullOrEmpty(primarySignature) && pageResult?.SessionsRaw is { } composedSessions)
         {

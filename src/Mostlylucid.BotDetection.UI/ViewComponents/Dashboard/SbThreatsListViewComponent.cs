@@ -15,6 +15,18 @@ public class SbThreatsListViewComponent(IDashboardEventStore eventStore, StyloBo
         // Threats slice from it directly (zero store calls). Otherwise fall through to the
         // existing self-fetch so VCs rendered on non-composer pages still work.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+
+        // A genuine cold miss -- render the warming placeholder instead of falling through
+        // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
+        if (pageResult is { IsWarming: true })
+        {
+            return View(new ThreatsListModel
+            {
+                Threats = [], TotalCount = 0, ActiveHoneypotSessions = 0, Page = page, PageSize = pageSize,
+                BasePath = options.BasePath.TrimEnd('/'), IsWarming = true,
+            });
+        }
+
         IReadOnlyList<ThreatEntry> allThreats = pageResult?.ThreatsRaw is { } composedThreats
             ? composedThreats
             : await eventStore.GetThreatsAsync(pageSize * 10);

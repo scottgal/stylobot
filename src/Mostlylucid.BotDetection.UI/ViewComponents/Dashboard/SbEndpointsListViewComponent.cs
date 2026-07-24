@@ -52,11 +52,27 @@ public class SbEndpointsListViewComponent(
     {
         var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
 
-        IReadOnlyList<DashboardEndpointStats> data;
         // If the page composer stashed a DashboardPageResult, read the Endpoints slice from
         // it directly (zero store calls). Otherwise fall through to the existing cache-first /
         // parameter-driven self-fetch so VCs rendered on non-composer pages still work.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+
+        // A genuine cold miss -- render the warming placeholder instead of falling through
+        // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
+        if (pageResult is { IsWarming: true })
+        {
+            return View(new EndpointsListModel
+            {
+                Endpoints = [],
+                BasePath = options.Value.BasePath.TrimEnd('/'),
+                NavBasePath = string.IsNullOrEmpty(options.Value.NavBasePath) ? null : options.Value.NavBasePath.TrimEnd('/'),
+                SortField = sort, SortDir = dir, Page = page, PageSize = pageSize, TotalCount = 0,
+                Heading = heading, ContentOnly = contentOnly, IsCompact = compact,
+                IsWarming = true,
+            });
+        }
+
+        IReadOnlyList<DashboardEndpointStats> data;
         if (pageResult?.Endpoints is { } composedEndpoints)
         {
             data = composedEndpoints;

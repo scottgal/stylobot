@@ -27,6 +27,25 @@ public class SbSummaryStatsViewComponent(
         // directly (zero store calls). Otherwise fall through to the existing self-fetch so
         // VCs rendered on non-composer pages still work.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+
+        // A genuine cold miss -- render the warming placeholder instead of falling through
+        // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
+        if (pageResult is { IsWarming: true })
+        {
+            var warmingSummary = new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0,
+                UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(),
+                UniqueSignatures = 0,
+            };
+            return View(new SummaryStatsModel
+            {
+                Summary = warmingSummary,
+                BasePath = options.Value.BasePath.TrimEnd('/'),
+                IsWarming = true,
+            });
+        }
+
         var summary = pageResult?.Summary ?? await eventStore.GetSummaryAsync(startTime, endTime, audience);
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };

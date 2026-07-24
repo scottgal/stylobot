@@ -94,7 +94,13 @@
         <!-- Chrome: shared toolbar (filter chips) -->
         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_TableToolbar.cshtml", toolbar)
 
-        @if (Model.Bots.Count == 0)
+        @* A genuine cold-cache miss (see ClustersListModel.IsWarming) -- distinct from a
+           real, warmed snapshot that happens to show zero bots. *@
+        @if (Model.IsWarming)
+        {
+            <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — bot activity will appear shortly.</div>
+        }
+        else if (Model.Bots.Count == 0)
         {
             <div id="@dataRegionId" data-sb-data-region class="flex-1 min-h-0">
                 <div class="text-xs text-base-content/40 py-6 text-center">

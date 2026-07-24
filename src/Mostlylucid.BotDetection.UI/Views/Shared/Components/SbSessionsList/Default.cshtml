@@ -40,7 +40,11 @@
             </div>
         }
 
-        @if (Model.Sessions.Count == 0)
+        @if (Model.IsWarming)
+        {
+            <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — session data will appear shortly.</div>
+        }
+        else if (Model.Sessions.Count == 0)
         {
             <div class="text-xs text-base-content/40 py-8 text-center">
                 <p>No sessions recorded yet.</p>

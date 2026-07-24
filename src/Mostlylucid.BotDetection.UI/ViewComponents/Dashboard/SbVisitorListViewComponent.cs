@@ -37,6 +37,20 @@ public class SbVisitorListViewComponent(
         // data. ProjectAsVisitors mirrors ServeVisitorListPartialAsync so the
         // SSR pass and the HTMX partial swap render the same rows.
         var pageResult = HttpContext.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+
+        // A genuine cold miss -- render the warming placeholder instead of falling through
+        // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
+        if (pageResult is { IsWarming: true })
+        {
+            return View(new VisitorListModel
+            {
+                Visitors = [], Counts = new FilterCounts(), Filter = filter, SortField = sort, SortDir = dir,
+                Page = page, PageSize = pageSize, TotalCount = 0, BasePath = options.Value.BasePath.TrimEnd('/'),
+                Country = country, BotType = botType, Threat = threat, FingerprintId = fingerprintId,
+                Internal = @internal, IsWarming = true,
+            });
+        }
+
         IReadOnlyList<DashboardTopBotEntry> raw;
         if (pageResult?.BotAggregate is { } composedAggregate)
         {
