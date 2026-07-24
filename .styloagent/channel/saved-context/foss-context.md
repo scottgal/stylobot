@@ -1,11 +1,58 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: a8c53f61 (FOSS lazy-per-row dashboard fix) superseded by a larger cross-repo perf initiative; full design/build tracking lives in the commercial repo's own (private) checkpoint file, not this public one — see note below (resolved, standing policy now). FOSS-side build (Stage 2, website materializer widening) not yet started. NEW queued FOSS task: dashboard path-exclusion for display (hide ecommerce/trial/aspnet-pack/post-login paths from endpoints/traffic lists, detection-unaffected) — investigated, no existing mechanism, needs building (mirror NavVisibilityOptions' glob-config pattern), sequenced after Stage 2, awaiting mae-'s exact exclusion patterns.
+description: a8c53f61 (FOSS lazy-per-row dashboard fix) SUPERSEDED by Stage 2a (branch foss-dashboard-shingle-cache-stage2, pushed, 3 commits) — widened the existing Traffic-only content-cache/materializer to all 9 dashboard rows, ServeDashboardPageAsync is now a pure cache-read almost everywhere (one flagged, tested exception for 4 rows reusing the Traffic bundle, pending overview-'s call). Independently verified (clean build, 382/383 dashboard tests, 1 long-standing pre-existing flake). Stage 2b (per-widget cadence/adaptive controller) not yet started. Queued FOSS task: dashboard path-exclusion for display, sequenced after Stage 2, awaiting mae-'s exact patterns (kept in commercial checkpoint only — the concrete path list is commercial-website-specific).
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
+
+## Stage 2a — DONE, verified, pushed. Stage 2b not started.
+Widened `DashboardContentCache`/`DashboardMaterializerCoordinator` (previously Traffic-manifest-only)
+to cover 4 more rows via new dedicated manifests (`dashboard.clusters`/`topbots`/`sessions`/`threats`)
+— `DashboardContentKey`/`DashboardContentEnvelope` needed NO shape change, already fully generic.
+`ServeDashboardPageAsync` now reads Clusters/TopBots/Sessions/Threats purely from cache (hit → shape
+the cached raw dataset, cheap+sync; miss → `Warming` placeholder, never compute on the request
+thread — same rule Fix-1 established for Traffic, now extended). `YourDetection` stays a genuine
+per-request compute (resolves the CURRENT VISITOR's own identity — can never be a shared cache entry
+without leaking one visitor's identity to another).
+
+**Real finding from tracing which fields each row's `.cshtml` actually reads** (same method used for
+the original Traffic-row trace): most rows (Countries/Endpoints/UserAgents/Visitors) were ALREADY
+self-fetching via independent ViewComponents and ignoring the shell model entirely — the genuine gap
+was narrower than "9 rows always redundant": Clusters/TopBots/Sessions/Threats had zero caching before
+this, plus some rows re-fetched data the Traffic bundle already had.
+
+**One flagged design deviation** (reported to overview- for a call, not decided unilaterally):
+Summary/Countries/Endpoints/Visitors reuse the Traffic bundle's data when already composed (these
+fields are already inside compose-batch's payload) and fall back to a genuine direct store read only
+if that bundle is null/degraded or a non-default window is requested — preserving
+`VisitorsListFetchFailureIntegrationTests`, an existing regression test for a real past incident. Not
+a strict "zero exceptions" cache-read for those 4 rows, though the fallback is narrow/rare/tested. My
+own read of the actual code: reasonable and well-scoped, leaning toward accepting it, but overview-'s
+call.
+
+Verified independently (not just trusting the delegated subagent): clean build myself, dashboard-
+filtered test run 382/383 (1 failure = `DashboardLinkIntegrityTests`, the same pre-existing flake
+that's appeared throughout this whole session — subagent separately confirmed via git-stash across
+the FULL 5404-test suite: 4 pre-existing failures total, none touching dashboard code). Pushed to FOSS
+origin as branch **`foss-dashboard-shingle-cache-stage2`** (3 commits: `1d1a8898`/`993406e3`/`9ec38c63`,
+off FOSS main `3cb94d80`).
+
+**Also**: `DashboardFreshnessBeacon.Surfaces` gained a new `TopBots = "topbots"` constant (no existing
+one covered the list row). Already told mae- the invalidation hook is `IDashboardChangeCursor.Bump
+(surface)` using these canonical surface constants — she's unblocked and can start regardless of
+Stage 2b's timeline.
+
+## Next step if resuming
+Check for overview-'s answer on the fallback-deviation call, and whether to proceed straight into
+Stage 2b (per-widget cadence by freshness-class, MIN-cadence-over-active-consumers invariant, bounded
+Tier3-wave batched refresh, measured-refresh-cost-vs-budget adaptive controller — extends the EXISTING
+`DashboardMaterializerOptions`, not a new Options class) or pause for a bench- measure pass on 2a alone
+first (same staged-measured-gated discipline as Stage 1). Once 2b's field names are locked, send mae-
+the final `DashboardMaterializerOptions` field names (she's already unblocked on the hook itself).
+Reconcile-fd-pressure-fix (3cb94d80) and dashboard path-exclusion (queued, after Stage 2, path list in
+commercial checkpoint only) remain as noted below/in the commercial file.
 
 ## QUEUED — dashboard display path-exclusion (FOSS-only, safe to detail here)
 Operator requirement (relayed via overview-): dashboard must not DISPLAY certain paths (ecommerce/
