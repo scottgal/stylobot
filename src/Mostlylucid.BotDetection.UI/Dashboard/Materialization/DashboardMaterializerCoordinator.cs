@@ -64,6 +64,23 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // rather than racing it -- the in-flight compute is about to produce a fresh result anyway.
     private readonly ConcurrentDictionary<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>> _inFlightWarms = new();
 
+    // Stage 2b: per-envelope "when did this last actually get warmed" tracking, so the
+    // tick loop can skip an envelope that isn't due yet (DashboardRefreshCadence). Updated
+    // ONLY on a real compute (see AwaitWarmAndClearAsync) -- never on a skip -- so an
+    // envelope that keeps getting skipped keeps comparing against its last REAL warm, not
+    // some rolling "last considered" timestamp. Shared by the tick loop and MarkDirtyAsync
+    // (both go through WarmEnvelopeAsync), so a forced out-of-band warm also resets the
+    // due-time clock -- correct, since the bundle genuinely IS fresh again after it.
+    private readonly ConcurrentDictionary<DashboardContentEnvelope, DateTimeOffset> _lastWarmedAt = new();
+
+    // Stage 2b: measured-cost-vs-budget adaptive controller (see DashboardRefreshCadence
+    // and DashboardMaterializerAdaptiveController for the full algorithm). Owned here
+    // (not DI-registered) because it's tightly coupled to this coordinator's own tick
+    // loop -- the only thing that ever measures a real tick's warm-work cost -- mirroring
+    // how _inFlightWarms and _lastWarmedAt are coordinator-private state rather than
+    // separately-injected services.
+    private readonly DashboardMaterializerAdaptiveController _adaptive;
+
     public DashboardMaterializerCoordinator(
         IDashboardContentCache cache,
         IDashboardChangeCursor cursor,
@@ -86,7 +103,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _logger = logger;
         _hubContext = hubContext;
         _time = timeProvider ?? TimeProvider.System;
+        _adaptive = new DashboardMaterializerAdaptiveController(options);
     }
+
+    /// <summary>Test/diagnostic seam onto the adaptive controller's current scale factor.</summary>
+    internal double CurrentAdaptiveScaleFactor => _adaptive.CurrentScaleFactor;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -145,7 +166,12 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     {
         try
         {
-            return await lazy.Value.ConfigureAwait(false);
+            var result = await lazy.Value.ConfigureAwait(false);
+            // Stage 2b: record the real warm timestamp AFTER a successful compute (never on
+            // a skip) so DashboardRefreshCadence's due-time check always measures from the
+            // last GENUINE warm, whether it came from the tick loop or a MarkDirtyAsync force.
+            _lastWarmedAt[envelope] = _time.GetUtcNow();
+            return result;
         }
         finally
         {
@@ -156,11 +182,38 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     }
 
     /// <summary>
-    ///     One materialization pass: warm every live envelope at the current tick.
+    ///     Stage 2b due-time gate: has enough wall-clock time passed since this envelope was
+    ///     last ACTUALLY warmed for it to be worth warming again? An envelope with no prior
+    ///     warm at all (<see cref="_lastWarmedAt"/> has no entry) is always due -- matches
+    ///     the pre-Stage-2b behavior of warming every live/pinned envelope the first time it
+    ///     is ever seen, and is what keeps every existing single-tick coordinator test
+    ///     passing unchanged (they never warm the SAME envelope across two ticks).
+    /// </summary>
+    private bool IsDueForWarm(DashboardContentEnvelope envelope, DashboardPageManifest manifest, int accessCount)
+    {
+        var intervalSeconds = DashboardRefreshCadence.ComputeEffectiveIntervalSeconds(
+            manifest, accessCount, _adaptive.CurrentScaleFactor, _options);
+        if (!_lastWarmedAt.TryGetValue(envelope, out var last)) return true;
+        return _time.GetUtcNow() - last >= TimeSpan.FromSeconds(intervalSeconds);
+    }
+
+    /// <summary>
+    ///     One materialization pass: warm every DUE live envelope at the current tick.
     ///     Compute happens here, off the request thread. Budget-capped
     ///     (<see cref="DashboardMaterializerOptions.MaxPagesPerTick"/>) and
     ///     fault-isolated per envelope so one failure doesn't stop the rest.
     ///     After warming, emits SignalR invalidation beacons for changed surfaces.
+    ///     <para>
+    ///         Stage 2b: "live" (or "pinned") no longer implies "warm it this tick" --
+    ///         <see cref="IsDueForWarm"/> (backed by <see cref="DashboardRefreshCadence"/>)
+    ///         decides whether an envelope's effective refresh interval has actually
+    ///         elapsed since its last real warm. This applies to BOTH the Tier 1 pinned
+    ///         coverage and the Tier 2 demand-ranked envelopes -- pinned just means "never
+    ///         displaced by budget", not "immune to cadence". The tick's TOTAL measured
+    ///         warm-work cost (real wall-clock time actually spent composing, summed across
+    ///         every envelope warmed) is fed to <see cref="_adaptive"/> exactly once at the
+    ///         end of the pass, regardless of which branch the method returns from.
+    ///     </para>
     /// </summary>
     internal async Task MaterializeTickAsync(DateTimeOffset _, CancellationToken ct)
     {
@@ -169,117 +222,148 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         if (!_options.Enabled) return;
 
         var tick = _cursor.CurrentTick;
+        var tickCostMs = 0.0;
 
-        // §7 Tier 2 (demand ranking): live envelopes ordered hottest-first using AccessCount/
-        // LastAccess sourced from SlidingCacheAtom's OWN per-key tracking (DashboardContentCache.
-        // LiveEnvelopes() computes these at read time via TryGetEntryStats) -- the same hotness
-        // the atom already uses for its own eviction scoring, not a second counter maintained
-        // alongside it. A page a request actually hammers wins the tick's budget over whatever
-        // the dictionary happened to enumerate first.
-        var ranked = _cache.LiveEnvelopes()
-            .OrderByDescending(e => e.AccessCount)
-            .ThenByDescending(e => e.LastAccess)
-            .Select(e => (e.Manifest, e.Window))
-            .ToList();
-
-        var warmQueue = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window)>();
-
-        // §7 Tier 1 (pinned coverage): Traffic at every configured window token, warmed every
-        // tick regardless of live/demand status -- inserted first so it's never displaced by
-        // the tick's budget. Generalizes the old single-window unconditional prewarm to the
-        // FOSS UI's full window-switcher set.
-        if (_options.PrewarmDefaultEnvelope && _manifests.For(_options.PrewarmPageKey) is { } prewarmManifest)
+        try
         {
-            var now = DateTime.UtcNow;
-            foreach (var token in _options.PrewarmWindows)
+            // §7 Tier 2 (demand ranking): live envelopes ordered hottest-first using AccessCount/
+            // LastAccess sourced from SlidingCacheAtom's OWN per-key tracking (DashboardContentCache.
+            // LiveEnvelopes() computes these at read time via TryGetEntryStats) -- the same hotness
+            // the atom already uses for its own eviction scoring, not a second counter maintained
+            // alongside it. A page a request actually hammers wins the tick's budget over whatever
+            // the dictionary happened to enumerate first. AccessCount also feeds the Stage 2b
+            // due-time gate's LFU-hotness scaling (DashboardRefreshCadence), so it's kept
+            // alongside the pair rather than projected away.
+            var ranked = _cache.LiveEnvelopes()
+                .OrderByDescending(e => e.AccessCount)
+                .ThenByDescending(e => e.LastAccess)
+                .ToList();
+
+            var warmQueue = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window)>();
+
+            // §7 Tier 1 (pinned coverage): Traffic at every configured window token, considered
+            // every tick regardless of live/demand status -- inserted first so it's never
+            // displaced by the tick's budget. Generalizes the old single-window unconditional
+            // prewarm to the FOSS UI's full window-switcher set. Stage 2b: "considered" every
+            // tick, not "warmed" every tick -- IsDueForWarm still gates whether this tick is the
+            // one that actually re-composes it. accessCount is 0 here (pinned windows aren't
+            // part of LiveEnvelopes()' hotness accounting), which is the cold/unscaled case --
+            // dashboard.traffic still resolves to the Live-class base interval regardless (THE
+            // NAMED INVARIANT), just without any hotness-driven acceleration below it.
+            if (_options.PrewarmDefaultEnvelope && _manifests.For(_options.PrewarmPageKey) is { } prewarmManifest)
             {
-                var minutes = DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: 1440);
-                var pinnedWindow = new DashboardPageWindow(
-                    StartTime: now.AddMinutes(-minutes),
-                    EndTime: now,
-                    AudienceFilter: "all",
-                    ProbMin: null,
-                    Domains: null,
-                    TopN: 500,
-                    BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
-                warmQueue.Add((prewarmManifest, pinnedWindow));
+                var now = DateTime.UtcNow;
+                foreach (var token in _options.PrewarmWindows)
+                {
+                    var minutes = DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: 1440);
+                    var pinnedWindow = new DashboardPageWindow(
+                        StartTime: now.AddMinutes(-minutes),
+                        EndTime: now,
+                        AudienceFilter: "all",
+                        ProbMin: null,
+                        Domains: null,
+                        TopN: 500,
+                        BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
+
+                    var pinnedEnvelope = DashboardContentEnvelope.From(prewarmManifest, pinnedWindow);
+                    if (IsDueForWarm(pinnedEnvelope, prewarmManifest, accessCount: 0))
+                        warmQueue.Add((prewarmManifest, pinnedWindow));
+                }
+            }
+
+            foreach (var e in ranked)
+            {
+                var envelope = DashboardContentEnvelope.From(e.Manifest, e.Window);
+                if (IsDueForWarm(envelope, e.Manifest, e.AccessCount))
+                    warmQueue.Add((e.Manifest, e.Window));
+            }
+
+            if (warmQueue.Count == 0) return;
+
+            var budget = _options.MaxPagesPerTick;
+            var warmed = 0;
+            var warmedPages = new HashSet<string>(StringComparer.Ordinal);
+            var deadline = _time.GetUtcNow() + TimeSpan.FromMilliseconds(_options.MaxTickDurationMs);
+            var waveSize = Math.Max(1, _options.MaxConcurrentWarmsPerTick);
+
+            // §7 Tier 3 (bounded parallelism): warm in waves of at most MaxConcurrentWarmsPerTick
+            // concurrent composes, mirroring ScheduleCoordinator's own bounded-parallelism pattern.
+            // MaxTickDurationMs is checked BETWEEN waves (not per item within a wave) -- count alone
+            // doesn't bound cost when compose cost isn't uniform (a corpus-scale query regression),
+            // so once elapsed exceeds the budget the remaining envelopes defer to the next tick
+            // rather than grinding through the whole queue regardless of how slow composes have become.
+            for (var start = 0; start < warmQueue.Count; start += waveSize)
+            {
+                if (warmed >= budget)
+                {
+                    _logger?.LogDebug(
+                        "DashboardMaterializerCoordinator: MaxPagesPerTick={Budget} reached; {Deferred} envelope(s) deferred to next tick.",
+                        budget, warmQueue.Count - start);
+                    break;
+                }
+
+                if (_time.GetUtcNow() >= deadline)
+                {
+                    _logger?.LogWarning(
+                        "DashboardMaterializerCoordinator: MaxTickDurationMs={Budget}ms exceeded after warming {Warmed}; {Deferred} envelope(s) deferred to next tick.",
+                        _options.MaxTickDurationMs, warmed, warmQueue.Count - start);
+                    break;
+                }
+
+                ct.ThrowIfCancellationRequested();
+
+                var wave = warmQueue.Skip(start).Take(Math.Min(waveSize, budget - warmed)).ToList();
+                var waveResults = await Task.WhenAll(wave.Select(async item =>
+                {
+                    // Stage 2b: measures the REAL wall-clock cost of this one warm -- fed into
+                    // the adaptive controller as part of the tick's total measured cost, whether
+                    // the compose succeeded or threw (the time was spent either way).
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    try
+                    {
+                        await WarmEnvelopeAsync(item.Manifest, item.Window, tick, ct).ConfigureAwait(false);
+                        return (PageKey: (string?)item.Manifest.PageKey, CostMs: sw.Elapsed.TotalMilliseconds);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogDebug(ex, "DashboardMaterializerCoordinator: warm failed for {Page}.", item.Manifest.PageKey);
+                        return (PageKey: (string?)null, CostMs: sw.Elapsed.TotalMilliseconds);
+                    }
+                })).ConfigureAwait(false);
+
+                foreach (var (pageKey, costMs) in waveResults)
+                {
+                    tickCostMs += costMs;
+                    if (pageKey is null) continue;
+                    warmed++;
+                    warmedPages.Add(pageKey);
+                }
+            }
+
+            // Broadcast invalidation signals for warmed surfaces. The constrainer handles
+            // rate-limiting (coalescing multiple signals into a single 10s flush window).
+            // The cursor is bumped when signals are queued so BroadcastDirty carries the
+            // tick at which these surfaces changed.
+            if (warmedPages.Count > 0 && _hubContext is not null)
+            {
+                foreach (var pageKey in warmedPages)
+                {
+                    _cursor.Bump(pageKey);
+                    SignalRBroadcastConstrainer.Queue(_hubContext, pageKey, _options.MaterializerBroadcastIntervalMs);
+                }
             }
         }
-
-        warmQueue.AddRange(ranked);
-
-        if (warmQueue.Count == 0) return;
-
-        var budget = _options.MaxPagesPerTick;
-        var warmed = 0;
-        var warmedPages = new HashSet<string>(StringComparer.Ordinal);
-        var deadline = _time.GetUtcNow() + TimeSpan.FromMilliseconds(_options.MaxTickDurationMs);
-        var waveSize = Math.Max(1, _options.MaxConcurrentWarmsPerTick);
-
-        // §7 Tier 3 (bounded parallelism): warm in waves of at most MaxConcurrentWarmsPerTick
-        // concurrent composes, mirroring ScheduleCoordinator's own bounded-parallelism pattern.
-        // MaxTickDurationMs is checked BETWEEN waves (not per item within a wave) -- count alone
-        // doesn't bound cost when compose cost isn't uniform (a corpus-scale query regression),
-        // so once elapsed exceeds the budget the remaining envelopes defer to the next tick
-        // rather than grinding through the whole queue regardless of how slow composes have become.
-        for (var start = 0; start < warmQueue.Count; start += waveSize)
+        finally
         {
-            if (warmed >= budget)
-            {
-                _logger?.LogDebug(
-                    "DashboardMaterializerCoordinator: MaxPagesPerTick={Budget} reached; {Deferred} envelope(s) deferred to next tick.",
-                    budget, warmQueue.Count - start);
-                break;
-            }
-
-            if (_time.GetUtcNow() >= deadline)
-            {
-                _logger?.LogWarning(
-                    "DashboardMaterializerCoordinator: MaxTickDurationMs={Budget}ms exceeded after warming {Warmed}; {Deferred} envelope(s) deferred to next tick.",
-                    _options.MaxTickDurationMs, warmed, warmQueue.Count - start);
-                break;
-            }
-
-            ct.ThrowIfCancellationRequested();
-
-            var wave = warmQueue.Skip(start).Take(Math.Min(waveSize, budget - warmed)).ToList();
-            var waveResults = await Task.WhenAll(wave.Select(async item =>
-            {
-                try
-                {
-                    await WarmEnvelopeAsync(item.Manifest, item.Window, tick, ct).ConfigureAwait(false);
-                    return item.Manifest.PageKey;
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogDebug(ex, "DashboardMaterializerCoordinator: warm failed for {Page}.", item.Manifest.PageKey);
-                    return null;
-                }
-            })).ConfigureAwait(false);
-
-            foreach (var pageKey in waveResults)
-            {
-                if (pageKey is null) continue;
-                warmed++;
-                warmedPages.Add(pageKey);
-            }
-        }
-
-        // Broadcast invalidation signals for warmed surfaces. The constrainer handles
-        // rate-limiting (coalescing multiple signals into a single 10s flush window).
-        // The cursor is bumped when signals are queued so BroadcastDirty carries the
-        // tick at which these surfaces changed.
-        if (warmedPages.Count > 0 && _hubContext is not null)
-        {
-            foreach (var pageKey in warmedPages)
-            {
-                _cursor.Bump(pageKey);
-                SignalRBroadcastConstrainer.Queue(_hubContext, pageKey, _options.MaterializerBroadcastIntervalMs);
-            }
+            // Recorded exactly once per tick, regardless of which branch/early-return was
+            // taken above -- including a tick where nothing was due (tickCostMs stays 0.0),
+            // which is itself meaningful input: it lets the adaptive controller's smoothed
+            // estimate relax back toward 1.0 during a genuinely quiet tick.
+            _adaptive.RecordTickCost(tickCostMs);
         }
     }
 
