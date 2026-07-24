@@ -27,6 +27,7 @@ using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
+using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Auth;
 using Mostlylucid.BotDetection.UI.Policies;
@@ -4596,6 +4597,12 @@ public class StyloBotDashboardMiddleware
         var statusFilter = (context.Request.Query["status"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
         var pathFilter = (context.Request.Query["path"].FirstOrDefault() ?? string.Empty).Trim();
         var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        // Si2 (endpoint-IA unification): method + mode round-trip through the
+        // interactive hx-get chip/sort links too, not just the VC's own
+        // initial-render parameters -- see SbEndpointsListViewComponent for the
+        // matching filters applied on first paint.
+        var methodFilter = context.Request.Query["method"].FirstOrDefault()?.Trim();
+        var modeFilter = context.Request.Query["mode"].FirstOrDefault()?.Trim().ToLowerInvariant();
 
         // Cache is audience-agnostic: the broadcaster precomputes one snapshot
         // with no filter. humans / bots gating must come from the store so the
@@ -4613,6 +4620,18 @@ public class StyloBotDashboardMiddleware
                 .Where(e => e.Path.Contains(pathFilter, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
+        if (!string.IsNullOrEmpty(methodFilter))
+            endpoints = endpoints
+                .Where(e => string.Equals(e.Method, methodFilter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        if (!string.IsNullOrEmpty(modeFilter))
+            endpoints = endpoints
+                .Where(e => string.Equals(
+                    EndpointClassifier.ModeToken(EndpointClassifier.ClassifyMode(e.Method, e.Path)),
+                    modeFilter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
         if (statusFilter is "2xx" or "3xx" or "4xx" or "5xx")
             endpoints = endpoints
                 .Where(e => string.Equals(e.DominantStatusBucket, statusFilter, StringComparison.OrdinalIgnoreCase))
@@ -4624,7 +4643,14 @@ public class StyloBotDashboardMiddleware
             endpoints = endpoints.Where(e => e.IsHoneypot).ToList();
 
         var model = BuildEndpointsModel(context, sortField, sortDir, page, pageSize, endpoints)
-            with { StatusFilter = statusFilter, PathFilter = pathFilter, AudienceFilter = audienceFilter };
+            with
+            {
+                StatusFilter = statusFilter,
+                PathFilter = pathFilter,
+                AudienceFilter = audienceFilter,
+                MethodFilter = string.IsNullOrEmpty(methodFilter) ? null : methodFilter,
+                ModeFilter = string.IsNullOrEmpty(modeFilter) ? null : modeFilter,
+            };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
