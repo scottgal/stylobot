@@ -54,7 +54,11 @@ jobs:
   # BotDetection tests (primary focus)
   bot-detection-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Was 15 -- the test suite grew substantially this session (Stage 1/2 dashboard
+    # cache work added dozens of new tests); a recent run's own tests finished and
+    # uploaded results successfully, then got killed by this ceiling mid-report-
+    # generation (run 30116572589, 15m20s). Not a hang, genuinely more work now.
+    timeout-minutes: 25
 
     steps:
     - name: Checkout code
