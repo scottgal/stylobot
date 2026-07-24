@@ -15,10 +15,22 @@ public sealed class DashboardPageResult
 
     public DashboardPageResult(
         DashboardDatasetBundle bundle,
-        IReadOnlyDictionary<string, object?>? extensions = null)
+        IReadOnlyDictionary<string, object?>? extensions = null,
+        IReadOnlyList<ClusterViewModel>? clustersRaw = null,
+        ClusterDiagnosticsViewModel? clusterDiagnosticsRaw = null,
+        IReadOnlyList<DashboardTopBotEntry>? topBotsRaw = null,
+        IReadOnlyList<SessionListEntry>? sessionsRaw = null,
+        int? sessionsRawTotalCount = null,
+        IReadOnlyList<ThreatEntry>? threatsRaw = null)
     {
         _bundle = bundle;
         _extensions = extensions;
+        ClustersRaw = clustersRaw;
+        ClusterDiagnosticsRaw = clusterDiagnosticsRaw;
+        TopBotsRaw = topBotsRaw;
+        SessionsRaw = sessionsRaw;
+        SessionsRawTotalCount = sessionsRawTotalCount;
+        ThreatsRaw = threatsRaw;
     }
 
     private DashboardPageResult(bool isWarming)
@@ -65,4 +77,36 @@ public sealed class DashboardPageResult
 
     /// <summary>Site-health degradation history slice; null when <see cref="DatasetKind.DegradationHistory"/> was not requested.</summary>
     public IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>? Degradations => _bundle?.Degradations;
+
+    // -------------------------------------------------------------------
+    // Stage 2a: additional row datasets that don't come from
+    // IDashboardEventStore.ComposeBatchAsync (Clusters/TopBots/Sessions/Threats
+    // are sourced from IBotClusterReader / IDetectionArchive / a fixed-window
+    // GetTopBotsAsync / GetThreatsAsync call respectively -- see
+    // DashboardRowRawFetchers). Same "null when not composed" contract as the
+    // five properties above; each rides alongside the batched bundle rather
+    // than replacing it, so a page manifest can request either or both.
+    // -------------------------------------------------------------------
+
+    /// <summary>Raw cluster snapshot; null when the "clusters-raw" widget key was not requested or no cluster reader is registered.</summary>
+    public IReadOnlyList<ClusterViewModel>? ClustersRaw { get; }
+
+    /// <summary>Cluster-engine diagnostics paired with <see cref="ClustersRaw"/>; null when not composed.</summary>
+    public ClusterDiagnosticsViewModel? ClusterDiagnosticsRaw { get; }
+
+    /// <summary>
+    ///     Raw top-bots snapshot for the TopBots row's OWN fixed window (trailing 24h,
+    ///     audience "all") -- distinct from <see cref="BotAggregate"/>, which reflects
+    ///     the Traffic page's user-selected window. Null when not composed.
+    /// </summary>
+    public IReadOnlyList<DashboardTopBotEntry>? TopBotsRaw { get; }
+
+    /// <summary>Raw recent-sessions snapshot; null when not composed (no <c>IDetectionArchive</c> registered, or not requested).</summary>
+    public IReadOnlyList<SessionListEntry>? SessionsRaw { get; }
+
+    /// <summary>Total count paired with <see cref="SessionsRaw"/>; null when not composed.</summary>
+    public int? SessionsRawTotalCount { get; }
+
+    /// <summary>Raw threats snapshot (top-20, unpaginated); null when not composed.</summary>
+    public IReadOnlyList<ThreatEntry>? ThreatsRaw { get; }
 }
