@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -10,7 +11,13 @@ public class SbThreatsListViewComponent(IDashboardEventStore eventStore, StyloBo
 {
     public async Task<IViewComponentResult> InvokeAsync(int page = 1, int pageSize = 20)
     {
-        var allThreats = await eventStore.GetThreatsAsync(pageSize * 10);
+        // If the page composer stashed a DashboardPageResult for this request, read the
+        // Threats slice from it directly (zero store calls). Otherwise fall through to the
+        // existing self-fetch so VCs rendered on non-composer pages still work.
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        IReadOnlyList<ThreatEntry> allThreats = pageResult?.ThreatsRaw is { } composedThreats
+            ? composedThreats
+            : await eventStore.GetThreatsAsync(pageSize * 10);
 
         var totalCount = allThreats.Count;
         var threats = allThreats

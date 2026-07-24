@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
@@ -43,7 +45,11 @@ public sealed class ViewComponentFromResultTests
         DashboardSummary? summary = null,
         IReadOnlyList<DashboardTopBotEntry>? botAggregate = null,
         IReadOnlyList<DashboardCountryStats>? geo = null,
-        IReadOnlyList<DashboardEndpointStats>? endpoints = null)
+        IReadOnlyList<DashboardEndpointStats>? endpoints = null,
+        IReadOnlyList<SessionListEntry>? sessionsRaw = null,
+        int? sessionsRawTotalCount = null,
+        IReadOnlyList<ThreatEntry>? threatsRaw = null,
+        IReadOnlyList<DashboardUserAgentSummary>? userAgentsRaw = null)
     {
         var bundle = new DashboardDatasetBundle(
             Summary: summary,
@@ -51,7 +57,56 @@ public sealed class ViewComponentFromResultTests
             BotAggregate: botAggregate,
             Geo: geo,
             Endpoints: endpoints);
-        return new DashboardPageResult(bundle);
+        return new DashboardPageResult(
+            bundle,
+            sessionsRaw: sessionsRaw,
+            sessionsRawTotalCount: sessionsRawTotalCount,
+            threatsRaw: threatsRaw,
+            userAgentsRaw: userAgentsRaw);
+    }
+
+    /// <summary>
+    ///     Every method throws. If a VC calls the session archive when a composed page
+    ///     result already supplies the Sessions slice, the test fails.
+    /// </summary>
+    private sealed class ThrowingDetectionArchive : IDetectionArchive
+    {
+        private static InvalidOperationException Fail() =>
+            new("IDetectionArchive must not be called when DashboardPageResult supplies the composed slice");
+
+        public string? PersistenceConnectionString => null;
+        public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default) => throw Fail();
+        public Task<long> AddEchoAsync(Mostlylucid.BotDetection.Orchestration.Sessions.SessionEcho echo, CancellationToken ct = default) => throw Fail();
+        public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default) => throw Fail();
+        public Task IncrementBucketAsync(DateTime bucketTime, bool isBot, double processingTimeMs, CancellationToken ct = default) => throw Fail();
+        public Task AddRequestAsync(RequestScope scope, PersistedRequest request, CancellationToken ct = default) => throw Fail();
+        public Task AddRequestBatchAsync(RequestScope scope, IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default) => throw Fail();
+        public Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(int limit = 5000, CancellationToken ct = default) => throw Fail();
+        public Task<List<PersistedRequest>> GetRecentRequestsAsync(int limit = 5000, DateTime? sinceUtc = null, CancellationToken ct = default) => throw Fail();
+        public Task LinkRequestsToSessionAsync(long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default) => throw Fail();
+        public Task<List<PersistedSession>> GetSessionsAsync(string signature, int limit = 20, CancellationToken ct = default) => throw Fail();
+        public Task<List<PersistedSession>> GetRecentSessionsAsync(int limit = 50, bool? isBot = null, DateTime? since = null, CancellationToken ct = default) => throw Fail();
+        public Task<PersistedSignature?> GetSignatureAsync(string signatureId, CancellationToken ct = default) => throw Fail();
+        public Task<string> ResolveSignatureAsync(string requestedSignatureId, CancellationToken ct = default) => throw Fail();
+        public Task RecordSignatureMergeAsync(string oldSignatureId, string newSignatureId, string reason, CancellationToken ct = default) => throw Fail();
+        public Task<List<PersistedSignature>> GetTopSignaturesAsync(int limit = 20, bool? isBot = null, CancellationToken ct = default) => throw Fail();
+        public Task<DashboardSessionSummary> GetSummaryAsync(CancellationToken ct = default) => throw Fail();
+        public Task<List<AggregatedBucket>> GetTimeSeriesAsync(DateTime start, DateTime end, CancellationToken ct = default) => throw Fail();
+        public Task<List<CountrySessionStats>> GetCountryStatsAsync(int limit = 20, CancellationToken ct = default) => throw Fail();
+        public Task<List<(PersistedSession Session, float Similarity)>> FindSimilarSessionsAsync(float[] queryVector, int topK = 10, float minSimilarity = 0.7f, CancellationToken ct = default) => throw Fail();
+        public Task<string> ResolveEntityAsync(string primarySignature, CancellationToken ct = default) => throw Fail();
+        public Task<ResolvedEntity?> GetEntityForSignatureAsync(string primarySignature, CancellationToken ct = default) => throw Fail();
+        public Task<ResolvedEntity?> GetEntityAsync(string entityId, CancellationToken ct = default) => throw Fail();
+        public Task<List<EntityEdge>> GetEntityEdgesAsync(string entityId, CancellationToken ct = default) => throw Fail();
+        public Task MergeSignatureAsync(string entityId, string signature, double confidence, string reason, CancellationToken ct = default) => throw Fail();
+        public Task UpdateEntityAsync(ResolvedEntity entity, CancellationToken ct = default) => throw Fail();
+        public Task PruneAsync(TimeSpan retention, CancellationToken ct = default) => throw Fail();
+        public Task PruneBucketsAsync(TimeSpan retention, CancellationToken ct = default) => throw Fail();
+        public Task<List<(string Signature, int SessionCount)>> GetOverflowingSignaturesAsync(int maxPerSignature, int limit = 500, CancellationToken ct = default) => throw Fail();
+        public Task<CompactionResult> CompactSignatureSessionsAsync(string signature, int keepCount, CancellationToken ct = default) => throw Fail();
+        public Task<List<CompactionSignatureInfo>> GetSignaturePriorityInfoAsync(List<string> signatures, CancellationToken ct = default) => throw Fail();
+        public Task<List<string>> GetActiveEntityIdsAsync(DateTime cutoff, int limit = 100, CancellationToken ct = default) => throw Fail();
+        public Task InitializeAsync(CancellationToken ct = default) => throw Fail();
     }
 
     /// <summary>
@@ -288,5 +343,201 @@ public sealed class ViewComponentFromResultTests
 
         Assert.NotNull(result);
         store.Verify(s => s.GetEndpointStatsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()), Times.Once);
+    }
+
+    // ---------- SbSessionsList (window-threading Task 1) ----------
+
+    [Fact]
+    public async Task Sessions_reads_from_page_result_without_calling_store()
+    {
+        var entries = new List<SessionListEntry>
+        {
+            new() { Id = 1, Signature = "sig-a", StartedAt = DateTime.UtcNow.AddMinutes(-10), EndedAt = DateTime.UtcNow, RequestCount = 3, DominantState = "PageView", IsBot = true, AvgBotProbability = 0.9, RiskBand = "High" },
+            new() { Id = 2, Signature = "sig-b", StartedAt = DateTime.UtcNow.AddMinutes(-5), EndedAt = DateTime.UtcNow, RequestCount = 1, DominantState = "PageView", IsBot = false, AvgBotProbability = 0.1, RiskBand = "Low" },
+        };
+        var pageResult = MakeResult(sessionsRaw: entries, sessionsRawTotalCount: entries.Count);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = pageResult;
+
+        var vc = new SbSessionsListViewComponent(new ThrowingDetectionArchive(), new ThrowingEventStore(), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<SessionsListModel>(result!.ViewData!.Model);
+        Assert.Equal(2, model.TotalCount);
+    }
+
+    [Fact]
+    public async Task Sessions_falls_back_to_store_when_no_page_result()
+    {
+        var archive = new Mock<IDetectionArchive>();
+        archive.Setup(a => a.GetRecentSessionsAsync(It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(new List<PersistedSession>());
+        var eventStore = new Mock<IDashboardEventStore>();
+        eventStore.Setup(s => s.GetSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool?>()))
+                   .ReturnsAsync(new List<DashboardSignatureEvent>());
+        eventStore.Setup(s => s.GetTopBotsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()))
+                   .ReturnsAsync(new List<DashboardTopBotEntry>());
+
+        var httpContext = new DefaultHttpContext();
+
+        var vc = new SbSessionsListViewComponent(archive.Object, eventStore.Object, DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        archive.Verify(a => a.GetRecentSessionsAsync(It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Sessions_scoped_to_primary_signature_ignores_page_result()
+    {
+        // A visitor-detail "Hit history" embed always self-fetches -- the composed
+        // Sessions slice is the UNSCOPED global timeline and does not answer a
+        // per-signature query.
+        var entries = new List<SessionListEntry>
+        {
+            new() { Id = 1, Signature = "sig-a", StartedAt = DateTime.UtcNow.AddMinutes(-10), EndedAt = DateTime.UtcNow, RequestCount = 3, DominantState = "PageView", IsBot = true, AvgBotProbability = 0.9, RiskBand = "High" },
+        };
+        var pageResult = MakeResult(sessionsRaw: entries, sessionsRawTotalCount: entries.Count);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = pageResult;
+
+        var archive = new Mock<IDetectionArchive>();
+        archive.Setup(a => a.GetSessionsAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(new List<PersistedSession>());
+        var eventStore = new Mock<IDashboardEventStore>();
+        eventStore.Setup(s => s.GetSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool?>()))
+                   .ReturnsAsync(new List<DashboardSignatureEvent>());
+        eventStore.Setup(s => s.GetTopBotsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()))
+                   .ReturnsAsync(new List<DashboardTopBotEntry>());
+
+        var vc = new SbSessionsListViewComponent(archive.Object, eventStore.Object, DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync(primarySignature: "sig-scoped") as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        archive.Verify(a => a.GetSessionsAsync("sig-scoped", It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ---------- SbThreatsList (window-threading Task 1) ----------
+
+    [Fact]
+    public async Task Threats_reads_from_page_result_without_calling_store()
+    {
+        var threats = new List<ThreatEntry>
+        {
+            new() { Signature = "sig-a", Path = "/wp-admin", ThreatScore = 0.8, Timestamp = DateTime.UtcNow },
+        };
+        var pageResult = MakeResult(threatsRaw: threats);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = pageResult;
+
+        var vc = new SbThreatsListViewComponent(new ThrowingEventStore(), new StyloBotDashboardOptions { BasePath = "/stylobot" });
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<ThreatsListModel>(result!.ViewData!.Model);
+        Assert.Equal(1, model.TotalCount);
+    }
+
+    [Fact]
+    public async Task Threats_falls_back_to_store_when_no_page_result()
+    {
+        var threats = new List<ThreatEntry>
+        {
+            new() { Signature = "sig-b", Path = "/xmlrpc.php", ThreatScore = 0.5, Timestamp = DateTime.UtcNow },
+        };
+        var store = new Mock<IDashboardEventStore>();
+        store.Setup(s => s.GetThreatsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>()))
+             .ReturnsAsync(threats);
+
+        var httpContext = new DefaultHttpContext();
+
+        var vc = new SbThreatsListViewComponent(store.Object, new StyloBotDashboardOptions { BasePath = "/stylobot" });
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        store.Verify(s => s.GetThreatsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>()), Times.Once);
+    }
+
+    // ---------- SbUserAgentsList (window-threading Task 1) ----------
+
+    [Fact]
+    public async Task UserAgents_reads_from_page_result_without_calling_store()
+    {
+        var userAgents = new List<DashboardUserAgentSummary>
+        {
+            new()
+            {
+                Family = "Chrome", Category = "browser", TotalCount = 40, BotCount = 4, HumanCount = 36,
+                BotRate = 0.1, Versions = new Dictionary<string, int>(), Countries = new Dictionary<string, int>(),
+                AvgConfidence = 0.8, AvgProcessingTimeMs = 5.0, LastSeen = DateTime.UtcNow,
+            },
+        };
+        var pageResult = MakeResult(userAgentsRaw: userAgents);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["sb.dashboard.pageresult"] = pageResult;
+
+        var throwingStore = new ThrowingEventStore();
+        var aggregateCache = new DashboardAggregateCache();
+        var vc = new SbUserAgentsListViewComponent(aggregateCache, new DashboardUserAgentAggregator(throwingStore), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<UserAgentsListModel>(result!.ViewData!.Model);
+        Assert.Equal(1, model.TotalCount);
+    }
+
+    [Fact]
+    public async Task UserAgents_falls_back_to_store_when_no_page_result()
+    {
+        var userAgents = new List<DashboardUserAgentSummary>
+        {
+            new()
+            {
+                Family = "Firefox", Category = "browser", TotalCount = 12, BotCount = 1, HumanCount = 11,
+                BotRate = 0.08, Versions = new Dictionary<string, int>(), Countries = new Dictionary<string, int>(),
+                AvgConfidence = 0.75, AvgProcessingTimeMs = 4.0, LastSeen = DateTime.UtcNow,
+            },
+        };
+        var store = new Mock<IDashboardEventStore>();
+        store.Setup(s => s.GetDetectionsAsync(It.IsAny<DashboardFilter?>(), It.IsAny<CancellationToken>()))
+             .ReturnsAsync(new List<DashboardDetectionEvent>());
+
+        var httpContext = new DefaultHttpContext();
+
+        // Update() (not a mutation of Current.UserAgents) -- AggregateSnapshot.Empty is a
+        // shared static singleton until the first Update(); mutating its list in place
+        // would leak into every other test that constructs a fresh DashboardAggregateCache.
+        var aggregateCache = new DashboardAggregateCache();
+        aggregateCache.Update(new DashboardAggregateCache.AggregateSnapshot
+        {
+            Countries = [],
+            Endpoints = [],
+            UserAgents = userAgents,
+        });
+        var vc = new SbUserAgentsListViewComponent(aggregateCache, new DashboardUserAgentAggregator(store.Object), DefaultOptions());
+        SetHttpContext(vc, httpContext);
+
+        var result = await vc.InvokeAsync() as ViewViewComponentResult;
+
+        Assert.NotNull(result);
+        var model = Assert.IsType<UserAgentsListModel>(result!.ViewData!.Model);
+        Assert.Equal(1, model.TotalCount);
     }
 }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -33,86 +34,107 @@ public class SbSessionsListViewComponent(
     {
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
 
-        // Fetch only enough sessions for the current and any future pages the user is likely to reach.
-        // The store has no server-side pagination, so we over-fetch conservatively.
-        var fetchCount = Math.Min((page * pageSize) + pageSize, 200);
-        var since = DateTime.UtcNow - options.Value.DetectionRetention;
-        List<Mostlylucid.BotDetection.Data.PersistedSession> allSessions;
-        if (!string.IsNullOrEmpty(primarySignature))
+        // If the page composer stashed a DashboardPageResult for this request, read the
+        // Sessions slice from it directly (zero store calls) -- but ONLY for the unscoped
+        // global timeline. A primarySignature-scoped embed (visitor detail's "Hit history"
+        // panel) needs a DIFFERENT per-signature query the composed row extra doesn't cover
+        // (DashboardRowRawFetchers.FetchSessionsRawAsync always fetches the unscoped
+        // recent-sessions view), so it always falls through to the existing self-fetch.
+        // Composed entries already carry resolved BotName/UserAgent (the composer runs the
+        // SAME sigLookup/uaLookup resolution the self-fetch path below does) but do not
+        // compute Paths/ScoreDeltaPp -- an accepted Stage 2a limitation shared with the
+        // row-dispatch path (StyloBotDashboardMiddleware.BuildSessionsModelFromRaw).
+        var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        List<SessionListEntry> allEntries;
+        if (string.IsNullOrEmpty(primarySignature) && pageResult?.SessionsRaw is { } composedSessions)
         {
-            // Scoped read uses the per-signature path. IDetectionArchive.GetSessionsAsync
-            // returns most-recent-first already; the bot/human filter is a post-
-            // filter so the page-size math still applies.
-            var scoped = await sessionStore.GetSessionsAsync(primarySignature, fetchCount);
-            allSessions = isBot.HasValue
-                ? scoped.Where(s => s.IsBot == isBot.Value).ToList()
-                : scoped;
+            allEntries = isBot.HasValue
+                ? composedSessions.Where(e => e.IsBot == isBot.Value).ToList()
+                : composedSessions.ToList();
         }
         else
         {
-            allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
-        }
-
-        var sigLookup = await eventStore.LoadSignatureLookupAsync();
-        var uaLookup  = await eventStore.LoadUserAgentLookupAsync();
-
-        // GetRecentSessionsAsync returns DESC by StartedAt. To compute a per-row
-        // score-delta we need the *next* (older) session for the same signature.
-        // Build a per-signature timeline ASC once, then look up the prior entry
-        // by Id in the visible window.
-        var priorProbBySessionId = new Dictionary<long, double>();
-        foreach (var group in allSessions.GroupBy(s => s.Signature))
-        {
-            var asc = group.OrderBy(s => s.StartedAt).ToList();
-            for (var i = 1; i < asc.Count; i++)
+            // Fetch only enough sessions for the current and any future pages the user is likely to reach.
+            // The store has no server-side pagination, so we over-fetch conservatively.
+            var fetchCount = Math.Min((page * pageSize) + pageSize, 200);
+            var since = DateTime.UtcNow - options.Value.DetectionRetention;
+            List<Mostlylucid.BotDetection.Data.PersistedSession> allSessions;
+            if (!string.IsNullOrEmpty(primarySignature))
             {
-                priorProbBySessionId[asc[i].Id] = asc[i - 1].AvgBotProbability;
+                // Scoped read uses the per-signature path. IDetectionArchive.GetSessionsAsync
+                // returns most-recent-first already; the bot/human filter is a post-
+                // filter so the page-size math still applies.
+                var scoped = await sessionStore.GetSessionsAsync(primarySignature, fetchCount);
+                allSessions = isBot.HasValue
+                    ? scoped.Where(s => s.IsBot == isBot.Value).ToList()
+                    : scoped;
             }
-        }
-
-        var allEntries = allSessions.Select(s =>
-        {
-            IReadOnlyList<string>? paths = null;
-            if (!string.IsNullOrEmpty(s.PathsJson))
+            else
             {
-                try
+                allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
+            }
+
+            var sigLookup = await eventStore.LoadSignatureLookupAsync();
+            var uaLookup  = await eventStore.LoadUserAgentLookupAsync();
+
+            // GetRecentSessionsAsync returns DESC by StartedAt. To compute a per-row
+            // score-delta we need the *next* (older) session for the same signature.
+            // Build a per-signature timeline ASC once, then look up the prior entry
+            // by Id in the visible window.
+            var priorProbBySessionId = new Dictionary<long, double>();
+            foreach (var group in allSessions.GroupBy(s => s.Signature))
+            {
+                var asc = group.OrderBy(s => s.StartedAt).ToList();
+                for (var i = 1; i < asc.Count; i++)
                 {
-                    paths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(s.PathsJson);
+                    priorProbBySessionId[asc[i].Id] = asc[i - 1].AvgBotProbability;
                 }
-                catch (System.Text.Json.JsonException) { /* tolerate malformed PathsJson */ }
             }
 
-            double? deltaPp = null;
-            if (priorProbBySessionId.TryGetValue(s.Id, out var priorProb))
+            allEntries = allSessions.Select(s =>
             {
-                deltaPp = (s.AvgBotProbability - priorProb) * 100.0;
-            }
+                IReadOnlyList<string>? paths = null;
+                if (!string.IsNullOrEmpty(s.PathsJson))
+                {
+                    try
+                    {
+                        paths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(s.PathsJson);
+                    }
+                    catch (System.Text.Json.JsonException) { /* tolerate malformed PathsJson */ }
+                }
 
-            return new SessionListEntry
-            {
-                Id = s.Id,
-                Signature = s.Signature,
-                StartedAt = s.StartedAt,
-                EndedAt = s.EndedAt,
-                RequestCount = s.RequestCount,
-                DominantState = s.DominantState,
-                IsBot = s.IsBot,
-                AvgBotProbability = s.AvgBotProbability,
-                RiskBand = s.RiskBand,
-                Action = s.Action,
-                BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
-                CountryCode = s.CountryCode,
-                UserAgent = uaLookup.ResolveUserAgent(signatureCache, s.Signature),
-                ErrorCount = s.ErrorCount,
-                TimingEntropy = s.TimingEntropy,
-                Maturity = s.Maturity,
-                TransitionCounts = s.TransitionCountsJson != null
-                    ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                    : null,
-                Paths = paths,
-                ScoreDeltaPp = deltaPp
-            };
-        }).ToList();
+                double? deltaPp = null;
+                if (priorProbBySessionId.TryGetValue(s.Id, out var priorProb))
+                {
+                    deltaPp = (s.AvgBotProbability - priorProb) * 100.0;
+                }
+
+                return new SessionListEntry
+                {
+                    Id = s.Id,
+                    Signature = s.Signature,
+                    StartedAt = s.StartedAt,
+                    EndedAt = s.EndedAt,
+                    RequestCount = s.RequestCount,
+                    DominantState = s.DominantState,
+                    IsBot = s.IsBot,
+                    AvgBotProbability = s.AvgBotProbability,
+                    RiskBand = s.RiskBand,
+                    Action = s.Action,
+                    BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
+                    CountryCode = s.CountryCode,
+                    UserAgent = uaLookup.ResolveUserAgent(signatureCache, s.Signature),
+                    ErrorCount = s.ErrorCount,
+                    TimingEntropy = s.TimingEntropy,
+                    Maturity = s.Maturity,
+                    TransitionCounts = s.TransitionCountsJson != null
+                        ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
+                        : null,
+                    Paths = paths,
+                    ScoreDeltaPp = deltaPp
+                };
+            }).ToList();
+        }
 
         var totalCount = allEntries.Count;
         var pagedEntries = allEntries
