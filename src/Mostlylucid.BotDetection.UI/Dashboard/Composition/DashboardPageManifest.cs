@@ -62,6 +62,22 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
         manifests["dashboard.traffic"] = new DashboardPageManifest(
             "dashboard.traffic",
             new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health" });
+
+        // Stage 2a: one manifest per row that isn't already covered by the Traffic
+        // bundle above. Each declares exactly the ONE synthetic widget key
+        // DefaultDashboardPageComposer checks for (DashboardRowWidgetKeys) -- these
+        // keys aren't DashboardWidgetCatalog/[DashboardWidget]-backed (no VC attribute
+        // maps them to a DatasetKind), which is fine: the catalog gracefully returns
+        // null for unknown keys, and the composer resolves them via
+        // DashboardRowRawFetchers instead of ComposeBatchAsync.
+        manifests["dashboard.clusters"] = new DashboardPageManifest(
+            "dashboard.clusters", new[] { DashboardRowWidgetKeys.ClustersRaw });
+        manifests["dashboard.topbots"] = new DashboardPageManifest(
+            "dashboard.topbots", new[] { DashboardRowWidgetKeys.TopBotsRaw });
+        manifests["dashboard.sessions"] = new DashboardPageManifest(
+            "dashboard.sessions", new[] { DashboardRowWidgetKeys.SessionsRaw });
+        manifests["dashboard.threats"] = new DashboardPageManifest(
+            "dashboard.threats", new[] { DashboardRowWidgetKeys.ThreatsRaw });
     }
 
     /// <summary>Register or replace a manifest at runtime (e.g. from Task 3 wiring).</summary>

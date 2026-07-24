@@ -1,15 +1,36 @@
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Dashboard.Composition;
 
 /// <summary>
+///     Widget-key constants for the Stage 2a row datasets that don't map to a
+///     <see cref="DatasetKind"/> (Clusters/TopBots/Sessions/Threats -- sourced from
+///     <see cref="IBotClusterReader"/> / <see cref="IDetectionArchive"/> / a fixed
+///     window, not <c>IDashboardEventStore.ComposeBatchAsync</c>). Shared between
+///     <see cref="DefaultDashboardPageManifestSource"/> (which seeds the manifest)
+///     and <see cref="DefaultDashboardPageComposer"/> (which checks for the key) so
+///     the two sides can't drift.
+/// </summary>
+public static class DashboardRowWidgetKeys
+{
+    public const string ClustersRaw = "clusters-raw";
+    public const string TopBotsRaw = "topbots-raw";
+    public const string SessionsRaw = "sessions-raw";
+    public const string ThreatsRaw = "threats-raw";
+}
+
+/// <summary>
 ///     Default scoped implementation of <see cref="IDashboardPageComposer"/>.
 ///     Maps manifest widget keys → <see cref="DatasetKind"/> via the catalog,
 ///     deduplicates, builds one <see cref="DashboardBatchRequest"/>, calls
 ///     <see cref="IDashboardEventStore.ComposeBatchAsync"/>, and wraps the result
-///     in a <see cref="DashboardPageResult"/>.
+///     in a <see cref="DashboardPageResult"/>. Also resolves the Stage 2a row
+///     extras (<see cref="DashboardRowWidgetKeys"/>) via
+///     <see cref="DashboardRowRawFetchers"/> when the manifest asks for them.
 /// </summary>
 public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
 {
@@ -17,16 +38,28 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
     private readonly IDashboardEventStore _store;
     private readonly IReadOnlyDictionary<string, IDashboardDatasetExtension> _extensions;
     private readonly ILogger<DefaultDashboardPageComposer>? _logger;
+    private readonly SignatureAggregateCache? _signatureCache;
+    private readonly IDetectionArchive? _detectionArchive;
+    private readonly IBotClusterReader? _clusterReader;
+    private readonly TimeSpan _detectionRetention;
 
     public DefaultDashboardPageComposer(
         DashboardWidgetCatalog catalog,
         IDashboardEventStore store,
         IEnumerable<IDashboardDatasetExtension>? extensions = null,
-        ILogger<DefaultDashboardPageComposer>? logger = null)
+        ILogger<DefaultDashboardPageComposer>? logger = null,
+        SignatureAggregateCache? signatureCache = null,
+        IDetectionArchive? detectionArchive = null,
+        IBotClusterReader? clusterReader = null,
+        TimeSpan? detectionRetention = null)
     {
         _catalog = catalog;
         _store = store;
         _logger = logger;
+        _signatureCache = signatureCache;
+        _detectionArchive = detectionArchive;
+        _clusterReader = clusterReader;
+        _detectionRetention = detectionRetention ?? DashboardRowRawFetchers.DefaultDetectionRetention;
         // Index pack extensions by their kind name (last registration wins on a dup —
         // logged so a pack silently hijacking another pack's kind is visible).
         var map = new Dictionary<string, IDashboardDatasetExtension>(StringComparer.Ordinal);
@@ -54,22 +87,93 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             .Select(k => k!.Value)
             .ToHashSet();
 
-        var req = new DashboardBatchRequest(
-            w.StartTime,
-            w.EndTime,
-            kinds.Select(k => new DatasetRequest(k, w.TopN, w.BucketMinutes)).ToList(),
-            w.AudienceFilter,
-            w.ProbMin,
-            w.Domains);
+        DashboardDatasetBundle bundle = new(null, null, null, null, null);
+        if (kinds.Count > 0)
+        {
+            var req = new DashboardBatchRequest(
+                w.StartTime,
+                w.EndTime,
+                kinds.Select(k => new DatasetRequest(k, w.TopN, w.BucketMinutes)).ToList(),
+                w.AudienceFilter,
+                w.ProbMin,
+                w.Domains);
 
-        var bundle = await _store.ComposeBatchAsync(req, ct);
+            bundle = await _store.ComposeBatchAsync(req, ct);
+        }
 
         // Pack/commercial extension datasets: widget keys → extension kind → resolve.
         // Runs in-process where the extension is registered (typically wrapping a remote
         // provider); fail-closed per extension so one pack can't break the page.
         var extensionData = await ResolveExtensionsAsync(manifest, w, ct);
 
-        return new DashboardPageResult(bundle, extensionData);
+        // Stage 2a row extras: Clusters/TopBots/Sessions/Threats aren't DatasetKind-backed
+        // (they come from IBotClusterReader / IDetectionArchive / a fixed window), so they
+        // resolve alongside the batched bundle via DashboardRowRawFetchers -- the SAME fetch
+        // logic StyloBotDashboardMiddleware's request-thread Build* methods use. Fail-closed
+        // per row so one failing dependency doesn't blank the whole page bundle.
+        var hasKey = manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ClustersRaw)
+            || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.TopBotsRaw)
+            || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.SessionsRaw)
+            || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ThreatsRaw);
+        if (!hasKey) return new DashboardPageResult(bundle, extensionData);
+
+        IReadOnlyList<ClusterViewModel>? clusters = null;
+        ClusterDiagnosticsViewModel? clusterDiagnostics = null;
+        IReadOnlyList<DashboardTopBotEntry>? topBots = null;
+        IReadOnlyList<SessionListEntry>? sessions = null;
+        int? sessionsTotalCount = null;
+        IReadOnlyList<ThreatEntry>? threats = null;
+
+        if (manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ClustersRaw))
+        {
+            try
+            {
+                (clusters, clusterDiagnostics) = await DashboardRowRawFetchers.FetchClustersRawAsync(_clusterReader, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'clusters-raw' failed to compose."); }
+        }
+
+        if (manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.TopBotsRaw))
+        {
+            try
+            {
+                topBots = await DashboardRowRawFetchers.FetchTopBotsRawAsync(_store, _signatureCache?.MaxEntries ?? 500, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'topbots-raw' failed to compose."); }
+        }
+
+        if (manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.SessionsRaw) && _signatureCache is not null)
+        {
+            try
+            {
+                var fetched = await DashboardRowRawFetchers.FetchSessionsRawAsync(
+                    _detectionArchive, _store, _signatureCache,
+                    _detectionRetention, page: 1, pageSize: 25, filter: null, ct);
+                sessions = fetched.Entries;
+                sessionsTotalCount = fetched.TotalCount;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'sessions-raw' failed to compose."); }
+        }
+
+        if (manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ThreatsRaw))
+        {
+            try
+            {
+                threats = await DashboardRowRawFetchers.FetchThreatsRawAsync(_store, 20, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'threats-raw' failed to compose."); }
+        }
+
+        return new DashboardPageResult(
+            bundle, extensionData,
+            clustersRaw: clusters, clusterDiagnosticsRaw: clusterDiagnostics,
+            topBotsRaw: topBots,
+            sessionsRaw: sessions, sessionsRawTotalCount: sessionsTotalCount,
+            threatsRaw: threats);
     }
 
     private async Task<IReadOnlyDictionary<string, object?>?> ResolveExtensionsAsync(
