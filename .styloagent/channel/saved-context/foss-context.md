@@ -1,11 +1,22 @@
 ---
-name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: BOTH REPOS MERGED TO MAIN. FOSS origin/main = 4854ea5c (Stage 2 + a DI registration fix mae- caught: DashboardMaterializerCoordinator now TryAddSingleton + AddHostedService-resolves-same-instance, so MarkDirtyAsync is actually injectable — separate fresh user-confirm obtained before this push, it wasn't covered by the earlier merge approval). Commercial origin/main = 069b2201 (Stage 1) — pushed on top of a PRE-EXISTING unrelated break (_BuyNow.cshtml RZ1010, ecommerce-'s 60e1709e, confirmed broken before my push, ecommerce- fixing in parallel). Next: re-verify Stage 1 against converged-green commercial main once ecommerce-'s fix lands, then deploy- builds from main -> staging -> bench- measures the full page under sustained load (the actual gate). Prod requires a separate, later, explicit operator word.
+name: foss-session-2026-07-24-window-threading-batch
+description: FOSS main = 937674c4 (domain-capture fix 13ff95f9 + endpoint-IA 937674c4, both landed+browser-verified on staging). Commercial main = 069b2201 (gateway bucket-cache residuals, both fixed — 30VU/30d confirmed 0% failures by bench-, residual-1 issue closed). IN FLIGHT: combined batch on branch foss-window-threading (2 commits ahead of FOSS main, unpushed) — period-selector-to-all-widgets (Clusters/TopBots/Sessions/Threats/UserAgents), ViewComponent warming-placeholder fix (cold-fallthrough on Warming pageResult), priority re-warm on cold cache miss (MarkDirtyAsync), "Your Signature" nav link. Background build launched, not yet verified/pushed. ALSO OPEN: endpoint list-vs-detail bug on staging — Top-content-pages (Internal-inclusive compose) vs /site (Internal-exclusive direct read) is explained+fixable (pre-existing tracked gap in commercial Postgres store); detail-page 404 for the same endpoints is NOT explained by code (both paths Internal-inclusive, FOSS routing verified correct locally) — needs a staging DB data point I can't get myself, escalated to overview-/deploy-.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
+
+## CURRENT STATE (2026-07-24, latest)
+- FOSS main: `937674c4`. Commercial main: `069b2201`. Both stable, both browser-verified on staging for their respective landed pieces.
+- `foss-window-threading` branch (worktree: `/Users/scottgalloway/RiderProjects/stylobot-window-threading`) has the Clusters window-fix built+tested (commits `0a9cbb58`/`88570690`) plus a background build in progress for: Sessions/Threats/UserAgents ViewComponent wiring, warming-placeholder cold-fallthrough fix (FOSS ViewComponents only — SbSiteHealthViewComponent is mae-'s commercial file, out of scope here), priority re-warm via `MarkDirtyAsync` on cache miss, and a "Your Signature" nav link (`BotDetectionHeader/Default.cshtml` -> `{basePath}/signature/{id}`). NOT pushed yet — needs my independent re-verify + fresh user confirmation before any main push, same as every prior push this session.
+- Residual-1 (30VU/30d gateway bucket-cache failures) is CLOSED — bench- confirmed 0% failures on the convergence build; was the cold-start/prewarm-await fix (`35fe077e`).
+- Domains display (the "Managed" panel showing 192.168.0.15/localhost, 0 requests): traced and explained, NOT a bug — `DomainBreakdownViewComponent.cs` deliberately sources domain NAMES from licensed_domains config (never the spoofable Host header), counts from real traffic. Staging just needs real domains configured; not a code fix.
+- Endpoint list-vs-detail inconsistency: HALF explained (compose-vs-direct-read Internal-inclusion mismatch, pre-existing tracked gap, real fix candidate once operator picks a display-posture direction) + HALF unexplained (detail-page 404, needs staging data I can't pull myself). Escalated, awaiting response.
+- Gotcha still standing: shared checkout `/Users/scottgalloway/RiderProjects/stylobot` is STALE (branch `foss/dashboard-collapse`) — always work from a fresh-fetched worktree off `origin/main` for anything dashboard-related.
+
+---
+
 
 ## QUEUED (behind the perf gate) — Visitors "Avg/P95 response" always empty, root-caused
 Operator noticed the Visitors dashboard view's response-time columns are always "-ms". Investigated:
