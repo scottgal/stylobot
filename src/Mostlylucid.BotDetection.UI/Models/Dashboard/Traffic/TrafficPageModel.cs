@@ -24,7 +24,13 @@ public sealed record TrafficPageModel(
     // happens to show zero traffic. Defaults false so existing callers (e.g.
     // TrafficController.Index, which always has a real-or-degraded-but-non-null
     // page bundle) are unaffected.
-    bool IsWarming = false);
+    bool IsWarming = false,
+    // The dashboard's configurable mount point (e.g. "/dashboard", "/_stylobot").
+    // _TrafficPanels.cshtml builds every link off this instead of a hardcoded
+    // prefix -- see DashboardLinkIntegrityTests. Defaults empty so existing
+    // callers (TrafficController.Index, dead code on any real host) are
+    // unaffected; the live path (_Traffic.cshtml) always passes Model.BasePath.
+    string BasePath = "");
 
 /// <summary>
 ///     URL-bound filter set. Empty / null values mean "no filter on this axis".

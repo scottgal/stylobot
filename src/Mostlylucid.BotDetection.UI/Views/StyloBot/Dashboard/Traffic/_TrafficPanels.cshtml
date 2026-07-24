@@ -88,7 +88,7 @@
                     @foreach (var bt in sources.Take(10))
                     {
                         var pct = sourceTotal > 0 ? bt.Hits * 100.0 / sourceTotal : 0;
-                        <a href="/dashboard/visitors?bot_type=@Uri.EscapeDataString(bt.BotType)"
+                        <a href="@Model.BasePath/visitors?bot_type=@Uri.EscapeDataString(bt.BotType)"
                            class="block group no-underline" title="@bt.BotType — @bt.Hits.ToString("N0") hits">
                             <div class="flex items-baseline justify-between text-xs mb-1">
                                 <span class="font-medium text-base-content/80 group-hover:text-base-content truncate">@bt.BotType</span>

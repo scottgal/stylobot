@@ -342,6 +342,7 @@
         TopEndpoints: endpoints,
         TopVisitors: topVisitors,
         Threats: threats,
-        IsWarming: isWarming);
+        IsWarming: isWarming,
+        BasePath: Model.BasePath);
 }
 @await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/Index.cshtml", pageModel)
