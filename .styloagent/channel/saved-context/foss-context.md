@@ -1,13 +1,23 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: PIVOTED — operator went straight to the proper fix, past interim (a). a8c53f61 (lazy-per-row) SET ASIDE, not shipped as interim, sits on foss/dashboard-collapse branch unused for now. Designing the real fix: upstream whole-page-chunk cache on the website, fed by ONE gateway-batched fetch, LFU-driven refresh priority (reuses §7 Tier2 TryGetEntryStats), adaptive-toward-static under load (tick-overrun-ratio control loop), SignalR-pulse-triggered out-of-request refresh. KEY TRACE FINDING: website's DashboardAggregateCache is structurally ALWAYS EMPTY on remote-mode hosts (broadcaster skips its tick entirely) — all 9 shell reads are unconditionally direct REST-to-gateway today, confirming the operator's ~10-parallel-conns pool-exhaustion diagnosis exactly. 3 design messages sent to overview- (topology, trace, consolidated design w/ 2 pinned decisions). Awaiting gate + mae- coordination on site-hosting/SignalR wiring. NOTHING BUILT YET on this design.
+description: a8c53f61 (FOSS lazy-per-row dashboard fix) superseded by a larger cross-repo perf initiative; full design/build tracking has moved to the commercial repo's own (private) checkpoint file rather than this public one — see note below. FOSS-side build (Stage 2, website materializer widening) not yet started; will resume detailed tracking here once that begins.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
 
-## CURRENT STATE — design phase, gated with operator via overview-, NOTHING BUILT YET
+## NOTE — detailed cross-repo design/build tracking moved off this (public) file
+This FOSS repo is public. A large dashboard-performance design effort this session ended up spanning
+both FOSS and the private `stylobot-commercial` repo, and earlier checkpoint commits here (before this
+note) mirrored substantial commercial-repo architecture/design detail onto this public branch —
+flagged by the safety classifier as an exposure concern, raised with the user, awaiting their decision
+on both the already-pushed history and the go-forward approach. Until resolved: full current-state
+detail lives ONLY in `stylobot-commercial`'s own private checkpoint file (same relative path in that
+repo). This file will get FOSS-scoped, commercial-detail-free updates only, until that question is
+settled.
+
+## (historical) CURRENT STATE — design phase, gated with operator via overview-, NOTHING BUILT YET
 overview- relayed a STOP on shipping (a) (lazy-per-row, a8c53f61) even as an interim — operator said
 "go straight to the proper solution." a8c53f61 is committed + pushed to `foss/dashboard-collapse`
 branch but explicitly NOT to be treated as the fix; deploy-'s :8390 rebuild of it was told to finish
