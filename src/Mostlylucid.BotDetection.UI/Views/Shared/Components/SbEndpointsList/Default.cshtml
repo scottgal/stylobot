@@ -5,20 +5,25 @@
 @model EndpointsListModel
 @{
     var bp = Model.BasePath;
-    // URL builders honour every filter axis so navigating one axis preserves
-    // the others. Sort + pagination changes drop back to page=1 so the new
-    // ordering or filter isn't paged past its first page.
-    string FilterQs(string statusOverride, string pathOverride, string audienceOverride)
-        => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}&audience={Uri.EscapeDataString(audienceOverride)}";
+    var currentMethod = Model.MethodFilter ?? "";
+    var currentMode = Model.ModeFilter ?? "";
+    // URL builders honour every filter axis (status/path/audience/method/mode) so
+    // navigating one axis preserves the others. Sort + pagination changes drop back
+    // to page=1 so the new ordering or filter isn't paged past its first page.
+    string FilterQs(string statusOverride, string pathOverride, string audienceOverride, string methodOverride, string modeOverride)
+        => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}&audience={Uri.EscapeDataString(audienceOverride)}&method={Uri.EscapeDataString(methodOverride)}&mode={Uri.EscapeDataString(modeOverride)}";
+    string CurrentFilterQs() => FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter, currentMethod, currentMode);
     string SortUrl(string field)
     {
         var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
-        return $"{bp}/partials/endpoints?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter)}";
+        return $"{bp}/partials/endpoints?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}&{CurrentFilterQs()}";
     }
-    string PageUrl(int page) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter)}";
-    string PageSizeUrl(int size) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter)}";
-    string StatusUrl(string bucket) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(bucket, Model.PathFilter, Model.AudienceFilter)}";
-    string AudienceUrl(string audience) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, audience)}";
+    string PageUrl(int page) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}&{CurrentFilterQs()}";
+    string PageSizeUrl(int size) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}&{CurrentFilterQs()}";
+    string StatusUrl(string bucket) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(bucket, Model.PathFilter, Model.AudienceFilter, currentMethod, currentMode)}";
+    string AudienceUrl(string audience) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, audience, currentMethod, currentMode)}";
+    string MethodUrl(string method) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter, method, currentMode)}";
+    string ModeUrl(string mode) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&{FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter, currentMethod, mode)}";
     string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
     string ThClass(string field) => Model.SortField == field
         ? "text-base-content/70 font-bold"
@@ -29,6 +34,22 @@
     string AudienceChipClass(string audience) => Model.AudienceFilter.Equals(audience, StringComparison.OrdinalIgnoreCase)
         ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-warning/20 text-warning border border-warning/30"
         : "px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors";
+    string MethodChipClass(string method) => currentMethod.Equals(method, StringComparison.OrdinalIgnoreCase)
+        ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-info/20 text-info border border-info/30"
+        : "px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors";
+    string ModeChipClass(string mode) => currentMode.Equals(mode, StringComparison.OrdinalIgnoreCase)
+        ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-success/20 text-success border border-success/30"
+        : "px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors";
+    // Endpoint-detail href builder for the real-navigation row link (Si2 task 3):
+    // {basePath}/endpoint/{method}/{path}, mirroring _TopEndpointsCard.cshtml's own
+    // pattern. Path segments are individually escaped (never the "/" separators
+    // themselves) so the server-side manual route match in StyloBotDashboardMiddleware
+    // (split on the FIRST "/" after "endpoint/") reconstructs the exact same path.
+    string EndpointHref(string method, string path)
+    {
+        var encodedPath = string.Join("/", path.Split('/').Select(seg => Uri.EscapeDataString(seg)));
+        return $"{bp}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}";
+    }
 }
 <div id="endpoints-list"
      data-sb-widget="endpoints"
@@ -94,11 +115,50 @@
                    title="Clear audience filter">Clear</a>
             }
 
+            @* MODE chips (Si2 endpoint-IA unification): EndpointClassifier.ClassifyMode
+               buckets each row by path/method shape -- content page / API / static
+               asset / realtime (SignalR hub + negotiate + WebSocket upgrade; the
+               aggregate carries no per-request transport signal to split those two
+               further, see EndpointClassifier.EndpointMode's doc comment). *@
+            <span class="text-base-content/30 mx-1">·</span>
+            <span class="text-base-content/40 mr-1">Mode</span>
+            <a href="#" hx-get="@ModeUrl("")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ModeChipClass("")">All</a>
+            <a href="#" hx-get="@ModeUrl("content")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ModeChipClass("content")" title="Human page views (GET/HEAD, upstream, non-API, non-static)">Content</a>
+            <a href="#" hx-get="@ModeUrl("api")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ModeChipClass("api")">API</a>
+            <a href="#" hx-get="@ModeUrl("static")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ModeChipClass("static")">Static</a>
+            <a href="#" hx-get="@ModeUrl("realtime")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@ModeChipClass("realtime")" title="SignalR hub/negotiate + WebSocket upgrade paths">Realtime</a>
+
+            @* METHOD select (Si2 endpoint-IA unification): rather than a chip per verb
+               (open-ended set -- CONNECT/OPTIONS/etc. are legitimate rows too), a
+               compact select covers the common verbs plus "All". *@
+            <span class="text-base-content/30 mx-1">·</span>
+            <select name="method"
+                    class="select select-xs select-bordered font-mono"
+                    hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&path=@Uri.EscapeDataString(Model.PathFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&mode=@Uri.EscapeDataString(currentMode)"
+                    hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+                    hx-trigger="change" hx-include="this">
+                <option value="" selected="@(string.IsNullOrEmpty(currentMethod))">All methods</option>
+                @foreach (var m in new[] { "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS" })
+                {
+                    <option value="@m" selected="@(currentMethod.Equals(m, StringComparison.OrdinalIgnoreCase))">@m</option>
+                }
+            </select>
+
             <span class="text-base-content/30 mx-1">·</span>
             <input type="text" name="path" value="@Model.PathFilter"
                    placeholder="filter path…"
                    class="input input-xs input-bordered w-44 font-mono"
-                   hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)"
+                   hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&method=@Uri.EscapeDataString(currentMethod)&mode=@Uri.EscapeDataString(currentMode)"
                    hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                    hx-trigger="keyup changed delay:350ms, search"
                    hx-include="this" />
@@ -220,21 +280,23 @@
                         "PATCH"  => "#c084fc",
                         _        => "rgba(148,163,184,0.7)"
                     };
-                    @* Inline-detail row: HTMX-swaps the per-endpoint detail into the
-                       sticky #endpoint-detail-panel that lives alongside this list
-                       (see _Endpoints.cshtml). Replaces the old data-href which
-                       navigated to /dashboard/endpoint as a separate full page.
-                       hx-push-url keeps the URL deep-linkable (?selected=METHOD%20PATH);
-                       hx-on::after-request toggles the row highlight. *@
-                    <tr class="endpoint-row hover:bg-base-200/50 transition-colors cursor-pointer"
-                        data-endpoint-key="@(endpoint.Method)|@(endpoint.Path)"
-                        hx-get="@bp/partials/endpoint-detail?method=@Uri.EscapeDataString(endpoint.Method)&path=@Uri.EscapeDataString(endpoint.Path)"
-                        hx-target="#endpoint-detail-panel"
-                        hx-swap="innerHTML"
-                        hx-push-url="@bp/endpoints?selected=@Uri.EscapeDataString(endpoint.Method + "|" + endpoint.Path)"
-                        hx-on::before-request="document.querySelectorAll('tr.endpoint-row.is-selected').forEach(r => r.classList.remove('is-selected'));this.classList.add('is-selected')"
-                        title="Show @endpoint.Method @endpoint.Path detail in panel →">
-                        <td class="py-1 text-[10px] font-bold" style="color: @methodColor;">@endpoint.Method</td>
+                    @* Real navigation row (Si2 task 3): a genuine <a href> to the
+                       chrome-wrapped endpoint-detail page, mirroring
+                       _TopEndpointsCard.cshtml's already-correct pattern exactly -- a
+                       real page load, not an htmx inline-swap into a sibling panel.
+                       The anchor lives in the Method cell and is stretched over the
+                       whole row (position:absolute inset-0 on a position:relative
+                       <tr>) so the entire row stays clickable without wrapping <tr>
+                       in <a> (invalid HTML) or duplicating the href on every cell. *@
+                    <tr class="endpoint-row hover:bg-base-200/50 transition-colors relative cursor-pointer"
+                        data-endpoint-key="@(endpoint.Method)|@(endpoint.Path)">
+                        <td class="py-1 text-[10px] font-bold relative" style="color: @methodColor;">
+                            <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
+                               class="absolute inset-0"
+                               aria-label="@endpoint.Method @endpoint.Path detail"
+                               title="View @endpoint.Method @endpoint.Path detail →"></a>
+                            @endpoint.Method
+                        </td>
                         <td class="py-1 text-xs font-medium max-w-[280px] truncate" title="@endpoint.Path">
                             @if (endpoint.IsPinned)
                             {

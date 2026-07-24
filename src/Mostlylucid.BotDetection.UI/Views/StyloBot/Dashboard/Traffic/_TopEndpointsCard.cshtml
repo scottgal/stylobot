@@ -24,6 +24,19 @@
         rate >= 0.05 ? "var(--sb-color-risk-veryhigh)"
         : rate >= 0.01 ? "var(--sb-color-risk-elevated)"
         : "";
+    // Si2 (endpoint-IA unification): {basePath}/endpoint/{method}/{path}, the same
+    // chrome-wrapped detail route SbEndpointsList rows now link to. The old target
+    // (a Site-scoped MVC endpoint-detail action) resolved to nothing under
+    // RenderPage=true (the FOSS default): no matching sub-row was registered in
+    // FossDashboardGroups, so DashboardRowRegistry.Resolve returned null and
+    // Index.cshtml rendered "Unknown dashboard section." Segments are individually
+    // escaped (never the "/" separators) matching StyloBotDashboardMiddleware's
+    // manual route split.
+    string EndpointHref(string method, string path)
+    {
+        var encodedPath = string.Join("/", path.Split('/').Select(seg => Uri.EscapeDataString(seg)));
+        return $"{basePath}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}";
+    }
 }
 <div class="card bg-base-100 border border-base-300">
     <div class="card-body p-3">
@@ -45,7 +58,7 @@
                         : "—";
                     var errStyle = row.HasPerf ? ErrColour(row.ErrorRate) : "";
                     <li>
-                        <a href="@basePath/site/endpoint?path=@Uri.EscapeDataString(row.Path)&method=@Uri.EscapeDataString(row.Method)"
+                        <a href="@EndpointHref(row.Method, row.Path)"
                            class="flex items-center gap-2 hover:bg-base-200 rounded px-1 py-0.5">
                             <span class="badge badge-ghost badge-xs flex-none">@row.Method</span>
                             <span class="truncate flex-1 min-w-0 font-mono text-[11px]" title="@row.Path">@row.Path</span>
