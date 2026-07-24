@@ -27,15 +27,19 @@ public sealed class DashboardRowManifestSeedTests
     }
 
     [Fact]
-    public void Traffic_manifest_is_unchanged_by_the_new_row_manifests()
+    public void Traffic_manifest_is_unchanged_by_the_new_row_manifests_besides_useragents_raw()
     {
         var source = new DefaultDashboardPageManifestSource();
 
         var traffic = source.For("dashboard.traffic");
 
         Assert.NotNull(traffic);
+        // "useragents-raw" (DashboardRowWidgetKeys.UserAgentsRaw) is deliberately appended
+        // here (not its own page, like Clusters/TopBots/Sessions/Threats) so UserAgents
+        // shares the SAME window/audience/domain scope as Summary/Countries/Endpoints on
+        // this manifest -- see DefaultDashboardPageManifestSource's seed comment.
         Assert.Equal(
-            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health" },
+            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health", DashboardRowWidgetKeys.UserAgentsRaw },
             traffic!.WidgetKeys);
     }
 }
