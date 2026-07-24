@@ -17,6 +17,15 @@
         : PolicyScope.Domain(host);
     var policyRowsUrl = DashboardLinks.Resolve($"/policystack/rows?scope={PolicyScopeUrl.Encode(pageScope)}&tab=effective");
     var showcaseDemo = PolicyEditAffordanceResolver.IsShowcaseDemo(Configuration);
+
+    // Si2 (endpoint-IA unification), task 1: URL-bound filters read straight off the
+    // request so a direct load of /dashboard/site?method=POST&mode=api&status=5xx is
+    // already filtered on first paint -- not just after the operator clicks a chip
+    // inside an already-rendered (unfiltered) list. Mirrors how the interactive
+    // partials/endpoints handler (ServeEndpointsPartialAsync) reads the same query
+    // keys for the hx-get follow-up requests.
+    var q = Context?.Request?.Query;
+    string? QueryOrNull(string key) => q?[key].FirstOrDefault() is { Length: > 0 } v ? v : null;
 }
 <section data-dashboard-page="site" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
     @if (showcaseDemo)
@@ -36,7 +45,12 @@
    back/forward + address bar are the deep-link mechanism, no client-side
    re-triggering needed. *@
 <div class="grid grid-cols-1 gap-4">
-    <sb-endpoints-list />
+    <sb-endpoints-list path="@QueryOrNull("path")"
+                       method="@QueryOrNull("method")"
+                       mode="@QueryOrNull("mode")"
+                       status="@QueryOrNull("status")"
+                       threat="@QueryOrNull("threat")"
+                       bot-pressure="@QueryOrNull("bot_pressure")" />
     @* Lazy-loaded host-scoped policy stack. <details>/hx-get pattern lets
        operators open it without paying the render cost up-front. The
        sibling marker classes are what the integration smoke tests grep

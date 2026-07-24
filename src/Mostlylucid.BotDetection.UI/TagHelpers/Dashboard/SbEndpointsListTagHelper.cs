@@ -45,11 +45,37 @@ public class SbEndpointsListTagHelper(IViewComponentHelper vc) : TagHelper
     [HtmlAttributeName("range")]
     public string? Range { get; set; }
 
+    /// <summary>Si1/Si2 URL-bound filters (endpoint-IA unification) -- forwarded to
+    /// SbEndpointsListViewComponent so a direct page load (not just a follow-up
+    /// hx-get from within the rendered list) already reflects the active filter.</summary>
+    [HtmlAttributeName("path")]
+    public string? Path { get; set; }
+
+    [HtmlAttributeName("method")]
+    public string? Method { get; set; }
+
+    [HtmlAttributeName("mode")]
+    public string? Mode { get; set; }
+
+    [HtmlAttributeName("status")]
+    public string? Status { get; set; }
+
+    [HtmlAttributeName("threat")]
+    public string? Threat { get; set; }
+
+    [HtmlAttributeName("bot-pressure")]
+    public string? BotPressure { get; set; }
+
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
         if (ViewContext != null) (vc as IViewContextAware)?.Contextualize(ViewContext);
         output.TagName = null;
         output.Content.SetHtmlContent(await vc.InvokeAsync("SbEndpointsList",
-            new { sort = Sort, dir = Dir, page = Page, pageSize = PageSize, excludeStatic = ExcludeStatic, compact = Compact, contentOnly = ContentOnly, heading = Heading, audience = Audience, range = Range }));
+            new
+            {
+                sort = Sort, dir = Dir, page = Page, pageSize = PageSize, excludeStatic = ExcludeStatic,
+                compact = Compact, contentOnly = ContentOnly, heading = Heading, audience = Audience, range = Range,
+                path = Path, method = Method, mode = Mode, status = Status, threat = Threat, botPressure = BotPressure,
+            }));
     }
 }
