@@ -168,6 +168,19 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
         services.TryAddSingleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>();
 
+        // Domain/host normalization (eTLD+1 via the embedded Public Suffix List,
+        // SNI-preferred over the spoofable Host header). Backs RequestScope --
+        // the (Domain, Host) pair BotDetectionMiddleware stamps on HttpContext.Items
+        // for every downstream reader (DetectionBroadcastMiddleware's dashboard
+        // partition key, FingerprintMatchAtom, SiteProfiles). Was previously
+        // referenced by ISiteProfileResolver / IEffectivePolicyResolver /
+        // ScopedRateLimitResolver but never registered anywhere, so DomainNormalizer
+        // could never resolve and every consumer silently degraded to "unknown".
+        services.AddOptions<Domains.DomainNormalizerOptions>()
+            .BindConfiguration(Domains.DomainNormalizerOptions.SectionName);
+        services.TryAddSingleton<Domains.PublicSuffixList>(_ => Domains.PublicSuffixList.LoadEmbedded());
+        services.TryAddSingleton<Domains.DomainNormalizer>();
+
         // Passive upstream-health tracking: DegradationAtom is the in-process
         // EWMA of real response status codes (fed by BotDetectionMiddleware
         // post-_next), UpstreamHealthGate reads it to stand down status-derived

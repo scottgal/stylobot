@@ -290,6 +290,16 @@ public static class StyloBotDashboardServiceExtensions
         // net for dashboard hosts that skip the FOSS bot-detection wiring.
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.ITokenBucketStore,
             Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore>();
+        // Domain/host normalization (RequestScope). The default registration lives in
+        // AddBotDetection (BotDetectionModule) -- this TryAddSingleton is the same
+        // safety net for dashboard-only / remote-viewer hosts (AddStyloBotDashboardRemote
+        // + AddStyloBotDashboard, no local AddBotDetection) so DetectionBroadcastMiddleware
+        // can still resolve the real request domain instead of degrading to "unknown".
+        services.AddOptions<Mostlylucid.BotDetection.Domains.DomainNormalizerOptions>()
+            .BindConfiguration(Mostlylucid.BotDetection.Domains.DomainNormalizerOptions.SectionName);
+        services.TryAddSingleton<Mostlylucid.BotDetection.Domains.PublicSuffixList>(
+            _ => Mostlylucid.BotDetection.Domains.PublicSuffixList.LoadEmbedded());
+        services.TryAddSingleton<Mostlylucid.BotDetection.Domains.DomainNormalizer>();
         // FOSS default: in-process log. Commercial SQLite / Postgres impls slot
         // in via TryAdd from their respective packs. Operators that want SQLite
         // durability on FOSS can replace this registration explicitly.

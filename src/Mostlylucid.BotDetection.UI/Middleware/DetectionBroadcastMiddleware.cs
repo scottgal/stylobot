@@ -181,6 +181,23 @@ public partial class DetectionBroadcastMiddleware
         // calls below no-op, which is the intended behaviour where no dashboard freshness
         // feed is served.
         var cursor = context.RequestServices.GetService<IDashboardChangeCursor>();
+
+        // Stamp (Domain, Host) on HttpContext.Items[RequestScope] BEFORE anything below
+        // reads it -- including the pre-_next upstream-trusted read a few lines down.
+        // DomainNormalizer.Resolve is self-caching on ctx.Items (checked first-line), so
+        // this is a no-op re-read (not a second PSL lookup) if BotDetectionMiddleware,
+        // further down the pipeline, also calls it. Resolved via GetService (not an
+        // InvokeAsync parameter) because convention-based middleware resolves every
+        // declared parameter via GetRequiredService -- see the sibling IDashboardChangeCursor
+        // comment above and InvokeAsync_does_not_declare_IDashboardChangeCursor_parameter --
+        // so an undeclared-but-required service must be resolved manually to stay optional
+        // for hosts that never registered AddBotDetection / AddStyloBotDashboard's
+        // DomainNormalizer safety net. Root cause: this call was previously missing
+        // entirely, so dashboard_detections.domain was the literal string "unknown" for
+        // every row (RequestScope.Unknown, the silent fallback both Build* methods use).
+        context.RequestServices.GetService<Mostlylucid.BotDetection.Domains.DomainNormalizer>()
+            ?.Resolve(context);
+
         // Build the detection from context.Items (populated by UseBotDetection earlier in
         // the pipeline) BEFORE proxying downstream. The in-memory cache update has to
         // land before _next so the downstream render -- which may turn around and hit
@@ -662,10 +679,15 @@ public partial class DetectionBroadcastMiddleware
         if (dashboardOptions?.EnrichHumanSignals == true)
             EnrichFromRequest(context, importantSignals, ref upstreamCountry);
 
-        // (Domain, Host) sourced from the RequestScope cached by BotDetectionMiddleware
-        // (see BuildDetectionFromEvidence for the semantic split). Upstream-trusted
-        // path re-reads the same context.Items entry so the two write branches carry
-        // identical partition-key semantics.
+        // (Domain, Host) sourced from the RequestScope this middleware's own InvokeAsync
+        // stamps unconditionally before either build branch runs (see the DomainNormalizer
+        // .Resolve call near the top of InvokeAsync) -- necessary because this upstream-
+        // trusted branch can be read PRE-_next, before BotDetectionMiddleware (if present
+        // at all in this topology) would otherwise have stamped it. Resolve() is self-
+        // caching, so re-stamps elsewhere in the same request are free. (See
+        // BuildDetectionFromEvidence for the semantic split.) Upstream-trusted path re-reads
+        // the same context.Items entry so the two write branches carry identical
+        // partition-key semantics.
         var scope = (context.Items[HttpContextItemKeys.RequestScope] as RequestScope?) ?? RequestScope.Unknown;
 
         var detection = new DashboardDetectionEvent

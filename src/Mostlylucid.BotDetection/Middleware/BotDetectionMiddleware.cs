@@ -64,6 +64,18 @@ public sealed class BotDetectionMiddleware
     {
         var requestStartTicks = Stopwatch.GetTimestamp();
 
+        // Stamp (Domain, Host) on HttpContext.Items[RequestScope] before anything in this
+        // request -- FingerprintMatchAtom (inside DetectAsync below), any DetectionBroadcastMiddleware
+        // wrapping this middleware (UseStyloBot ordering), and the upstream app -- can read it.
+        // DomainNormalizer.Resolve caches on ctx.Items (checked first-line), so this is a cheap
+        // idempotent re-read on hosts where the wrapping DetectionBroadcastMiddleware already
+        // stamped it; it's the ONLY stamp on detection-only hosts with no dashboard middleware.
+        // Resolved via GetService, not a constructor/method dependency, so hosts that predate
+        // this fix and never registered AddBotDetection's DomainNormalizer safety net degrade to
+        // RequestScope.Unknown instead of throwing.
+        context.RequestServices.GetService<Mostlylucid.BotDetection.Domains.DomainNormalizer>()
+            ?.Resolve(context);
+
         var shedOutcome = _loadShedGate.Evaluate(context);
         if (shedOutcome == LoadShedOutcome.Refuse503)
             return;
