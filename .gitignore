@@ -496,3 +496,7 @@ docs/legacy/
 # Runtime signature snapshots written by the Console binary on each run
 signatures-*.jsonl
 /.superpowers/sdd/*
+
+# styloagent ephemeral runtime state -- checkpoints/coordination, never committed
+# (keep .styloagent/team.yaml, proposed-agents.yaml, missions/, PROTOCOL.md tracked)
+.styloagent/channel/saved-context/
