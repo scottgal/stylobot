@@ -461,16 +461,21 @@ public sealed class SbWidgetBatchMiddleware
         // Fall back to the existing cache-first / store path for targeted audience queries.
         List<DashboardEndpointStats> data;
         var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
-        var storeFilters = audienceFilter is "humans" or "bots" or "honeypot";
+        // "all_incl_internal" (the endpoint control's "Show self-probe" toggle) must also
+        // route through the store: BuildBatchWindow only ever composes "bots"/"humans"/null
+        // (see its audience parse above), so a composed bundle can never satisfy an
+        // "include Internal" request -- it was composed with Internal already excluded.
+        var storeFilters = audienceFilter is "humans" or "bots" or "honeypot" or "all_incl_internal";
         if (pageResult?.Endpoints is { } composedEndpoints && !storeFilters)
         {
             data = composedEndpoints.ToList();
         }
         else if (storeFilters)
         {
-            // humans / bots / honeypot all require the store path. honeypot needs
-            // IsHoneypot populated per row by the path classifier; humans / bots need
-            // the SQL is_bot predicate.
+            // humans / bots / honeypot / all_incl_internal all require the store path.
+            // honeypot needs IsHoneypot populated per row by the path classifier; humans /
+            // bots need the SQL is_bot predicate; all_incl_internal needs the Internal rows
+            // the composed/cached snapshots never carry.
             data = await _eventStore.GetEndpointStatsAsync(100, audienceFilter: audienceFilter);
         }
         else

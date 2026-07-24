@@ -116,6 +116,23 @@
                title="Show only paths classified as honeypot (Always / Probable)">
                 <i class="bx bx-radar text-[11px] mr-0.5"></i>Honeypot
             </a>
+
+            @* "Show self-probe" toggle: self/health-probe traffic (bot_type=Internal --
+               loopback / RFC1918 / k8s liveness / StyloBot talking to itself) is excluded
+               from every endpoint view by DEFAULT (matches the direct-read /site table and
+               the composed "Top content pages" list, which now agree). This is the explicit,
+               investigation-only opt-in that restores it, via the "all_incl_internal"
+               audience-filter token -- a distinct value from "honeypot"/"internal"/"all" so
+               it means exactly "everything, Internal included, no bot/human gate" everywhere
+               it's recognized (SqliteDashboardEventStore + PostgreSQLDashboardEventStore,
+               both AudiencePredicate and ComposeAudiencePredicate). Same chip convention as
+               Honeypot above: click to turn on, use the "Clear" link below to turn off. *@
+            <a href="#" hx-get="@AudienceUrl("all_incl_internal")"
+               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
+               class="@AudienceChipClass("all_incl_internal")"
+               title="Include self-probe / health-check traffic (bot_type=Internal) -- hidden from every endpoint view by default">
+                <i class="bx bx-pulse text-[11px] mr-0.5"></i>Show self-probe
+            </a>
             @if (!Model.AudienceFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
             {
                 <a href="#" hx-get="@AudienceUrl("all")"

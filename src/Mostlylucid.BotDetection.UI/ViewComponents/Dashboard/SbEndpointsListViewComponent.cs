@@ -55,12 +55,29 @@ public class SbEndpointsListViewComponent(
         // If the page composer stashed a DashboardPageResult, read the Endpoints slice from
         // it directly (zero store calls). Otherwise fall through to the existing cache-first /
         // parameter-driven self-fetch so VCs rendered on non-composer pages still work.
+        //
+        // The audience/window check runs FIRST: the composed bundle is built from a fixed,
+        // page-level audienceFilter (see SbWidgetBatchMiddleware.BuildBatchWindow, which only
+        // ever composes "bots"/"humans"/null — never "all_incl_internal"), so it can silently
+        // disagree with a per-request override like the endpoint control's audience chips
+        // (including the "Show self-probe" -> "all_incl_internal" toggle). A non-empty
+        // audience or an explicit window means the caller wants a SPECIFIC slice, so it must
+        // always win over the composed snapshot, never be shadowed by it.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
 
-        // A genuine cold miss -- render the warming placeholder instead of falling through
-        // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
-        if (pageResult is { IsWarming: true })
+        IReadOnlyList<DashboardEndpointStats> data;
+        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
+            // Parameter-driven: always bypass cache/compose, query store with the provided args.
+            // Must win over the warming/composed checks below -- a specific audience/window
+            // request (including the "Show self-probe" -> "all_incl_internal" toggle) is asking
+            // for a slice the composed snapshot can never satisfy, warming or not.
+            data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience);
+        }
+        else if (pageResult is { IsWarming: true })
+        {
+            // A genuine cold miss -- render the warming placeholder instead of falling through
+            // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
             return View(new EndpointsListModel
             {
                 Endpoints = [],
@@ -71,16 +88,9 @@ public class SbEndpointsListViewComponent(
                 IsWarming = true,
             });
         }
-
-        IReadOnlyList<DashboardEndpointStats> data;
-        if (pageResult?.Endpoints is { } composedEndpoints)
+        else if (pageResult?.Endpoints is { } composedEndpoints)
         {
             data = composedEndpoints;
-        }
-        else if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
-        {
-            // Parameter-driven: always bypass cache, query store with the provided args.
-            data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience);
         }
         else
         {

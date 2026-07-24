@@ -403,4 +403,63 @@ public sealed class InternalStatExclusionTests
 
         Assert.Equal(2, summary.TotalRequests);
     }
+
+    // ── "all_incl_internal" (Internal-filter posture, foss-internal-filter-posture) ──
+    // The new explicit opt-in token backing the endpoint control's "Show self-probe"
+    // toggle. Distinct from "internal" (Internal-ONLY): "all_incl_internal" means
+    // "everything, Internal included, no bot/human gate" -- same predicate as "all"
+    // on this SQLite AudiencePredicate, kept as its own token so it means the same
+    // thing across every AudiencePredicate/ComposeAudiencePredicate switch in both
+    // the FOSS SQLite and commercial Postgres backends.
+
+    /// <summary>GetEndpointStatsAsync default (null) EXCLUDES Internal -- the new posture:
+    ///     a pure-infra endpoint (100% Internal traffic) must not appear in the direct-read
+    ///     endpoint list by default.</summary>
+    [Fact]
+    public async Task GetEndpointStatsAsync_DefaultAudience_ExcludesInternalEndpoint()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoints-default-excl-internal");
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal", isBot: false, probability: 0.05) with { Path = "/metrics" });
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot", "SearchEngine", isBot: true, probability: 0.95) with { Path = "/widget" });
+
+        var rows = await fx.Store.GetEndpointStatsAsync(50);
+
+        Assert.DoesNotContain(rows, e => e.Path == "/metrics");
+        Assert.Contains(rows, e => e.Path == "/widget");
+    }
+
+    /// <summary>"all_incl_internal" restores the Internal-only endpoint -- the dashboard
+    ///     toggle's ON state.</summary>
+    [Fact]
+    public async Task GetEndpointStatsAsync_AllInclInternal_RestoresInternalEndpoint()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoints-all-incl-internal");
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal", isBot: false, probability: 0.05) with { Path = "/metrics" });
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot", "SearchEngine", isBot: true, probability: 0.95) with { Path = "/widget" });
+
+        var rows = await fx.Store.GetEndpointStatsAsync(50, audienceFilter: "all_incl_internal");
+
+        Assert.Contains(rows, e => e.Path == "/metrics");
+        Assert.Contains(rows, e => e.Path == "/widget");
+    }
+
+    /// <summary>"all_incl_internal" and the legacy "all" token are equivalent on the
+    ///     SQLite AudiencePredicate (both mean "everything, no gate, Internal included") --
+    ///     pins the two tokens staying in lockstep so a caller can't observe drift between
+    ///     them.</summary>
+    [Fact]
+    public async Task GetSummaryAsync_AllInclInternal_MatchesLegacyAllToken()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("summary-all-incl-internal-parity");
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal", isBot: false, probability: 0.05));
+        await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot", "SearchEngine", isBot: true, probability: 0.95));
+
+        var allInclInternal = await fx.Store.GetSummaryAsync(
+            startTime: DateTime.UtcNow.AddHours(-1), endTime: DateTime.UtcNow.AddHours(1), audienceFilter: "all_incl_internal");
+        var legacyAll = await fx.Store.GetSummaryAsync(
+            startTime: DateTime.UtcNow.AddHours(-1), endTime: DateTime.UtcNow.AddHours(1), audienceFilter: "all");
+
+        Assert.Equal(2, allInclInternal.TotalRequests);
+        Assert.Equal(legacyAll.TotalRequests, allInclInternal.TotalRequests);
+    }
 }

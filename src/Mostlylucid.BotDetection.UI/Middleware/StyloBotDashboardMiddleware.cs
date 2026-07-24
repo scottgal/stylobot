@@ -4707,11 +4707,14 @@ public class StyloBotDashboardMiddleware
         var methodFilter = context.Request.Query["method"].FirstOrDefault()?.Trim();
         var modeFilter = context.Request.Query["mode"].FirstOrDefault()?.Trim().ToLowerInvariant();
 
-        // Cache is audience-agnostic: the broadcaster precomputes one snapshot
-        // with no filter. humans / bots gating must come from the store so the
-        // is_bot SQL predicate applies. honeypot is path-shape and works on any
-        // snapshot, so we keep the cached path for it.
-        List<DashboardEndpointStats> endpoints = audienceFilter is "humans" or "bots"
+        // Cache is audience-agnostic: the broadcaster precomputes one snapshot with no
+        // filter (Internal-excluded, matching the store's new default). humans / bots
+        // gating must come from the store so the is_bot SQL predicate applies.
+        // "all_incl_internal" (the endpoint control's "Show self-probe" toggle) must also
+        // route through the store: the cached snapshot never contains Internal rows, so it
+        // can't satisfy an "include Internal" request. honeypot is path-shape and works on
+        // any snapshot, so we keep the cached path for it.
+        List<DashboardEndpointStats> endpoints = audienceFilter is "humans" or "bots" or "all_incl_internal"
             ? await _eventStore.GetEndpointStatsAsync(500, audienceFilter: audienceFilter)
             : await GetEndpointsDataAsync(context);
 

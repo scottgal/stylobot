@@ -87,6 +87,44 @@ public sealed class EndpointsPartialFilterIntegrationTests : IAsyncDisposable
         Assert.DoesNotContain("/api/orders", html);
     }
 
+    /// <summary>
+    ///     Internal-filter posture: the "Show self-probe" toggle -> <c>audience=
+    ///     all_incl_internal</c> -- must route <c>ServeEndpointsPartialAsync</c> through
+    ///     the store (the audience-agnostic cache/GetEndpointsDataAsync path can never
+    ///     contain Internal rows, since the store's own default now excludes them), and
+    ///     the /metrics row (visible only under this audience per the fixture store) must
+    ///     render. Proves the wiring added to ServeEndpointsPartialAsync's storeFilters
+    ///     check, not just the AudiencePredicate switch it delegates to.
+    /// </summary>
+    [Fact]
+    public async Task ShowSelfProbe_audience_query_param_routes_through_the_store_and_reveals_internal_rows()
+    {
+        var app = await BuildAppAsync();
+
+        var html = await app.GetTestClient().GetStringAsync("/dashboard/partials/endpoints?audience=all_incl_internal");
+
+        Assert.Contains("/metrics", html);
+        // Chip markup itself must render in its "active" (highlighted) state -- the same
+        // warning-colored class AudienceChipClass gives every other active audience chip
+        // (mirrors the Honeypot chip's own highlight convention).
+        Assert.Contains("Show self-probe", html);
+        Assert.Contains("bg-warning/20 text-warning border border-warning/30", html);
+    }
+
+    /// <summary>Default (no audience param) must NOT reveal the Internal-only endpoint --
+    ///     pins the new default posture on the same integration path -- and the chip must
+    ///     render in its inactive state.</summary>
+    [Fact]
+    public async Task Default_audience_hides_the_internal_only_endpoint()
+    {
+        var app = await BuildAppAsync();
+
+        var html = await app.GetTestClient().GetStringAsync("/dashboard/partials/endpoints");
+
+        Assert.DoesNotContain("/metrics", html);
+        Assert.Contains("Show self-probe", html);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_app is not null) await _app.DisposeAsync();
@@ -106,13 +144,21 @@ public sealed class EndpointsPartialFilterIntegrationTests : IAsyncDisposable
         public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null) => throw new NotImplementedException();
         public Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null) => throw new NotImplementedException();
 
-        public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null) =>
-            Task.FromResult(new List<DashboardEndpointStats>
+        public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
+        {
+            var rows = new List<DashboardEndpointStats>
             {
                 new() { Method = "GET", Path = "/pricing", TotalCount = 10 },
                 new() { Method = "POST", Path = "/api/orders", TotalCount = 5 },
                 new() { Method = "GET", Path = "/app.js", TotalCount = 30 },
-            });
+            };
+            // /metrics is pure self-probe (Internal) traffic: mirrors the real
+            // AudiencePredicate/ComposeAudiencePredicate contract (excluded by default,
+            // visible only under "internal" / "all" / "all_incl_internal").
+            if (audienceFilter is "internal" or "all" or "all_incl_internal")
+                rows.Add(new() { Method = "GET", Path = "/metrics", TotalCount = 4 });
+            return Task.FromResult(rows);
+        }
 
         public Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(string signature, int topN = 25, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null) => throw new NotImplementedException();

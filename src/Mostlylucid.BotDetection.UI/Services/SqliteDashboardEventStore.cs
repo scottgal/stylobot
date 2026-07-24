@@ -503,16 +503,22 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     ///     (Postgres) agree. Default EXCLUDES self-traffic (<c>bot_type='Internal'</c>:
     ///     loopback / RFC1918 / health probes); "internal" shows only self; "all" shows the
     ///     full mix; "humans"/"bots" apply the bot-probability floor gate AND exclude self.
-    ///     SQLite <c>IS NOT</c> is null-safe, so NULL-<c>bot_type</c> humans are kept (matches
-    ///     Postgres <c>IS DISTINCT FROM</c>). Callers bind <c>@botFloor</c> for humans/bots.
+    ///     "all_incl_internal" is the explicit opt-in token backing the dashboard's "Show
+    ///     self-probe" toggle (same predicate as "all" here — no exclusion, no gate; kept as
+    ///     a distinct, self-documenting token so it means the same thing across every
+    ///     AudiencePredicate/ComposeAudiencePredicate switch in both the FOSS SQLite and
+    ///     commercial Postgres backends). SQLite <c>IS NOT</c> is null-safe, so NULL-<c>bot_type</c>
+    ///     humans are kept (matches Postgres <c>IS DISTINCT FROM</c>). Callers bind
+    ///     <c>@botFloor</c> for humans/bots.
     /// </summary>
     private static string AudiencePredicate(string? audienceFilter) => audienceFilter?.ToLowerInvariant() switch
     {
-        "internal" => " AND bot_type = 'Internal'",
-        "all"      => string.Empty,
-        "bots"     => " AND bot_probability >= @botFloor AND bot_type IS NOT 'Internal'",
-        "humans"   => " AND bot_probability < @botFloor AND bot_type IS NOT 'Internal'",
-        _          => " AND bot_type IS NOT 'Internal'",
+        "internal"          => " AND bot_type = 'Internal'",
+        "all"               => string.Empty,
+        "all_incl_internal" => string.Empty,
+        "bots"              => " AND bot_probability >= @botFloor AND bot_type IS NOT 'Internal'",
+        "humans"            => " AND bot_probability < @botFloor AND bot_type IS NOT 'Internal'",
+        _                   => " AND bot_type IS NOT 'Internal'",
     };
 
     public async Task<DashboardSummary> GetSummaryAsync(
