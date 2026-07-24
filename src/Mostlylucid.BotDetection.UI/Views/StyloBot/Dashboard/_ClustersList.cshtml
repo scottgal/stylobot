@@ -83,10 +83,14 @@
                         {
                             <p class="text-[11px] text-base-content/60 line-clamp-2">@cluster.Description</p>
                         }
-                        <div class="grid grid-cols-3 gap-1 mt-1 text-center text-[10px]">
+                        <div class="grid grid-cols-4 gap-1 mt-1 text-center text-[10px]">
                             <div>
                                 <div class="font-bold text-sm">@cluster.MemberCount</div>
                                 <div class="text-base-content/40">Members</div>
+                            </div>
+                            <div>
+                                <div class="font-bold text-sm">@cluster.WindowHitCount</div>
+                                <div class="text-base-content/40" title="Scoped to the selected time window">Hits</div>
                             </div>
                             <div>
                                 <div class="font-bold text-sm @(cluster.AvgBotProb > 0.8 ? "text-error" : "text-warning")">

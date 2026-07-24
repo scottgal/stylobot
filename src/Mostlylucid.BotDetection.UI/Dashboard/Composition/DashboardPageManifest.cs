@@ -58,10 +58,13 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
         // Traffic page: the current-window datasets the TrafficController composes in one batch,
         // plus site-health (degradation history) so the SbSiteHealth VC reads warm instead of
         // self-fetching /api/v1/site-health/history. Widget keys match the [DashboardWidget(key,...)]
-        // attributes on the VCs.
+        // attributes on the VCs. DashboardRowWidgetKeys.UserAgentsRaw rides alongside (not
+        // [DashboardWidget]-backed -- see that constant's doc comment) so UserAgents shares
+        // the SAME window/audience/domain scope as Summary/Countries/Endpoints instead of the
+        // shell model reading the fixed-window DashboardAggregateCache snapshot directly.
         manifests["dashboard.traffic"] = new DashboardPageManifest(
             "dashboard.traffic",
-            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health" });
+            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health", DashboardRowWidgetKeys.UserAgentsRaw });
 
         // Stage 2a: one manifest per row that isn't already covered by the Traffic
         // bundle above. Each declares exactly the ONE synthetic widget key

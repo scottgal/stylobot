@@ -1348,8 +1348,13 @@ public class StyloBotDashboardMiddleware
         var endpointsTask = composedPage?.Endpoints is { } composedEndpoints
             ? Task.FromResult(composedEndpoints.ToList())
             : SafeGetEndpointsDataAsync(context);
-        var userAgentsTask = _aggregateCache.Current.UserAgents.Count > 0
-            ? Task.FromResult(_aggregateCache.Current.UserAgents)
+        // Routed through the same "dashboard.traffic" content-cache bundle as Countries/
+        // Endpoints (DashboardRowWidgetKeys.UserAgentsRaw rides alongside on that manifest --
+        // see DefaultDashboardPageManifestSource) instead of the fixed-window
+        // _aggregateCache.Current.UserAgents snapshot, so the ?window= selector reaches this
+        // row too.
+        var userAgentsTask = composedPage?.UserAgentsRaw is { } composedUserAgents
+            ? Task.FromResult(composedUserAgents.ToList())
             : SafeComputeUserAgentsFallbackAsync();
 
         // Stage 2a: Clusters/TopBots/Sessions/Threats are pure cache reads through their
@@ -1363,29 +1368,37 @@ public class StyloBotDashboardMiddleware
         var yourDetectionTask = SafeBuild(
             () => BuildYourDetectionPartialModel(context),
             new YourDetectionModel { BasePath = basePath }, "YourDetection");
+        // Window-threading fix: all 4 row extras read through the SAME real page window
+        // (visitorWindow, built by BuildVisitorsPageWindow) as Traffic/Countries/Endpoints
+        // instead of a hardcoded, window-agnostic constant -- previously these 4 rows
+        // silently ignored the dashboard's ?window= selector entirely.
         var clustersTask = GetOrWarmingAsync(
             "dashboard.clusters",
             page => BuildClustersModelFromRaw(page.ClustersRaw!, page.ClusterDiagnosticsRaw, isWarming: false),
             new ClustersListModel { Clusters = [], BasePath = basePath, IsWarming = true },
             page => page.ClustersRaw is not null,
+            visitorWindow,
             context);
         var topBotsTask = GetOrWarmingAsync(
             "dashboard.topbots",
             page => BuildTopBotsModelFromRaw(page.TopBotsRaw!, page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
             new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath, IsWarming = true },
             page => page.TopBotsRaw is not null,
+            visitorWindow,
             context);
         var sessionsTask = GetOrWarmingAsync(
             "dashboard.sessions",
             page => BuildSessionsModelFromRaw(page.SessionsRaw!, page.SessionsRawTotalCount ?? 0, page: 1, pageSize: 25, filter: null),
             new SessionsListModel { Sessions = [], BasePath = basePath, IsWarming = true },
             page => page.SessionsRaw is not null,
+            visitorWindow,
             context);
         var threatsTask = GetOrWarmingAsync(
             "dashboard.threats",
             page => BuildThreatsModelFromRaw(page.ThreatsRaw!),
             new ThreatsListModel { BasePath = basePath, IsWarming = true },
             page => page.ThreatsRaw is not null,
+            visitorWindow,
             context);
 
         await Task.WhenAll(visitorTask, summaryTask, countriesTask, endpointsTask, userAgentsTask,
@@ -1540,9 +1553,18 @@ public class StyloBotDashboardMiddleware
         // DashboardRowRawFetchers + DefaultDashboardPageComposer's out-of-request warm
         // path exist to do instead. Mirrors the structural rule DashboardContentCache
         // already enforces for GetCurrentAsync (never compose on the request thread).
+        //
+        // <paramref name="window"/> is the REAL page window (BuildVisitorsPageWindow's
+        // result) -- previously this always read the hardcoded RowExtraWindow sentinel
+        // regardless of the caller's ?window= selection, so Clusters/TopBots/Sessions/
+        // Threats silently ignored the period switcher while Traffic/Countries/Endpoints
+        // honoured it. The content-cache key (DashboardContentEnvelope) already normalizes
+        // on the window's bucketed start/end, so passing the real window here is the only
+        // change needed -- the materializer warms whatever envelope a request makes live,
+        // exactly as it already does for dashboard.traffic's per-window-token entries.
         async Task<T> GetOrWarmingAsync<T>(
             string pageKey, Func<DashboardPageResult, T> shape, T warmingFallback,
-            Func<DashboardPageResult, bool> hasData, HttpContext requestContext)
+            Func<DashboardPageResult, bool> hasData, DashboardPageWindow window, HttpContext requestContext)
         {
             if (_contentCache is null || _manifests is null) return warmingFallback;
             var manifest = _manifests.For(pageKey);
@@ -1550,7 +1572,7 @@ public class StyloBotDashboardMiddleware
 
             try
             {
-                var page = await _contentCache.GetCurrentAsync(manifest, RowExtraWindow, requestContext.RequestAborted);
+                var page = await _contentCache.GetCurrentAsync(manifest, window, requestContext.RequestAborted);
                 if (page.IsWarming || !hasData(page)) return warmingFallback;
                 return shape(page);
             }
@@ -7498,24 +7520,21 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     }
 
     /// <summary>
-    ///     Stage 2a: the cache-key window for the Clusters/TopBots/Sessions/Threats row
-    ///     manifests. Deliberately a constant sentinel (no start/end, no audience/domain
-    ///     filter) -- unlike Traffic's <see cref="BuildVisitorsPageWindow"/>, none of
-    ///     these 4 rows' <c>DashboardRowRawFetchers</c> fetch methods actually read the
-    ///     <see cref="DashboardPageWindow"/>'s fields (TopBots/Threats use their own
-    ///     fixed lookback baked into the fetcher; Clusters/Sessions read the CURRENT
-    ///     snapshot). So the window carries no real compute input for these rows -- it
-    ///     only needs to be a STABLE envelope so the same (page, tick) key is reused
-    ///     across requests; the tick materializer's own tick advance is what drives
-    ///     freshness (see DashboardContentKey's (envelope, tick) design), not the window.
-    /// </summary>
-    private static readonly DashboardPageWindow RowExtraWindow =
-        new(StartTime: null, EndTime: null, AudienceFilter: null, ProbMin: null, Domains: null, TopN: 0, BucketMinutes: 1);
-
-    /// <summary>
     ///     Builds the same content-cache envelope as the Traffic page. Visitors is
     ///     rendered by this middleware, so a hard-coded window would miss the Traffic
     ///     bundle already warmed for the request's selected period and domain scope.
+    ///
+    ///     <para>
+    ///         Window-threading fix: this is now ALSO the window passed to
+    ///         <c>GetOrWarmingAsync</c> for the Clusters/TopBots/Sessions/Threats row
+    ///         manifests (previously a hardcoded, window-agnostic
+    ///         <c>RowExtraWindow</c> sentinel -- those 4 rows silently ignored the
+    ///         dashboard's <c>?window=</c> selector while Traffic/Countries/Endpoints
+    ///         honoured it). <c>DashboardRowRawFetchers</c>' fetch methods now read
+    ///         the window's start/end (Clusters only for its per-cluster ACTIVITY
+    ///         metric -- membership stays current-state, see
+    ///         <c>DashboardRowRawFetchers.FetchClustersRawAsync</c>'s doc comment).
+    ///     </para>
     /// </summary>
     internal static DashboardPageWindow BuildVisitorsPageWindow(HttpContext context)
     {
@@ -7767,9 +7786,15 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 
         // Fetch extracted to DashboardRowRawFetchers (Stage 2a) so the tick materializer
         // can warm the identical dataset out-of-request; this direct/HTMX-endpoint path is
-        // unchanged in behavior -- it still fetches fresh on every call.
+        // unchanged in behavior -- it still fetches fresh on every call. Window-threading
+        // fix: the per-cluster ACTIVITY metric (WindowHitCount) is scoped to the same real
+        // page window as the SSR'd shell render (BuildVisitorsPageWindow), not a hardcoded
+        // sentinel -- membership itself stays current-state either way (see
+        // FetchClustersRawAsync's doc comment).
+        var window = BuildVisitorsPageWindow(context);
         var (clusters, diagnostics) = await Dashboard.Composition.DashboardRowRawFetchers.FetchClustersRawAsync(
-            clusterService, context.RequestAborted);
+            clusterService, _eventStore, window.StartTime, window.EndTime,
+            _signatureCache.MaxEntries, context.RequestAborted);
 
         return BuildClustersModelFromRaw(clusters, diagnostics);
     }

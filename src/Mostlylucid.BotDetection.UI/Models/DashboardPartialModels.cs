@@ -160,6 +160,17 @@ public sealed class ClusterViewModel
     public double TemporalDensity { get; init; }
     public string? DominantIntent { get; init; }
     public double AverageThreatScore { get; init; }
+
+    /// <summary>
+    ///     Total detection hit count for this cluster's member signatures within the
+    ///     dashboard's currently-selected <c>?window=</c> period. Distinct from
+    ///     <see cref="MemberCount"/> (membership size, current-state -- the Leiden
+    ///     grouping itself is not re-run per window) -- this is the ACTIVITY metric,
+    ///     scoped to the selected window like every other row. Zero when a member
+    ///     signature had no windowed hits, or fell outside the windowed top-bots
+    ///     lookup's cap (see <c>DashboardRowRawFetchers.FetchClustersRawAsync</c>).
+    /// </summary>
+    public int WindowHitCount { get; init; }
 }
 
 /// <summary>

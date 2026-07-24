@@ -21,7 +21,8 @@ public sealed class DashboardPageResult
         IReadOnlyList<DashboardTopBotEntry>? topBotsRaw = null,
         IReadOnlyList<SessionListEntry>? sessionsRaw = null,
         int? sessionsRawTotalCount = null,
-        IReadOnlyList<ThreatEntry>? threatsRaw = null)
+        IReadOnlyList<ThreatEntry>? threatsRaw = null,
+        IReadOnlyList<DashboardUserAgentSummary>? userAgentsRaw = null)
     {
         _bundle = bundle;
         _extensions = extensions;
@@ -31,6 +32,7 @@ public sealed class DashboardPageResult
         SessionsRaw = sessionsRaw;
         SessionsRawTotalCount = sessionsRawTotalCount;
         ThreatsRaw = threatsRaw;
+        UserAgentsRaw = userAgentsRaw;
     }
 
     private DashboardPageResult(bool isWarming)
@@ -109,4 +111,13 @@ public sealed class DashboardPageResult
 
     /// <summary>Raw threats snapshot (top-20, unpaginated); null when not composed.</summary>
     public IReadOnlyList<ThreatEntry>? ThreatsRaw { get; }
+
+    /// <summary>
+    ///     Raw user-agent family summary, scoped to the manifest's window (see
+    ///     <c>DashboardRowRawFetchers.FetchUserAgentsRawAsync</c>); null when the
+    ///     "useragents-raw" widget key was not requested. Distinct from the legacy
+    ///     fixed-window <c>DashboardAggregateCache.Current.UserAgents</c> snapshot the
+    ///     shell model previously read directly.
+    /// </summary>
+    public IReadOnlyList<DashboardUserAgentSummary>? UserAgentsRaw { get; }
 }

@@ -21,6 +21,14 @@ public static class DashboardRowWidgetKeys
     public const string TopBotsRaw = "topbots-raw";
     public const string SessionsRaw = "sessions-raw";
     public const string ThreatsRaw = "threats-raw";
+
+    /// <summary>
+    ///     User-agent family summary, windowed to the manifest's page window. Added to the
+    ///     "dashboard.traffic" manifest (not its own page) since UserAgents shares the SAME
+    ///     window/audience/domain scope as Summary/Countries/Endpoints on that page -- see
+    ///     <see cref="DefaultDashboardPageManifestSource"/>.
+    /// </summary>
+    public const string UserAgentsRaw = "useragents-raw";
 }
 
 /// <summary>
@@ -42,6 +50,7 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
     private readonly IDetectionArchive? _detectionArchive;
     private readonly IBotClusterReader? _clusterReader;
     private readonly TimeSpan _detectionRetention;
+    private readonly DashboardUserAgentAggregator _userAgentAggregator;
 
     public DefaultDashboardPageComposer(
         DashboardWidgetCatalog catalog,
@@ -51,7 +60,8 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         SignatureAggregateCache? signatureCache = null,
         IDetectionArchive? detectionArchive = null,
         IBotClusterReader? clusterReader = null,
-        TimeSpan? detectionRetention = null)
+        TimeSpan? detectionRetention = null,
+        DashboardUserAgentAggregator? userAgentAggregator = null)
     {
         _catalog = catalog;
         _store = store;
@@ -60,6 +70,12 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         _detectionArchive = detectionArchive;
         _clusterReader = clusterReader;
         _detectionRetention = detectionRetention ?? DashboardRowRawFetchers.DefaultDetectionRetention;
+        // DashboardUserAgentAggregator is a thin stateless wrapper over IDashboardEventStore
+        // (see its own doc comment) -- constructing a private instance when DI doesn't supply
+        // one (e.g. a hand-built composer in a unit test) is cheap and keeps this constructor
+        // usable without wiring the whole DI container, mirroring how _detectionRetention
+        // falls back to a documented default above.
+        _userAgentAggregator = userAgentAggregator ?? new DashboardUserAgentAggregator(store);
         // Index pack extensions by their kind name (last registration wins on a dup —
         // logged so a pack silently hijacking another pack's kind is visible).
         var map = new Dictionary<string, IDashboardDatasetExtension>(StringComparer.Ordinal);
@@ -114,7 +130,8 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         var hasKey = manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ClustersRaw)
             || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.TopBotsRaw)
             || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.SessionsRaw)
-            || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ThreatsRaw);
+            || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ThreatsRaw)
+            || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.UserAgentsRaw);
         if (!hasKey) return new DashboardPageResult(bundle, extensionData);
 
         IReadOnlyList<ClusterViewModel>? clusters = null;
@@ -123,12 +140,20 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         IReadOnlyList<SessionListEntry>? sessions = null;
         int? sessionsTotalCount = null;
         IReadOnlyList<ThreatEntry>? threats = null;
+        IReadOnlyList<DashboardUserAgentSummary>? userAgents = null;
 
+        // Every row extra below is scoped to w.StartTime/w.EndTime -- the manifest's own
+        // resolved page window (the dashboard's currently-selected ?window= period) -- so
+        // each row's ACTIVITY data varies with the window exactly like the batched
+        // Summary/Countries/Endpoints dataset above. Clusters is the one exception:
+        // membership stays current-state (see FetchClustersRawAsync's doc comment); only
+        // its per-cluster activity metric is windowed.
         if (manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ClustersRaw))
         {
             try
             {
-                (clusters, clusterDiagnostics) = await DashboardRowRawFetchers.FetchClustersRawAsync(_clusterReader, ct);
+                (clusters, clusterDiagnostics) = await DashboardRowRawFetchers.FetchClustersRawAsync(
+                    _clusterReader, _store, w.StartTime, w.EndTime, _signatureCache?.MaxEntries ?? 500, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'clusters-raw' failed to compose."); }
@@ -138,7 +163,8 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         {
             try
             {
-                topBots = await DashboardRowRawFetchers.FetchTopBotsRawAsync(_store, _signatureCache?.MaxEntries ?? 500, ct);
+                topBots = await DashboardRowRawFetchers.FetchTopBotsRawAsync(
+                    _store, _signatureCache?.MaxEntries ?? 500, w.StartTime, w.EndTime, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'topbots-raw' failed to compose."); }
@@ -150,7 +176,7 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             {
                 var fetched = await DashboardRowRawFetchers.FetchSessionsRawAsync(
                     _detectionArchive, _store, _signatureCache,
-                    _detectionRetention, page: 1, pageSize: 25, filter: null, ct);
+                    _detectionRetention, page: 1, pageSize: 25, filter: null, w.StartTime, ct);
                 sessions = fetched.Entries;
                 sessionsTotalCount = fetched.TotalCount;
             }
@@ -162,10 +188,21 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         {
             try
             {
-                threats = await DashboardRowRawFetchers.FetchThreatsRawAsync(_store, 20, ct);
+                threats = await DashboardRowRawFetchers.FetchThreatsRawAsync(_store, 20, w.StartTime, w.EndTime, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'threats-raw' failed to compose."); }
+        }
+
+        if (manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.UserAgentsRaw))
+        {
+            try
+            {
+                userAgents = await DashboardRowRawFetchers.FetchUserAgentsRawAsync(
+                    _userAgentAggregator, w.StartTime, w.EndTime, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'useragents-raw' failed to compose."); }
         }
 
         return new DashboardPageResult(
@@ -173,7 +210,8 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             clustersRaw: clusters, clusterDiagnosticsRaw: clusterDiagnostics,
             topBotsRaw: topBots,
             sessionsRaw: sessions, sessionsRawTotalCount: sessionsTotalCount,
-            threatsRaw: threats);
+            threatsRaw: threats,
+            userAgentsRaw: userAgents);
     }
 
     private async Task<IReadOnlyDictionary<string, object?>?> ResolveExtensionsAsync(

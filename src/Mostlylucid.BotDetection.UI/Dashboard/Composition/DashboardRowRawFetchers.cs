@@ -34,38 +34,85 @@ internal static class DashboardRowRawFetchers
     internal static readonly TimeSpan DefaultDetectionRetention = TimeSpan.FromDays(30);
 
     /// <summary>
-    ///     Raw top-bots snapshot for the TopBots row's own fixed window: trailing 24h,
-    ///     unfiltered audience, capped at <paramref name="maxEntries"/>. Mirrors the fetch
-    ///     half of <c>StyloBotDashboardMiddleware.BuildTopBotsModel</c> verbatim.
+    ///     Raw top-bots snapshot for the TopBots row, scoped to <paramref name="startTime"/>/
+    ///     <paramref name="endTime"/> -- the dashboard's currently-selected <c>?window=</c>
+    ///     period (see <c>StyloBotDashboardMiddleware.BuildVisitorsPageWindow</c>), capped at
+    ///     <paramref name="maxEntries"/>. When both are null (no manifest window resolved --
+    ///     e.g. a caller that never threads one through), falls back to the historical fixed
+    ///     trailing-24h lookback so callers that don't supply a window keep the pre-existing
+    ///     behavior.
     /// </summary>
     internal static async Task<IReadOnlyList<DashboardTopBotEntry>> FetchTopBotsRawAsync(
-        IDashboardEventStore store, int maxEntries, CancellationToken ct = default)
+        IDashboardEventStore store, int maxEntries,
+        DateTime? startTime = null, DateTime? endTime = null, CancellationToken ct = default)
     {
         var raw = await store.GetTopBotsAsync(
             count: maxEntries,
-            startTime: DateTime.UtcNow.AddHours(-24),
-            endTime: DateTime.UtcNow,
+            startTime: startTime ?? DateTime.UtcNow.AddHours(-24),
+            endTime: endTime ?? DateTime.UtcNow,
             audienceFilter: "all");
         return raw;
     }
 
-    /// <summary>Raw threats snapshot (top-N, unpaginated) via <see cref="IDashboardEventStore.GetThreatsAsync"/>.</summary>
+    /// <summary>
+    ///     Raw threats snapshot (top-N, unpaginated) via <see cref="IDashboardEventStore.GetThreatsAsync"/>,
+    ///     scoped to <paramref name="startTime"/>/<paramref name="endTime"/> -- the dashboard's
+    ///     currently-selected <c>?window=</c> period. Null bounds fall through to the store's
+    ///     own default (all-time), matching the store's pre-existing null-means-unbounded contract.
+    /// </summary>
     internal static async Task<IReadOnlyList<ThreatEntry>> FetchThreatsRawAsync(
-        IDashboardEventStore store, int count, CancellationToken ct = default)
-        => await store.GetThreatsAsync(count);
+        IDashboardEventStore store, int count,
+        DateTime? startTime = null, DateTime? endTime = null, CancellationToken ct = default)
+        => await store.GetThreatsAsync(count, startTime, endTime);
 
     /// <summary>
     ///     Raw cluster snapshot + diagnostics via <see cref="IBotClusterReader"/>. Returns
     ///     an empty list and null diagnostics when no cluster reader is registered (FOSS
     ///     hosts without the clustering pack) -- mirrors the existing null-check in
     ///     <c>BuildClustersModelAsync</c>.
+    ///
+    ///     <para>
+    ///         Operator ruling: cluster MEMBERSHIP (which signatures belong to which cluster)
+    ///         stays CURRENT-STATE -- Leiden is a relatively expensive periodic background
+    ///         computation (<see cref="BotClusterService"/>) and is deliberately NOT re-run
+    ///         per dashboard window; re-running it per window would also change what a
+    ///         "cluster" even means moment to moment. Only the per-cluster ACTIVITY metric
+    ///         (<see cref="ClusterViewModel.WindowHitCount"/>) is scoped to
+    ///         <paramref name="startTime"/>/<paramref name="endTime"/>, exactly like every
+    ///         other row. This reuses the SAME windowed store call the TopBots row already
+    ///         makes (<see cref="IDashboardEventStore.GetTopBotsAsync"/>) rather than adding a
+    ///         new store method: one windowed top-bots snapshot (capped at
+    ///         <paramref name="activityLookupCap"/>, same cap TopBots itself uses), joined onto
+    ///         each cluster's member signatures. A member signature outside that cap reads as
+    ///         zero windowed hits -- the same precision ceiling the TopBots row itself has, and
+    ///         a deliberate reuse of existing infra over a new IDashboardEventStore surface
+    ///         (see the design-decision note in the PR description).
+    ///     </para>
     /// </summary>
     internal static async Task<(IReadOnlyList<ClusterViewModel> Clusters, ClusterDiagnosticsViewModel? Diagnostics)> FetchClustersRawAsync(
-        IBotClusterReader? clusterReader, CancellationToken ct = default)
+        IBotClusterReader? clusterReader, IDashboardEventStore store,
+        DateTime? startTime, DateTime? endTime, int activityLookupCap, CancellationToken ct = default)
     {
         if (clusterReader is null) return (Array.Empty<ClusterViewModel>(), null);
 
         var rawClusters = await clusterReader.GetClustersAsync(ct);
+
+        // Skip the windowed activity lookup entirely when there are no clusters to
+        // annotate -- avoids a wasted store round-trip on an empty snapshot.
+        Dictionary<string, int> hitsBySignature;
+        if (rawClusters.Count == 0)
+        {
+            hitsBySignature = new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+        else
+        {
+            var windowedHits = await store.GetTopBotsAsync(
+                count: activityLookupCap, startTime: startTime, endTime: endTime, audienceFilter: "all");
+            hitsBySignature = windowedHits
+                .GroupBy(h => h.PrimarySignature, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.Sum(h => h.HitCount), StringComparer.Ordinal);
+        }
+
         var clusters = rawClusters
             .Select(cl => new ClusterViewModel
             {
@@ -79,7 +126,9 @@ internal static class DashboardRowRawFetchers
                 AverageSimilarity = Math.Round(cl.AverageSimilarity, 3),
                 TemporalDensity = Math.Round(cl.TemporalDensity, 3),
                 DominantIntent = cl.DominantIntent,
-                AverageThreatScore = Math.Round(cl.AverageThreatScore, 3)
+                AverageThreatScore = Math.Round(cl.AverageThreatScore, 3),
+                WindowHitCount = cl.MemberSignatures.Sum(sig =>
+                    hitsBySignature.TryGetValue(sig, out var h) ? h : 0)
             })
             .ToList();
 
@@ -115,6 +164,17 @@ internal static class DashboardRowRawFetchers
     ///     fetch-count cap (<paramref name="page"/>/<paramref name="pageSize"/> only affect
     ///     how MANY rows are fetched up-front -- shaping/pagination of the fetched set still
     ///     happens in the caller). Returns an empty result when no archive is registered.
+    ///
+    ///     <para>
+    ///         <paramref name="startTime"/>, when supplied, is the dashboard's currently-
+    ///         selected <c>?window=</c> lower bound and takes priority over
+    ///         <paramref name="retention"/> for the "since" cutoff -- <paramref name="retention"/>
+    ///         remains the fallback for callers that don't have a resolved window (matches the
+    ///         pre-existing <c>StyloBotDashboardOptions.DetectionRetention</c>-derived behavior).
+    ///         <see cref="IDetectionArchive.GetRecentSessionsAsync"/> has no upper-bound
+    ///         parameter; the window's end is always "now" for every currently-supported window
+    ///         token (6h/24h/7d/30d), so an explicit upper bound isn't needed for correctness.
+    ///     </para>
     /// </summary>
     internal static async Task<(IReadOnlyList<SessionListEntry> Entries, int TotalCount)> FetchSessionsRawAsync(
         IDetectionArchive? archive,
@@ -124,12 +184,13 @@ internal static class DashboardRowRawFetchers
         int page,
         int pageSize,
         string? filter,
+        DateTime? startTime = null,
         CancellationToken ct = default)
     {
         if (archive is null) return (Array.Empty<SessionListEntry>(), 0);
 
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
-        var since = DateTime.UtcNow - retention;
+        var since = startTime ?? (DateTime.UtcNow - retention);
         const int maxFetch = 500;
         var fetchCount = Math.Min(page * pageSize + pageSize, maxFetch);
         var sessions = await archive.GetRecentSessionsAsync(fetchCount, isBot, since, ct);
@@ -163,4 +224,18 @@ internal static class DashboardRowRawFetchers
 
         return (entries, totalCount);
     }
+
+    /// <summary>
+    ///     Raw user-agent family summary via <see cref="Services.DashboardUserAgentAggregator"/>,
+    ///     scoped to <paramref name="startTime"/>/<paramref name="endTime"/> -- the dashboard's
+    ///     currently-selected <c>?window=</c> period. Reuses the SAME windowed aggregation
+    ///     service <see cref="Mostlylucid.BotDetection.UI.ViewComponents.Dashboard.SbUserAgentsListViewComponent"/>
+    ///     already calls when a range/audience is explicitly requested -- this just threads the
+    ///     dashboard's page window through it instead of the fixed <c>DashboardAggregateCache</c>
+    ///     snapshot the Stage-2a shell-model field previously read.
+    /// </summary>
+    internal static async Task<IReadOnlyList<Models.DashboardUserAgentSummary>> FetchUserAgentsRawAsync(
+        Services.DashboardUserAgentAggregator aggregator,
+        DateTime? startTime, DateTime? endTime, CancellationToken ct = default)
+        => await aggregator.ComputeAsync(audienceFilter: "all", startTime, endTime);
 }
