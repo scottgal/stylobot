@@ -11,6 +11,30 @@ public enum EndpointOwner
 }
 
 /// <summary>
+///     MODE bucket for the endpoints list filter (Si2 endpoint-IA unification).
+///     Purely a path/method shape classification -- <see cref="Models.DashboardEndpointStats"/>
+///     is aggregated by (method, path) and carries no per-request transport signal
+///     (the composite browser-mode taxonomy -- navigation/xhr/sub-resource/
+///     signalr-negotiate/websocket-upgrade -- lives on fingerprints/sessions via
+///     IdentityBrowserMode, not on endpoint aggregates), so SignalR and raw
+///     WebSocket endpoints are not distinguishable at this read layer and both
+///     collapse into <see cref="Realtime"/>.
+/// </summary>
+public enum EndpointMode
+{
+    /// <summary>Human page view: GET/HEAD, upstream, non-API, non-static.</summary>
+    Content,
+    /// <summary>API/machine endpoint (see <see cref="EndpointClassifier.IsApiPath"/>).</summary>
+    Api,
+    /// <summary>Static asset by extension.</summary>
+    Static,
+    /// <summary>SignalR hub / negotiate / WebSocket upgrade path.</summary>
+    Realtime,
+    /// <summary>Everything else (e.g. non-GET form submits against a non-API path).</summary>
+    Other,
+}
+
+/// <summary>
 ///     Read-time classification of dashboard endpoint rows by owner (StyloBot vs
 ///     upstream) and kind (content page vs API vs static asset).
 ///     <para>
@@ -150,4 +174,45 @@ public static class EndpointClassifier
         => (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
             || string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
            && IsUpstreamContent(path, basePath, navBasePath);
+
+    /// <summary>
+    ///     Classify a (method, path) endpoint-list row into an <see cref="EndpointMode"/>
+    ///     bucket for the MODE filter chip. Order matters: static/realtime are checked
+    ///     ahead of API/content because a hub path or an asset extension can otherwise
+    ///     also look API- or version-prefixed shaped.
+    /// </summary>
+    public static EndpointMode ClassifyMode(string? method, string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return EndpointMode.Other;
+        if (IsStaticResource(path)) return EndpointMode.Static;
+        if (IsRealtimePath(path)) return EndpointMode.Realtime;
+        if (IsApiPath(path)) return EndpointMode.Api;
+        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
+            return EndpointMode.Content;
+        return EndpointMode.Other;
+    }
+
+    // SignalR's own hub route ("/hub", "/stylobot/hub", …) and its "/negotiate"
+    // sub-route are the one path convention ASP.NET Core SignalR guarantees
+    // regardless of which transport (WebSockets, SSE, long-polling) the client
+    // ultimately negotiates -- so matching on "hub"/"negotiate" catches SignalR
+    // traffic without needing the live transport. A raw (non-SignalR) WebSocket
+    // endpoint has no such convention; "/ws" and "/websocket" are the common
+    // host-app naming patterns this heuristic also catches.
+    private static bool IsRealtimePath(string path) =>
+        path.Contains("/hub", StringComparison.OrdinalIgnoreCase)
+        || path.Contains("negotiate", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith("/ws", StringComparison.OrdinalIgnoreCase)
+        || path.Contains("/websocket", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Lowercase URL-filter token for an <see cref="EndpointMode"/> (the <c>?mode=</c> value).</summary>
+    public static string ModeToken(EndpointMode mode) => mode switch
+    {
+        EndpointMode.Content => "content",
+        EndpointMode.Api => "api",
+        EndpointMode.Static => "static",
+        EndpointMode.Realtime => "realtime",
+        _ => "other",
+    };
 }

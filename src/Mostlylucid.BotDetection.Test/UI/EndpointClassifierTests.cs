@@ -82,4 +82,40 @@ public class EndpointClassifierTests
         EndpointClassifier.Classify(null, BasePath).Should().Be(EndpointOwner.Upstream);
         EndpointClassifier.IsUpstreamContent("", BasePath).Should().BeFalse();
     }
+
+    // MODE filter (Si2 endpoint-IA unification): the endpoint list's MODE chip
+    // classifies each (method,path) aggregate row into one of five buckets purely
+    // from the path/method shape -- the aggregate carries no per-request transport
+    // signal (IdentityBrowserMode lives on fingerprints/sessions, not endpoint
+    // rows), so this is a path heuristic, not the composite-browser-mode taxonomy.
+    [Theory]
+    [InlineData("GET", "/pricing", EndpointMode.Content)]
+    [InlineData("HEAD", "/", EndpointMode.Content)]
+    [InlineData("POST", "/pricing", EndpointMode.Other)]       // form submit: not a page, not API-shaped
+    [InlineData("GET", "/api/v1/status", EndpointMode.Api)]
+    [InlineData("POST", "/api/v1/status", EndpointMode.Api)]
+    [InlineData("GET", "/v1/logs", EndpointMode.Api)]
+    [InlineData("GET", "/site.js", EndpointMode.Static)]
+    [InlineData("GET", "/img/logo.png", EndpointMode.Static)]
+    [InlineData("GET", "/stylobot/hub", EndpointMode.Realtime)]
+    [InlineData("POST", "/stylobot/hub/negotiate", EndpointMode.Realtime)]
+    [InlineData("GET", "/app/hub", EndpointMode.Realtime)]
+    public void ClassifyMode_buckets_by_path_shape(string method, string path, EndpointMode expected)
+        => EndpointClassifier.ClassifyMode(method, path).Should().Be(expected);
+
+    [Fact]
+    public void ClassifyMode_null_or_empty_path_is_other()
+    {
+        EndpointClassifier.ClassifyMode("GET", null).Should().Be(EndpointMode.Other);
+        EndpointClassifier.ClassifyMode("GET", "").Should().Be(EndpointMode.Other);
+    }
+
+    [Theory]
+    [InlineData(EndpointMode.Content, "content")]
+    [InlineData(EndpointMode.Api, "api")]
+    [InlineData(EndpointMode.Static, "static")]
+    [InlineData(EndpointMode.Realtime, "realtime")]
+    [InlineData(EndpointMode.Other, "other")]
+    public void ModeToken_round_trips_to_lowercase_url_token(EndpointMode mode, string token)
+        => EndpointClassifier.ModeToken(mode).Should().Be(token);
 }
