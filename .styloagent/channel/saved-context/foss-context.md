@@ -7,6 +7,11 @@ metadata:
 
 # foss- saved context (2026-07-24, re-engaged)
 
+## CURRENT STATE (2026-07-25, later update)
+- #1 posture fix (Internal-exclude-by-default + "Show self-probe" toggle) BUILT + independently verified on both repos, HELD for sign-off (not pushed): FOSS `foss-internal-filter-posture` (worktree `stylobot-internal-filter`, commit `58b2f84b`, build clean, 4604/4610 tests passing x3 runs); commercial `commercial-internal-filter-posture` (worktree `stylobot-commercial-internal-filter`, commit `e8e641df`, `Stylobot.Commercial.Persistence.Postgres` builds clean standalone, predicate logic traced+confirmed by hand).
+- Found + filed a REAL environmental blocker (not caused by either batch): `Stylobot.Website.csproj` hardcodes FOSS project refs to the ONE shared checkout at `/Users/scottgalloway/RiderProjects/stylobot`, which is 22 commits behind FOSS main and missing `DashboardMaterializerCoordinator.MarkDirtyAsync` — breaks `Stylobot.Website.sln` builds for ANY commercial worktree until the shared checkout catches up or the refs change. Filed `local-commercial-repo-builds-broken-stylobotwebs`. Did NOT touch the shared checkout (has uncommitted local changes, not my call).
+- Two batches now held awaiting sign-off: `foss-window-threading` (period/cache/spinner/nav, 6 commits) + `foss-internal-filter-posture`/`commercial-internal-filter-posture` (this one). Neither pushed.
+
 ## CURRENT STATE (2026-07-24, later update)
 - overview- confirmed (a): extend window-threading batch to ViewComponents — already done, matches what was built (see below, unchanged).
 - Endpoint list-vs-detail #1 (Internal posture): operator decided MAKE IT A FILTER — default-exclude Internal everywhere (compose + direct reads agree), add a "Show self-probe" toggle to the endpoint control. Launched as a NEW build across both repos: commercial branch `commercial-internal-filter-posture` (worktree `stylobot-commercial-internal-filter`, off commercial main `31de9ffa`) + FOSS branch `foss-internal-filter-posture` (worktree `stylobot-internal-filter`, off FOSS main `937674c4`). In flight, not yet reviewed.
