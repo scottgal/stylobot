@@ -1,13 +1,71 @@
 ---
 name: foss-session-2026-07-23-llamasharp-fix-shipped
-description: Stage 2a done+pushed (4 commits now, foss-dashboard-shingle-cache-stage2). First Stage 2b slice also landed: DashboardMaterializerCoordinator.MarkDirtyAsync(pageKey) (commit 24e0f086) — out-of-band force-rewarm hook unblocking mae-'s GatewayHubInvalidationClient fully (5 page keys cover all 9 rows: dashboard.traffic bundles Summary/Countries/Endpoints/UserAgents/Visitors; Clusters/TopBots/Sessions/Threats have their own). TDD caught+fixed a real concurrency race (double-compute between MarkDirtyAsync and the tick loop) via a new in-flight-warm dedup. Independently re-verified, re-ran concurrency test 3x, no flakiness. Rest of Stage 2b (per-widget cadence/adaptive controller) not started. Awaiting overview-'s call on the Stage 2a fallback-fidelity question (flagged, not decided unilaterally).
+description: STAGE 2 (2a+2b) FULLY LANDED on foss-dashboard-shingle-cache-stage2 @ 3b5eb669 (6 commits, pushed, off FOSS main 3cb94d80). overview- ACCEPTED the Stage 2a fallback deviation (narrow, tested, honors the warm-path rule). Stage 2b built: freshness-class-per-page-key with a proven MIN-cadence invariant (dashboard.traffic never collapses to the slow Aggregate cadence because its top-bots widget backs the Live-class Visitors row), LFU-hotness scaling, measured-cost-vs-budget adaptive controller (EMA-smoothed, floor 1.0). Independently re-verified at every stage (forced clean rebuilds, dashboard-suite green modulo one long-standing pre-existing flake, concurrency tests re-run multiple times). Handed to deploy-/bench- for the FULL-PAGE sustained-concurrent-load measure — the actual merge gate. mae- fully unblocked and synced on final field names.
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
 
-## Stage 2a — DONE, verified, pushed. Stage 2b not started.
+## Stage 2 (2a+2b) FULLY LANDED — handed to deploy-/bench- for the merge-gate measure
+overview- accepted the Stage 2a fallback deviation as-is (reasoning: "no exceptions" targets the WARM
+path specifically; the fallback never fires warm, only on null/degraded bundle or non-default window,
+and it preserves a real regression test guarding a documented past incident — honors the spirit).
+Instructed to proceed straight into 2b without a 2a-only measure ("operator go = momentum").
+
+**Stage 2b built** (commits `c8543c25`/`3b5eb669`, `foss-dashboard-shingle-cache-stage2` now at 6
+commits total, pushed):
+- New `DashboardRowFreshness`: explicit widget-key → {Aggregate, Live} map (genuinely new structured
+  data, didn't exist before) + `ClassesTouchedBy(manifest)`, generically unioning a page key's
+  `WidgetKeys` — NOT a hardcoded per-key special case. `top-bots` (the widget key `dashboard.traffic`
+  bundles) is classified Live because Stage 2a's `ResolveVisitorsRawAsync` literally reuses it as the
+  Visitors row's data source — this is the concrete, structural reason `dashboard.traffic` can never
+  collapse onto the slow Aggregate cadence. Unknown widget key fails safe to Live, never Aggregate.
+- New `DashboardRefreshCadence.ComputeEffectiveIntervalSeconds`: MIN-over-touched-classes (the named
+  invariant) → LFU-hotness harmonic decay (`1/(1+accessCount)`, cold=full base, hot→floor) → adaptive
+  scale (`max(1.0, factor)`, multiplicative, never speeds up) → `GlobalMinIntervalSeconds` floor,
+  unconditional and last. **Invariant proven by name**: `SharedEntry_TouchingBothFreshnessClasses_
+  UsesTheFasterIntervalNeverTheSlower` — isolates the invariant by holding hotness/adaptive at neutral
+  values so only the classes-touched axis can explain the result. I read this test myself, it's tight.
+- New `DashboardMaterializerAdaptiveController`: EMA-smoothed measured tick-cost (α=0.3, avoids
+  single-spike overreaction) vs `RefreshCostBudgetMs` budget → scale factor, floored at 1.0. Tested for
+  escalation, sustained escalation, relaxation, spike-dampening.
+- Wired into `MaterializeTickAsync`: both Tier1 (pinned) and Tier2 (LFU-ranked) now gate on
+  `IsDueForWarm` before queuing — "pinned" now means "never displaced by budget," not "immune to
+  cadence." Real wall-clock cost measured via `Stopwatch`, fed to the adaptive controller once per tick
+  (via try/finally, including 0-cost quiet ticks that drive relaxation). `_lastWarmedAt` shared between
+  the tick loop and `MarkDirtyAsync` so a forced warm also resets that key's due-time clock.
+- New `DashboardMaterializerOptions` fields: `GlobalMinIntervalSeconds`(60)/`AggregateBaseIntervalSeconds`
+  (300)/`LiveBaseIntervalSeconds`(60)/`RefreshCostBudgetMs`(4000, placeholder — half of the existing
+  `MaxTickDurationMs` 8000ms ceiling, needs bench-'s real baseline)/`AdaptiveCostSmoothingAlpha`(0.3, a
+  5th field beyond the original ask, needed once the EMA required a smoothing constant).
+
+**Verification** (independent, at every stage — not just trusting subagent reports): forced clean
+rebuilds (`--no-incremental`) after both 2a and 2b, dashboard-scoped suite 428/429 both times (the
+single failure is the same long-standing pre-existing `DashboardLinkIntegrityTests` flake that's
+appeared throughout this ENTIRE session), re-ran the concurrency-sensitive cadence/MarkDirty tests
+multiple times each with zero flakiness. One test-suite note investigated (not ignored): 2 unrelated
+`LearningFeedbackLoopTests` failures in a different project (`Orchestration.Tests`), root-caused to an
+`OptionsValidationException` about `BotDetection:DatabasePath` in `SignatureCoordinator` — zero
+references to anything this branch touches, plus some pre-existing cold-load/timing flakiness observed
+identically on both baseline and branch.
+
+**Handed off**: mae- sent the final field names (nothing changes on her end, already fully wired).
+deploy- asked to pair FOSS `foss-dashboard-shingle-cache-stage2`@`3b5eb669` with commercial
+`dashboard-shingle-cache-stage1-v2`@`2b8befcd` for a local rebuild — bench- measures the FULL PAGE
+under sustained concurrent load next, per overview-'s framing, this is the actual merge gate for the
+whole multi-stage effort.
+
+## Next step if resuming
+Watch for deploy-'s rebuild confirmation and bench-'s full-page load-test numbers. If it passes the
+gate: report to overview-, and the eventual merge to BOTH repos' origin/main will need a fresh, direct
+user confirmation (standing rule, not yet asked — do not assume prior approvals generalize). If it
+doesn't fully clear: that's real, useful data — don't guess at a next fix, trace it properly (same
+systematic-debugging discipline used throughout this whole effort). Separately, still queued after
+this gates: the dashboard display path-exclusion feature (concrete path list lives in the commercial
+checkpoint only) and the deprioritized live-apply round-trip integration test.
+
+## (historical) Stage 2a — DONE, verified, pushed.
 Widened `DashboardContentCache`/`DashboardMaterializerCoordinator` (previously Traffic-manifest-only)
 to cover 4 more rows via new dedicated manifests (`dashboard.clusters`/`topbots`/`sessions`/`threats`)
 — `DashboardContentKey`/`DashboardContentEnvelope` needed NO shape change, already fully generic.
