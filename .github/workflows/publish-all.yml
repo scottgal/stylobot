@@ -61,6 +61,8 @@ jobs:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'nuget-only'
     runs-on: ubuntu-latest
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - name: Checkout code
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -101,6 +103,8 @@ jobs:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'nuget-only'
     runs-on: ubuntu-latest
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - name: Checkout code
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -139,6 +143,8 @@ jobs:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'nuget-only'
     runs-on: ubuntu-latest
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - name: Checkout code
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -179,6 +185,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
@@ -207,6 +215,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
@@ -235,6 +245,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
@@ -260,6 +272,8 @@ jobs:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all'
     runs-on: ubuntu-latest
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
@@ -285,6 +299,8 @@ jobs:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all'
     runs-on: ubuntu-latest
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
@@ -316,6 +332,8 @@ jobs:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all'
     runs-on: ubuntu-latest
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
@@ -341,6 +359,8 @@ jobs:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all'
     runs-on: ubuntu-latest
+    env:
+      MinVerVersionOverride: ${{ needs.validate-version.outputs.version }}
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
