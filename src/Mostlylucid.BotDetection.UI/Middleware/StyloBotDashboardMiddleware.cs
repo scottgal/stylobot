@@ -7678,12 +7678,25 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        // Dashboard-wide domain scope (DI seam). The commercial impl sources the
+        // operator's server-side domain selection; the FOSS default returns null,
+        // so this consult is a no-op and the query["domain"] path is unchanged.
+        // A non-null seam result wins over the query param (the selector is the
+        // authoritative, page-level scope). This single point scopes EVERY
+        // batch-composed widget (they all read w.Domains).
+        var scopedDomains = context.RequestServices
+            .GetService<UI.Dashboard.IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
+        IReadOnlyList<string>? effectiveDomains =
+            scopedDomains is { Count: > 0 } ? scopedDomains
+            : domains.Length == 0 ? null : domains;
+
         return new DashboardPageWindow(
             StartTime: end.AddMinutes(-minutes),
             EndTime: end,
             AudienceFilter: "all",
             ProbMin: null,
-            Domains: domains.Length == 0 ? null : domains,
+            Domains: effectiveDomains,
             TopN: 500,
             BucketMinutes: (int)Dashboard.HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
     }

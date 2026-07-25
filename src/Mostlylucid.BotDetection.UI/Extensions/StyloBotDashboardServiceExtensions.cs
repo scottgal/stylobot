@@ -304,6 +304,13 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.Domains.PublicSuffixList>(
             _ => Mostlylucid.BotDetection.Domains.PublicSuffixList.LoadEmbedded());
         services.TryAddSingleton<Mostlylucid.BotDetection.Domains.DomainNormalizer>();
+        // Dashboard-wide domain scoping seam. FOSS default returns null (no filter =
+        // today's behavior). A commercial pack registers its own IDashboardDomainScope
+        // BEFORE this call (or replaces it) to source the operator's selected domain(s)
+        // from a server-side selector; the middleware page-window and the three
+        // list view-components thread its result into the store's `domains` filter.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Dashboard.IDashboardDomainScope,
+            Mostlylucid.BotDetection.UI.Dashboard.NullDashboardDomainScope>();
         // FOSS default: in-process log. Commercial SQLite / Postgres impls slot
         // in via TryAdd from their respective packs. Operators that want SQLite
         // durability on FOSS can replace this registration explicitly.

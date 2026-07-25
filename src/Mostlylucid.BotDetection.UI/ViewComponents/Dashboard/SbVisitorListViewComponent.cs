@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
@@ -51,6 +53,14 @@ public class SbVisitorListViewComponent(
             });
         }
 
+        // Dashboard-wide domain scope (DI seam). FOSS default returns null (no filter =
+        // today's behavior); a commercial impl supplies the operator's selected domains,
+        // threaded into the self-fetch fallback below. The composed path is already
+        // scoped upstream via the page window (BuildVisitorsPageWindow).
+        var scopedDomains = HttpContext.RequestServices?
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(HttpContext);
+
         IReadOnlyList<DashboardTopBotEntry> raw;
         if (pageResult?.BotAggregate is { } composedAggregate)
         {
@@ -64,7 +74,8 @@ public class SbVisitorListViewComponent(
                     count: MaxEntries,
                     startTime: start,
                     endTime: now,
-                    audienceFilter: "all");
+                    audienceFilter: "all",
+                    domains: scopedDomains);
             }
             catch
             {
@@ -90,7 +101,8 @@ public class SbVisitorListViewComponent(
         {
             var segmentCounts = await eventStore.GetVisitorSegmentCountsAsync(
                 start, now,
-                filter: filter, country: country, botType: botType, threat: threat);
+                filter: filter, country: country, botType: botType, threat: threat,
+                domains: scopedDomains);
             if (segmentCounts is not null)
                 accurateCounts = segmentCounts;
         }

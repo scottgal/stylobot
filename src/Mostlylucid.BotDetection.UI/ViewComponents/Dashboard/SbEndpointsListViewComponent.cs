@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
@@ -65,6 +67,14 @@ public class SbEndpointsListViewComponent(
         // always win over the composed snapshot, never be shadowed by it.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
 
+        // Dashboard-wide domain scope (DI seam). FOSS default returns null (no filter =
+        // today's behavior); a commercial impl supplies the operator's selected domains,
+        // threaded into the self-fetch store reads below. The composed path is already
+        // scoped upstream via the page window (BuildVisitorsPageWindow).
+        var scopedDomains = HttpContext?.RequestServices?
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(HttpContext);
+
         IReadOnlyList<DashboardEndpointStats> data;
         if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
@@ -72,7 +82,7 @@ public class SbEndpointsListViewComponent(
             // Must win over the warming/composed checks below -- a specific audience/window
             // request (including the "Show self-probe" -> "all_incl_internal" toggle) is asking
             // for a slice the composed snapshot can never satisfy, warming or not.
-            data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience);
+            data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience, scopedDomains);
         }
         else if (pageResult is { IsWarming: true })
         {
@@ -96,7 +106,7 @@ public class SbEndpointsListViewComponent(
         {
             // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
             var cached = aggregateCache.Current.Endpoints;
-            data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
+            data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500, domains: scopedDomains);
         }
         var basePath = options.Value.BasePath.TrimEnd('/');
         var navBasePath = string.IsNullOrEmpty(options.Value.NavBasePath)

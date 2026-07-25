@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
@@ -30,6 +32,14 @@ public class SbCountriesListViewComponent(
         // parameter-driven self-fetch so VCs rendered on non-composer pages still work.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
 
+        // Dashboard-wide domain scope (DI seam). FOSS default returns null (no filter =
+        // today's behavior); a commercial impl supplies the operator's selected domains,
+        // threaded into the self-fetch store reads below. The composed path is already
+        // scoped upstream via the page window (BuildVisitorsPageWindow).
+        var scopedDomains = HttpContext?.RequestServices?
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(HttpContext);
+
         // A genuine cold miss -- render the warming placeholder instead of falling through
         // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
         if (pageResult is { IsWarming: true })
@@ -49,13 +59,13 @@ public class SbCountriesListViewComponent(
         else if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
             // Parameter-driven: bypass cache, query store with the provided args.
-            data = await eventStore.GetCountryStatsAsync(500, startTime, endTime, audience);
+            data = await eventStore.GetCountryStatsAsync(500, startTime, endTime, audience, scopedDomains);
         }
         else
         {
             // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
             var cached = aggregateCache.Current.Countries;
-            data = cached.Count > 0 ? cached : await eventStore.GetCountryStatsAsync(500);
+            data = cached.Count > 0 ? cached : await eventStore.GetCountryStatsAsync(500, domains: scopedDomains);
         }
         IEnumerable<DashboardCountryStats> sorted = sort switch
         {

@@ -275,7 +275,16 @@ public sealed class SbWidgetBatchMiddleware
             .Select(v => v!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        IReadOnlyList<string>? domainsFilter = domains.Length > 0 ? domains : null;
+        // Dashboard-wide domain scope (DI seam) — keep the live HTMX widget refresh
+        // in lockstep with the SSR page window (BuildVisitorsPageWindow). FOSS default
+        // returns null (no-op), so the query["domain"] path is unchanged; a non-null
+        // seam result wins over the query param.
+        var scopedDomains = context.RequestServices
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
+        IReadOnlyList<string>? domainsFilter =
+            scopedDomains is { Count: > 0 } ? scopedDomains
+            : domains.Length > 0 ? domains : null;
 
         // Use the same bucket width the TrafficController uses for a comparable window.
         var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(windowToken);
