@@ -28,7 +28,8 @@
       "src/Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj",
       "src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj",
       "src/Stylobot.Ui/Stylobot.Ui.csproj",
-      "src/Stylobot.All/Stylobot.All.csproj"
+      "src/Stylobot.All/Stylobot.All.csproj",
+      "src/Stylobot.All.Tests/Stylobot.All.Tests.csproj"
     ]
   }
 }
