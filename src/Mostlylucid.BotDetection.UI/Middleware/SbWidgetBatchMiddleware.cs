@@ -253,11 +253,12 @@ public sealed class SbWidgetBatchMiddleware
 
     /// <summary>
     ///     Builds a <see cref="DashboardPageWindow"/> from the update request's
-    ///     query params (window, audience, domain). Mirrors how
-    ///     <c>TrafficController.Index</c> constructs its window so batch-updated
-    ///     widgets use the same data slice as the page they live on.
+    ///     query params (window, domain). Mirrors how <c>TrafficController.Index</c>
+    ///     constructs its window so batch-updated widgets use the same data slice as
+    ///     the page they live on -- including its hard-coded all-audience compose.
+    ///     Internal for regression coverage (SbTopBotsBatchPathDomainScopeTests).
     /// </summary>
-    private static DashboardPageWindow BuildBatchWindow(HttpContext context)
+    internal static DashboardPageWindow BuildBatchWindow(HttpContext context)
     {
         var q = context.Request.Query;
 
@@ -265,10 +266,6 @@ public sealed class SbWidgetBatchMiddleware
         var windowMinutes = ParseWindowToken(windowToken);
         var now = DateTime.UtcNow;
         var startTime = now.AddMinutes(-windowMinutes);
-
-        var audience = q["audience"].FirstOrDefault()?.Trim().ToLowerInvariant();
-        if (audience is not ("bots" or "humans"))
-            audience = null; // null = all
 
         var domains = q["domain"]
             .Where(v => !string.IsNullOrWhiteSpace(v))
@@ -289,10 +286,23 @@ public sealed class SbWidgetBatchMiddleware
         // Use the same bucket width the TrafficController uses for a comparable window.
         var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(windowToken);
 
+        // Compose the shared page bundle ALL-AUDIENCE, matching TrafficController /
+        // VisitorsController (both hard-code "all") and the tick materializer's pinned
+        // prewarm (DashboardMaterializerCoordinator uses "all"). This is load-bearing for
+        // the Top Bots header: its All/Bots/Humans/Internal chips and client-side audience
+        // switch need the FULL distribution, and GetTopBotsAsync maps a null audience to
+        // BOTS-ONLY (legacy back-compat) -- so composing null here produced a bots-only
+        // BotAggregate whose header read Humans=0/Internal=0, making a scoped all-audience
+        // self-fetch out-count it (scoped > unscoped). It also keyed the compose to a null
+        // audience while DashboardContentEnvelope normalizes null->"all", poisoning the shared
+        // "all" cache entry with bots-only rows. A targeted audience chip ("bots"/"humans"/
+        // "all_incl_internal") never reads this composed bundle anyway -- every render helper
+        // routes those through the store directly (see Render*Async above) -- so hard-coding
+        // "all" here only ever widens the composed set, never hides a requested slice.
         return new DashboardPageWindow(
             StartTime: startTime,
             EndTime: now,
-            AudienceFilter: audience,
+            AudienceFilter: "all",
             ProbMin: null,
             Domains: domainsFilter,
             TopN: 500,
@@ -536,9 +546,17 @@ public sealed class SbWidgetBatchMiddleware
         var searchQuery = q["q"].FirstOrDefault();
 
         // Use the composed BotAggregate slice when available (zero additional store calls).
+        // The composed bundle is now all-audience (BuildBatchWindow hard-codes "all"), so its
+        // BotAggregate carries the full distribution the header + client-side chips need.
         var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
         var composedBots = pageResult?.BotAggregate;
-        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery, composedBots);
+        // Dashboard-wide domain scope (DI seam): thread the selected domains into the
+        // self-fetch fallback (used when no composed bundle is present) so a scoped render
+        // subsets the store read instead of returning all-domain rows.
+        var scopedDomains = context.RequestServices
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
+        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery, composedBots, scopedDomains);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbTopBots/Default.cshtml", model, context);
     }
@@ -575,13 +593,16 @@ public sealed class SbWidgetBatchMiddleware
     private async Task<TopBotsListModel> BuildTopBotsModel(
         int page, int pageSize, string sortBy, string sortDir,
         string filter = "bots", string widgetId = "topbots", string? searchQuery = null,
-        IReadOnlyList<DashboardTopBotEntry>? composedBots = null)
+        IReadOnlyList<DashboardTopBotEntry>? composedBots = null,
+        IReadOnlyList<string>? domains = null)
     {
         // Use the composed BotAggregate when present (supplied by the compose-on-delta path).
         // Otherwise fall back to the read-through-event-store pattern so the widget renders
         // correctly even when the composer is not in use (e.g. non-batched direct requests).
-        // Unfiltered fetch so the All/Bots/Humans header counts reflect the full distribution
-        // -- audience switch is applied client-side.
+        // Unfiltered (audience="all") fetch so the All/Bots/Humans header counts reflect the
+        // full distribution -- audience switch is applied client-side. Domain scope is threaded
+        // so a scoped render subsets the store read (GetTopBotsWindowedAsync WHERE domain IN ...)
+        // and its header counts stay a true subset of the all-domain view.
         IReadOnlyList<DashboardTopBotEntry> raw;
         if (composedBots is not null)
         {
@@ -593,7 +614,8 @@ public sealed class SbWidgetBatchMiddleware
                 count: _signatureCache.MaxEntries,
                 startTime: DateTime.UtcNow.AddHours(-24),
                 endTime: DateTime.UtcNow,
-                audienceFilter: "all");
+                audienceFilter: "all",
+                domains: domains);
         }
         // Internal = network-trusted operator/self traffic (loopback / RFC1918 /
         // docker bridge -> BotType.Internal). Hidden from the All / Bots / Humans

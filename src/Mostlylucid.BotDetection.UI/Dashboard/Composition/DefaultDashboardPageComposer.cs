@@ -164,7 +164,7 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             try
             {
                 topBots = await DashboardRowRawFetchers.FetchTopBotsRawAsync(
-                    _store, _signatureCache?.MaxEntries ?? 500, w.StartTime, w.EndTime, ct);
+                    _store, _signatureCache?.MaxEntries ?? 500, w.StartTime, w.EndTime, w.Domains, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'topbots-raw' failed to compose."); }

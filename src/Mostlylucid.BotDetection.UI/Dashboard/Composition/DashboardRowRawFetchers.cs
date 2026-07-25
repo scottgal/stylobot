@@ -44,13 +44,15 @@ internal static class DashboardRowRawFetchers
     /// </summary>
     internal static async Task<IReadOnlyList<DashboardTopBotEntry>> FetchTopBotsRawAsync(
         IDashboardEventStore store, int maxEntries,
-        DateTime? startTime = null, DateTime? endTime = null, CancellationToken ct = default)
+        DateTime? startTime = null, DateTime? endTime = null,
+        IReadOnlyList<string>? domains = null, CancellationToken ct = default)
     {
         var raw = await store.GetTopBotsAsync(
             count: maxEntries,
             startTime: startTime ?? DateTime.UtcNow.AddHours(-24),
             endTime: endTime ?? DateTime.UtcNow,
-            audienceFilter: "all");
+            audienceFilter: "all",
+            domains: domains);
         return raw;
     }
 

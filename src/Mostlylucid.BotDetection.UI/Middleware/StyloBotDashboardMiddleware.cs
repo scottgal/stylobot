@@ -4870,7 +4870,7 @@ public class StyloBotDashboardMiddleware
         var widgetId = context.Request.Query["widgetId"].FirstOrDefault() ?? "topbots";
         var searchQuery = context.Request.Query["q"].FirstOrDefault();
 
-        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
+        var model = await BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery, context);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -5832,7 +5832,7 @@ public class StyloBotDashboardMiddleware
                 "endpoints" => await RenderEndpointPartialAsync(context, q),
                 "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", await BuildClustersModelAsync(context)),
                 "useragents" => await RenderUaPartialAsync(context, q),
-                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", await BuildTopBotsModelFromQuery(widgetId, q)),
+                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", await BuildTopBotsModelFromQuery(widgetId, q, context)),
                 "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml",
                     await BuildSessionsModel(context,
                         page: WidgetRenderHelpers.QueryPage(q),
@@ -7543,7 +7543,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         return true;
     }
 
-    private async Task<TopBotsListModel> BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
+    private async Task<TopBotsListModel> BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots", string? searchQuery = null, HttpContext? context = null)
     {
         // Read through the event store so the data path is the same whether we're on
         // a gateway host (SqliteDashboardEventStore / PostgreSQLDashboardEventStore
@@ -7558,8 +7558,16 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // (DefaultDashboardPageComposer) can warm the identical dataset out-of-request;
         // this HTMX-endpoint path (real page/sort/filter values from the query string) is
         // unchanged -- it still fetches fresh on every call, exactly as before.
+        //
+        // Dashboard-wide domain scope (DI seam): thread the operator's selected domains into
+        // the self-fetch so a domain-scoped render subsets the store read. Without it this
+        // partial read all-domain rows and its header counters exceeded the scoped view --
+        // the same "scoped > unscoped" impossibility fixed on the VC + batch paths.
+        var scopedDomains = context?.RequestServices?
+            .GetService<UI.Dashboard.IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
         var raw = await Dashboard.Composition.DashboardRowRawFetchers.FetchTopBotsRawAsync(
-            _eventStore, _signatureCache.MaxEntries, default);
+            _eventStore, _signatureCache.MaxEntries, domains: scopedDomains);
         return BuildTopBotsModelFromRaw(raw, page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
     }
 
@@ -7624,7 +7632,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     }
 
 
-    private Task<TopBotsListModel> BuildTopBotsModelFromQuery(string widgetId, IQueryCollection q)
+    private Task<TopBotsListModel> BuildTopBotsModelFromQuery(string widgetId, IQueryCollection q, HttpContext? context = null)
     {
         var sortBy = q["sort"].FirstOrDefault() ?? "default";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
@@ -7633,7 +7641,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var filter = q["filter"].FirstOrDefault() ?? "bots";
         var routeWidgetId = q["widgetId"].FirstOrDefault() ?? widgetId;
         var searchQuery = q["q"].FirstOrDefault();
-        return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, routeWidgetId, searchQuery);
+        return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, routeWidgetId, searchQuery, context);
     }
 
     /// <summary>
