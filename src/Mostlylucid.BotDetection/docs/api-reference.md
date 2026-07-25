@@ -20,6 +20,8 @@ Complete API reference for the `Mostlylucid.BotDetection` NuGet package.
 - [YARP Integration](#yarp-integration)
 - [Custom Detectors](#custom-detectors)
 - [Tag Helpers](#tag-helpers)
+- [IBotDetectionService](#ibotdetectionservice)
+- [Detection Policies](#detection-policies)
 
 ---
 
@@ -89,74 +91,66 @@ builder.Services.AddBotDetection();
 // With custom configuration
 builder.Services.AddBotDetection(options =>
 {
-    options.BotThreshold = 0.8;
+    options.Classification.BotFloor = 0.8;
     options.BlockDetectedBots = true;
 });
 ```
 
 ### AddBotDetection (IConfiguration overload)
 
-Bind from a non-standard configuration section.
+Bind from a non-standard configuration section by name (section name only, not a pre-sliced `IConfigurationSection`).
 
 ```csharp
 public static IServiceCollection AddBotDetection(
     this IServiceCollection services,
     IConfiguration configuration,
-    Action<BotDetectionOptions>? configure = null)
+    string sectionName = "BotDetection")
 ```
 
 ```csharp
 builder.Services.AddBotDetection(
-    builder.Configuration.GetSection("MyApp:Security:BotDetection"));
+    builder.Configuration, "MyApp:Security:BotDetection");
 ```
 
-### AddSimpleBotDetection
+### AddSimpleBotDetection / AddComprehensiveBotDetection / AddAdvancedBotDetection
 
-User-agent pattern matching only. Fastest option.
+Source-compatibility aliases kept so existing integrations (Gateway, Demo, tests, etc.) continue to compile. All three have the exact same signature and behaviour as `AddBotDetection(Action<BotDetectionOptions>?)` -- they do not enable or disable different detector sets, and `AddAdvancedBotDetection` does not take Ollama parameters. Prefer calling `AddBotDetection` directly; configure Ollama/LLM settings via `options.AiDetection` or `appsettings.json` on any of the three.
 
 ```csharp
 public static IServiceCollection AddSimpleBotDetection(
     this IServiceCollection services,
     Action<BotDetectionOptions>? configure = null)
-```
 
-Disables: header analysis, IP detection, behavioral analysis, LLM.
-
-### AddComprehensiveBotDetection
-
-All heuristic detectors, no LLM. **Recommended for most production apps.**
-
-```csharp
 public static IServiceCollection AddComprehensiveBotDetection(
     this IServiceCollection services,
     Action<BotDetectionOptions>? configure = null)
-```
 
-Enables: UA, headers, IP, behavioral. Disables: LLM.
-
-### AddAdvancedBotDetection
-
-Full pipeline including LLM escalation. Requires Ollama.
-
-```csharp
 public static IServiceCollection AddAdvancedBotDetection(
     this IServiceCollection services,
-    string ollamaEndpoint = "http://localhost:11434",
-    string model = "qwen2.5:1.5b",
     Action<BotDetectionOptions>? configure = null)
 ```
 
 ```csharp
-// Default Ollama
-builder.Services.AddAdvancedBotDetection();
-
-// Custom endpoint
-builder.Services.AddAdvancedBotDetection(
-    ollamaEndpoint: "http://ollama-server:11434",
-    model: "phi3:mini");
+// All three are equivalent to AddBotDetection(configure):
+builder.Services.AddAdvancedBotDetection(options =>
+{
+    options.EnableLlmDetection = true;
+    options.AiDetection.Ollama.Endpoint = "http://ollama-server:11434";
+    options.AiDetection.Ollama.Model = "phi3:mini";
+});
 ```
 
 Fail-safe: if Ollama is unavailable, detection continues with heuristics only.
+
+### AddBotDetectionInMemory
+
+Ephemeral mode for integration tests, CI, and the gateway "economy" flag: the full detection pipeline with zero SQLite files on disk. Identity, session learning, and weight learning silently degrade; per-request detection runs unchanged.
+
+```csharp
+public static IServiceCollection AddBotDetectionInMemory(
+    this IServiceCollection services,
+    Action<BotDetectionOptions>? configure = null)
+```
 
 ### ConfigureBotDetection
 
@@ -188,20 +182,13 @@ app.UseBotDetection();
 app.UseAuthorization();
 ```
 
-The middleware stores results in `HttpContext.Items` using these keys:
+The middleware stores exactly one key in `HttpContext.Items`:
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `BotDetectionResult` | `BotDetectionResult` | Full detection result |
-| `BotDetection.AggregatedEvidence` | `AggregatedEvidence` | Full orchestrator evidence |
-| `BotDetection.IsBot` | `bool` | Bot classification |
-| `BotDetection.Confidence` | `double` | Confidence score (0.0-1.0) |
-| `BotDetection.BotType` | `BotType?` | Detected bot type |
-| `BotDetection.BotName` | `string?` | Bot name if known |
-| `BotDetection.Category` | `string?` | Primary detection category |
-| `BotDetection.Reasons` | `IReadOnlyList<DetectionReason>` | All detection reasons |
-| `BotDetection.PolicyName` | `string` | Policy used |
-| `BotDetection.PolicyAction` | `DetectionPolicyAction?` | Action taken |
+| `BotDetection.AggregatedEvidence` | `AggregatedEvidence` | Full orchestrator evidence for the request |
+
+Everything else -- `IsBot`, confidence, bot type/name, category, reasons, policy name/action -- is *not* stored under a separate `Items` key. It's computed on demand from that one `AggregatedEvidence` (or derived/cached lazily) by the `HttpContext` extension methods below (`GetBotDetectionResult()`, `IsBot()`, `GetBotType()`, `GetBotCategory()`, `GetDetectionReasons()`, etc.). Always go through the extension methods rather than reading `HttpContext.Items` directly.
 
 ---
 
@@ -307,6 +294,87 @@ int? GetBrowserIntegrityScore(this HttpContext context)
 double? GetHeadlessLikelihood(this HttpContext context)
 ```
 
+### Signal Access
+
+Raw access to every signal the pipeline collected, keyed by the constants on `SignalKeys`.
+
+```csharp
+// Full AggregatedEvidence from the pipeline. Null if detection hasn't run.
+AggregatedEvidence? GetAggregatedEvidence(this HttpContext context)
+
+// All detection signals as a read-only dictionary.
+IReadOnlyDictionary<string, object> GetSignals(this HttpContext context)
+
+// Typed lookup of a single signal by key. Returns default(T) if missing or unconvertible.
+T? GetSignal<T>(this HttpContext context, string signalKey)
+
+// Whether a specific signal was raised.
+bool HasSignal(this HttpContext context, string signalKey)
+```
+
+```csharp
+var isVpn = context.GetSignal<bool>(SignalKeys.GeoIsVpn);
+var country = context.GetSignal<string>(SignalKeys.GeoCountryCode);
+```
+
+### Threat Scoring
+
+Orthogonal to bot probability -- measures malicious *intent*, not bot identity. A human probing `.env` files has low bot probability but high threat score.
+
+```csharp
+// Unified threat score (0.0 = benign, 1.0 = malicious).
+double GetThreatScore(this HttpContext context)
+
+// Threat band: None, Low, Elevated, High, Critical.
+ThreatBand GetThreatBand(this HttpContext context)
+
+// True when ThreatBand >= High, or BotProbability >= 0.5 and ThreatBand >= Elevated.
+bool IsMalicious(this HttpContext context)
+```
+
+### Geographic / Network
+
+Populated when a geo/network detector (e.g. `IpAtom`) contributed to the request. Return safe defaults (`null`/`false`/`0.0`) when no signal is present.
+
+```csharp
+// ISO 3166-1 alpha-2 country code, or null.
+string? GetCountryCode(this HttpContext context)
+
+// VPN / proxy / Tor / datacenter (hosting provider) origin.
+bool IsVpn(this HttpContext context)
+bool IsProxy(this HttpContext context)
+bool IsTor(this HttpContext context)
+bool IsDatacenter(this HttpContext context)
+
+// Historical bot rate (0.0-1.0) for the request's country of origin.
+double GetCountryBotRate(this HttpContext context)
+```
+
+### API Key / Impersonation
+
+For requests authenticated with a rich API key (see `ApiKeyConfig`).
+
+```csharp
+// API key context for the current request, if a rich key was validated.
+ApiKeyContext? GetApiKeyContext(this HttpContext context)
+
+// True if the request has a valid API key (rich or legacy bypass).
+bool HasApiKey(this HttpContext context)
+
+// Impersonation target (primary_signature to pin detection identity to), or null.
+// Honoured only when the key has AllowImpersonation set; the "X-SB-Impersonate"
+// header wins, falling back to the key's bound identity.
+string? GetImpersonationTarget(this HttpContext context)
+
+// True when the current request is impersonating a target identity.
+bool IsImpersonating(this HttpContext context)
+
+// True when the request's API key (or active impersonation) suppresses
+// learning writes -- detection still runs, but reputation/weight updates
+// are skipped so debug/impersonated traffic can't poison the model.
+bool IsLearningSuppressedByApiKey(this HttpContext context)
+```
+
 ---
 
 ## Endpoint Filters (Minimal API)
@@ -315,15 +383,28 @@ double? GetHeadlessLikelihood(this HttpContext context)
 
 ### BlockBots
 
-Block bots from accessing an endpoint.
+Block bots from accessing an endpoint. By default blocks ALL bots -- use the `allow*` parameters to whitelist specific types and the `block*`/geo parameters to add geographic or network restrictions.
 
 ```csharp
 public static RouteHandlerBuilder BlockBots(
     this RouteHandlerBuilder builder,
     bool allowVerifiedBots = false,
     bool allowSearchEngines = false,
+    bool allowSocialMediaBots = false,
+    bool allowMonitoringBots = false,
+    bool allowAiBots = false,
+    bool allowGoodBots = false,
+    bool allowScrapers = false,
+    bool allowMaliciousBots = false,
+    bool allowTools = false,
     double minConfidence = 0.0,
-    int statusCode = 403)
+    int statusCode = 403,
+    string? blockCountries = null,
+    string? allowCountries = null,
+    bool blockVpn = false,
+    bool blockProxy = false,
+    bool blockDatacenter = false,
+    bool blockTor = false)
 ```
 
 ```csharp
@@ -332,6 +413,9 @@ app.MapGet("/api/data", () => "sensitive")
 
 app.MapGet("/api/public", () => "ok")
     .BlockBots(allowSearchEngines: true, minConfidence: 0.8);
+
+app.MapGet("/api/restricted", () => "data")
+    .BlockBots(blockCountries: "CN,RU", blockVpn: true);
 ```
 
 ### RequireHuman
@@ -355,7 +439,7 @@ app.MapPost("/api/submit", () => "submitted")
 
 ### MapBotDetectionEndpoints
 
-Maps three diagnostic endpoints under a configurable prefix.
+Maps four diagnostic endpoints under a configurable prefix, plus the PoW challenge-verification endpoints via `endpoints.MapChallengeEndpoints()`.
 
 ```csharp
 public static IEndpointRouteBuilder MapBotDetectionEndpoints(
@@ -447,6 +531,30 @@ Health check endpoint.
   "averageResponseMs": 0.83
 }
 ```
+
+#### `POST /bot-detection/feedback`
+
+Submit detection feedback (false positive/negative) for logging.
+
+```json
+// Request body
+{
+  "outcome": "Human",
+  "requestId": "abc123",
+  "notes": "Flagged wrongly for missing Accept-Language"
+}
+```
+
+```json
+// Response
+{
+  "accepted": true,
+  "outcome": "Human",
+  "requestId": "abc123"
+}
+```
+
+`outcome` must be `"Human"` or `"Bot"`. `notes` is capped at 500 characters, `requestId` at 128.
 
 ---
 
@@ -588,7 +696,10 @@ Configuration binds from `appsettings.json` section `"BotDetection"`.
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.7,
+    "Classification": {
+      "HumanCeiling": 0.30,
+      "BotFloor": 0.70
+    },
     "SignatureHashKey": "base64-encoded-hmac-key",
     "EnableTestMode": false,
 
@@ -638,7 +749,8 @@ Configuration binds from `appsettings.json` section `"BotDetection"`.
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `BotThreshold` | `double` | `0.7` | Confidence threshold for bot classification (0.0-1.0) |
+| `Classification.HumanCeiling` | `double` | `0.30` | `bot_probability < HumanCeiling` ⇒ Human |
+| `Classification.BotFloor` | `double` | `0.70` | `bot_probability >= BotFloor` ⇒ Bot; the single "is a bot" cut used everywhere, including `IsBot()`. Replaces the obsolete `BotThreshold` property, which is no longer read by classification. |
 | `SignatureHashKey` | `string?` | auto-generated | Base64 HMAC key for zero-PII signatures |
 | `EnableTestMode` | `bool` | `false` | Allow `ml-bot-test-mode` header overrides (dev only) |
 | `EnableUserAgentDetection` | `bool` | `true` | UA pattern matching |
@@ -654,10 +766,9 @@ Configuration binds from `appsettings.json` section `"BotDetection"`.
 | `AllowMonitoringBots` | `bool` | `true` | Allow UptimeRobot, Pingdom |
 | `MaxRequestsPerMinute` | `int` | `60` | Behavioral rate limit per IP |
 | `CacheDurationSeconds` | `int` | `300` | Detection result cache TTL |
-| `DefaultActionPolicyName` | `string?` | `null` | Default action policy for all requests |
+| `DefaultActionPolicyName` | `string?` | `"throttle-stealth"` | Default action policy when detection triggers blocking and no per-`BotType` entry in `BotTypeActionPolicies` matches |
 | `ResponsePiiMasking` | `ResponsePiiMaskingOptions` | defaults | Response mutation settings for `mask-pii`/`strip-pii` (disabled by default) |
-| `StorageProvider` | `StorageProvider` | `Sqlite` | Storage backend (Sqlite or PostgreSQL) |
-| `PostgreSQLConnectionString` | `string?` | `null` | Auto-enables PostgreSQL when set |
+| `StorageProvider` | `StorageProvider` | `Sqlite` | Storage backend for bot patterns and IP ranges: `Sqlite` or `Json`. PostgreSQL persistence is a commercial (non-FOSS) feature and is not configured through this enum. |
 
 #### AI Detection Settings
 
@@ -708,7 +819,7 @@ public class BotDetectionResult
     public List<DetectionReason> Reasons { get; set; }
     public BotType? BotType { get; set; }
     public string? BotName { get; set; }
-    public long ProcessingTimeMs { get; set; }
+    public double ProcessingTimeMs { get; set; }         // Fractional; Stopwatch.Elapsed.TotalMilliseconds
 }
 ```
 
@@ -725,28 +836,45 @@ public class DetectionReason
 
 ### AggregatedEvidence
 
-Full orchestrator output, available from `HttpContext.Items["BotDetection.AggregatedEvidence"]`.
+Full orchestrator output. Prefer `context.GetAggregatedEvidence()` over reading `HttpContext.Items["BotDetection.AggregatedEvidence"]` directly.
 
 ```csharp
 public sealed record AggregatedEvidence
 {
+    public DetectionLedger? Ledger { get; init; }                  // Underlying ledger (source of truth)
     public required double BotProbability { get; init; }          // 0.0=human, 1.0=bot
     public required double Confidence { get; init; }              // Classification certainty
     public required RiskBand RiskBand { get; init; }
+    public string RiskJustification { get; init; }
     public BotType? PrimaryBotType { get; init; }
     public string? PrimaryBotName { get; init; }
     public bool EarlyExit { get; init; }
     public EarlyExitVerdict? EarlyExitVerdict { get; init; }
     public bool AiRan { get; init; }
+    public double ThreatScore { get; init; }                      // 0.0=benign, 1.0=malicious; orthogonal to BotProbability
+    public ThreatBand ThreatBand { get; init; }
     public double TotalProcessingTimeMs { get; init; }
     public IReadOnlySet<string> ContributingDetectors { get; init; }
     public IReadOnlySet<string> FailedDetectors { get; init; }
     public IReadOnlyDictionary<string, object> Signals { get; init; }
     public IReadOnlyDictionary<string, CategoryScore> CategoryBreakdown { get; init; }
-    public IReadOnlyList<DetectionContribution> Contributions { get; init; }
+    public IReadOnlyList<DetectionContribution> Contributions { get; }  // Computed from Ledger, read-only
     public string? PolicyName { get; init; }
     public DetectionPolicyAction? PolicyAction { get; init; }
     public string? TriggeredActionPolicyName { get; init; }
+}
+```
+
+### ThreatBand
+
+```csharp
+public enum ThreatBand
+{
+    None,       // 0.0 - 0.15
+    Low,        // 0.15 - 0.35
+    Elevated,   // 0.35 - 0.55
+    High,       // 0.55 - 0.80
+    Critical    // 0.80 - 1.0
 }
 ```
 
@@ -763,7 +891,11 @@ public enum BotType
     MaliciousBot,       // Attack tools (sqlmap, etc.)
     GoodBot,            // Benign automation
     VerifiedBot,        // DNS-verified good bot
-    AiBot               // GPTBot, ClaudeBot, etc.
+    AiBot,              // GPTBot, ClaudeBot, etc.
+    Tool,               // Legitimate CLI/dev tools (curl, Postman, etc.)
+    ExploitScanner,     // Vulnerability/CVE scanners
+    ClickFraud,         // Ad-fraud click bots
+    Internal            // Loopback/RFC1918/docker-bridge traffic the operator owns
 }
 ```
 
@@ -1020,9 +1152,9 @@ builder.Services.AddReverseProxy()
 
 ## Custom Detectors
 
-**Namespace:** `Mostlylucid.BotDetection.Orchestration`
+**Namespace:** `Mostlylucid.Ephemeral.Atoms.Taxonomy.Atoms` (interface/base class, external package) and `Mostlylucid.BotDetection.Orchestration.Atoms` (registration extension)
 
-Implement `IDetectorAtom` to create custom detectors.
+Detectors are `IDetectorAtom` implementations from the `Mostlylucid.Ephemeral.Atoms.Taxonomy` package -- the same interface every built-in detector (`HeaderAtom`, `UserAgentAtom`, `IpAtom`, etc., under `Orchestration/Atoms/`) implements. There is no `BlackboardState`/`ContributeAsync` shape in the current codebase; that was a legacy contract removed in favour of atoms reading/writing a `SignalSink` directly.
 
 ### IDetectorAtom Interface
 
@@ -1030,122 +1162,110 @@ Implement `IDetectorAtom` to create custom detectors.
 public interface IDetectorAtom
 {
     string Name { get; }
-    int Priority => 100;                    // Lower = runs first
-    bool IsEnabled => true;
-    TimeSpan TriggerTimeout => TimeSpan.FromMilliseconds(500);
-    TimeSpan ExecutionTimeout => TimeSpan.FromSeconds(2);
-    bool IsOptional => true;
-    IReadOnlyList<TriggerCondition> TriggerConditions => [];
+    string Category { get; }
+    int Priority { get; }
+    bool IsEnabled { get; }
+    TimeSpan Timeout { get; }
+    bool IsOptional { get; }
+    IReadOnlyList<string> RequiredSignals { get; }
 
-    Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
-        BlackboardState state,
-        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DetectionContribution>> DetectAsync(
+        SignalSink sink,
+        string sessionId,
+        CancellationToken ct = default);
 }
 ```
 
 ### DetectorAtomBase
 
-Abstract base class with helpers.
+Abstract base class with helpers. `RequiredSignals` gates *when* the orchestrator schedules the atom (which wave); an empty list means it can run in the first wave.
 
 ```csharp
 public abstract class DetectorAtomBase : IDetectorAtom
 {
-    // Implement these:
-    public abstract string Name { get; }
-    public abstract Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
-        BlackboardState state, CancellationToken cancellationToken = default);
+    protected DetectorAtomBase(string name, string category);
+
+    public string Name { get; }
+    public string Category { get; }
+    public virtual int Priority => 50;
+    public virtual bool IsEnabled => true;
+    public virtual TimeSpan Timeout => TimeSpan.FromSeconds(2);
+    public virtual bool IsOptional => false;
+    public virtual IReadOnlyList<string> RequiredSignals => Array.Empty<string>();
+
+    public abstract Task<IReadOnlyList<DetectionContribution>> DetectAsync(
+        SignalSink sink, string sessionId, CancellationToken ct = default);
 
     // Helpers:
-    protected static IReadOnlyList<DetectionContribution> Single(DetectionContribution c);
-    protected static IReadOnlyList<DetectionContribution> Multiple(params DetectionContribution[] c);
-    protected static IReadOnlyList<DetectionContribution> None();
+    protected IReadOnlyList<DetectionContribution> Single(DetectionContribution c);
+    protected IReadOnlyList<DetectionContribution> Multiple(params DetectionContribution[] c);
+    protected IReadOnlyList<DetectionContribution> None();
+    protected DetectionContribution Bot(double confidence, string reason, double weight = 1.0, string? botType = null, string? botName = null, Dictionary<string, object>? signals = null);
+    protected DetectionContribution Human(double confidence, string reason, double weight = 1.0, Dictionary<string, object>? signals = null);
+    protected bool HasSignal(SignalSink sink, string pattern);
+    protected IReadOnlyList<SignalEvent> GetSignals(SignalSink sink, string pattern);
 }
 ```
 
-### BlackboardState
-
-Request context provided to detectors. Contains signals from other detectors and the raw HttpContext.
+### DetectionContribution
 
 ```csharp
-public sealed class BlackboardState
+public sealed record DetectionContribution
 {
-    public required HttpContext HttpContext { get; init; }
-    public required IReadOnlyDictionary<string, object> Signals { get; init; }
-    public double CurrentRiskScore { get; init; }
-    public required IReadOnlySet<string> CompletedDetectors { get; init; }
-    public required IReadOnlySet<string> FailedDetectors { get; init; }
-    public required IReadOnlyList<DetectionContribution> Contributions { get; init; }
-    public required string RequestId { get; init; }
-    public TimeSpan Elapsed { get; init; }
+    public string DetectorName { get; init; } = string.Empty;
+    public string Category { get; init; } = string.Empty;
+    public double ConfidenceDelta { get; init; }   // Positive = more bot-like, negative = more human-like
+    public double Weight { get; init; } = 1.0;
+    public string Reason { get; init; } = string.Empty;
+    public string? BotType { get; init; }
+    public string? BotName { get; init; }
+    public IReadOnlyDictionary<string, object> Signals { get; init; }
 
-    // PII access (in-memory only, never persisted)
-    public string UserAgent { get; }
-    public string? ClientIp { get; }
-    public string Path { get; }
-
-    public T? GetSignal<T>(string key);
-    public bool HasSignal(string key);
+    public static DetectionContribution Bot(string detectorName, string category, double confidence, string reason, double weight = 1.0, string? botType = null, string? botName = null, Dictionary<string, object>? signals = null);
+    public static DetectionContribution Human(string detectorName, string category, double confidence, string reason, double weight = 1.0, Dictionary<string, object>? signals = null);
+    public static DetectionContribution Info(string detectorName, string category, string reason, Dictionary<string, object>? signals = null);
 }
-```
-
-### Trigger Conditions
-
-Control when detectors run based on signals from earlier detectors.
-
-```csharp
-// Factory methods
-Triggers.WhenSignalExists("ip.detected")
-Triggers.WhenSignalEquals("ua.is_bot", true)
-Triggers.WhenRiskExceeds(0.5)
-Triggers.WhenDetectorCount(3)
-Triggers.AnyOf(condition1, condition2)
-Triggers.AllOf(condition1, condition2)
-
-// Built-in triggers
-Triggers.WhenDatacenterIp
-Triggers.WhenUaIsBot
-Triggers.WhenRiskMediumOrHigher
 ```
 
 ### Example Custom Detector
 
+Modelled on the shape of the built-in `HeaderAtom` (`Orchestration/Atoms/HeaderAtom.cs`):
+
 ```csharp
-public class GeoFenceDetector : DetectorAtomBase
+public sealed class GeoFenceAtom : DetectorAtomBase
 {
-    public override string Name => "GeoFence";
+    public GeoFenceAtom() : base(name: "GeoFence", category: "GeoFence") { }
+
     public override int Priority => 50;
+    public override IReadOnlyList<string> RequiredSignals => new[] { SignalKeys.GeoCountryCode };
 
-    public override IReadOnlyList<TriggerCondition> TriggerConditions =>
-        [Triggers.WhenSignalExists("geo.country_code")];
-
-    public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
-        BlackboardState state, CancellationToken ct)
+    public override Task<IReadOnlyList<DetectionContribution>> DetectAsync(
+        SignalSink sink, string sessionId, CancellationToken ct = default)
     {
-        var country = state.GetSignal<string>("geo.country_code");
+        var country = sink.ReadHint(SignalKeys.GeoCountryCode);
 
         if (country is "XX") // Blocked country
         {
-            return Task.FromResult(Single(new DetectionContribution
-            {
-                DetectorName = Name,
-                Category = "GeoFence",
-                ConfidenceDelta = 0.3,
-                Weight = 1.5,
-                Reason = $"Request from blocked country: {country}",
-                Signals = new Dictionary<string, object>
+            return Task.FromResult(Single(Bot(
+                confidence: 0.3,
+                reason: $"Request from blocked country: {country}",
+                weight: 1.5,
+                signals: new Dictionary<string, object>
                 {
                     ["geofence.blocked"] = true,
                     ["geofence.country"] = country
-                }
-            }));
+                })));
         }
 
         return Task.FromResult(None());
     }
 }
+```
 
-// Register:
-services.AddSingleton<IDetectorAtom, GeoFenceDetector>();
+Register with `AddDetectorAtom<T>()` (from `Mostlylucid.BotDetection.Orchestration.Atoms`), which wires both the `IDetectorAtom` binding and the name-marker the orchestrator uses to avoid double-registering built-ins:
+
+```csharp
+services.AddDetectorAtom<GeoFenceAtom>();
 ```
 
 ---
@@ -1186,6 +1306,13 @@ public interface IBotDetectionService
         CancellationToken cancellationToken = default);
 
     BotDetectionStatistics GetStatistics();
+
+    // Record a detection result against the statistics counters. Called by the
+    // middleware after the orchestrator produces a verdict, by DetectAsync
+    // internally, and by anyone running detection out-of-band (demo preload,
+    // on-demand endpoint filter, test harnesses). Idempotent per call; the
+    // caller decides whether to record a verdict at all.
+    void RecordDetection(BotDetectionResult result);
 }
 
 public class BotDetectionStatistics
@@ -1227,6 +1354,9 @@ Named detection policies define which detectors run, thresholds, and escalation 
 | `DetectionPolicy.Api` | Optimised for API endpoints |
 | `DetectionPolicy.FastWithOnnx` | Fast path + ONNX inference |
 | `DetectionPolicy.FastWithAi` | Fast path + ONNX + LLM |
+| `DetectionPolicy.AllowVerifiedBots` | Allows verified good bots (search engines, social media) through |
+| `DetectionPolicy.YarpLearning` | YARP gateway learning: full pipeline without LLM, for training data collection |
+| `DetectionPolicy.Profile` | Fingerprint-only detection for threshold calibration; never blocks inline |
 
 ### Policy Structure
 
@@ -1260,8 +1390,9 @@ PolicyTransition.OnHighRisk(0.6, "full-analysis")
 // Block immediately when risk exceeds 95%
 PolicyTransition.OnHighRisk(0.95, DetectionPolicyAction.Block)
 
-// Allow when risk is below 10%
-PolicyTransition.OnLowRisk(0.1, DetectionPolicyAction.Allow)
+// Allow when risk is below 10% -- route to a more permissive named policy
+// (OnLowRisk only takes a goToPolicy name, not a DetectionPolicyAction)
+PolicyTransition.OnLowRisk(0.1, "relaxed")
 
 // Escalate when specific signal is present
 PolicyTransition.OnSignal("ip.is_datacenter", "datacenter-policy")
