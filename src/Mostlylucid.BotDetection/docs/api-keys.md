@@ -41,10 +41,11 @@ Complete detection bypass. No detectors run, no scoring, no action policies.
 }
 ```
 
-- Configured via `BotDetection.ApiBypassKeys` (string array)
+- Configured via `BotDetection.ApiBypassKeys` (string array), gated by `BotDetection.EnableLegacyApiBypassKeys` (default `false`)
 - Header name: `X-SB-Api-Key` (configurable via `ApiBypassHeaderName`)
-- Sets `HttpContext.Items["BotDetection.ApiKeyBypass"] = true`
 - No validation beyond key matching (no expiry, no rate limits)
+
+> **Currently non-functional.** `ApiBypassKeys` is not consulted by any request-handling code path today — configuring it has no runtime effect (startup only warns if it's set without `EnableLegacyApiBypassKeys`). The intended mechanism (an upstream check sets `HttpContext.Items["BotDetection.ApiKeyBypass"] = true`, which `BotEndpointFilter` then honours) is wired on the *consuming* side but nothing sets that flag. See [Current Limitations](#current-limitations) below.
 
 ### Rich API Keys
 
@@ -90,21 +91,22 @@ The dictionary key is the secret value callers send in `X-SB-Api-Key`. The value
 | `RateLimitPerMinute` | int | 0 (unlimited) | Per-key sliding window rate limit |
 | `RateLimitPerHour` | int | 0 (unlimited) | Per-key sliding window rate limit |
 | `Tags` | string[] | [] | Metadata tags for categorization |
-| `BoundIdentity` | string? | null | Future: bind key to a specific identity |
+| `BoundIdentity` | string? | null | Default impersonation target signature when the caller doesn't send `X-SB-Impersonate` (requires `AllowImpersonation`) |
 
 ## Detection Pipeline Flow
 
-When a request arrives with an `X-SB-Api-Key` header:
+When a request arrives with an `X-SB-Api-Key` header, `ApiKeyContextMiddleware` validates it via
+`IApiKeyStore` and, if valid, stores an `ApiKeyContext` in `HttpContext.Items["BotDetection.ApiKeyContext"]`
+(readable from your own code via `context.GetApiKeyContext()` / `context.HasApiKey()`). Detection then runs
+as normal downstream — see [Current Limitations](#current-limitations) for what the key's fields do and
+don't currently change about that run.
 
-1. **Middleware validates the key** via `IApiKeyStore`
-2. If `DisabledDetectors` is `["*"]`: complete bypass (same as legacy key)
-3. Otherwise: an `ApiKeyContext` is stored in `HttpContext.Items["BotDetection.ApiKeyContext"]`
-4. **Policy resolution** applies the API key overlay:
-   - If `DetectionPolicyName` is set, uses that policy instead of path-resolved one
-   - Merges `WeightOverrides` into the policy's weight map
-   - Sets `ExcludedDetectors` from `DisabledDetectors`
-5. **Orchestrator filters detectors**: excluded detectors are skipped at the orchestrator level
-6. **Action policy**: if `ActionPolicyName` is set, overrides the policy's action
+`DetectionPolicy.WithApiKeyOverlay(ApiKeyContext)` exists to merge `WeightOverrides`, apply
+`DetectionPolicyName`, and set `ExcludedDetectors` from `DisabledDetectors` onto the resolved policy, but it
+has no call site today — policy resolution never applies it. `ActionPolicyName` is stored on the context but
+nothing reads it to override the action policy either. If your integration needs this overlay behavior now,
+call `WithApiKeyOverlay` yourself against the policy your app resolves (e.g. in middleware placed after
+`UseApiKeyContext()` and before `UseBotDetection()`).
 
 ## Validation Checks
 
@@ -118,7 +120,10 @@ The `InMemoryApiKeyStore` validates keys in this order:
 6. **Path not denied** - request path does not match `DeniedPaths` globs
 7. **Rate limit** - sliding window counters for per-minute and per-hour limits
 
-Rejection reasons are stored in `HttpContext.Items["BotDetection.ApiKeyRejection"]` for diagnostics.
+`IApiKeyStore.ValidateKeyWithReason` computes a rejection reason (`ApiKeyRejection`) for each of the checks
+above, but `ApiKeyContextMiddleware` currently discards it rather than exposing it on `HttpContext.Items` --
+there is no diagnostics surface for *why* a key was rejected today, only whether `GetApiKeyContext()` is
+null.
 
 ### Path Matching
 
@@ -170,11 +175,32 @@ if (keyCtx != null)
 }
 ```
 
+## Current Limitations
+
+The following `ApiKeyConfig` fields are validated, stored on `ApiKeyContext`, and readable via
+`context.GetApiKeyContext()`, but have **no effect on detection today** -- policy resolution never applies
+them (see [Detection Pipeline Flow](#detection-pipeline-flow)):
+
+- `DisabledDetectors` (except the special `["*"]` value, which is validated at startup but -- like legacy
+  `ApiBypassKeys` -- also isn't consulted by any runtime code path; see the note under
+  [Legacy Bypass Keys](#legacy-bypass-keys))
+- `WeightOverrides`
+- `DetectionPolicyName`
+- `ActionPolicyName`
+
+What does work today: key validation itself (`Enabled`, `ExpiresAt`, `AllowedTimeWindow`, `AllowedPaths` /
+`DeniedPaths`, rate limiting), `GetApiKeyContext()` / `HasApiKey()` visibility to your own code,
+`AllowImpersonation` / `BoundIdentity`, and `DisableLearningWrites`. The patterns below that rely on the
+non-functional fields describe the *intended* effect once `WithApiKeyOverlay` is wired into policy
+resolution -- until then, treat them as configuration you can safely add now (it'll take effect when the
+overlay ships) rather than behavior you can rely on.
+
 ## Common Patterns
 
 ### Dashboard Monitoring Key
 
-Disables behavioral detectors (dashboard polling is repetitive and would trigger false positives):
+Disables behavioral detectors (dashboard polling is repetitive and would trigger false positives) -- see
+[Current Limitations](#current-limitations), `DisabledDetectors` isn't wired into detection yet:
 
 ```json
 {
@@ -190,7 +216,8 @@ Disables behavioral detectors (dashboard polling is repetitive and would trigger
 
 ### CI/CD Pipeline Key
 
-All detectors enabled but action set to log-only:
+All detectors enabled but action set to log-only -- see [Current Limitations](#current-limitations),
+`ActionPolicyName` isn't wired into policy resolution yet:
 
 ```json
 {
@@ -205,7 +232,9 @@ All detectors enabled but action set to log-only:
 
 ### Latency Baseline Key
 
-Disables all detectors to measure raw proxy overhead:
+Disables all detectors to measure raw proxy overhead -- see [Current Limitations](#current-limitations),
+requires `AllowFullDetectorBypassApiKeys: true` at the top level of `BotDetection` config (startup validation
+error otherwise), and note that the actual bypass isn't wired into the request pipeline yet either:
 
 ```json
 {
