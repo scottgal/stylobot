@@ -71,6 +71,12 @@ app.UseStyloBot();
 app.UseStyloBotResponseHeaders();
 app.UseAuthorization();
 
+// AddStyloBotApi() (above) only registers DI services; MapStyloBotApi() is the
+// call that actually adds the /api/v1/* route group (detect, me, openapi.json,
+// etc.) to the endpoint route builder. Without it the whole REST API surface
+// silently 404s despite being "enabled" in config.
+app.MapStyloBotApi();
+
 // MapReverseProxy goes LAST: dashboard + API routes have already had a chance to
 // match. Anything else proxies upstream per ReverseProxy:Routes config.
 app.MapReverseProxy();
@@ -97,3 +103,6 @@ static void PrintBanner(WebApplication app)
         }
     });
 }
+
+// Make Program accessible to WebApplicationFactory in test projects.
+public partial class Program;
