@@ -829,6 +829,34 @@ See [project-honeypot.md](project-honeypot.md) for details.
 
 ---
 
+## API Keys
+
+Trusted-caller keys, distinct from the `Behavioral:ApiKeyHeader`/`ApiKeyRateLimit` pair below (which just names
+the header/bucket the Behavioral rate limiter groups authenticated callers by). There are two mechanisms: legacy
+bypass keys (`ApiBypassKeys`, complete detection bypass) and rich API keys (`ApiKeys`, per-key detector/action
+overlays with expiry, path scoping, and rate limits). Callers pass the key via `X-SB-Api-Key`
+(`ApiBypassHeaderName`).
+
+```json
+{
+  "BotDetection": {
+    "ApiKeys": {
+      "SB-CI-PIPELINE": {
+        "Name": "CI Pipeline",
+        "DisabledDetectors": ["BehavioralWaveform", "Behavioral"],
+        "ActionPolicyName": "logonly",
+        "RateLimitPerMinute": 200
+      }
+    }
+  }
+}
+```
+
+See [api-keys.md](api-keys.md) for the full key model, header configuration, and lifecycle management -- this
+section intentionally doesn't duplicate it.
+
+---
+
 ## Behavioral Settings
 
 ```json
@@ -1317,16 +1345,15 @@ YandexBot, Sogou, Exabot, facebot, ia_archiver
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.5,
-    "BlockDetectedBots": false,
     "EnableTestMode": true,
+    "ObserveOnly": true,
     "DefaultActionPolicyName": "debug",
-    "EnableAiDetection": true,
+    "Classification": { "HumanCeiling": 0.4, "BotFloor": 0.6 },
     "AiDetection": {
       "Provider": "Heuristic",
       "Heuristic": { "Enabled": true, "EnableWeightLearning": true }
     },
-    "Learning": { "Enabled": true },
+    "Reputation": { "LearningRate": 0.1 },
     "LogAllRequests": true,
     "LogPerformanceMetrics": true
   }
@@ -1338,15 +1365,13 @@ YandexBot, Sogou, Exabot, facebot, ia_archiver
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.7,
-    "BlockDetectedBots": false,
     "DefaultActionPolicyName": "shadow",
-    "EnableAiDetection": true,
+    "Classification": { "HumanCeiling": 0.30, "BotFloor": 0.70 },
     "AiDetection": {
       "Provider": "Heuristic",
       "Heuristic": { "Enabled": true, "EnableWeightLearning": true }
     },
-    "Learning": { "Enabled": true, "EnableDriftDetection": true }
+    "Reputation": { "LearningRate": 0.1 }
   }
 }
 ```
@@ -1356,18 +1381,13 @@ YandexBot, Sogou, Exabot, facebot, ia_archiver
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.7,
-    "BlockDetectedBots": true,
     "DefaultActionPolicyName": "throttle-stealth",
-    "EnableAiDetection": true,
+    "Classification": { "HumanCeiling": 0.30, "BotFloor": 0.70 },
     "AiDetection": {
       "Provider": "Heuristic",
       "Heuristic": { "Enabled": true, "EnableWeightLearning": true }
     },
-    "Learning": {
-      "Enabled": true,
-      "EnableDriftDetection": true
-    },
+    "Reputation": { "LearningRate": 0.1 },
     "LogAllRequests": false,
     "LogPerformanceMetrics": false
   }
@@ -1447,6 +1467,80 @@ Configure bot network clustering and LLM-based descriptions:
 
 ---
 
+## Other Nested Options
+
+These option classes are large enough that they get a short pointer here rather than a full property table --
+each binds under `BotDetection:<SectionName>` (matching the property name below) and every sub-property follows
+the same "everything is configurable" convention as the rest of this doc.
+
+| Section | Property | Purpose |
+|---------|----------|---------|
+| `RiskVerdict` | `RiskVerdictOptions` | Thresholds for the browser-attestation carve-out in `SignatureRiskVerdictComposer` -- controls when strong per-request transport evidence (e.g. verified browser attestation) is allowed to outweigh a UA-pattern reputation latch. |
+| `CountryReputation` | `CountryReputationOptions` | Per-country bot-rate tracking with exponential decay (`DecayTauHours`, default 24; `MinSampleSize`, default 10). |
+| `Retention` | `RetentionOptions` | Data retention and behavioral-compression policy -- how long sessions, detections, patterns, clusters, and reputation cache entries are kept, and the LOD-style vector compaction (L0 full / L1 per-signature / L2 per-cluster) the nightly job applies. |
+| `Trust` | `TrustOptions` | Persistent claim-verification trust knobs (`TrustCacheTtl`, default 24h) consumed by `VerifiedBotContributor`/`FediverseDomainContributor` to skip re-running rDNS/NodeInfo checks on an already-verified fingerprint within the TTL. |
+| `SelfMaintenance` | `SelfMaintenanceOptions` | Configurable bounds for every in-memory accumulator (signature cache size, session vector cache, etc.), preventing unbounded growth on constrained hardware. Use the `LowMemory` preset for Pi4/embedded/container deployments with strict limits. |
+| `Identity` | `IdentityOptions` | Metastable fingerprint match system (`Enabled`, default `false`) plus its `Vector`/`Match`/`Weights`/`Drift`/`Calibration`/`Engine`/`Coordinator` sub-sections. See `docs/architecture/fingerprint-match.md`. |
+
+---
+
+## Upstream Detection Trust (HMAC Chain)
+
+For gateway/downstream topologies (e.g. a YARP gateway running the full detection pipeline in front of a website
+that doesn't run its own detection): the downstream host can trust the gateway's already-computed detection
+headers (`X-Bot-Detected`, `X-Bot-Confidence`, etc.) instead of re-running the full detector pipeline. Background
+learning (signature tracking, LLM enqueue) still runs using the forwarded results.
+
+```json
+{
+  "BotDetection": {
+    "TrustUpstreamDetection": true,
+    "UpstreamSignatureHeader": "X-Bot-Signature",
+    "UpstreamSignatureSecret": "<base64-encoded-32-byte-secret>",
+    "UpstreamSignatureMaxAgeSeconds": 300
+  }
+}
+```
+
+| Option                            | Type    | Default | Description                                                                 |
+|-------------------------------------|---------|---------|---------------------------------------------------------------------------------|
+| `TrustUpstreamDetection`          | bool    | `false` | Trust upstream detection headers from a reverse proxy like YARP and skip re-running the full detector pipeline. Gateways keep this off; a downstream website behind the gateway sets it to true. |
+| `UpstreamSignatureHeader`         | string  | `null`  | Name of the header carrying the HMAC signature from the upstream gateway. When set alongside `TrustUpstreamDetection`, the middleware verifies upstream headers were signed by a trusted gateway using the shared secret. `null` means no signature verification -- only safe when the backend is network-isolated. |
+| `UpstreamSignatureSecret`         | string  | `null`  | Base64-encoded shared secret for verifying HMAC signatures on upstream detection headers. Must match the secret configured on the gateway. Generate with `Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))`. Treat as a secret (not logged/serialized). |
+| `UpstreamSignatureMaxAgeSeconds`  | int     | `300`   | Maximum age, in seconds, for upstream HMAC signatures before they're rejected as replay attempts. Raise for environments with significant clock skew. |
+
+Startup validation warns if `TrustUpstreamDetection` is enabled without both `UpstreamSignatureHeader` and
+`UpstreamSignatureSecret` configured -- trusting unsigned upstream headers lets anything on the network path
+claim any detection verdict.
+
+---
+
+## Edge Forwarded Headers (Reverse-Proxy Gateway Mode)
+
+The other half of the trust chain above: controls how a stylobot gateway strips/emits `X-Bot-Detection-*` and
+edge-injected transport-signal headers (`X-JA3-*`, `X-Client-TLS-*`, etc.) on the request it forwards to a
+downstream dashboard host. Section path: `BotDetection:ForwardedHeaders`.
+
+```json
+{
+  "BotDetection": {
+    "ForwardedHeaders": {
+      "StripInboundFromClient": true,
+      "StripInboundClientSignalHeaders": false,
+      "EmitOnForwardedRequest": true
+    }
+  }
+}
+```
+
+| Option                             | Type | Default | Description                                                                 |
+|--------------------------------------|------|---------|---------------------------------------------------------------------------------|
+| `StripInboundFromClient`           | bool | `true`  | Remove `X-Bot-Detection-*` headers from inbound visitor requests at the public edge before detection logic reads them. Without this, a visitor could attach those headers and claim a fake fingerprint/verdict. Disable only when this gateway is itself behind a trusted upstream that already strips them. |
+| `StripInboundClientSignalHeaders`  | bool | `false` | Remove edge-injected client-signal headers (`X-Client-TLS-*`, `X-JA3-*`, `X-JA4*`, `X-Client-ASN`, `X-Client-HTTP-Version`/`Sb-Http-Version`) from inbound requests. Enable only when this host is the outermost public edge (nothing in front injects these headers) -- otherwise leave off, or proxy-computed fingerprints get discarded. |
+| `EmitOnForwardedRequest`           | bool | `true`  | Emit `X-Bot-Detection-*` on the forwarded (YARP) request so a downstream dashboard host can render identity from headers alone without running detection. Turn off for plain reverse-proxy deployments where the upstream never needs detection state. |
+
+---
+
 ## Transport Trust (Proxy Deployments)
 
 When the gateway runs behind Cloudflare, Caddy, nginx, or another edge proxy that forwards edge-computed fingerprint headers (`X-JA3-*`, `X-HTTP2-*`, `X-QUIC-*`, `X-TCP-*`, `X-Client-TLS-*`), configure which peers are allowed to inject those headers.
@@ -1500,6 +1594,26 @@ Section path: `BotDetection:WellKnownBots`
 ```
 
 Set `Url` to `""` for air-gapped deployments. The embedded baseline patterns remain active.
+
+---
+
+## Legacy / Obsolete Settings
+
+The following top-level options still bind (for back-compat with older config files) but are marked
+`[Obsolete]` in code and will be removed in a future major release. Each has a per-policy replacement -- use
+`Classification` and `DetectionPolicy`/`ActionPolicies` (see above) for new configuration instead of these.
+
+| Obsolete option              | Replacement                                                        |
+|-------------------------------|----------------------------------------------------------------------|
+| `BotThreshold`                | `DetectionPolicy.ImmediateBlockThreshold` / `EarlyExitThreshold` per policy, and `Classification.HumanCeiling`/`BotFloor` for the bot/human cut. |
+| `EnableUserAgentDetection`    | No direct per-policy equivalent exists today -- there is no config-facing "exclude this detector by name" knob on `DetectionPolicy`. Use `FastPath`/`SlowPath`/`AiPath` to control which detectors run in each wave instead. Flagged upstream: the `[Obsolete]` message on this property points at a `DetectionPolicy.ExcludedDetectors` config knob that doesn't exist under that name. |
+| `EnableHeaderAnalysis`        | See `EnableUserAgentDetection` above -- same gap. |
+| `EnableIpDetection`           | See `EnableUserAgentDetection` above -- same gap. |
+| `EnableBehavioralAnalysis`    | See `EnableUserAgentDetection` above -- same gap. |
+| `EnableLlmDetection`          | `DetectionPolicy.AiPath` and `EscalateToAi` per policy             |
+| `BlockDetectedBots`           | Per-policy `ActionPolicyName` / `Transitions` (see Blocking Settings and `ObserveOnly` above) |
+| `MinConfidenceToBlock`        | `DetectionPolicy.MinConfidence` per policy                         |
+| `AllowVerifiedSearchEngines`  | `DetectionPolicy.AllowVerifiedBots` -- a whole built-in named policy (route to it via `DetectionPolicyName`/`PathPolicies`), not a per-policy flag -- or a `Transitions` rule |
 
 ---
 
