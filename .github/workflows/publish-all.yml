@@ -200,6 +200,34 @@ jobs:
         NUGET_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
       run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
+  # Publish BotDetection.StyloExtract NuGet package
+  publish-botdetection-styloextract:
+    needs: validate-version
+    if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'nuget-only'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+      with:
+        dotnet-version: '10.0.x'
+    - name: Restore, Build, Pack
+      run: |
+        dotnet restore ci.slnf
+        dotnet build src/Mostlylucid.BotDetection.StyloExtract/Mostlylucid.BotDetection.StyloExtract.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.StyloExtract/Mostlylucid.BotDetection.StyloExtract.csproj -c Release --no-build -o ./artifacts
+    - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
+      id: nuget_login
+      with:
+        user: 'mostlylucid'
+    - name: Push to NuGet
+      env:
+        NUGET_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
+      run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
   # Publish GeoDetection.Contributor NuGet package
   publish-geodetection-contributor:
     needs: validate-version
@@ -520,7 +548,7 @@ jobs:
   # Summary
   summary:
     if: always()
-    needs: [validate-version, publish-botdetection, publish-common, publish-geodetection, publish-botdetection-ui, publish-geodetection-contributor, publish-botdetection-api, publish-botdetection-llm, publish-botdetection-holodeck, publish-botdetection-llm-holodeck, publish-gateway, publish-demo, publish-stylobot-ui, publish-stylobot-all]
+    needs: [validate-version, publish-botdetection, publish-common, publish-geodetection, publish-botdetection-ui, publish-geodetection-contributor, publish-botdetection-api, publish-botdetection-llm, publish-botdetection-holodeck, publish-botdetection-llm-holodeck, publish-botdetection-styloextract, publish-gateway, publish-demo, publish-stylobot-ui, publish-stylobot-all]
     runs-on: ubuntu-latest
     steps:
     - name: Create summary
@@ -543,6 +571,7 @@ jobs:
         echo "| BotDetection.Llm NuGet | ${{ needs.publish-botdetection-llm.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| BotDetection.ApiHolodeck NuGet | ${{ needs.publish-botdetection-holodeck.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| BotDetection.Llm.Holodeck NuGet | ${{ needs.publish-botdetection-llm-holodeck.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| BotDetection.StyloExtract NuGet | ${{ needs.publish-botdetection-styloextract.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Console + Release | (via publish-stylobot.yml) |" >> $GITHUB_STEP_SUMMARY
         echo "| Chocolatey | (via publish-chocolatey.yml on release) |" >> $GITHUB_STEP_SUMMARY
         echo "| Homebrew Tap | (via update-homebrew.yml on release) |" >> $GITHUB_STEP_SUMMARY
