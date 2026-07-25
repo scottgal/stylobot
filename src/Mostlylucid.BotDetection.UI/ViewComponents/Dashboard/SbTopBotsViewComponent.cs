@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Middleware;
@@ -52,6 +54,22 @@ public class SbTopBotsViewComponent(
             });
         }
 
+        // Dashboard-wide domain scope (DI seam). FOSS default returns null (no filter =
+        // today's behavior); a commercial impl supplies the operator's selected domains,
+        // threaded into the self-fetch store read below. Top Bots was the UNCOVERED 4th list
+        // widget: Endpoints / Countries / Visitors already thread this seam; Top Bots didn't,
+        // so a domain-scoped render self-fetched UNSCOPED (all-domain) rows and its header
+        // counters read MORE than the all-domain view -- an impossible superset (scoped >
+        // unscoped). The composed path needs no threading here: every composer that stashes a
+        // bundle for this VC (TrafficController / VisitorsController) builds its window with
+        // AudienceFilter:"all", and TrafficController also scopes it via its own domainsForQuery,
+        // so composed rows are already all-audience (+ domain-scoped where applicable). Matching
+        // that with an all-audience, domain-scoped self-fetch is what makes the two paths agree
+        // and keeps scoped ⊆ unscoped per bucket (domain filtering only removes rows).
+        var scopedDomains = HttpContext?.RequestServices?
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(HttpContext);
+
         IReadOnlyList<DashboardTopBotEntry> raw;
         if (pageResult?.BotAggregate is { } composedBots)
         {
@@ -65,7 +83,8 @@ public class SbTopBotsViewComponent(
             // shows stale rows forever. Same approach taken in StyloBotDashboardMiddleware.BuildTopBotsModel
             // and SbWidgetBatchMiddleware.BuildTopBotsModel. Fetching audience=all here gives us
             // a cross-cutting top-N so the widget header (All / Bots / Humans) reflects reality
-            // and the audience switcher can filter client-side.
+            // and the audience switcher can filter client-side. Domain scope is threaded so a
+            // scoped render subsets the store read (GetTopBotsWindowedAsync WHERE domain IN ...).
             var rangeStart = startTime ?? DateTime.UtcNow.AddHours(-24);
             var rangeEnd   = endTime   ?? DateTime.UtcNow;
             var fetchAudience = string.IsNullOrEmpty(audience) ? "all" : audience;
@@ -73,7 +92,8 @@ public class SbTopBotsViewComponent(
                 count: signatureCache?.MaxEntries ?? FallbackFetchCount,
                 startTime: rangeStart,
                 endTime: rangeEnd,
-                audienceFilter: fetchAudience);
+                audienceFilter: fetchAudience,
+                domains: scopedDomains);
         }
         // Collapse groupable identities BEFORE counting so the header badges
         // (All / Bots / Humans / Internal) match the collapsed rows shown here AND the

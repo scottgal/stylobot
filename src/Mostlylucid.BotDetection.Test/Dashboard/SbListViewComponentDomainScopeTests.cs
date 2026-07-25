@@ -142,6 +142,121 @@ public sealed class SbListViewComponentDomainScopeTests
         Assert.Null(store.LastSegmentDomains);
     }
 
+    // --- Top Bots VC (the uncovered 4th list widget) -----------------------
+
+    [Fact]
+    public async Task TopBots_fallback_threads_selected_domains_into_store()
+    {
+        var store = new RecordingStore();
+        var vc = new SbTopBotsViewComponent(store, DefaultOptions());
+        SetHttpContext(vc, ContextWithScope(new FakeScope(["example.com"])));
+
+        // No composed BotAggregate on HttpContext.Items -> self-fetch GetTopBotsAsync fallback.
+        await vc.InvokeAsync();
+
+        Assert.Equal(new[] { "example.com" }, store.LastTopBotsDomains);
+    }
+
+    [Fact]
+    public async Task TopBots_fallback_with_null_scope_passes_null_domains()
+    {
+        var store = new RecordingStore();
+        var vc = new SbTopBotsViewComponent(store, DefaultOptions());
+        SetHttpContext(vc, ContextWithScope(new NullDashboardDomainScope()));
+
+        await vc.InvokeAsync();
+
+        Assert.Null(store.LastTopBotsDomains);
+    }
+
+    /// <summary>
+    ///     The prod invariant: for the same window a domain-scoped render's header counters
+    ///     (All / Bots / Humans / Internal) can never EXCEED the all-domain render's -- a
+    ///     scope is a subset. Before the fix the scoped self-fetch (a) dropped the domain
+    ///     filter (returning ALL-domain rows) and (b) read all-audience while the all-domain
+    ///     view read a narrower composed slice, so scoped out-counted unscoped in every bucket.
+    /// </summary>
+    [Fact]
+    public async Task TopBots_scoped_counts_never_exceed_unscoped_counts()
+    {
+        // Full (all-domain) population: 3 bots + 2 humans + 1 internal.
+        var full = new List<DashboardTopBotEntry>
+        {
+            Bot("b1"), Bot("b2"), Bot("b3"),
+            Human("h1"), Human("h2"),
+            Internal("i1"),
+        };
+        // example.com subset: 2 bots + 1 human + 1 internal (a strict subset of `full`).
+        var subset = new List<DashboardTopBotEntry>
+        {
+            Bot("b1"), Bot("b2"),
+            Human("h1"),
+            Internal("i1"),
+        };
+
+        List<DashboardTopBotEntry> Provider(IReadOnlyList<string>? domains) =>
+            domains is { Count: > 0 } ? subset : full;
+
+        var unscopedStore = new RecordingStore { TopBotsProvider = Provider };
+        var unscopedVc = new SbTopBotsViewComponent(unscopedStore, DefaultOptions());
+        SetHttpContext(unscopedVc, ContextWithScope(new NullDashboardDomainScope()));
+        var unscoped = await InvokeCounts(unscopedVc);
+
+        var scopedStore = new RecordingStore { TopBotsProvider = Provider };
+        var scopedVc = new SbTopBotsViewComponent(scopedStore, DefaultOptions());
+        SetHttpContext(scopedVc, ContextWithScope(new FakeScope(["example.com"])));
+        var scoped = await InvokeCounts(scopedVc);
+
+        // Scope threaded through to the store read.
+        Assert.Equal(new[] { "example.com" }, scopedStore.LastTopBotsDomains);
+        Assert.Null(unscopedStore.LastTopBotsDomains);
+
+        // The invariant, per bucket: scoped <= unscoped.
+        Assert.True(scoped.All <= unscoped.All, $"All: scoped {scoped.All} > unscoped {unscoped.All}");
+        Assert.True(scoped.Bots <= unscoped.Bots, $"Bots: scoped {scoped.Bots} > unscoped {unscoped.Bots}");
+        Assert.True(scoped.Humans <= unscoped.Humans, $"Humans: scoped {scoped.Humans} > unscoped {unscoped.Humans}");
+        Assert.True(scoped.Internal <= unscoped.Internal, $"Internal: scoped {scoped.Internal} > unscoped {unscoped.Internal}");
+
+        // And they reflect the actual all-audience distribution per side (All = public count,
+        // i.e. bots + humans; Internal counted separately). Full = 3 bots + 2 humans + 1
+        // internal; example.com subset = 2 bots + 1 human + 1 internal.
+        Assert.Equal(5, unscoped.All);
+        Assert.Equal(3, unscoped.Bots);
+        Assert.Equal(2, unscoped.Humans);
+        Assert.Equal(1, unscoped.Internal);
+        Assert.Equal(3, scoped.All);
+        Assert.Equal(2, scoped.Bots);
+        Assert.Equal(1, scoped.Humans);
+        Assert.Equal(1, scoped.Internal);
+    }
+
+    private static async Task<TopBotsCounts> InvokeCounts(SbTopBotsViewComponent vc)
+    {
+        var result = await vc.InvokeAsync();
+        var model = (TopBotsListModel)((ViewViewComponentResult)result).ViewData.Model!;
+        return model.Counts!;
+    }
+
+    // Non-groupable rows (null BotName) so CollapseGroupableIdentities preserves each entry
+    // instead of merging same-name identities -- keeps the count arithmetic explicit.
+    private static DashboardTopBotEntry Bot(string sig) => new()
+    {
+        PrimarySignature = sig, BotType = "SearchEngine", IsKnownBot = true,
+        BotProbability = 0.95, HitCount = 1, LastSeen = DateTime.UtcNow,
+    };
+
+    private static DashboardTopBotEntry Human(string sig) => new()
+    {
+        PrimarySignature = sig, BotType = null, IsKnownBot = false,
+        BotProbability = 0.1, HitCount = 1, LastSeen = DateTime.UtcNow,
+    };
+
+    private static DashboardTopBotEntry Internal(string sig) => new()
+    {
+        PrimarySignature = sig, BotType = "Internal", IsKnownBot = false,
+        BotProbability = 0.0, HitCount = 1, LastSeen = DateTime.UtcNow,
+    };
+
     private sealed class FakeScope(IReadOnlyList<string> domains) : IDashboardDomainScope
     {
         public IReadOnlyList<string>? GetSelectedDomains(HttpContext context) => domains;
@@ -154,6 +269,13 @@ public sealed class SbListViewComponentDomainScopeTests
         public IReadOnlyList<string>? LastCountryDomains { get; private set; }
         public IReadOnlyList<string>? LastTopBotsDomains { get; private set; }
         public IReadOnlyList<string>? LastSegmentDomains { get; private set; }
+
+        /// <summary>
+        ///     Optional seed for <see cref="GetTopBotsAsync"/>: given the domains argument,
+        ///     returns the rows that scope should yield. Null (default) keeps the historical
+        ///     empty-list behaviour every other test in this file relies on.
+        /// </summary>
+        public Func<IReadOnlyList<string>?, List<DashboardTopBotEntry>>? TopBotsProvider { get; init; }
 
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
         {
@@ -170,7 +292,7 @@ public sealed class SbListViewComponentDomainScopeTests
         public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
         {
             LastTopBotsDomains = domains;
-            return Task.FromResult(new List<DashboardTopBotEntry>());
+            return Task.FromResult(TopBotsProvider?.Invoke(domains) ?? new List<DashboardTopBotEntry>());
         }
 
         public Task<FilterCounts> GetVisitorSegmentCountsAsync(DateTime startTime, DateTime endTime, string? filter = null, string? country = null, string? botType = null, string? threat = null, IReadOnlyList<string>? domains = null)
