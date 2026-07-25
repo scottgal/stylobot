@@ -43,7 +43,7 @@ public static class IdentityEndpoints
     ///     persistence), and an empty list when the fingerprint exists but has
     ///     no mode rows yet.
     /// </summary>
-    private static async Task<Results<Ok<PaginatedResponse<FingerprintBrowserMode>>, ProblemHttpResult>> HandleBrowserModes(
+    private static async Task<Results<Ok<PaginatedResponse<FingerprintBrowserMode>>, ServiceUnavailableHttpResult>> HandleBrowserModes(
         string fingerprintId,
         [FromServices] IFingerprintBrowserModeStore? modes,
         CancellationToken ct = default)
@@ -53,7 +53,7 @@ public static class IdentityEndpoints
         return ApiEndpointHelpers.Paginated(rows, rows.Count);
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<Fingerprint>>, ProblemHttpResult>> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<Fingerprint>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] IFingerprintReader? store,
         CancellationToken ct = default)
     {
@@ -62,7 +62,7 @@ public static class IdentityEndpoints
         return ApiEndpointHelpers.Paginated(fingerprints, fingerprints.Count);
     }
 
-    private static async Task<Results<Ok<SingleResponse<Fingerprint>>, NotFound, ProblemHttpResult>> HandleGet(
+    private static async Task<Results<Ok<SingleResponse<Fingerprint>>, NotFound, ServiceUnavailableHttpResult>> HandleGet(
         string fingerprintId,
         [FromServices] IFingerprintReader? store,
         CancellationToken ct = default)
@@ -73,7 +73,7 @@ public static class IdentityEndpoints
         return ApiEndpointHelpers.Single(fp);
     }
 
-    private static async Task<Results<Ok<SingleResponse<IReadOnlyDictionary<string, int>>>, ProblemHttpResult>> HandleUnabsorbedCounts(
+    private static async Task<Results<Ok<SingleResponse<IReadOnlyDictionary<string, int>>>, ServiceUnavailableHttpResult>> HandleUnabsorbedCounts(
         [FromServices] IFingerprintReader? store,
         CancellationToken ct = default)
     {
@@ -81,7 +81,7 @@ public static class IdentityEndpoints
         return ApiEndpointHelpers.Single(await store.GetUnabsorbedObservationCountsAsync(ct));
     }
 
-    private static async Task<Results<Ok<SingleResponse<int>>, ProblemHttpResult>> HandleUnabsorbedCount(
+    private static async Task<Results<Ok<SingleResponse<int>>, ServiceUnavailableHttpResult>> HandleUnabsorbedCount(
         string fingerprintId,
         [FromServices] IFingerprintReader? store,
         CancellationToken ct = default)
@@ -90,7 +90,7 @@ public static class IdentityEndpoints
         return ApiEndpointHelpers.Single(await store.GetUnabsorbedObservationCountAsync(fingerprintId, ct));
     }
 
-    private static async Task<Results<Ok<SingleResponse<string>>, NotFound, ProblemHttpResult>> HandleLookup(
+    private static async Task<Results<Ok<SingleResponse<string>>, NotFound, ServiceUnavailableHttpResult>> HandleLookup(
         string primarySignature,
         [FromServices] IFingerprintReader? store,
         CancellationToken ct = default)
@@ -101,7 +101,7 @@ public static class IdentityEndpoints
         return ApiEndpointHelpers.Single(fpId);
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<NearestFingerprint>>, ProblemHttpResult>> HandleNearest(
+    private static async Task<Results<Ok<PaginatedResponse<NearestFingerprint>>, ServiceUnavailableHttpResult>> HandleNearest(
         string primarySignature,
         [FromServices] IFingerprintReader? store,
         [FromServices] IOptions<BotDetectionOptions> opts,

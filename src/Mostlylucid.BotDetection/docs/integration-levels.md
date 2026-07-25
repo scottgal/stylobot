@@ -16,7 +16,7 @@ StyloBot supports five integration levels, from lightweight attribute-based prot
 
 ## Level 1: Attribute-Based Protection
 
-No middleware configuration needed beyond the basics. Protect individual controllers or actions with attributes.
+`AddBotDetection()` + `UseBotDetection()` alone already protect every request: the default action policy (`DefaultActionPolicyName`, `"throttle-stealth"` out of the box) applies fleet-wide to any request that crosses the bot threshold, with zero attributes or extra configuration. Attributes layer per-controller/per-action control on top of that default -- hard blocking, allow-listing specific bot categories, custom thresholds, and so on.
 
 ### Setup
 
@@ -213,17 +213,6 @@ Detection results are saved to a shared database and broadcast via SignalR. Use 
 builder.Services.AddBotDetection();
 builder.Services.AddBotDetectionPersistence(); // Event store + SignalR hub
 
-// Optional: PostgreSQL replaces the default in-memory store
-var pgConn = builder.Configuration["StyloBotDashboard:PostgreSQL:ConnectionString"];
-if (!string.IsNullOrEmpty(pgConn))
-{
-    builder.Services.AddStyloBotPostgreSQL(pgConn, options =>
-    {
-        options.AutoInitializeSchema = true;
-        options.RetentionDays = 90;
-    });
-}
-
 // ...
 
 app.UseRouting();
@@ -231,12 +220,14 @@ app.UseBotDetection();
 app.UseBotDetectionPersistence(); // Saves detections + maps SignalR hub
 ```
 
+Persistence is SQLite (`dashboard.db`, next to `BotDetectionOptions.DatabasePath`) out of the box -- no extra configuration needed, and it survives restarts. Durable multi-node persistence against PostgreSQL is a commercial add-on (`Stylobot.Commercial.Persistence.Postgres`), not part of this OSS package.
+
 ### What Gets Registered
 
 `AddBotDetectionPersistence()` registers only what is needed to persist and broadcast:
 
-- `IDashboardEventStore` (in-memory default, replaced by `AddStyloBotPostgreSQL`)
-- `VisitorListCache` (server-side cache for connected dashboard clients)
+- `IDashboardEventStore` (`SqliteDashboardEventStore` by default -- persists across restarts)
+- `SignatureAggregateCache` (write-through server-side cache backing top-bots/visitor-list reads; warmed from the DB on startup)
 - `ILlmResultCallback` (forwards LLM classification results via SignalR)
 - SignalR hub at `/stylobot/hub`
 
@@ -249,7 +240,7 @@ Internet --> Gateway (detects, persists, broadcasts)
                 |
                 +--> SignalR hub (/stylobot/hub)
                 |
-                +--> PostgreSQL (shared)
+                +--> SQLite (dashboard.db)
                 |
          Website (reads from same DB, serves dashboard UI)
 ```
@@ -283,15 +274,14 @@ builder.Services.AddStyloBotDashboard(options =>
     };
 });
 
-// Optional: durable storage
-builder.Services.AddStyloBotPostgreSQL(connectionString);
-
 // ...
 
 app.UseRouting();
 app.UseBotDetection();
 app.UseStyloBotDashboard(); // Dashboard UI + broadcast middleware + SignalR hub
 ```
+
+Storage is SQLite by default -- no extra call needed for durability. (PostgreSQL-backed storage is a commercial add-on for multi-node fleets.)
 
 ### Quick Setup (Shorthand)
 
@@ -354,7 +344,6 @@ A dedicated reverse proxy that runs bot detection on all traffic and routes base
 // Detection + persistence
 builder.Services.AddBotDetection();
 builder.Services.AddBotDetectionPersistence();
-builder.Services.AddStyloBotPostgreSQL(pgConnectionString);
 
 // YARP reverse proxy
 builder.Services.AddReverseProxy()
@@ -402,12 +391,13 @@ builder.Services.Configure<BotDetectionOptions>(o =>
     o.TrustUpstreamDetection = true);
 
 // OR via environment variable
-// BOTDETECTION_TRUST_UPSTREAM=true
+// BotDetection__TrustUpstreamDetection=true
 
-// Full dashboard on the website (reads from same PostgreSQL)
+// Full dashboard on the website
 builder.Services.AddStyloBotDashboard();
-builder.Services.AddStyloBotPostgreSQL(pgConnectionString);
 ```
+
+Setting `TrustUpstreamDetection = true` without also configuring `UpstreamSignatureHeader`/`UpstreamSignatureSecret` trips a startup validation warning: any client can forge `X-Bot-Detected` headers if the backend isn't network-isolated from direct traffic. Configure the HMAC pair (generate the secret with `Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))`) unless the website is only reachable through the gateway.
 
 ### Forwarded Headers
 
@@ -433,41 +423,26 @@ services:
   gateway:
     image: scottgal/stylobot-gateway:latest
     environment:
-      - BotDetection__Qdrant__Enabled=true
-      - BotDetection__Qdrant__Endpoint=http://qdrant:6334
-      - BotDetection__Qdrant__EnableEmbeddings=true
       - BotDetection__EnableLlmDetection=true
       - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
-      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=postgres;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}
+    volumes:
+      - gateway-data:/app/data # botdetection.db + dashboard.db (SQLite)
     depends_on:
-      - postgres
-      - qdrant
       - ollama
 
   website:
     image: your-app:latest
     environment:
-      - BOTDETECTION_TRUST_UPSTREAM=true
-      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=postgres;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}
-
-  qdrant:
-    image: qdrant/qdrant:latest
+      - BotDetection__TrustUpstreamDetection=true
 
   ollama:
     image: ollama/ollama:latest
 
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: stylobot
-      POSTGRES_USER: stylobot
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-
 volumes:
-  postgres-data:
+  gateway-data:
 ```
+
+Multi-node fleets that need a single shared store across gateway replicas (instead of a per-node SQLite file) can use the commercial PostgreSQL persistence add-on -- not part of this OSS package.
 
 ---
 
@@ -486,13 +461,14 @@ volumes:
 
 | Method | Project | Purpose |
 |--------|---------|---------|
-| `AddSimpleBotDetection()` | Core | UA-only detection |
-| `AddBotDetection()` | Core | All heuristic detectors |
-| `AddComprehensiveBotDetection()` | Core | Alias for AddBotDetection |
-| `AddAdvancedBotDetection(endpoint, model)` | Core | Heuristic + LLM escalation |
-| `AddBotDetectionPersistence()` | UI | Lightweight persistence (no dashboard) |
+| `AddBotDetection(configure?)` | Core | Registers the full atom-orchestrator detection stack |
+| `AddSimpleBotDetection(configure?)` | Core | Compat alias for `AddBotDetection` |
+| `AddComprehensiveBotDetection(configure?)` | Core | Compat alias for `AddBotDetection` |
+| `AddAdvancedBotDetection(configure?)` | Core | Compat alias for `AddBotDetection` |
+| `AddBotDetectionInMemory(configure?)` | Core | Ephemeral mode for CI/tests -- no SQLite files touched |
+| `AddYarpLearningMode()` | Core | Captures per-request signatures from a YARP gateway for offline learning |
+| `AddBotDetectionPersistence()` | UI | Lightweight persistence (SQLite event store, no dashboard) |
 | `AddStyloBotDashboard(configure)` | UI | Full dashboard + persistence |
-| `AddStyloBotPostgreSQL(conn)` | UI.PostgreSQL | Durable storage |
 
 ### Middleware Methods Summary
 
@@ -501,25 +477,8 @@ volumes:
 | `UseBotDetection()` | Run detection pipeline |
 | `UseBotDetectionPersistence()` | Save to DB + SignalR broadcast |
 | `UseStyloBotDashboard()` | Dashboard UI + persistence + SignalR |
+| `UseYarpLearningMode()` | Capture signatures for learning (call after `UseBotDetection()`) |
 | `MapBotDetectionEndpoints()` | Diagnostic API endpoints |
-
-### Qdrant Vector Search (Optional)
-
-Any level can enable Qdrant for similarity-based detection:
-
-```json
-{
-  "BotDetection": {
-    "Qdrant": {
-      "Enabled": true,
-      "Endpoint": "http://localhost:6334",
-      "EnableEmbeddings": true
-    }
-  }
-}
-```
-
-When embeddings are enabled, each detection generates a 384-dim semantic vector via ONNX (all-MiniLM-L6-v2, runs CPU-only, ~1-3ms per embedding) alongside the 64-dim heuristic vector. Both vectors are stored in Qdrant for dual-vector similarity matching.
 
 ---
 

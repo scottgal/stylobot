@@ -150,20 +150,14 @@ public static class StyloBotDashboardServiceExtensions
     }
 
     /// <summary>
-    ///     Adds Stylobot Dashboard services to the service collection.
-    ///     For most applications, use <see cref="AddStyloBot"/> instead which includes detection.
-    ///     <para>
-    ///     Internally calls <see cref="AddStyloBotUI"/> so all tag helpers are available too.
-    ///     </para>
-    /// </summary>
-    /// <param name="services">The service collection</param>
-    /// <param name="configure">Configuration options</param>
-    /// <returns>The service collection for chaining</returns>
-    /// <summary>
     ///     Adds Stylobot Dashboard services, binding options from <c>StyloBot:Dashboard</c>
     ///     in <paramref name="configuration"/> before applying the optional <paramref name="configure"/> lambda.
     ///     FOSS users can set <c>MonitoringPack:Enabled</c> in appsettings.json without a code change.
     /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configuration">Configuration root to bind <c>StyloBot:Dashboard</c> from</param>
+    /// <param name="configure">Optional configuration applied after binding, to override bound values in code</param>
+    /// <returns>The service collection for chaining</returns>
     public static IServiceCollection AddStyloBotDashboard(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -176,6 +170,16 @@ public static class StyloBotDashboardServiceExtensions
         });
     }
 
+    /// <summary>
+    ///     Adds Stylobot Dashboard services to the service collection.
+    ///     For most applications, use <see cref="AddStyloBot"/> instead which includes detection.
+    ///     <para>
+    ///     Internally calls <see cref="AddStyloBotUI"/> so all tag helpers are available too.
+    ///     </para>
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configure">Configuration options</param>
+    /// <returns>The service collection for chaining</returns>
     public static IServiceCollection AddStyloBotDashboard(
         this IServiceCollection services,
         Action<StyloBotDashboardOptions>? configure = null)
@@ -974,6 +978,14 @@ public static class StyloBotDashboardServiceExtensions
     ///     Prefer <see cref="UseStyloBot"/> which handles middleware ordering automatically.
     ///     Use this only if you need to register detection and dashboard middleware separately.
     /// </summary>
+    /// <remarks>
+    ///     Unlike <see cref="UseStyloBot"/>, this method does NOT call
+    ///     <c>UseStyloBotInboundClientHeaderStrip()</c> or <c>UseStyloBotForwardedHeaders()</c>, and does
+    ///     NOT call <c>UseBotDetection()</c> itself. If you register detection separately, you are
+    ///     responsible for wiring those anti-spoofing and forwarded-header steps yourself in the same
+    ///     order <see cref="UseStyloBot"/> does -- omitting them lets a visitor's own
+    ///     <c>X-Bot-Detection-*</c>/client-signal headers reach the pipeline unstripped.
+    /// </remarks>
     public static IApplicationBuilder UseStyloBotDashboard(this IApplicationBuilder app)
     {
         var options = app.ApplicationServices.GetRequiredService<StyloBotDashboardOptions>();
@@ -1281,12 +1293,12 @@ public static class StyloBotDashboardServiceExtensions
     }
 
     /// <summary>
-    ///     Replace the default <see cref="Mostlylucid.BotDetection.Services.NullEndpointPerfBaseline"/>
+    ///     Replace the default <c>NullEndpointPerfBaseline</c>
     ///     with the <see cref="Mostlylucid.BotDetection.UI.Services.DashboardEventStoreBackedEndpointPerfBaseline"/>
     ///     that reads per-(method, normalized-template) p95 from
     ///     <see cref="Mostlylucid.BotDetection.UI.Services.IDashboardEventStore"/>. Call this from the
     ///     gateway / dashboard-host bootstrap AFTER
-    ///     <c>AddBotDetectionDashboard()</c> so the store is registered first.
+    ///     <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions})"/> so the store is registered first.
     /// </summary>
     public static IServiceCollection AddDashboardEndpointPerfBaseline(this IServiceCollection services)
     {

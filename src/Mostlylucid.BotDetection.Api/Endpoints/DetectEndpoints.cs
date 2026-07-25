@@ -34,7 +34,7 @@ public static class DetectEndpoints
         return TypedResults.Ok(DetectResponse.FromEvidence(evidence));
     }
 
-    private static async Task<Results<Ok<DetectResponse[]>, ProblemHttpResult>> HandleDetectBatch(
+    private static async Task<Results<Ok<DetectResponse[]>, BadRequestProblemHttpResult>> HandleDetectBatch(
         DetectRequest[] requests,
         BotDetectionOrchestrator orchestrator,
         StyloBotApiOptions apiOptions,
@@ -42,10 +42,9 @@ public static class DetectEndpoints
     {
         if (requests.Length > apiOptions.MaxBatchSize)
         {
-            return TypedResults.Problem(
+            return BadRequestProblemHttpResult.From(
                 title: "Batch too large",
                 detail: $"Maximum batch size is {apiOptions.MaxBatchSize}, got {requests.Length}",
-                statusCode: 400,
                 type: "https://stylo.bot/errors/batch-too-large");
         }
 

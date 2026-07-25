@@ -27,7 +27,7 @@ public static class ClusterEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<BotCluster>>, ProblemHttpResult>> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<BotCluster>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] IBotClusterReader? service,
         CancellationToken ct = default)
     {
@@ -36,7 +36,7 @@ public static class ClusterEndpoints
         return ApiEndpointHelpers.Paginated(clusters, clusters.Count);
     }
 
-    private static async Task<Results<Ok<SingleResponse<BotClusterService.ClusterDiagnosticsSnapshot>>, ProblemHttpResult>> HandleDiagnostics(
+    private static async Task<Results<Ok<SingleResponse<BotClusterService.ClusterDiagnosticsSnapshot>>, ServiceUnavailableHttpResult>> HandleDiagnostics(
         [FromServices] IBotClusterReader? service,
         CancellationToken ct = default)
     {

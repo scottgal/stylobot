@@ -24,7 +24,7 @@ public static class ApprovalEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<ApprovalRecord>>, ProblemHttpResult>> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<ApprovalRecord>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] IFingerprintApprovalStore? store,
         int limit = 50,
         CancellationToken ct = default)
@@ -34,7 +34,7 @@ public static class ApprovalEndpoints
         return ApiEndpointHelpers.Paginated(records, limit);
     }
 
-    private static async Task<Results<Ok<SingleResponse<ApprovalRecord>>, NotFound, ProblemHttpResult>> HandleGet(
+    private static async Task<Results<Ok<SingleResponse<ApprovalRecord>>, NotFound, ServiceUnavailableHttpResult>> HandleGet(
         string signature,
         [FromServices] IFingerprintApprovalStore? store,
         CancellationToken ct = default)

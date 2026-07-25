@@ -318,7 +318,7 @@ public static class YarpExtensions
         if (!httpContext.IsBot())
             return false;
 
-        var confidence = httpContext.GetBotConfidence();
+        var confidence = httpContext.GetBotProbability();
         if (confidence < minConfidence)
             return false;
 

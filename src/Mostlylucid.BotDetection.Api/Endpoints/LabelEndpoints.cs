@@ -25,7 +25,7 @@ public static class LabelEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<SignatureLabel>>, ProblemHttpResult>> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<SignatureLabel>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] ISignatureLabelStore? store,
         DateTime? since = null,
         int limit = 100,
@@ -36,7 +36,7 @@ public static class LabelEndpoints
         return ApiEndpointHelpers.Paginated(labels, limit);
     }
 
-    private static async Task<Results<Ok<SingleResponse<IReadOnlyDictionary<SignatureLabelKind, int>>>, ProblemHttpResult>> HandleCounts(
+    private static async Task<Results<Ok<SingleResponse<IReadOnlyDictionary<SignatureLabelKind, int>>>, ServiceUnavailableHttpResult>> HandleCounts(
         [FromServices] ISignatureLabelStore? store,
         CancellationToken ct = default)
     {
@@ -44,7 +44,7 @@ public static class LabelEndpoints
         return ApiEndpointHelpers.Single(await store.GetCountsAsync(ct));
     }
 
-    private static async Task<Results<Ok<SingleResponse<SignatureLabel>>, NotFound, ProblemHttpResult>> HandleGetLatest(
+    private static async Task<Results<Ok<SingleResponse<SignatureLabel>>, NotFound, ServiceUnavailableHttpResult>> HandleGetLatest(
         string signature,
         [FromServices] ISignatureLabelStore? store,
         CancellationToken ct = default)

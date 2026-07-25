@@ -21,12 +21,12 @@ public static class MeEndpoints
         return endpoints;
     }
 
-    private static Results<Ok<SingleResponse<ApiKeyContextDto>>, ProblemHttpResult> HandleMe(HttpContext httpContext)
+    private static Results<Ok<SingleResponse<ApiKeyContextDto>>, UnauthorizedProblemHttpResult> HandleMe(HttpContext httpContext)
     {
         var keyContext = httpContext.Items["BotDetection.ApiKeyContext"] as ApiKeyContext;
         if (keyContext is null)
         {
-            return TypedResults.Problem(title: "No API key context", statusCode: 401,
+            return UnauthorizedProblemHttpResult.From(title: "No API key context",
                 type: "https://stylo.bot/errors/no-api-key");
         }
 

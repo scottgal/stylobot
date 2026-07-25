@@ -10,6 +10,11 @@
         <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
         <Authors>Mostlylucid</Authors>
         <Description>StyloBot Public REST API for bot detection and dashboard data.</Description>
+        <!-- Endpoint handler XML doc comments feed the generated OpenAPI document's
+             summary/description fields (via Microsoft.AspNetCore.OpenApi); without this,
+             they're inert prose that never reaches /api/v1/openapi.json. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
         <!-- Source-generate the Minimal API request delegates so RequestDelegateFactory
              doesn't reflect over endpoint signatures at startup. Required for Native AOT:
              without it, the host throws NotSupportedException trying to resolve JsonTypeInfo
