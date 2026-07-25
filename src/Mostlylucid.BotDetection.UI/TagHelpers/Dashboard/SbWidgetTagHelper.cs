@@ -45,6 +45,28 @@ public sealed class SbWidgetTagHelper : TagHelper
     /// <summary>Text for the empty-state strip.</summary>
     [HtmlAttributeName("empty-text")] public string? EmptyText { get; set; }
 
+    /// <summary>
+    ///     When true, render the compact WARMING strip (daisyUI spinner + text) instead
+    ///     of the content. Takes precedence over <see cref="EmptyWhen"/> so a cold-cache
+    ///     miss shows "still warming" rather than the honest "no data" state -- the same
+    ///     three-state contract (data / warming / empty) the list widgets (SbCountriesList,
+    ///     SbSummaryStats) already render. This exists so a chart never paints a bare
+    ///     Chart.js canvas on a cold cache: the warming strip replaces the canvas, and the
+    ///     freshness beacon OOB-replaces the widget once the tick materializer warms it.
+    /// </summary>
+    [HtmlAttributeName("warming-when")] public bool WarmingWhen { get; set; }
+
+    /// <summary>Text for the warming strip (rendered beside the spinner).</summary>
+    [HtmlAttributeName("warming-text")] public string? WarmingText { get; set; }
+
+    /// <summary>
+    ///     Optional freshness surface key(s) stamped as <c>data-sb-depends</c> on the outer
+    ///     element so the SignalR freshness beacon can OOB-replace this widget when the
+    ///     underlying surface warms (matches the <c>data-sb-depends</c> convention on the
+    ///     list widgets). Null (default) omits the attribute -- existing callers unaffected.
+    /// </summary>
+    [HtmlAttributeName("depends")] public string? Depends { get; set; }
+
     /// <summary>Extra classes appended to the outer tier element.</summary>
     [HtmlAttributeName("class")] public string? ExtraClass { get; set; }
 
@@ -73,11 +95,28 @@ public sealed class SbWidgetTagHelper : TagHelper
         if (!string.IsNullOrWhiteSpace(ExtraClass)) cls += " " + ExtraClass;
         output.Attributes.SetAttribute("class", cls);
 
+        // Freshness surface marker so the SignalR beacon can OOB-replace this widget
+        // once the tick materializer warms it (matches the list-widget convention).
+        if (!string.IsNullOrWhiteSpace(Depends))
+            output.Attributes.SetAttribute("data-sb-depends", Depends);
+
         var head = string.IsNullOrEmpty(Heading)
             ? string.Empty
             : $"<div class=\"sb-widget-head\">{enc.Encode(Heading)}</div>";
 
-        if (EmptyWhen)
+        if (WarmingWhen)
+        {
+            // Cold-cache miss: collapse to a compact WARMING strip (spinner + text) so a
+            // chart never paints a bare canvas. Precedence over EmptyWhen -- "still warming"
+            // is a truer signal than "no data" until the bundle is actually composed.
+            output.Content.SetHtmlContent(
+                $"<div class=\"card bg-base-100 border border-base-300\"><div class=\"card-body p-3\">{head}" +
+                "<div class=\"sb-widget-empty\">" +
+                "<span class=\"loading loading-spinner loading-sm\"></span>" +
+                $"<span>{enc.Encode(WarmingText ?? "Warming up — data will appear shortly.")}</span>" +
+                "</div></div></div>");
+        }
+        else if (EmptyWhen)
         {
             // Collapse to a compact strip — no full empty card.
             output.Content.SetHtmlContent(

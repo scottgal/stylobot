@@ -1284,6 +1284,28 @@ public class StyloBotDashboardMiddleware
         // middleware owns /dashboard/visitors, so the MVC VisitorsController cannot
         // supply this data on hosts where the dashboard middleware is enabled.
         DashboardPageResult? composedPage = null;
+        // PART 4 (7d instant-paint + infinite-warming guard): when the Traffic content-cache
+        // bundle is a genuine cold-miss (never composed) AND this host runs the tick
+        // materializer, paint the WARMING state instantly instead of blocking first paint
+        // on synchronous event-store aggregations (for the
+        // 7d/30d windows those scans are the slow-first-paint culprit). The materializer +
+        // freshness beacon warm-replace the widgets out-of-request.
+        //
+        // INFINITE-WARMING GUARD: shellWarming is set ONLY when the tick materializer has
+        // PROVEN it can warm (HasWarmedSuccessfully) AND this is not a remote/thin host AND
+        // the bundle IsWarming (never composed for this window).
+        //   * HasWarmedSuccessfully is the key guard: a degraded host whose compose always
+        //     throws never latches it, so the request path keeps its synchronous store
+        //     fallback (honest real data) instead of a spinner that would warm forever.
+        //   * Remote/thin hosts (RemoteDashboardEventStore is the only source) keep the
+        //     synchronous fallback -- the tick materializer there composes from the remote
+        //     gateway, and first paint must show its data, not a spinner.
+        //   * A warmed-but-empty bundle is NOT warming -> honest "no data" state, not a spinner.
+        //   * No explicit re-warm is fired here: the tick materializer already prewarms every
+        //     dashboard.traffic window each tick, so the next request/beacon resolves to
+        //     real-or-honest-empty data.
+        var shellWarming = false;
+        var isRemoteHost = context.RequestServices.GetService<Adapters.Remote.DashboardSourceOptions>() is not null;
         if (_contentCache is not null && _manifests is not null)
         {
             try
@@ -1297,13 +1319,27 @@ public class StyloBotDashboardMiddleware
                         pageWindow,
                         context.RequestAborted);
 
+                    if (candidatePage.IsWarming
+                        && !isRemoteHost
+                        && _materializerCoordinator?.HasWarmedSuccessfully == true)
+                    {
+                        // Cold-miss on a proven-healthy local materializer host: instant
+                        // warming paint. No explicit re-warm needed here -- the tick
+                        // materializer PREWARMS every dashboard.traffic window (PrewarmWindows
+                        // = 6h/24h/7d/30d) and warms any live envelope each tick, and
+                        // GetCurrentAsync above already marked this envelope live. So it warms
+                        // within a tick and the freshness beacon warm-replaces the widgets.
+                        // HasWarmedSuccessfully guarantees that tick loop is actually working,
+                        // so this can never warm forever.
+                        shellWarming = true;
+                    }
                     // Remote compose can degrade to a non-null bundle with empty slices
                     // when the gateway endpoint is unavailable or returns an incomplete
                     // response. Do not stash that as authoritative: view components treat
                     // non-null empty lists as a successful read and skip their populated
                     // IDashboardEventStore fallback. The direct store path is the same
                     // source used by the working Traffic render on remote hosts.
-                    if (candidatePage.Summary is not null
+                    else if (candidatePage.Summary is not null
                         && candidatePage.BotAggregate is { Count: > 0 }
                         && candidatePage.Geo is { Count: > 0 })
                     {
@@ -1340,16 +1376,26 @@ public class StyloBotDashboardMiddleware
         // and read the store windowed — otherwise a remote host whose page-bundle compose degrades
         // (composedPage null) falls back to the frozen cached summary across every window.
         var summaryHasWindow = context.Request.Query.ContainsKey("window");
+        // PART 4: when shellWarming, each aggregation resolves to an EMPTY placeholder
+        // (no synchronous store read on the request thread) and the widget is flagged
+        // IsWarming below so it paints the warming strip. The tick materializer + freshness
+        // beacon warm-replace it. Kept OFF the request thread entirely for the cold 7d paint.
         Task<DashboardSummary> summaryTask = composedPage?.Summary is { } composedSummary
             ? Task.FromResult(composedSummary)
+            : shellWarming
+            ? Task.FromResult(EmptySummary())
             : (!summaryHasWindow && _aggregateCache.Current.Summary is { } cachedSummary)
             ? Task.FromResult(cachedSummary)
             : SafeGetSummaryAsync(visitorWindow.StartTime, visitorWindow.EndTime);
         var countriesTask = composedPage?.Geo is { } composedGeo
             ? Task.FromResult(composedGeo.ToList())
+            : shellWarming
+            ? Task.FromResult(new List<DashboardCountryStats>())
             : SafeGetCountriesDataAsync();
         var endpointsTask = composedPage?.Endpoints is { } composedEndpoints
             ? Task.FromResult(composedEndpoints.ToList())
+            : shellWarming
+            ? Task.FromResult(new List<DashboardEndpointStats>())
             : SafeGetEndpointsDataAsync(context);
         // Routed through the same "dashboard.traffic" content-cache bundle as Countries/
         // Endpoints (DashboardRowWidgetKeys.UserAgentsRaw rides alongside on that manifest --
@@ -1358,6 +1404,8 @@ public class StyloBotDashboardMiddleware
         // row too.
         var userAgentsTask = composedPage?.UserAgentsRaw is { } composedUserAgents
             ? Task.FromResult(composedUserAgents.ToList())
+            : shellWarming
+            ? Task.FromResult(new List<DashboardUserAgentSummary>())
             : SafeComputeUserAgentsFallbackAsync();
 
         // Stage 2a: Clusters/TopBots/Sessions/Threats are pure cache reads through their
@@ -1438,18 +1486,19 @@ public class StyloBotDashboardMiddleware
             ActiveRow = rowRef,
             Version = DashboardVersion,
             RenderShell = _options.RenderShell,
-            Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, sigCacheForSummary),
+            Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, sigCacheForSummary, shellWarming),
             Visitors = new VisitorListModel
             {
                 Visitors = visitors, Counts = visitorCounts,
                 Filter = "all", SortField = "lastSeen", SortDir = "desc",
-                Page = 1, PageSize = 24, TotalCount = visitorTotal, BasePath = basePath
+                Page = 1, PageSize = 24, TotalCount = visitorTotal, BasePath = basePath,
+                IsWarming = shellWarming
             },
             YourDetection = yourDetectionTask.Result,
-            Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData),
-            Endpoints = BuildEndpointsModel(context, "total", "desc", 1, 20, endpointsData),
+            Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData, shellWarming),
+            Endpoints = BuildEndpointsModel(context, "total", "desc", 1, 20, endpointsData, shellWarming),
             Clusters = clustersTask.Result,
-            UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
+            UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents, shellWarming),
             TopBots = topBotsTask.Result,
             Sessions = sessionsTask.Result,
             Threats = threatsTask.Result,
@@ -1514,8 +1563,20 @@ public class StyloBotDashboardMiddleware
         async Task<IReadOnlyList<DashboardTopBotEntry>> ResolveVisitorsRawAsync()
         {
             if (composedPage?.BotAggregate is { } cached) return cached;
+            // PART 4: cold-miss on a materializer host -> empty warming placeholder, no
+            // synchronous store read on the request thread.
+            if (shellWarming) return [];
             return await SafeGetVisitorsAsync();
         }
+
+        // Empty summary placeholder for the warming paint -- same shape SafeGetSummaryAsync
+        // returns on failure, so downstream readers treat it as a valid (zero) summary.
+        static DashboardSummary EmptySummary() => new()
+        {
+            Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0,
+            UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(),
+            UniqueSignatures = 0
+        };
 
         async Task<List<DashboardUserAgentSummary>> SafeComputeUserAgentsFallbackAsync()
         {
@@ -3428,10 +3489,13 @@ public class StyloBotDashboardMiddleware
 
     /// <summary>Build a SummaryStatsModel with session analytics from the signature cache.</summary>
     private static SummaryStatsModel BuildSummaryStatsModelFromVisitorCache(
-        DashboardSummary summary, string basePath, SignatureAggregateCache? signatureCache)
+        DashboardSummary summary, string basePath, SignatureAggregateCache? signatureCache, bool isWarming = false)
     {
-        var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
-        if (signatureCache is not null)
+        var model = new SummaryStatsModel { Summary = summary, BasePath = basePath, IsWarming = isWarming };
+        // On a cold-cache warming paint the session analytics are meaningless (the summary
+        // is an empty placeholder); skip PopulateSessionAnalytics so the widget shows the
+        // warming strip, not a wall of zeros.
+        if (!isWarming && signatureCache is not null)
             PopulateSessionAnalytics(model, signatureCache);
         return model;
     }
@@ -7720,7 +7784,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         return coverage;
     }
 
-    private EndpointsListModel BuildEndpointsModel(HttpContext context, string sortField, string sortDir, int page, int pageSize, List<DashboardEndpointStats> all)
+    private EndpointsListModel BuildEndpointsModel(HttpContext context, string sortField, string sortDir, int page, int pageSize, List<DashboardEndpointStats> all, bool isWarming = false)
     {
         IEnumerable<DashboardEndpointStats> sorted = sortField.ToLowerInvariant() switch
         {
@@ -7747,10 +7811,11 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             TotalCount = all.Count,
             IsCommercial = IsCommercialMode(context),
             AllowEndpointPinning = _options.EnableEndpointPinning,
+            IsWarming = isWarming,
         };
     }
 
-    private UserAgentsListModel BuildUserAgentsModel(string filter, string sortField, string sortDir, int page, int pageSize, List<DashboardUserAgentSummary> all)
+    private UserAgentsListModel BuildUserAgentsModel(string filter, string sortField, string sortDir, int page, int pageSize, List<DashboardUserAgentSummary> all, bool isWarming = false)
     {
         // Apply filter
         IEnumerable<DashboardUserAgentSummary> filtered = filter switch
@@ -7784,11 +7849,12 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             SortDir = sortDir,
             Page = page,
             PageSize = pageSize,
-            TotalCount = filteredList.Count
+            TotalCount = filteredList.Count,
+            IsWarming = isWarming,
         };
     }
 
-    private CountriesListModel BuildCountriesModel(string sortField, string sortDir, int page, int pageSize, List<DashboardCountryStats> all)
+    private CountriesListModel BuildCountriesModel(string sortField, string sortDir, int page, int pageSize, List<DashboardCountryStats> all, bool isWarming = false)
     {
         IEnumerable<DashboardCountryStats> sorted = sortField.ToLowerInvariant() switch
         {
@@ -7808,7 +7874,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             SortDir = sortDir,
             Page = page,
             PageSize = pageSize,
-            TotalCount = all.Count
+            TotalCount = all.Count,
+            IsWarming = isWarming,
         };
     }
 

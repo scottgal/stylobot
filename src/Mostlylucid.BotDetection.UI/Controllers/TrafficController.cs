@@ -193,6 +193,12 @@ public sealed class TrafficController : Controller
             Counters: counters,
             Timeseries: timeseries,
             BotFamilies: botFamilies,
+            // PART 3: thread the cold-cache-miss flag through so ?partial=1 SignalR swaps
+            // and HTMX chartlet drills render the WARMING state instead of a silent empty
+            // chart. page.TimeBuckets is null on a Warming placeholder -> the timeseries
+            // above bucketed to all-zeros, which without this flag would paint a bare
+            // empty canvas indistinguishable from a real "no traffic" window.
+            IsWarming: page.IsWarming,
             Countries: TopByCountry(countriesData, topN),
             BotTypes: TopByBotType(visitors, topN),
             TopEndpoints: TopByEndpoint(endpointsData, topN, opts.TopEndpointsMinSamplesForPerf),

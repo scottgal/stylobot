@@ -128,13 +128,10 @@
         </div>
     }
 
-    @* A genuine cold-cache miss for the current window (see TrafficPageModel.IsWarming) --
-       distinct from a real, warmed snapshot that happens to show zero traffic. Matches the
-       wording/markup convention _ClustersList.cshtml already established for this state. *@
-    @if (Model.IsWarming)
-    {
-        <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — traffic data will appear shortly.</div>
-    }
+    @* PART 2: the standalone page-level warming banner used to print HERE while the
+       hits-per-period chart STILL rendered (an empty Chart.js canvas) below it -- warming
+       AND a bare chart at once. The warming state now lives ON each widget (warming-when),
+       so the chart shows warming-OR-data, never both. See the sb-widget below. *@
 
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
 
@@ -155,7 +152,16 @@
        VISITORS card was), with Top Bots beside it — the two headline widgets of
        the page. The visitor split moved to the compact bar above. *@
     <div class="sb-widget-grid">
-        <sb-widget width="half" height="tall" heading="@chartLabel">
+        @* Three-state chart contract (PART 2): warming spinner on a genuine cold-cache
+           miss (Model.IsWarming), an honest "No data" strip when the window is warmed but
+           empty, otherwise the real Chart.js stacked bar -- never a bare empty canvas.
+           data-sb-depends="summary" lets the freshness beacon OOB-replace it once warm. *@
+        <sb-widget width="half" height="tall" heading="@chartLabel"
+                   depends="summary"
+                   warming-when="@Model.IsWarming"
+                   warming-text="Warming up — chart data will appear shortly."
+                   empty-when="@(!Model.IsWarming && Model.Timeseries.Buckets.Count == 0)"
+                   empty-text="No data in this window">
             <vc:sb-chartlet model="hitsChart" />
         </sb-widget>
         <sb-widget width="half" height="tall">

@@ -109,6 +109,20 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     /// <summary>Test/diagnostic seam onto the adaptive controller's current scale factor.</summary>
     internal double CurrentAdaptiveScaleFactor => _adaptive.CurrentScaleFactor;
 
+    // Health latch: true once ANY envelope has been composed/warmed successfully. Volatile
+    // because it's written on a background warm task and read on the request thread. See the
+    // set-site in AwaitWarmAndClearAsync and the PART 4 guard in StyloBotDashboardMiddleware.
+    private volatile bool _hasWarmedSuccessfully;
+
+    /// <summary>
+    ///     True once the tick materializer has warmed at least one envelope successfully --
+    ///     i.e. the compose path is proven healthy. The request path gates its instant
+    ///     "warming" cold-miss paint on this so a degraded host (compose always throws) is
+    ///     never left warming forever with nothing to warm it; it keeps the synchronous
+    ///     store fallback instead.
+    /// </summary>
+    public bool HasWarmedSuccessfully => _hasWarmedSuccessfully;
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         // Self-disable only when there's no tick fabric to subscribe to (viewer-mode host).
@@ -171,6 +185,13 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // a skip) so DashboardRefreshCadence's due-time check always measures from the
             // last GENUINE warm, whether it came from the tick loop or a MarkDirtyAsync force.
             _lastWarmedAt[envelope] = _time.GetUtcNow();
+            // Health latch: this compose PATH is proven to work. Read by the request path
+            // (dashboard-graph-quality PART 4 infinite-warming guard) so it only paints the
+            // instant "warming" state for a cold-miss once the materializer has demonstrably
+            // warmed SOMETHING -- on a degraded host whose compose always throws, this stays
+            // false and the request path keeps its synchronous store fallback (honest data),
+            // never a spinner that would warm forever with nothing to warm it.
+            _hasWarmedSuccessfully = true;
             return result;
         }
         finally

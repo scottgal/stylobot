@@ -131,7 +131,15 @@ public sealed class TrafficRowContentCacheIntegrationTests : IAsyncDisposable
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Warming up — traffic data will appear shortly.", html);
+        // dashboard-graph-quality PART 2: the standalone page-level "Warming up — traffic
+        // data will appear shortly." banner (which rendered ABOVE a still-painting empty
+        // chart canvas -- warming AND a bare chart at once) was replaced by the chart
+        // widget's own three-state warming strip, so a cold miss shows warming-OR-chart,
+        // never both. The warming signal now lives on the hits-per-period chart itself.
+        // The em-dash in the copy is HTML-entity-encoded by the widget's HtmlEncoder, so
+        // assert on the two ASCII halves rather than the literal "—".
+        Assert.Contains("Warming up", html);
+        Assert.Contains("chart data will appear shortly.", html);
         Assert.Equal(0, store.GetTimeSeriesCallCount);
     }
 
