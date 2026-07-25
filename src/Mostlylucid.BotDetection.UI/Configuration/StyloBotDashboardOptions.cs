@@ -322,19 +322,20 @@ public sealed class StyloBotDashboardOptions
 public sealed class AdminOptions
 {
     /// <summary>
-    ///     Off by default. Set true in your operator-side appsettings (or via
-    ///     <c>STYLOBOT_ADMIN_ENABLED=true</c>) to turn the admin endpoints on. When
-    ///     false the middleware short-circuits and admin paths fall through to the
-    ///     rest of the pipeline (404), so the endpoints aren't exposed at all.
+    ///     Off by default. Set true in your operator-side appsettings (or via the
+    ///     env var <c>StyloBot__Dashboard__Admin__Enabled=true</c>) to turn the admin
+    ///     endpoints on. When false the middleware short-circuits and admin paths
+    ///     fall through to the rest of the pipeline (404), so the endpoints aren't
+    ///     exposed at all.
     /// </summary>
     public bool Enabled { get; set; }
 
     /// <summary>
     ///     Shared-secret bearer token. Required when <see cref="Enabled"/> is true;
     ///     set via <c>StyloBot:Dashboard:Admin:Token</c> or the env var
-    ///     <c>STYLOBOT_ADMIN_TOKEN</c>. Pick something long and random; rotated on
-    ///     incident. If <see cref="Enabled"/> is true but Token is empty the
-    ///     endpoints return 401 with a body pointing at the missing config key --
+    ///     <c>StyloBot__Dashboard__Admin__Token</c>. Pick something long and random;
+    ///     rotated on incident. If <see cref="Enabled"/> is true but Token is empty
+    ///     the endpoints return 401 with a body pointing at the missing config key --
     ///     there is no anonymous path.
     /// </summary>
     public string? Token { get; set; }
@@ -343,7 +344,7 @@ public sealed class AdminOptions
     ///     Path the admin middleware listens on, relative to the host root. Default
     ///     <c>/stylobot/admin</c> -- sits under the dashboard base path so reverse-proxy
     ///     rules already in place for the dashboard cover it. Endpoints are
-    ///     <c>POST {BasePath}/reload</c> and <c>POST {BasePath}/restart</c>.
+    ///     <c>POST {BasePath}/restart</c> and <c>GET|POST {BasePath}/learning/health</c>.
     /// </summary>
     public string BasePath { get; set; } = "/stylobot/admin";
 }

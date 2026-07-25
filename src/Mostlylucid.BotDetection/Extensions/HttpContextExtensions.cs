@@ -13,12 +13,12 @@ namespace Mostlylucid.BotDetection.Extensions;
 /// </summary>
 public static partial class HttpContextExtensions
 {
+    private const string MappedResultKey = "BotDetection.MappedResult";
+
     /// <summary>
     ///     Gets the bot detection result from the current request.
     ///     Returns null if bot detection middleware hasn't run.
     /// </summary>
-    private const string MappedResultKey = "BotDetection.MappedResult";
-
     public static BotDetectionResult? GetBotDetectionResult(this HttpContext context)
     {
         if (!context.Items.TryGetValue(BotDetectionMiddleware.BotDetectionResultKey, out var stored))
@@ -625,7 +625,7 @@ public static partial class HttpContextExtensions
 
     /// <summary>
     ///     Returns true if the request is considered malicious based on threat scoring.
-    ///     True when ThreatBand >= High, or when both IsBot and ThreatBand >= Elevated.
+    ///     True when ThreatBand >= High, or when both BotProbability >= 0.5 and ThreatBand >= Elevated.
     /// </summary>
     public static bool IsMalicious(this HttpContext context)
     {

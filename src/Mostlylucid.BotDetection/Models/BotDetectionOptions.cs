@@ -1182,6 +1182,7 @@ public class BotDetectionOptions
     ///         <item><term><c>SearchEngine</c> / <c>GoodBot</c> / <c>VerifiedBot</c></term><description><c>rate-limit-search</c> (60 req/min, burst 10 -> throttle-status)</description></item>
     ///         <item><term><c>SocialMediaBot</c></term><description><c>rate-limit-social</c> (30 req/min, burst 5)</description></item>
     ///         <item><term><c>MonitoringBot</c></term><description><c>rate-limit-monitoring</c> (6 req/min)</description></item>
+    ///         <item><term><c>Internal</c></term><description><c>logonly</c> (LAN / loopback / docker bridge traffic; recorded, never throttled)</description></item>
     ///     </list>
     ///     <para>
     ///         <see cref="BotType.Unknown"/> is intentionally omitted -- the
