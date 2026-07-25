@@ -10,46 +10,47 @@ NuGet: dotnet add package Mostlylucid.BotDetection
 
 ## Block All Bots (Whole App)
 
-The simplest possible setup: detect and block bots across your entire application with zero per-endpoint config.
+The simplest possible setup: detect and block bots across your entire application with zero per-endpoint config. `.WithBotProtection()` / `.WithHumanOnly()` are the group-level equivalents of the `.BlockBots()` / `.RequireHuman()` endpoint filters shown later - applied to a route group with an empty prefix, they cover every endpoint mapped through that group with no route pattern changes required.
 
-**Option A: appsettings.json**
-
-```csharp
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddBotDetection();
-var app = builder.Build();
-app.UseBotDetection();
-app.Run();
-```
-
-```json
-{
-  "BotDetection": {
-    "BlockDetectedBots": true
-  }
-}
-```
-
-**Option B: Code only (no config file)**
+**Option A: Block bots, allow the good ones through**
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddBotDetection();
-builder.Services.Configure<BotDetectionOptions>(o =>
-{
-    o.BlockDetectedBots = true;
-    o.MinConfidenceToBlock = 0.8;           // only block when confident
-    o.AllowVerifiedSearchEngines = true;     // Googlebot, Bingbot through
-    o.AllowSocialMediaBots = true;           // Facebook, Twitter previews through
-    o.AllowMonitoringBots = true;            // UptimeRobot, Pingdom through
-});
 
 var app = builder.Build();
 app.UseBotDetection();
+
+// Applies to every endpoint mapped through `app` below - search engines,
+// social media previews, and monitoring bots pass through; everything else is blocked
+var protectedApp = app.MapGroup("").WithBotProtection(
+    allowSearchEngines: true,
+    allowSocialMediaBots: true,
+    allowMonitoringBots: true);
+
+protectedApp.MapGet("/", () => Results.Ok("home"));
+protectedApp.MapGet("/products", () => Results.Ok(new { catalog = "public" }));
+
 app.Run();
 ```
 
-Every detected bot gets a 403. Search engines, social media previews, and monitoring bots are allowed through by default.
+**Option B: Humans only, no exceptions**
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddBotDetection();
+
+var app = builder.Build();
+app.UseBotDetection();
+
+// RequireHuman() blocks every bot, including verified crawlers - no Allow* opt-outs
+var humansOnly = app.MapGroup("").WithHumanOnly();
+humansOnly.MapGet("/", () => Results.Ok("home"));
+
+app.Run();
+```
+
+Every detected bot gets a 403. In Option A, search engines, social media previews, and monitoring bots are allowed through because they're explicitly opted in via the `Allow*` parameters - everything else is blocked. `WithHumanOnly()` in Option B blocks everyone, no exceptions.
 
 ---
 
@@ -268,7 +269,7 @@ Instead of binary block/allow, assign named response policies from config. This 
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.7,
+    "Classification": { "BotFloor": 0.7 },
     "ActionPolicies": {
       "api-block": {
         "Type": "Block",
@@ -349,8 +350,8 @@ No `appsettings.json` section needed. Defaults:
 
 | Setting | Default | Effect |
 |---------|---------|--------|
-| `BotThreshold` | 0.7 | 70%+ bot probability = classified as bot |
-| `BlockDetectedBots` | false | Detection only - use `.BlockBots()` to block |
+| `Classification.BotFloor` | 0.7 | 70%+ bot probability = classified as bot |
+| `DefaultActionPolicyName` | `throttle-stealth` | Bots crossing the threshold are auto-throttled - no endpoint config needed. Set to `"block"` for strict default-deny |
 | `EnableLlmDetection` | false | No LLM needed |
 | Storage | SQLite (auto) | File-based, self-creating `botdetection.db` |
 
@@ -371,7 +372,7 @@ This is intentionally weaker than the default SQLite-backed mode. For production
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.7,
+    "Classification": { "BotFloor": 0.7 },
     "EnableLlmDetection": false,
     "Qdrant": { "Enabled": false },
     "PathPolicies": {
@@ -406,14 +407,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddStyloBot(
     configureDashboard: dashboard =>
     {
-        dashboard.BasePath = "/_stylobot";
+        dashboard.BasePath = "/stylobot";
         dashboard.AllowUnauthenticatedAccess = true; // dev only
     });
 
 var app = builder.Build();
 app.UseRouting();
 app.UseStyloBot(); // detection + broadcast + dashboard, correct order
-app.MapHub<StyloBotDashboardHub>("/_stylobot/hub");
+app.MapHub<StyloBotDashboardHub>("/stylobot/hub");
 app.Run();
 ```
 
@@ -464,7 +465,7 @@ The dashboard page (`/stylobot/`) is **server-side rendered** - all data is embe
 Pass `?embed=1` to hide the brand header when embedding the dashboard in an iframe:
 
 ```html
-<iframe src="/_stylobot?embed=1" class="w-full" style="min-height: 80vh;"></iframe>
+<iframe src="/stylobot?embed=1" class="w-full" style="min-height: 80vh;"></iframe>
 ```
 
 This is useful for embedding the dashboard inside admin portals or marketing pages. The `X-Frame-Options: SAMEORIGIN` header is set automatically, so the iframe must be on the same origin.
