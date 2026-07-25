@@ -28,7 +28,34 @@ config); **4 are config-free by design** (`BrowserCharConsistencyAtom`, `Registr
 "Atom" and "contributor" are the **same concept, two generations** — `IContributingDetector`
 ("contributor") was the pre-v8 blackboard-era interface; `IDetectorAtom` ("atom") replaced it entirely
 in the v8 wave-orchestrator rewrite and `IContributingDetector` no longer exists in code. Any site copy
-still saying "contributors" is using dead terminology, not a different number.
+still saying "contributors" is using dead terminology, not a different number. **67 is the one number
+for public copy** — "detectors" or "detector atoms" are both fine as the public-facing term; there is
+no other registration/contributor figure that means something different for marketing purposes.
+
+### Full list of the 67 detector atoms (`Orchestration/Atoms/`)
+
+AccountTakeoverAtom, AiAtom, AiScraperAtom, BehavioralAtom, BehavioralWaveformAtom,
+BrowserCharConsistencyAtom, BrowserModeClassifierAtom, CacheBehaviorAtom, ChallengeVerificationAtom,
+ClaimedIdentityAtom, ClickFraudAtom, ClientSideAtom, ClusterAtom, ContentSequenceAtom,
+CookieBehaviorAtom, CveFingerprintAtom, CveProbeAtom, EndpointHistoryAtom, FastPathReputationAtom,
+FediverseDomainAtom, FingerprintApprovalAtom, FingerprintMatchAtom, FingerprintPriorAtom,
+GeoChangeAtom, HaxxorAtom, HeaderAtom, HeaderCorrelationAtom, HealthEndpointAtom,
+HealthEndpointReconAtom, HeuristicAtom, HeuristicLateAtom, HoneypotLinkAtom, Http2FingerprintAtom,
+Http3FingerprintAtom, IdentityChangeAtom, IdentityVectorAtom, InconsistencyAtom, IntentAtom, IpAtom,
+LlmAtom, MultiLayerCorrelationAtom, PeriodicityAtom, PiiQueryStringAtom, PoolCollisionAtom,
+ProjectHoneypotAtom, ReactivePatternAtom, RegistryClientSensor, ReputationBiasAtom,
+RequestHydratorAtom, ResourceWaterfallAtom, ResponseBehaviorAtom, SecurityToolAtom,
+SessionModeResolverAtom, SessionVectorAtom, SignatureAtom, SimilarityAtom, StreamAbuseAtom,
+TcpIpFingerprintAtom, ThreatIntelAtom, TimeAtom, TlsFingerprintAtom, TransportProtocolAtom,
+UserAgentAtom, VerifiedBotAtom, VerifiedBotInlineAtom, VersionAgeAtom, WebBotAuthApprovalAtom.
+
+**Registration mechanism** (for reproducibility): `BotDetectionOrchestrator.AddNativeDetectorAtoms()`
+in `src/Mostlylucid.BotDetection/Orchestration/Atoms/BotDetectionOrchestrator.cs` is a literal,
+hand-maintained list — one `services.AddDetectorAtom<TAtom>()` call per class above (grouped by
+taxonomy role), plus `RequestHydratorAtom` registered one line above via
+`services.AddSingleton<IDetectorAtom, RequestHydratorAtom>()`. It is not a reflection/assembly scan, so
+the count only changes when a line is added or removed here — cross-checked against the grep count in
+section 1 above, both agree at 67.
 
 ### Stale counts found in FOSS docs, now corrected in this repo (this branch)
 
