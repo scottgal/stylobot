@@ -12,7 +12,7 @@ This is the detection engine that powers **[StyloBot](https://stylo.bot)** — a
 
 ## What it does
 
-57 contributors fire in a wave-based pipeline. The fast path (<1 ms) handles 90% of traffic. Slow-path and session contributors only activate when upstream signals justify it.
+67 detector atoms fire in a wave-based pipeline. The fast path (<1 ms) handles 90% of traffic. Slow-path and session contributors only activate when upstream signals justify it.
 
 - **57 detection contributors** across 4 waves — UA, headers, IP, protocol fingerprinting (JA3/JA4/H2/QUIC/TCP-IP), behavioural, AI, cluster discovery, CVE probes
 - **Transport header trust gate** (7.5) — X-JA3/X-JA4/X-H2/QUIC headers are gated behind peer-IP trust so attackers can't inject spoofed fingerprints
@@ -45,7 +45,7 @@ app.UseRouting();
 app.UseStyloBot();  // detection + dashboard, correct middleware ordering
 ```
 
-That's it. The dashboard is at `/_stylobot`. All 57 contributors are active. SQLite databases are created in the working directory.
+That's it. The dashboard is at `/_stylobot`. All 67 detector atoms are active. SQLite databases are created in the working directory.
 
 ---
 
@@ -180,7 +180,7 @@ ProjectHoneypot (DNS lookup against http:BL)
 | UserAgent — Googlebot (full pipeline) | 13,272 ns | 2,568 B |
 | UserAgent — Chrome (full pipeline) | 104,821 ns | 1,817 B |
 
-The full-pipeline Chrome number (105 µs) reflects all 57 contributors running; the detection-code share of a typical gateway request is ~0.1% of total latency (remainder is network + Kestrel).
+The full-pipeline Chrome number (105 µs) reflects all 67 detector atoms running; the detection-code share of a typical gateway request is ~0.1% of total latency (remainder is network + Kestrel).
 
 ---
 

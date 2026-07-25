@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > The **root [`CHANGELOG.md`](../../CHANGELOG.md)** is the authoritative source across the whole solution. Entries below cover the package-visible surface; for dashboard, gateway, console, and cross-cutting changes, follow the root changelog.
 
+## [8.5.0] - 2026-07-25
+
+Full notes in the root [`CHANGELOG.md`](../../CHANGELOG.md#850---2026-07-25).
+
+### Breaking Changes
+
+- **No runtime options-reload anywhere in the engine.** `BotDetectionOptions`, `EndpointPolicyOptions`,
+  `DetectionPolicyOptions`, `GroupingOptions`, `PublicKeyRegistryOptions`, `GatewayWarmupOptions`,
+  `HoneypotDetectionOptions`, `RateLimitOptions`, `AdaptiveScalingOptions`, and `UpstreamHealthOptions`
+  converted from `IOptionsMonitor<T>` to plain `IOptions<T>` — a config change now needs a process
+  restart. `IEndpointPolicyResolver`'s one production `.OnChange` handler is removed (redundant with
+  its own construction-time recompile).
+
+### Added
+
+- **Upstream health tracking wired to real traffic.** `DegradationAtom`/`UpstreamHealthGate` are now
+  registered in `BotDetectionModule` and fed real 5xx/4xx/404/429 + latency signal from
+  `BotDetectionMiddleware.EmitResponseSignals`, gated on `IsResponseFromUpstream()` so StyloBot's own
+  throttle/block/honeypot responses can't self-poison the gate.
+- **Gateway self-raises `RLIMIT_NOFILE`** at boot via `FileDescriptorLimit.RaiseSoftToHard()`
+  (Linux-only P/Invoke, fail-open, no-op elsewhere).
+
+### Fixed
+
+- **`domain='unknown'` on every production row.** `DomainNormalizer` was defined but never registered
+  in DI and never invoked on the live pipeline. `BotDetectionModule` now registers
+  `DomainNormalizerOptions`/`PublicSuffixList`/`DomainNormalizer` via `TryAddSingleton`, and
+  `BotDetectionMiddleware.InvokeAsync` stamps `RequestScope` at the top of the pipeline.
+
+### Removed
+
+- Dead `WithMonitor()` factories, private monitor constructors, and `StaticMonitor` shims on
+  `GatewayWarmupGate`/`UpstreamHealthGate` (confirmed unused anywhere via repo-wide grep).
+
 ## [6.7.0] - 2026-05-21
 
 Pre-launch hardening pass. Detection engine is feature-frozen; this round is operator ergonomics, naming coherence, and a pipeline quality sweep. Full notes in the root [`CHANGELOG.md`](../../CHANGELOG.md#670---2026-05-21).

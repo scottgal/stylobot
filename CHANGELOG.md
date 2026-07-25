@@ -7,6 +7,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.5.0] - 2026-07-25
+
+8.5 is the dashboard **read-path hardening** release. Every dashboard row now flows through the
+materializer's content cache instead of hitting the store — or, on the website's remote deployment
+topology, a live cross-service REST call — on the request thread, closing a p99=10s bimodal tail on
+the Traffic page. Alongside: FOSS's configuration surface is sealed to startup-only (no runtime
+options-reload survives anywhere, and `POST /admin/reload` — never intended to exist in FOSS — is
+removed), a real per-domain attribution bug (`domain='unknown'` on every production row) is fixed,
+and the endpoint and signature detail pages get real navigable routes with a full filter set.
+
+### BREAKING CHANGES
+
+- **`POST /admin/reload` removed.** FOSS has no runtime configuration reload — hot-reload is a
+  commercial-only capability layered on top via `IConfigurationOverrideSource`. Every code path that
+  referenced the endpoint (`HandleReloadAsync`, the route case, the now-dead `IConfiguration`
+  constructor parameter, docs) is gone. `restart` and the learning/health endpoints are unaffected —
+  same auth gate, unrelated to reload.
+- **No FOSS option type observes config changes after startup.** All remaining `IOptionsMonitor<T>`
+  consumers in the detection engine and dashboard — `BotDetectionOptions`, `EndpointPolicyOptions`,
+  `DetectionPolicyOptions`, `GroupingOptions`, `PublicKeyRegistryOptions`, `GatewayWarmupOptions`,
+  `HoneypotDetectionOptions`, `RateLimitOptions`, `AdaptiveScalingOptions`, `UpstreamHealthOptions`,
+  `NavVisibilityOptions`, `DashboardMaterializerOptions` — are now plain, startup-snapshot
+  `IOptions<T>`. Every ASP.NET Core host's default `appsettings.json`/`appsettings.{env}.json`
+  configuration sources are now forced `ReloadOnChange=false`. **Operator impact:** editing a mounted
+  `appsettings.json` (e.g. a Gateway config volume) now requires a process restart to take effect — a
+  config-file edit can no longer apply live. `AuthenticationSchemeOptions` is unaffected
+  (framework-mandated `IOptionsMonitor`, outside FOSS's control).
+
+### Added
+
+- **Dashboard endpoint detail is a real page.** `{basePath}/endpoint/{method}/{path}` renders inside
+  the full dashboard shell (sidebar/drawer), replacing the old htmx inline-swap into a sibling panel.
+  Endpoint rows are genuinely clickable (`<a href>`), not just reachable via a chip click.
+- **MODE/METHOD/STATUS filters** on the unified endpoints list, plus a path-shape `EndpointMode`
+  taxonomy (Content/Api/Static/Realtime/Other). Filters now bind correctly on first paint — a direct
+  `/dashboard/site?method=POST` load filters immediately, not only after a chip click.
+- **"Show self-probe" toggle.** Self/health-probe traffic (`bot_type=Internal`) is excluded from the
+  dashboard's audience by default; the explicit `all_incl_internal` token is the new investigation-only
+  opt-in, distinct from the pre-existing internal-only filter.
+- **"Your Signature" nav link** on the header widget, linking to the resolved signature's detail page.
+- **Hidden nav links seam** (`INavVisibilityPolicy`) — a host can hide sidebar rows by glob pattern
+  under `Dashboard:HiddenPaths` without touching routing or detection.
+- **Upstream health tracking wired to real traffic.** `DegradationAtom`/`UpstreamHealthGate`
+  (5xx/4xx/404/429 EWMA + latency) existed fully unit-tested but were never registered in DI or fed
+  real responses, so the dashboard's site-health card always showed "healthy" regardless of actual
+  upstream errors. Now registered and recording on every upstream-sourced response.
+- **Gateway self-raises `RLIMIT_NOFILE`** at boot (Linux, fail-open) so a bare/Docker/CI launch
+  survives a connection burst instead of exhausting the default 1024 fd soft limit and crashing.
+
+### Fixed
+
+- **Domain attribution: `domain='unknown'` on every production row.** `DomainNormalizer` was never
+  registered in DI and never invoked on the live request pipeline, so every consumer degraded silently
+  to `"unknown"` — zeroing every licensed-domain-scoped query. Now registered in core `AddBotDetection`
+  wiring (with a dashboard-only safety net for hosts that skip it) and stamped at the top of both
+  `DetectionBroadcastMiddleware` and `BotDetectionMiddleware`.
+- **Dashboard Traffic row now reads through the content cache, not `IDashboardEventStore` directly** —
+  on the website's remote deployment topology this was five live cross-service REST calls per render,
+  the root cause of a p99=10s bimodal tail. Now cache-only, with a genuine "Warming up" state on a cold
+  miss instead of a silent all-zero page.
+- **`?window=` period selector now threads through Clusters/TopBots/Sessions/Threats/UserAgents** —
+  these five rows previously ignored the dashboard's period switcher entirely (Summary/Countries/
+  Endpoints/Visitors already honoured it).
+- **Warming/empty 3-state contract extended to charts.** A cold/empty bundle previously painted a bare
+  Chart.js canvas; charts now render the same warming-spinner/empty/data states list widgets already had.
+- **In-process "Your Detection"/"Your Signature" resolution.** Both the dashboard header panel and the
+  CLI's live table read a signature key that `SignatureAtom` never actually populates on an in-process
+  host, silently falling back to a transient, never-persisted hash. Both now read the rich
+  `MultiFactorSignatures` object via the accessor `SignatureAtom` itself writes.
+- **Signature-detail page rendered through the legacy (pre-V2) shell**, with a stale hand-rolled nav
+  strip and a "You:" pill where only the trailing text — not the whole pill — was clickable. Now
+  renders through the shared V2 shell; the whole pill links through.
+- Endpoint detail, `_TrafficPanels.cshtml`, and the endpoints partial no longer hardcode the
+  `/dashboard` mount path or silently drop the active MODE/METHOD filter on follow-up sort/page requests.
+- `DashboardMaterializerCoordinator` is now resolvable as an injectable singleton (previously only
+  exposed via `AddHostedService<T>`, so a direct-inject caller such as a gateway-push client failed DI
+  resolution).
+- `Mostlylucid.BotDetection.Llm.LlamaSharp` was missing a
+  `Microsoft.Extensions.Options.ConfigurationExtensions` package reference, breaking a cold restore of
+  the Gateway SKU build path (masked locally by a warm NuGet cache).
+- CLI live table: fingerprint/bot/human/threat counts stuck at zero (same signature-resolution root
+  cause as above); the title bar now renders a styled "Stylo"/"bot" wordmark.
+
+### Performance
+
+- **Materializer refresh cadence is due-time gated, not unconditional-per-tick.** Each envelope now
+  refreshes only once its freshness class's interval has genuinely elapsed (`Aggregate` rows tolerate
+  minutes of staleness, `Live` rows need seconds; a shared entry always resolves to the faster of the
+  two — the MIN-invariant), governed by an adaptive controller that scales the interval up under
+  measured cost pressure and relaxes back down as cost falls.
+- **Materializer prewarms all four dashboard window tokens** (6h/24h/7d/30d) for the Traffic page,
+  ranks demand-tier envelopes by real hit-count/recency (read through the sliding-cache atom's own
+  accessor, not a duplicate parasitic counter), and warms in bounded-concurrency waves with a per-tick
+  wall-clock budget (`MaxTickDurationMs`) so a degraded compose can no longer occupy one tick
+  indefinitely.
+- **`MarkDirtyAsync`** lets a background caller (e.g. a commercial gateway-push relay) force an
+  immediate re-warm of one live page, bypassing the tick schedule.
+- Four more dashboard rows (Clusters/TopBots/Sessions/Threats) are composed through the content cache
+  instead of self-fetching from the store on every render; a genuine cold miss now fires a
+  fire-and-forget priority re-warm instead of waiting for the next scheduled tick.
+
+### CI
+
+- `bot-detection-tests` workflow timeout raised 15m → 25m — the suite has genuinely grown; runs were
+  finishing but getting killed during report upload.
+
 ## [8.2.5] - 2026-07-23
 
 ### Added

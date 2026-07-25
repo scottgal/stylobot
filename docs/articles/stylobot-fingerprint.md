@@ -297,7 +297,7 @@ StyloBot aims to have a distribution model like Fail2Ban, with the power of larg
 
 It also downloads lists of user agents, CVEs, exploits, and other indicators of compromise to enhance its detection capabilities. However, these are only one factor in a decision.
 
-StyloBot runs roughly 50 contributors, each a small piece of code.
+StyloBot runs 67 detector atoms, each a small piece of code.
 
 ```csharp 
 using Microsoft.AspNetCore.Http;

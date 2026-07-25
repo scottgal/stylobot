@@ -22,7 +22,7 @@ And NUMEROUS others in the coming weeks covering all of StyloBot's features at r
 
 **Bot detection that knows your site.** Cloud scoring services evaluate your traffic against generic baselines trained on other people's users. StyloBot learns what normal looks like on your specific application: the document-asset-API request sequence, the timing distribution of your real users, the session shape your checkout flow produces. Bots that adapt to evade a cloud service still diverge from those patterns.
 
-Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone YARP gateway proxy, or sidecar detection API. 57 detectors, <150µs per request, no PII leaves your server.
+Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone YARP gateway proxy, or sidecar detection API. 67 detectors, <150µs per request, no PII leaves your server.
 
 [![NuGet](https://img.shields.io/nuget/v/mostlylucid.botdetection)](https://www.nuget.org/packages/mostlylucid.botdetection)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
@@ -198,7 +198,7 @@ Restart=on-failure
 
 ## Architecture
 
-### Detector pipeline: 57 detectors, 4 waves
+### Detector pipeline: 67 detector atoms, 4 waves
 
 ```
 Request -> Wave 0 (< 1ms)          -> Wave 1 (behavioral)    -> Wave 2 (AI)         -> Verdict
@@ -347,7 +347,7 @@ Two products, same detection engine. FOSS is complete for detection, entity reso
 
 ### What's in FOSS (this repo)
 
-- All 57 detectors, same pipeline as commercial
+- All 67 detector atoms, same pipeline as commercial
 - Anonymous entity resolution (merge/split/rewind, L0-L5 confidence)
 - Real-time dashboard (Overview, Visitors, Sessions, Threats, Clusters, User Agents, Configuration)
 - Session vectors, Markov chains, behavioral radar charts
