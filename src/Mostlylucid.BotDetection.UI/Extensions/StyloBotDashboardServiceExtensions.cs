@@ -978,6 +978,14 @@ public static class StyloBotDashboardServiceExtensions
     ///     Prefer <see cref="UseStyloBot"/> which handles middleware ordering automatically.
     ///     Use this only if you need to register detection and dashboard middleware separately.
     /// </summary>
+    /// <remarks>
+    ///     Unlike <see cref="UseStyloBot"/>, this method does NOT call
+    ///     <c>UseStyloBotInboundClientHeaderStrip()</c> or <c>UseStyloBotForwardedHeaders()</c>, and does
+    ///     NOT call <c>UseBotDetection()</c> itself. If you register detection separately, you are
+    ///     responsible for wiring those anti-spoofing and forwarded-header steps yourself in the same
+    ///     order <see cref="UseStyloBot"/> does -- omitting them lets a visitor's own
+    ///     <c>X-Bot-Detection-*</c>/client-signal headers reach the pipeline unstripped.
+    /// </remarks>
     public static IApplicationBuilder UseStyloBotDashboard(this IApplicationBuilder app)
     {
         var options = app.ApplicationServices.GetRequiredService<StyloBotDashboardOptions>();

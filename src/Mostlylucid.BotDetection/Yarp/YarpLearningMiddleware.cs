@@ -66,7 +66,7 @@ public class YarpLearningMiddleware
             stopwatch.Stop();
 
             // Only capture if confidence threshold met
-            var confidence = context.GetBotConfidence();
+            var confidence = context.GetBotProbability();
             if (confidence >= _options.MinConfidenceToLog)
                 await CaptureSignatureAsync(context, stopwatch.Elapsed, initialStatusCode);
         }
@@ -112,7 +112,7 @@ public class YarpLearningMiddleware
             signature.Detection = new YarpDetectionResult
             {
                 IsBot = context.IsBot(),
-                Confidence = context.GetBotConfidence(),
+                Confidence = context.GetBotProbability(),
                 BotType = context.GetBotType()?.ToString(),
                 BotName = context.GetBotName(),
                 Category = context.GetBotCategory(),

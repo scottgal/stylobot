@@ -213,6 +213,7 @@ public static partial class HttpContextExtensions
     ///     For decision certainty, use <see cref="GetDetectionConfidence" />.
     ///     For bot likelihood, prefer <see cref="GetBotProbability" />.
     /// </remarks>
+    [Obsolete("Prefer GetBotProbability; identical result.")]
     public static double GetBotConfidence(this HttpContext context)
     {
         // Check AggregatedEvidence first (has correct separated values)

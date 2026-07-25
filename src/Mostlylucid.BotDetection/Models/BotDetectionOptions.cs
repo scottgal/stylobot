@@ -93,8 +93,8 @@ public class BotDetectionOptions
     ///     Matches against known bot signatures from Matomo, crawler-user-agents, etc.
     ///     Recommended: Always enable unless you have specific requirements.
     /// </summary>
-    [Obsolete("Use DetectionPolicy.ExcludedDetectors or FastPathDetectors per policy. " +
-              "Will be removed in a future major release.", error: false)]
+    [Obsolete("No direct per-detector toggle exists; use DetectionPolicyConfig.FastPath/SlowPath/AiPath " +
+              "per policy to control which detectors run. Will be removed in a future major release.", error: false)]
     public bool EnableUserAgentDetection { get; set; } = true;
 
     /// <summary>
@@ -102,8 +102,8 @@ public class BotDetectionOptions
     ///     Detects missing or suspicious HTTP headers that bots often omit.
     ///     Low overhead, recommended for most use cases.
     /// </summary>
-    [Obsolete("Use DetectionPolicy.ExcludedDetectors per policy. " +
-              "Will be removed in a future major release.", error: false)]
+    [Obsolete("No direct per-detector toggle exists; use DetectionPolicyConfig.FastPath/SlowPath/AiPath " +
+              "per policy to control which detectors run. Will be removed in a future major release.", error: false)]
     public bool EnableHeaderAnalysis { get; set; } = true;
 
     /// <summary>
@@ -111,8 +111,8 @@ public class BotDetectionOptions
     ///     Identifies requests from AWS, Azure, GCP, and other cloud providers.
     ///     Useful for detecting automated traffic from servers.
     /// </summary>
-    [Obsolete("Use DetectionPolicy.ExcludedDetectors per policy. " +
-              "Will be removed in a future major release.", error: false)]
+    [Obsolete("No direct per-detector toggle exists; use DetectionPolicyConfig.FastPath/SlowPath/AiPath " +
+              "per policy to control which detectors run. Will be removed in a future major release.", error: false)]
     public bool EnableIpDetection { get; set; } = true;
 
     /// <summary>
@@ -120,8 +120,8 @@ public class BotDetectionOptions
     ///     Monitors request frequency per IP address.
     ///     Requires memory to track request counts.
     /// </summary>
-    [Obsolete("Use DetectionPolicy.ExcludedDetectors per policy. " +
-              "Will be removed in a future major release.", error: false)]
+    [Obsolete("No direct per-detector toggle exists; use DetectionPolicyConfig.FastPath/SlowPath/AiPath " +
+              "per policy to control which detectors run. Will be removed in a future major release.", error: false)]
     public bool EnableBehavioralAnalysis { get; set; } = true;
 
     /// <summary>
@@ -130,7 +130,7 @@ public class BotDetectionOptions
     ///     Higher latency but can detect sophisticated bots.
     ///     Configure provider via AiDetection section.
     /// </summary>
-    [Obsolete("Use DetectionPolicy.AiPathDetectors and EscalateToAi per policy. " +
+    [Obsolete("Use DetectionPolicyConfig.AiPath and EscalateToAi per policy. " +
               "Will be removed in a future major release.", error: false)]
     public bool EnableLlmDetection { get; set; }
 

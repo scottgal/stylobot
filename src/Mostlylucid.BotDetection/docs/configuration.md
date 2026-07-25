@@ -1606,10 +1606,10 @@ The following top-level options still bind (for back-compat with older config fi
 | Obsolete option              | Replacement                                                        |
 |-------------------------------|----------------------------------------------------------------------|
 | `BotThreshold`                | `DetectionPolicy.ImmediateBlockThreshold` / `EarlyExitThreshold` per policy, and `Classification.HumanCeiling`/`BotFloor` for the bot/human cut. |
-| `EnableUserAgentDetection`    | No direct per-policy equivalent exists today -- there is no config-facing "exclude this detector by name" knob on `DetectionPolicy`. Use `FastPath`/`SlowPath`/`AiPath` to control which detectors run in each wave instead. Flagged upstream: the `[Obsolete]` message on this property points at a `DetectionPolicy.ExcludedDetectors` config knob that doesn't exist under that name. |
-| `EnableHeaderAnalysis`        | See `EnableUserAgentDetection` above -- same gap. |
-| `EnableIpDetection`           | See `EnableUserAgentDetection` above -- same gap. |
-| `EnableBehavioralAnalysis`    | See `EnableUserAgentDetection` above -- same gap. |
+| `EnableUserAgentDetection`    | No direct per-detector toggle exists; use `DetectionPolicyConfig.FastPath`/`SlowPath`/`AiPath` per policy to control which detectors run. |
+| `EnableHeaderAnalysis`        | See `EnableUserAgentDetection` above -- same replacement. |
+| `EnableIpDetection`           | See `EnableUserAgentDetection` above -- same replacement. |
+| `EnableBehavioralAnalysis`    | See `EnableUserAgentDetection` above -- same replacement. |
 | `EnableLlmDetection`          | `DetectionPolicy.AiPath` and `EscalateToAi` per policy             |
 | `BlockDetectedBots`           | Per-policy `ActionPolicyName` / `Transitions` (see Blocking Settings and `ObserveOnly` above) |
 | `MinConfidenceToBlock`        | `DetectionPolicy.MinConfidence` per policy                         |
