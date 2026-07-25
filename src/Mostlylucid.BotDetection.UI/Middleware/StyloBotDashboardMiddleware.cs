@@ -4,8 +4,10 @@ using Mostlylucid.BotDetection.Middleware;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -86,6 +88,11 @@ public class StyloBotDashboardMiddleware
 
     internal const string SetupCsrfCookieName = "sb.setup.csrf";
     internal const string SetupCsrfFormField = "__csrf";
+
+    // Double-submit CSRF for the FOSS config-credential login form (shares the field
+    // name with setup; a distinct cookie + path scopes it to the login route).
+    internal const string LoginCsrfCookieName = "sb.login.csrf";
+    internal const string LoginCsrfFormField = "__csrf";
 
     private const string AuthPageCss = """
         *{box-sizing:border-box;margin:0;padding:0}
@@ -233,12 +240,27 @@ public class StyloBotDashboardMiddleware
             if (relLower is "auth-ui" or "login") { await ServeLoginUiAsync(context); return; }
         }
 
+        // FOSS config-credential view-auth: the login page (GET form / POST verify) and
+        // logout are always reachable so an unauthenticated visitor can sign in. The gate
+        // below enforces auth for every other dashboard path.
+        if (_options.Auth.Mode == DashboardAuthMode.Login && _options.Auth.IsConfigured)
+        {
+            if (relLower is "login") { await ServeConfigLoginAsync(context); return; }
+            if (relLower is "logout") { await HandleConfigLogoutAsync(context); return; }
+        }
+
         // Check authorization
         if (!await IsAuthorizedAsync(context))
         {
             if (_options.RequireAuthentication)
             {
                 await HandleUnauthenticatedAsync(context, relLower);
+                return;
+            }
+
+            if (_options.Auth.Mode == DashboardAuthMode.Login && _options.Auth.IsConfigured)
+            {
+                await HandleViewUnauthenticatedAsync(context, relLower);
                 return;
             }
 
@@ -885,6 +907,12 @@ public class StyloBotDashboardMiddleware
             return context.User.Identity?.IsAuthenticated == true;
         }
 
+        // FOSS config-credential view-auth: evaluate the shared "stylobot-dashboard-view"
+        // policy inline. IPolicyEvaluator authenticates the policy's scheme(s) (FOSS cookie,
+        // plus any commercial OIDC scheme added to the policy) and evaluates in one pass.
+        if (_options.Auth.Mode == DashboardAuthMode.Login && _options.Auth.IsConfigured)
+            return await EvaluateViewAuthAsync(context);
+
         // Custom filter takes precedence
         if (_options.AuthorizationFilter != null) return await _options.AuthorizationFilter(context);
 
@@ -1182,6 +1210,192 @@ public class StyloBotDashboardMiddleware
             </html>
             """);
     }
+
+    // ---- FOSS config-credential view-auth (StyloBot:Dashboard:Auth, Mode=Login) ----
+
+    /// <summary>
+    ///     Evaluates the shared <c>stylobot-dashboard-view</c> policy inline via
+    ///     <see cref="IPolicyEvaluator"/>: authenticates the policy's scheme(s) (FOSS cookie,
+    ///     plus any commercial OIDC scheme registered into the policy) and returns whether
+    ///     the request is authorized. No dependency on <c>UseAuthentication()</c> ordering.
+    /// </summary>
+    private async Task<bool> EvaluateViewAuthAsync(HttpContext context)
+    {
+        var policyProvider = context.RequestServices.GetService<IAuthorizationPolicyProvider>();
+        var evaluator = context.RequestServices.GetService<IPolicyEvaluator>();
+        if (policyProvider is not null && evaluator is not null)
+        {
+            var policy = await policyProvider.GetPolicyAsync(DashboardViewAuthDefaults.PolicyName);
+            if (policy is not null)
+            {
+                var authn = await evaluator.AuthenticateAsync(policy, context);
+                if (authn.Principal is not null) context.User = authn.Principal;
+                var authz = await evaluator.AuthorizeAsync(policy, authn, context, resource: null);
+                return authz.Succeeded;
+            }
+        }
+
+        // Fallback: authenticate the FOSS cookie scheme directly.
+        var result = await context.AuthenticateAsync(DashboardViewAuthDefaults.Scheme);
+        if (result?.Principal is not null) context.User = result.Principal;
+        return context.User.Identity?.IsAuthenticated == true;
+    }
+
+    /// <summary>
+    ///     Unauthenticated handling for Login mode: dashboard data/partials get a 401 JSON
+    ///     (so XHR/HTMX callers don't get an HTML redirect body); HTML page requests are
+    ///     redirected to the login page.
+    /// </summary>
+    private async Task HandleViewUnauthenticatedAsync(HttpContext context, string relLower)
+    {
+        if (relLower.StartsWith("api/") || relLower.StartsWith("partials/"))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Unauthorized\"}");
+            return;
+        }
+
+        context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/login");
+    }
+
+    /// <summary>Serves the login form (GET) and verifies the config credential (POST).</summary>
+    private async Task ServeConfigLoginAsync(HttpContext context)
+    {
+        var basePath = _options.BasePath.TrimEnd('/');
+
+        if (HttpMethods.IsPost(context.Request.Method))
+        {
+            var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            if (!ValidateLoginCsrfToken(context))
+            {
+                await WriteLoginPageAsync(context, basePath,
+                    "Your session expired. Please try again.", StatusCodes.Status400BadRequest);
+                return;
+            }
+
+            var username = form["username"].FirstOrDefault() ?? string.Empty;
+            var password = form["password"].FirstOrDefault() ?? string.Empty;
+            var verifier = context.RequestServices.GetRequiredService<DashboardViewCredentialVerifier>();
+            if (verifier.Verify(_options.Auth, username, password))
+            {
+                var identity = new ClaimsIdentity(
+                    new[] { new Claim(ClaimTypes.Name, _options.Auth.Username!) },
+                    DashboardViewAuthDefaults.Scheme);
+                await context.SignInAsync(DashboardViewAuthDefaults.Scheme, new ClaimsPrincipal(identity));
+                context.Response.Redirect(basePath.Length == 0 ? "/" : basePath);
+                return;
+            }
+
+            _logger.LogWarning("Dashboard login failed for {IP}", context.Connection.RemoteIpAddress);
+            await WriteLoginPageAsync(context, basePath,
+                "Invalid username or password.", StatusCodes.Status401Unauthorized);
+            return;
+        }
+
+        await WriteLoginPageAsync(context, basePath, null, StatusCodes.Status200OK);
+    }
+
+    /// <summary>Clears the auth cookie and returns to the login page.</summary>
+    private async Task HandleConfigLogoutAsync(HttpContext context)
+    {
+        await context.SignOutAsync(DashboardViewAuthDefaults.Scheme);
+        context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/login");
+    }
+
+    private async Task WriteLoginPageAsync(HttpContext context, string basePath, string? error, int statusCode)
+    {
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "text/html; charset=utf-8";
+
+        var nonce = GetOrCreateCspNonce(context);
+        context.Response.Headers["Content-Security-Policy"] = string.Join("; ",
+            "default-src 'self'", "base-uri 'self'", "frame-ancestors 'self'", "object-src 'none'",
+            "img-src 'self' data:", "font-src 'self' data:",
+            "style-src 'self' 'unsafe-inline'", $"script-src 'self' 'nonce-{nonce}'");
+
+        var csrf = IssueLoginCsrfToken(context);
+        await context.Response.WriteAsync(RenderConfigLoginPage(basePath, csrf, nonce, error));
+    }
+
+    private string IssueLoginCsrfToken(HttpContext context)
+    {
+        var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        context.Response.Cookies.Append(LoginCsrfCookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Strict,
+            Secure = context.Request.IsHttps,
+            Path = _options.BasePath.TrimEnd('/') + "/login",
+            MaxAge = TimeSpan.FromMinutes(30)
+        });
+        return token;
+    }
+
+    internal static bool ValidateLoginCsrfToken(HttpContext context)
+    {
+        var cookie = context.Request.Cookies[LoginCsrfCookieName];
+        var form = context.Request.Form[LoginCsrfFormField].FirstOrDefault();
+        if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(form)) return false;
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(cookie),
+            Encoding.UTF8.GetBytes(form));
+    }
+
+    /// <summary>
+    ///     The FOSS login page, styled to the dashboard chrome (vendored Tailwind + daisyUI,
+    ///     theme-aware light/dark). Self-contained; the only script is the nonce'd theme boot.
+    /// </summary>
+    private static string RenderConfigLoginPage(string basePath, string csrfToken, string nonce, string? error)
+    {
+        var errorHtml = string.IsNullOrEmpty(error)
+            ? ""
+            : $"<div class=\"alert alert-error text-sm mt-4\" role=\"alert\">{System.Net.WebUtility.HtmlEncode(error)}</div>";
+        var loginAction = (basePath.Length == 0 ? "" : basePath) + "/login";
+
+        return $$"""
+            <!DOCTYPE html>
+            <html lang="en" data-theme="light">
+            <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>StyloBot Dashboard — Sign in</title>
+            <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css">
+            <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css">
+            <script nonce="{{nonce}}">
+            (function(){try{var t=localStorage.getItem('sb-theme')||localStorage.getItem('theme');
+            if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+            document.documentElement.setAttribute('data-theme',t);
+            document.documentElement.classList.toggle('dark',t==='dark');}catch(e){} })();
+            </script>
+            </head>
+            <body class="min-h-screen flex items-center justify-center bg-base-200 p-4">
+              <div class="card w-full max-w-sm bg-base-100 shadow-xl border border-base-300">
+                <div class="card-body">
+                  <h1 class="text-xl font-semibold">StyloBot Dashboard</h1>
+                  <p class="text-sm text-base-content/60 mb-2">Sign in to view the dashboard.</p>
+                  <form method="post" action="{{loginAction}}" class="space-y-3">
+                    <input type="hidden" name="__csrf" value="{{csrfToken}}">
+                    <label class="form-control w-full">
+                      <span class="label-text text-sm">Username</span>
+                      <input type="text" name="username" autocomplete="username" required autofocus
+                             class="input input-bordered w-full">
+                    </label>
+                    <label class="form-control w-full">
+                      <span class="label-text text-sm">Password</span>
+                      <input type="password" name="password" autocomplete="current-password" required
+                             class="input input-bordered w-full">
+                    </label>
+                    <button type="submit" class="btn btn-primary w-full mt-2">Sign in</button>
+                    {{errorHtml}}
+                  </form>
+                </div>
+              </div>
+            </body>
+            </html>
+            """;
+    }
+
     private async Task ServeDashboardPageAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html";

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -875,6 +877,14 @@ public static class StyloBotDashboardServiceExtensions
 #pragma warning restore CS0618
         }
 
+        // FOSS config-credential dashboard view-auth (login page + cookie). Opt-in via
+        // StyloBot:Dashboard:Auth:Mode = Login. Alternate to RequireAuthentication (the
+        // SQLite user-DB path); the two are not enabled together. Commercial OIDC layers
+        // onto the same "stylobot-dashboard-view" policy without forking (see
+        // DashboardViewAuthDefaults).
+        if (options.Auth.Mode == DashboardAuthMode.Login)
+            services.AddStyloBotDashboardViewAuth(options);
+
         // Register dashboard data API paths with the bot detection policy system.
         // Detection runs on ALL paths including dashboard API - no exclusions.
         // BotDetectionMiddleware resolves the detection policy for these paths
@@ -898,6 +908,56 @@ public static class StyloBotDashboardServiceExtensions
         });
 
         services.AddDashboardEndpointPerfBaseline();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers the FOSS config-credential dashboard view-auth: a cookie
+    ///     authentication scheme (<see cref="DashboardViewAuthDefaults.Scheme"/>) and an
+    ///     authorization policy (<see cref="DashboardViewAuthDefaults.PolicyName"/>) that
+    ///     requires it. The dashboard middleware serves the login page, verifies the
+    ///     configured credential, issues the cookie, and evaluates the policy inline via
+    ///     <see cref="IPolicyEvaluator"/> (no <c>UseAuthentication</c> ordering dependency).
+    ///     <para>
+    ///     Commercial OIDC layers on by adding its own scheme to the SAME policy — it does
+    ///     not replace or fork this. No default scheme is set here, so the <c>/api/v1</c>
+    ///     API-key scheme and any other host auth are untouched.
+    ///     </para>
+    /// </summary>
+    internal static IServiceCollection AddStyloBotDashboardViewAuth(
+        this IServiceCollection services, StyloBotDashboardOptions options)
+    {
+        var auth = options.Auth;
+        var basePath = options.BasePath.TrimEnd('/');
+
+        services.TryAddSingleton<DashboardViewCredentialVerifier>();
+
+        services.AddAuthentication()
+            .AddCookie(DashboardViewAuthDefaults.Scheme, cookie =>
+            {
+                cookie.Cookie.Name = auth.CookieName;
+                cookie.Cookie.HttpOnly = true;
+                cookie.Cookie.SameSite = SameSiteMode.Lax;
+                cookie.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                cookie.Cookie.Path = basePath.Length == 0 ? "/" : basePath;
+                cookie.SlidingExpiration = true;
+                cookie.ExpireTimeSpan = TimeSpan.FromMinutes(Math.Max(1, auth.SlidingExpirationMinutes));
+                cookie.LoginPath = basePath + "/login";
+                cookie.LogoutPath = basePath + "/logout";
+            });
+
+        services.AddAuthorization(o =>
+            o.AddPolicy(DashboardViewAuthDefaults.PolicyName, policy =>
+            {
+                policy.AddAuthenticationSchemes(DashboardViewAuthDefaults.Scheme);
+                policy.RequireAuthenticatedUser();
+            }));
+
+        // IPolicyEvaluator authenticates the policy's scheme(s) and evaluates the policy
+        // in one call, so the middleware can gate inline. Commercial's OIDC scheme, once
+        // added to the policy, is authenticated here too — the layering seam.
+        services.AddAuthorizationPolicyEvaluator();
 
         return services;
     }

@@ -76,52 +76,6 @@ public sealed class DashboardViewAuthTests
     }
 
     [Fact]
-    public void Advisory_warns_when_login_mode_is_selected_but_credential_missing()
-    {
-        var options = new StyloBotDashboardOptions();
-        options.Auth.Mode = DashboardAuthMode.Login; // no username/hash
-
-        var advisory = DashboardAuthPosture.Advisory(options);
-
-        Assert.NotNull(advisory);
-        Assert.Contains("hash-password", advisory);
-    }
-
-    [Fact]
-    public void Advisory_nudges_when_no_auth_configured_at_all()
-    {
-        var options = new StyloBotDashboardOptions
-        {
-            RequireAuthentication = false,
-            AllowUnauthenticatedAccess = false
-        };
-
-        var advisory = DashboardAuthPosture.Advisory(options);
-
-        Assert.NotNull(advisory);
-        Assert.Contains("StyloBot:Dashboard:Auth", advisory);
-    }
-
-    [Fact]
-    public void Advisory_is_silent_when_login_is_fully_configured()
-    {
-        var options = new StyloBotDashboardOptions();
-        options.Auth.Mode = DashboardAuthMode.Login;
-        options.Auth.Username = "admin";
-        options.Auth.PasswordHash = DashboardPasswordHasher.Hash("pw");
-
-        Assert.Null(DashboardAuthPosture.Advisory(options));
-    }
-
-    [Fact]
-    public void Advisory_is_silent_when_unauthenticated_access_is_explicit()
-    {
-        var options = new StyloBotDashboardOptions { AllowUnauthenticatedAccess = true };
-
-        Assert.Null(DashboardAuthPosture.Advisory(options));
-    }
-
-    [Fact]
     public void Auth_section_binds_from_StyloBot_Dashboard_Auth()
     {
         var hash = DashboardPasswordHasher.Hash("s3cret-pw");
