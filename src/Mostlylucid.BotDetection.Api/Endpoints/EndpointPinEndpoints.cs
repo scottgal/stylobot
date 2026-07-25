@@ -23,7 +23,7 @@ public static class EndpointPinEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<PinnedEndpoint>>, ProblemHttpResult>> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<PinnedEndpoint>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] IPinnedEndpointStore? store,
         CancellationToken ct = default)
     {

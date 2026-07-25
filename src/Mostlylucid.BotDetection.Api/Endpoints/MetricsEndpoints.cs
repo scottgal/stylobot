@@ -27,7 +27,7 @@ public static class MetricsEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<MetricSnapshot>>, ProblemHttpResult>> HandleTimeseries(
+    private static async Task<Results<Ok<PaginatedResponse<MetricSnapshot>>, ServiceUnavailableHttpResult>> HandleTimeseries(
         [FromServices] IMetricSnapshotStore? store,
         string packId = "aspnet-monitoring",
         string instrument = "botdetection.requests.total",
@@ -35,7 +35,7 @@ public static class MetricsEndpoints
         CancellationToken ct = default)
     {
         if (store is null)
-            return TypedResults.Problem("Monitoring pack not enabled.", statusCode: 503);
+            return ServiceUnavailableHttpResult.FromTitle("Monitoring pack not enabled.");
 
         var end = DateTime.UtcNow;
         var start = range switch
@@ -56,13 +56,13 @@ public static class MetricsEndpoints
         });
     }
 
-    private static async Task<Results<Ok<SingleResponse<IReadOnlyList<MetricSnapshot>>>, ProblemHttpResult>> HandleLatest(
+    private static async Task<Results<Ok<SingleResponse<IReadOnlyList<MetricSnapshot>>>, ServiceUnavailableHttpResult>> HandleLatest(
         [FromServices] IMetricSnapshotStore? store,
         string packId = "aspnet-monitoring",
         CancellationToken ct = default)
     {
         if (store is null)
-            return TypedResults.Problem("Monitoring pack not enabled.", statusCode: 503);
+            return ServiceUnavailableHttpResult.FromTitle("Monitoring pack not enabled.");
 
         var data = await store.GetLatestSnapshotsAsync(packId, ct);
         return TypedResults.Ok(new SingleResponse<IReadOnlyList<MetricSnapshot>>

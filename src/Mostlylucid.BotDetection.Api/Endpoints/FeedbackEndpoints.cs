@@ -29,7 +29,7 @@ public static class FeedbackEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<SingleResponse<bool>>, ProblemHttpResult>> HandleFlag(
+    private static async Task<Results<Ok<SingleResponse<bool>>, ServiceUnavailableHttpResult>> HandleFlag(
         [FromBody] DetectionFeedbackRecord feedback,
         [FromServices] IDetectionFeedbackStore? store,
         CancellationToken ct = default)

@@ -33,7 +33,7 @@ public static class BdfEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<SingleResponse<BdfExportDocument>>, NotFound, ProblemHttpResult>> HandleExport(
+    private static async Task<Results<Ok<SingleResponse<BdfExportDocument>>, NotFound, ServiceUnavailableHttpResult>> HandleExport(
         string signature,
         [FromServices] BdfExportService? exporter)
     {

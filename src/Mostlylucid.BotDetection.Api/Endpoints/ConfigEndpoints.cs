@@ -24,7 +24,7 @@ public static class ConfigEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<DetectorManifestSummary>>, ProblemHttpResult>> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<DetectorManifestSummary>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] IConfigEditorService? editor,
         CancellationToken ct = default)
     {
@@ -33,7 +33,7 @@ public static class ConfigEndpoints
         return ApiEndpointHelpers.Paginated(manifests, manifests.Count);
     }
 
-    private static async Task<Results<Ok<SingleResponse<DetectorManifestDocument>>, NotFound, ProblemHttpResult>> HandleGet(
+    private static async Task<Results<Ok<SingleResponse<DetectorManifestDocument>>, NotFound, ServiceUnavailableHttpResult>> HandleGet(
         string slug,
         [FromServices] IConfigEditorService? editor,
         CancellationToken ct = default)

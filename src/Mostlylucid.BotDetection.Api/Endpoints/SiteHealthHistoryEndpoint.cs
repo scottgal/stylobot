@@ -43,13 +43,13 @@ public static class SiteHealthHistoryEndpoint
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<DegradationSnapshot>>, ProblemHttpResult>> HandleHistory(
+    private static async Task<Results<Ok<PaginatedResponse<DegradationSnapshot>>, ServiceUnavailableHttpResult>> HandleHistory(
         [FromServices] IDashboardEventStore store,
         string window = "1h",
         CancellationToken ct = default)
     {
         if (store is null)
-            return TypedResults.Problem("Site-health history not enabled.", statusCode: 503);
+            return ServiceUnavailableHttpResult.FromTitle("Site-health history not enabled.");
 
         var span = ParseWindow(window);
         var now = DateTime.UtcNow;

@@ -39,7 +39,7 @@ public static class EntityEndpoints
     ///     window before the matcher allocates -- the caller should retry after
     ///     the request that triggers allocation completes).
     /// </summary>
-    private static async Task<Results<Ok<SingleResponse<string>>, NotFound, ProblemHttpResult>> HandleLookup(
+    private static async Task<Results<Ok<SingleResponse<string>>, NotFound, ServiceUnavailableHttpResult>> HandleLookup(
         string primarySignature,
         [FromServices] IDetectionArchive? store,
         CancellationToken ct = default)
@@ -53,7 +53,7 @@ public static class EntityEndpoints
         return ApiEndpointHelpers.Single(entity.EntityId);
     }
 
-    private static async Task<Results<Ok<SingleResponse<ResolvedEntity>>, NotFound, ProblemHttpResult>> HandleGet(
+    private static async Task<Results<Ok<SingleResponse<ResolvedEntity>>, NotFound, ServiceUnavailableHttpResult>> HandleGet(
         string entityId,
         [FromServices] IDetectionArchive? store,
         CancellationToken ct = default)
@@ -64,7 +64,7 @@ public static class EntityEndpoints
         return ApiEndpointHelpers.Single(entity);
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<EntityEdge>>, ProblemHttpResult>> HandleEdges(
+    private static async Task<Results<Ok<PaginatedResponse<EntityEdge>>, ServiceUnavailableHttpResult>> HandleEdges(
         string entityId,
         [FromServices] IDetectionArchive? store,
         CancellationToken ct = default)

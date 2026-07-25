@@ -16,9 +16,13 @@ namespace Mostlylucid.BotDetection.Api.Endpoints;
 /// </summary>
 internal static class ApiEndpointHelpers
 {
-    /// <summary>503 Service Unavailable with a standard "X not enabled" message.</summary>
-    public static ProblemHttpResult StoreUnavailable(string name)
-        => TypedResults.Problem($"{name} not enabled.", statusCode: 503);
+    /// <summary>
+    ///     503 Service Unavailable with a standard "X not enabled" message. Returns
+    ///     <see cref="ServiceUnavailableHttpResult"/> (not the framework's <c>ProblemHttpResult</c>)
+    ///     so the OpenAPI generator can actually document the 503 - see that type for why.
+    /// </summary>
+    public static ServiceUnavailableHttpResult StoreUnavailable(string name)
+        => ServiceUnavailableHttpResult.FromTitle($"{name} not enabled.");
 
     /// <summary>Wrap a list payload in <see cref="PaginatedResponse{T}"/>.</summary>
     public static Ok<PaginatedResponse<T>> Paginated<T>(IReadOnlyList<T> data, int offset, int limit)

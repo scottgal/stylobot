@@ -32,7 +32,7 @@ public static class InvestigationEndpoints
         CancellationToken ct = default)
         => ApiEndpointHelpers.Single(await store.GetInvestigationAsync(filter, ct));
 
-    private static async Task<Results<Ok<SingleResponse<InvestigationResult>>, ProblemHttpResult>> HandleShapeSearch(
+    private static async Task<Results<Ok<SingleResponse<InvestigationResult>>, ServiceUnavailableHttpResult>> HandleShapeSearch(
         ShapeSearchFilter filter,
         [FromServices] IShapeSearchStore? store,
         CancellationToken ct = default)
@@ -41,7 +41,7 @@ public static class InvestigationEndpoints
         return ApiEndpointHelpers.Single(await store.SearchByShapeAsync(filter, ct));
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<InvestigationPreset>>, ProblemHttpResult>> HandlePresets(
+    private static async Task<Results<Ok<PaginatedResponse<InvestigationPreset>>, ServiceUnavailableHttpResult>> HandlePresets(
         [FromServices] IShapeSearchStore? store,
         CancellationToken ct = default)
     {

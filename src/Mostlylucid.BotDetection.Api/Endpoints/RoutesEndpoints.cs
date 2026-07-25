@@ -30,12 +30,12 @@ public static class RoutesEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<RouteEntryDto>>, ProblemHttpResult>> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<RouteEntryDto>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] IRouteCatalogService? catalog,
         CancellationToken ct = default)
     {
         if (catalog is null)
-            return TypedResults.Problem("Route catalog not enabled.", statusCode: 503);
+            return ServiceUnavailableHttpResult.FromTitle("Route catalog not enabled.");
 
         var entries = await catalog.GetCatalogAsync(ct);
         var data = entries.Select(RouteEntryDto.FromEntry).ToList();
@@ -47,14 +47,14 @@ public static class RoutesEndpoints
         });
     }
 
-    private static async Task<Results<NoContent, BadRequest<ApiError>, ProblemHttpResult>> HandleSetName(
+    private static async Task<Results<NoContent, BadRequest<ApiError>, ServiceUnavailableHttpResult>> HandleSetName(
         [FromServices] IRouteNameStore? store,
         [FromBody] SetRouteNameRequest body,
         HttpContext http,
         CancellationToken ct = default)
     {
         if (store is null)
-            return TypedResults.Problem("Route catalog not enabled.", statusCode: 503);
+            return ServiceUnavailableHttpResult.FromTitle("Route catalog not enabled.");
         if (string.IsNullOrWhiteSpace(body?.RouteKey))
             return TypedResults.BadRequest(new ApiError("routeKey is required"));
         if (string.IsNullOrWhiteSpace(body.FriendlyName))
@@ -72,13 +72,13 @@ public static class RoutesEndpoints
         }
     }
 
-    private static async Task<Results<NoContent, BadRequest<ApiError>, ProblemHttpResult>> HandleRemoveName(
+    private static async Task<Results<NoContent, BadRequest<ApiError>, ServiceUnavailableHttpResult>> HandleRemoveName(
         [FromServices] IRouteNameStore? store,
         string routeKey,
         CancellationToken ct = default)
     {
         if (store is null)
-            return TypedResults.Problem("Route catalog not enabled.", statusCode: 503);
+            return ServiceUnavailableHttpResult.FromTitle("Route catalog not enabled.");
         if (string.IsNullOrWhiteSpace(routeKey))
             return TypedResults.BadRequest(new ApiError("routeKey is required"));
 

@@ -24,7 +24,7 @@ public static class SessionEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<PersistedSession>>, ProblemHttpResult>> HandleRecent(
+    private static async Task<Results<Ok<PaginatedResponse<PersistedSession>>, ServiceUnavailableHttpResult>> HandleRecent(
         [FromServices] IDetectionArchive? store,
         int limit = 50,
         bool? isBot = null,
@@ -44,7 +44,7 @@ public static class SessionEndpoints
         return ApiEndpointHelpers.Paginated(sessions, limit);
     }
 
-    private static async Task<Results<Ok<PaginatedResponse<PersistedSession>>, ProblemHttpResult>> HandleBySignature(
+    private static async Task<Results<Ok<PaginatedResponse<PersistedSession>>, ServiceUnavailableHttpResult>> HandleBySignature(
         string signature,
         [FromServices] IDetectionArchive? store,
         int limit = 20,
