@@ -8,7 +8,12 @@
         <Description>Structured logs, metrics, and OpenTelemetry export for StyloBot detection events and blackboard signals.</Description>
         <PackageTags>stylobot;serilog;opentelemetry;logging;metrics;observability</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <!-- Excluded from the coordinated allbot-v release: there is no publish-all job
+             for this package; GeneratePackageOnBuild=true previously caused a stray
+             .nupkg to be swept up by publish jobs' ./artifacts/*.nupkg push glob at a
+             MinVer-default version (0.0.0-alpha.0). Set false so it is not auto-published;
+             an explicit `dotnet pack` still works if a future release wires it a real job. -->
+        <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
         <MinVerTagPrefix>allbot-v</MinVerTagPrefix>
     </PropertyGroup>
 
