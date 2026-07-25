@@ -932,6 +932,13 @@ public static class StyloBotDashboardServiceExtensions
 
         if (options?.Enabled == true)
         {
+            // One-time startup advisory nudging the operator to lock the dashboard down
+            // (or flagging an incomplete Login config). No behaviour change.
+            var authAdvisory = DashboardAuthPosture.Advisory(options);
+            if (authAdvisory is not null)
+                app.ApplicationServices.GetService<ILoggerFactory>()?
+                    .CreateLogger("StyloBot.Dashboard.Auth").LogWarning("{Advisory}", authAdvisory);
+
             // Dashboard CSS/JS lives at /_content/Mostlylucid.BotDetection.UI/...
             // Ensure static files middleware is active so these assets are served.
             app.UseStaticFiles();

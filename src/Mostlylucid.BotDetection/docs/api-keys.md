@@ -27,6 +27,33 @@ curl -H "X-SB-Api-Key: SB-CI-PIPELINE" https://example.com/api/data
 
 > **Convention**: Key values use the `SB-` prefix (e.g., `SB-DASHBOARD-MONITOR`, `SB-K6-BYPASS`) to make them visually distinct from other headers and easy to grep in logs. The header `X-SB-Api-Key` uses the vendor `SB` prefix per [RFC 6648](https://datatracker.ietf.org/doc/html/rfc6648) conventions.
 
+## Gateway API access authorization (`/api/v1/*`)
+
+The same `BotDetection:ApiKeys` surface is **the access-authorization mechanism for the gateway API**. Every `/api/v1/*` read endpoint (`/detect`, `/detections`, `/summary`, `/timeseries`, `/topbots`, `/countries`, `/endpoints`, …) is registered with `.RequireAuthorization(...)` against the `X-SB-Api-Key` scheme, so a caller **must present a valid configured key to read the API**. This is a first-class authorization gate — a proper `RequireAuthenticatedUser()` policy — not a side effect of the detection-bypass overlay.
+
+**Default is fail-closed (locked).** When `BotDetection:ApiKeys` is empty, or a request presents no/invalid key, the API returns **`401 Unauthorized`**. There is no "open when unconfigured" mode. To *use* the gateway API you must configure at least one key.
+
+> The marketing/remote dashboard viewer (`Stylobot.Ui` in `rest` mode, `RemoteDashboardEventStore`) reads `/api/v1/*` with the key from `StyloBot:Source:Pull:ApiKey`. That value **must match a configured `BotDetection:ApiKeys` entry**, or every pull 401s.
+
+**Access authorization is distinct from detection bypass.** Holding a valid key proves *"you may call this endpoint"*. Whether that traffic *also* bypasses detection is a **separate, opt-in** per-key concern controlled by `DisableLearningWrites` (default `false`) and `DisabledDetectors`. A key with `DisableLearningWrites: false` (the default) authorizes API access **without** bypassing detection.
+
+### Minimal: lock the API down with a single fixed key
+
+```json
+{
+  "BotDetection": {
+    "ApiKeys": {
+      "SB-API-ACCESS": {
+        "Name": "Gateway API access",
+        "DisableLearningWrites": false
+      }
+    }
+  }
+}
+```
+
+The dictionary key (`SB-API-ACCESS`) is the secret; send it as `X-SB-Api-Key`. Because `DisableLearningWrites` is `false`, this key authorizes access but detection still runs normally on that traffic. Store it as a secret/env var — never commit it (see [Environment Variables](#configuration-via-environment-variables) and [Security Considerations](#security-considerations)).
+
 ## Two Key Types
 
 ### Legacy Bypass Keys
