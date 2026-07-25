@@ -11,15 +11,14 @@ Basic detection without blocking - good for getting started:
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.7
+    // Detection runs with sane defaults out of the box -- no options required.
+    // Classification thresholds (bot/human/uncertain) live under "Classification"; see below.
 
     // Uncomment to enable AI-powered detection with learning (RECOMMENDED):
-    // "EnableAiDetection": true,
     // "AiDetection": {
     //   "Provider": "Heuristic",
     //   "Heuristic": { "Enabled": true, "EnableWeightLearning": true }
-    // },
-    // "Learning": { "Enabled": true }
+    // }
   }
 }
 ```
@@ -32,12 +31,13 @@ Full detection with Heuristic AI, learning enabled, and stealth throttling:
 {
   "BotDetection": {
     // === Core Detection ===
-    "BotThreshold": 0.7,
-    "BlockDetectedBots": true,
     "DefaultActionPolicyName": "throttle-stealth",
+    "Classification": {
+      "HumanCeiling": 0.30,
+      "BotFloor": 0.70
+    },
 
     // === AI Detection with Learning (KEY FEATURE) ===
-    "EnableAiDetection": true,
     "AiDetection": {
       "Provider": "Heuristic",
       "TimeoutMs": 1000,
@@ -48,11 +48,11 @@ Full detection with Heuristic AI, learning enabled, and stealth throttling:
       }
     },
 
-    // === Learning System (Continuous Improvement) ===
-    "Learning": {
-      "Enabled": true,
+    // === Pattern Reputation (Continuous Learning) ===
+    "Reputation": {
       "LearningRate": 0.1,
-      "EnableDriftDetection": true
+      "PromoteToBadScore": 0.9,
+      "PromoteToBadSupport": 50
     },
 
     // === Path-Based Policies ===
@@ -89,24 +89,23 @@ Complete reference with all available options:
     // ==========================================
     // CORE SETTINGS
     // ==========================================
-    "BotThreshold": 0.7,
-    "EnableUserAgentDetection": true,
-    "EnableHeaderAnalysis": true,
-    "EnableIpDetection": true,
-    "EnableBehavioralAnalysis": true,
-    "EnableLlmDetection": true,
     "EnableTestMode": false,
     "MaxRequestsPerMinute": 60,
     "CacheDurationSeconds": 300,
 
     // ==========================================
+    // CLASSIFICATION (bot / human / uncertain thresholds)
+    // ==========================================
+    "Classification": {
+      "HumanCeiling": 0.30,
+      "BotFloor": 0.70
+    },
+
+    // ==========================================
     // BLOCKING SETTINGS
     // ==========================================
-    "BlockDetectedBots": true,
     "BlockStatusCode": 403,
     "BlockMessage": "Access denied",
-    "MinConfidenceToBlock": 0.8,
-    "AllowVerifiedSearchEngines": true,
     "AllowSocialMediaBots": true,
     "AllowMonitoringBots": true,
     "DefaultActionPolicyName": "throttle-stealth",
@@ -114,7 +113,6 @@ Complete reference with all available options:
     // ==========================================
     // AI DETECTION (KEY FEATURE)
     // ==========================================
-    "EnableAiDetection": true,
     "AiDetection": {
       "Provider": "Heuristic",
       "TimeoutMs": 15000,
@@ -141,22 +139,19 @@ Complete reference with all available options:
     },
 
     // ==========================================
-    // LEARNING SYSTEM (KEY FEATURE)
+    // PATTERN REPUTATION (KEY FEATURE - learning + forgetting)
     // ==========================================
-    "Learning": {
-      "Enabled": true,
+    "Reputation": {
       "LearningRate": 0.1,
       "MaxSupport": 1000,
-      "ScoreDecayTauHours": 168,
-      "SupportDecayTauHours": 336,
+      "ScoreDecayTauHours": 3,
+      "SupportDecayTauHours": 6,
       "Prior": 0.5,
       "PromoteToBadScore": 0.9,
       "PromoteToBadSupport": 50,
-      "DemoteFromBadScore": 0.7,
+      "DemoteFromBadScore": 0.5,
       "DemoteFromBadSupport": 100,
-      "GcEligibleDays": 90,
-      "EnableDriftDetection": true,
-      "DriftThreshold": 0.05
+      "GcEligibleDays": 90
     },
 
     // ==========================================
@@ -445,16 +440,48 @@ behavior, leave the `DataSources:*:Enabled` flags off and rely on the built-in f
 
 | Option                     | Type   | Default | Description                                       |
 |----------------------------|--------|---------|---------------------------------------------------|
-| `BotThreshold`             | double | `0.7`   | Confidence threshold to classify as bot (0.0-1.0) |
-| `EnableUserAgentDetection` | bool   | `true`  | Enable User-Agent pattern matching                |
-| `EnableHeaderAnalysis`     | bool   | `true`  | Enable HTTP header inspection                     |
-| `EnableIpDetection`        | bool   | `true`  | Enable IP-based detection                         |
-| `EnableBehavioralAnalysis` | bool   | `true`  | Enable behavioral rate analysis                   |
-| `EnableAiDetection`        | bool   | `true`  | **Enable AI-based classification (RECOMMENDED)**  |
-| `EnableLlmDetection`       | bool   | `true`  | Enable LLM escalation for uncertain cases         |
 | `EnableTestMode`           | bool   | `false` | Enable test mode headers (dev only!)              |
 | `MaxRequestsPerMinute`     | int    | `60`    | Rate limit threshold (1-10000)                    |
 | `CacheDurationSeconds`     | int    | `300`   | Cache duration for results (0-86400)              |
+
+Whether AI/Heuristic detection runs is controlled by `AiDetection.Provider` and `AiDetection.Heuristic.Enabled`
+(see [AI Detection Settings](#ai-detection-settings-key-feature) below), together with which detectors a given
+`DetectionPolicy` lists in `FastPath`/`AiPath` and `EscalateToAi` (see the `Policies` block in the Full
+Configuration example above and [detection-strategies.md](detection-strategies.md)). There is no separate
+top-level "enable AI" flag.
+
+---
+
+## Classification Settings
+
+The single set of thresholds that turns a computed `bot_probability` (0.0-1.0) into a Bot / Human / Uncertain
+verdict. Every dashboard surface, aggregation, and the persisted `is_bot` boolean derive their answer from these
+two numbers -- nothing else computes its own threshold. This is the direct replacement for the old, now-obsolete
+`BotThreshold` setting.
+
+Section path: `BotDetection:Classification`
+
+```json
+{
+  "BotDetection": {
+    "Classification": {
+      "HumanCeiling": 0.30,
+      "BotFloor": 0.70
+    }
+  }
+}
+```
+
+| Option         | Type   | Default | Description                                                          |
+|----------------|--------|---------|------------------------------------------------------------------------|
+| `HumanCeiling` | double | `0.30`  | `bot_probability < HumanCeiling` classifies as Human.                |
+| `BotFloor`     | double | `0.70`  | `bot_probability >= BotFloor` classifies as Bot; this is also the binary "is a bot" cut used for blocking decisions. |
+
+Scores between `HumanCeiling` and `BotFloor` (0.30-0.70 by default) fall into the **Uncertain** band -- neither
+confidently human nor confidently bot. This dead zone is exactly what `EscalateToAi` / the AI path exists to
+resolve: uncertain requests get escalated to the Heuristic/LLM detectors rather than being force-classified either
+way. Widening the gap between the two values makes more traffic land in Uncertain (more AI escalation, fewer
+snap judgements); narrowing it makes the fast-path detectors decide more traffic on their own.
 
 ---
 
@@ -485,6 +512,32 @@ Control which paths run detection, skip it entirely, or only compute visitor sig
 
 ---
 
+## Health Endpoint Recognition
+
+Distinct from `ExcludedPaths` above: `ExcludedPaths` skips detection entirely, while `HealthEndpoints` feeds a
+probe-shape classifier (`HealthEndpointAtom` / `ProbeShapeClassifier`) that recognises health/readiness/liveness
+traffic *within* the pipeline so it scores and displays correctly instead of skipping processing.
+
+Section path: `BotDetection:HealthEndpoints`
+
+```json
+{
+  "BotDetection": {
+    "HealthEndpoints": {
+      "Paths": ["/health", "/healthz", "/livez", "/readyz", "/ready", "/live", "/ping", "/status", "/alive", "/admin/alive"],
+      "ProbeUserAgents": ["kube-probe", "Go-http-client", "curl", "wget", "docker"]
+    }
+  }
+}
+```
+
+| Option            | Type       | Default                                                                                   | Description                                                                 |
+|--------------------|------------|---------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
+| `Paths`            | `string[]` | the ten well-known probe paths shown above                                                  | Path prefixes matched case-insensitively at segment boundaries (`/health` matches `/health/ready` but not `/healthcheck`). Providing any value replaces the defaults entirely. |
+| `ProbeUserAgents`  | `string[]` | `["kube-probe", "Go-http-client", "curl", "wget", "docker"]`                                | User-Agent family tokens recognised as automated health probes (case-insensitive substring match). Replaces the defaults entirely when set. |
+
+---
+
 ## AI Detection Settings (KEY FEATURE)
 
 AI detection provides machine learning-based classification with continuous learning. **This is a key differentiator** -
@@ -503,7 +556,6 @@ the system improves over time.
 ```json
 {
   "BotDetection": {
-    "EnableAiDetection": true,
     "AiDetection": {
       "Provider": "Heuristic",
       "TimeoutMs": 1000,
@@ -535,7 +587,6 @@ the system improves over time.
 ```json
 {
   "BotDetection": {
-    "EnableAiDetection": true,
     "AiDetection": {
       "Provider": "Ollama",
       "TimeoutMs": 15000,
@@ -567,62 +618,86 @@ See [ai-detection.md](ai-detection.md) for full details on models and learning.
 ## Learning System Settings (KEY FEATURE)
 
 The learning system enables continuous improvement. Patterns are tracked, reputations evolve, and the model improves
-over time.
+over time. This binds under `BotDetection:Reputation`.
 
 ```json
 {
   "BotDetection": {
-    "Learning": {
-      "Enabled": true,
+    "Reputation": {
       "LearningRate": 0.1,
       "MaxSupport": 1000,
-      "ScoreDecayTauHours": 168,
-      "SupportDecayTauHours": 336,
+      "ScoreDecayTauHours": 3,
+      "SupportDecayTauHours": 6,
       "Prior": 0.5,
       "PromoteToBadScore": 0.9,
       "PromoteToBadSupport": 50,
-      "DemoteFromBadScore": 0.7,
+      "DemoteFromBadScore": 0.5,
       "DemoteFromBadSupport": 100,
-      "GcEligibleDays": 90,
-      "EnableDriftDetection": true,
-      "DriftThreshold": 0.05
+      "GcEligibleDays": 90
     }
   }
 }
 ```
 
 | Option                 | Type   | Default | Description                           |
-|------------------------|--------|---------|---------------------------------------|
-| `Enabled`              | bool   | `true`  | **Enable learning (RECOMMENDED)**     |
-| `LearningRate`         | double | `0.1`   | EMA learning rate (0.01-0.5)          |
-| `MaxSupport`           | int    | `1000`  | Max effective sample count            |
-| `ScoreDecayTauHours`   | int    | `168`   | Score decay time constant (7 days)    |
-| `SupportDecayTauHours` | int    | `336`   | Support decay time constant (14 days) |
+|------------------------|--------|---------|----------------------------------------|
+| `LearningRate`         | double | `0.1`   | EMA learning rate for online updates (0.01-0.5) |
+| `MaxSupport`           | double | `1000`  | Max effective sample count            |
+| `ScoreDecayTauHours`   | double | `3`     | Score decay time constant toward `Prior`; deliberately short so visitors earn back trust quickly |
+| `SupportDecayTauHours` | double | `6`     | Support decay time constant           |
 | `Prior`                | double | `0.5`   | Neutral prior for new patterns        |
-| `PromoteToBadScore`    | double | `0.9`   | Score to promote to ConfirmedBad      |
-| `PromoteToBadSupport`  | int    | `50`    | Support to promote to ConfirmedBad    |
-| `DemoteFromBadScore`   | double | `0.7`   | Score to demote from ConfirmedBad     |
-| `DemoteFromBadSupport` | int    | `100`   | Support to demote (hysteresis)        |
-| `GcEligibleDays`       | int    | `90`    | Days before pattern GC eligible       |
-| `EnableDriftDetection` | bool   | `true`  | Detect concept drift                  |
-| `DriftThreshold`       | double | `0.05`  | Drift alert threshold                 |
+| `PromoteToBadScore`    | double | `0.9`   | Score threshold to promote to ConfirmedBad |
+| `PromoteToBadSupport`  | double | `50`    | Minimum support to promote to ConfirmedBad |
+| `DemoteFromBadScore`   | double | `0.5`   | Score threshold to demote from ConfirmedBad (hysteresis gap from `PromoteToBadScore`) |
+| `DemoteFromBadSupport` | double | `100`   | Minimum support to demote from ConfirmedBad |
+| `GcEligibleDays`       | int    | `90`    | Days since last-seen before a pattern is eligible for garbage collection |
 
-See [learning-and-reputation.md](learning-and-reputation.md) for full details.
+`ReputationOptions` also exposes `ConfirmedBadScoreDecayTauHours`/`ConfirmedBadSupportDecayTauHours` (slower decay
+overrides for already-confirmed-bad patterns), `PromoteToSuspectScore`/`Support`, `DemoteToNeutralScore`,
+`PromoteToGoodScore`/`Support`, and GC tuning (`GcSupportThreshold`, `GcOnlyNeutral`) not shown above.
+
+See [learning-and-reputation.md](learning-and-reputation.md) for full details on the promotion/demotion state
+machine.
 
 ---
 
 ## Blocking Settings
 
-| Option                       | Type   | Default           | Description                      |
-|------------------------------|--------|-------------------|----------------------------------|
-| `BlockDetectedBots`          | bool   | `false`           | Enable automatic blocking        |
-| `BlockStatusCode`            | int    | `403`             | HTTP status when blocking        |
-| `BlockMessage`               | string | `"Access denied"` | Response message                 |
-| `MinConfidenceToBlock`       | double | `0.8`             | Confidence required to block     |
-| `AllowVerifiedSearchEngines` | bool   | `true`            | Let Googlebot, Bingbot through   |
-| `AllowSocialMediaBots`       | bool   | `true`            | Let Facebook, Twitter through    |
-| `AllowMonitoringBots`        | bool   | `true`            | Let UptimeRobot, Pingdom through |
-| `DefaultActionPolicyName`    | string | `"block"`         | Default action policy            |
+| Option                       | Type   | Default              | Description                      |
+|-------------------------------|--------|----------------------|-----------------------------------|
+| `BlockStatusCode`            | int    | `403`                | HTTP status when blocking        |
+| `BlockMessage`               | string | `"Access denied"`    | Response message                 |
+| `AllowSocialMediaBots`       | bool   | `true`               | Let Facebook, Twitter through    |
+| `AllowMonitoringBots`        | bool   | `true`               | Let UptimeRobot, Pingdom through  |
+| `AllowTools`                 | bool   | `false`              | Let developer HTTP tools (curl, wget, python-requests, etc.) through even when blocking; still rate-limited via action policies |
+| `DefaultActionPolicyName`    | string | `"throttle-stealth"` | Default action policy when no per-`BotType` entry in `BotTypeActionPolicies` matches |
+
+Blocking is action-policy-driven, not a single on/off switch. `BotTypeActionPolicies` maps each detected
+`BotType` (e.g. `MaliciousBot` -> `block-hard`, `SearchEngine` -> `rate-limit-search`) to a named `ActionPolicy`;
+`DefaultActionPolicyName` is only the fallback for types with no explicit mapping. See
+[action-policies.md](action-policies.md) for the full policy model, and `ObserveOnly` below for a global
+shadow-mode switch that logs the policy that *would* have fired without changing visitor-facing behaviour.
+
+---
+
+## Shadow Mode (ObserveOnly)
+
+Calibration switch for tuning detection against real traffic before enforcing anything.
+
+```json
+{
+  "BotDetection": {
+    "ObserveOnly": true
+  }
+}
+```
+
+| Option        | Type | Default | Description                                                                |
+|---------------|------|---------|------------------------------------------------------------------------------|
+| `ObserveOnly` | bool | `false` | When `true`, every action policy that would have fired is shadowed through `logonly` instead -- the dashboard still records which policy *would* have fired, but visitors see no behaviour change. |
+
+This is the explicit observe-only knob that replaces the old implicit `BlockDetectedBots = false` posture. Use it
+during a pre-launch calibration window to tune policies/thresholds against real traffic without breaking anything.
 
 ---
 
@@ -895,10 +970,51 @@ Adds artificial delay to slow down detected bots.
 
 ---
 
+## Load Shedding
+
+Master switch for adaptive load-shedding: the High/Critical-band request dropping driven by the adaptive
+`PipelineLoadSensor` plus per-policy `LoadShed` fractions.
+
+```json
+{
+  "BotDetection": {
+    "LoadShedEnabled": false
+  }
+}
+```
+
+| Option            | Type | Default | Description                                                                    |
+|--------------------|------|---------|------------------------------------------------------------------------------------|
+| `LoadShedEnabled`  | bool | `false` | Enable the drop/503 decision when the load sensor reports High/Critical. The sensor always observes and the dashboard always has data; only the actual shedding action is gated by this flag. |
+
+Default is `false` -- shedding shipped enabled but was found dropping traffic on cold-start latency spikes (a
+fresh pod reading Critical and shedding ~50% of real visitor traffic), so it now requires an explicit opt-in
+after review. Tune trip thresholds via `PipelineLoadSensor` (RPS axes, latency/RTT ratios, ThreadPool starvation,
+Gen2 GC rate).
+
+---
+
 ## SQLite Database
 
 BotDetection uses SQLite to store bot patterns, datacenter IP ranges, learned weights, and reputation data. The database
 is automatically created and initialized on first use.
+
+### Storage Provider
+
+```json
+{
+  "BotDetection": {
+    "StorageProvider": "Sqlite"
+  }
+}
+```
+
+| Option            | Type   | Default    | Description                                                                 |
+|-------------------|--------|------------|-------------------------------------------------------------------------------|
+| `StorageProvider` | enum   | `Sqlite`   | `Sqlite` (fast indexed queries, good for single-node deployments) or `Json` (simple human-readable file storage, loads entirely into memory on each operation -- useful for debugging or small deployments). |
+
+`DatabasePath` (below) is shared by both providers: it points at the `.db` file for `Sqlite` and the `.json` file
+for `Json`.
 
 ### What's Stored in the Database
 
