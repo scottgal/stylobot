@@ -1,11 +1,18 @@
 ---
-name: foss-session-2026-07-24-window-threading-batch
-description: FOSS main = 937674c4 (domain-capture fix 13ff95f9 + endpoint-IA 937674c4, both landed+browser-verified on staging). Commercial main = 069b2201 (gateway bucket-cache residuals, both fixed — 30VU/30d confirmed 0% failures by bench-, residual-1 issue closed). IN FLIGHT: combined batch on branch foss-window-threading (2 commits ahead of FOSS main, unpushed) — period-selector-to-all-widgets (Clusters/TopBots/Sessions/Threats/UserAgents), ViewComponent warming-placeholder fix (cold-fallthrough on Warming pageResult), priority re-warm on cold cache miss (MarkDirtyAsync), "Your Signature" nav link. Background build launched, not yet verified/pushed. ALSO OPEN: endpoint list-vs-detail bug on staging — Top-content-pages (Internal-inclusive compose) vs /site (Internal-exclusive direct read) is explained+fixable (pre-existing tracked gap in commercial Postgres store); detail-page 404 for the same endpoints is NOT explained by code (both paths Internal-inclusive, FOSS routing verified correct locally) — needs a staging DB data point I can't get myself, escalated to overview-/deploy-.
+name: foss-session-2026-07-25-combined-build-landed
+description: ALL COMBINED-BUILD PIECES PUSHED. FOSS main = cd701db2 (window-threading + #1 self-probe filter + temp endpoint-detail debug log + "Your Signature" signature-extraction fix). Commercial main = 2b21c62d (mae-'s domain-filter toggle + #1 Internal-exclude predicate fix). Signaled deploy- for the combined rebuild; overview- will browser-test on staging once it's up (7d-updates-every-widget, spinner, self-probe toggle, Your Signature resolving, endpoint-detail debug log capture for #2). OPEN, NOT in this build: systemic SignatureLookup/ToAggregatedEvidence bug (filed high-severity, its own dedicated pass — rate-limit keying, challenge binding, honeypot fingerprint tracking all silently degraded in production, root cause confirmed, fix not yet started).
 metadata:
   type: project
 ---
 
 # foss- saved context (2026-07-24, re-engaged)
+
+## CURRENT STATE (2026-07-25, pushed)
+- Operator green-lit the combined build (relayed by overview-). Got direct operator confirmation via AskUserQuestion, pushed all 3 branches with fresh rebases + full rebuild/re-verify each time (both mains moved multiple times mid-sequence — cli-'s fingerprint fix landed on FOSS main, mae-'s domain toggle landed on commercial main): commercial-internal-filter-posture -> commercial main `2b21c62d`; foss-internal-filter-posture -> FOSS main `64aa18d8`; foss-signature-extraction-fix -> FOSS main `cd701db2` (final). Every push independently re-verified via a second fresh fetch, not just push output.
+- Confirmed clean of the SignatureLookup systemic fix in all 3 (that stays its own dedicated pass per overview-'s explicit instruction).
+- Signaled deploy- for the ONE combined rebuild, coordinated with mae- (her toggle is in, both landed together on commercial main), reported to overview-. Cleaned up the now-merged worktrees (stylobot-window-threading, stylobot-internal-filter, stylobot-sig-fix, stylobot-commercial-internal-filter).
+- Next: wait for deploy-'s combined rebuild + staging deploy, then overview-'s browser interaction-test (7d-updates-every-widget, spinner on cold, self-probe toggle, "Your Signature" resolving, endpoint-detail debug log capture for #2's root cause).
+- Still fully open, untouched, its own future pass: the systemic SignatureLookup bug (`systemic-canonical-signaturelookup-helper-is-dea` issue) — rate-limit keying, challenge binding, honeypot fingerprint tracking all silently dead in production. Recommended root fix: populate `signals[SignalKeys.PrimarySignature]` in `DetectionLedgerExtensions.ToAggregatedEvidence` via the existing sink-first ReadString pattern.
 
 ## CURRENT STATE (2026-07-25, newest)
 - #1 (both repos) REVIEWED+APPROVED by overview- — push on operator's go, include the temp debug log commit (aa96b4ca) in the FOSS one. foss-signature-extraction-fix (4f983235) also APPROVED, bundled into the SAME combined build (mae-'s domain toggle + #1 + signature fix), not pushed separately.
