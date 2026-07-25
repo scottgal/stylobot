@@ -89,6 +89,28 @@ and the endpoint and signature detail pages get real navigable routes with a ful
   the Gateway SKU build path (masked locally by a warm NuGet cache).
 - CLI live table: fingerprint/bot/human/threat counts stuck at zero (same signature-resolution root
   cause as above); the title bar now renders a styled "Stylo"/"bot" wordmark.
+- **`Stylobot.All` was silently missing its entire REST API surface.** `AddStyloBotApi()` registered
+  the DI services but `MapStyloBotApi()` was never called, so `/api/v1/*` and
+  `/api/v1/openapi.json` 404'd despite the API reading as "enabled" in config. The all-in-one host now
+  actually serves the API it claims to.
+- **OpenAPI spec was hiding real error responses.** Endpoints returning
+  `Results<..., ProblemHttpResult>` documented only `200` in `/api/v1/openapi.json`, dropping every
+  400/401/503 they could actually return (17 endpoint files). Fixed at the type level
+  (`FixedStatusProblemResults.cs`) — no runtime behavior change, but API consumers who codegen from the
+  spec were missing real error-handling cases.
+
+### Deprecated
+
+- **`HttpContextExtensions.GetBotConfidence()`** is now `[Obsolete]` — it duplicated
+  `GetBotProbability()` exactly; prefer the latter. Non-breaking (still callable).
+
+### Known Limitations
+
+- The documented API-key detection-policy overlay (`DisabledDetectors`/`WeightOverrides`/
+  `ActionPolicyName` on a per-key policy) is **not yet wired into policy resolution** — an API key
+  carrying these fields is accepted but currently has no effect on detection. Fails safe (more
+  detection runs, never less); tracked as a backlog item, documented as a known limitation in
+  `api-keys.md` rather than silently ignored.
 
 ### Performance
 

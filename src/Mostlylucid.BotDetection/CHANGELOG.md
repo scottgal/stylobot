@@ -41,6 +41,19 @@ Full notes in the root [`CHANGELOG.md`](../../CHANGELOG.md#850---2026-07-25).
 - Dead `WithMonitor()` factories, private monitor constructors, and `StaticMonitor` shims on
   `GatewayWarmupGate`/`UpstreamHealthGate` (confirmed unused anywhere via repo-wide grep).
 
+### Deprecated
+
+- **`HttpContextExtensions.GetBotConfidence()`** is now `[Obsolete]` ("Prefer GetBotProbability;
+  identical result.") — it was a functionally-identical duplicate. Non-breaking.
+
+### Fixed
+
+- **5 stale `[Obsolete]` message texts on `BotDetectionOptions`**
+  (`EnableUserAgentDetection`/`EnableHeaderAnalysis`/`EnableIpDetection`/`EnableBehavioralAnalysis`/
+  `EnableLlmDetection`) pointed at a `DetectionPolicy.ExcludedDetectors` config property that doesn't
+  exist under that name; corrected to reference the real
+  `DetectionPolicyConfig.FastPath`/`SlowPath`/`AiPath` properties. Text-only, no behavior change.
+
 ## [6.7.0] - 2026-05-21
 
 Pre-launch hardening pass. Detection engine is feature-frozen; this round is operator ergonomics, naming coherence, and a pipeline quality sweep. Full notes in the root [`CHANGELOG.md`](../../CHANGELOG.md#670---2026-05-21).
