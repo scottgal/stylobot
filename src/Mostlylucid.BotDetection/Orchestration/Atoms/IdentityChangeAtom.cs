@@ -71,14 +71,22 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
     private double BotdKindChangeWeight => _configProvider.GetParameter(Name, "botd_kind_change_weight", 0.20);
     private double ContributionConfidence => _configProvider.GetParameter(Name, "contribution_confidence", 0.2);
 
-    public override Task<IReadOnlyList<DetectionContribution>> DetectAsync(
+    // Accumulated durable drift frequency (#16 wired): a fingerprint whose surface dims
+    // change OFTEN over time is the anti-detect / profile-cycling browser signature, so
+    // its CURRENT request scores suspicious independent of whether THIS request diverged.
+    private double DriftFrequencyHighThreshold => _configProvider.GetParameter(Name, "drift_frequency_high_threshold", 0.3);
+    private double DriftFrequencyWeight => _configProvider.GetParameter(Name, "drift_frequency_weight", 0.3);
+
+    public override async Task<IReadOnlyList<DetectionContribution>> DetectAsync(
         SignalSink sink,
         string sessionId,
         CancellationToken ct = default)
     {
         var fingerprintId = sink.ReadHint(SignalKeys.IdentityFingerprintId);
         if (string.IsNullOrEmpty(fingerprintId))
-            return Task.FromResult(None());
+            return None();
+
+        var contributions = new List<DetectionContribution>(2);
 
         var current = new SurfaceDims(
             Country: sink.ReadHint(SignalKeys.GeoCountryCode) ?? string.Empty,
@@ -99,107 +107,140 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
         var (established, _) = _store.GetDriftDims(fingerprintId);
         _store.StampObservedDims(fingerprintId, current);
 
-        // No established baseline yet (first sightings, before the first absorption promotes one)
-        // → nothing to diverge from. The stamp above still feeds the accumulation path.
-        if (established is null)
-            return Task.FromResult(None());
-
-        var prior = established;
-
-        var countryChanged = !string.IsNullOrEmpty(prior.Country)
-                          && !string.IsNullOrEmpty(current.Country)
-                          && !string.Equals(prior.Country, current.Country, StringComparison.OrdinalIgnoreCase);
-
-        var asnChanged = !string.IsNullOrEmpty(prior.Asn)
-                      && !string.IsNullOrEmpty(current.Asn)
-                      && !string.Equals(prior.Asn, current.Asn, StringComparison.OrdinalIgnoreCase);
-
-        var uaFamilyChanged = !string.IsNullOrEmpty(prior.UaFamily)
-                           && !string.IsNullOrEmpty(current.UaFamily)
-                           && !string.Equals(prior.UaFamily, current.UaFamily, StringComparison.OrdinalIgnoreCase);
-
-        var infraIntroduced = (!prior.IsDatacenter && current.IsDatacenter)
-                           || (!prior.IsTorOrVpn && current.IsTorOrVpn);
-
-        var shapeHashChanged = !string.IsNullOrEmpty(prior.ShapeHash)
-                            && !string.IsNullOrEmpty(current.ShapeHash)
-                            && !string.Equals(prior.ShapeHash, current.ShapeHash, StringComparison.Ordinal);
-
-        var botdKindChanged = !string.IsNullOrEmpty(prior.BotdKind)
-                           && !string.IsNullOrEmpty(current.BotdKind)
-                           && !string.Equals(prior.BotdKind, current.BotdKind, StringComparison.OrdinalIgnoreCase);
-
-        if (!countryChanged && !asnChanged && !uaFamilyChanged && !infraIntroduced
-            && !shapeHashChanged && !botdKindChanged)
-            return Task.FromResult(None());
-
-        var reasonParts = new List<string>(4);
-        var score = 0.0;
-
-        if (countryChanged)
+        // LIVE divergence — this request scores NOW when it differs from the ESTABLISHED shape.
+        // Skipped (no contribution) when there is no baseline yet (first sightings, before the
+        // first absorption promotes one) or when nothing diverged; the stamp above still feeds
+        // the accumulation path either way. When it fires, its contribution is ADDED to the list
+        // alongside any drift-frequency contribution below (both can fire on the same request).
+        if (established is not null)
         {
-            score += CountryChangeWeight;
-            reasonParts.Add($"country {prior.Country} -> {current.Country}");
-            sink.Raise(SignalKeys.RiskCountryChanged, sessionId);
-            sink.Raise($"{SignalKeys.RiskCountryTransition}:{prior.Country} -> {current.Country}", sessionId);
+            var prior = established;
+
+            var countryChanged = !string.IsNullOrEmpty(prior.Country)
+                              && !string.IsNullOrEmpty(current.Country)
+                              && !string.Equals(prior.Country, current.Country, StringComparison.OrdinalIgnoreCase);
+
+            var asnChanged = !string.IsNullOrEmpty(prior.Asn)
+                          && !string.IsNullOrEmpty(current.Asn)
+                          && !string.Equals(prior.Asn, current.Asn, StringComparison.OrdinalIgnoreCase);
+
+            var uaFamilyChanged = !string.IsNullOrEmpty(prior.UaFamily)
+                               && !string.IsNullOrEmpty(current.UaFamily)
+                               && !string.Equals(prior.UaFamily, current.UaFamily, StringComparison.OrdinalIgnoreCase);
+
+            var infraIntroduced = (!prior.IsDatacenter && current.IsDatacenter)
+                               || (!prior.IsTorOrVpn && current.IsTorOrVpn);
+
+            var shapeHashChanged = !string.IsNullOrEmpty(prior.ShapeHash)
+                                && !string.IsNullOrEmpty(current.ShapeHash)
+                                && !string.Equals(prior.ShapeHash, current.ShapeHash, StringComparison.Ordinal);
+
+            var botdKindChanged = !string.IsNullOrEmpty(prior.BotdKind)
+                               && !string.IsNullOrEmpty(current.BotdKind)
+                               && !string.Equals(prior.BotdKind, current.BotdKind, StringComparison.OrdinalIgnoreCase);
+
+            if (countryChanged || asnChanged || uaFamilyChanged || infraIntroduced
+                || shapeHashChanged || botdKindChanged)
+            {
+                var reasonParts = new List<string>(4);
+                var score = 0.0;
+
+                if (countryChanged)
+                {
+                    score += CountryChangeWeight;
+                    reasonParts.Add($"country {prior.Country} -> {current.Country}");
+                    sink.Raise(SignalKeys.RiskCountryChanged, sessionId);
+                    sink.Raise($"{SignalKeys.RiskCountryTransition}:{prior.Country} -> {current.Country}", sessionId);
+                }
+
+                if (asnChanged)
+                {
+                    score += AsnChangeWeight;
+                    reasonParts.Add($"ASN {prior.Asn} -> {current.Asn}");
+                    sink.Raise(SignalKeys.RiskAsnChanged, sessionId);
+                }
+
+                if (uaFamilyChanged)
+                {
+                    score += UaFamilyChangeWeight;
+                    reasonParts.Add($"UA family {prior.UaFamily} -> {current.UaFamily}");
+                    sink.Raise(SignalKeys.RiskUaFamilyChanged, sessionId);
+                }
+
+                if (infraIntroduced)
+                {
+                    score += InfraIntroducedWeight;
+                    reasonParts.Add(current.IsTorOrVpn && !prior.IsTorOrVpn
+                        ? "Tor/VPN introduced"
+                        : "datacenter introduced");
+                    sink.Raise(SignalKeys.RiskInfrastructureIntroduced, sessionId);
+                }
+
+                if (shapeHashChanged)
+                {
+                    score += ShapeHashChangeWeight;
+                    reasonParts.Add($"shape hash {Truncate(prior.ShapeHash)} -> {Truncate(current.ShapeHash)}");
+                    sink.Raise(SignalKeys.RiskShapeHashChanged, sessionId);
+                }
+
+                if (botdKindChanged)
+                {
+                    score += BotdKindChangeWeight;
+                    reasonParts.Add($"BotD kind {prior.BotdKind} -> {current.BotdKind}");
+                    sink.Raise(SignalKeys.RiskBotdKindChanged, sessionId);
+                }
+
+                // Cap at 1.0 even if every dim diverged at once.
+                score = Math.Min(1.0, score);
+                var reason = string.Join("; ", reasonParts);
+
+                sink.Raise($"{SignalKeys.RiskSuspiciousChangeScore}:{score.ToString("F3", CultureInfo.InvariantCulture)}", sessionId);
+                sink.Raise($"{SignalKeys.RiskSuspiciousChangeReason}:{reason}", sessionId);
+
+                _logger.LogDebug("IdentityChange live divergence fp={Fp} score={Score:F2} reason={Reason}",
+                    fingerprintId.Length > 8 ? fingerprintId[..8] : fingerprintId, score, reason);
+
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "SurfaceDimShift",
+                    ConfidenceDelta = ContributionConfidence * score,
+                    Weight = 1.0,
+                    Reason = $"Request diverges from established fingerprint shape: {reason}",
+                    BotType = BotType.Unknown.ToString()
+                });
+            }
         }
 
-        if (asnChanged)
+        // Accumulated durable drift frequency (#16 wired as a LIVE input). The matched
+        // fingerprint is resident (RequiredSignals(identity.fingerprint_id) guarantees it was
+        // matched), so this is a cache hit — no DB round-trip. A fingerprint whose surface dims
+        // change OFTEN over time is the anti-detect / profile-cycling browser signature, so its
+        // current request scores suspicious even if THIS request itself did not diverge.
+        var fp = await _store.GetFingerprintAsync(fingerprintId, ct);
+        if (fp is not null && fp.DriftFrequency >= DriftFrequencyHighThreshold)
         {
-            score += AsnChangeWeight;
-            reasonParts.Add($"ASN {prior.Asn} -> {current.Asn}");
-            sink.Raise(SignalKeys.RiskAsnChanged, sessionId);
+            sink.Raise(SignalKeys.RiskDriftFrequencyHigh, sessionId);
+            sink.Raise($"{SignalKeys.RiskDriftFrequency}:{fp.DriftFrequency.ToString("F3", CultureInfo.InvariantCulture)}", sessionId);
+
+            // Confidence scales with the accumulated frequency, clamped to [0, DriftFrequencyWeight].
+            var driftDelta = Math.Clamp(DriftFrequencyWeight * fp.DriftFrequency, 0.0, DriftFrequencyWeight);
+
+            _logger.LogDebug("IdentityChange drift-frequency fp={Fp} freq={Freq:F2} delta={Delta:F2}",
+                fingerprintId.Length > 8 ? fingerprintId[..8] : fingerprintId, fp.DriftFrequency, driftDelta);
+
+            contributions.Add(new DetectionContribution
+            {
+                DetectorName = Name,
+                Category = "DriftFrequency",
+                ConfidenceDelta = driftDelta,
+                Weight = 1.0,
+                Reason = $"Fingerprint drifts frequently (freq {fp.DriftFrequency:F2}) — anti-detect / profile-cycling pattern",
+                BotType = BotType.Unknown.ToString()
+            });
         }
 
-        if (uaFamilyChanged)
-        {
-            score += UaFamilyChangeWeight;
-            reasonParts.Add($"UA family {prior.UaFamily} -> {current.UaFamily}");
-            sink.Raise(SignalKeys.RiskUaFamilyChanged, sessionId);
-        }
-
-        if (infraIntroduced)
-        {
-            score += InfraIntroducedWeight;
-            reasonParts.Add(current.IsTorOrVpn && !prior.IsTorOrVpn
-                ? "Tor/VPN introduced"
-                : "datacenter introduced");
-            sink.Raise(SignalKeys.RiskInfrastructureIntroduced, sessionId);
-        }
-
-        if (shapeHashChanged)
-        {
-            score += ShapeHashChangeWeight;
-            reasonParts.Add($"shape hash {Truncate(prior.ShapeHash)} -> {Truncate(current.ShapeHash)}");
-            sink.Raise(SignalKeys.RiskShapeHashChanged, sessionId);
-        }
-
-        if (botdKindChanged)
-        {
-            score += BotdKindChangeWeight;
-            reasonParts.Add($"BotD kind {prior.BotdKind} -> {current.BotdKind}");
-            sink.Raise(SignalKeys.RiskBotdKindChanged, sessionId);
-        }
-
-        // Cap at 1.0 even if every dim diverged at once.
-        score = Math.Min(1.0, score);
-        var reason = string.Join("; ", reasonParts);
-
-        sink.Raise($"{SignalKeys.RiskSuspiciousChangeScore}:{score.ToString("F3", CultureInfo.InvariantCulture)}", sessionId);
-        sink.Raise($"{SignalKeys.RiskSuspiciousChangeReason}:{reason}", sessionId);
-
-        _logger.LogDebug("IdentityChange live divergence fp={Fp} score={Score:F2} reason={Reason}",
-            fingerprintId.Length > 8 ? fingerprintId[..8] : fingerprintId, score, reason);
-
-        return Task.FromResult(Single(new DetectionContribution
-        {
-            DetectorName = Name,
-            Category = "SurfaceDimShift",
-            ConfidenceDelta = ContributionConfidence * score,
-            Weight = 1.0,
-            Reason = $"Request diverges from established fingerprint shape: {reason}",
-            BotType = BotType.Unknown.ToString()
-        }));
+        return contributions.Count > 0 ? contributions : None();
     }
 
     private static string Truncate(string s) => s.Length > 8 ? s[..8] : s;

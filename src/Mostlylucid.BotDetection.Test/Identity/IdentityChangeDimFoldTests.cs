@@ -248,4 +248,60 @@ public sealed class IdentityChangeDimFoldTests : IDisposable
         Assert.Empty(result);
         Assert.Null(sink.ReadHint(SignalKeys.RiskCountryTransition));
     }
+
+    // ========================================================================
+    // #16 wired: the DURABLE accumulated drift-frequency EWMA is now a LIVE
+    // per-request input. A fingerprint that has drifted often over time makes
+    // the current request suspicious just for being one of its requests —
+    // independent of whether THIS request itself diverged.
+    // ========================================================================
+
+    /// <summary>Bump a resident fingerprint's durable drift-frequency EWMA above the
+    /// atom's high threshold (0.3). Each RecordDriftSummaryAsync bumps freq toward 1.0
+    /// at α=0.2: 0 → 0.20 → 0.36, so two calls clear the 0.3 gate.</summary>
+    private static async Task StampDriftFrequencyAsync(SqliteFingerprintStore store, string id)
+    {
+        var perDim = new float[SurfaceDims.DriftDimCount];
+        perDim[SurfaceDims.CountryIndex] = 1.0f;
+        await store.RecordDriftSummaryAsync(id, perDim);
+        await store.RecordDriftSummaryAsync(id, perDim);
+    }
+
+    [Fact]
+    public async Task HighDriftFrequency_raisesRiskAndDriftFrequencyContribution()
+    {
+        var store = NewStore();
+        await SeedResidentAsync(store, "fp-drift-hi");
+        await StampDriftFrequencyAsync(store, "fp-drift-hi");
+
+        // Sanity: the resident fingerprint's accumulated frequency cleared the gate.
+        var fp = await store.GetFingerprintAsync("fp-drift-hi");
+        Assert.NotNull(fp);
+        Assert.True(fp!.DriftFrequency >= 0.3, $"expected freq >= 0.3, got {fp.DriftFrequency}");
+
+        // No established baseline promoted → no live-divergence contribution; the ONLY
+        // contribution must be the drift-frequency one, driven purely by accumulated state.
+        var atom = NewAtom(store);
+        var sink = SinkFor("fp-drift-hi", "US");
+        var result = await atom.DetectAsync(sink, Session);
+
+        Assert.Contains(result, c => c.Category == "DriftFrequency");
+        Assert.NotNull(sink.ReadHint(SignalKeys.RiskDriftFrequency)); // "risk.drift_frequency:<freq>" emitted
+        var drift = Assert.Single(result, c => c.Category == "DriftFrequency");
+        Assert.True(drift.ConfidenceDelta > 0.0, "drift-frequency contribution must carry positive confidence");
+    }
+
+    [Fact]
+    public async Task ZeroDriftFrequency_raisesNoDriftFrequencySignalOrContribution()
+    {
+        var store = NewStore();
+        await SeedResidentAsync(store, "fp-drift-zero"); // ObservationCount=0, DriftFrequency=0
+        var atom = NewAtom(store);
+
+        var sink = SinkFor("fp-drift-zero", "US");
+        var result = await atom.DetectAsync(sink, Session);
+
+        Assert.DoesNotContain(result, c => c.Category == "DriftFrequency");
+        Assert.Null(sink.ReadHint(SignalKeys.RiskDriftFrequency));
+    }
 }

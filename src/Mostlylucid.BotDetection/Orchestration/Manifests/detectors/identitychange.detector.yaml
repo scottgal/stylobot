@@ -86,6 +86,14 @@ output:
       entity_type: string
       salience: 0.75
       description: Human-readable summary of what changed - e.g. "country US -> RU; UA family Chrome -> python-requests". Empty when nothing changed; drives dashboard chips and log messages.
+    - key: risk.drift_frequency_high
+      entity_type: boolean
+      salience: 0.8
+      description: True when the matched fingerprint's DURABLE, accumulated drift-frequency EWMA is at or above drift_frequency_high_threshold. Independent of whether THIS request diverged - a fingerprint whose surface dims (geo / ASN / UA family / canvas shape / BotD verdict) change often across its lifetime is the anti-detect / profile-cycling browser signature (Multilogin Mimic / Kameleo Chroma rotating identity per session), so every request under that fingerprint is treated as suspicious. Wires the previously persisted-but-unread Fingerprint.DriftFrequency (folded at the absorption boundary) into the live per-request score.
+    - key: risk.drift_frequency
+      entity_type: string
+      salience: 0.8
+      description: The matched fingerprint's accumulated drift-frequency EWMA figure (formatted to 3 decimals), written alongside risk.drift_frequency_high so dashboards and logs can render the magnitude without re-joining fingerprint state.
 
 triggers:
   requires:
@@ -123,6 +131,12 @@ emits:
     - key: risk.suspicious_change_reason
       type: string
       description: Human-readable summary of what changed; empty when nothing changed.
+    - key: risk.drift_frequency_high
+      type: bool
+      description: True when the matched fingerprint's accumulated drift-frequency EWMA is at or above drift_frequency_high_threshold - the anti-detect / profile-cycling signature, independent of whether THIS request diverged.
+    - key: risk.drift_frequency
+      type: string
+      description: The matched fingerprint's accumulated drift-frequency EWMA figure (3 decimals) - render-ready alongside risk.drift_frequency_high.
 
   on_failure:
     - detector.identitychange.failed
@@ -159,6 +173,16 @@ defaults:
     # changed" caps the contribution at 0.2. FOSS deliberately does not block
     # on this; commercial policy can override.
     contribution_confidence: 0.2
+    # Accumulated durable drift frequency (#16 wired as a live per-request input).
+    # Fingerprint.DriftFrequency is an EWMA (bumped at the absorption boundary on
+    # every real surface-dim change) of HOW OFTEN this fingerprint drifts over its
+    # lifetime. At/above the threshold the fingerprint is treated as a frequently-
+    # drifting anti-detect / profile-cycling browser and its current request scores
+    # suspicious even when THIS request did not itself diverge. The drift-frequency
+    # contribution's confidence is drift_frequency_weight * frequency, clamped to
+    # [0, drift_frequency_weight]. Indicator only; FOSS does not gate policy on it.
+    drift_frequency_high_threshold: 0.3
+    drift_frequency_weight: 0.3
 
 tags:
   - identity

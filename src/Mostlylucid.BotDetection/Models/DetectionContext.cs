@@ -1923,6 +1923,21 @@ public static partial class SignalKeys
     /// <summary>String: human-readable summary of what changed (e.g. "country US -> RU; UA family Chrome -> python-requests"). Empty when nothing changed. Drives the dashboard / log message.</summary>
     public const string RiskSuspiciousChangeReason = "risk.suspicious_change_reason";
 
+    /// <summary>
+    ///     Boolean (presence): the matched fingerprint's durable, accumulated
+    ///     drift-frequency EWMA (<see cref="Identity.Fingerprint.DriftFrequency"/>)
+    ///     is at or above the atom's high threshold. A fingerprint whose surface
+    ///     dims change often over time is the anti-detect / profile-cycling
+    ///     browser signature (Multilogin / Kameleo rotating canvas + geo + UA per
+    ///     session), so the CURRENT request scores as suspicious just for being
+    ///     one of that fingerprint's requests - independent of whether THIS
+    ///     request itself diverged (<see cref="RiskSuspiciousChangeScore"/>).
+    /// </summary>
+    public const string RiskDriftFrequencyHigh = "risk.drift_frequency_high";
+
+    /// <summary>String: the matched fingerprint's accumulated drift-frequency EWMA figure, formatted to 3 decimals. Written alongside <see cref="RiskDriftFrequencyHigh"/> for dashboards / logs so the magnitude is visible without re-joining fingerprint state.</summary>
+    public const string RiskDriftFrequency = "risk.drift_frequency";
+
     // ==========================================
     // Privacy / PII Detection signals
     // Set by PiiQueryStringContributor when PII patterns detected in query strings
