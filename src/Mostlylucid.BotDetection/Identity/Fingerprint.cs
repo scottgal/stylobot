@@ -157,6 +157,27 @@ public sealed record Fingerprint
     ///     <see cref="ClaimStatus"/> transitions to <c>behaviourally-trusted</c>.
     /// </summary>
     public int TrustObservations { get; init; }
+
+    /// <summary>
+    ///     Durable, bounded, fixed-width (<see cref="SurfaceDims.DriftDimCount"/> = 7) per-dim
+    ///     EWMA change-magnitude vector for the fingerprint's surface dimensions (country / ASN /
+    ///     UA family / datacenter / Tor-VPN / shape hash / BotD kind). Folded ONLY at the
+    ///     session → fingerprint absorption boundary, "write only on change" — see
+    ///     <see cref="SurfaceDims"/>. This is an approved durable fingerprint ATTRIBUTE, not a
+    ///     per-event log: one fixed 7-float row per fingerprint, EWMA-smoothed, exactly like
+    ///     <see cref="CachedBotProbability"/> is a durable scalar. Null on rows with no drift
+    ///     event yet / pre-migration rows (read null-safe as all-zero).
+    /// </summary>
+    public float[]? DriftMagnitudes { get; init; }
+
+    /// <summary>
+    ///     Durable EWMA change-FREQUENCY scalar: the smoothed rate at which this fingerprint's
+    ///     surface dims change across absorption cycles. Bumped toward 1.0 on every drift event,
+    ///     decays toward 0.0 across stable cycles. A persistently high value is the
+    ///     "frequently-drifting fingerprint = anti-detect / rotation" signal. 0.0 on rows with no
+    ///     drift event yet. Companion to <see cref="DriftMagnitudes"/>.
+    /// </summary>
+    public double DriftFrequency { get; init; }
 }
 
 /// <summary>

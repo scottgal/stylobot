@@ -66,7 +66,16 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     claim_status                TEXT NOT NULL DEFAULT 'unverified',
     verification_method         TEXT,
     verified_at                 TEXT,
-    trust_observations          INTEGER NOT NULL DEFAULT 0
+    trust_observations          INTEGER NOT NULL DEFAULT 0,
+    -- Durable, bounded surface-dim drift summary (one fixed row per fingerprint).
+    -- drift_magnitudes: BLOB of SurfaceDims.DriftDimCount (7) little-endian floats,
+    -- a per-dim EWMA change-magnitude vector; NULL until the first drift event.
+    -- drift_frequency: EWMA change-frequency scalar (rate of surface-dim change across
+    -- absorption cycles). Folded ONLY at the session→fingerprint absorption boundary,
+    -- "write only on change" (RecordDriftSummaryAsync). A durable fingerprint ATTRIBUTE
+    -- like cached_bot_probability, not a per-event log.
+    drift_magnitudes            BLOB,
+    drift_frequency             REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS fingerprint_root_history (

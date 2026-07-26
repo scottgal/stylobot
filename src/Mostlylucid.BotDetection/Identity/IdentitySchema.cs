@@ -206,6 +206,18 @@ internal static class IdentitySchema
         await TryDropColumnAsync(conn,
             "ALTER TABLE fingerprint_modes DROP COLUMN inferred_confidence", ct);
 
+        // Durable, bounded surface-dim drift summary (one fixed row per fingerprint).
+        // drift_magnitudes is a BLOB of SurfaceDims.DriftDimCount (7) little-endian floats
+        // (per-dim EWMA change magnitude), NULL until the first drift event; drift_frequency
+        // is the EWMA change-frequency scalar. Folded ONLY at the session→fingerprint
+        // absorption boundary ("write only on change"), like cached_bot_probability is a
+        // durable scalar attribute. Migrates existing DBs forward; the CREATE in
+        // identity_core.sql already carries these for fresh schemas.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN drift_magnitudes BLOB", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN drift_frequency REAL NOT NULL DEFAULT 0", ct);
+
         // 2026-07-16 -- drop cached_risk_band. It stored a value DERIVED from the
         // probability (BucketRisk) as if it were a fact, so a verified good bot at
         // probability 1.0 read VeryHigh (BucketRisk bypasses the composer's verified ->

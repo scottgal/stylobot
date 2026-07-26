@@ -357,6 +357,13 @@ public sealed class FingerprintAbsorptionService : IDisposable
         // on a never-yet-read fingerprint would see the stale pre-absorption centroid.
         await _store.GetFingerprintAsync(obs.FingerprintId, ct).ConfigureAwait(false);
 
+        // Surface-dimension drift detection at the absorption boundary (#16 model): compare the
+        // fingerprint's latest-observed dims (PendingDims, stamped per request by
+        // IdentityChangeAtom) against its established baseline. On a change, fold a bounded,
+        // durable per-fingerprint drift summary. Runs here — once per absorption — rather than
+        // per request, and only ever touches the fingerprint that was just made hot above.
+        await DetectSurfaceDimDriftAsync(obs.FingerprintId, ct).ConfigureAwait(false);
+
         var newMaturity = maturity + 1;
         await _store.AbsorbObservationAsync(
             obs.ObservationId, obs.FingerprintId, newCentroid, newMaturity, newWeights,
@@ -380,6 +387,45 @@ public sealed class FingerprintAbsorptionService : IDisposable
         }
 
         return (newCentroid, newMaturity, newWeights, newInferredType);
+    }
+
+    /// <summary>
+    ///     Absorption-boundary surface-dim drift compare. Reads the resident entry's latest
+    ///     (<c>Pending</c>) and baseline (<c>Established</c>) dims:
+    ///     <list type="bullet">
+    ///         <item>No pending dims (fingerprint not resident, or never stamped this cycle) → nothing to do.</item>
+    ///         <item>No established baseline yet → adopt pending as the baseline silently (first sighting, no drift).</item>
+    ///         <item>Otherwise diff the 7 dims; on ANY change, fold the durable summary via
+    ///         <see cref="IFingerprintStore.RecordDriftSummaryAsync"/>, then promote established = pending
+    ///         ("transition becomes baseline").</item>
+    ///     </list>
+    ///     Internal so the identity tests can drive the compare directly without the debounce /
+    ///     tick machinery. Idempotent when nothing changed.
+    /// </summary>
+    internal async Task DetectSurfaceDimDriftAsync(string fingerprintId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+
+        var (established, pending) = _store.GetDriftDims(fingerprintId);
+        if (pending is null) return;                          // nothing observed this cycle
+
+        if (established is null)
+        {
+            _store.PromoteEstablishedDims(fingerprintId, pending); // first baseline, no drift
+            return;
+        }
+
+        var perDim = SurfaceDims.ComputeDriftMagnitudes(established, pending);
+        var changed = false;
+        for (var i = 0; i < perDim.Length; i++)
+        {
+            if (perDim[i] != 0f) { changed = true; break; }
+        }
+
+        if (!changed) return;                                 // stable — established stays put
+
+        await _store.RecordDriftSummaryAsync(fingerprintId, perDim, ct).ConfigureAwait(false);
+        _store.PromoteEstablishedDims(fingerprintId, pending); // transition becomes baseline
     }
 
     /// <inheritdoc />

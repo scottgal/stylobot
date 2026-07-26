@@ -2,30 +2,31 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.Atoms;
-using Mostlylucid.BotDetection.Test.Orchestration.Atoms.AtomContract;
-using Mostlylucid.Ephemeral;
+using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Identity;
 
 /// <summary>
-///     #16 gateway-OOM fix: the per-fingerprint surface-dim drift lookback that
-///     <see cref="IdentityChangeAtom"/> needs was folded OUT of the separate,
-///     unbounded <c>FingerprintDimSnapshotCache</c> (the leak: one entry per rotated
-///     fingerprint, never evicted) and INTO the single bounded
-///     <see cref="SqliteFingerprintStore"/> per-fingerprint hot cache
-///     (<c>_fingerprintById</c>), co-indexed in the same cache entry, co-evicted with
-///     the fingerprint, and NEVER persisted to SQLite.
+///     Surface-dimension drift is detected at the SESSION → FINGERPRINT ABSORPTION
+///     BOUNDARY, not per request. The 7 raw surface dims (country / ASN / UA family /
+///     datacenter+Tor introduction / canvas-WebGL shape hash / BotD verdict) ride the
+///     single bounded per-fingerprint hot cache
+///     (<see cref="SqliteFingerprintStore"/>'s <c>_fingerprintById</c> entry) as two
+///     transient, never-persisted, co-evicted fields — <c>EstablishedDims</c> (baseline
+///     shape) and <c>PendingDims</c> (latest-observed, stamped per request by
+///     <see cref="Orchestration.Atoms.IdentityChangeAtom"/>). At absorption,
+///     <see cref="FingerprintAbsorptionService"/> diffs pending vs established and, on a
+///     change, persists a BOUNDED, DURABLE per-fingerprint drift summary: a fixed-width
+///     7-float per-dim EWMA change-magnitude vector plus an EWMA change-frequency scalar.
 ///     <para>
-///     The load-bearing test is <see cref="SetLastSeenDims_nonResidentFingerprint_createsNoCacheEntry"/>:
-///     it is the churn / no-unbounded-growth guard that proves the leak cannot recur —
-///     dims can only ride on a resident fingerprint entry, so a flood of rotated
-///     fingerprints cannot grow an independent accumulator.
+///     The load-bearing containment test is
+///     <see cref="StampObservedDims_nonResidentFingerprint_createsNoCacheEntry"/>: stamping
+///     dims for a fingerprint that is not resident is a no-op, so a flood of rotated
+///     fingerprints cannot grow an unbounded shadow accumulator (the #16 gateway OOM).
 ///     </para>
 /// </summary>
 public sealed class IdentityChangeDimFoldTests : IDisposable
 {
-    private const string Session = "session-1";
     private static readonly int Dim = IdentityVectorLayout.DefaultV1().Dimension;
 
     private readonly string _tempDir;
@@ -41,17 +42,24 @@ public sealed class IdentityChangeDimFoldTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* best effort */ }
     }
 
-    private SqliteFingerprintStore NewStore()
-    {
-        var options = Options.Create(new BotDetectionOptions
+    private IOptions<BotDetectionOptions> Options() => Microsoft.Extensions.Options.Options.Create(
+        new BotDetectionOptions
         {
             DatabasePath = Path.Combine(_tempDir, "botdetection.db"),
             Identity = new IdentityOptions { Enabled = true }
         });
-        return new SqliteFingerprintStore(
-            NullLogger<SqliteFingerprintStore>.Instance,
-            options,
-            IdentityVectorLayout.DefaultV1());
+
+    private SqliteFingerprintStore NewStore()
+        => new(NullLogger<SqliteFingerprintStore>.Instance, Options(), IdentityVectorLayout.DefaultV1());
+
+    private FingerprintAbsorptionService NewService(SqliteFingerprintStore store)
+    {
+        var layout = IdentityVectorLayout.DefaultV1();
+        var encoder = new IdentityVectorEncoder(layout);
+        var archetypes = new IdentityArchetypeRegistry(
+            NullLogger<IdentityArchetypeRegistry>.Instance, encoder);
+        return new FingerprintAbsorptionService(
+            NullLogger<FingerprintAbsorptionService>.Instance, store, archetypes, Options());
     }
 
     /// <summary>Insert a fingerprint row and make it RESIDENT in the in-memory cache
@@ -87,102 +95,101 @@ public sealed class IdentityChangeDimFoldTests : IDisposable
                LastSeenUtc: DateTimeOffset.UtcNow);
 
     // ========================================================================
-    // Churn / no-unbounded-growth — THE leak-regression guard.
+    // #3 Churn / no-unbounded-growth — THE #16 leak-containment guard.
     // ========================================================================
 
     [Fact]
-    public async Task SetLastSeenDims_nonResidentFingerprint_createsNoCacheEntry()
+    public async Task StampObservedDims_nonResidentFingerprint_createsNoCacheEntry()
     {
         var store = NewStore();
         await store.EnsureInitialisedAsync();
 
         // A flood of distinct, never-resident fingerprint ids — the exact rotation
-        // pattern that leaked the old separate cache. Each Set must be a no-op.
+        // pattern that leaked the old separate cache. Each stamp must be a no-op.
         for (var i = 0; i < 20_000; i++)
-            store.SetLastSeenDims($"rotated-fp-{i}", Dims("US"));
+            store.StampObservedDims($"rotated-fp-{i}", Dims("US"));
 
         Assert.Equal(0, store.ResidentCacheCount);
-        Assert.Null(store.GetLastSeenDims("rotated-fp-0"));
-        Assert.Null(store.GetLastSeenDims("rotated-fp-19999"));
     }
 
     // ========================================================================
-    // Co-residency — dims live on the SAME bounded entry as the fingerprint.
+    // #4 Established / pending — first stamp sets baseline silently, no drift.
     // ========================================================================
 
     [Fact]
-    public async Task SetLastSeenDims_residentFingerprint_isReadableAndSharesTheOneEntry()
+    public async Task FirstAbsorption_establishesBaselineSilently_noDrift()
     {
         var store = NewStore();
-        await SeedResidentAsync(store, "fp-a");
-        Assert.Equal(1, store.ResidentCacheCount);
+        await SeedResidentAsync(store, "fp-baseline");
+        var service = NewService(store);
 
-        store.SetLastSeenDims("fp-a", Dims("DE", asn: "AS42"));
+        store.StampObservedDims("fp-baseline", Dims("US"));
+        await service.DetectSurfaceDimDriftAsync("fp-baseline");
 
-        var read = store.GetLastSeenDims("fp-a");
-        Assert.NotNull(read);
-        Assert.Equal("DE", read!.Country);
-        Assert.Equal("AS42", read.Asn);
-        // No new entry — dims ride the existing fingerprint entry.
-        Assert.Equal(1, store.ResidentCacheCount);
+        var fp = await store.GetFingerprintAsync("fp-baseline");
+        Assert.NotNull(fp);
+        Assert.Equal(0.0, fp!.DriftFrequency);       // no drift on first sighting
+        Assert.True(fp.DriftMagnitudes is null || fp.DriftMagnitudes.All(m => m == 0f));
     }
 
     // ========================================================================
-    // Non-persistence — dims are in-mem only; a fresh process sees none.
+    // #1 No-drift path — same dims across two cycles → frequency stays 0.
     // ========================================================================
 
     [Fact]
-    public async Task LastSeenDims_areNeverPersisted_freshStoreInstanceSeesNull()
+    public async Task StableDims_acrossTwoAbsorptions_recordsNoDrift()
+    {
+        var store = NewStore();
+        await SeedResidentAsync(store, "fp-stable");
+        var service = NewService(store);
+
+        store.StampObservedDims("fp-stable", Dims("US"));
+        await service.DetectSurfaceDimDriftAsync("fp-stable");   // baseline
+
+        store.StampObservedDims("fp-stable", Dims("US"));        // same dims again
+        await service.DetectSurfaceDimDriftAsync("fp-stable");   // compare
+
+        var fp = await store.GetFingerprintAsync("fp-stable");
+        Assert.NotNull(fp);
+        Assert.Equal(0.0, fp!.DriftFrequency);
+    }
+
+    // ========================================================================
+    // #2 Drift path — country change persists a bounded, durable summary.
+    // ========================================================================
+
+    [Fact]
+    public async Task CountryChange_persistsBoundedDriftSummary_thatSurvivesRestart()
     {
         var store1 = NewStore();
-        await SeedResidentAsync(store1, "fp-persist");
-        store1.SetLastSeenDims("fp-persist", Dims("FR"));
-        Assert.NotNull(store1.GetLastSeenDims("fp-persist"));
+        await SeedResidentAsync(store1, "fp-drift");
+        var service = NewService(store1);
 
-        // Fresh store over the SAME db file: the fingerprint row persisted, the dims did not.
+        // Cycle 1: establish baseline (US), no drift.
+        store1.StampObservedDims("fp-drift", Dims("US"));
+        await service.DetectSurfaceDimDriftAsync("fp-drift");
+
+        // Cycle 2: country changed US -> DE → drift recorded.
+        store1.StampObservedDims("fp-drift", Dims("DE"));
+        await service.DetectSurfaceDimDriftAsync("fp-drift");
+
+        var afterDrift = await store1.GetFingerprintAsync("fp-drift");
+        Assert.NotNull(afterDrift);
+        Assert.True(afterDrift!.DriftFrequency > 0.0, "change-frequency EWMA should be bumped");
+        Assert.NotNull(afterDrift.DriftMagnitudes);
+        Assert.Equal(SurfaceDims.DriftDimCount, afterDrift.DriftMagnitudes!.Length);
+        Assert.True(afterDrift.DriftMagnitudes[SurfaceDims.CountryIndex] > 0f,
+            "country slot magnitude should be non-zero");
+        // Only the country dim changed — ASN/UA/etc. stay at 0.
+        Assert.Equal(0f, afterDrift.DriftMagnitudes[SurfaceDims.AsnIndex]);
+
+        // Durability: a fresh store instance over the SAME db file sees the summary.
         var store2 = NewStore();
-        var fp = await store2.GetFingerprintAsync("fp-persist");
-        Assert.NotNull(fp); // row survived
-        Assert.Null(store2.GetLastSeenDims("fp-persist")); // dims did not
-    }
-
-    // ========================================================================
-    // Drift detection preserved — through the atom, end to end.
-    // ========================================================================
-
-    private static SignalSink NewSink() => new(maxCapacity: 1000, maxAge: TimeSpan.FromMinutes(1));
-
-    private static IdentityChangeAtom NewAtom(IFingerprintStore store) => new(
-        NullLogger<IdentityChangeAtom>.Instance,
-        new StubDetectorConfigProvider(),
-        store);
-
-    private static SignalSink SinkFor(string fingerprintId, string country)
-    {
-        var sink = NewSink();
-        sink.Raise($"{SignalKeys.IdentityFingerprintId}:{fingerprintId}", Session);
-        sink.Raise($"{SignalKeys.GeoCountryCode}:{country}", Session);
-        return sink;
-    }
-
-    [Fact]
-    public async Task IdentityChange_baselinesSilently_thenRaisesCountryDriftOnChange()
-    {
-        var store = NewStore();
-        await SeedResidentAsync(store, "fp-drift");
-        var atom = NewAtom(store);
-
-        // Request 1: first sighting → baseline, no risk signal, no contribution.
-        var sink1 = SinkFor("fp-drift", "US");
-        var r1 = await atom.DetectAsync(sink1, Session);
-        Assert.Empty(r1);
-        Assert.Null(sink1.ReadHint(SignalKeys.RiskCountryTransition));
-
-        // Request 2: same fingerprint, different country → drift raised.
-        var sink2 = SinkFor("fp-drift", "DE");
-        var r2 = await atom.DetectAsync(sink2, Session);
-        Assert.Single(r2);
-        Assert.Equal("SurfaceDimShift", r2[0].Category);
-        Assert.Equal("US -> DE", sink2.ReadHint(SignalKeys.RiskCountryTransition));
+        var reloaded = await store2.GetFingerprintAsync("fp-drift");
+        Assert.NotNull(reloaded);
+        Assert.True(reloaded!.DriftFrequency > 0.0, "drift frequency must survive restart");
+        Assert.NotNull(reloaded.DriftMagnitudes);
+        Assert.True(reloaded.DriftMagnitudes![SurfaceDims.CountryIndex] > 0f,
+            "drift magnitudes must survive restart");
     }
 }

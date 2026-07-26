@@ -32,25 +32,46 @@ public interface IFingerprintStore : IFingerprintReader
     /// <summary>Idempotent schema bootstrap; safe to call on every operation.</summary>
     Task EnsureInitialisedAsync(CancellationToken ct = default);
 
-    // ── Ephemeral surface-dim drift lookback (#16) ───────────────────────────
+    // ── Ephemeral surface-dim drift (#16 fold; detected at absorption boundary) ──
     /// <summary>
-    ///     Reads the last-seen <see cref="SurfaceDims"/> for a fingerprint from the
-    ///     in-memory hot cache, or null if the fingerprint is not resident (or has no
-    ///     dims recorded yet). Never touches SQLite — dims are ephemeral, in-memory only.
-    ///     <see cref="Orchestration.Atoms.IdentityChangeAtom"/> reads its prior-dims
-    ///     comparison baseline from here. Default no-op for stores that don't hold a
-    ///     per-fingerprint hot cache (Null / remote-reader).
+    ///     Stamps the most-recently-observed <see cref="SurfaceDims"/> onto a fingerprint's
+    ///     resident hot-cache entry as its <c>PendingDims</c> — the per-request latest shape.
+    ///     Co-indexed with the fingerprint and co-evicted with it; NEVER persisted. Skips
+    ///     fingerprints that are not resident: a rotated fingerprint we no longer cache
+    ///     re-baselines rather than growing an unbounded shadow accumulator (the #16 leak).
+    ///     <see cref="Orchestration.Atoms.IdentityChangeAtom"/> calls this per request. Default
+    ///     no-op for stores that hold no per-fingerprint hot cache (Null / remote-reader).
     /// </summary>
-    SurfaceDims? GetLastSeenDims(string fingerprintId) => null;
+    void StampObservedDims(string fingerprintId, SurfaceDims dims) { }
 
     /// <summary>
-    ///     Records the last-seen <see cref="SurfaceDims"/> for a fingerprint on its
-    ///     resident hot-cache entry, co-indexed with the fingerprint and co-evicted with
-    ///     it. NEVER persisted. Skips fingerprints that are not resident — a rotated
-    ///     fingerprint we no longer cache re-baselines rather than growing an unbounded
-    ///     shadow accumulator (the #16 leak). Default no-op for non-caching stores.
+    ///     Reads the resident entry's baseline (<c>Established</c>) and latest-observed
+    ///     (<c>Pending</c>) surface dims for the absorption-boundary drift compare. Both null when
+    ///     the fingerprint is not resident. In-memory only; never a DB read. Default (null, null)
+    ///     for non-caching stores.
     /// </summary>
-    void SetLastSeenDims(string fingerprintId, SurfaceDims dims) { }
+    (SurfaceDims? Established, SurfaceDims? Pending) GetDriftDims(string fingerprintId)
+        => (null, null);
+
+    /// <summary>
+    ///     Promotes a fingerprint's <c>EstablishedDims</c> baseline to the given shape on its
+    ///     resident hot-cache entry (called at the absorption boundary after the drift compare —
+    ///     first-baseline, or "transition becomes baseline" after a recorded change). No-op if
+    ///     the fingerprint is not resident; never persisted. Default no-op for non-caching stores.
+    /// </summary>
+    void PromoteEstablishedDims(string fingerprintId, SurfaceDims dims) { }
+
+    /// <summary>
+    ///     Folds one surface-dim drift event into the fingerprint's DURABLE, bounded drift
+    ///     summary: EWMA-updates the fixed-width per-dim change-magnitude vector
+    ///     (<see cref="Fingerprint.DriftMagnitudes"/>) with <paramref name="perDimChange"/> and
+    ///     bumps the EWMA change-frequency scalar (<see cref="Fingerprint.DriftFrequency"/>).
+    ///     Dict-authoritative then a durable UPDATE; called ONLY on a real change ("write only on
+    ///     change" — drift events are rare by design, so a synchronous write is fine). Default
+    ///     no-op for stores that carry no durable fingerprint row.
+    /// </summary>
+    Task RecordDriftSummaryAsync(string fingerprintId, float[] perDimChange, CancellationToken ct = default)
+        => Task.CompletedTask;
 
     // ── Verdict cache ────────────────────────────────────────────────────────
     Task UpdateCachedVerdictAsync(

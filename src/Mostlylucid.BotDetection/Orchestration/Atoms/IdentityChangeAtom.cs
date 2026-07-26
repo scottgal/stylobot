@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
@@ -11,31 +10,28 @@ using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 
 /// <summary>
-///     ConstrainerAtom (per Taxonomy.md) that flags suspicious shifts in the
-///     surface dimensions of a matched fingerprint: geo country, ASN, UA
-///     family, and the introduction of datacenter / Tor IP space, shape hash,
-///     BotD verdict.
+///     Per-request STAMP of the matched fingerprint's latest surface dimensions
+///     (geo country, ASN, UA family, datacenter / Tor introduction, canvas-WebGL
+///     shape hash, BotD verdict) onto the fingerprint's transient hot-cache entry.
 /// </summary>
 /// <remarks>
 ///     <para>
-///         Native <see cref="IDetectorAtom"/> replacement for
-///         <c>IdentityChangeContributor</c>. Motivating use case: API-key /
-///         cookie theft, where the matched identity is stable but the network
-///         and client characteristics around it have shifted in ways very
-///         unusual for a single genuine visitor.
+///         Detection of surface-dim DRIFT no longer happens per request. This atom's sole
+///         job is to build the current <see cref="SurfaceDims"/> from the sink hints and
+///         stamp them as the fingerprint's <c>PendingDims</c> via
+///         <see cref="IFingerprintStore.StampObservedDims"/>. The actual drift compare —
+///         PendingDims vs EstablishedDims — runs once, at the session → fingerprint
+///         ABSORPTION boundary (<see cref="FingerprintAbsorptionService"/>), where a change
+///         folds a bounded, durable per-fingerprint drift summary. The accumulated
+///         change-frequency is the durable signal; there are no per-request <c>risk.*</c>
+///         drift signals any more.
 ///     </para>
 ///     <para>
-///         FOSS stub: writes <c>risk.*</c> signals and a low-confidence
-///         contribution but never gates policy on them at threshold. The
-///         commercial API-protection feature layers alerting / blocking on top.
-///     </para>
-///     <para>
-///         The prior-dims lookback rides the single bounded per-fingerprint hot cache in
-///         <see cref="IFingerprintStore"/> (<see cref="SurfaceDims"/>, co-indexed with the
-///         fingerprint entry, co-evicted, never persisted) — not a separate cache. That
-///         fold is the #16 gateway-OOM fix: a dedicated snapshot cache grew one unbounded
-///         entry per rotated fingerprint. Priority 30 -- runs after fingerprint match, IP,
-///         UA, geo atoms have raised the source dimensions.
+///         The dims ride the single bounded per-fingerprint hot cache in
+///         <see cref="IFingerprintStore"/> (co-indexed with the fingerprint entry,
+///         co-evicted, never persisted) — not a separate cache. That fold is the #16
+///         gateway-OOM fix. Priority 30, RequiredSignals(<c>identity.fingerprint_id</c>) so it
+///         still runs per request once the fingerprint has been resolved.
 ///     </para>
 /// </remarks>
 public sealed class IdentityChangeAtom : DetectorAtomBase
@@ -58,14 +54,6 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
     public override int Priority => 30;
     public override IReadOnlyList<string> RequiredSignals => new[] { SignalKeys.IdentityFingerprintId };
 
-    private double CountryChangeWeight => _configProvider.GetParameter(Name, "country_change_weight", 0.35);
-    private double AsnChangeWeight => _configProvider.GetParameter(Name, "asn_change_weight", 0.20);
-    private double UaFamilyChangeWeight => _configProvider.GetParameter(Name, "ua_family_change_weight", 0.30);
-    private double InfraIntroducedWeight => _configProvider.GetParameter(Name, "infra_introduced_weight", 0.25);
-    private double ShapeHashChangeWeight => _configProvider.GetParameter(Name, "shape_hash_change_weight", 0.40);
-    private double BotdKindChangeWeight => _configProvider.GetParameter(Name, "botd_kind_change_weight", 0.20);
-    private double ContributionConfidence => _configProvider.GetParameter(Name, "contribution_confidence", 0.2);
-
     public override Task<IReadOnlyList<DetectionContribution>> DetectAsync(
         SignalSink sink,
         string sessionId,
@@ -87,115 +75,11 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
             ShapeHash: sink.ReadHint(SignalKeys.ClientSideShapeHash) ?? string.Empty,
             BotdKind: sink.ReadHint(SignalKeys.ClientSideBotdKind) ?? string.Empty);
 
-        var prior = _store.GetLastSeenDims(fingerprintId);
+        // Stamp the latest observed dims as PendingDims. No-op if the fingerprint isn't
+        // resident (never creates a phantom entry — the #16 leak). Drift is detected at the
+        // absorption boundary, not here; this atom raises no signals and no contribution.
+        _store.StampObservedDims(fingerprintId, current);
 
-        // First sighting -- establish baseline, no risk signals. (SetLastSeenDims is a
-        // no-op if the fingerprint isn't resident in the store's hot cache; a rotated
-        // fingerprint we no longer cache simply re-baselines when it next resolves.)
-        if (prior is null)
-        {
-            _store.SetLastSeenDims(fingerprintId, current);
-            return Task.FromResult(None());
-        }
-
-        var countryChanged = !string.IsNullOrEmpty(prior.Country)
-                          && !string.IsNullOrEmpty(current.Country)
-                          && !string.Equals(prior.Country, current.Country, StringComparison.OrdinalIgnoreCase);
-
-        var asnChanged = !string.IsNullOrEmpty(prior.Asn)
-                      && !string.IsNullOrEmpty(current.Asn)
-                      && !string.Equals(prior.Asn, current.Asn, StringComparison.OrdinalIgnoreCase);
-
-        var uaFamilyChanged = !string.IsNullOrEmpty(prior.UaFamily)
-                           && !string.IsNullOrEmpty(current.UaFamily)
-                           && !string.Equals(prior.UaFamily, current.UaFamily, StringComparison.OrdinalIgnoreCase);
-
-        var infraIntroduced = (!prior.IsDatacenter && current.IsDatacenter)
-                           || (!prior.IsTorOrVpn && current.IsTorOrVpn);
-
-        var shapeHashChanged = !string.IsNullOrEmpty(prior.ShapeHash)
-                            && !string.IsNullOrEmpty(current.ShapeHash)
-                            && !string.Equals(prior.ShapeHash, current.ShapeHash, StringComparison.Ordinal);
-
-        var botdKindChanged = !string.IsNullOrEmpty(prior.BotdKind)
-                           && !string.IsNullOrEmpty(current.BotdKind)
-                           && !string.Equals(prior.BotdKind, current.BotdKind, StringComparison.OrdinalIgnoreCase);
-
-        // Refresh the snapshot under "transition becomes baseline" semantics
-        _store.SetLastSeenDims(fingerprintId, current);
-
-        if (!countryChanged && !asnChanged && !uaFamilyChanged && !infraIntroduced
-            && !shapeHashChanged && !botdKindChanged)
-            return Task.FromResult(None());
-
-        var reasonParts = new List<string>(4);
-        var score = 0.0;
-
-        if (countryChanged)
-        {
-            score += CountryChangeWeight;
-            reasonParts.Add($"country {prior.Country} -> {current.Country}");
-            sink.Raise(SignalKeys.RiskCountryChanged, sessionId);
-            sink.Raise($"{SignalKeys.RiskCountryTransition}:{prior.Country} -> {current.Country}", sessionId);
-        }
-
-        if (asnChanged)
-        {
-            score += AsnChangeWeight;
-            reasonParts.Add($"ASN {prior.Asn} -> {current.Asn}");
-            sink.Raise(SignalKeys.RiskAsnChanged, sessionId);
-        }
-
-        if (uaFamilyChanged)
-        {
-            score += UaFamilyChangeWeight;
-            reasonParts.Add($"UA family {prior.UaFamily} -> {current.UaFamily}");
-            sink.Raise(SignalKeys.RiskUaFamilyChanged, sessionId);
-        }
-
-        if (infraIntroduced)
-        {
-            score += InfraIntroducedWeight;
-            reasonParts.Add(current.IsTorOrVpn && !prior.IsTorOrVpn
-                ? "Tor/VPN introduced"
-                : "datacenter introduced");
-            sink.Raise(SignalKeys.RiskInfrastructureIntroduced, sessionId);
-        }
-
-        if (shapeHashChanged)
-        {
-            score += ShapeHashChangeWeight;
-            reasonParts.Add($"shape hash {Truncate(prior.ShapeHash)} -> {Truncate(current.ShapeHash)}");
-            sink.Raise(SignalKeys.RiskShapeHashChanged, sessionId);
-        }
-
-        if (botdKindChanged)
-        {
-            score += BotdKindChangeWeight;
-            reasonParts.Add($"BotD kind {prior.BotdKind} -> {current.BotdKind}");
-            sink.Raise(SignalKeys.RiskBotdKindChanged, sessionId);
-        }
-
-        // Cap at 1.0 even if every dim shifted at once.
-        score = Math.Min(1.0, score);
-        var reason = string.Join("; ", reasonParts);
-
-        sink.Raise($"{SignalKeys.RiskSuspiciousChangeScore}:{score.ToString("F3", CultureInfo.InvariantCulture)}", sessionId);
-        sink.Raise($"{SignalKeys.RiskSuspiciousChangeReason}:{reason}", sessionId);
-
-        _logger.LogDebug("IdentityChange fp={Fp} score={Score:F2} reason={Reason}",
-            fingerprintId.Length > 8 ? fingerprintId[..8] : fingerprintId, score, reason);
-
-        return Task.FromResult(Single(new DetectionContribution
-        {
-            DetectorName = Name,
-            Category = "SurfaceDimShift",
-            ConfidenceDelta = ContributionConfidence * score,
-            Weight = 1.0,
-            Reason = $"Matched fingerprint shifted surface dimensions: {reason}",
-            BotType = BotType.Unknown.ToString()
-        }));
+        return Task.FromResult(None());
     }
-
-    private static string Truncate(string s) => s.Length > 8 ? s[..8] : s;
 }
