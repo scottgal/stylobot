@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 
@@ -8,6 +8,17 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 ///     per-request state). Carries a <see cref="Reset"/> hook so the BDF rig and tests
 ///     can flush it alongside <c>SqliteFingerprintStore.TruncateAll</c> - otherwise
 ///     scenario N inherits scenario N-1's baselines and trips spurious risk.* signals.
+///
+///     <para>
+///         Backed by the house <see cref="BoundedCache{TKey,TValue}"/> (active size-cap +
+///         TTL eviction on every <c>Set</c>) rather than a raw <c>ConcurrentDictionary</c>.
+///         The dictionary form only evicted lazily-per-key inside <c>Get</c>, so a rotated /
+///         one-shot <c>fingerprintId</c> that was never read back before its 24h TTL lived
+///         for the pod's whole lifetime. Under identity rotation that grew unbounded and
+///         OOM-crashed the gateway roughly every 1-2h. The cap + TTL come from
+///         <see cref="Models.IdentityOptions.FingerprintDimSnapshotCacheMaxSize"/> and
+///         <see cref="Models.IdentityOptions.FingerprintDimSnapshotCacheTtl"/>.
+///     </para>
 /// </summary>
 public sealed class FingerprintDimSnapshotCache
 {
@@ -27,22 +38,24 @@ public sealed class FingerprintDimSnapshotCache
         // identity, which is rare for legitimate operators.
         string BotdKind = "");
 
-    private readonly ConcurrentDictionary<string, DimSnapshot> _snapshots = new(StringComparer.Ordinal);
-    private static readonly TimeSpan SnapshotTtl = TimeSpan.FromHours(24);
+    private readonly BoundedCache<string, DimSnapshot> _snapshots;
 
-    public DimSnapshot? Get(string fingerprintId)
+    /// <param name="maxSize">
+    ///     Hard ceiling on distinct fingerprint snapshots. Defaults to 50 000
+    ///     (matches the <c>SqliteFingerprintStore</c> in-memory cap). Beyond this
+    ///     the BoundedCache actively evicts the LFU / expired tail on each write.
+    /// </param>
+    /// <param name="ttl">Per-snapshot lifetime; defaults to 24h.</param>
+    public FingerprintDimSnapshotCache(int maxSize = 50_000, TimeSpan? ttl = null)
     {
-        if (!_snapshots.TryGetValue(fingerprintId, out var snap)) return null;
-        if (DateTimeOffset.UtcNow - snap.LastSeenUtc > SnapshotTtl)
-        {
-            _snapshots.TryRemove(fingerprintId, out _);
-            return null;
-        }
-        return snap;
+        _snapshots = new BoundedCache<string, DimSnapshot>(maxSize, ttl ?? TimeSpan.FromHours(24));
     }
 
+    public DimSnapshot? Get(string fingerprintId)
+        => _snapshots.TryGet(fingerprintId, out var snap) ? snap : null;
+
     public void Set(string fingerprintId, DimSnapshot snapshot)
-        => _snapshots[fingerprintId] = snapshot;
+        => _snapshots.Set(fingerprintId, snapshot);
 
     public void Reset() => _snapshots.Clear();
 

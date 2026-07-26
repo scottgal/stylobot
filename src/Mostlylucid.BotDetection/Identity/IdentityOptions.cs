@@ -76,6 +76,24 @@ public sealed class IdentityOptions
     ///     half-life. Default 7 days.
     /// </summary>
     public TimeSpan FingerprintRecencyHalfLife { get; set; } = TimeSpan.FromDays(7);
+
+    /// <summary>
+    ///     Hard ceiling on distinct per-fingerprint dim snapshots held in the
+    ///     in-memory <c>FingerprintDimSnapshotCache</c> (the drift baseline that
+    ///     <c>IdentityChangeAtom</c> writes every identity-bearing request). The
+    ///     cache actively evicts the LFU / expired tail on each write once over
+    ///     this cap, so a rotated-fingerprint flood cannot grow it without bound
+    ///     (the OOM-crash root cause). Default 50 000 -- matches the
+    ///     <c>SqliteFingerprintStore</c> in-memory cap.
+    /// </summary>
+    public int FingerprintDimSnapshotCacheMaxSize { get; set; } = 50_000;
+
+    /// <summary>
+    ///     Lifetime of a per-fingerprint dim snapshot in
+    ///     <c>FingerprintDimSnapshotCache</c>. A snapshot older than this is
+    ///     evicted (drift is re-baselined from the next observation). Default 24h.
+    /// </summary>
+    public TimeSpan FingerprintDimSnapshotCacheTtl { get; set; } = TimeSpan.FromHours(24);
 }
 
 /// <summary>

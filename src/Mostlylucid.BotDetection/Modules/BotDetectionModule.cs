@@ -419,7 +419,18 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Pattern-reputation updater feeds the reputation cache from detection outcomes.
         services.TryAddSingleton<Data.PatternReputationUpdater>();
         // Fingerprint dimension snapshot cache (waveform + similarity input).
-        services.TryAddSingleton<Orchestration.Atoms.FingerprintDimSnapshotCache>();
+        // Bounded (active LFU + TTL eviction) so a rotated-fingerprint flood can't
+        // grow it without bound — the ~1-2h gateway OOM-crash root cause. Cap + TTL
+        // come from BotDetection:Identity so they're tunable, not a magic constant.
+        services.TryAddSingleton<Orchestration.Atoms.FingerprintDimSnapshotCache>(sp =>
+        {
+            var identity = sp
+                .GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>()
+                .Value.Identity;
+            return new Orchestration.Atoms.FingerprintDimSnapshotCache(
+                identity.FingerprintDimSnapshotCacheMaxSize,
+                identity.FingerprintDimSnapshotCacheTtl);
+        });
         // Similarity search — FOSS defaults use in-memory sliding-window impls;
         // commercial pgvector pack swaps via TryAdd-loses.
         services.TryAddSingleton<Similarity.IIntentSimilaritySearch, Similarity.SlimIntentSearch>();
