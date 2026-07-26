@@ -7,6 +7,9 @@ using Mostlylucid.BotDetection.Analysis;
 
 namespace Mostlylucid.BotDetection.Services;
 
+/// <summary>Classification of a centroid's canonical request sequence.</summary>
+public enum CentroidType { Unknown = 0, Human = 1, Bot = 2 }
+
 /// <summary>A cluster's expected request sequence.</summary>
 public sealed record CentroidSequence
 {

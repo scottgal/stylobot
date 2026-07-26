@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Globalization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -46,7 +45,7 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
     ];
 
     private readonly ILogger<ContentSequenceAtom> _logger;
-    private readonly SequenceContextStore _contextStore;
+    private readonly SessionStore _sessionStore;
     private readonly CentroidSequenceStore _centroidStore;
     private readonly EndpointDivergenceTracker _divergenceTracker;
     private readonly AssetHashStore? _assetHashStore;
@@ -60,7 +59,7 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
         ILogger<ContentSequenceAtom> logger,
         IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor,
-        SequenceContextStore contextStore,
+        SessionStore sessionStore,
         CentroidSequenceStore centroidStore,
         EndpointDivergenceTracker divergenceTracker,
         AssetHashStore? assetHashStore = null,
@@ -70,7 +69,7 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
         _logger = logger;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
-        _contextStore = contextStore;
+        _sessionStore = sessionStore;
         _centroidStore = centroidStore;
         _divergenceTracker = divergenceTracker;
         _assetHashStore = assetHashStore;
@@ -121,21 +120,21 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
 
         var request = context.Request;
         var isDocumentRequest = IsDocumentRequest(request, sink);
-        var ctx = _contextStore.GetOrCreate(signature, SessionGapMinutes);
+        var priorRequests = _sessionStore.GetCurrentSession(signature) ?? Array.Empty<SessionRequest>();
 
         if (isDocumentRequest)
-            return Task.FromResult(HandleDocumentRequest(sink, sessionId, signature, request, ctx));
+            return Task.FromResult(HandleDocumentRequest(sink, sessionId, signature, request));
 
-        if (ctx.ExpectedChain.Length == 0)
+        if (!TryProjectSegment(priorRequests, out var segment))
         {
             _logger.LogDebug("ContentSequence: no active sequence for {Signature}, non-document first request", signature);
             return Task.FromResult(None());
         }
 
-        return Task.FromResult(HandleContinuationRequest(sink, sessionId, signature, request, ctx, context));
+        return Task.FromResult(HandleContinuationRequest(sink, sessionId, signature, request, segment, context));
     }
 
-    private static bool IsDocumentRequest(HttpRequest request, SignalSink sink)
+    internal static bool IsDocumentRequest(HttpRequest request, SignalSink sink)
     {
         var secFetchMode = request.Headers["Sec-Fetch-Mode"].FirstOrDefault();
         if (string.Equals(secFetchMode, "navigate", StringComparison.OrdinalIgnoreCase))
@@ -152,29 +151,10 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
     }
 
     private IReadOnlyList<DetectionContribution> HandleDocumentRequest(
-        SignalSink sink, string sessionId, string signature, HttpRequest request, SequenceContext ctx)
+        SignalSink sink, string sessionId, string signature, HttpRequest request)
     {
         var (chain, centroidId, isReady) = ResolveChain(signature);
         var contentPath = request.Path.Value ?? "/";
-
-        var newCtx = ctx with
-        {
-            Position = 0,
-            ExpectedChain = chain.ExpectedStates,
-            TypicalGapsMs = chain.TypicalGapsMs,
-            GapToleranceMs = chain.GapToleranceMs,
-            CentroidId = centroidId,
-            CentroidType = chain.Type,
-            WindowStartTime = DateTimeOffset.UtcNow,
-            RequestCountInWindow = 1,
-            LastRequest = DateTimeOffset.UtcNow,
-            ObservedStateSet = ImmutableHashSet<RequestState>.Empty,
-            HasDiverged = false,
-            DivergenceCount = 0,
-            CacheWarm = false,
-            ContentPath = contentPath
-        };
-        _contextStore.Update(signature, newCtx);
         _divergenceTracker.RecordSession(contentPath);
 
         var assetChanged = _assetHashStore?.IsRecentlyChanged(contentPath) ?? false;
@@ -182,13 +162,13 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
 
         _logger.LogDebug(
             "ContentSequence: document hit for {Signature}, chain={ChainId}, centroid={CentroidId}",
-            signature, newCtx.ChainId, centroidId);
+            signature, "session", centroidId);
 
         sink.Raise($"{SignalKeys.SequencePosition}:0", sessionId);
         sink.Raise($"{SignalKeys.SequenceOnTrack}:true", sessionId);
         sink.Raise($"{SignalKeys.SequenceDiverged}:false", sessionId);
         sink.Raise($"{SignalKeys.SequenceDivergenceScore}:0", sessionId);
-        sink.Raise($"{SignalKeys.SequenceChainId}:{newCtx.ChainId}", sessionId);
+        sink.Raise($"{SignalKeys.SequenceChainId}:session", sessionId);
         sink.Raise($"{SignalKeys.SequenceCentroidType}:{chain.Type}", sessionId);
         sink.Raise($"{SignalKeys.SequenceContentPath}:{contentPath}", sessionId);
         sink.Raise($"{SignalKeys.SequenceCentroidStale}:{(centroidStale ? "true" : "false")}", sessionId);
@@ -198,24 +178,26 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
     }
 
     private IReadOnlyList<DetectionContribution> HandleContinuationRequest(
-        SignalSink sink, string sessionId, string signature, HttpRequest request, SequenceContext ctx, HttpContext context)
+        SignalSink sink, string sessionId, string signature, HttpRequest request, SequenceSegment segment, HttpContext context)
     {
         var isPrefetch = RequestMarkovClassifier.IsPrefetchRequest(request);
         var requestState = RequestMarkovClassifier.Classify(context, sink);
         var now = DateTimeOffset.UtcNow;
+        var (chain, centroidId, isReady) = ResolveChain(signature);
 
-        var idleSeconds = (now - ctx.LastRequest).TotalSeconds;
+        var idleSeconds = (now - segment.LastRequest.Timestamp).TotalSeconds;
         var resetWindow = idleSeconds >= RequestCountIdleResetSeconds;
 
-        var effectiveWindowStart = resetWindow ? now : ctx.WindowStartTime;
-        var effectiveRequestCount = resetWindow ? 1 : ctx.RequestCountInWindow + 1;
-        var effectiveObservedSetIn = resetWindow ? ImmutableHashSet<RequestState>.Empty : ctx.ObservedStateSet;
-        var initialCacheWarm = !resetWindow && ctx.CacheWarm;
+        var windowRequests = resetWindow ? Array.Empty<SessionRequest>() : segment.WindowRequests;
+        var effectiveWindowStart = windowRequests.Length == 0 ? now : windowRequests[0].Timestamp;
+        var effectiveRequestCount = windowRequests.Length + 1;
+        var observedStates = windowRequests.Select(r => r.State).ToHashSet();
+        var initialCacheWarm = !resetWindow && IsCacheWarm(windowRequests, effectiveWindowStart, now);
 
         var elapsedMs = (now - effectiveWindowStart).TotalMilliseconds;
-        var position = Math.Min(ctx.Position + 1, MaxTrackedPositions);
+        var position = Math.Min(segment.Position, MaxTrackedPositions);
 
-        var observedSet = effectiveObservedSetIn.Add(requestState);
+        observedStates.Add(requestState);
         var phaseIndex = GetPhaseIndex(elapsedMs);
         var expectedSet = PhaseExpectedSets[phaseIndex];
 
@@ -223,28 +205,26 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
         var hasCookie = request.Headers.ContainsKey("Cookie");
         if (!cacheWarm)
         {
-            if (phaseIndex > 0 && !observedSet.Contains(RequestState.StaticAsset))
+            if (phaseIndex > 0 && !observedStates.Contains(RequestState.StaticAsset))
                 cacheWarm = true;
             else if (hasCookie && requestState != RequestState.StaticAsset)
                 cacheWarm = true;
         }
 
-        var scoringAllowed = ctx.CentroidType != CentroidType.Unknown || _centroidStore.IsGlobalReady;
+        var scoringAllowed = chain.Type != CentroidType.Unknown || _centroidStore.IsGlobalReady;
         double divergenceScore = 0.0;
         if (!isPrefetch && scoringAllowed)
         {
             divergenceScore = ComputeDivergenceScore(
                 requestState, elapsedMs, expectedSet,
-                ctx with { RequestCountInWindow = effectiveRequestCount },
+                segment.LastRequest.Timestamp, effectiveRequestCount,
                 cacheWarm);
         }
 
         var hasDiverged = divergenceScore >= DivergenceThreshold;
-        var divergenceCount = ctx.DivergenceCount + (hasDiverged && !ctx.HasDiverged ? 1 : 0);
-
         if (hasDiverged)
         {
-            var contentPath = ctx.ContentPath;
+            var contentPath = segment.ContentPath;
             if (!string.IsNullOrEmpty(contentPath))
             {
                 _divergenceTracker.RecordDivergence(contentPath);
@@ -259,20 +239,7 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
             }
         }
 
-        var signalRExpected = IsSignalRExpected(ctx, position);
-
-        var updatedCtx = ctx with
-        {
-            Position = position,
-            ObservedStateSet = observedSet,
-            WindowStartTime = effectiveWindowStart,
-            RequestCountInWindow = effectiveRequestCount,
-            LastRequest = now,
-            HasDiverged = hasDiverged,
-            DivergenceCount = divergenceCount,
-            CacheWarm = cacheWarm
-        };
-        _contextStore.Update(signature, updatedCtx);
+        var signalRExpected = IsSignalRExpected(chain, position);
 
         _logger.LogDebug(
             "ContentSequence: position={Position}, state={State}, phase={Phase}, divergence={Score:F2}, prefetch={IsPrefetch}",
@@ -282,10 +249,10 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
         sink.Raise($"{SignalKeys.SequenceOnTrack}:{(!hasDiverged ? "true" : "false")}", sessionId);
         sink.Raise($"{SignalKeys.SequenceDiverged}:{(hasDiverged ? "true" : "false")}", sessionId);
         sink.Raise($"{SignalKeys.SequenceDivergenceScore}:{divergenceScore.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
-        sink.Raise($"{SignalKeys.SequenceChainId}:{ctx.ChainId}", sessionId);
-        sink.Raise($"{SignalKeys.SequenceCentroidType}:{ctx.CentroidType}", sessionId);
+        sink.Raise($"{SignalKeys.SequenceChainId}:{segment.DocumentIndex}", sessionId);
+        sink.Raise($"{SignalKeys.SequenceCentroidType}:{chain.Type}", sessionId);
         sink.Raise($"{SignalKeys.SequenceCacheWarm}:{(cacheWarm ? "true" : "false")}", sessionId);
-        sink.Raise($"{SignalKeys.SequenceCentroidStale}:{(_centroidStore.IsEndpointStale(ctx.ContentPath) ? "true" : "false")}", sessionId);
+        sink.Raise($"{SignalKeys.SequenceCentroidStale}:{(_centroidStore.IsEndpointStale(segment.ContentPath) ? "true" : "false")}", sessionId);
 
         if (isPrefetch) sink.Raise($"{SignalKeys.SequencePrefetchDetected}:true", sessionId);
         if (signalRExpected) sink.Raise($"{SignalKeys.SequenceSignalRExpected}:true", sessionId);
@@ -308,12 +275,12 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
 
     private double ComputeDivergenceScore(
         RequestState requestState, double elapsedMs, RequestState[] expectedSet,
-        SequenceContext ctx, bool cacheWarm)
+        DateTimeOffset lastRequest, int requestCountInWindow, bool cacheWarm)
     {
         double score = 0.0;
         var weights = GetWeights();
 
-        var msSinceLastRequest = (DateTimeOffset.UtcNow - ctx.LastRequest).TotalMilliseconds;
+        var msSinceLastRequest = (DateTimeOffset.UtcNow - lastRequest).TotalMilliseconds;
         if (msSinceLastRequest < MachineSpeedThresholdMs) score += MachineSpeedScore;
 
         var isExpected = expectedSet.Contains(requestState);
@@ -323,7 +290,7 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
             if (!isCacheWarmException) score += weights.For(requestState);
         }
 
-        if (ctx.RequestCountInWindow > HighRequestCountThreshold) score += HighRequestCountScore;
+        if (requestCountInWindow > HighRequestCountThreshold) score += HighRequestCountScore;
 
         return Math.Min(score, 1.0);
     }
@@ -349,14 +316,65 @@ public sealed class ContentSequenceAtom : DetectorAtomBase
             "RequestState has no YAML weight key mapping. Add a YAML key in contentsequence.detector.yaml and a switch arm in YamlKeyFor.")
     };
 
-    private static bool IsSignalRExpected(SequenceContext ctx, int nextPosition)
+    private static bool IsSignalRExpected(CentroidSequence chain, int nextPosition)
     {
-        if (ctx.CentroidType == CentroidType.Bot) return false;
-        var chain = ctx.ExpectedChain;
-        if (chain.Length == 0) return false;
-        var lookAheadIndex = Math.Min(nextPosition, chain.Length - 1);
-        return chain[lookAheadIndex] == RequestState.SignalR;
+        if (chain.Type == CentroidType.Bot) return false;
+        if (chain.ExpectedStates.Length == 0) return false;
+        var lookAheadIndex = Math.Min(nextPosition, chain.ExpectedStates.Length - 1);
+        return chain.ExpectedStates[lookAheadIndex] == RequestState.SignalR;
     }
+
+    internal static bool TryProjectSegment(
+        IReadOnlyList<SessionRequest> priorRequests,
+        out SequenceSegment segment)
+    {
+        var documentIndex = -1;
+        for (var i = priorRequests.Count - 1; i >= 0; i--)
+        {
+            if (!priorRequests[i].IsDocumentNavigation) continue;
+            documentIndex = i;
+            break;
+        }
+
+        if (documentIndex < 0)
+        {
+            segment = default;
+            return false;
+        }
+
+        var requests = priorRequests.Skip(Math.Max(documentIndex, priorRequests.Count - 20)).ToArray();
+        var windowStart = requests.Length - 1;
+        while (windowStart > 0
+               && requests[windowStart].Timestamp - requests[windowStart - 1].Timestamp
+                   < TimeSpan.FromSeconds(60))
+        {
+            windowStart--;
+        }
+
+        segment = new SequenceSegment(
+            DocumentIndex: documentIndex,
+            ContentPath: priorRequests[documentIndex].PathTemplate,
+            LastRequest: priorRequests[^1],
+            Position: Math.Min(priorRequests.Count - documentIndex, 20),
+            WindowRequests: requests.Skip(windowStart).ToArray());
+        return true;
+    }
+
+    private static bool IsCacheWarm(
+        IReadOnlyList<SessionRequest> windowRequests,
+        DateTimeOffset windowStart,
+        DateTimeOffset now)
+    {
+        var phase = GetPhaseIndex((now - windowStart).TotalMilliseconds);
+        return phase > 0 && !windowRequests.Any(r => r.State == RequestState.StaticAsset);
+    }
+
+    internal readonly record struct SequenceSegment(
+        int DocumentIndex,
+        string ContentPath,
+        SessionRequest LastRequest,
+        int Position,
+        SessionRequest[] WindowRequests);
 
     private (CentroidSequence chain, string centroidId, bool isReady) ResolveChain(string signature)
     {

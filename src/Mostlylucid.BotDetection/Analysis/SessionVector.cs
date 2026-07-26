@@ -59,7 +59,8 @@ public readonly record struct SessionRequest(
     bool FromUpstream = true,
     bool Shed = false,
     string? EnforcementMode = null,
-    string? PolicyRevision = null);
+    string? PolicyRevision = null,
+    bool IsDocumentNavigation = false);
 
 /// <summary>
 ///     A compressed behavioral snapshot of a session.

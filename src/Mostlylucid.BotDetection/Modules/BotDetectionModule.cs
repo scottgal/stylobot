@@ -336,9 +336,6 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddHostedService<Storage.StoreInitService<Data.SqliteIntentCentroidStore>>();
         // Identity archetype registry (loaded from embedded YAML archetypes).
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
-        // SequenceContextStore — per-fingerprint sliding sequence of request
-        // signals feeding ContentSequenceAtom.
-        services.TryAddSingleton<Services.SequenceContextStore>();
         // Centroid sequence store — per-fingerprint sequence-of-centroids
         // history fed to ContentSequenceAtom.
         services.TryAddSingleton<Services.CentroidSequenceStore>();

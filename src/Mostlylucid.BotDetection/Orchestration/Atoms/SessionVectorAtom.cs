@@ -136,7 +136,8 @@ public sealed class SessionVectorAtom : DetectorAtomBase
                 statusCode > 0 ? statusCode : 200,
                 FromUpstream: fromUpstream, Shed: shed,
                 EnforcementMode: enforcementMode,
-                PolicyRevision: policyRevision);
+                PolicyRevision: policyRevision,
+                IsDocumentNavigation: ContentSequenceAtom.IsDocumentRequest(context.Request, sink));
 
             var fpContext = BuildFingerprintContext(sink);
 
