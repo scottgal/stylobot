@@ -752,7 +752,25 @@ public sealed class SessionStore
 
     // Tracks signatures that have an active in-memory session, enabling flush-on-shutdown.
     // Value is the most recent FingerprintContext for vector encoding on shutdown.
+    //
+    // This is a PARALLEL shadow index of the session cache (_cache). Its lifetime must
+    // track the session slot, otherwise under rotating-fingerprint traffic it grows one
+    // entry per unique signature forever (the session in _cache expires after ~35 min,
+    // but the shadow entry was previously only removed at shutdown) -> unbounded growth.
+    // Two bounds keep it in step with the session cache:
+    //  1) a PostEvictionCallback registered on the session slot (see RecordRequestAsync)
+    //     removes the shadow entry when the session slot actually leaves the cache;
+    //  2) ActiveSignaturesMaxEntries is a hard safety cap in case callbacks lag or are
+    //     dropped, evicting the coldest slice so memory can never run away.
     private readonly ConcurrentDictionary<string, FingerprintContext?> _activeSignatures = new();
+
+    // Safety cap on the shadow index. The session cache is the real bound; this only
+    // guards against callback lag under extreme cardinality. Generous so it never trims
+    // a live working set.
+    private const int ActiveSignaturesMaxEntries = 100_000;
+
+    /// <summary>Test hook: number of signatures in the active-session shadow index.</summary>
+    internal int ActiveSignatureCount => _activeSignatures.Count;
 
     /// <summary>
     ///     Fired when a session is finalized (boundary detected).
@@ -819,19 +837,60 @@ public sealed class SessionStore
                 currentSession = new List<SessionRequest> { request };
             }
 
-            // Store with sliding expiration matching the gap threshold
-            _cache.Set(sessionKey, currentSession, new MemoryCacheEntryOptions
+            // Store with sliding expiration matching the gap threshold. Register a
+            // post-eviction callback so the shadow index (_activeSignatures) is cleared
+            // when the session slot leaves the cache — keeping the shadow index lifetime
+            // bounded to the session lifetime instead of the process lifetime.
+            var options = new MemoryCacheEntryOptions
             {
                 SlidingExpiration = _sessionGapThreshold + TimeSpan.FromMinutes(5)
-            });
+            };
+            options.RegisterPostEvictionCallback(OnSessionSlotEvicted, signature);
+            _cache.Set(sessionKey, currentSession, options);
 
             _activeSignatures[signature] = fingerprint;
+            EvictActiveSignaturesIfNeeded();
 
             return completedSnapshot;
         }
         finally
         {
             sessionLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Fired by IMemoryCache when a session slot leaves the cache. Removes the parallel
+    ///     shadow-index entry so its lifetime tracks the session's, preventing unbounded
+    ///     growth under rotating-fingerprint traffic.
+    /// </summary>
+    private void OnSessionSlotEvicted(object key, object? value, EvictionReason reason, object? state)
+    {
+        // Replaced == a fresh Set for the same signature superseded the old slot; the
+        // session is still live, so keep the shadow entry.
+        if (reason == EvictionReason.Replaced) return;
+        if (state is not string signature) return;
+        // A newer request may have re-created the session slot after this callback was
+        // queued; only drop the shadow entry if the slot is genuinely gone.
+        if (_cache.TryGetValue($"session:current:{signature}", out _)) return;
+        _activeSignatures.TryRemove(signature, out _);
+    }
+
+    /// <summary>
+    ///     Hard safety cap on the shadow index. Callback-driven removal is the primary
+    ///     bound; this only fires if callbacks lag under extreme cardinality. Drops the
+    ///     coldest slice (arbitrary enumeration order — memory bound, not hit-rate).
+    /// </summary>
+    private void EvictActiveSignaturesIfNeeded()
+    {
+        if (_activeSignatures.Count <= ActiveSignaturesMaxEntries) return;
+        // Knock 10% off so we don't re-evict on the very next insert.
+        var overflow = _activeSignatures.Count - ActiveSignaturesMaxEntries + ActiveSignaturesMaxEntries / 10;
+        var drops = 0;
+        foreach (var kv in _activeSignatures)
+        {
+            if (drops++ >= overflow) break;
+            _activeSignatures.TryRemove(kv.Key, out _);
         }
     }
 

@@ -41,6 +41,16 @@ public sealed class DeploymentNormTracker
     private readonly int _windowSize;
     private readonly int _warmupRequests;
 
+    // Bucket keys are {feature}:{uaFamily}. uaFamily is unbounded for bots (it carries
+    // the per-instance discriminator), so without a cap the bucket map grows one entry
+    // per unique bot family forever. Cap the KEY COUNT and evict the coldest buckets
+    // (fewest samples) on overflow — the per-bucket Halve() decay semantics are untouched.
+    private const int MaxBuckets = 20_000;
+    private readonly object _evictLock = new();
+
+    /// <summary>Test hook: number of resident feature buckets.</summary>
+    internal int BucketCount => _buckets.Count;
+
     private long _totalRequests;
 
     /// <summary>Total requests seen since startup. Exposed for dashboard diagnostics.</summary>
@@ -82,7 +92,40 @@ public sealed class DeploymentNormTracker
                 var next = prev.Total >= _windowSize ? prev.Halve() : prev;
                 return next.Add(present);
             });
+        EvictColdestIfNeeded();
         return updated.ToRate();
+    }
+
+    /// <summary>
+    ///     Caps the number of resident buckets. On overflow, evicts the coldest slice
+    ///     (fewest total observations) down to ~90% of <see cref="MaxBuckets"/> so the
+    ///     next insert doesn't immediately re-trigger. Counter/decay semantics of the
+    ///     surviving buckets are preserved. Single-threaded via <see cref="_evictLock"/>.
+    /// </summary>
+    private void EvictColdestIfNeeded()
+    {
+        if (_buckets.Count <= MaxBuckets) return;
+        if (!Monitor.TryEnter(_evictLock)) return;
+        try
+        {
+            if (_buckets.Count <= MaxBuckets) return;
+            var target = MaxBuckets - MaxBuckets / 10; // trim to 90%
+            var overflow = _buckets.Count - target;
+            if (overflow <= 0) return;
+
+            var snapshot = _buckets.ToArray();
+            Array.Sort(snapshot, static (a, b) => a.Value.Total.CompareTo(b.Value.Total));
+            var removed = 0;
+            foreach (var kv in snapshot)
+            {
+                if (removed >= overflow) break;
+                if (_buckets.TryRemove(kv.Key, out _)) removed++;
+            }
+        }
+        finally
+        {
+            Monitor.Exit(_evictLock);
+        }
     }
 
     /// <summary>Returns current (rate, samples) without recording an observation.</summary>

@@ -58,8 +58,17 @@ public sealed class CentroidSequenceStore
 
     // Paths where divergence spiked or asset hash changed — suppress divergence scoring.
     // Value is the time staleness was declared; expires after StalenessWindowHours.
+    // Keyed by raw content path (unbounded cardinality). Expiry is lazy (checked on read)
+    // and never removes entries, so without a bound this map grows one entry per unique
+    // stale path forever. On overflow we first sweep genuinely-expired entries, then evict
+    // the oldest remaining slice.
     private readonly ConcurrentDictionary<string, DateTimeOffset> _staleEndpoints = new();
     private const int StalenessWindowHours = 1;
+    private const int MaxStaleEndpoints = 10_000;
+    private readonly object _staleEvictLock = new();
+
+    /// <summary>Test hook: number of resident stale-endpoint entries.</summary>
+    internal int StaleEndpointCount => _staleEndpoints.Count;
 
     private static readonly RequestState[] TypicalHumanChain =
     [
@@ -161,7 +170,51 @@ public sealed class CentroidSequenceStore
     ///     until the staleness window expires or the centroid is rebuilt.
     /// </summary>
     public void MarkEndpointStale(string path)
-        => _staleEndpoints[path] = DateTimeOffset.UtcNow;
+    {
+        _staleEndpoints[path] = DateTimeOffset.UtcNow;
+        EvictStaleEndpointsIfNeeded();
+    }
+
+    /// <summary>
+    ///     Bounds <see cref="_staleEndpoints"/>. Lazy expiry (in <see cref="IsEndpointStale"/>)
+    ///     never removes entries, so on overflow we first sweep entries past the staleness
+    ///     window, then evict the oldest remaining slice down to ~90% of
+    ///     <see cref="MaxStaleEndpoints"/>. Single-threaded via <see cref="_staleEvictLock"/>.
+    /// </summary>
+    private void EvictStaleEndpointsIfNeeded()
+    {
+        if (_staleEndpoints.Count <= MaxStaleEndpoints) return;
+        if (!Monitor.TryEnter(_staleEvictLock)) return;
+        try
+        {
+            if (_staleEndpoints.Count <= MaxStaleEndpoints) return;
+
+            // Phase 1: sweep genuinely-expired entries (past the staleness window).
+            var cutoff = DateTimeOffset.UtcNow - TimeSpan.FromHours(StalenessWindowHours);
+            foreach (var kv in _staleEndpoints)
+                if (kv.Value < cutoff)
+                    _staleEndpoints.TryRemove(kv.Key, out _);
+
+            // Phase 2: if still over the cap, evict the oldest remaining slice.
+            if (_staleEndpoints.Count <= MaxStaleEndpoints) return;
+            var target = MaxStaleEndpoints - MaxStaleEndpoints / 10; // trim to 90%
+            var overflow = _staleEndpoints.Count - target;
+            if (overflow <= 0) return;
+
+            var snapshot = _staleEndpoints.ToArray();
+            Array.Sort(snapshot, static (a, b) => a.Value.CompareTo(b.Value));
+            var removed = 0;
+            foreach (var kv in snapshot)
+            {
+                if (removed >= overflow) break;
+                if (_staleEndpoints.TryRemove(kv.Key, out _)) removed++;
+            }
+        }
+        finally
+        {
+            Monitor.Exit(_staleEvictLock);
+        }
+    }
 
     /// <summary>Returns true when the path was marked stale within the last <see cref="StalenessWindowHours"/> hour(s).</summary>
     public bool IsEndpointStale(string path)

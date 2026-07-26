@@ -835,6 +835,19 @@ public class InMemoryPatternReputationCache : IPatternReputationCache
     private DateTimeOffset _lastDecaySweep = DateTimeOffset.UtcNow;
     private DateTimeOffset _lastGc = DateTimeOffset.UtcNow;
 
+    // Hard upper bound on resident patterns, INDEPENDENT of the 90-day GC
+    // (GcEligibleDays). Pattern IDs are high-cardinality per-request keys
+    // (ua:{primarySig} / ip:{clientIp} / {vecType}:{val}); under rotating-fingerprint
+    // traffic they would otherwise grow one entry per unique key for up to 90 days
+    // before GC reclaims them — long enough to OOM the gateway. When the cap is
+    // exceeded we evict the coldest slice (oldest LastSeen) on insert; the 90-day GC
+    // is retained unchanged as the normal reclamation path.
+    private const int MaxPatterns = 50_000;
+    private readonly object _evictLock = new();
+
+    /// <summary>Test hook: number of patterns resident in the cache.</summary>
+    internal int ResidentPatternCount => _cache.Count;
+
     public InMemoryPatternReputationCache(
         ILogger<InMemoryPatternReputationCache> logger,
         PatternReputationUpdater updater,
@@ -852,7 +865,7 @@ public class InMemoryPatternReputationCache : IPatternReputationCache
 
     public PatternReputation GetOrCreate(string patternId, string patternType, string pattern)
     {
-        return _cache.GetOrAdd(patternId, _ => new PatternReputation
+        var rep = _cache.GetOrAdd(patternId, _ => new PatternReputation
         {
             PatternId = patternId,
             PatternType = patternType,
@@ -864,11 +877,47 @@ public class InMemoryPatternReputationCache : IPatternReputationCache
             LastSeen = DateTimeOffset.UtcNow,
             StateChangedAt = DateTimeOffset.UtcNow
         });
+        EvictColdestIfNeeded();
+        return rep;
     }
 
     public void Update(PatternReputation reputation)
     {
         _cache[reputation.PatternId] = reputation;
+        EvictColdestIfNeeded();
+    }
+
+    /// <summary>
+    ///     Enforces the hard <see cref="MaxPatterns"/> cap independently of the 90-day GC.
+    ///     Evicts the coldest slice (oldest LastSeen) down to ~90% of the cap so the next
+    ///     insert doesn't immediately re-trigger. Single-threaded via <see cref="_evictLock"/>;
+    ///     a contended caller skips (another thread is already trimming).
+    /// </summary>
+    private void EvictColdestIfNeeded()
+    {
+        if (_cache.Count <= MaxPatterns) return;
+        if (!Monitor.TryEnter(_evictLock)) return;
+        try
+        {
+            if (_cache.Count <= MaxPatterns) return;
+            var target = MaxPatterns - MaxPatterns / 10; // trim to 90%
+            var overflow = _cache.Count - target;
+            if (overflow <= 0) return;
+
+            // Coldest = oldest LastSeen. Snapshot, partial-order by LastSeen, drop the tail.
+            var snapshot = _cache.ToArray();
+            Array.Sort(snapshot, static (a, b) => a.Value.LastSeen.CompareTo(b.Value.LastSeen));
+            var removed = 0;
+            foreach (var kv in snapshot)
+            {
+                if (removed >= overflow) break;
+                if (_cache.TryRemove(kv.Key, out _)) removed++;
+            }
+        }
+        finally
+        {
+            Monitor.Exit(_evictLock);
+        }
     }
 
     public IEnumerable<PatternReputation> GetByType(string patternType)

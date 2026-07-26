@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
@@ -22,10 +21,21 @@ public sealed class UaProfileStore
     // alias (lower) -> canonical family name
     private readonly Dictionary<string, string> _aliases;
 
-    // Per-signature tracking: signature -> (family, consistency score) for Leiden
-    private readonly ConcurrentDictionary<string, SignatureProfile> _signatureProfiles = new();
+    // Per-signature tracking: signature -> (family, consistency score) for Leiden.
+    // Signatures are high-cardinality per-request keys; under rotating-fingerprint
+    // traffic a raw ConcurrentDictionary here grows one entry per unique signature
+    // forever. BoundedCache caps entry count (LFU eviction) so memory stays bounded
+    // while hot signatures survive. TTL is generous — this is a clustering hint, not
+    // durable state, and restarts reset it by design.
+    private const int SignatureProfileMaxEntries = 10_000;
+    private static readonly TimeSpan SignatureProfileTtl = TimeSpan.FromHours(24);
+    private readonly BoundedCache<string, SignatureProfile> _signatureProfiles =
+        new(SignatureProfileMaxEntries, SignatureProfileTtl);
 
     private record SignatureProfile(string Family, string Tier, double ConsistencyScore);
+
+    /// <summary>Test hook: number of signatures resident in the bounded profile cache.</summary>
+    internal int SignatureProfileCount => _signatureProfiles.Count;
 
     public UaProfileStore(ILogger<UaProfileStore> logger, double alpha = 0.99)
     {
@@ -82,12 +92,12 @@ public sealed class UaProfileStore
 
     /// <summary>Records the last-seen family and consistency score for a signature (for Leiden).</summary>
     public void RecordSignature(string signature, string family, string tier, double score) =>
-        _signatureProfiles[signature] = new SignatureProfile(family, tier, score);
+        _signatureProfiles.Set(signature, new SignatureProfile(family, tier, score));
 
     /// <summary>Returns (family, tier, score) for a signature, or null if not tracked.</summary>
     public (string? Family, string? Tier, double Score) GetSignatureProfile(string signature)
     {
-        if (_signatureProfiles.TryGetValue(signature, out var p))
+        if (_signatureProfiles.TryGet(signature, out var p))
             return (p.Family, p.Tier, p.ConsistencyScore);
         return (null, null, 0.5);
     }
