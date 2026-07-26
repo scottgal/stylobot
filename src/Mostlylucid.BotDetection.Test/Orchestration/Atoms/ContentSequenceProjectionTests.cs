@@ -1,3 +1,4 @@
+using FluentAssertions;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 
