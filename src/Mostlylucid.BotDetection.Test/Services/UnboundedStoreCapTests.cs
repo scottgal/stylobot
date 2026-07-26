@@ -187,4 +187,61 @@ public class UnboundedStoreCapTests
 
         Assert.Equal(0, store.ActiveSignatureCount);
     }
+
+    [Fact]
+    public async Task SessionStore_activeSignatures_survives_replaced_live_session_slot()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new SessionStore(cache, NullLogger<SessionStore>.Instance);
+
+        await store.RecordRequestAsync("sig-replaced",
+            new SessionRequest(RequestState.PageView, DateTimeOffset.UtcNow, "/one", 200));
+        await store.RecordRequestAsync("sig-replaced",
+            new SessionRequest(RequestState.PageView, DateTimeOffset.UtcNow, "/two", 200));
+
+        // Replacing the session-cache slot must not let the old callback erase the
+        // still-live shutdown projection for this signature.
+        await Task.Delay(50);
+        Assert.Equal(1, store.ActiveSignatureCount);
+    }
+
+    [Fact]
+    public void PatternReputationCache_ip_and_ua_identities_remain_isolated()
+    {
+        var updater = new PatternReputationUpdater(
+            NullLogger<PatternReputationUpdater>.Instance,
+            Options.Create(new BotDetectionOptions()));
+        var cache = new InMemoryPatternReputationCache(
+            NullLogger<InMemoryPatternReputationCache>.Instance, updater);
+
+        var ip = cache.GetOrCreate("ip:192.0.2.1", "ip", "192.0.2.1");
+        var ua = cache.GetOrCreate("ua:browser-a", "ua", "browser-a");
+
+        Assert.Equal("ip", ip.PatternType);
+        Assert.Equal("ua", ua.PatternType);
+        Assert.NotSame(ip, ua);
+        Assert.Same(ip, cache.Get("ip:192.0.2.1"));
+        Assert.Same(ua, cache.Get("ua:browser-a"));
+    }
+
+    [Fact]
+    public void EndpointDivergence_and_staleness_are_isolated_by_path()
+    {
+        var divergence = new EndpointDivergenceTracker();
+        divergence.RecordSession("/changed");
+        divergence.RecordDivergence("/changed");
+        divergence.RecordSession("/stable");
+
+        Assert.Equal(1, divergence.GetStats("/changed").DivergenceCount);
+        Assert.Equal(0, divergence.GetStats("/stable").DivergenceCount);
+
+        var stale = new CentroidSequenceStore(
+            () => new SqliteConnection("Data Source=:memory:"),
+            NullLogger<CentroidSequenceStore>.Instance);
+        stale.MarkEndpointStale("/changed");
+        Assert.True(stale.IsEndpointStale("/changed"));
+        Assert.False(stale.IsEndpointStale("/stable"));
+        stale.ClearEndpointStale("/changed");
+        Assert.False(stale.IsEndpointStale("/changed"));
+    }
 }
