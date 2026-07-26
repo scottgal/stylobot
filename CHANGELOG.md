@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.5.1] - 2026-07-26
+
+8.5.1 is a reliability hotfix for long-running gateway processes under high-cardinality request churn.
+
+### Fixed
+
+- **Bounded auxiliary-store lifetime and eviction safeguards.** The bounded-store audit now protects
+  active-session shadow references, endpoint divergence/staleness state, reputation entries, and
+  learning-normalisation buckets from unbounded resident growth while preserving their live behavior.
+- **Removed the duplicate rich `SequenceContext` per-signature owner.** Content-sequence detection now
+  derives its bounded current-document segment from the canonical `SessionStore` request projection;
+  it no longer retains a parallel process-lifetime signature map.
+
+### Tests
+
+- Added regression coverage for bounded-store eviction/lifetime behavior, canonical session-slot
+  replacement, typed reputation identity isolation, and path-local divergence/staleness state.
+- Added content-sequence projection coverage for the 20-request cap, 60-second derived-window reset,
+  latest-document boundary, and 10,000-rotation removal proof for the former `SequenceContextStore`.
+- Gateway now directly references the existing `Mostlylucid.StyloExtract.AspNetCore` 1.6.1 package so
+  the FOSS Gateway test/build graph compiles from a clean dependency graph.
+
 ## [8.5.0] - 2026-07-25
 
 8.5 is the dashboard **read-path hardening** release. Every dashboard row now flows through the
