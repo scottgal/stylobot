@@ -64,6 +64,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Direct because Program uses AddStyloExtract from this package; the integration pack's reference is not compile-transitive here. -->
+        <PackageReference Include="Mostlylucid.StyloExtract.AspNetCore" Version="1.6.1" />
         <!-- YARP Reverse Proxy -->
         <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
 
