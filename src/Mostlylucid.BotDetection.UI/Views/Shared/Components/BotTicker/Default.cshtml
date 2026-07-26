@@ -14,10 +14,18 @@
     // dashboard elsewhere (commercial = /dashboard); defaults to the FOSS-standalone mount.
     // Was a literal "/_stylobot" -> 404'd the "Open Dashboard" + signature links on mounted hosts.
     var dashBase = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+    // The dashboard hub is legitimately auth-gated (it protects live per-visitor detection
+    // data) -- an anonymous connection completes its handshake then gets closed by the
+    // server immediately after, which used to leave this widget stuck on "Connecting..."
+    // forever. Interim fix: don't even attempt the socket for anonymous visitors: SSR
+    // still renders correctly, it just settles straight into the idle/waiting state
+    // instead of spinning on a connection that was always going to be rejected. Real fix
+    // (tracked separately) is a dedicated public read-only ticker hub with no auth gate.
+    var isAuthenticated = ViewContext.HttpContext.User?.Identity?.IsAuthenticated ?? false;
 }
 
 <div class="stylobot-ticker"
-     x-data="botTicker()"
+     x-data="botTicker(@isAuthenticated.ToString().ToLowerInvariant())"
      x-init="connect()"
      x-cloak>
 
@@ -100,7 +108,7 @@ document.addEventListener('alpine:init', () => {
 
     let tickerId = 0;
 
-    Alpine.data('botTicker', () => ({
+    Alpine.data('botTicker', (isAuthenticated) => ({
         connected: false,
         detections: [],
         summary: null,
@@ -108,6 +116,15 @@ document.addEventListener('alpine:init', () => {
         maxDetections: 20,
 
         async connect() {
+            // The dashboard hub is auth-gated by design -- an anonymous socket would
+            // complete its handshake and then get closed by the server immediately,
+            // leaving the UI stuck on "Connecting..." forever for no benefit. Settle
+            // straight into the idle state instead of attempting a connection that's
+            // always rejected; SSR already rendered whatever the page needed.
+            if (!isAuthenticated) {
+                this.connected = true;
+                return;
+            }
             try {
                 // Load SignalR if not already loaded
                 if (typeof signalR === 'undefined') {
