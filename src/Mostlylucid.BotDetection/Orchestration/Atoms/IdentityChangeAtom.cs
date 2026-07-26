@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -29,26 +30,28 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 ///         commercial API-protection feature layers alerting / blocking on top.
 ///     </para>
 ///     <para>
-///         Cross-request state in the shared
-///         <see cref="FingerprintDimSnapshotCache"/>. Priority 30 -- runs after
-///         fingerprint match, IP, UA, geo atoms have raised the source
-///         dimensions.
+///         The prior-dims lookback rides the single bounded per-fingerprint hot cache in
+///         <see cref="IFingerprintStore"/> (<see cref="SurfaceDims"/>, co-indexed with the
+///         fingerprint entry, co-evicted, never persisted) — not a separate cache. That
+///         fold is the #16 gateway-OOM fix: a dedicated snapshot cache grew one unbounded
+///         entry per rotated fingerprint. Priority 30 -- runs after fingerprint match, IP,
+///         UA, geo atoms have raised the source dimensions.
 ///     </para>
 /// </remarks>
 public sealed class IdentityChangeAtom : DetectorAtomBase
 {
     private readonly ILogger<IdentityChangeAtom> _logger;
-    private readonly FingerprintDimSnapshotCache _cache;
+    private readonly IFingerprintStore _store;
     private readonly IDetectorConfigProvider _configProvider;
 
     public IdentityChangeAtom(
         ILogger<IdentityChangeAtom> logger,
         IDetectorConfigProvider configProvider,
-        FingerprintDimSnapshotCache cache)
+        IFingerprintStore store)
         : base(name: "IdentityChange", category: "IdentityChange")
     {
         _logger = logger;
-        _cache = cache;
+        _store = store;
         _configProvider = configProvider;
     }
 
@@ -72,7 +75,7 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
         if (string.IsNullOrEmpty(fingerprintId))
             return Task.FromResult(None());
 
-        var current = new FingerprintDimSnapshotCache.DimSnapshot(
+        var current = new SurfaceDims(
             Country: sink.ReadHint(SignalKeys.GeoCountryCode) ?? string.Empty,
             Asn: sink.ReadHint(SignalKeys.IpAsn) ?? string.Empty,
             UaFamily: sink.ReadHint(SignalKeys.UserAgentFamily) ?? string.Empty,
@@ -84,12 +87,14 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
             ShapeHash: sink.ReadHint(SignalKeys.ClientSideShapeHash) ?? string.Empty,
             BotdKind: sink.ReadHint(SignalKeys.ClientSideBotdKind) ?? string.Empty);
 
-        var prior = _cache.Get(fingerprintId);
+        var prior = _store.GetLastSeenDims(fingerprintId);
 
-        // First sighting -- establish baseline, no risk signals.
+        // First sighting -- establish baseline, no risk signals. (SetLastSeenDims is a
+        // no-op if the fingerprint isn't resident in the store's hot cache; a rotated
+        // fingerprint we no longer cache simply re-baselines when it next resolves.)
         if (prior is null)
         {
-            _cache.Set(fingerprintId, current);
+            _store.SetLastSeenDims(fingerprintId, current);
             return Task.FromResult(None());
         }
 
@@ -117,7 +122,7 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
                            && !string.Equals(prior.BotdKind, current.BotdKind, StringComparison.OrdinalIgnoreCase);
 
         // Refresh the snapshot under "transition becomes baseline" semantics
-        _cache.Set(fingerprintId, current);
+        _store.SetLastSeenDims(fingerprintId, current);
 
         if (!countryChanged && !asnChanged && !uaFamilyChanged && !infraIntroduced
             && !shapeHashChanged && !botdKindChanged)

@@ -32,6 +32,26 @@ public interface IFingerprintStore : IFingerprintReader
     /// <summary>Idempotent schema bootstrap; safe to call on every operation.</summary>
     Task EnsureInitialisedAsync(CancellationToken ct = default);
 
+    // ── Ephemeral surface-dim drift lookback (#16) ───────────────────────────
+    /// <summary>
+    ///     Reads the last-seen <see cref="SurfaceDims"/> for a fingerprint from the
+    ///     in-memory hot cache, or null if the fingerprint is not resident (or has no
+    ///     dims recorded yet). Never touches SQLite — dims are ephemeral, in-memory only.
+    ///     <see cref="Orchestration.Atoms.IdentityChangeAtom"/> reads its prior-dims
+    ///     comparison baseline from here. Default no-op for stores that don't hold a
+    ///     per-fingerprint hot cache (Null / remote-reader).
+    /// </summary>
+    SurfaceDims? GetLastSeenDims(string fingerprintId) => null;
+
+    /// <summary>
+    ///     Records the last-seen <see cref="SurfaceDims"/> for a fingerprint on its
+    ///     resident hot-cache entry, co-indexed with the fingerprint and co-evicted with
+    ///     it. NEVER persisted. Skips fingerprints that are not resident — a rotated
+    ///     fingerprint we no longer cache re-baselines rather than growing an unbounded
+    ///     shadow accumulator (the #16 leak). Default no-op for non-caching stores.
+    /// </summary>
+    void SetLastSeenDims(string fingerprintId, SurfaceDims dims) { }
+
     // ── Verdict cache ────────────────────────────────────────────────────────
     Task UpdateCachedVerdictAsync(
         string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default);

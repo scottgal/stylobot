@@ -54,8 +54,59 @@ public class SqliteFingerprintStore : IFingerprintStore
 
     private readonly ConcurrentDictionary<string, string> _fingerprintIdByPrimarySig
         = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, Fingerprint> _fingerprintById
+    private readonly ConcurrentDictionary<string, CachedFingerprint> _fingerprintById
         = new(StringComparer.Ordinal);
+
+    /// <summary>
+    ///     The value held in the <see cref="_fingerprintById"/> hot cache: the persistent
+    ///     fingerprint row PLUS the ephemeral, in-memory-only last-seen
+    ///     <see cref="SurfaceDims"/> for IdentityChange drift (#16). The dims are a mutable
+    ///     field so <see cref="SetLastSeenDims"/> updates them in place on the resident
+    ///     entry — it never swaps the dict slot, so a dims write can never clobber a
+    ///     concurrent fingerprint replace (name / verdict / absorb write). Co-evicted with
+    ///     the fingerprint; the dims never reach SQLite. Deliberately NOT on the persisted
+    ///     <see cref="Fingerprint"/> record: transient data on that curated row was the
+    ///     cached-risk-band parasite, and this keeps the row a faithful mirror of the DB.
+    /// </summary>
+    private sealed class CachedFingerprint
+    {
+        public CachedFingerprint(Fingerprint fingerprint, SurfaceDims? dims = null)
+        {
+            Fingerprint = fingerprint;
+            _dims = dims;
+        }
+
+        public Fingerprint Fingerprint { get; }
+
+        private volatile SurfaceDims? _dims;
+        public SurfaceDims? Dims { get => _dims; set => _dims = value; }
+    }
+
+    /// <summary>
+    ///     Reads the last-seen surface dims for a resident fingerprint, or null. In-memory
+    ///     only; never a DB read. See <see cref="SurfaceDims"/> and the #16 fold.
+    /// </summary>
+    public SurfaceDims? GetLastSeenDims(string fingerprintId)
+        => !string.IsNullOrEmpty(fingerprintId)
+           && _fingerprintById.TryGetValue(fingerprintId, out var entry)
+            ? entry.Dims
+            : null;
+
+    /// <summary>
+    ///     Records last-seen surface dims on a RESIDENT fingerprint's cache entry, in place.
+    ///     Non-resident fingerprints are skipped: never create a phantom entry — that
+    ///     separate, never-evicted accumulator was the #16 gateway OOM. A rotated
+    ///     fingerprint we no longer cache simply re-baselines next time it resolves.
+    /// </summary>
+    public void SetLastSeenDims(string fingerprintId, SurfaceDims dims)
+    {
+        if (string.IsNullOrEmpty(fingerprintId) || dims is null) return;
+        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
+            entry.Dims = dims;
+    }
+
+    /// <summary>Test hook: number of fingerprints resident in the in-memory hot cache.</summary>
+    internal int ResidentCacheCount => _fingerprintById.Count;
 
     // Per-cache invalidation epoch. Readers snapshot the epoch BEFORE the DB
     // query and recheck after; if a writer invalidated the cache during the
@@ -454,7 +505,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         // L0 dict cache: fingerprint rows are wide and read repeatedly per request
         // (verdict gate, AI opinion, dashboard composer all reload them).
         if (_fingerprintById.TryGetValue(fingerprintId, out var cachedFp))
-            return cachedFp;
+            return cachedFp.Fingerprint;
 
         var epochBefore = System.Threading.Volatile.Read(ref _fingerprintEpoch);
 
@@ -482,7 +533,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         var fp = ReadFingerprint(reader);
         if (System.Threading.Volatile.Read(ref _fingerprintEpoch) == epochBefore)
         {
-            _fingerprintById[fingerprintId] = fp;
+            _fingerprintById[fingerprintId] = new CachedFingerprint(fp);
             if (_fingerprintById.Count > FingerprintCacheMaxEntries)
                 EvictOldest(_fingerprintById, FingerprintCacheMaxEntries);
         }
@@ -705,7 +756,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (!string.IsNullOrEmpty(name))
             name = Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(name) ?? name;
 
-        if (!_fingerprintById.TryGetValue(fingerprintId, out var fp))
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var entry))
         {
             // Cold miss: nothing to merge into. The matcher always allocates +
             // GetFingerprintAsync's the row before driving recompose, so this is
@@ -715,6 +766,8 @@ public class SqliteFingerprintStore : IFingerprintStore
             return Task.CompletedTask;
         }
 
+        var fp = entry.Fingerprint;
+
         // Idempotency: no-op when the new name equals the existing slot value.
         // Avoids trigger-spam — InducedNameUpdatedAt ticks only on real transitions.
         if (string.Equals(fp.InducedName, name, StringComparison.Ordinal))
@@ -722,7 +775,7 @@ public class SqliteFingerprintStore : IFingerprintStore
 
         var prior = fp.InducedName;
         var updated = fp with { InducedName = name, InducedNameUpdatedAt = updatedAt };
-        _fingerprintById[fingerprintId] = updated;
+        _fingerprintById[fingerprintId] = new CachedFingerprint(updated, entry.Dims);
 
         EnsureNameDrainerStarted();
         _nameWriteChannel.Writer.TryWrite(new InducedNameWrite(
@@ -750,9 +803,10 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (!string.IsNullOrEmpty(name))
             name = Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(name) ?? name;
 
-        if (!_fingerprintById.TryGetValue(fingerprintId, out var fp))
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var entry))
             return Task.CompletedTask;
 
+        var fp = entry.Fingerprint;
         var prior = fp.LlmName;
         var updated = fp with
         {
@@ -760,7 +814,7 @@ public class SqliteFingerprintStore : IFingerprintStore
             LlmDescription = description,
             LlmEvaluatedAt = evaluatedAt,
         };
-        _fingerprintById[fingerprintId] = updated;
+        _fingerprintById[fingerprintId] = new CachedFingerprint(updated, entry.Dims);
 
         EnsureNameDrainerStarted();
         _nameWriteChannel.Writer.TryWrite(new LlmNameWrite(
@@ -798,15 +852,15 @@ public class SqliteFingerprintStore : IFingerprintStore
         // without waiting for the SQL commit. Matches RecordVerdictAsync /
         // UpdateClaimVerificationAsync patterns elsewhere in this store.
         string? prior = null;
-        if (_fingerprintById.TryGetValue(fingerprintId, out var fp))
+        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
         {
-            prior = fp.GivenName;
-            _fingerprintById[fingerprintId] = fp with
+            prior = entry.Fingerprint.GivenName;
+            _fingerprintById[fingerprintId] = new CachedFingerprint(entry.Fingerprint with
             {
                 GivenName = trimmed,
                 GivenNameUpdatedAt = updatedAt,
                 GivenNameOperatorId = operatorId,
-            };
+            }, entry.Dims);
         }
 
         await EnsureInitialisedAsync(ct);
@@ -1030,8 +1084,9 @@ public class SqliteFingerprintStore : IFingerprintStore
         // Dict-authoritative replace so the next L1 read sees the trust
         // transition without waiting for the SQL commit. Same pattern as
         // RecordVerdictAsync (cached_bot_probability / cached_risk_band).
-        if (_fingerprintById.TryGetValue(fingerprintId, out var existing))
+        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
         {
+            var existing = entry.Fingerprint;
             // Hot-path guard: a verified good bot re-crawls continuously, and the
             // orchestrator latches claim_status='verified' on EVERY confirmed request.
             // If the resident row is already in the target claim state, skip the SQL
@@ -1045,12 +1100,12 @@ public class SqliteFingerprintStore : IFingerprintStore
                 && string.Equals(existing.VerificationMethod, verificationMethod, StringComparison.Ordinal))
                 return;
 
-            _fingerprintById[fingerprintId] = existing with
+            _fingerprintById[fingerprintId] = new CachedFingerprint(existing with
             {
                 ClaimStatus = claimStatus,
                 VerificationMethod = verificationMethod,
                 VerifiedAt = verifiedAt,
-            };
+            }, entry.Dims);
         }
 
         await EnsureInitialisedAsync(ct);
@@ -1387,8 +1442,9 @@ public class SqliteFingerprintStore : IFingerprintStore
         // drainer. Absorb was the one write-behind path that invalidated-after-persist
         // instead of updating the dict, which left the centroid stale until the async
         // drain ran (the read-after-write race that reds CentroidLearningLoopTests).
-        if (_fingerprintById.TryGetValue(fingerprintId, out var fp))
+        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
         {
+            var fp = entry.Fingerprint;
             var updated = fp with
             {
                 Centroid = newCentroid,
@@ -1404,7 +1460,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                     InferredTypeChangedAt = inferredTypeChanged ? now : fp.InferredTypeChangedAt,
                 };
             }
-            _fingerprintById[fingerprintId] = updated;
+            _fingerprintById[fingerprintId] = new CachedFingerprint(updated, entry.Dims);
         }
 
         EnsureNameDrainerStarted();
@@ -1746,7 +1802,14 @@ public class SqliteFingerprintStore : IFingerprintStore
         // serving the pre-write score, producing the top-bots/detail divergence. Mirrors
         // RecordVerdictWriteBehind; the only difference is the operator/AI verdict is
         // authoritative so the probability is SET directly, not EWMA-blended.
-        if (!_fingerprintById.TryGetValue(fingerprintId, out var existing))
+        Fingerprint? existing;
+        SurfaceDims? priorDims = null;
+        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
+        {
+            existing = entry.Fingerprint;
+            priorDims = entry.Dims;
+        }
+        else
         {
             existing = await GetFingerprintAsync(fingerprintId, ct);
             if (existing is null) return;
@@ -1755,11 +1818,11 @@ public class SqliteFingerprintStore : IFingerprintStore
         // No band is stored -- RiskBand is derived at read from the probability.
         var now = DateTime.UtcNow;
 
-        _fingerprintById[fingerprintId] = existing with
+        _fingerprintById[fingerprintId] = new CachedFingerprint(existing with
         {
             CachedBotProbability = botProbability,
             CachedScoreUpdatedAt = now
-        };
+        }, priorDims);
 
         EnsureNameDrainerStarted();
         // BotType null here: the operator AI-opinion path carries no catalogue type;
@@ -1785,8 +1848,9 @@ public class SqliteFingerprintStore : IFingerprintStore
     public void RecordVerdictWriteBehind(string fingerprintId, double botProbability, string? botType = null)
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;
-        if (!_fingerprintById.TryGetValue(fingerprintId, out var existing)) return;
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var entry)) return;
 
+        var existing = entry.Fingerprint;
         var alpha = Math.Clamp(_engineOptions.VerdictEwmaAlpha, 0.0, 1.0);
         var blended = existing.CachedScoreUpdatedAt is null
             ? botProbability
@@ -1797,12 +1861,12 @@ public class SqliteFingerprintStore : IFingerprintStore
         // CachedBotType is only overwritten when this write supplies one -- a null botType
         // preserves the fingerprint's existing catalogue type (mirrors the SQL COALESCE).
         // No band is stored: RiskBand is derived at read from the blended probability.
-        _fingerprintById[fingerprintId] = existing with
+        _fingerprintById[fingerprintId] = new CachedFingerprint(existing with
         {
             CachedBotProbability = blended,
             CachedBotType        = botType ?? existing.CachedBotType,
             CachedScoreUpdatedAt = now
-        };
+        }, entry.Dims);
 
         EnsureNameDrainerStarted();
         _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, botType, now));
@@ -1821,7 +1885,14 @@ public class SqliteFingerprintStore : IFingerprintStore
 
         // Dict-authoritative write: update the in-memory fingerprint so the next L1
         // verdict lookup sees it immediately. Cold path: load from SQLite first.
-        if (!_fingerprintById.TryGetValue(fingerprintId, out var existing))
+        Fingerprint? existing;
+        SurfaceDims? priorDims = null;
+        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
+        {
+            existing = entry.Fingerprint;
+            priorDims = entry.Dims;
+        }
+        else
         {
             existing = await GetFingerprintAsync(fingerprintId, ct);
             if (existing is null) return;
@@ -1852,7 +1923,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         // Atomic replace in the dict. Source of truth on the hot read path; the SQL
         // write below is durability only. Order matters: even if SQLite throws, the
         // next L1 lookup hits the new value.
-        _fingerprintById[fingerprintId] = updated;
+        _fingerprintById[fingerprintId] = new CachedFingerprint(updated, priorDims);
 
         await EnsureInitialisedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
@@ -2541,9 +2612,9 @@ public class SqliteFingerprintStore : IFingerprintStore
             if (result.ContainsKey(sig)) continue;
 
             if (_fingerprintIdByPrimarySig.TryGetValue(sig, out var fpId)
-                && _fingerprintById.TryGetValue(fpId, out var fp))
+                && _fingerprintById.TryGetValue(fpId, out var entry))
             {
-                result[sig] = FingerprintNameResolver.Resolve(fp);
+                result[sig] = FingerprintNameResolver.Resolve(entry.Fingerprint);
                 continue;
             }
 
@@ -2625,9 +2696,9 @@ public class SqliteFingerprintStore : IFingerprintStore
             if (result.ContainsKey(sig)) continue;
 
             if (_fingerprintIdByPrimarySig.TryGetValue(sig, out var fpId)
-                && _fingerprintById.TryGetValue(fpId, out var fp))
+                && _fingerprintById.TryGetValue(fpId, out var entry))
             {
-                result[sig] = ProjectVerdict(fp);
+                result[sig] = ProjectVerdict(entry.Fingerprint);
             }
             // Cache miss: leave the signature out. Unlike the name read this does NOT
             // fall back to a SQL roundtrip -- the verdict scalars are the freshest on
@@ -2685,8 +2756,9 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (maxCount <= 0) return Array.Empty<Fingerprint>();
 
         var candidates = new List<Fingerprint>();
-        foreach (var fp in _fingerprintById.Values)
+        foreach (var cached in _fingerprintById.Values)
         {
+            var fp = cached.Fingerprint;
             // No induced name means the matcher never projected this shape (or
             // banned-shape gate cleared it). Nothing for the LLM to react to —
             // skip rather than burn a token budget on an empty prior.
@@ -2732,8 +2804,9 @@ public class SqliteFingerprintStore : IFingerprintStore
             return Task.FromResult<IReadOnlyList<FingerprintSearchHit>>(Array.Empty<FingerprintSearchHit>());
 
         var hits = new List<FingerprintSearchHit>();
-        foreach (var fp in _fingerprintById.Values)
+        foreach (var cached in _fingerprintById.Values)
         {
+            var fp = cached.Fingerprint;
             var name = FingerprintNameResolver.Resolve(fp);
             if (string.IsNullOrEmpty(name)) continue;
             if (!name.Contains(term, StringComparison.OrdinalIgnoreCase)) continue;

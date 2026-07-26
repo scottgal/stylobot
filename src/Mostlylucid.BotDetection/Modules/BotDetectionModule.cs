@@ -418,8 +418,9 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Metrics.BotDetectionMetrics>();
         // Pattern-reputation updater feeds the reputation cache from detection outcomes.
         services.TryAddSingleton<Data.PatternReputationUpdater>();
-        // Fingerprint dimension snapshot cache (waveform + similarity input).
-        services.TryAddSingleton<Orchestration.Atoms.FingerprintDimSnapshotCache>();
+        // (#16) IdentityChange's per-fingerprint surface-dim drift lookback now rides the
+        // bounded IFingerprintStore hot cache (SurfaceDims, co-evicted, never persisted) —
+        // no separate FingerprintDimSnapshotCache singleton to register.
         // Similarity search — FOSS defaults use in-memory sliding-window impls;
         // commercial pgvector pack swaps via TryAdd-loses.
         services.TryAddSingleton<Similarity.IIntentSimilaritySearch, Similarity.SlimIntentSearch>();

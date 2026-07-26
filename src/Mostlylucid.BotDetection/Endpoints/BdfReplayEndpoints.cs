@@ -143,7 +143,6 @@ public static class BdfReplayEndpoints
         Identity.IFingerprintStore store,
         Identity.IdentityProcessingCoordinator coordinator,
         Identity.IdentityArchetypeRegistry archetypes,
-        Orchestration.Atoms.FingerprintDimSnapshotCache snapshotCache,
         Identity.EncoderResultCache encoderCache,
         CancellationToken ct)
     {
@@ -162,11 +161,10 @@ public static class BdfReplayEndpoints
         // fresh allocation in the next scenario that happens to reuse a fingerprint
         // id - producing the "1/N requests had no identity.fingerprint_id" flake.
         coordinator.ResetInflight();
-        // Same reasoning for the per-fingerprint dim-snapshot cache used by
-        // IdentityChangeContributor: after the DB truncate, fingerprint ids
-        // get reallocated from 1; without flushing, scenario N inherits
-        // scenario N-1's surface-dim baselines and trips spurious risk.* signals.
-        snapshotCache.Reset();
+        // The per-fingerprint surface-dim baselines IdentityChange compares against now
+        // ride the fingerprint store's in-memory hot cache (SurfaceDims, #16), which
+        // TruncateAllAsync already cleared above — so scenario N no longer inherits
+        // scenario N-1's dims. No separate snapshot cache to flush.
         // Reload archetypes from embedded YAML so calibration-driven mutations
         // (variance multipliers, refined centroids, pin counters) from earlier
         // scenarios don't bleed into the next one. Without this, an earlier

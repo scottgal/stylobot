@@ -207,7 +207,7 @@ Services / support:
 - Similarity: `FeatureVectorizer` / `IntentVectorizer` / `IIntentSimilaritySearch` → `SlimIntentSearch` / `ISignatureSimilaritySearch` → `SlimSignatureSimilaritySearch`
 - Legacy detectors still consumed by 4 atoms: `HeuristicDetector`, `VersionAgeDetector`, `BehavioralDetector`, `ClientSideDetector`
 - `Orchestration.SignatureCoordinator` (+ options)
-- `Orchestration.Atoms.WaveformHistoryStore` / `FingerprintDimSnapshotCache`
+- `Orchestration.Atoms.WaveformHistoryStore` (IdentityChange surface-dim drift lookback now rides the bounded `IFingerprintStore` hot cache as ephemeral `SurfaceDims`, #16)
 - `Dashboard.MultiFactorSignatureService`
 - `Data.PatternReputationUpdater`
 - `SimulationPacks.ISimulationPackRegistry` → `SimulationPackLoader`
