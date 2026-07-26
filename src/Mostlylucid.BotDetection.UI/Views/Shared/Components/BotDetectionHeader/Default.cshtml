@@ -1,11 +1,14 @@
 @model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
 @using Mostlylucid.BotDetection.UI.Models
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Configuration
+@inject IOptions<StyloBotDashboardOptions> DashboardOpts
 
 @* Unified Bot Detection Header - single slim bar with your detection + live ticker *@
 @{
-    // hubPath unused -- the inline script reads window.__styloBotBasePath at runtime
-    // so the component works on every host (FOSS default /_stylobot, commercial
-    // /dashboard, custom mounts) without re-rendering.
+    // SignalR hub path, resolved server-side from config (NOT derived from the dashboard
+    // BasePath). The hub lives on the gateway and is not nested under the dashboard mount.
+    var hubPath = DashboardOpts.Value.HubPath;
     var initialSignature = Model.Signatures?.PrimarySignature ?? "";
     var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
     // Dashboard mount base path (ViewData["BasePath"] on mounted hosts, else FOSS default).
@@ -132,6 +135,7 @@
 </div>
 
 <script nonce="@cspNonce">
+var hubPath = '@Html.Raw(hubPath)';
 document.addEventListener('alpine:init', () => {
     // PascalCase to camelCase helper
     function toCamel(obj) {
@@ -187,7 +191,7 @@ document.addEventListener('alpine:init', () => {
                 }
 
                 this.connection = new signalR.HubConnectionBuilder()
-                    .withUrl((window.__styloBotBasePath || '/_stylobot') + '/hub')
+                    .withUrl(hubPath)
                     .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();

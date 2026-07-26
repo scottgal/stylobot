@@ -1,8 +1,15 @@
 @* Bot Ticker - Real-time detection feed using SignalR + Alpine.js + HTMX.
-   Hub path is computed client-side from window.__styloBotBasePath so the component
-   works on every host (FOSS default /_stylobot, commercial /dashboard, custom mounts). *@
+   Hub path is resolved server-side from the configured StyloBotDashboardOptions.HubPath
+   so the component connects to the real hub on every host (the hub is deliberately
+   independent of the dashboard BasePath -- e.g. commercial /dashboard mount, /stylobot/hub). *@
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Configuration
+@inject IOptions<StyloBotDashboardOptions> DashboardOpts
 @{
     var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
+    // SignalR hub path, resolved server-side from config (NOT derived from the dashboard
+    // BasePath). The hub lives on the gateway and is not nested under the dashboard mount.
+    var hubPath = DashboardOpts.Value.HubPath;
     // Dashboard mount base path. Threaded via ViewData["BasePath"] on hosts that mount the
     // dashboard elsewhere (commercial = /dashboard); defaults to the FOSS-standalone mount.
     // Was a literal "/_stylobot" -> 404'd the "Open Dashboard" + signature links on mounted hosts.
@@ -78,6 +85,7 @@
 </div>
 
 <script nonce="@cspNonce">
+var hubPath = '@Html.Raw(hubPath)';
 document.addEventListener('alpine:init', () => {
     // Normalize PascalCase API keys to camelCase
     function toCamel(obj) {
@@ -107,7 +115,7 @@ document.addEventListener('alpine:init', () => {
                 }
 
                 this.connection = new signalR.HubConnectionBuilder()
-                    .withUrl((window.__styloBotBasePath || '/_stylobot') + '/hub')
+                    .withUrl(hubPath)
                     .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
