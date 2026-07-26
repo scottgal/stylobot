@@ -70,6 +70,14 @@ output:
       entity_type: boolean
       salience: 0.85
       description: True when this request appears from datacenter / Tor / VPN IP space but prior observations did not. Often the first observable when an API key gets exfiltrated to a botnet or scraping farm.
+    - key: risk.shape_hash_changed
+      entity_type: boolean
+      salience: 0.95
+      description: True when this request's canvas+WebGL shape hash differs from the matched fingerprint's established shape. Hardware-derived and effectively immutable for real users, so a shift under one identity is the canonical anti-detect-browser profile-swap (Multilogin Mimic / Kameleo Chroma cycling per-session canvas identities).
+    - key: risk.botd_kind_changed
+      entity_type: boolean
+      salience: 0.7
+      description: True when this request's BotD verdict (selenium / puppeteer / headless_chrome / ...) differs from the established one under the same identity - the automation framework swapped mid-identity, rare for legitimate operators.
     - key: risk.suspicious_change_score
       entity_type: number
       salience: 0.8
@@ -103,6 +111,12 @@ emits:
     - key: risk.infrastructure_introduced
       type: bool
       description: True when this request appears from datacenter / Tor / VPN but prior observations did not - infrastructure shift on the same identity.
+    - key: risk.shape_hash_changed
+      type: bool
+      description: True when this request's canvas+WebGL shape hash differs from the established shape - anti-detect-browser profile-swap signal.
+    - key: risk.botd_kind_changed
+      type: bool
+      description: True when this request's BotD verdict differs from the established one - automation framework swapped under the same identity.
     - key: risk.suspicious_change_score
       type: double
       description: Weighted aggregate of the above flags in [0,1] - indicator only.
