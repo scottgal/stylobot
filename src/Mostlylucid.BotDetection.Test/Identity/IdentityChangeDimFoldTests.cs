@@ -2,6 +2,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
+using Mostlylucid.BotDetection.Test.Orchestration.Atoms.AtomContract;
+using Mostlylucid.Ephemeral;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Identity;
@@ -191,5 +194,58 @@ public sealed class IdentityChangeDimFoldTests : IDisposable
         Assert.NotNull(reloaded.DriftMagnitudes);
         Assert.True(reloaded.DriftMagnitudes![SurfaceDims.CountryIndex] > 0f,
             "drift magnitudes must survive restart");
+    }
+
+    // ========================================================================
+    // #5 LIVE per-request divergence — this request scores NOW when it differs
+    // from the fingerprint's ESTABLISHED shape (compute-at-read, no side cache).
+    // ========================================================================
+
+    private const string Session = "session-1";
+
+    private static SignalSink NewSink() => new(maxCapacity: 1000, maxAge: TimeSpan.FromMinutes(1));
+
+    private static IdentityChangeAtom NewAtom(IFingerprintStore store) => new(
+        NullLogger<IdentityChangeAtom>.Instance, new StubDetectorConfigProvider(), store);
+
+    private static SignalSink SinkFor(string fingerprintId, string country)
+    {
+        var sink = NewSink();
+        sink.Raise($"{SignalKeys.IdentityFingerprintId}:{fingerprintId}", Session);
+        sink.Raise($"{SignalKeys.GeoCountryCode}:{country}", Session);
+        return sink;
+    }
+
+    [Fact]
+    public async Task LiveDivergence_currentDiffersFromEstablished_raisesRiskAndContribution()
+    {
+        var store = NewStore();
+        await SeedResidentAsync(store, "fp-live");
+        // Established baseline = US (as the absorption boundary would have promoted it).
+        store.PromoteEstablishedDims("fp-live", Dims("US"));
+        var atom = NewAtom(store);
+
+        // This request presents DE → diverges from the established US shape → suspicious NOW.
+        var sink = SinkFor("fp-live", "DE");
+        var result = await atom.DetectAsync(sink, Session);
+
+        Assert.Single(result);
+        Assert.Equal("SurfaceDimShift", result[0].Category);
+        Assert.Equal("US -> DE", sink.ReadHint(SignalKeys.RiskCountryTransition));
+    }
+
+    [Fact]
+    public async Task LiveDivergence_noEstablishedBaseline_raisesNothing()
+    {
+        var store = NewStore();
+        await SeedResidentAsync(store, "fp-nobaseline");
+        var atom = NewAtom(store);
+
+        // No established baseline promoted yet → nothing to diverge from; stamp only.
+        var sink = SinkFor("fp-nobaseline", "DE");
+        var result = await atom.DetectAsync(sink, Session);
+
+        Assert.Empty(result);
+        Assert.Null(sink.ReadHint(SignalKeys.RiskCountryTransition));
     }
 }
