@@ -29,6 +29,13 @@ public sealed class SiteCoordinatorRegistry : IAsyncDisposable
     private readonly SessionCoordinatorOptions _options;
     private readonly ILogger<SiteCoordinatorRegistry> _logger;
 
+    /// <summary>
+    ///     Set by the canonical <see cref="SessionStore"/> before request traffic
+    ///     begins. New site coordinators pass this loss-free cache-death handoff to
+    ///     their bounded session atom.
+    /// </summary>
+    internal Func<string, string, Session, CancellationToken, ValueTask>? OnSessionEvicted { get; set; }
+
     public SiteCoordinatorRegistry(
         IOptions<SessionCoordinatorOptions> options,
         ILogger<SiteCoordinatorRegistry> logger)
@@ -70,7 +77,11 @@ public sealed class SiteCoordinatorRegistry : IAsyncDisposable
                 return null;
             }
 
-            var created = new SiteCoordinator(siteId, _options);
+            var created = new SiteCoordinator(
+                siteId,
+                _options,
+                onSessionEvicted: (fingerprintId, session, ct) =>
+                    OnSessionEvicted?.Invoke(siteId, fingerprintId, session, ct) ?? ValueTask.CompletedTask);
             _coordinators[siteId] = created;
             return created;
         }

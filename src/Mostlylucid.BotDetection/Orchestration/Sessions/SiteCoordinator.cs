@@ -157,7 +157,11 @@ public sealed class SiteCoordinator : IAsyncDisposable
 {
     private readonly SlidingCacheAtom<string, Session> _sessions;
 
-    public SiteCoordinator(string siteId, SessionCoordinatorOptions options, SignalSink? siteSink = null)
+    public SiteCoordinator(
+        string siteId,
+        SessionCoordinatorOptions options,
+        SignalSink? siteSink = null,
+        Func<string, Session, CancellationToken, ValueTask>? onSessionEvicted = null)
     {
         SiteId = siteId;
         SiteSink = siteSink ?? new SignalSink(Math.Max(2, options.MaxSessions * 2), options.SessionInactivityWindow);
@@ -170,7 +174,12 @@ public sealed class SiteCoordinator : IAsyncDisposable
             signals: SiteSink,
             // Slice 1 stub: flat priority. Importance scoring (bot-suspect / novelty /
             // uncertainty ranks HIGH; confident-human ranks LOW) lands in a later slice.
-            retentionScorer: static (_, _) => 0.5);
+            retentionScorer: static (_, _) => 0.5,
+            // The bounded cache owns the only live Session value. Its death hook is
+            // consequently the loss-free handoff for expiry, LFU pressure eviction,
+            // and graceful shutdown; observers cannot reconstruct the value from a
+            // key-only cache signal after removal.
+            onEvict: onSessionEvicted);
     }
 
     /// <summary>The site (domain) this coordinator owns.</summary>

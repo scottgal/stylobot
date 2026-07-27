@@ -126,4 +126,21 @@ public class SessionStoreTests
         after.RetentionPriority.Should().BeGreaterThanOrEqualTo(0.5,
             "honeypot floor kicks in even against a confidently classified aggregate");
     }
+
+    [Fact]
+    public void Dispose_hands_each_live_bounded_session_to_the_canonical_lifecycle()
+    {
+        var store = NewStore();
+        var finalizing = new List<SessionFinalizingSignal>();
+        store.Lifecycle.TypedSignalRaised += evt => finalizing.Add(evt.Payload);
+
+        store.Upsert(NewSample(fingerprintId: "fp-expiring", siteId: "site-expiring"));
+        store.Dispose();
+
+        var signal = Assert.Single(finalizing);
+        signal.FingerprintId.Should().Be("fp-expiring");
+        signal.SiteId.Should().Be("site-expiring");
+        signal.Aggregate.SampleCount.Should().Be(1);
+        signal.DeadlineUtc.Should().BeAfter(DateTimeOffset.UtcNow.AddSeconds(-1));
+    }
 }

@@ -34,6 +34,7 @@ public sealed class SessionStore : IDisposable
 {
     private readonly ILogger<SessionStore> _logger;
     private readonly SiteCoordinatorRegistry _sessions; // the bounded store; never null
+    private readonly SessionStoreOptions _options;
     private readonly bool _ownsRegistry;
     private int _disposed;
 
@@ -56,6 +57,7 @@ public sealed class SessionStore : IDisposable
         SiteCoordinatorRegistry? siteCoordinators = null)
     {
         _logger = logger;
+        _options = options.Value;
 
         if (siteCoordinators is not null)
         {
@@ -71,10 +73,15 @@ public sealed class SessionStore : IDisposable
             _ownsRegistry = true;
         }
 
+        // The registry creates coordinators lazily, so wiring this before the first
+        // upsert makes the bounded SlidingCacheAtom's onEvict hook the single
+        // lifecycle owner for every session death (TTL, pressure, shutdown).
+        _sessions.OnSessionEvicted = OnSessionEvictedAsync;
+
         const int sinkCap = 4096;
         Changes = new TypedSignalSink<SessionAggregate>(
-            new SignalSink(maxCapacity: sinkCap, maxAge: options.Value.Ttl),
-            maxCapacity: sinkCap, maxAge: options.Value.Ttl);
+            new SignalSink(maxCapacity: sinkCap, maxAge: _options.Ttl),
+            maxCapacity: sinkCap, maxAge: _options.Ttl);
         Lifecycle = new TypedSignalSink<SessionFinalizingSignal>(
             new SignalSink(maxCapacity: sinkCap, maxAge: TimeSpan.FromMinutes(5)),
             maxCapacity: sinkCap, maxAge: TimeSpan.FromMinutes(5));
@@ -94,7 +101,7 @@ public sealed class SessionStore : IDisposable
 
         _logger.LogInformation(
             "SessionStore initialised (signals-native, bounded via SiteCoordinator): TTL {Ttl}",
-            options.Value.Ttl);
+            _options.Ttl);
     }
 
     /// <summary>
@@ -189,6 +196,33 @@ public sealed class SessionStore : IDisposable
             RequestId: $"wba:{fingerprintId}:{verdict.KeyId}",
             At: DateTimeOffset.UtcNow,
             Signals: new[] { WebBotAuthVerdictMolecule.ToSignal(verdict) }));
+    }
+
+    private ValueTask OnSessionEvictedAsync(
+        string siteId,
+        string fingerprintId,
+        Session session,
+        CancellationToken ct)
+    {
+        // The cache has removed this value already. Build the final projection from
+        // the frozen value supplied by onEvict rather than attempting a racy lookup.
+        var aggregate = SessionAggregateMolecule.FromSession(session, fingerprintId, siteId);
+        if (aggregate is null)
+            return ValueTask.CompletedTask;
+
+        Lifecycle.Raise(
+            signal: SessionFinalizingSignal.Key.Name,
+            payload: new SessionFinalizingSignal
+            {
+                FingerprintId = fingerprintId,
+                SiteId = siteId,
+                Aggregate = aggregate,
+                DeadlineUtc = DateTimeOffset.UtcNow + _options.FinalizeDeadline,
+                Reason = SessionFinalizeReason.Ttl,
+            },
+            key: fingerprintId);
+
+        return ValueTask.CompletedTask;
     }
 
     private static SessionAggregate VerdictStub(string fingerprintId, string siteId, WebBotAuthCachedVerdict verdict) =>
