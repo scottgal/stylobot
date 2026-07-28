@@ -61,10 +61,27 @@ public static class DetectionLedgerExtensions
         confidence = Math.Min(confidence, coverageConfidence);
 
         // Extract signals needed for context-aware risk band before building evidence
-        // (signals dict built below; extract from ledger merged signals here)
-        var preSignals = premergedSignals != null
-            ? premergedSignals
-            : (IReadOnlyDictionary<string, object>)ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        // (signals dict built below; extract from ledger merged signals here).
+        //
+        // ROOT FIX (sink -> evidence.Signals): atoms only ever emit via sink.Raise
+        // and NEVER populate contribution.Signals, so ledger.MergedSignals is empty
+        // of every sink-raised hint in production. Project the sink over the merged
+        // dict ONCE here so every preSignals.TryGetValue below (threat score, session
+        // count, friendly/attestation flags, intent category) reads the real
+        // production emission instead of silently getting nothing. Sink wins on
+        // conflict; merged-only keys survive. Test callers pass premergedSignals with
+        // sink == null and keep their exact dict.
+        IReadOnlyDictionary<string, object> preSignals;
+        if (premergedSignals != null)
+        {
+            preSignals = premergedSignals;
+        }
+        else
+        {
+            var merged = ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            if (sink != null) SinkEvidenceReader.ProjectSinkSignals(sink, merged);
+            preSignals = merged;
+        }
 
         // Sink-first bool reader: atoms (IpAtom etc.) raise signals via sink.Raise
         // and never populate contribution.Signals, so preSignals built from
@@ -349,6 +366,13 @@ public static class DetectionLedgerExtensions
             ? CopyWithCapacity(premergedSignals)
             : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
+        // ROOT FIX: same sink projection that fed preSignals above, applied to the
+        // dict that becomes evidence.Signals -- so post-detection consumers reading
+        // context.Items[AggregatedEvidenceKey].Signals[X] (enforcement gates, risk
+        // verdict, threat band, rate-limit key, dashboard) get the sink-raised hints.
+        if (premergedSignals == null && sink != null)
+            SinkEvidenceReader.ProjectSinkSignals(sink, signals);
+
         var (rawThreatScore, signalsThreatBand) = ExtractThreatScore(signals);
 
         // HostilePin override: signals-derived threat band can be None when the
@@ -399,6 +423,11 @@ public static class DetectionLedgerExtensions
             EarlyExit = false,
             PrimaryBotType = primaryBotType,
             PrimaryBotName = primaryBotName,
+            // RegistryClientSensor raises registry.client:true on corroboration only;
+            // ReadBool is sink-first (and, post-projection, this key is also in
+            // `signals`). Enforcement routes a corroborated registry client away from
+            // the Tool throttle bucket -- keyed on corroboration, never BotType.Tool.
+            RegistryClientCorroborated = ReadBool(SignalKeys.RegistryClientDetected),
             Signals = signals,
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
@@ -456,6 +485,12 @@ public static class DetectionLedgerExtensions
         var earlySignals = premergedSignals != null
             ? new Dictionary<string, object>(premergedSignals)
             : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        // ROOT FIX: project the sink over the early-exit evidence.Signals too, so a
+        // reputation/whitelist early exit still ships the sink-raised hints (threat
+        // score, friendly flags, identity/signature) to post-detection consumers.
+        if (premergedSignals == null && sink != null)
+            SinkEvidenceReader.ProjectSinkSignals(sink, earlySignals);
 
         // Same sink-first bool reader as in ToAggregatedEvidence: atoms raise
         // via sink.Raise and never populate earlySignals when premergedSignals is null.
@@ -609,6 +644,9 @@ public static class DetectionLedgerExtensions
             EarlyExitVerdict = verdict,
             PrimaryBotType = primaryBotType,
             PrimaryBotName = primaryBotName,
+            // Early-exit parity: carry the corroboration flag (sink-first ReadBool) so
+            // a reputation-cache early exit doesn't strip the benign-routing flag.
+            RegistryClientCorroborated = ReadBool(SignalKeys.RegistryClientDetected),
             Signals = earlySignals,
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
@@ -742,6 +780,10 @@ public static class DetectionLedgerExtensions
         float f => f,
         int i => i,
         long l => l,
+        // Sink-projected values arrive as strings (the sink is string-only). Parse
+        // them so threat/honeypot scores flow after the sink->evidence.Signals fix.
+        string s when double.TryParse(s, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var sd) => sd,
         _ => 0.0
     };
 
@@ -917,6 +959,10 @@ public static class DetectionLedgerExtensions
             case float f:  value = f; return true;
             case int i:    value = i; return true;
             case long l:   value = l; return true;
+            // Sink-projected values arrive as strings (the sink is string-only).
+            case string s when double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var sd):
+                value = sd; return true;
             default:       value = 0.0; return false;
         }
     }
@@ -929,6 +975,9 @@ public static class DetectionLedgerExtensions
             double d => d,
             float f  => f,
             int i    => i,
+            // Sink-projected value arrives as a string (the sink is string-only).
+            string s when double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var sd) => sd,
             _        => 0.0
         };
     }
@@ -957,6 +1006,9 @@ public static class DetectionLedgerExtensions
             int i    => i,
             long l   => (int)l,
             double d => (int)d,
+            // Sink-projected value arrives as a string (the sink is string-only).
+            string s when int.TryParse(s, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var si) => si,
             _        => 0
         };
     }

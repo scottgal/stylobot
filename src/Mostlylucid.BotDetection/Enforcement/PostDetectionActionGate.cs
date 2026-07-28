@@ -156,6 +156,32 @@ public sealed class PostDetectionActionGate
             return (PostDetectionActionOutcome.PolicyContinued, evidence);
         }
 
+        // Corroborated registry-client benign routing. RegistryClientSensor sets
+        // RegistryClientCorroborated ONLY when a registry UA family is corroborated
+        // by OCI /v2 protocol behaviour (spoof-guarded), so a legitimate
+        // docker/buildx push, containerd pull, or Helm OCI fetch lands here. Its
+        // aggregate probability sits above BotThreshold and its BotType is Tool, so
+        // the per-BotType fallback below would otherwise route it through
+        // BotTypeActionPolicies["Tool"] = "throttle-tools" (HTTP 429 + exponential
+        // backoff), tarpitting the push. Detection already ran, scored, logged and
+        // learned -- this suppresses ONLY the throttle ACTION, never the detection.
+        // Keyed on the corroboration flag, NOT BotType.Tool (curl/python are also
+        // Tool and MUST still throttle). Placed AFTER the honeypot + endpoint
+        // overrides above (those still win via the TriggeredActionPolicyName guard)
+        // and BEFORE the BotType fallback. A rate policy on top is still allowed.
+        // Mirrors the verified-crawler-fast-path sibling above.
+        if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
+            && evidence.RegistryClientCorroborated)
+        {
+            evidence = evidence with { TriggeredActionPolicyName = "registry-client-recognized" };
+            context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+            context.Items["BotDetection.RegistryClientRecognized"] = true;
+            _logger.LogInformation(
+                "[ACTION] Registry client recognized (corroborated OCI/Docker v2) for {Path} (risk={Risk:F2}) -- benign routing, throttle suppressed",
+                context.Request.Path, evidence.BotProbability);
+            return (PostDetectionActionOutcome.PolicyContinued, evidence);
+        }
+
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
             && evidence.BotProbability >= _options.BotThreshold
             && evidence.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))

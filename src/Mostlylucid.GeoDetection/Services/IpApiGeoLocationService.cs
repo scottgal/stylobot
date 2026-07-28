@@ -98,7 +98,13 @@ public class IpApiGeoLocationService(
                 Latitude = result.Lat,
                 Longitude = result.Lon,
                 TimeZone = result.Timezone,
+                // ip-api's free-tier `proxy` field is a single boolean covering
+                // proxy / VPN / Tor collectively (it does not distinguish them), so it
+                // feeds both IsVpn (back-compat with GeoRoutingOptions.BlockVpns) and
+                // IsProxy. Tor is left false here -- ip-api free tier exposes no distinct
+                // Tor flag (that needs MaxMind's paid GeoIP2 Anonymous IP DB).
                 IsVpn = result.Proxy,
+                IsProxy = result.Proxy,
                 IsHosting = result.Hosting
             };
 

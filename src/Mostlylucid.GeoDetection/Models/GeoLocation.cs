@@ -51,6 +51,20 @@ public class GeoLocation
     public bool IsVpn { get; set; }
 
     /// <summary>
+    ///     Whether this is a known (open/public) proxy. Populated from the provider's
+    ///     proxy indicator (e.g. ip-api's <c>proxy</c> field, which flags proxy/VPN/Tor
+    ///     addresses collectively; MaxMind's GeoIP2 Anonymous IP <c>is_public_proxy</c>).
+    /// </summary>
+    public bool IsProxy { get; set; }
+
+    /// <summary>
+    ///     Whether this is a Tor exit node. Only populated when the provider distinguishes
+    ///     Tor (e.g. MaxMind GeoIP2 Anonymous IP <c>is_tor_exit_node</c>). Providers that
+    ///     collapse anonymizers into a single flag (ip-api free tier) leave this false.
+    /// </summary>
+    public bool IsTor { get; set; }
+
+    /// <summary>
     ///     Whether this is from a datacenter/hosting provider
     /// </summary>
     public bool IsHosting { get; set; }

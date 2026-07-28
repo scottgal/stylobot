@@ -321,22 +321,16 @@ public static class BdfReplayEndpoints
             // Probe the signal flow that downstream UI consumers depend on. False on any of
             // these means the dashboard degrades silently — see docs/architecture/signal-contracts.md.
             //
-            // evidence.Signals is built from the ledger's MergedSignals and, by design, OMITS
-            // sink-raised signals (signature.primary, ua.*, tls.*, identity.*) — see the sink-first
-            // readers in DetectionLedgerExtensions. The BDF contract probes below assert on exactly
-            // those sink-raised keys, so snapshot the per-request SignalSink and merge it in. Sink
-            // signals are raised as "key:value"; parse true/false back to bool so the identity.*
-            // bool probes read correctly.
+            // CONTRACT SURFACE: probe the REAL production read surface — evidence.Signals — NOT a
+            // sink-remerged copy. As of the sink->evidence.Signals root fix (SinkEvidenceReader
+            // .ProjectSinkSignals, wired into DetectionLedgerExtensions), evidence.Signals now
+            // carries every sink-raised hint in production, so these probes assert on exactly what
+            // post-detection consumers (enforcement, risk verdict, dashboard) actually see. This
+            // rig previously re-merged orchestrator.SignalSink into the probe dict, which made it
+            // GREEN for signals production never received — the false-green the contract test now
+            // guards against. Copy into a case-insensitive dict for probe lookups only.
             var signals = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
             foreach (var kvp in evidence.Signals) signals[kvp.Key] = kvp.Value;
-            foreach (var raised in orchestrator.SignalSink.Sense(_ => true))
-            {
-                var colon = raised.Signal.IndexOf(':');
-                if (colon <= 0) { signals[raised.Signal] = true; continue; }
-                var key = raised.Signal[..colon];
-                var valStr = raised.Signal[(colon + 1)..];
-                signals[key] = valStr switch { "true" => true, "false" => false, _ => valStr };
-            }
             var signalProbes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
             {
                 [Models.SignalKeys.PrimarySignature] = signals.ContainsKey(Models.SignalKeys.PrimarySignature),

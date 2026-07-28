@@ -135,19 +135,69 @@ internal static class SinkEvidenceReader
     private static Dictionary<string, object> SnapshotSinkSignals(SignalSink sink)
     {
         var dict = new Dictionary<string, object>(StringComparer.Ordinal);
-        var signals = sink.Sense(_ => true);
-        foreach (var signal in signals)
+        ProjectSinkSignals(sink, dict);
+        return dict;
+    }
+
+    /// <summary>
+    ///     Projects every semantic signal currently on the sink into
+    ///     <paramref name="target"/>, decoding the composite <c>"key:value"</c>
+    ///     hint format the atoms raise (see <see cref="SignalHintExtensions"/>).
+    ///     This is the SINGLE production seam that reconstructs
+    ///     <c>evidence.Signals</c> from the sink -- atoms only ever emit via
+    ///     <c>sink.Raise</c> and never populate <c>contribution.Signals</c>, so
+    ///     without this projection the ledger's <c>MergedSignals</c> (and hence
+    ///     <c>evidence.Signals</c>) is empty of every sink-raised hint and ~24
+    ///     downstream consumers silently read nothing. See
+    ///     <c>docs/architecture/signal-contracts.md</c>.
+    /// </summary>
+    /// <remarks>
+    ///     Decode rules (must match how <c>ReadHint</c> / <c>ReadBoolHint</c>
+    ///     interpret the same signals):
+    ///     <list type="bullet">
+    ///       <item>A bare presence signal (<c>sink.Raise(key)</c>, no colon)
+    ///         becomes <c>[key] = true</c>.</item>
+    ///       <item><c>key:true</c> / <c>key:false</c> (case-insensitive) decode to
+    ///         a real <see cref="bool"/> so downstream <c>is true</c> reads match
+    ///         -- this is the fix for the attestation.fetch_metadata "bool vs
+    ///         string value" double-break.</item>
+    ///       <item>Every other <c>key:value</c> becomes <c>[key] = value</c>
+    ///         (string). Numeric values stay strings because the sink is
+    ///         string-only; the numeric readers in
+    ///         <c>DetectionLedgerExtensions</c> parse them. <c>"1"/"0"</c> are
+    ///         deliberately NOT decoded to bool -- a numeric signal value of
+    ///         <c>"1"</c> (e.g. session.request_count) must remain a parseable
+    ///         string, and no real value equals the literal "true"/"false".</item>
+    ///     </list>
+    ///     Orchestrator bookkeeping (<c>contribution.*</c>) is skipped -- it is
+    ///     reconstructed via <see cref="ReadContributions"/>, not a semantic
+    ///     signal, and would otherwise flood <c>evidence.Signals</c>. Existing
+    ///     entries are OVERWRITTEN (sink wins over any genuinely-merged key;
+    ///     merged-only keys survive because only keys present on the sink are
+    ///     touched).
+    /// </remarks>
+    public static void ProjectSinkSignals(SignalSink sink, IDictionary<string, object> target)
+    {
+        foreach (var signal in sink.Sense(_ => true))
         {
             var raw = signal.Signal;
+            if (raw.StartsWith(ContributionPrefix, StringComparison.Ordinal)) continue;
+
             var colon = raw.IndexOf(':');
             if (colon <= 0)
             {
-                dict.TryAdd(raw, true);
+                target[raw] = true;
                 continue;
             }
-            dict.TryAdd(raw[..colon], raw[(colon + 1)..]);
+
+            var key = raw[..colon];
+            var value = raw[(colon + 1)..];
+            target[key] = value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                ? (object)true
+                : value.Equals("false", StringComparison.OrdinalIgnoreCase)
+                    ? false
+                    : value;
         }
-        return dict;
     }
 
     private static BotType? InferPrimaryBotType(IReadOnlyList<DetectionContribution> contributions)

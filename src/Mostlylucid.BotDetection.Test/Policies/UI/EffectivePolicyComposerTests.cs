@@ -42,7 +42,10 @@ public sealed class EffectivePolicyComposerTests
 
     private static EffectivePolicyComposer NewComposer(
         BotDetectionOptions opts, IActionPolicyRegistry registry) =>
-        new(Options(opts), registry, new PassthroughEffectivePolicyConfigOverlay());
+        new(Options(opts),
+            Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.EndpointPolicies.DetectionPolicyOptions()),
+            registry,
+            new PassthroughEffectivePolicyConfigOverlay());
 
     [Fact]
     public void Emits_a_row_per_BotTypeActionPolicies_entry_plus_the_global_default()

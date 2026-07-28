@@ -107,6 +107,25 @@ public sealed record AggregatedEvidence
     public string? PrimaryBotName { get; init; }
 
     /// <summary>
+    ///     True when this request is a CORROBORATED registry / OCI Distribution Spec
+    ///     client -- the <see cref="Atoms.RegistryClientSensor"/> matched a registry
+    ///     UA family AND that family was corroborated by registry v2 protocol
+    ///     behaviour (an OCI <c>/v2/</c> path or a registry manifest <c>Accept</c>
+    ///     media type). Sourced from <see cref="Models.SignalKeys.RegistryClientDetected"/>,
+    ///     which the sensor raises ONLY on corroboration (never from the UA alone), so
+    ///     a scraper spoofing <c>docker/24</c> does NOT set this flag.
+    ///
+    ///     Enforcement reads this (not <see cref="BotType.Tool"/>, which curl/python
+    ///     also carry) to route a legitimate <c>docker/buildx push</c> away from the
+    ///     Tool bucket's <c>throttle-tools</c> HTTP 429. Detection still ran, scored,
+    ///     logged and learned -- only the throttle ACTION is suppressed. Defaults to
+    ///     false. (With the sink->evidence.Signals projection in place this equals
+    ///     <c>evidence.Signals[SignalKeys.RegistryClientDetected] is true</c>; the
+    ///     typed field is kept as the enforcement-facing read surface.)
+    /// </summary>
+    public bool RegistryClientCorroborated { get; init; }
+
+    /// <summary>
     /// All signals collected from contributions.
     /// </summary>
     public IReadOnlyDictionary<string, object> Signals { get; init; } = new Dictionary<string, object>();

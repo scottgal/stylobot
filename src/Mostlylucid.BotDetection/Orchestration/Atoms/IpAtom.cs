@@ -106,6 +106,17 @@ public sealed class IpAtom : DetectorAtomBase
         var context = _httpContextAccessor.HttpContext;
         if (context is null) return None();
 
+        // Project the geo/anonymizer signals (geo.country_code, geo.is_vpn, geo.is_proxy,
+        // geo.is_tor, geo.is_hosting) from the GeoLocation object GeoRoutingMiddleware stores
+        // on HttpContext.Items. Geo is IP-derived, so it lives on the IP atom (Priority 12),
+        // which runs before GeoChangeAtom (Priority 16, RequiredSignals=[geo.country_code])
+        // and before SignatureCoordinator's geo.is_vpn read. The v8 atom refactor dropped the
+        // geo IContributingDetector that used to emit these and never replaced it, so every
+        // consumer read false/absent -- this restores the emit. No-op when the geo middleware
+        // isn't loaded (the Items entry is absent). geo.* is not IpAtom's owned manifest prefix
+        // (ip.*/proxy.*), so the emit-contract test does not police it here.
+        EmitGeoSignals(sink, context, sessionId);
+
         var contributions = new List<DetectionContribution>();
         var clientIp = ResolveClientIp(context);
 
@@ -334,6 +345,13 @@ public sealed class IpAtom : DetectorAtomBase
             _cidrLock.Release();
         }
     }
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "GeoLocationSignalEmitter.Emit duck-types HttpContext.Items[\"GeoLocation\"] " +
+            "reflectively without a hard reference on Mostlylucid.GeoDetection. Safe in AOT - no-op " +
+            "when the geo middleware isn't loaded (the item is absent).")]
+    private static void EmitGeoSignals(SignalSink sink, HttpContext context, string sessionId)
+        => GeoLocationSignalEmitter.Emit(sink, context, sessionId);
 
     private string ResolveClientIp(HttpContext context)
     {

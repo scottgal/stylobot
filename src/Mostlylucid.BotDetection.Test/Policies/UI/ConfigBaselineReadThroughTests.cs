@@ -63,6 +63,7 @@ public class ConfigBaselineReadThroughTests
         };
         IConfigBaselineProvider provider = new EffectivePolicyComposer(
             OptionsMonitor(opts),
+            Options.Create(new Mostlylucid.BotDetection.EndpointPolicies.DetectionPolicyOptions()),
             Registry(("throttle-aggressive", ActionType.Throttle), ("throttle-status", ActionType.Throttle)),
             new PassthroughEffectivePolicyConfigOverlay());
 
