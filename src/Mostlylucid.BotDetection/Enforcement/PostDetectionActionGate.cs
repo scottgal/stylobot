@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -145,6 +146,16 @@ public sealed class PostDetectionActionGate
         // threshold and the early exit isn't a verified good bot or a
         // whitelisted identity.
 #pragma warning disable CS0618 // BotDetectionOptions.BotThreshold is the fallback source until endpoint policy resolution lands under the atom-orchestrator path.
+        if (IsVerifiedCrawlerMarketingFetch(context, evidence))
+        {
+            // Preserve action observability without invoking a latency-inducing action.
+            evidence = evidence with { TriggeredActionPolicyName = "verified-crawler-fast-path" };
+            context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+            context.Items["BotDetection.VerifiedCrawlerFastPath"] = true;
+            _logger.LogInformation("[ACTION] Verified crawler fast path for {Path}", context.Request.Path);
+            return (PostDetectionActionOutcome.PolicyContinued, evidence);
+        }
+
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
             && evidence.BotProbability >= _options.BotThreshold
             && evidence.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
@@ -182,6 +193,26 @@ public sealed class PostDetectionActionGate
         }
 
         return (PostDetectionActionOutcome.NoOverride, evidence);
+    }
+
+    private bool IsVerifiedCrawlerMarketingFetch(HttpContext context, AggregatedEvidence evidence)
+    {
+        var fastPath = _options.VerifiedCrawlerFastPath;
+        if (fastPath.MarketingHosts.Count == 0 ||
+            (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method)) ||
+            !evidence.Signals.TryGetValue(SignalKeys.FriendlyIpVerified, out var trusted) || trusted is not true)
+            return false;
+
+        // RequestScope is stamped by DomainNormalizer and prefers gateway-validated TLS SNI;
+        // it is deliberately not a direct read of the client-controlled Host header.
+        if (!context.Items.TryGetValue(HttpContextItemKeys.RequestScope, out var scopeValue) ||
+            scopeValue is not RequestScope scope ||
+            !fastPath.MarketingHosts.Contains(scope.Host, StringComparer.OrdinalIgnoreCase))
+            return false;
+
+        var path = context.Request.Path.Value ?? "/";
+        return !fastPath.ExcludedPathPrefixes.Any(prefix =>
+            path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

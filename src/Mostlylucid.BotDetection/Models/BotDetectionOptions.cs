@@ -18,6 +18,8 @@ namespace Mostlylucid.BotDetection.Models;
 /// </summary>
 public class BotDetectionOptions
 {
+    /// <summary>Optional trusted-crawler fast path for a configured public marketing host.</summary>
+    public Enforcement.VerifiedCrawlerFastPathOptions VerifiedCrawlerFastPath { get; set; } = new();
     // ==========================================
     // Core Detection Settings
     // ==========================================
