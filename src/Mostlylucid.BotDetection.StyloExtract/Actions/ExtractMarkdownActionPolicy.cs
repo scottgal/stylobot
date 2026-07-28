@@ -26,6 +26,7 @@ namespace Mostlylucid.BotDetection.StyloExtract.Actions;
 /// </summary>
 public sealed class ExtractMarkdownActionPolicy : IActionPolicy
 {
+    internal const string InterceptorInstalledItemKey = "StyloExtract.MarkdownInterceptorInstalled";
     private readonly ILayoutExtractor _extractor;
     // Startup snapshot only (FOSS hard rule: no runtime options-reload). Named options have no
     // IOptions<T> equivalent, so IOptionsFactory<T> -- the non-reload-observing factory
@@ -35,19 +36,22 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
     private readonly ILogger<ExtractMarkdownActionPolicy> _logger;
     private readonly ResponseBodyCapture _capture;
     private readonly CacheControlWriter _cacheWriter;
+    private readonly MarkdownResponseCache _markdownCache;
 
     public ExtractMarkdownActionPolicy(
         ILayoutExtractor extractor,
         IOptionsFactory<StyloExtractActionOptions> optionsFactory,
         ILogger<ExtractMarkdownActionPolicy> logger,
         ResponseBodyCapture capture,
-        CacheControlWriter cacheWriter)
+        CacheControlWriter cacheWriter,
+        MarkdownResponseCache? markdownCache = null)
     {
         _extractor = extractor;
         _options = optionsFactory.Create(Name);
         _logger = logger;
         _capture = capture;
         _cacheWriter = cacheWriter;
+        _markdownCache = markdownCache ?? new MarkdownResponseCache(_options.TransformedContentCache);
     }
 
     /// <inheritdoc />
@@ -60,20 +64,30 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
     public PolicyIntent Intent => PolicyIntent.Pass;
 
     /// <inheritdoc />
-    public Task<ActionResult> ExecuteAsync(
+    public async Task<ActionResult> ExecuteAsync(
         HttpContext context,
         AggregatedEvidence evidence,
         CancellationToken cancellationToken = default)
     {
         var opts = _options;
 
-        // EnableQueryOverride / QueryParamName / QueryParamValue describe a debug-time
-        // "?format=markdown" override. By the time this policy is dispatched the rule
-        // already matched, so checking the query param here gates nothing. The override
-        // needs a separate always-on middleware that runs the transform on requests the
-        // rule matcher would not have dispatched; that is not wired in this pack yet.
-        // The option fields remain in StyloExtractActionOptions for the eventual feature
-        // so operators do not need a config migration when it ships.
+        // A request may match both the normal AI policy and the explicit query override.
+        // Only one interceptor may own a response body.
+        if (context.Items.ContainsKey(InterceptorInstalledItemKey))
+            return ActionResult.Allowed("extract-markdown: interceptor already installed");
+
+        var lease = HttpMethods.IsGet(context.Request.Method)
+            ? await _markdownCache.AcquireAsync(BuildCacheKey(context.Request, opts), cancellationToken).ConfigureAwait(false)
+            : MarkdownCacheLease.Bypass;
+        if (lease.Cached is { } cached)
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/markdown; charset=utf-8";
+            context.Response.ContentLength = cached.Length;
+            _cacheWriter.Apply(context, opts.Cache);
+            await context.Response.Body.WriteAsync(cached, cancellationToken).ConfigureAwait(false);
+            return ActionResult.Blocked(StatusCodes.Status200OK, "extract-markdown: cache hit");
+        }
 
         var sourceUri = BuildSourceUri(context.Request);
         var extractionOptions = new ExtractionOptions { Profile = opts.Profile };
@@ -93,6 +107,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
                 context.Response.ContentLength = mdBytes.Length;
 
                 _cacheWriter.Apply(context, opts.Cache);
+                _markdownCache.Publish(lease, mdBytes);
 
                 return result.Markdown;
             }
@@ -101,11 +116,18 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
                 _logger.LogWarning(ex,
                     "extract-markdown: extraction failed for {Path}; returning original HTML",
                     LogSanitize(context.Request.Path.Value));
+                _markdownCache.Discard(lease);
                 return null; // Signal pass-through.
             }
         });
+        context.Items[InterceptorInstalledItemKey] = true;
+        context.Response.OnCompleted(() =>
+        {
+            _markdownCache.AbandonUnfilled(lease);
+            return Task.CompletedTask;
+        });
 
-        return Task.FromResult(ActionResult.Allowed("extract-markdown: interceptor installed"));
+        return ActionResult.Allowed("extract-markdown: interceptor installed");
     }
 
     private static Uri? BuildSourceUri(HttpRequest request)
@@ -118,6 +140,19 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
         {
             return null;
         }
+    }
+
+    private static string BuildCacheKey(HttpRequest request, StyloExtractActionOptions options)
+    {
+        var host = request.Host.Host.ToLowerInvariant();
+        var path = request.Path.Value ?? "/";
+        // Preserve content variance. The override itself only selects the representation,
+        // so it is stripped to share a cache entry with an AI-policy request.
+        var query = request.Query
+            .Where(pair => !pair.Key.Equals(options.QueryParamName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value.ToString())}");
+        return $"markdown|{options.VersionSaltForCache()}|{options.Profile}|{host}|{path}|{string.Join("&", query)}";
     }
 
     // Strip CR/LF from request paths before logging so a crafted request path cannot

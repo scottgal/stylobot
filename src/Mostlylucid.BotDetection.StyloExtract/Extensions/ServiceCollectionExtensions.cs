@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.StyloExtract.Actions;
 using Mostlylucid.BotDetection.StyloExtract.Internals;
@@ -14,8 +15,9 @@ namespace Mostlylucid.BotDetection.StyloExtract.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the four StyloExtract action policies with StyloBot's <see cref="IActionPolicyRegistry"/>:
+    /// Registers the StyloExtract action policies with StyloBot's <see cref="IActionPolicyRegistry"/>:
     /// <list type="bullet">
+    ///   <item><c>content-cache</c> - short-circuits a bounded cached HTML response</item>
     ///   <item><c>extract-markdown</c> - replaces HTML body with Markdown via stream interception</item>
     ///   <item><c>extract-headers</c> - adds X-StyloExtract-* response headers</item>
     ///   <item><c>extract-sidecar</c> - adds Link alternate header</item>
@@ -27,12 +29,18 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddStyloExtractActionPolicies(this IServiceCollection services)
     {
+        services.AddSingleton<IActionPolicy, ContentCacheActionPolicy>();
         services.AddSingleton<IActionPolicy, ExtractMarkdownActionPolicy>();
         services.AddSingleton<IActionPolicy, ExtractHeadersActionPolicy>();
         services.AddSingleton<IActionPolicy, ExtractSidecarActionPolicy>();
         services.AddSingleton<IActionPolicy, ExtractPassthroughActionPolicy>();
         services.TryAddSingleton<CacheControlWriter>();
         services.TryAddSingleton<ResponseBodyCapture>();
+        services.TryAddSingleton<MarkdownResponseCache>(sp =>
+        {
+            var factory = sp.GetRequiredService<IOptionsFactory<StyloExtractActionOptions>>();
+            return new MarkdownResponseCache(factory.Create("extract-markdown").TransformedContentCache);
+        });
 
         // Register named options for each policy AND bind them to configuration sections.
         // Without BindConfiguration the per-policy Profile / Cache / Sidecar fields would
@@ -54,6 +62,8 @@ public static class ServiceCollectionExtensions
         // sets IsAotCompatible=true; AOT consumers must opt into the source-gen binder.
         services.AddOptions<StyloExtractActionOptions>("extract-markdown")
             .BindConfiguration("StyloExtract:Actions:extract-markdown");
+        services.AddOptions<StyloExtractActionOptions>("content-cache")
+            .BindConfiguration("StyloExtract:Actions:content-cache");
         services.AddOptions<StyloExtractActionOptions>("extract-headers")
             .BindConfiguration("StyloExtract:Actions:extract-headers");
         services.AddOptions<StyloExtractActionOptions>("extract-sidecar")

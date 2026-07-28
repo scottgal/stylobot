@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.EndpointPolicies;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -22,15 +23,18 @@ namespace Mostlylucid.BotDetection.UI.Services;
 public sealed class EffectivePolicyComposer : IConfigBaselineProvider
 {
     private readonly IOptions<BotDetectionOptions> _options;
+    private readonly IOptions<DetectionPolicyOptions> _detectionPolicies;
     private readonly IActionPolicyRegistry _registry;
     private readonly IEffectivePolicyConfigOverlay _overlay;
 
     public EffectivePolicyComposer(
         IOptions<BotDetectionOptions> options,
+        IOptions<DetectionPolicyOptions> detectionPolicies,
         IActionPolicyRegistry registry,
         IEffectivePolicyConfigOverlay overlay)
     {
         _options = options;
+        _detectionPolicies = detectionPolicies;
         _registry = registry;
         _overlay = overlay;
     }
@@ -71,6 +75,20 @@ public sealed class EffectivePolicyComposer : IConfigBaselineProvider
             .ToList();
 
         rows.Add(EffectivePolicyRowViewModel.ForConfig(ComposeDefaultRow(opts.DefaultActionPolicyName, canEdit)));
+        rows.AddRange(_detectionPolicies.Value.Rules.Select((rule, index) =>
+        {
+            var type = _registry.GetPolicy(rule.Action)?.ActionType;
+            var target = rule.Name ?? $"Detection rule {index + 1}";
+            if (!string.IsNullOrWhiteSpace(rule.Path)) target += $" ({rule.Path})";
+            return EffectivePolicyRowViewModel.ForConfig(_overlay.Apply(new ConfigPolicyRowViewModel(
+                Target: target,
+                ResultingAction: rule.Action,
+                ActionColorClass: ColorFor(type),
+                ConfigKey: $"BotDetection:DetectionPolicies:Rules:{index}:Action",
+                Source: EffectivePolicyConfigSource.DetectionPolicyRule,
+                SupersededByRuleId: null,
+                CanEdit: canEdit)));
+        }));
         return rows;
     }
 

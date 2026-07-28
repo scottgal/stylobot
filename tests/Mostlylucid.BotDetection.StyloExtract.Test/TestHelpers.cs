@@ -162,13 +162,15 @@ internal static class PolicyFactory
 {
     internal static ExtractMarkdownActionPolicy Markdown(
         ILayoutExtractor? extractor = null,
-        StyloExtractActionOptions? opts = null)
+        StyloExtractActionOptions? opts = null,
+        MarkdownResponseCache? cache = null)
         => new(
             extractor ?? new FakeExtractor(),
             new StaticOptions(opts),
             NullLogger<ExtractMarkdownActionPolicy>.Instance,
             new ResponseBodyCapture(),
-            new CacheControlWriter());
+            new CacheControlWriter(),
+            cache);
 
     internal static ExtractHeadersActionPolicy Headers(
         ILayoutExtractor? extractor = null,
@@ -179,6 +181,13 @@ internal static class PolicyFactory
             NullLogger<ExtractHeadersActionPolicy>.Instance,
             new ResponseBodyCapture(),
             new CacheControlWriter());
+
+    internal static ContentCacheActionPolicy ContentCache(StyloExtractActionOptions? opts = null)
+        => new(
+            new StaticOptions(opts),
+            new ResponseBodyCapture(),
+            new CacheControlWriter(),
+            NullLogger<ContentCacheActionPolicy>.Instance);
 
     internal static ExtractSidecarActionPolicy Sidecar(StyloExtractActionOptions? opts = null)
         => new(

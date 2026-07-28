@@ -13,6 +13,7 @@ using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Telemetry;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.StyloExtract.Extensions;
+using Mostlylucid.BotDetection.StyloExtract.Middleware;
 // PostgreSQL dashboard persistence is in the commercial repo (stylobot-commercial)
 using Mostlylucid.GeoDetection.Extensions;
 using StyloExtract.AspNetCore;
@@ -389,6 +390,10 @@ try
     // so AggregatedEvidence is on HttpContext, and BEFORE MapReverseProxy so the
     // policy can short-circuit upstream forwarding when a content transform fires.
     app.UseDetectionPolicies();
+
+    // Explicit operator test representation. Runs after normal enforcement so a query
+    // parameter cannot bypass a preceding block/throttle policy.
+    app.UseStyloExtractMarkdownQueryOverride();
 
     // Persist detections to shared DB + broadcast via SignalR
     // Downstream dashboard clients (on the website) can connect to this hub

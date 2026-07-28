@@ -90,5 +90,8 @@ public enum EffectivePolicyConfigSource
     BotTypeActionPolicies,
 
     /// <summary><c>BotDetectionOptions.DefaultActionPolicyName</c> (the global fallback).</summary>
-    DefaultActionPolicy
+    DefaultActionPolicy,
+
+    /// <summary>Post-detection, first-match-wins rule from <c>DetectionPolicies:Rules</c>.</summary>
+    DetectionPolicyRule
 }

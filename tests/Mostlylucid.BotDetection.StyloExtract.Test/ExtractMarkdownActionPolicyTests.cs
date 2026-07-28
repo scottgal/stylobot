@@ -1,5 +1,6 @@
 using System.Text;
 using FluentAssertions;
+using Mostlylucid.BotDetection.StyloExtract.Internals;
 using Mostlylucid.BotDetection.StyloExtract.Options;
 using Xunit;
 
@@ -94,5 +95,38 @@ public sealed class ExtractMarkdownActionPolicyTests
             originalBody);
 
         body.Should().Be(Markdown);
+    }
+
+    [Fact]
+    public async Task Markdown_cache_hit_short_circuits_without_reextracting()
+    {
+        var options = new StyloExtractActionOptions
+        {
+            TransformedContentCache = new TransformedContentCacheOptions { Enabled = true }
+        };
+        var extractor = new FakeExtractor { MarkdownToReturn = Markdown };
+        await using var cache = new MarkdownResponseCache(options.TransformedContentCache);
+        var policy = PolicyFactory.Markdown(extractor, options, cache);
+        var first = HttpContextBuilder.CreateHtmlContext();
+        first.Request.Method = "GET";
+        first.Request.Host = new HostString("example.test");
+        first.Request.Path = "/docs/cache";
+        var origin = new MemoryStream();
+        first.Response.Body = origin;
+
+        await ActionPolicyRunner.RunAndFlushAsync(first, c => policy.ExecuteAsync(c, Evidence.Bot()), Html, origin);
+
+        var second = HttpContextBuilder.CreateHtmlContext();
+        second.Request.Method = "GET";
+        second.Request.Host = new HostString("example.test");
+        second.Request.Path = "/docs/cache";
+        var cachedBody = new MemoryStream();
+        second.Response.Body = cachedBody;
+
+        var result = await policy.ExecuteAsync(second, Evidence.Bot());
+
+        result.Continue.Should().BeFalse();
+        Encoding.UTF8.GetString(cachedBody.ToArray()).Should().Be(Markdown);
+        extractor.CallCount.Should().Be(1);
     }
 }

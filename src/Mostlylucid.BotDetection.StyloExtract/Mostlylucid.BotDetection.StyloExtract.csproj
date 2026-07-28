@@ -35,6 +35,7 @@
 
     <ItemGroup>
         <PackageReference Include="Mostlylucid.StyloExtract.AspNetCore" Version="1.6.1" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.10.0" />
     </ItemGroup>
 
 </Project>

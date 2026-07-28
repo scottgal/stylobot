@@ -22,8 +22,12 @@
         <ul class="sb-config-baseline-rows">
             @foreach (var row in configRows)
             {
-                var sourceLabel = row.Source == EffectivePolicyConfigSource.DefaultActionPolicy
-                    ? "DEFAULT" : "BOT TYPE";
+                var sourceLabel = row.Source switch
+                {
+                    EffectivePolicyConfigSource.DefaultActionPolicy => "DEFAULT",
+                    EffectivePolicyConfigSource.DetectionPolicyRule => "DETECTION RULE",
+                    _ => "BOT TYPE"
+                };
                 <li class="sb-config-baseline-row @(row.SupersededByRuleId is null ? "" : "is-superseded")"
                     data-config-key="@row.ConfigKey">
                     <span class="sb-config-baseline-target">@row.Target</span>

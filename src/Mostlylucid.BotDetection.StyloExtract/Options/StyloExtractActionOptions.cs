@@ -57,10 +57,36 @@ public sealed class StyloExtractActionOptions
     public CacheOverrideOptions Cache { get; set; } = new();
 
     /// <summary>
+    /// Process-local cache for a transformed representation. This is deliberately separate
+    /// from <see cref="Cache"/>, which only controls outgoing HTTP cache headers.
+    /// </summary>
+    public TransformedContentCacheOptions TransformedContentCache { get; set; } = new();
+
+    /// <summary>
     /// Route template used by the <c>extract-sidecar</c> policy to build the Link header.
     /// <c>{path}</c> interpolates the full request path (without leading slash).
     /// <c>{slug}</c> interpolates the last path segment.
     /// Default: "/{path}.md"
     /// </summary>
     public string SidecarRouteTemplate { get; set; } = "/{path}.md";
+}
+
+internal static class StyloExtractActionOptionsCacheExtensions
+{
+    internal static string VersionSaltForCache(this StyloExtractActionOptions options) =>
+        string.IsNullOrWhiteSpace(options.TransformedContentCache.VersionSalt)
+            ? "v1"
+            : options.TransformedContentCache.VersionSalt;
+}
+
+/// <summary>Hard bounds for the in-process Markdown representation cache.</summary>
+public sealed class TransformedContentCacheOptions
+{
+    public bool Enabled { get; set; }
+    public int MaxEntries { get; set; } = 128;
+    public int MaxEntryBytes { get; set; } = 256 * 1024;
+    public int MaxTotalBytes { get; set; } = 32 * 1024 * 1024;
+    public TimeSpan SlidingExpiration { get; set; } = TimeSpan.FromMinutes(2);
+    public TimeSpan AbsoluteExpiration { get; set; } = TimeSpan.FromMinutes(15);
+    public string VersionSalt { get; set; } = "v1";
 }
