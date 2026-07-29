@@ -421,6 +421,17 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IPolicyCanEditPolicy,
             Mostlylucid.BotDetection.UI.Services.AlwaysReadOnlyPolicyCanEditPolicy>();
 
+        // Read-only accessor for the canonical classification thresholds
+        // (BotDetection:Classification -> BotFloor / HumanCeiling / MinActionConfidence)
+        // that the dashboard "Apply-policy" control surfaces in plain language. The local
+        // impl reads in-process IOptions<BotDetectionOptions> (no write path). TryAddSingleton
+        // so a remote / thin-client host that registers a RemoteClassificationThresholdProvider
+        // before AddStyloBotDashboard keeps its instance (same seam pattern as
+        // IConfigBaselineProvider). Depends only on IOptions, which is always present, so unlike
+        // the config-baseline composer it needs no IActionPolicyRegistry guard.
+        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IClassificationThresholdProvider,
+            Mostlylucid.BotDetection.UI.Services.LocalClassificationThresholdProvider>();
+
         // Pack Metrics B1 -- /dashboard/insights page composer. Pure read; goes
         // through IMeterStream only (no DB). Stateless, peer-singleton with the
         // other dashboard presenters above. The IMeterStream binding itself is

@@ -1547,6 +1547,23 @@ public sealed class ClassificationOptions
     ///     bot" and "acted on as a bot" never disagree.
     /// </summary>
     public double BotFloor { get; set; } = 0.70;
+
+    /// <summary>
+    ///     The canonical action-confidence gate: act on a verdict only when the verdict's
+    ///     confidence is <c>&gt;= MinActionConfidence</c>. Separates "how likely a bot"
+    ///     (<c>bot_probability</c>, gated by <see cref="BotFloor"/>) from "how sure we are"
+    ///     (verdict confidence) — a request can clear <see cref="BotFloor"/> on thin evidence
+    ///     (one lightweight detector) yet not be certain enough to act on. Default 0.50.
+    ///     Config key: <c>BotDetection:Classification:MinActionConfidence</c>.
+    ///
+    ///     <para>
+    ///     The option exists and is READ now (the dashboard "Apply-policy" control surfaces it
+    ///     via the UI read accessor). ENFORCEMENT — the action path honouring this gate — is a
+    ///     deliberate fast-follow and is NOT wired yet; adding this field does not change any
+    ///     action/enforcement behaviour on its own.
+    ///     </para>
+    /// </summary>
+    public double MinActionConfidence { get; set; } = 0.5;
 }
 
 public class ListUpdateScheduleOptions
