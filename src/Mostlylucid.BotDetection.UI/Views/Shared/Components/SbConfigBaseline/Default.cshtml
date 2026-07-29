@@ -39,17 +39,17 @@
                         <span class="badge sb-config-superseded" role="note"
                               title="A hand-authored rule overrides this target">superseded by rule</span>
                     }
-                    @if (row.CanEdit)
+                    @* Showcase-demo surface (ShowReadOnlyEditAffordance) renders the SAME
+                       interactive edit control the licensed dashboard renders, not a disabled
+                       stub -- a prospect must be able to OPEN the config-override editor. The
+                       data-config-edit hook opens the editor client-side (commercial overlay);
+                       the SAVE targets the commercial control plane and stays server-refused, so
+                       exposing the open here grants no write. *@
+                    @if (row.CanEdit || row.ShowReadOnlyEditAffordance)
                     {
                         <button type="button" class="sb-config-baseline-edit"
                                 data-config-edit data-config-key="@row.ConfigKey"
                                 aria-label="Edit @row.Target action policy">Edit</button>
-                    }
-                    else if (row.ShowReadOnlyEditAffordance)
-                    {
-                        <button type="button" class="sb-config-baseline-edit" disabled
-                                aria-label="Edit @row.Target action policy unavailable in demo mode"
-                                title="Demo mode: editing is read-only">Edit</button>
                     }
                 </li>
             }

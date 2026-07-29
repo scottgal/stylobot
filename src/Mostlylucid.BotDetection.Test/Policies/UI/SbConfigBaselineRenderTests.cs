@@ -53,14 +53,17 @@ public sealed class SbConfigBaselineRenderTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Showcase_demo_configuration_renders_disabled_config_edit_affordance_without_write_wiring()
+    public async Task Showcase_demo_configuration_renders_interactive_config_edit_affordance_without_write_wiring()
     {
+        // Sales-surface flip: the showcase-demo surface renders the SAME interactive edit
+        // control the licensed dashboard renders (data-config-edit opens the override editor
+        // client-side), NOT a disabled stub. The SAVE targets the commercial control plane and
+        // stays server-refused; nothing here grants a write.
         var html = await RenderAsync(new AlwaysReadOnlyPolicyCanEditPolicy(), showcaseDemo: true);
 
-        Assert.Contains("Demo mode: editing is read-only", html);
-        Assert.Contains("aria-label=\"Edit Scraper action policy unavailable in demo mode\"", html);
-        Assert.Contains("disabled", html);
-        Assert.DoesNotContain("data-config-edit", html);
+        Assert.Contains("data-config-edit", html);
+        Assert.DoesNotContain("Demo mode: editing is read-only", html);
+        Assert.DoesNotContain("unavailable in demo mode", html);
     }
 
     public async ValueTask DisposeAsync()

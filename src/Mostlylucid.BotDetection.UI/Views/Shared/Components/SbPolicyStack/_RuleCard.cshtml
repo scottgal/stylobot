@@ -44,16 +44,14 @@
         <div class="sb-policy-card-actions">
             @if ((Model.CanEdit || Model.ShowReadOnlyEditAffordance) && !Model.IsInherited)
             {
-                @if (Model.ShowReadOnlyEditAffordance)
-                {
-                    <button type="button"
-                            class="sb-policy-card-edit"
-                            disabled
-                            aria-label="Edit rule unavailable in demo mode"
-                            title="Demo mode: editing is read-only">&#x270e;</button>
-                }
-                else
-                {
+                @* Showcase-demo surface (ShowReadOnlyEditAffordance) renders the SAME
+                   interactive editor-open control the licensed dashboard renders, not a
+                   disabled stub -- a prospect must be able to OPEN the editor. The
+                   editor-open GET (/policystack/edit) is anonymous-readable; only the
+                   SAVE (PUT /api/v1/policies/{id}, commercial mutation API) is
+                   server-refused, so exposing the open here grants no write. The drag
+                   handle stays gated on CanEdit: reorder is a mutation, not an
+                   editor-open, so the demo surface omits it. *@
                 <button type="button"
                         class="sb-policy-card-edit"
                         data-action="edit"
@@ -61,11 +59,13 @@
                         hx-target="closest article"
                         hx-swap="outerHTML transition:true"
                         aria-label="Edit rule">&#x270e;</button>
-                <button type="button"
-                        class="sb-policy-card-drag"
-                        aria-label="Drag to reorder"
-                        data-policy-stack-drag-handle
-                        draggable="true">&#x22EE;&#x22EE;</button>
+                @if (Model.CanEdit)
+                {
+                    <button type="button"
+                            class="sb-policy-card-drag"
+                            aria-label="Drag to reorder"
+                            data-policy-stack-drag-handle
+                            draggable="true">&#x22EE;&#x22EE;</button>
                 }
             }
         </div>

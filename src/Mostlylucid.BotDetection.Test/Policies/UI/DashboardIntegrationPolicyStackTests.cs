@@ -144,7 +144,12 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         Assert.Contains("data-showcase-readonly", source);
         Assert.Contains("data-control-readonly=\"true\"", source);
         Assert.Contains("data-showcase-readonly-control", source);
-        Assert.Contains("disabled", source);
+        // Sales-surface flip: the showcase control is now the SAME interactive control the
+        // licensed dashboard renders (data-action="toggle-pin-form" reveals the pin form
+        // client-side), NOT a disabled stub. The SAVE (POST /api/endpoint-pins) stays
+        // commercial-gated and server-refused.
+        Assert.Contains("data-action=\"toggle-pin-form\"", source);
+        Assert.DoesNotContain("Pin endpoint unavailable in demo mode", source);
     }
 
     [Fact]
@@ -197,7 +202,17 @@ public sealed class DashboardIntegrationPolicyStackTests : IAsyncDisposable
         Assert.Contains("data-showcase-readonly", source);
         Assert.Contains("data-control-readonly=\"true\"", source);
         Assert.Contains("data-showcase-readonly-control", source);
-        Assert.Contains("disabled", source);
+        // Sales-surface flip: the showcase control now opens the editor via the SAME
+        // anonymous-readable /policystack/edit/new GET the licensed dashboard uses, NOT a
+        // disabled stub. The SAVE (PUT /api/v1/policies/{id}) stays commercial-gated.
+        Assert.Contains("/policystack/edit/new", source);
+        Assert.DoesNotContain("Edit policies unavailable in demo mode", source);
+        // A1: the redundant per-control read-only NOTICE text is removed. The top demo
+        // banner already states "read-only demo mode -- saves disabled", so a duplicate
+        // per-control "you can't edit"/"read-only" notice is the anti-pattern we fix. The
+        // interactive editor-open control + data-showcase-readonly* upsell markers stay.
+        Assert.DoesNotContain("Saving requires a licensed dashboard", source);
+        Assert.DoesNotContain("policy editing is read-only", source);
     }
 
     [Fact]

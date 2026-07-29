@@ -30,11 +30,15 @@
 <section data-dashboard-page="site" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
     @if (showcaseDemo)
     {
+        @* Showcase-demo surface renders the SAME interactive control the licensed
+           dashboard renders (data-action="toggle-pin-form" reveals the pin form,
+           client-side), not a disabled stub -- a prospect must be able to OPEN it.
+           The pin SAVE (POST /api/endpoint-pins) is a commercial-gated write and
+           stays server-refused, so revealing the form here grants no write. *@
         <aside class="sb-showcase-readonly-notice mb-4" data-showcase-readonly data-control-readonly="true" role="note">
-            <span>Showcase demo: site changes are read-only.</span>
-            <button type="button" class="btn btn-sm" disabled data-showcase-readonly-control
-                    aria-label="Pin endpoint unavailable in demo mode"
-                    title="Demo mode: editing is read-only">Pin endpoint</button>
+            <span>Showcase demo: explore the controls. Saving requires a licensed dashboard.</span>
+            <button type="button" class="btn btn-sm" data-action="toggle-pin-form" data-showcase-readonly-control
+                    aria-label="Pin endpoint">Pin endpoint</button>
         </aside>
     }
 @* Si2 (endpoint-IA unification), task 4: single-column host for the canonical

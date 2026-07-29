@@ -6,6 +6,7 @@
 @using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @inject IConfiguration Configuration
+@inject Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver DashboardLinks
 @*
     /dashboard/policies surface. Decode the scope from the URL (?scope=)
     so deep-links round-trip; default to Wildcard for the bare URL.
@@ -56,11 +57,26 @@
 <section class="dashboard-policies" data-dashboard-page="policies" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
     @if (showcaseDemo)
     {
+        @* Showcase-demo surface renders the SAME interactive editor-open control the
+           licensed dashboard exposes, not a disabled stub -- a prospect must be able to
+           OPEN the editor. This hx-get hits the anonymous-readable /policystack/edit/new
+           GET (the same endpoint the per-scope "+ Add rule" affordance uses) and appends
+           a fresh rule editor to the policies section. Only the SAVE (PUT
+           /api/v1/policies/{id}, commercial mutation API) is server-refused, so exposing
+           the open here grants no write.
+
+           A1: the per-control read-only NOTICE text is intentionally omitted. The top
+           demo banner already states "read-only demo mode -- saves disabled", so a
+           duplicate per-control "you can't edit" notice is the redundant anti-pattern we
+           remove here. The interactive editor-open control and the data-showcase-readonly*
+           upsell markers stay. *@
         <aside class="sb-showcase-readonly-notice" data-showcase-readonly data-control-readonly="true" role="note">
-            <span>Showcase demo: policy editing is read-only.</span>
-            <button type="button" class="btn btn-sm" disabled data-showcase-readonly-control
-                    aria-label="Edit policies unavailable in demo mode"
-                    title="Demo mode: editing is read-only">Edit policies</button>
+            <a class="btn btn-sm" data-showcase-readonly-control
+               href="#"
+               hx-get="@DashboardLinks.Resolve($"/policystack/edit/new?scope={PolicyScopeUrl.Encode(scope)}")"
+               hx-target="[data-dashboard-page='policies']"
+               hx-swap="beforeend transition:true"
+               aria-label="Edit policies">Edit policies</a>
         </aside>
     }
     @* Config-baseline layer -- the BotTypeActionPolicies + DefaultActionPolicyName enforcement

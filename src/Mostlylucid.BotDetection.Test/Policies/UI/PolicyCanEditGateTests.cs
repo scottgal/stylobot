@@ -87,31 +87,40 @@ public sealed class PolicyCanEditGateTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Demo_gate_renders_disabled_edit_affordances_without_write_wiring()
+    public async Task Demo_gate_renders_interactive_editor_open_without_write_wiring()
     {
+        // Sales-surface flip: the showcase-demo surface renders the SAME interactive
+        // editor-open control the licensed dashboard renders (so a prospect can OPEN the
+        // editor), NOT a disabled stub. The editor-open GET is anonymous-readable; the
+        // SAVE (PUT /api/v1/policies/{id}, commercial API) is untouched and server-refused.
         var client = await BuildClientAsync(canEditPolicy: new DemoReadOnlyPolicy());
 
         var html = await GetHtmlAsync(client);
 
-        Assert.Contains("Demo mode: editing is read-only", html);
-        Assert.Contains("aria-label=\"Edit rule unavailable in demo mode\"", html);
+        // OPEN is available: the interactive editor-open hx-get is present.
+        Assert.Contains("hx-get=\"/stylobot/policystack/edit?ruleId=", html);
+        // No disabled stub / read-only messaging remains on the control.
+        Assert.DoesNotContain("Demo mode: editing is read-only", html);
+        Assert.DoesNotContain("Edit rule unavailable in demo mode", html);
+        // SAVE stays refused: reorder is a mutation, not an editor-open, so the drag
+        // handle remains gated off the demo surface (CanEdit-only).
         Assert.DoesNotContain("data-policy-stack-drag-handle", html);
-        Assert.DoesNotContain("hx-get=\"/stylobot/policystack/edit?ruleId=", html);
     }
 
     [Fact]
-    public async Task Showcase_demo_configuration_renders_readonly_controls_with_the_foss_gate()
+    public async Task Showcase_demo_configuration_renders_interactive_editor_open_with_the_foss_gate()
     {
         // This is the production dashboard path: the FOSS binding remains deny-by-default, while
-        // the host's explicit showcase configuration changes presentation only.
+        // the host's explicit showcase configuration flips the presentation to the interactive
+        // editor-open control. No write capability is granted -- only the OPEN becomes available.
         var client = await BuildClientAsync(new AlwaysReadOnlyPolicyCanEditPolicy(), showcaseDemo: true);
 
         var html = await GetHtmlAsync(client);
 
-        Assert.Contains("Demo mode: editing is read-only", html);
-        Assert.Contains("aria-label=\"Edit rule unavailable in demo mode\"", html);
+        Assert.Contains("hx-get=\"/stylobot/policystack/edit?ruleId=", html);
+        Assert.DoesNotContain("Demo mode: editing is read-only", html);
+        Assert.DoesNotContain("Edit rule unavailable in demo mode", html);
         Assert.DoesNotContain("data-policy-stack-drag-handle", html);
-        Assert.DoesNotContain("hx-get=\"/stylobot/policystack/edit?ruleId=", html);
     }
 
     public async ValueTask DisposeAsync()

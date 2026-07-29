@@ -105,13 +105,18 @@
             {
                 @await Html.PartialAsync("Components/SbPolicyStack/_ConflictCallout", conflict)
             }
-            @if (Model.AddRuleEnabled)
+            @if (Model.AddRuleEnabled || Model.ShowReadOnlyAddAffordance)
             {
                 @* B8 -- wires the affordance to the existing /policystack/edit/new
                    endpoint that returns a fresh _RuleCardExpand at this scope.
                    HTMX appends the rendered card to the rows list (or replaces
                    the empty-state block when this is the first rule at the
-                   scope). *@
+                   scope). The showcase-demo surface (ShowReadOnlyAddAffordance)
+                   renders this SAME interactive editor-open control, not a disabled
+                   stub -- a prospect must be able to OPEN the new-rule editor. The
+                   editor-open GET (/policystack/edit/new) is anonymous-readable; only
+                   the SAVE (PUT /api/v1/policies/{id}, commercial mutation API) is
+                   server-refused, so exposing the open here grants no write. *@
                 <a class="sb-policy-scope-group-add"
                    data-scope-add
                    href="#"
@@ -119,11 +124,6 @@
                    hx-target="closest .sb-policy-scope-group-panel"
                    hx-swap="beforeend transition:true"
                    data-scope="@scopeEncoded">+ Add rule at this scope</a>
-            }
-            else if (Model.ShowReadOnlyAddAffordance)
-            {
-                <button type="button" class="sb-policy-scope-group-add" disabled
-                        title="Demo mode: editing is read-only">+ Add rule at this scope</button>
             }
         </div>
 
