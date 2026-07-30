@@ -215,8 +215,14 @@ public sealed class DashboardSummaryBroadcaster : IDisposable
             _lastPruneUtc = nowUtc;
             try
             {
+                // Cutoff MUST track the configured retention, not a hardcoded window -- the
+                // dashboard's own window picker (_Body.cshtml) offers 6h/24h/7d/30d gated on this
+                // SAME StyloBotDashboardOptions.DetectionRetention value (default 30 days), so a
+                // hardcoded -7d cutoff here silently capped every host's real data at 7 days
+                // regardless of what retention was actually configured -- a 30d button that reads
+                // as empty/near-empty, not a query bug.
                 var pruned = await _eventStore.PruneOldDetectionsAsync(
-                    nowUtc.AddDays(-7), ct);
+                    nowUtc - _options.DetectionRetention, ct);
                 if (pruned > 0)
                     _logger.LogDebug("Pruned {Count} old dashboard detections", pruned);
             }

@@ -25,11 +25,13 @@ public sealed class DashboardSummaryBroadcasterTickTests
 {
     private static DashboardSummaryBroadcaster NewService(
         RecordingScheduleCoordinator coordinator,
-        bool remoteMode = false)
+        bool remoteMode = false,
+        Mock<IDashboardEventStore>? eventStoreMock = null,
+        StyloBotDashboardOptions? options = null)
     {
         var hubCtxMock = new Mock<IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>>(MockBehavior.Loose);
-        var eventStore = new Mock<IDashboardEventStore>(MockBehavior.Loose).Object;
-        var options = new StyloBotDashboardOptions();
+        var eventStore = (eventStoreMock ?? new Mock<IDashboardEventStore>(MockBehavior.Loose)).Object;
+        options ??= new StyloBotDashboardOptions();
         var sigCache = new SignatureAggregateCache(options);
         var aggCache = new DashboardAggregateCache();
         var services = new ServiceCollection().BuildServiceProvider();
@@ -79,6 +81,35 @@ public sealed class DashboardSummaryBroadcasterTickTests
         await captured.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
 
         captured.Disposed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Prune_cutoff_uses_the_configured_DetectionRetention_not_a_hardcoded_window()
+    {
+        // Real bug: the prune call was hardcoded to `nowUtc.AddDays(-7)` regardless of
+        // StyloBotDashboardOptions.DetectionRetention (default 30 days) -- the dashboard's own
+        // window picker (_Body.cshtml) gates its 6h/24h/7d/30d buttons on this SAME configured
+        // value, so a host configured for 30-day retention would still have its data silently
+        // capped at 7 days by this broadcaster's own prune tick, independent of what the event
+        // store's own internal retention logic does. Pin the cutoff to the configured value.
+        var coordinator = new RecordingScheduleCoordinator();
+        var storeMock = new Mock<IDashboardEventStore>(MockBehavior.Loose);
+        storeMock.Setup(s => s.PruneOldDetectionsAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+        var options = new StyloBotDashboardOptions { DetectionRetention = TimeSpan.FromDays(14) };
+
+        using var sut = NewService(coordinator, eventStoreMock: storeMock, options: options);
+        var captured = Assert.Single(coordinator.Subscriptions);
+
+        // First tick is announce-only (per the test above); the second is where prune fires,
+        // since _lastPruneUtc starts at DateTime.MinValue.
+        var now = DateTimeOffset.UtcNow;
+        await captured.Handler(now, CancellationToken.None);
+        await captured.Handler(now, CancellationToken.None);
+
+        storeMock.Verify(s => s.PruneOldDetectionsAsync(
+            It.Is<DateTime>(cutoff => Math.Abs((cutoff - (now.UtcDateTime - options.DetectionRetention)).TotalSeconds) < 5),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
