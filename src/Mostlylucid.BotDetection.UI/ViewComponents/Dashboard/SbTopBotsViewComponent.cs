@@ -95,6 +95,13 @@ public class SbTopBotsViewComponent(
                 audienceFilter: fetchAudience,
                 domains: scopedDomains);
         }
+        // The event store never carries the per-minute HitTrend ring buffer (DB stores raw
+        // detections, not per-minute counts) -- splice it in from the gateway's own live
+        // SignatureAggregateCache before collapsing, so the SSR Top Bots widget's sparklines
+        // draw real activity instead of a permanently flat baseline. See
+        // WidgetRenderHelpers.OverlayLiveHitTrend's doc comment for why this belongs here and
+        // not just in the standalone REST endpoint.
+        raw = WidgetRenderHelpers.OverlayLiveHitTrend(raw, signatureCache);
         // Collapse groupable identities BEFORE counting so the header badges
         // (All / Bots / Humans / Internal) match the collapsed rows shown here AND the
         // Visitors tab, which also counts post-collapse (ProjectAsVisitors -> snapshot).

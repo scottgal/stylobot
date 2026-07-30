@@ -617,6 +617,13 @@ public sealed class SbWidgetBatchMiddleware
                 audienceFilter: "all",
                 domains: domains);
         }
+        // The event store never carries the per-minute HitTrend ring buffer (DB stores raw
+        // detections, not per-minute counts) -- splice it in from the gateway's own live
+        // SignatureAggregateCache before collapsing, so the SignalR/batch Top Bots sparklines
+        // draw real activity instead of a permanently flat baseline. Covers both the composed
+        // and self-fetch branches above since it runs after both converge on `raw`. See
+        // WidgetRenderHelpers.OverlayLiveHitTrend's doc comment for the full rationale.
+        raw = WidgetRenderHelpers.OverlayLiveHitTrend(raw, _signatureCache);
         // Internal = network-trusted operator/self traffic (loopback / RFC1918 /
         // docker bridge -> BotType.Internal). Hidden from the All / Bots / Humans
         // chips by default because it's almost always StyloBot Internal hitting

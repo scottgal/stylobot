@@ -7598,6 +7598,14 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // requests and OTel collector noise.
         static bool IsInternal(DashboardTopBotEntry e) =>
             string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
+        // The event store never carries the per-minute HitTrend ring buffer (DB stores raw
+        // detections, not per-minute counts) -- splice it in from the gateway's own live
+        // SignatureAggregateCache before collapsing, so the Top Bots sparklines draw real
+        // activity instead of a permanently flat baseline. Applied here (not just in
+        // BuildTopBotsModel above) because the tick-composer's warmed DashboardPageResult.TopBotsRaw
+        // snapshot calls THIS method directly, bypassing BuildTopBotsModel entirely. See
+        // WidgetRenderHelpers.OverlayLiveHitTrend's doc comment for the full rationale.
+        raw = WidgetRenderHelpers.OverlayLiveHitTrend(raw, _signatureCache);
         // One source of truth: collapse the raw distribution to visible identities
         // FIRST, then derive BOTH the header chips (All/Bots/Humans/Internal) AND the
         // list rows from that same collapsed set. Counting `raw` (pre-collapse) rows

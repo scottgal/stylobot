@@ -141,6 +141,38 @@ public static class WidgetRenderHelpers
     }
 
     /// <summary>
+    ///     Splices the live per-minute hit-trend ring buffer from <see cref="SignatureAggregateCache"/>
+    ///     onto any row whose <see cref="DashboardTopBotEntry.HitTrend"/> came back empty from the
+    ///     event store. HitTrend has exactly ONE source of truth -- the runtime ring buffer; the DB
+    ///     deliberately never stores per-minute counts (only the all-time <c>HitCount</c> column) -- so
+    ///     this is surfacing that one source in a render path that was missing it, not forking state.
+    ///     Mirrors the overlay <c>Mostlylucid.BotDetection.Api.Endpoints.ReadEndpoints.HandleTopBots</c>
+    ///     already applies to the standalone REST JSON endpoint; every dashboard render path (SSR
+    ///     ViewComponent, MVC page composer, SignalR/batch live-update) needs the SAME overlay applied
+    ///     here or a deployment whose <c>IDashboardEventStore</c> is DB-backed (not the REST endpoint)
+    ///     shows a permanently flat sparkline despite live traffic. <paramref name="signatureCache"/> is
+    ///     optional -- absent on a genuine remote-mode viewer host with no local cache to overlay from,
+    ///     in which case rows pass through unchanged (the established remote-mode-optional-DI pattern).
+    /// </summary>
+    public static IReadOnlyList<DashboardTopBotEntry> OverlayLiveHitTrend(
+        IReadOnlyList<DashboardTopBotEntry> bots,
+        SignatureAggregateCache? signatureCache)
+    {
+        if (signatureCache is null) return bots;
+
+        List<DashboardTopBotEntry>? patched = null;
+        for (var i = 0; i < bots.Count; i++)
+        {
+            if (bots[i].HitTrend is { Length: > 0 }) continue;
+            if (!signatureCache.TryGetHitTrend(bots[i].PrimarySignature, out var trend)) continue;
+
+            patched ??= new List<DashboardTopBotEntry>(bots);
+            patched[i] = patched[i] with { HitTrend = trend };
+        }
+        return patched ?? bots;
+    }
+
+    /// <summary>
     ///     Collapse rows that share a verified-bot identity into a single aggregate row.
     ///     Identity-equality is gated on THREE axes so a spoofer never collapses with
     ///     the real client whose UA it copied:
