@@ -184,6 +184,13 @@
                     }
                 }
             }
+            // Stuck-tooltip guard: if the active trigger was removed from the DOM
+            // by an HTMX OOB / SignalR row swap while it was still hovered, its
+            // `mouseleave` never fires and the portal stays pinned at the old
+            // anchor -- landing over whatever row now occupies that spot (the
+            // "GoogleOther tooltip stuck over the Bingbot row" symptom). Detached
+            // trigger -> hide.
+            if (current && !current.isConnected) hide();
         });
         mo.observe(document.body, { childList: true, subtree: true });
 

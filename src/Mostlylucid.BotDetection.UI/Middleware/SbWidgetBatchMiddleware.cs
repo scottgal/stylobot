@@ -625,28 +625,36 @@ public sealed class SbWidgetBatchMiddleware
         // chip surfaces it on demand.
         static bool IsInternal(DashboardTopBotEntry e) =>
             string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
-        var publicTraffic = raw.Where(b => !IsInternal(b)).ToList();
-        var internalCount = raw.Count - publicTraffic.Count;
+        // One source of truth: collapse the raw distribution to visible identities
+        // FIRST, then derive BOTH the header chips (All/Bots/Humans/Internal) AND the
+        // list rows from that same collapsed set. Counting `raw` (pre-collapse) rows
+        // while rendering a CollapseGroupableIdentities (post-collapse) list is what
+        // detached the chips from the visible rows (operator P0: counts must reconcile
+        // with the list, computed-at-read from ONE source -- never a second,
+        // differently-shaped count). Must match BuildTopBotsModelFromRaw exactly so the
+        // SignalR/batch live-update and the SSR first paint agree by construction.
+        var collapsed = WidgetRenderHelpers.CollapseGroupableIdentities(raw);
+        var publicTraffic = collapsed.Where(b => !IsInternal(b)).ToList();
+        var internalCount = collapsed.Count - publicTraffic.Count;
         var bots = publicTraffic.Count(b => b.IsKnownBot);
         var humans = publicTraffic.Count - bots;
         IEnumerable<DashboardTopBotEntry> filtered = filter switch
         {
             "bots"     => publicTraffic.Where(b => b.IsKnownBot),
             "humans"   => publicTraffic.Where(b => !b.IsKnownBot),
-            "internal" => raw.Where(IsInternal),
+            "internal" => collapsed.Where(IsInternal),
             _          => publicTraffic
         };
         var sorted = WidgetRenderHelpers.SortTopBots(filtered, sortBy, sortDir).ToList();
-        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(sorted);
-        grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, searchQuery);
-        var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        var searched = WidgetRenderHelpers.ApplySearchFilter(sorted, searchQuery);
+        var pagedBots = searched.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
         return new TopBotsListModel
         {
             Bots = pagedBots,
             Page = page,
             PageSize = pageSize,
-            TotalCount = grouped.Count,
+            TotalCount = searched.Count,
             SortField = sortBy,
             SortDir = sortDir,
             BasePath = _options.BasePath.TrimEnd('/'),
