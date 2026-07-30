@@ -62,7 +62,8 @@ public static class DetectionNarrativeBuilder
         ["ClaimedIdentity"] = "UA behavioral profile consistency",
         ["FingerprintMatch"] = "metastable identity match",
         ["HealthEndpoint"] = "health probe path recognition",
-        ["HealthEndpointRecon"] = "health endpoint reconnaissance detection"
+        ["HealthEndpointRecon"] = "health endpoint reconnaissance detection",
+        ["Webhook"] = "Webhook receiver"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -119,7 +120,8 @@ public static class DetectionNarrativeBuilder
         ["ClaimedIdentity"] = "Identity",
         ["FingerprintMatch"] = "Identity",
         ["HealthEndpoint"] = "Request",
-        ["HealthEndpointRecon"] = "Security"
+        ["HealthEndpointRecon"] = "Security",
+        ["Webhook"] = "Machine client"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)

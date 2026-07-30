@@ -1,14 +1,17 @@
+using System.Text;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Definitions.Webhooks;
+using Mostlylucid.BotDetection.Privacy;
 
 namespace Mostlylucid.BotDetection.Test.Data;
 
 public sealed class SqliteWebhookReputationStoreTests : IDisposable
 {
+    private static readonly PiiHasher TestHasher = new(Encoding.UTF8.GetBytes("wh-test-signing-key-0123456789ab"));
     private readonly string _db = Path.Combine(Path.GetTempPath(), $"wh_{Guid.NewGuid():N}.db");
-    private SqliteWebhookReputationStore New() => new(_db, WebhookCatalog.Default);
+    private SqliteWebhookReputationStore New() => new(_db, WebhookCatalog.Default, TestHasher);
     public void Dispose() { if (File.Exists(_db)) File.Delete(_db); }
 
     [Fact]
@@ -70,5 +73,43 @@ public sealed class SqliteWebhookReputationStoreTests : IDisposable
         // Correlation is preserved: same raw IP in -> same hash internally -> dominance
         // still resolves correctly on the public (raw-IP-taking) interface surface.
         s.IsDominantIp("/h", rawIp).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Ip_hash_is_keyed_different_signing_key_produces_different_hash()
+    {
+        var dbA = Path.Combine(Path.GetTempPath(), $"wh_{Guid.NewGuid():N}.db");
+        var dbB = Path.Combine(Path.GetTempPath(), $"wh_{Guid.NewGuid():N}.db");
+        try
+        {
+            var hasherA = new PiiHasher(Encoding.UTF8.GetBytes("wh-key-one-0123456789abcdef"));
+            var hasherB = new PiiHasher(Encoding.UTF8.GetBytes("wh-key-two-0123456789abcdef"));
+            var storeA = new SqliteWebhookReputationStore(dbA, WebhookCatalog.Default, hasherA);
+            var storeB = new SqliteWebhookReputationStore(dbB, WebhookCatalog.Default, hasherB);
+            const string ip = "5.6.7.8";
+            storeA.RecordRequest("/h", ip);
+            storeB.RecordRequest("/h", ip);
+
+            static string ReadHash(string db)
+            {
+                using var conn = new SqliteConnection($"Data Source={db}");
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT ip FROM webhook_endpoint_ip WHERE endpoint = @endpoint";
+                cmd.Parameters.AddWithValue("@endpoint", "/h");
+                return (string)cmd.ExecuteScalar()!;
+            }
+
+            var hashA = ReadHash(dbA);
+            var hashB = ReadHash(dbB);
+            hashA.Should().NotBe(hashB,
+                "the same raw IP under two different signing keys must hash differently -- proof this is a " +
+                "KEYED HMAC (PiiHasher), not an unkeyed SHA-256 that would collide regardless of key");
+        }
+        finally
+        {
+            if (File.Exists(dbA)) File.Delete(dbA);
+            if (File.Exists(dbB)) File.Delete(dbB);
+        }
     }
 }

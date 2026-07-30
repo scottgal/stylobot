@@ -1,7 +1,6 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Data.Sqlite;
 using Mostlylucid.BotDetection.Definitions.Webhooks;
+using Mostlylucid.BotDetection.Privacy;
 using Mostlylucid.BotDetection.Reputation;
 
 namespace Mostlylucid.BotDetection.Data;
@@ -20,37 +19,40 @@ namespace Mostlylucid.BotDetection.Data;
 ///     CLAUDE.md rule "Raw IP/UA only in-memory, never persisted". Same IP always
 ///     produces the same hash, so dominance/verified-record correlation across calls
 ///     is unaffected; the hash is one-way, so the raw IP cannot be recovered from the
-///     stored row. This store's constructor takes no signing key (its shape is fixed
-///     by the interface's ctor contract), so a plain (unkeyed) SHA-256 is used rather
-///     than the keyed <see cref="Privacy.PiiHasher"/> used elsewhere in the codebase —
-///     still one-way and still sufficient for the same-IP-to-same-hash correlation
-///     this store needs.
+///     stored row.
+///
+///     The hash is KEYED HMAC-SHA256 via the shared <see cref="PiiHasher"/> (the same
+///     signing-key-driven hasher used for every other PII signature in the product,
+///     e.g. request/geo signatures) — NOT a plain SHA-256. A low-entropy value like an
+///     IPv4 address is brute-forceable end-to-end against an unkeyed hash (the whole
+///     /0-/32 space is a few billion SHA-256 calls); keying it with a secret,
+///     per-deployment HMAC key closes that gap the same way the rest of the codebase
+///     already does for IP/UA hashing.
 /// </summary>
 public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
 {
     private readonly string _connectionString;
     private readonly WebhookCatalog _catalog;
+    private readonly PiiHasher _hasher;
     private readonly object _initLock = new();
     private bool _initialised;
 
-    public SqliteWebhookReputationStore(string dbPath, WebhookCatalog catalog)
+    public SqliteWebhookReputationStore(string dbPath, WebhookCatalog catalog, PiiHasher hasher)
     {
         _catalog = catalog;
+        _hasher = hasher;
         var dir = Path.GetDirectoryName(dbPath);
         StoreDbDirectory.EnsureExists(dir);
         _connectionString = $"Data Source={dbPath}";
     }
 
     /// <summary>
-    ///     One-way hash of a raw source IP so it never reaches SQL in cleartext. Not
-    ///     keyed (see class remarks) — deterministic per IP, which is all the
+    ///     One-way KEYED hash of a raw source IP (via <see cref="PiiHasher.HashIp"/>) so
+    ///     it never reaches SQL in cleartext and is not brute-forceable without the
+    ///     signing key. Deterministic per (key, IP) pair, which is all the
     ///     dominance/verified-record correlation in this store requires.
     /// </summary>
-    private static string HashIp(string ip)
-    {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(ip));
-        return Convert.ToHexString(hash);
-    }
+    private string HashIp(string ip) => _hasher.HashIp(ip);
 
     private void EnsureInitialised()
     {

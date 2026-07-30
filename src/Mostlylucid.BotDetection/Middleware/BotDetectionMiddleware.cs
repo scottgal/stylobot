@@ -191,6 +191,14 @@ public static class BotDetectionMiddlewareExtensions
 {
     public static IApplicationBuilder UseBotDetection(this IApplicationBuilder app)
     {
-        return app.UseMiddleware<BotDetectionMiddleware>();
+        app.UseMiddleware<BotDetectionMiddleware>();
+
+        // Runs AFTER detection (WebhookSensor has already stashed
+        // context.Items["sb.webhook.endpoint"] when the shape matched) and wraps the
+        // rest of the pipeline, so the upstream status code is only read once _next
+        // returns. Registered here (not only in UseStyloBot) so both the
+        // dashboard-less "AddBotDetection() + UseBotDetection()" host and UseStyloBot
+        // (which calls this method) get outcome recording without a second opt-in.
+        return app.UseMiddleware<WebhookOutcomeRecorderMiddleware>();
     }
 }

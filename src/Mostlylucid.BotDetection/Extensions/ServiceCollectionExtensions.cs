@@ -137,6 +137,14 @@ public static class ServiceCollectionExtensions
         // already parked here; this closes the classifier read path any catalogue (e.g. browser_char)
         // would hit.
         services.Replace(ServiceDescriptor.Singleton<Identity.IFingerprintStore, Identity.NullFingerprintStore>());
+        // Webhook endpoint reputation: the SQLite store derives its db path from
+        // DatabasePath's directory, which is meaningless once DatabasePath is emptied
+        // above. Swap to the null store so ephemeral mode creates no webhooks.db file;
+        // WebhookSensor already treats a missing reputation source as "no IP
+        // corroborator available" (shape-only, never-corroborated) via its optional ctor
+        // param, so detection degrades gracefully rather than throwing.
+        services.Replace(ServiceDescriptor.Singleton<Reputation.IWebhookEndpointReputation,
+            Reputation.NullWebhookEndpointReputation>());
 
         return services;
     }
