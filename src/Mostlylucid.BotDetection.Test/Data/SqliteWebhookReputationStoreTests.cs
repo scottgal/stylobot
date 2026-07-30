@@ -1,0 +1,49 @@
+using FluentAssertions;
+using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Definitions.Webhooks;
+
+namespace Mostlylucid.BotDetection.Test.Data;
+
+public sealed class SqliteWebhookReputationStoreTests : IDisposable
+{
+    private readonly string _db = Path.Combine(Path.GetTempPath(), $"wh_{Guid.NewGuid():N}.db");
+    private SqliteWebhookReputationStore New() => new(_db, WebhookCatalog.Default);
+    public void Dispose() { if (File.Exists(_db)) File.Delete(_db); }
+
+    [Fact]
+    public void Dominant_ip_requires_min_count_and_share()
+    {
+        var s = New();
+        for (var i = 0; i < 25; i++) s.RecordRequest("/h", "1.1.1.1");   // dominant
+        s.RecordRequest("/h", "9.9.9.9");                                 // rare
+        s.IsDominantIp("/h", "1.1.1.1").Should().BeTrue();
+        s.IsDominantIp("/h", "9.9.9.9").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Verified_record_requires_consistent_2xx_over_4xx()
+    {
+        var s = New();
+        for (var i = 0; i < 12; i++) s.RecordOutcome("/h", "1.1.1.1", 200);
+        s.RecordOutcome("/h", "1.1.1.1", 400);
+        s.HasVerifiedRecord("/h", "1.1.1.1").Should().BeTrue();
+        for (var i = 0; i < 12; i++) s.RecordOutcome("/h", "2.2.2.2", 400); // spoofer: all 4xx
+        s.HasVerifiedRecord("/h", "2.2.2.2").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Server_5xx_is_neutral_does_not_demote_verified_sender()
+    {
+        var s = New();
+        for (var i = 0; i < 12; i++) s.RecordOutcome("/h", "1.1.1.1", 200); // verified
+        for (var i = 0; i < 50; i++) s.RecordOutcome("/h", "1.1.1.1", 503); // receiver outage: retries
+        s.HasVerifiedRecord("/h", "1.1.1.1").Should().BeTrue("5xx is the receiver's fault, not the sender's");
+    }
+
+    [Fact]
+    public void Persists_across_reopen()
+    {
+        { var s = New(); for (var i=0;i<25;i++) s.RecordRequest("/h","1.1.1.1"); }
+        New().IsDominantIp("/h", "1.1.1.1").Should().BeTrue();
+    }
+}
