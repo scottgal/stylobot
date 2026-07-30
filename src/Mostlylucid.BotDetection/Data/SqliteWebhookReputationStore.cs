@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Data.Sqlite;
 using Mostlylucid.BotDetection.Definitions.Webhooks;
 using Mostlylucid.BotDetection.Reputation;
@@ -11,6 +13,18 @@ namespace Mostlylucid.BotDetection.Data;
 ///     zero-in-memory-persistence rule for anything that matters. The table is small
 ///     (bounded by distinct endpoint/IP pairs, not per-request), so a query-per-call is
 ///     cheap enough not to need a cache.
+///
+///     Zero-PII: the raw source IP passed into every method never touches SQL. It is
+///     hashed internally (<see cref="HashIp"/>) before it is used in any upsert or
+///     lookup, and the persisted <c>ip</c> column holds only that hash — mirrors the
+///     CLAUDE.md rule "Raw IP/UA only in-memory, never persisted". Same IP always
+///     produces the same hash, so dominance/verified-record correlation across calls
+///     is unaffected; the hash is one-way, so the raw IP cannot be recovered from the
+///     stored row. This store's constructor takes no signing key (its shape is fixed
+///     by the interface's ctor contract), so a plain (unkeyed) SHA-256 is used rather
+///     than the keyed <see cref="Privacy.PiiHasher"/> used elsewhere in the codebase —
+///     still one-way and still sufficient for the same-IP-to-same-hash correlation
+///     this store needs.
 /// </summary>
 public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
 {
@@ -25,6 +39,17 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
         var dir = Path.GetDirectoryName(dbPath);
         StoreDbDirectory.EnsureExists(dir);
         _connectionString = $"Data Source={dbPath}";
+    }
+
+    /// <summary>
+    ///     One-way hash of a raw source IP so it never reaches SQL in cleartext. Not
+    ///     keyed (see class remarks) — deterministic per IP, which is all the
+    ///     dominance/verified-record correlation in this store requires.
+    /// </summary>
+    private static string HashIp(string ip)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(ip));
+        return Convert.ToHexString(hash);
     }
 
     private void EnsureInitialised()
@@ -64,6 +89,7 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
 
     public void RecordRequest(string endpoint, string ip)
     {
+        var ipHash = HashIp(ip);
         EnsureInitialised();
         var now = DateTime.UtcNow.ToString("O");
 
@@ -78,7 +104,7 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
                 last_seen = @now
             """;
         cmd.Parameters.AddWithValue("@endpoint", endpoint);
-        cmd.Parameters.AddWithValue("@ip", ip);
+        cmd.Parameters.AddWithValue("@ip", ipHash);
         cmd.Parameters.AddWithValue("@now", now);
         cmd.ExecuteNonQuery();
     }
@@ -92,6 +118,7 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
         var is4xx = statusCode is >= 400 and < 500;
         if (!is2xx && !is4xx) return;
 
+        var ipHash = HashIp(ip);
         EnsureInitialised();
         var now = DateTime.UtcNow.ToString("O");
 
@@ -107,13 +134,14 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
                 last_seen = @now
             """;
         cmd.Parameters.AddWithValue("@endpoint", endpoint);
-        cmd.Parameters.AddWithValue("@ip", ip);
+        cmd.Parameters.AddWithValue("@ip", ipHash);
         cmd.Parameters.AddWithValue("@now", now);
         cmd.ExecuteNonQuery();
     }
 
     public bool IsDominantIp(string endpoint, string ip)
     {
+        var ipHash = HashIp(ip);
         EnsureInitialised();
 
         using var conn = new SqliteConnection(_connectionString);
@@ -124,7 +152,7 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
         {
             cmd.CommandText = "SELECT req_count FROM webhook_endpoint_ip WHERE endpoint = @endpoint AND ip = @ip";
             cmd.Parameters.AddWithValue("@endpoint", endpoint);
-            cmd.Parameters.AddWithValue("@ip", ip);
+            cmd.Parameters.AddWithValue("@ip", ipHash);
             var result = cmd.ExecuteScalar();
             if (result is null) return false;
             ipCount = Convert.ToInt64(result);
@@ -149,6 +177,7 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
 
     public bool HasVerifiedRecord(string endpoint, string ip)
     {
+        var ipHash = HashIp(ip);
         EnsureInitialised();
 
         using var conn = new SqliteConnection(_connectionString);
@@ -159,7 +188,7 @@ public sealed class SqliteWebhookReputationStore : IWebhookEndpointReputation
              WHERE endpoint = @endpoint AND ip = @ip
             """;
         cmd.Parameters.AddWithValue("@endpoint", endpoint);
-        cmd.Parameters.AddWithValue("@ip", ip);
+        cmd.Parameters.AddWithValue("@ip", ipHash);
         using var reader = cmd.ExecuteReader();
         if (!reader.Read()) return false;
 

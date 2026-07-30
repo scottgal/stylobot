@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Definitions.Webhooks;
 
@@ -45,5 +46,29 @@ public sealed class SqliteWebhookReputationStoreTests : IDisposable
     {
         { var s = New(); for (var i=0;i<25;i++) s.RecordRequest("/h","1.1.1.1"); }
         New().IsDominantIp("/h", "1.1.1.1").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Raw_ip_is_never_persisted_but_correlation_still_works()
+    {
+        var s = New();
+        const string rawIp = "1.2.3.4";
+        for (var i = 0; i < 25; i++) s.RecordRequest("/h", rawIp);
+
+        // Zero-PII: read the raw `ip` column back directly and assert the cleartext
+        // IP never landed on disk.
+        using var conn = new SqliteConnection($"Data Source={_db}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT ip FROM webhook_endpoint_ip WHERE endpoint = @endpoint";
+        cmd.Parameters.AddWithValue("@endpoint", "/h");
+        var storedIp = (string)cmd.ExecuteScalar()!;
+
+        storedIp.Should().NotBe(rawIp, "the raw IP must never touch the persisted column");
+        storedIp.Should().NotContain(rawIp, "the raw IP must not even appear as a substring of the stored value");
+
+        // Correlation is preserved: same raw IP in -> same hash internally -> dominance
+        // still resolves correctly on the public (raw-IP-taking) interface surface.
+        s.IsDominantIp("/h", rawIp).Should().BeTrue();
     }
 }
