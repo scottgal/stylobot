@@ -1167,6 +1167,24 @@ public class BotDetectionOptions
     public string? DefaultActionPolicyName { get; set; } = "throttle-stealth";
 
     /// <summary>
+    ///     Absolute, site-wide requests-per-minute ceiling applied to
+    ///     <em>every</em> endpoint -- including traffic that benign-routing
+    ///     carve-outs (verified-crawler fast path, corroborated registry
+    ///     client, recognized webhook sender) would otherwise let through
+    ///     unshaped. Those carve-outs exist so legitimate high-volume
+    ///     automation is never throttled; this ceiling is the backstop that
+    ///     still sheds an absolute flood even of trusted/recognized traffic,
+    ///     keyed per (visitor, endpoint) via the shared
+    ///     <see cref="Mostlylucid.BotDetection.RateLimit.ITokenBucketStore"/>.
+    /// </summary>
+    /// <remarks>
+    ///     The default is intentionally very high so it never touches
+    ///     legitimate volume -- it is a safety net, not a rate limit. Set to
+    ///     <c>0</c> to disable the ceiling entirely.
+    /// </remarks>
+    public int SafetyCeilingRpm { get; set; } = 100_000;
+
+    /// <summary>
     ///     Per-bot-type action policy mapping. When a bot is detected and its
     ///     <see cref="BotType"/> is in this map, the named action policy fires
     ///     instead of <see cref="DefaultActionPolicyName"/>.
