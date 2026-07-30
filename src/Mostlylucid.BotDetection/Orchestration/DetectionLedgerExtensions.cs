@@ -333,7 +333,11 @@ public static class DetectionLedgerExtensions
         // on the next request via cached probability for a self-healing persisted name.
         if (isActuallyBot && IsHumanArchetypeWithoutCatalogClaim(preSignals, primaryBotName))
         {
-            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(preSignals);
+            // Thread the sink-resolved raw UA: ua.raw is sink-only and absent from preSignals,
+            // so without it the behavioural synthesiser cannot mine a self-declared org domain
+            // ("paloaltonetworks.com") and would drop to a network-identity qualifier.
+            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(
+                preSignals, ReadString(SignalKeys.UserAgent));
         }
 
         // Health-probe name override (Task 6). When the request is classified as a
@@ -546,7 +550,8 @@ public static class DetectionLedgerExtensions
         // to ship a human-archetype label for a bot verdict either.
         if (isBot && IsHumanArchetypeWithoutCatalogClaim(earlySignals, primaryBotName))
         {
-            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(earlySignals);
+            primaryBotName = Services.FingerprintNameComposer.ComposeUnknownBot(
+                earlySignals, ReadString(SignalKeys.UserAgent));
         }
         // Catalog authority (same rule as the post-orchestration path): when the
         // resolved BotName matches a BotPatternLoader entry, prefer the catalog's

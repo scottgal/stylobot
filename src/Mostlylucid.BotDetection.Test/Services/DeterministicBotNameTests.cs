@@ -148,17 +148,17 @@ public class DeterministicBotNameTests
     [Fact]
     public async Task EmptySignals_ReturnsUnknownTerminal()
     {
-        // Updated contract (T5, 2026-06-22): the composer is the SOLE writer of
-        // Fingerprint.DisplayName. Returning null leaks an em-dash placeholder
-        // through every downstream reader, which the user called out as unacceptable.
-        // With nothing to compose from, the truthful terminal is the canonical
-        // "Unknown <hex>" shape -- IsFallback recognises it so a real Priority 1-3
-        // name still wins on a later request.
+        // Updated contract (2026-07-30, "Unknown is not a valid state"): the composer is the
+        // SOLE writer of Fingerprint.DisplayName and must never emit "Unknown". With literally
+        // nothing to compose from (no UA, no network identity, no fingerprint id) the terminal
+        // is "Unclassified Client" -- IsFallback recognises it so a real Priority 1-3 name still
+        // wins on a later request.
         var signals = new Dictionary<string, object?>();
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Equal("Unknown", name);
+        Assert.Equal("Unclassified Client", name);
+        Assert.DoesNotContain("Unknown", name!, StringComparison.OrdinalIgnoreCase);
     }
 
     // ─── Detailed (name + description) ─────────────────────────────────

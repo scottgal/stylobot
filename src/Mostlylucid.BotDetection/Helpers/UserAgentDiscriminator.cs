@@ -95,6 +95,38 @@ public static class UserAgentDiscriminator
         return IsVendorHomeOrSubdomain(host) ? null : host;
     }
 
+    /// <summary>
+    ///     Extracts the registrable domain (naive eTLD+1: last two dot-labels) from any URL
+    ///     the User-Agent carries, for NAMING an otherwise-unrecognised self-identifying
+    ///     actor by the organisation it points at -- e.g. "paloaltonetworks.com" from a
+    ///     Cortex-Xpanse scanner UA ("Hello from Palo Alto Networks, find out more about our
+    ///     scans in https://docs-cortex.paloaltonetworks.com/..."). Unlike
+    ///     <see cref="ExtractDiscriminator"/> this deliberately does NOT apply the
+    ///     vendor-home skiplist: when the visitor is otherwise unknown, the vendor/org domain
+    ///     IS its identity and must surface in the name ("Config Scanner · paloaltonetworks.com")
+    ///     rather than be dropped. Returns null when the UA carries no http(s) URL.
+    ///     A full public-suffix list is intentionally avoided (dependency weight); the naive
+    ///     last-two-labels reduction is adequate for a display label.
+    /// </summary>
+    public static string? ExtractSelfIdentDomain(string? userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return null;
+
+        var match = UrlRegex.Match(userAgent);
+        if (!match.Success) return null;
+        if (!Uri.TryCreate(match.Groups[1].Value, UriKind.Absolute, out var uri)) return null;
+
+        var host = uri.Host;
+        if (string.IsNullOrEmpty(host)) return null;
+        if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+            host = host[4..];
+
+        // Reduce sub.domain.example.com -> example.com so the label names the org, not the
+        // per-service subdomain ("docs-cortex.paloaltonetworks.com" -> "paloaltonetworks.com").
+        var labels = host.Split('.');
+        return labels.Length >= 2 ? $"{labels[^2]}.{labels[^1]}" : host;
+    }
+
     private static bool IsVendorHomeOrSubdomain(string host)
     {
         var set = VendorHomeHosts.Value;

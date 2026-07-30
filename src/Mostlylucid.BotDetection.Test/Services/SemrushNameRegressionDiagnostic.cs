@@ -61,13 +61,16 @@ public class SemrushNameRegressionDiagnostic
     }
 
     [Fact]
-    public void Layer4_Compose_with_NO_UA_signal_falls_to_Unknown()
+    public void Layer4_Compose_with_NO_UA_signal_synthesises_a_terminal_never_Unknown()
     {
-        // The ONLY path to "Unknown": preSignals strips the raw UA (PII) AND ua.bot_name
-        // was never raised -> Compose has nothing to match. This is the prod shape.
+        // preSignals strips the raw UA (PII) AND ua.bot_name was never raised -> Compose has
+        // nothing to match. Under "Unknown is not a valid state" (2026-07-30) the terminal is
+        // the synthesised "Unclassified Client", never the word "Unknown".
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>());
         _out.WriteLine($"Compose({{}}) -> '{name}'");
-        Assert.True(string.IsNullOrEmpty(name) || name!.StartsWith("Unknown"), $"got '{name}'");
+        Assert.False(string.IsNullOrEmpty(name), "terminal must never be null/empty");
+        Assert.DoesNotContain("Unknown", name!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Unclassified Client", name);
     }
 
     [Fact]

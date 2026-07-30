@@ -314,33 +314,17 @@ internal static class FingerprintNameComposer
         IReadOnlyDictionary<string, object> signals,
         string? userAgent = null)
     {
-        var family = GetString(signals, SignalKeys.UserAgentFamily);
-        var familyVersion = GetString(signals, SignalKeys.UserAgentFamilyVersion);
-        var os = GetString(signals, SignalKeys.UserAgentOs);
-        var rawUaForParse = !string.IsNullOrEmpty(userAgent)
+        // "Unknown is not a valid state" (operator directive 2026-07-30). The verdict says
+        // this is a bot but Priority 1 found no catalog claim. Instead of "Unknown Bot" we
+        // synthesise what it is BEHAVING LIKE (scanner / scraper / attacker / config-crawler)
+        // and WHO/WHERE it is (self-identified domain / hosting org / ASN / country). The
+        // browser family is deliberately NOT used here: this override fires precisely when the
+        // family-derived (human archetype) name disagreed with a bot verdict, so naming it
+        // "Unknown Bot Chrome" would re-assert the identity we just overrode.
+        var rawUa = !string.IsNullOrEmpty(userAgent)
             ? userAgent
             : GetString(signals, SignalKeys.UserAgent);
-        if ((string.IsNullOrEmpty(family) || string.IsNullOrEmpty(familyVersion)) && !string.IsNullOrEmpty(rawUaForParse))
-        {
-            var parsed = UserAgentParser.Parse(rawUaForParse);
-            if (string.IsNullOrEmpty(family)) family = parsed.Family;
-            if (string.IsNullOrEmpty(familyVersion)) familyVersion = parsed.Version;
-        }
-        if (string.IsNullOrEmpty(os) && !string.IsNullOrEmpty(rawUaForParse))
-            os = UserAgentParser.ExtractOs(rawUaForParse);
-
-        if (string.IsNullOrEmpty(family) || family == "Other")
-            return "Unknown Bot";
-
-        var major = ExtractMajorVersion(familyVersion);
-        var osShort = ShortOs(os);
-        return (osShort, major) switch
-        {
-            ({ Length: > 0 } o, { Length: > 0 } v) => $"Unknown Bot {o} {family} {v}",
-            ({ Length: > 0 } o, _)                 => $"Unknown Bot {o} {family}",
-            (_, { Length: > 0 } v)                 => $"Unknown Bot {family} {v}",
-            _                                       => $"Unknown Bot {family}"
-        };
+        return SynthesizeBehavioralIdentity(signals, fingerprintId: null, rawUa, treatAsBot: true);
     }
 
     /// <summary>
@@ -374,47 +358,169 @@ internal static class FingerprintNameComposer
     }
 
     /// <summary>
-    ///     The "Unknown" terminal name. Picks the most informative discriminator from
-    ///     what is actually known about the request, in order of preference:
-    ///       1. Fingerprint-id prefix (8 hex chars) when allocation has happened.
-    ///       2. ASN ("Unknown AS15169") -- network-level identity, present from the
-    ///          first request because the IP contributors run before UA parsing.
-    ///       3. Country code ("Unknown US") -- geo signal, also network-level.
-    ///       4. Bare "Unknown" -- only when literally no discriminating signal exists.
-    ///
-    ///     Never emits "Unknown 00000000" -- that all-zero placeholder is a lying name
-    ///     that pretends a fingerprint exists when it does not. If we cannot honestly
-    ///     produce a prefix, we say so by using a real-signal discriminator or none.
+    ///     Terminal name for a request that produced no Priority 1-3 name. "Unknown is not a
+    ///     valid state" (operator directive 2026-07-30): we ALWAYS have enough evidence to say
+    ///     WHAT the actor is behaving like and WHO/WHERE it is, so this delegates to
+    ///     <see cref="SynthesizeBehavioralIdentity"/> and never emits the word "Unknown".
+    ///     Kept as a named method because <see cref="ComposeFresh"/> calls it from two sites
+    ///     (the Priority-4 branch and the contract-shape re-route).
     /// </summary>
     private static string ComposeUnknownTerminal(
         IReadOnlyDictionary<string, object> signals,
         string? fingerprintId,
         string? rawUa = null)
-    {
-        // No UA at all, but the network layer knows what this is: name it by the hosting
-        // provider ("Missing UA Azure") instead of an opaque per-fp hash, so the operator can
-        // see WHAT it is even without a UA. Recognised by IsFallback so a real UA-derived name
-        // still overwrites it if the actor later sends a UA; the matcher disambiguates
-        // same-provider collisions via BuildDistinctiveModifier (ASN / country / IP block).
-        if (string.IsNullOrWhiteSpace(rawUa))
-        {
-            var provider = GetString(signals, SignalKeys.IpProvider);
-            if (!string.IsNullOrEmpty(provider)) return $"Missing UA {provider}";
+        => SynthesizeBehavioralIdentity(signals, fingerprintId, rawUa, treatAsBot: false);
 
-            var asnOrg = GetString(signals, SignalKeys.IpAsnOrg);
-            if (!string.IsNullOrEmpty(asnOrg)) return $"Missing UA {asnOrg}";
+    /// <summary>
+    ///     Synthesise "{what it is behaving like} · {who/where it is}" from signals already on
+    ///     the blackboard, so an actor with no catalog match is NEVER labelled "Unknown"
+    ///     (operator directive 2026-07-30: "UNKNOWN IS NOT A VALID STATE ... what is it
+    ///     BEHAVING LIKE"). The name re-derives from the CURRENT request's behaviour on every
+    ///     compose, so it updates as the fingerprint drifts (scanner today, attacker tomorrow).
+    ///     <para>
+    ///     Role (behaviour) comes from <see cref="DeriveBehavioralRole"/>; identity (org / ASN /
+    ///     country / self-declared domain) from <see cref="DeriveIdentityQualifier"/>. At least
+    ///     one is essentially always present in production; the trailing fingerprint-id and
+    ///     final "Unclassified Client" guards exist only so the method is total (never null /
+    ///     empty / "Unknown") for the invariant test corpus.
+    ///     </para>
+    /// </summary>
+    private static string SynthesizeBehavioralIdentity(
+        IReadOnlyDictionary<string, object> signals,
+        string? fingerprintId,
+        string? rawUa,
+        bool treatAsBot)
+    {
+        var role = DeriveBehavioralRole(signals, treatAsBot);
+        var identity = DeriveIdentityQualifier(signals, rawUa);
+
+        if (!string.IsNullOrEmpty(role) && !string.IsNullOrEmpty(identity))
+            return $"{role} · {identity}";
+        if (!string.IsNullOrEmpty(role))
+            return role;
+        if (!string.IsNullOrEmpty(identity))
+            return identity;
+
+        // No behaviour and no network identity: still name it by the stable fingerprint id
+        // rather than "Unknown". "Client {fp8}" is recognised by IsFallback so any later
+        // real name (catalog / browser / behavioural role) overrides it.
+        if (!string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8)
+            return $"Client {fingerprintId[..8]}";
+        return "Unclassified Client";
+    }
+
+    /// <summary>
+    ///     Behavioural role -- "what is it behaving like" -- from the highest-specificity
+    ///     signal present, all already computed by upstream atoms. Returns null only when no
+    ///     behavioural signal exists AND the verdict isn't bot-leaning, so the caller falls
+    ///     back to an identity-only name. The role labels are a display mapping of already-
+    ///     computed classifications (like <see cref="ShortOs"/>), not a detection catalog.
+    /// </summary>
+    private static string? DeriveBehavioralRole(IReadOnlyDictionary<string, object> signals, bool treatAsBot)
+    {
+        // Attack/probe surface (HaxxorAtom / CveFingerprintAtom) -- most specific.
+        if (GetFlag(signals, SignalKeys.AttackConfigExposure)) return "Config Scanner";
+        if (GetFlag(signals, SignalKeys.AttackAdminScan)) return "Admin Scanner";
+        if (GetFlag(signals, SignalKeys.CveProbeDetected)) return "Vuln Scanner";
+        if (GetFlag(signals, SignalKeys.AttackPathProbe)) return "Path Scanner";
+
+        // Session intent (IntentAtom): attacking / scanning / reconnaissance / ad_fraud / browsing.
+        var intent = GetString(signals, SignalKeys.IntentCategory);
+        switch (intent)
+        {
+            case "attacking": return "Attacker";
+            case "scanning": return "Scanner";
+            case "reconnaissance": return "Recon Bot";
+            case "ad_fraud": return "Click Fraud";
         }
 
-        if (!string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8)
-            return $"Unknown {fingerprintId[..8]}";
+        if (GetFlag(signals, SignalKeys.AiScraperDetected)) return "AI Scraper";
+
+        // Coarse bot-type taxonomy (UserAgentAtom writes the BotType enum name).
+        var botType = GetString(signals, SignalKeys.UserAgentBotType)
+                      ?? GetString(signals, SignalKeys.IdentityBotType);
+        var roleFromType = botType switch
+        {
+            nameof(BotType.Scraper)        => "Scraper",
+            nameof(BotType.ExploitScanner) => "Exploit Scanner",
+            nameof(BotType.AiBot)          => "AI Bot",
+            nameof(BotType.Tool)           => "Tool",
+            nameof(BotType.MonitoringBot)  => "Monitor",
+            nameof(BotType.ClickFraud)     => "Click Fraud",
+            nameof(BotType.MaliciousBot)   => "Malicious Bot",
+            nameof(BotType.SearchEngine)   => "Crawler",
+            nameof(BotType.SocialMediaBot) => "Social Bot",
+            _                               => null
+        };
+        if (!string.IsNullOrEmpty(roleFromType)) return roleFromType;
+
+        // No named behaviour, but the verdict leans bot -> generic automated role (recognised
+        // by IsFallback so a specific role/browser/catalog name still overrides it later).
+        if (treatAsBot || GetDouble(signals, SignalKeys.IdentityCachedBotProbability) >= BotProbabilityNamingThreshold)
+            return "Automated Client";
+
+        return null;
+    }
+
+    /// <summary>
+    ///     "Who / where" qualifier for a synthesised name, most-identifying first:
+    ///       1. A domain the UA self-declares (Cortex-Xpanse, research scanners) -- the actor
+    ///          literally told us who it is (<see cref="UserAgentDiscriminator.ExtractSelfIdentDomain"/>).
+    ///       2. Hosting provider / ASN org -- network-level identity, present from request 1.
+    ///       3. ASN number, then country code.
+    ///     Raw IP / CIDR is intentionally NOT used: it is PII-adjacent and the "/" would fail
+    ///     <see cref="FingerprintNameComposerContract.IsAllowedShape"/>. Returns null when no
+    ///     network identity is known at all.
+    /// </summary>
+    private static string? DeriveIdentityQualifier(IReadOnlyDictionary<string, object> signals, string? rawUa)
+    {
+        var selfDomain = UserAgentDiscriminator.ExtractSelfIdentDomain(rawUa);
+        if (!string.IsNullOrEmpty(selfDomain)) return selfDomain;
+
+        var provider = SanitizeQualifier(GetString(signals, SignalKeys.IpProvider));
+        if (!string.IsNullOrEmpty(provider)) return provider;
+
+        var asnOrg = SanitizeQualifier(GetString(signals, SignalKeys.IpAsnOrg));
+        if (!string.IsNullOrEmpty(asnOrg)) return asnOrg;
 
         var asn = GetString(signals, SignalKeys.IpAsn);
-        if (!string.IsNullOrEmpty(asn)) return $"Unknown AS{asn}";
+        if (!string.IsNullOrEmpty(asn)) return $"AS{asn}";
 
         var country = GetString(signals, SignalKeys.GeoCountryCode);
-        if (!string.IsNullOrEmpty(country)) return $"Unknown {country}";
+        if (!string.IsNullOrEmpty(country)) return country;
 
-        return "Unknown";
+        return null;
+    }
+
+    /// <summary>
+    ///     Strip characters an org/provider string may carry that
+    ///     <see cref="FingerprintNameComposerContract.IsAllowedShape"/> forbids ("Amazon (AWS)",
+    ///     "Foo / Bar") so a synthesised name always passes the shape gate. Collapses the
+    ///     resulting whitespace; returns null if nothing usable remains.
+    /// </summary>
+    private static string? SanitizeQualifier(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        var cleaned = value.Replace('(', ' ').Replace(')', ' ').Replace('/', ' ');
+        cleaned = string.Join(' ', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return string.IsNullOrEmpty(cleaned) ? null : cleaned;
+    }
+
+    /// <summary>
+    ///     Tolerant boolean read: sink hints project into the signal dict as either a real
+    ///     <see cref="bool"/> or the string "true" depending on the composition path, so a
+    ///     plain <c>is bool</c> check silently misses half of them (the sink-&gt;evidence
+    ///     typing seam that has bitten naming before). Accepts both.
+    /// </summary>
+    private static bool GetFlag(IReadOnlyDictionary<string, object> signals, string key)
+    {
+        if (!signals.TryGetValue(key, out var v)) return false;
+        return v switch
+        {
+            bool b   => b,
+            string s => s.Equals("true", StringComparison.OrdinalIgnoreCase),
+            _        => false
+        };
     }
 
     /// <summary>
@@ -447,10 +553,19 @@ internal static class FingerprintNameComposer
         var paren = composedName.IndexOf(" (", StringComparison.Ordinal);
         var baseName = paren > 0 ? composedName[..paren] : composedName;
         if (baseName == "analysing"
+            // Back-compat: legacy "Unknown ..." / "Missing UA ..." names persisted before the
+            // 2026-07-30 "Unknown is not a valid state" change must still read as fallback so a
+            // fresh synthesised name overrides them.
             || baseName == "Unknown"
             || baseName.StartsWith("unknown ", StringComparison.Ordinal)
             || baseName.StartsWith("Unknown ", StringComparison.Ordinal)
-            || baseName.StartsWith("Missing UA", StringComparison.Ordinal))
+            || baseName.StartsWith("Missing UA", StringComparison.Ordinal)
+            // Generic behavioural-synth residuals (no specific role found): overridable by a
+            // later specific role / browser family / catalog name, so the visible label
+            // upgrades from "Automated Client · Azure" to "Config Scanner · ..." on drift.
+            || baseName == "Unclassified Client"
+            || baseName.StartsWith("Automated Client", StringComparison.Ordinal)
+            || baseName.StartsWith("Client ", StringComparison.Ordinal))
             return true;
         // Raw-UA-prefix detection. Every UA token carries a "/" between the product
         // name and version; the structured Priority 1-3 outputs never do.

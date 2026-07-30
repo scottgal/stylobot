@@ -150,15 +150,14 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_ReturnsUnknownTerminal_WhenNoUsableSignal()
     {
-        // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks
-        // enough information to label this visitor. 2026-06-23: ComposeUnknownTerminal
-        // picks the most informative discriminator -- fingerprintId prefix when present,
-        // else ASN, else country, else bare "Unknown". With nothing at all, bare
-        // "Unknown" is the truthful terminal -- IsFallback still recognises it so a
-        // real Priority 1-3 name later wins via hysteresis.
-        Assert.Equal("Unknown",
+        // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks enough
+        // information to label this visitor. Under "Unknown is not a valid state" (2026-07-30)
+        // the terminal synthesises what we DO know: with nothing at all, "Unclassified Client";
+        // with a fingerprint id, "Client <hex>". Never the word "Unknown". IsFallback still
+        // recognises both so a real Priority 1-3 name later wins via hysteresis.
+        Assert.Equal("Unclassified Client",
             FingerprintNameComposer.Compose(new Dictionary<string, object>()));
-        Assert.Equal("Unknown abc123de",
+        Assert.Equal("Client abc123de",
             FingerprintNameComposer.Compose(
                 new Dictionary<string, object>(),
                 fingerprintId: "abc123def456ghi"));
@@ -301,14 +300,14 @@ public class FingerprintNameComposerTests
     {
         // Hysteresis only kicks in when previousName is a REAL Priority 1-3 name, not
         // another fallback. With "analysing" (a fallback) as previousName and no signals
-        // to feed a fresh real name, the defensive contract gate (T5) emits the
-        // canonical "Unknown <hex>" terminal rather than echoing the stale fallback.
-        // The matcher's persist layer is then free to overwrite "analysing" on disk
-        // with the new terminal (or a real name on a later request).
+        // to feed a fresh real name, the terminal synthesises "Unclassified Client"
+        // (2026-07-30, "Unknown is not a valid state") rather than echoing the stale
+        // fallback. The matcher's persist layer is then free to overwrite "analysing" on
+        // disk with the new terminal (or a real name on a later request).
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
             previousName: "analysing");
-        Assert.Equal("Unknown", name);
+        Assert.Equal("Unclassified Client", name);
     }
 
     [Fact]
