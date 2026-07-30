@@ -119,10 +119,10 @@
             <vc:sb-chartlet model="botTypeChart" />
         </sb-widget>
     }
-    @* self-carding partials: wrap in a tier cell so the grid bounds their height *@
-    <div class="sb-w-third sb-h-tall">
-        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopEndpointsCard.cshtml", Model.TopEndpoints)
-    </div>
+    @* self-carding partials: wrap in a tier cell so the grid bounds their height.
+       _TopEndpointsCard is GONE from here — the unified full-width endpoints
+       control in _Body.cshtml absorbed it (feedback_never_two_sources_of_truth:
+       the endpoint dataset now has ONE surface on this tab, not two). *@
     <div class="sb-w-third sb-h-tall">
         @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TopVisitorsCard.cshtml",  Model.TopVisitors)
     </div>

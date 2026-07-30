@@ -169,22 +169,33 @@
         </sb-widget>
     </div>
 
-    @* Row B: top content pages + site health, half-and-half. Content is the
-       canonical SbEndpointsList (compact, content-only = upstream GET pages, p95).
-       Site-health carries its own card (ms + percent, different units; a dual-axis
-       overlay on the chart would mislead), backed by persisted DegradationSnapshot
-       rows via IDashboardEventStore. *@
-    @* sb-widget-grid: top content pages as a tall widget; site-health as a
-       QUARTER-height strip (it self-cards, so it goes in a tier wrapper) instead
-       of a full card matched to the table's height — the whitespace fix. *@
+    @* Row B: the UNIFIED endpoints control, full-width. This absorbs BOTH the
+       old "Top content pages" glance (which was SbEndpointsList compact +
+       content-only) AND the separate "Top endpoints" card that used to live in
+       _TrafficPanels (_TopEndpointsCard, a hand-rolled EndpointRow list). Both
+       were partial views onto the SAME endpoint dataset; showing them as two
+       different widgets, one content-only and one all-traffic, split one source
+       of truth across two places (feedback_never_two_sources_of_truth). The
+       full (non-compact, non-content-only) SbEndpointsList is the complete
+       control: Status / Mode / Method / path filters, perf (avg/p95) + status
+       (via the status chips + error-band) + bot-pressure columns, per-column
+       sort, and a real row -> /endpoint/{method}/{path} navigation. Mode=Content
+       recovers the old "content pages" view as one click of the filter it now
+       owns, instead of a second hard-coded widget. *@
     <div class="sb-widget-grid">
-        <sb-widget width="half" height="tall">
-            <sb-endpoints-list compact="true" content-only="true"
-                               heading="Top content pages"
+        <sb-widget width="full" height="tall">
+            <sb-endpoints-list heading="Endpoints"
                                range="@Model.Filters.Window"
-                               sort="total" dir="desc" page-size="8" />
+                               sort="total" dir="desc" page-size="12" />
         </sb-widget>
-        <div class="sb-w-half sb-h-quarter">
+    </div>
+
+    @* Site-health carries its own card (ms + percent, different units; a
+       dual-axis overlay on the endpoint table would mislead), backed by
+       persisted DegradationSnapshot rows via IDashboardEventStore. Now a
+       full-width quarter strip under the unified control. *@
+    <div class="sb-widget-grid">
+        <div class="sb-w-full sb-h-quarter">
             <vc:sb-site-health window="@Model.Filters.Window" />
         </div>
     </div>
