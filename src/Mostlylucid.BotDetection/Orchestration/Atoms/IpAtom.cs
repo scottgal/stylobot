@@ -353,25 +353,9 @@ public sealed class IpAtom : DetectorAtomBase
     private static void EmitGeoSignals(SignalSink sink, HttpContext context, string sessionId)
         => GeoLocationSignalEmitter.Emit(sink, context, sessionId);
 
-    private string ResolveClientIp(HttpContext context)
-    {
-        if (_proxyEnvironment is not null)
-            return _proxyEnvironment.GetRealClientIp(context);
-
-        var connectionIp = context.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
-        if (!string.IsNullOrEmpty(connectionIp) && !NetworkHelper.IsLocalIp(connectionIp))
-            return connectionIp;
-
-        var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
-        {
-            var firstIp = forwardedFor.Split(',', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
-            if (!string.IsNullOrEmpty(firstIp) && !NetworkHelper.IsLocalIp(firstIp))
-                return firstIp;
-        }
-
-        return connectionIp;
-    }
+    // Extracted to the shared static ClientIpResolver (Helpers/ClientIpResolver.cs) so other
+    // atoms (WebhookSensor) resolve the same CLIENT ip without duplicating this fallback chain.
+    private string ResolveClientIp(HttpContext context) => ClientIpResolver.Resolve(context, _proxyEnvironment);
 
     private static (bool isDatacenter, string? name) CheckDatacenterPrefix(string ip)
     {
