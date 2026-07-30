@@ -936,6 +936,32 @@ public static partial class SignalKeys
     public const string RegistryUaOnly = "registry.ua_only";
 
     // ============================================================
+    // Webhook receiver signals - set by WebhookSensor. webhook.detected is only raised
+    // when the behavioural shape (POST + JSON + a known signature header) is
+    // corroborated by an IP-based signal (dominant source IP, verified delivery
+    // record, or a provider's published IP range) - never by the signature header
+    // alone, which is spoofable.
+    // ============================================================
+
+    /// <summary>Boolean ("true"): a corroborated webhook delivery (shape + IP-based corroborator).</summary>
+    public const string WebhookDetected = "webhook.detected";
+
+    /// <summary>Marker: the request matched the webhook behavioural shape (POST + JSON + a known signature header), observed for learning regardless of corroboration.</summary>
+    public const string WebhookShape = "webhook.shape";
+
+    /// <summary>String: named webhook provider (e.g. "Stripe", "GitHub") when the signature header names one.</summary>
+    public const string WebhookProvider = "webhook.provider";
+
+    /// <summary>Marker: the source IP is the learned dominant sender for this endpoint.</summary>
+    public const string WebhookIpDominant = "webhook.ip_dominant";
+
+    /// <summary>Marker: the source IP has a verified (2xx-heavy) delivery track record for this endpoint.</summary>
+    public const string WebhookVerifiedRecord = "webhook.verified_record";
+
+    /// <summary>String: the webhook receiver endpoint path.</summary>
+    public const string WebhookEndpoint = "webhook.endpoint";
+
+    // ============================================================
     // UTM / Ad Traffic signals - set by PiiQueryStringContributor
     // ============================================================
 

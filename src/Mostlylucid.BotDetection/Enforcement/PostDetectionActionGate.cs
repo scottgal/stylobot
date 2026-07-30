@@ -6,6 +6,8 @@ using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Policies.Dispatch.Handlers;
+using Mostlylucid.BotDetection.RateLimit;
 
 namespace Mostlylucid.BotDetection.Enforcement;
 
@@ -58,15 +60,26 @@ namespace Mostlylucid.BotDetection.Enforcement;
 /// </remarks>
 public sealed class PostDetectionActionGate
 {
+    /// <summary>
+    ///     Bucket-policy name for the site-wide safety ceiling (see
+    ///     <see cref="BotDetectionOptions.SafetyCeilingRpm"/>). Namespaced so
+    ///     it can never collide with a policy-stack Throttle/RateLimit rule
+    ///     bucket sharing the same <see cref="ITokenBucketStore"/>.
+    /// </summary>
+    public const string SafetyCeilingPolicyName = "safety-ceiling";
+
     private readonly BotDetectionOptions _options;
     private readonly ILogger<PostDetectionActionGate> _logger;
+    private readonly ITokenBucketStore? _tokenBucketStore;
 
     public PostDetectionActionGate(
         IOptions<BotDetectionOptions> options,
-        ILogger<PostDetectionActionGate> logger)
+        ILogger<PostDetectionActionGate> logger,
+        ITokenBucketStore? tokenBucketStore = null)
     {
         _options = options.Value;
         _logger = logger;
+        _tokenBucketStore = tokenBucketStore;
     }
 
     /// <summary>
@@ -153,7 +166,7 @@ public sealed class PostDetectionActionGate
             context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
             context.Items["BotDetection.VerifiedCrawlerFastPath"] = true;
             _logger.LogInformation("[ACTION] Verified crawler fast path for {Path}", context.Request.Path);
-            return (PostDetectionActionOutcome.PolicyContinued, evidence);
+            return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.PolicyContinued), evidence);
         }
 
         // Corroborated registry-client benign routing. RegistryClientSensor sets
@@ -179,7 +192,32 @@ public sealed class PostDetectionActionGate
             _logger.LogInformation(
                 "[ACTION] Registry client recognized (corroborated OCI/Docker v2) for {Path} (risk={Risk:F2}) -- benign routing, throttle suppressed",
                 context.Request.Path, evidence.BotProbability);
-            return (PostDetectionActionOutcome.PolicyContinued, evidence);
+            return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.PolicyContinued), evidence);
+        }
+
+        // Corroborated webhook-recognition benign routing. WebhookSensor sets
+        // WebhookRecognized ONLY when a recognized webhook sender is corroborated
+        // hitting its configured receiver endpoint, so a legitimate webhook delivery
+        // (Stripe, GitHub, etc.) lands here. Its aggregate probability can sit above
+        // BotThreshold and its BotType can be a friendly-automation bucket, so the
+        // per-BotType fallback below would otherwise route it through a
+        // throttle/challenge action, tarpitting the delivery. Detection already ran,
+        // scored, logged and learned -- this suppresses ONLY the throttle/challenge
+        // ACTION, never the detection. Keyed on the corroboration flag, NOT on path
+        // or BotType alone (an unrecognized request to the same endpoint must still
+        // resolve the normal action). Placed AFTER the honeypot + endpoint overrides
+        // above (those still win via the TriggeredActionPolicyName guard) and BEFORE
+        // the BotType fallback. Mirrors the registry-client-recognized sibling above.
+        if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
+            && evidence.WebhookRecognized)
+        {
+            evidence = evidence with { TriggeredActionPolicyName = "webhook-recognized" };
+            context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+            context.Items["BotDetection.WebhookRecognized"] = true;
+            _logger.LogInformation(
+                "[ACTION] Webhook recognized (corroborated sender) for {Path} (risk={Risk:F2}) -- benign routing, throttle suppressed",
+                context.Request.Path, evidence.BotProbability);
+            return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.PolicyContinued), evidence);
         }
 
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
@@ -218,7 +256,110 @@ public sealed class PostDetectionActionGate
             }
         }
 
-        return (PostDetectionActionOutcome.NoOverride, evidence);
+        return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.NoOverride), evidence);
+    }
+
+    /// <summary>
+    ///     Site-wide safety-ceiling guard (<see cref="BotDetectionOptions.SafetyCeilingRpm"/>).
+    ///     Called at every return site that would otherwise let the request
+    ///     through WITHOUT any shaping -- the verified-crawler, corroborated
+    ///     registry-client, and recognized-webhook benign arms, plus the
+    ///     final no-override fallthrough. Those arms exist so legitimate
+    ///     high-volume automation is never throttled below the ceiling;
+    ///     this guard is the only thing allowed to shed them, and only once
+    ///     an absolute flood exhausts the per-(visitor, endpoint) bucket.
+    /// </summary>
+    /// <param name="continueOutcome">
+    ///     The outcome to return when the request is within the ceiling
+    ///     (i.e. the caller's original, un-shaped outcome).
+    /// </param>
+    /// <returns>
+    ///     <paramref name="continueOutcome"/> when admitted;
+    ///     <see cref="PostDetectionActionOutcome.PolicyHandledResponse"/>
+    ///     (after shaping a 429) when the ceiling is exhausted.
+    /// </returns>
+    private async Task<PostDetectionActionOutcome> GuardWithSafetyCeilingAsync(
+        HttpContext context,
+        AggregatedEvidence evidence,
+        PostDetectionActionOutcome continueOutcome)
+    {
+        if (WithinSafetyCeiling(context, evidence, _tokenBucketStore, _options.SafetyCeilingRpm))
+            return continueOutcome;
+
+        _logger.LogWarning(
+            "[ACTION] Safety ceiling ({Rpm} rpm) exhausted for {Path} -- shedding request that would otherwise have bypassed shaping",
+            _options.SafetyCeilingRpm, context.Request.Path);
+        await ShapeSafetyCeilingResponseAsync(context).ConfigureAwait(false);
+        return PostDetectionActionOutcome.PolicyHandledResponse;
+    }
+
+    /// <summary>
+    ///     Admits or denies a request against the site-wide safety-ceiling
+    ///     token bucket. Keyed on <c>(visitor + ":" + path)</c> so the
+    ///     ceiling caps throughput per visitor per endpoint rather than
+    ///     globally across the whole site. Guard: only enforces when a
+    ///     <see cref="ITokenBucketStore"/> is registered AND <paramref name="rpm"/>
+    ///     is greater than zero -- either condition missing means "no
+    ///     ceiling", never "deny everything".
+    /// </summary>
+    private static bool WithinSafetyCeiling(
+        HttpContext context,
+        AggregatedEvidence evidence,
+        ITokenBucketStore? store,
+        int rpm)
+    {
+        if (store is null || rpm <= 0) return true;
+
+        var key = ResolveSafetyCeilingKey(context, evidence);
+        return store.TryConsume(
+            SafetyCeilingPolicyName,
+            key,
+            capacity: rpm,
+            refillRatePerMinute: rpm);
+    }
+
+    /// <summary>
+    ///     Stable per-(visitor, endpoint) bucket key. Prefers the
+    ///     fingerprint (canonical FOSS visitor identity, mirrors
+    ///     <see cref="Policies.Dispatch.Handlers.RateLimitActionHandler"/>'s
+    ///     visitor-key resolution); falls back to the remote IP; falls back
+    ///     to a literal <c>"anon"</c> so the bucket is still selected.
+    /// </summary>
+    private static string ResolveSafetyCeilingKey(HttpContext context, AggregatedEvidence evidence)
+    {
+        var visitor = evidence.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigObj)
+            && sigObj is string sig
+            && !string.IsNullOrEmpty(sig)
+                ? sig
+                : context.Connection?.RemoteIpAddress?.ToString();
+
+        if (string.IsNullOrEmpty(visitor))
+            visitor = "anon";
+
+        return visitor + ":" + context.Request.Path;
+    }
+
+    /// <summary>
+    ///     Shapes the 429 response for an exhausted safety-ceiling bucket.
+    ///     Mirrors the shaping in <see cref="ThrottleActionHandler"/> /
+    ///     <see cref="RateLimitActionHandler"/> so a safety-ceiling shed
+    ///     looks identical, on the wire, to every other token-bucket 429.
+    /// </summary>
+    private static async Task ShapeSafetyCeilingResponseAsync(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        // Closed-loop feedback gate: mark so the visitor's NEXT request
+        // doesn't get bot-boosted by stylobot's own 429 response.
+        context.MarkResponseFromStyloBot();
+        context.Response.Headers["Retry-After"] = "1";
+        context.Response.Headers[BlockActionHandler.PolicyHeader] = $"rule-{SafetyCeilingPolicyName}";
+        context.Response.ContentType = "application/json";
+
+        await context.Response
+            .WriteAsync(
+                $$"""{"error":"Too many requests","retryAfter":1,"policy":"{{SafetyCeilingPolicyName}}"}""",
+                context.RequestAborted)
+            .ConfigureAwait(false);
     }
 
     private bool IsVerifiedCrawlerMarketingFetch(HttpContext context, AggregatedEvidence evidence)

@@ -1,0 +1,36 @@
+archetype_id: webhook
+name: Webhook Receiver
+description: >
+  Inbound webhook deliveries (Stripe, GitHub, Shopify, Slack, ...). Recognized by the
+  behavioral shape (POST + JSON + a webhook signature/event header) corroborated by a
+  named provider, the learned dominant source IP, or a verified (2xx) track record.
+  Detection always runs; a POST without corroboration is scored normally (spoof guard).
+signature_headers:
+  - Stripe-Signature
+  - X-Hub-Signature-256
+  - X-Hub-Signature
+  - X-GitHub-Event
+  - X-GitHub-Delivery
+  - X-Shopify-Hmac-Sha256
+  - X-Slack-Signature
+  - X-Webhook-Signature
+  - X-Event-Key
+providers:
+  - name: Stripe
+    signature_header: Stripe-Signature
+    ip_ranges: []
+  - name: GitHub
+    signature_header: X-Hub-Signature-256
+    ip_ranges: []
+  - name: Shopify
+    signature_header: X-Shopify-Hmac-Sha256
+    ip_ranges: []
+  - name: Slack
+    signature_header: X-Slack-Signature
+    ip_ranges: []
+scoring:
+  corroborated_confidence_delta: -0.8
+  corroborated_weight: 2.5
+  dominance_min_count: 20
+  dominance_min_share: 0.6
+  verified_min_2xx: 10

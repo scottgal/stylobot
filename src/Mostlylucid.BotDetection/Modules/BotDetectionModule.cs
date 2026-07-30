@@ -444,6 +444,24 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Privacy.PiiHasher>(_ =>
             new Privacy.PiiHasher(
                 System.Text.Encoding.UTF8.GetBytes("stylobot-foss-default-key-rotate-per-deployment")));
+        // Webhook endpoint reputation — FOSS default is SQLite (webhooks.db alongside
+        // fingerprints.db, derived from the same DatabasePath directory). The source IP
+        // is hashed with the SAME keyed PiiHasher used for every other PII signature in
+        // the product (not a standalone unkeyed hash) so the low-entropy IPv4 space
+        // can't be brute-forced offline. AddBotDetectionInMemory (ephemeral mode) swaps
+        // this to NullWebhookEndpointReputation.
+        services.TryAddSingleton<Reputation.IWebhookEndpointReputation>(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>().Value;
+            var baseDbPath = string.IsNullOrEmpty(opts.DatabasePath)
+                ? Path.Combine(AppContext.BaseDirectory, "botdetection.db")
+                : opts.DatabasePath;
+            var dataDir = Path.GetDirectoryName(baseDbPath) ?? AppContext.BaseDirectory;
+            var webhooksDb = Path.Combine(dataDir, "webhooks.db");
+            var hasher = sp.GetRequiredService<Privacy.PiiHasher>();
+            return new Data.SqliteWebhookReputationStore(
+                webhooksDb, Definitions.Webhooks.WebhookCatalog.Default, hasher);
+        });
         // IBotListFetcher backs BotListDatabase's data-source pulls (bot patterns,
         // datacenter IP ranges, cloud vendor ranges) and is also a required dep
         // for SecurityToolAtom, InMemoryBotListDatabase, ListUpdateCoordinatorAtom,

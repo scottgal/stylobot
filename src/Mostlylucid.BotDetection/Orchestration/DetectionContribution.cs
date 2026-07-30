@@ -126,6 +126,21 @@ public sealed record AggregatedEvidence
     public bool RegistryClientCorroborated { get; init; }
 
     /// <summary>
+    ///     True when this request is a CORROBORATED webhook sender hitting its
+    ///     recognized receiver endpoint -- <see cref="Atoms.WebhookSensor"/> raises
+    ///     <see cref="Models.SignalKeys.WebhookDetected"/> only on corroboration
+    ///     (never from a bare UA/path guess), so a scraper merely POSTing to a
+    ///     `/webhooks/*`-shaped path does NOT set this flag.
+    ///
+    ///     Enforcement reads this (not <see cref="BotType"/> alone) to route a
+    ///     legitimate recognized webhook delivery away from the normal per-BotType
+    ///     throttle/challenge action. Detection still ran, scored, logged and
+    ///     learned -- only the throttle/challenge ACTION is suppressed. Defaults to
+    ///     false. Mirrors <see cref="RegistryClientCorroborated"/> exactly.
+    /// </summary>
+    public bool WebhookRecognized { get; init; }
+
+    /// <summary>
     /// All signals collected from contributions.
     /// </summary>
     public IReadOnlyDictionary<string, object> Signals { get; init; } = new Dictionary<string, object>();
