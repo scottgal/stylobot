@@ -97,6 +97,11 @@ public sealed class WebhookSensor : DetectorAtomBase
         // Resolved CLIENT ip, not peer/proxy -- shared with IpAtom via ClientIpResolver.
         var ip = ClientIpResolver.Resolve(http);
 
+        // Learning signal: every webhook-SHAPED request is observed, even when it is not
+        // (yet) recognized -- this is what lets a genuine sender earn dominant-ip/verified
+        // status over time instead of being trusted on the header alone.
+        _reputation?.RecordRequest(endpoint, ip);
+
         // IP-based corroborators (the reputation store learns dominant/verified over time;
         // a null store -- no Task-3 registration -- means no IP corroboration is available).
         var dominant = _reputation?.IsDominantIp(endpoint, ip) ?? false;

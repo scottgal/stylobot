@@ -68,4 +68,23 @@ public sealed class WebhookSensorTests
         ctx.Request.Path = "/hooks/stripe";
         (await New(ctx).DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session)).Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task Shape_only_from_dominant_ip_is_recognized()
+    {
+        var rep = new Mock<IWebhookEndpointReputation>();
+        rep.Setup(r => r.IsDominantIp(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+        var ctx = Post("/hooks/x", new[]{("X-Webhook-Signature","z")}); // generic sig header, NOT a named provider
+        var r = await New(ctx, rep.Object).DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
+        r.Should().ContainSingle(); r[0].ConfidenceDelta.Should().BeLessThan(0);
+    }
+
+    [Fact]
+    public async Task Every_webhook_shaped_request_records_a_request_for_learning()
+    {
+        var rep = new Mock<IWebhookEndpointReputation>();
+        var ctx = Post("/hooks/x", new[]{("X-Webhook-Signature","z")});
+        await New(ctx, rep.Object).DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
+        rep.Verify(r => r.RecordRequest("/hooks/x", It.IsAny<string>()), Times.Once);
+    }
 }
