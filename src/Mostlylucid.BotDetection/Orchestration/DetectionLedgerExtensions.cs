@@ -428,6 +428,12 @@ public static class DetectionLedgerExtensions
             // `signals`). Enforcement routes a corroborated registry client away from
             // the Tool throttle bucket -- keyed on corroboration, never BotType.Tool.
             RegistryClientCorroborated = ReadBool(SignalKeys.RegistryClientDetected),
+            // WebhookSensor raises webhook.detected:true on corroboration only;
+            // ReadBool is sink-first (and, post-projection, this key is also in
+            // `signals`). Enforcement routes a corroborated webhook delivery away
+            // from the normal BotType throttle/challenge bucket -- keyed on
+            // corroboration, never BotType/path alone. Mirrors RegistryClientCorroborated.
+            WebhookRecognized = ReadBool(SignalKeys.WebhookDetected),
             Signals = signals,
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
@@ -647,6 +653,8 @@ public static class DetectionLedgerExtensions
             // Early-exit parity: carry the corroboration flag (sink-first ReadBool) so
             // a reputation-cache early exit doesn't strip the benign-routing flag.
             RegistryClientCorroborated = ReadBool(SignalKeys.RegistryClientDetected),
+            // Early-exit parity for the webhook carve-out (mirrors RegistryClientCorroborated above).
+            WebhookRecognized = ReadBool(SignalKeys.WebhookDetected),
             Signals = earlySignals,
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,

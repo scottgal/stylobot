@@ -182,6 +182,31 @@ public sealed class PostDetectionActionGate
             return (PostDetectionActionOutcome.PolicyContinued, evidence);
         }
 
+        // Corroborated webhook-recognition benign routing. WebhookSensor sets
+        // WebhookRecognized ONLY when a recognized webhook sender is corroborated
+        // hitting its configured receiver endpoint, so a legitimate webhook delivery
+        // (Stripe, GitHub, etc.) lands here. Its aggregate probability can sit above
+        // BotThreshold and its BotType can be a friendly-automation bucket, so the
+        // per-BotType fallback below would otherwise route it through a
+        // throttle/challenge action, tarpitting the delivery. Detection already ran,
+        // scored, logged and learned -- this suppresses ONLY the throttle/challenge
+        // ACTION, never the detection. Keyed on the corroboration flag, NOT on path
+        // or BotType alone (an unrecognized request to the same endpoint must still
+        // resolve the normal action). Placed AFTER the honeypot + endpoint overrides
+        // above (those still win via the TriggeredActionPolicyName guard) and BEFORE
+        // the BotType fallback. Mirrors the registry-client-recognized sibling above.
+        if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
+            && evidence.WebhookRecognized)
+        {
+            evidence = evidence with { TriggeredActionPolicyName = "webhook-recognized" };
+            context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+            context.Items["BotDetection.WebhookRecognized"] = true;
+            _logger.LogInformation(
+                "[ACTION] Webhook recognized (corroborated sender) for {Path} (risk={Risk:F2}) -- benign routing, throttle suppressed",
+                context.Request.Path, evidence.BotProbability);
+            return (PostDetectionActionOutcome.PolicyContinued, evidence);
+        }
+
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
             && evidence.BotProbability >= _options.BotThreshold
             && evidence.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
