@@ -11,6 +11,9 @@
 ## Global Constraints
 
 - **No bypass.** Detection always runs; recognition changes SCORE/ACTION only; recognition is per-request; NO `/webhooks/* → allow` config, no skip-path. The load-bearing spoof/negative test is mandatory.
+- **Trust needs IP corroboration, never a header alone.** The webhook signature header is SPOOFABLE (anyone can add `Stripe-Signature: x`), so it only establishes the *shape* / names the provider — it NEVER grants recognition by itself. Recognition requires an **IP-based corroborator**: a verified 2xx track record, an established dominant IP, OR the provider's *published* IP range (not the header). A forged signature header from a fresh/rare IP with no verified record is **not** recognized (cold-start → normal detection until it establishes a record). This is the core spoof guard.
+- **Resolve the CLIENT IP, not the peer IP.** Behind a trusted proxy (Cloudflare/YARP), `Connection.RemoteIpAddress` is the proxy, so "commonest IP" would collapse to the proxy for everyone. Resolve the real client IP the SAME way the rest of detection does (the `Ip` atom's resolution / trusted `X-Forwarded-For`). Use a shared helper `ClientIpResolver.Resolve(HttpContext)` (find the existing one the `Ip`/`TransportTrust` path uses; if none is shared, extract it) — do NOT read `Connection.RemoteIpAddress` directly in the sensor or the recorder.
+- **Outcome semantics: only 4xx demotes; 5xx is neutral.** `2xx` = verified (receiver accepted). `4xx` (esp. 400/401/403) = failed verification → demote (increments the failed counter). `5xx` = receiver error (outage/bug), NOT the sender's fault → neutral, records nothing that demotes — a legit provider retrying against a down receiver must not lose its verified standing.
 - **No in-memory persistence.** Webhook reputation persists to SQLite. `ConcurrentDictionary` only for per-request transient/perf caches.
 - **No magic numbers.** Every threshold/weight/delta comes from `webhook.archetype.yaml` via `_configProvider.GetParameter(Name, ...)` / `GetDefaults(Name)`.
 - **No hard-coded lists in C#.** Signature-header names + named providers live in `webhook.archetype.yaml` (embedded resource).
@@ -143,25 +146,27 @@ public sealed class WebhookSensorTests
         return c;
     }
 
-    [Fact]
-    public async Task Post_with_named_provider_signature_header_is_recognized_lowthreat()
+    [Fact]  // named provider + an IP-based corroborator (verified record) => recognized
+    public async Task Post_named_provider_with_verified_record_is_recognized_lowthreat()
     {
+        var rep = new Mock<IWebhookEndpointReputation>();
+        rep.Setup(r => r.HasVerifiedRecord(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
         var ctx = Post("/hooks/stripe", new[]{("Stripe-Signature","t=1,v1=abc")});
-        var r = await New(ctx).DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
+        var r = await New(ctx, rep.Object).DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
         r.Should().ContainSingle();
         r[0].ConfidenceDelta.Should().BeLessThan(0);
         r[0].BotType.Should().Be(BotType.GoodBot.ToString());
     }
 
-    [Fact]  // LOAD-BEARING spoof guard — proof it is not a bypass
-    public async Task Post_shape_but_no_provider_no_corroboration_is_not_recognized()
+    [Fact]  // LOAD-BEARING spoof guard — a FORGED provider header from a fresh IP is NOT trusted
+    public async Task Post_forged_provider_header_fresh_ip_is_not_recognized()
     {
-        // signature-shaped header name that is NOT a known provider header + no reputation
-        var ctx = Post("/hooks/stripe", new[]{("X-Random","x")});
+        // real provider header NAME but no reputation (fresh IP, no verified record, no dominance)
+        var ctx = Post("/hooks/stripe", new[]{("Stripe-Signature","forged")});
         var sink = new SignalSink(1000, TimeSpan.FromMinutes(1));
-        var r = await New(ctx).DetectAsync(sink, Session);
-        r.Should().BeEmpty();
-        sink.Detect(SignalKeys.WebhookShape).Should().BeFalse();
+        var r = await New(ctx, rep: null).DetectAsync(sink, Session);   // null store => no IP corroboration
+        r.Should().BeEmpty("a signature header alone is spoofable; trust needs an IP-based corroborator");
+        sink.Detect(SignalKeys.WebhookShape).Should().BeTrue("it IS webhook-shaped (observed for learning), just not recognized");
     }
 
     [Fact]
@@ -179,6 +184,8 @@ Run: `dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedNam
 Expected: FAIL — `WebhookSensor` / SignalKeys missing.
 
 - [ ] **Step 3: Write minimal implementation**
+
+Two helpers referenced below: **`ClientIpResolver.Resolve(HttpContext)`** — reuse the existing shared client-IP resolution the `Ip` atom / `TransportTrust` path already uses (grep for how `IpAtom` gets the client IP; if it's inline, extract a small shared static so both call it — do NOT read `Connection.RemoteIpAddress` directly, per the Global Constraint). **`IpInCidr(string ip, string cidr)`** — a small `private static bool` helper on the sensor; since seed `ip_ranges` are empty it returns `false` for now (a stub that parses CIDR is fine, but it is not load-bearing until ranges are seeded — a `return false;` placeholder is acceptable with a `// TODO: CIDR match when provider ip_ranges are seeded` note, since no test exercises a non-empty range in this cut).
 
 Add the `SignalKeys.Webhook*` constants (section-commented) to `DetectionContext.cs`. Create `WebhookSensor.cs` mirroring `RegistryClientSensor.cs`:
 
@@ -201,16 +208,21 @@ public override Task<IReadOnlyList<DetectionContribution>> DetectAsync(SignalSin
     sink.Raise(SignalKeys.WebhookShape, sessionId);
 
     var endpoint = req.Path.Value ?? "/";
-    var ip = http.Connection?.RemoteIpAddress?.ToString() ?? "";
-    // corroborators (Task 4 fills dominant/verified from the store; null store => false)
+    var ip = ClientIpResolver.Resolve(http);   // resolved CLIENT ip, not peer/proxy (Global Constraint)
+    // IP-based corroborators (Task 4 fills dominant/verified from the store; null store => false).
+    // A provider PUBLISHED ip-range match also corroborates (not spoofable like the header); ranges are
+    // seeded empty for now, so this is false until filled — cold-start relies on dominant/verified.
     var dominant = _reputation?.IsDominantIp(endpoint, ip) ?? false;
     var verified = _reputation?.HasVerifiedRecord(endpoint, ip) ?? false;
-    var namedProvider = provider is not null;
+    var publishedRange = provider is not null && provider.IpRanges.Any(r => IpInCidr(ip, r));
+    var namedProvider = provider is not null;   // NAMES the provider; does NOT grant trust on its own
 
-    var corroborated = namedProvider || dominant || verified;   // shape already required
+    // SPOOF GUARD: the signature header (shape) is spoofable, so trust requires an IP-based corroborator.
+    var corroborated = dominant || verified || publishedRange;
     if (!corroborated)
     {
-        // shape-only: observed (learning), but NOT recognized — scored normally (spoof guard)
+        // shape-only (incl. a forged provider header from a fresh IP): observed for learning (Task 4),
+        // but NOT recognized — scored normally by the rest of the pipeline. This is the no-bypass proof.
         return Task.FromResult(None());
     }
 
@@ -255,7 +267,7 @@ git commit -m "feat(webhook): WebhookSensor behavioral recognition + spoof guard
 
 **Interfaces:**
 - Consumes: `WebhookCatalog` thresholds (DominanceMinCount, DominanceMinShare, VerifiedMin2xx).
-- Produces: `interface IWebhookEndpointReputation { void RecordRequest(string endpoint, string ip); void RecordOutcome(string endpoint, string ip, int statusCode); bool IsDominantIp(string endpoint, string ip); bool HasVerifiedRecord(string endpoint, string ip); }`. `SqliteWebhookReputationStore : IWebhookEndpointReputation`, ctor `(string dbPath, WebhookCatalog catalog)`, table `webhook_endpoint_ip(endpoint TEXT, ip TEXT, req_count INT, status_2xx INT, status_4xx INT, first_seen, last_seen, PRIMARY KEY(endpoint,ip))`. `IsDominantIp` = this ip's req_count >= DominanceMinCount AND its share of the endpoint's total >= DominanceMinShare. `HasVerifiedRecord` = status_2xx >= VerifiedMin2xx AND status_2xx > status_4xx.
+- Produces: `interface IWebhookEndpointReputation { void RecordRequest(string endpoint, string ip); void RecordOutcome(string endpoint, string ip, int statusCode); bool IsDominantIp(string endpoint, string ip); bool HasVerifiedRecord(string endpoint, string ip); }`. `SqliteWebhookReputationStore : IWebhookEndpointReputation`, ctor `(string dbPath, WebhookCatalog catalog)`, table `webhook_endpoint_ip(endpoint TEXT, ip TEXT, req_count INT, status_2xx INT, status_4xx INT, first_seen, last_seen, PRIMARY KEY(endpoint,ip))`. `IsDominantIp` = this ip's req_count >= DominanceMinCount AND its share of the endpoint's total >= DominanceMinShare. `HasVerifiedRecord` = status_2xx >= VerifiedMin2xx AND status_2xx > status_4xx. **`RecordOutcome` semantics (Global Constraint):** `2xx` → status_2xx++; `4xx` → status_4xx++; `5xx` (and anything else) → NEITHER (neutral — a receiver outage must not demote a legit sender).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -285,6 +297,15 @@ public sealed class SqliteWebhookReputationStoreTests : IDisposable
         s.HasVerifiedRecord("/h", "1.1.1.1").Should().BeTrue();
         for (var i = 0; i < 12; i++) s.RecordOutcome("/h", "2.2.2.2", 400); // spoofer: all 4xx
         s.HasVerifiedRecord("/h", "2.2.2.2").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Server_5xx_is_neutral_does_not_demote_verified_sender()
+    {
+        var s = New();
+        for (var i = 0; i < 12; i++) s.RecordOutcome("/h", "1.1.1.1", 200); // verified
+        for (var i = 0; i < 50; i++) s.RecordOutcome("/h", "1.1.1.1", 503); // receiver outage: retries
+        s.HasVerifiedRecord("/h", "1.1.1.1").Should().BeTrue("5xx is the receiver's fault, not the sender's");
     }
 
     [Fact]

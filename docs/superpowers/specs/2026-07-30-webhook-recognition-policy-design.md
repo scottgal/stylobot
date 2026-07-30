@@ -62,6 +62,26 @@ so "commonest IP" effectively means "commonest *verified* IP."
 **On recognition** the sensor raises a strong **negative-delta contribution** (low threat,
 `BotType.GoodBot`, **no early-exit** — detection still runs and learns), plus `webhook.*` signals.
 
+## Edge cases (folded in after review)
+
+- **Signature header is spoofable → never trust it alone.** The header establishes the *shape* / names
+  the provider but does NOT grant recognition. Trust requires an **IP-based** corroborator (verified 2xx
+  record, established dominant IP, or the provider's *published* IP range). A forged provider header from
+  a fresh IP is not recognized — cold-start webhooks get normal detection until they establish a record.
+  This is the core spoof guard; it supersedes any reading where "named provider" alone recognizes.
+- **Only 4xx demotes; 5xx is neutral.** A receiver *outage* (5xx) triggers hard retries from legit
+  providers — that must not demote the sender. `2xx` = verified, `4xx` = failed verification (demote),
+  `5xx`/other = neutral.
+- **Resolve the CLIENT IP, not the peer IP.** Behind a trusted proxy, `RemoteIpAddress` is the proxy —
+  "commonest IP" must use the pipeline's resolved client IP (the `Ip` atom's resolution), or it collapses
+  to the proxy for everyone.
+- **Unsigned / non-JSON webhooks** (basic-auth/mTLS/shared-secret senders; Slack form-encoded; XML):
+  recognized via a strong verified/dominant record even without a signature header — content-type and
+  header are corroborators, not hard gates, once a verified record exists.
+- **Noted, out of this cut:** GET verification handshakes (Meta `hub.challenge`); high-cardinality
+  receiver paths fragmenting the learning (normalize/cap later); filling provider `ip_ranges` to enable
+  spoof-safe *first-request* recognition.
+
 ## Learning stores (SQLite — no in-memory)
 
 `WebhookEndpointReputation` (persisted, `webhooks.db` or a table in the existing identity/session DB):
