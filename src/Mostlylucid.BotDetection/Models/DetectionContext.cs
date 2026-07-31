@@ -935,6 +935,10 @@ public static partial class SignalKeys
     /// <summary>Marker: UA claims a registry client but showed NO v2 protocol behaviour (spoof-suspect; not lowered).</summary>
     public const string RegistryUaOnly = "registry.ua_only";
 
+    /// <summary>Marker: registry-client corroboration on a Harbor management-API path (/api/v2.0/*) was earned by
+    /// inherited trust (this fingerprint proved real /v2/ OCI behaviour recently), not by this request alone.</summary>
+    public const string RegistryClientInheritedTrust = "registry.client.inherited_trust";
+
     // ============================================================
     // Webhook receiver signals - set by WebhookSensor. webhook.detected is only raised
     // when the behavioural shape (POST + JSON + a known signature header) is

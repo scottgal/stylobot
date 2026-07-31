@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Mostlylucid.BotDetection.Definitions.RegistryClients;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Test.Orchestration.Atoms.AtomContract;
@@ -26,10 +27,11 @@ public sealed class RegistryClientSensorTests
 
     private static SignalSink NewSink() => new(maxCapacity: 1000, maxAge: TimeSpan.FromMinutes(1));
 
-    private static RegistryClientSensor NewSensor(HttpContext ctx) => new(
+    private static RegistryClientSensor NewSensor(HttpContext ctx, IRegistryClientCorroborationTracker? tracker = null) => new(
         NullLogger<RegistryClientSensor>.Instance,
         new StubDetectorConfigProvider(),
-        new StaticHttpContextAccessor(ctx));
+        new StaticHttpContextAccessor(ctx),
+        tracker: tracker);
 
     private static DefaultHttpContext Ctx(string ua, string path, string? accept = null, string? auth = null)
     {
@@ -169,5 +171,74 @@ public sealed class RegistryClientSensorTests
 
         result.Should().BeEmpty();
         sink.Detect(SignalKeys.RegistryV2Ran).Should().BeFalse();
+    }
+
+    // ── Harbor management-API (/api/v2.0/*) inherited trust ─────────────────
+    // Real docker/skopeo clients never call Harbor's own REST API directly, so there is
+    // no safe UA family to key on there. Trust is instead EARNED behaviourally: a
+    // fingerprint that just proved itself via real /v2/ OCI corroboration can extend
+    // that trust, for a short bounded window, to its own /api/v2.0/ calls.
+
+    private static SignalSink SinkWithSignature(string signature)
+    {
+        var sink = NewSink();
+        sink.Raise($"{SignalKeys.PrimarySignature}:{signature}", Session);
+        return sink;
+    }
+
+    [Fact]
+    public async Task HarborApiPath_withNoPriorCorroboration_isNotLowered()
+    {
+        var tracker = new RegistryClientCorroborationTracker(
+            TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30), capacity: 100);
+        var sink = SinkWithSignature("sig-fresh");
+        var ctx = Ctx("curl/8.4.0", "/api/v2.0/projects");
+
+        var result = await NewSensor(ctx, tracker).DetectAsync(sink, Session);
+
+        result.Should().BeEmpty("hitting Harbor's own API alone earns nothing - that would be an allowlist");
+    }
+
+    [Fact]
+    public async Task HarborApiPath_afterPriorV2Corroboration_bySameFingerprint_inheritsTrust()
+    {
+        var tracker = new RegistryClientCorroborationTracker(
+            TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30), capacity: 100);
+
+        // Request 1: a real corroborated docker manifest pull earns trust for this fingerprint.
+        var pushSink = SinkWithSignature("sig-earned");
+        var pushCtx = Ctx(DockerUa, "/v2/library/nginx/manifests/latest", accept: ManifestAccept);
+        await NewSensor(pushCtx, tracker).DetectAsync(pushSink, Session);
+
+        // Request 2: the SAME fingerprint calls Harbor's own API with a generic client.
+        var apiSink = SinkWithSignature("sig-earned");
+        var apiCtx = Ctx("curl/8.4.0", "/api/v2.0/projects");
+
+        var result = await NewSensor(apiCtx, tracker).DetectAsync(apiSink, Session);
+
+        result.Should().ContainSingle();
+        result[0].ConfidenceDelta.Should().BeLessThan(0);
+        result[0].BotType.Should().Be(BotType.Tool.ToString());
+        apiSink.ReadHint(SignalKeys.RegistryClientDetected).Should().Be("true");
+        apiSink.Detect(SignalKeys.RegistryClientInheritedTrust).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task HarborApiPath_differentFingerprint_doesNotInheritTrust()
+    {
+        var tracker = new RegistryClientCorroborationTracker(
+            TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30), capacity: 100);
+
+        var pushSink = SinkWithSignature("sig-trusted");
+        var pushCtx = Ctx(DockerUa, "/v2/library/nginx/manifests/latest", accept: ManifestAccept);
+        await NewSensor(pushCtx, tracker).DetectAsync(pushSink, Session);
+
+        // A DIFFERENT fingerprint (e.g. sharing the same IP/UA as the trusted one) must not benefit.
+        var otherSink = SinkWithSignature("sig-unrelated");
+        var otherCtx = Ctx("curl/8.4.0", "/api/v2.0/projects");
+
+        var result = await NewSensor(otherCtx, tracker).DetectAsync(otherSink, Session);
+
+        result.Should().BeEmpty("earned trust must never leak across fingerprints");
     }
 }

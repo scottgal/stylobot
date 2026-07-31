@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Definitions.RegistryClients;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
@@ -239,6 +240,11 @@ public static class BotDetectionOrchestratorExtensions
         // System.TimeProvider" activating TimeAtom, crashing every host on the atom
         // path at boot. TryAdd so a test host binding FakeTimeProvider still wins.
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        // Bounded, decaying, per-fingerprint "recently corroborated as a registry client"
+        // record - lets RegistryClientSensor extend earned /v2/ OCI trust onto a
+        // same-fingerprint Harbor management-API (/api/v2.0/) call. See
+        // docs/architecture/registry-client-archetype.md.
+        services.TryAddSingleton<IRegistryClientCorroborationTracker, RegistryClientCorroborationTracker>();
 
         // Enforcement gates -- extracted from BotDetectionMiddleware so the
         // atom-orchestrator middleware can enforce the same rules without

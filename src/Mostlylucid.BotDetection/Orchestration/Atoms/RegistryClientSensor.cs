@@ -39,18 +39,21 @@ public sealed class RegistryClientSensor : DetectorAtomBase
     private readonly IDetectorConfigProvider _configProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly RegistryClientCatalog _catalog;
+    private readonly IRegistryClientCorroborationTracker? _tracker;
 
     public RegistryClientSensor(
         ILogger<RegistryClientSensor> logger,
         IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor,
-        RegistryClientCatalog? catalog = null)
+        RegistryClientCatalog? catalog = null,
+        IRegistryClientCorroborationTracker? tracker = null)
         : base(name: "RegistryClient", category: "RegistryClient")
     {
         _logger = logger;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
         _catalog = catalog ?? RegistryClientCatalog.Default;
+        _tracker = tracker;
     }
 
     public override int Priority => 8;
@@ -62,17 +65,18 @@ public sealed class RegistryClientSensor : DetectorAtomBase
     private double CorroboratedWeight =>
         _configProvider.GetParameter(Name, "corroborated_weight", _catalog.CorroboratedWeight);
 
-    public override Task<IReadOnlyList<DetectionContribution>> DetectAsync(
+    public override async Task<IReadOnlyList<DetectionContribution>> DetectAsync(
         SignalSink sink,
         string sessionId,
         CancellationToken ct = default)
     {
         var context = _httpContextAccessor.HttpContext;
-        if (context is null) return Task.FromResult(None());
+        if (context is null) return None();
 
         var request = context.Request;
         var ua = request.Headers.UserAgent.ToString();
         var path = request.Path.Value ?? string.Empty;
+        var signature = sink.ReadHint(SignalKeys.PrimarySignature);
 
         // --- Behavioural truth (OCI Distribution Spec) ---
         var step = RegistryStep(path);          // ping / manifest / blob / upload / tags / v2 / null
@@ -84,8 +88,45 @@ public sealed class RegistryClientSensor : DetectorAtomBase
         // --- UA-family hint ---
         var family = MatchFamily(ua, isOciV2);
 
+        // Harbor's own management/auth REST API (/api/v2.0/*) is NOT the OCI Distribution
+        // Spec: real docker/skopeo/containerd clients never call it directly, so there is
+        // no safe UA family to key on here (any curl/script hitting a JSON API would
+        // otherwise qualify - an allowlist in disguise, which CLAUDE.md forbids). Instead
+        // an identity EARNS low-threat treatment on this surface only by having proven
+        // real corroborated /v2/ OCI behaviour recently (see MarkCorroboratedAsync below) -
+        // genuine behavioural correlation scoped to that one fingerprint, never leaking
+        // to unrelated traffic sharing the same IP/UA. See docs/architecture/
+        // registry-client-archetype.md.
+        if (family is null && !isOciV2 && IsHarborManagementApiPath(path))
+        {
+            if (_tracker is not null && !string.IsNullOrEmpty(signature)
+                && _tracker.IsRecentlyCorroborated(signature))
+            {
+                sink.Raise(SignalKeys.RegistryV2Ran, sessionId);
+                sink.Raise($"{SignalKeys.RegistryClientDetected}:true", sessionId);
+                sink.Raise($"{SignalKeys.RegistryClientName}:{InheritedTrustClientName}", sessionId);
+                sink.Raise(SignalKeys.RegistryClientInheritedTrust, sessionId);
+                _logger.LogInformation(
+                    "RegistryClient: Harbor management API call on {Path} inherits trust from this " +
+                    "fingerprint's recent corroborated /v2/ OCI behaviour -- low-threat, detection still runs",
+                    path);
+                return Single(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = Category,
+                    ConfidenceDelta = CorroboratedConfidenceDelta,
+                    Weight = CorroboratedWeight,
+                    Reason = "Harbor management API call inherits trust from this fingerprint's recent " +
+                        "corroborated /v2/ OCI registry-client behaviour",
+                    BotType = BotType.Tool.ToString(),
+                    BotName = InheritedTrustClientName
+                });
+            }
+            return None();
+        }
+
         // Nothing registry-shaped at all -> stay out of the way.
-        if (family is null && !isOciV2) return Task.FromResult(None());
+        if (family is null && !isOciV2) return None();
 
         // The sensor looked at a registry-relevant request (observability + negative test).
         sink.Raise(SignalKeys.RegistryV2Ran, sessionId);
@@ -109,7 +150,7 @@ public sealed class RegistryClientSensor : DetectorAtomBase
                     "RegistryClient: UA claims {Client} but no registry v2 behaviour on {Path} -- not lowering score",
                     family.ClientName, path);
             }
-            return Task.FromResult(None());
+            return None();
         }
 
         var name = family!.ClientName;
@@ -125,9 +166,16 @@ public sealed class RegistryClientSensor : DetectorAtomBase
             "RegistryClient: {Client} corroborated by registry v2 protocol ({Step}) -- low-threat, detection still runs",
             display, step ?? (hasRegistryAccept ? "accept-media" : "?"));
 
+        // Real OCI corroboration earned - let this fingerprint inherit trust onto its
+        // own Harbor management-API calls for a short bounded window (see
+        // RegistryClientCorroborationTracker; never set by a UA claim or by the
+        // /api/v2.0 request itself).
+        if (_tracker is not null && !string.IsNullOrEmpty(signature))
+            await _tracker.MarkCorroboratedAsync(signature).ConfigureAwait(false);
+
         // Strong negative confidence delta = biases the aggregate toward low-threat.
         // NOT an early exit -> the request is still scored, logged and learned from.
-        return Task.FromResult(Single(new DetectionContribution
+        return Single(new DetectionContribution
         {
             DetectorName = Name,
             Category = Category,
@@ -136,7 +184,7 @@ public sealed class RegistryClientSensor : DetectorAtomBase
             Reason = $"Registry client {display}: OCI/Docker v2 protocol corroborated ({step ?? "accept-media"})",
             BotType = BotType.Tool.ToString(),
             BotName = display
-        }));
+        });
     }
 
     /// <summary>Finds the UA family. <c>requires_oci_path</c> families only match on an OCI /v2/ path.</summary>
@@ -178,6 +226,19 @@ public sealed class RegistryClientSensor : DetectorAtomBase
         if (path.EndsWith("/tags/list", StringComparison.OrdinalIgnoreCase)) return "tags";
         return "v2";
     }
+
+    /// <summary>Display name used on the inherited-trust contribution (no single UA to name).</summary>
+    private const string InheritedTrustClientName = "Registry client (management API)";
+
+    /// <summary>
+    ///     Harbor's own versioned management/auth REST API (project, robot-account,
+    ///     quota, replication endpoints, etc.) - a distinct, documented surface from the
+    ///     OCI Distribution Spec under <c>/v2/</c>. Structural path-shape check, not a
+    ///     curated list.
+    /// </summary>
+    private static bool IsHarborManagementApiPath(string path)
+        => path.StartsWith("/api/v2.0/", StringComparison.OrdinalIgnoreCase)
+           || path.Equals("/api/v2.0", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Extracts a dotted-numeric version following <c>&lt;token&gt;/</c> in the UA (no regex, AOT-safe).</summary>
     private static string? ExtractVersion(string ua, string token)

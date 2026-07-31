@@ -91,3 +91,15 @@ scoring:
   # early exit (that would be a skip / bypass) - just a strong contribution.
   corroborated_confidence_delta: -0.8
   corroborated_weight: 2.5
+
+  # Inherited-trust window for Harbor's own management/auth API (/api/v2.0/*), which is
+  # NOT the OCI Distribution Spec and has no safe UA family to key on. A fingerprint that
+  # just proved itself via a real corroborated /v2/ OCI request can extend that trust,
+  # for this short bounded window, to its own /api/v2.0/ calls - never to a different
+  # fingerprint, never from a UA claim alone. Sliding: renewed by further corroborated
+  # /v2/ activity, expires when it stops (a registry session, not persistent trust).
+  corroboration_window_minutes: 10.0
+  # Hard cap even under continuous corroborated activity.
+  corroboration_max_lifetime_minutes: 30.0
+  # Bounded entry count for the inherited-trust tracker (LFU eviction beyond this).
+  corroboration_tracker_capacity: 5000

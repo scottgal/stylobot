@@ -46,6 +46,23 @@ public sealed partial class RegistryClientScoring
 
     /// <summary>Weight of the corroborated contribution.</summary>
     public double CorroboratedWeight { get; set; } = 2.5;
+
+    /// <summary>
+    ///     Sliding window (minutes) a fingerprint's earned OCI /v2/ corroboration stays
+    ///     valid for inheriting trust onto a same-fingerprint Harbor management-API
+    ///     (/api/v2.0/) call. Renewed by further corroborated /v2/ activity; expires when
+    ///     it stops -- a registry session, not persistent trust.
+    /// </summary>
+    public double CorroborationWindowMinutes { get; set; } = 10.0;
+
+    /// <summary>
+    ///     Hard cap (minutes) on inherited trust even under continuous corroborated
+    ///     activity. Always &gt;= <see cref="CorroborationWindowMinutes"/>.
+    /// </summary>
+    public double CorroborationMaxLifetimeMinutes { get; set; } = 30.0;
+
+    /// <summary>Bounded entry count for the inherited-trust tracker (LFU eviction beyond this).</summary>
+    public int CorroborationTrackerCapacity { get; set; } = 5000;
 }
 
 /// <summary>Top-level structure of the <c>registry-client.archetype.yaml</c> seed manifest.</summary>

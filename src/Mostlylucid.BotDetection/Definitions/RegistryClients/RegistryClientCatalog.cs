@@ -27,6 +27,9 @@ public sealed class RegistryClientCatalog
         AcceptMedia = file.AcceptMedia.Where(m => !string.IsNullOrWhiteSpace(m)).ToList();
         CorroboratedConfidenceDelta = file.Scoring.CorroboratedConfidenceDelta;
         CorroboratedWeight = file.Scoring.CorroboratedWeight;
+        CorroborationWindowMinutes = file.Scoring.CorroborationWindowMinutes;
+        CorroborationMaxLifetimeMinutes = file.Scoring.CorroborationMaxLifetimeMinutes;
+        CorroborationTrackerCapacity = file.Scoring.CorroborationTrackerCapacity;
     }
 
     /// <summary>UA-family seeds (hints only).</summary>
@@ -40,6 +43,15 @@ public sealed class RegistryClientCatalog
 
     /// <summary>Weight of the corroborated contribution.</summary>
     public double CorroboratedWeight { get; }
+
+    /// <summary>Sliding trust window (minutes) for inherited Harbor-API corroboration.</summary>
+    public double CorroborationWindowMinutes { get; }
+
+    /// <summary>Hard cap (minutes) on inherited trust even under continuous activity.</summary>
+    public double CorroborationMaxLifetimeMinutes { get; }
+
+    /// <summary>Bounded entry count for the inherited-trust tracker.</summary>
+    public int CorroborationTrackerCapacity { get; }
 
     private static RegistryClientArchetypeFile LoadFromEmbeddedResources(ILogger? logger)
     {
