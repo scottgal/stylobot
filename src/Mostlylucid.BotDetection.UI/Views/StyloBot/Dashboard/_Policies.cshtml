@@ -4,6 +4,7 @@
 @using Mostlylucid.BotDetection.Policies.Templates
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
+@using Mostlylucid.BotDetection.UI.Helpers
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @inject IConfiguration Configuration
 @inject Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver DashboardLinks
@@ -29,6 +30,24 @@
     var sortDir = Context.Request.Query["policystack-dir"].ToString();
     var showcaseDemo = PolicyEditAffordanceResolver.IsShowcaseDemo(Configuration);
 
+    // Period selector: same ?window= token + AnalyticsRangeParser (the reusable
+    // Sb*ListViewComponents' own resolver, not a new one) other sections use --
+    // default stays 24h so existing links/bookmarks keep behaving identically.
+    var windowParam = Context.Request.Query["window"].ToString();
+    var (rangeStart, rangeEnd) = AnalyticsRangeParser.Parse(
+        string.IsNullOrWhiteSpace(windowParam) ? "24h" : windowParam);
+    var aggregateWindow = rangeStart.HasValue && rangeEnd.HasValue
+        ? rangeEnd.Value - rangeStart.Value
+        : TimeSpan.FromHours(24);
+    string PoliciesWindowHref(string? window)
+    {
+        var qs = new List<string>();
+        if (!string.IsNullOrEmpty(scopeParam)) qs.Add($"scope={Uri.EscapeDataString(scopeParam)}");
+        if (!string.IsNullOrEmpty(window) && window != "24h") qs.Add($"window={Uri.EscapeDataString(window)}");
+        return qs.Count == 0 ? Context.Request.Path : $"{Context.Request.Path}?{string.Join('&', qs)}";
+    }
+    var activeWindow = string.IsNullOrWhiteSpace(windowParam) ? "24h" : windowParam;
+
     // Pull the same presenter + registry the SbPolicyStack uses so the
     // grouped view shows the same rule set the editor surface does. The
     // registry is optional in DI; when absent the group headers fall
@@ -44,7 +63,7 @@
             scope: scope,
             embed: PolicyStackEmbed.EffectiveOnly,
             activeTab: "effective",
-            aggregateWindow: TimeSpan.FromHours(24),
+            aggregateWindow: aggregateWindow,
             canEdit: false,
             filter: string.IsNullOrWhiteSpace(filter) ? null : PolicyStackFilter.Parse(filter),
             sort: PolicyStackSort.Parse(
@@ -55,6 +74,16 @@
     }
 }
 <section class="dashboard-policies" data-dashboard-page="policies" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
+    @* Period selector: scopes the LIVE hit-count aggregation below (Config baseline +
+       manually-authored rule rows), same ?window= vocabulary Traffic/Site use. *@
+    <div class="flex justify-end mb-2">
+        <div class="join">
+            @foreach (var w in new[] { "6h", "24h", "7d", "30d" })
+            {
+                <a href="@PoliciesWindowHref(w)" class="btn btn-xs join-item @(w == activeWindow ? "btn-primary" : "")">@w</a>
+            }
+        </div>
+    </div>
     @if (showcaseDemo)
     {
         @* Showcase-demo surface renders the SAME interactive editor-open control the
