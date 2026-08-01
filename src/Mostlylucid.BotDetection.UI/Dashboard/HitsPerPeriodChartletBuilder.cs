@@ -261,11 +261,17 @@ public static class HitsPerPeriodChartletBuilder
             Kind: ChartletKind.StackedBar,
             BucketLabels: labels,
             Series: series,
-            // UX1: logarithmic Y so a bot-heavy column doesn't squash the human
-            // slice to one pixel; JS floors min at 1 (log axis rejects 0).
+            // Linear Y axis: the earlier logarithmic scale (meant to keep a
+            // bot-heavy column from squashing the human slice) instead made
+            // ordinary sparse traffic look like disconnected, erratic skinny
+            // spikes -- log-scale visually exaggerates small bar-to-bar swings
+            // near the axis floor. A stacked bar with a normal linear axis
+            // reads as an honest, readable shape; a genuinely lopsided window
+            // is better served by the bar's own two-colour split than by
+            // distorting the axis.
             Axes: new ChartletAxes(
                 YLabel: "hits", YFormat: "number", XLabel: "time",
-                GridLines: true, YScale: "logarithmic"),
+                GridLines: true, YScale: "linear"),
             Drill: null);
     }
 
