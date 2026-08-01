@@ -57,6 +57,13 @@ public sealed record EffectivePolicyRowViewModel(
 ///     <c>verdict-info</c> / <c>verdict-success</c>. Derived from the policy's
 ///     <c>ActionType</c> via the registry, never from the name string.
 /// </param>
+/// <param name="Description">
+///     Short plain-language explanation of what this policy actually does when it fires
+///     (<c>"403 immediately"</c>, <c>"Slows responses 500-5000ms"</c>). Derived from the resolved
+///     <c>IActionPolicy</c> instance's own configured fields via <c>EffectivePolicyComposer</c>,
+///     never from parsing/guessing at the policy's name string -- so it stays correct for
+///     operator-renamed or newly-added policy instances with no per-name lookup to maintain.
+/// </param>
 /// <param name="ConfigKey">
 ///     The <c>IConfiguration</c> key this value binds to (<c>"BotDetection:BotTypeActionPolicies:Scraper"</c>),
 ///     so the commercial edit control can target the override write. Empty is never valid.
@@ -81,7 +88,8 @@ public sealed record ConfigPolicyRowViewModel(
     EffectivePolicyConfigSource Source,
     Guid? SupersededByRuleId = null,
     bool CanEdit = false,
-    bool ShowReadOnlyEditAffordance = false);
+    bool ShowReadOnlyEditAffordance = false,
+    string Description = "");
 
 /// <summary>Which <c>BotDetectionOptions</c> section a config-baseline row came from.</summary>
 public enum EffectivePolicyConfigSource

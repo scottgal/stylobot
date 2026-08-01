@@ -81,6 +81,12 @@ public class ThrottleActionPolicy : IActionPolicy
     /// <inheritdoc />
     public PolicyIntent Intent => PolicyIntent.Throttle;
 
+    /// <summary>
+    ///     Read-only access to the configured options. Used by the dashboard state provider to
+    ///     surface the real configured delay this policy applies.
+    /// </summary>
+    public ThrottleActionOptions Options => _options;
+
     /// <inheritdoc />
     async Task<ActionResult> IActionPolicy.ExecuteAsync(
         HttpContext httpContext,
