@@ -134,7 +134,11 @@
     // distinction DashboardPageResult.Warming exists to carry. A null page
     // (missing manifest / a caught exception above) renders the same warming
     // state rather than crashing or silently showing an all-zero page.
-    var isWarming = page is null || page.IsWarming;
+    // ALSO check TimeBuckets specifically (not just the coarse envelope flag):
+    // that branch has its own heavier cold path (full-retention backfill) and
+    // can independently be null even when page.IsWarming reports the rest of
+    // the envelope as warm -- same fix as TrafficController.cs (9df6d314).
+    var isWarming = page is null || page.IsWarming || page.TimeBuckets is null;
     var summary = page?.Summary;
     var topBots = page?.BotAggregate ?? new List<DashboardTopBotEntry>();
     var countriesData = (IReadOnlyList<DashboardCountryStats>)(page?.Geo ?? new List<DashboardCountryStats>());
