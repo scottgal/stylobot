@@ -1,6 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Controllers
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @using Mostlylucid.BotDetection.UI.Services
+@using Mostlylucid.BotDetection.UI.Helpers
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @inject IDashboardEventStore EventStore
 @{
@@ -14,6 +15,14 @@
     var botType = Nullable(query["bot_type"].FirstOrDefault());
     var threat = Nullable(query["threat"].FirstOrDefault());
 
+    // Period selector: same ?window= token + AnalyticsRangeParser other sections use.
+    // SbVisitorList's composed-path (BuildVisitorsPageWindow) already reads ?window=
+    // for the row list -- this view's own segment-count query didn't, so switching
+    // the pill changed the list but not the headline VISITORS/HUMAN/BOT counters.
+    // Default stays 24h so existing links/bookmarks keep behaving identically.
+    var windowParam = Nullable(query["window"].FirstOrDefault());
+    var (rangeStart, rangeEnd) = AnalyticsRangeParser.Parse(windowParam ?? "24h");
+
     // The summary row's PRIMARY numbers (_TrafficCounters renders TotalFingerprints/
     // HumanFingerprints/BotFingerprints as the big VISITORS/HUMAN/BOT figures --
     // Total/Humans/Bots only feed the secondary "req" line + tooltips) must come
@@ -22,8 +31,8 @@
     // use) -- Model.Summary.Summary is a DIFFERENT count (request volume, not
     // distinct visitors) and doesn't match, which is what "counts are still wrong"
     // meant even once this view started rendering and the tabs were already fixed.
-    var now = DateTime.UtcNow;
-    var start = now.AddHours(-24);
+    var now = rangeEnd ?? DateTime.UtcNow;
+    var start = rangeStart ?? now.AddHours(-24);
     var summary = Model.Summary.Summary;
     TrafficCounters counters;
     try
@@ -67,6 +76,7 @@
         Internal: query["internal"].FirstOrDefault() == "true",
         BasePath: Model.BasePath,
         Counters: counters,
-        Countries: Model.Countries.Countries);
+        Countries: Model.Countries.Countries,
+        Window: windowParam);
 }
 @await Html.PartialAsync("/Views/StyloBot/Dashboard/Visitors/Index.cshtml", pageModel)

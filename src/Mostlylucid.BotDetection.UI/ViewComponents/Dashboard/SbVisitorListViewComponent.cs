@@ -31,9 +31,6 @@ public class SbVisitorListViewComponent(
         string? fingerprintId = null,
         bool @internal = false)
     {
-        var now = DateTime.UtcNow;
-        var start = now.AddHours(-24);
-
         // Read through the event store so remote-mode hosts (no in-process
         // DetectionBroadcastMiddleware feeding the local cache) still get fresh
         // data. ProjectAsVisitors mirrors ServeVisitorListPartialAsync so the
@@ -52,6 +49,14 @@ public class SbVisitorListViewComponent(
                 Internal = @internal, IsWarming = true,
             });
         }
+
+        // Same canonical resolver Traffic/Countries/Endpoints already use for ?window=
+        // -- was hardcoded to a fixed 24h window, so the tab-pill counts below (and the
+        // self-fetch fallback's bounds) ignored the period selector even though the
+        // composed row list (pageResult.BotAggregate) was already window-scoped upstream.
+        var window = StyloBotDashboardMiddleware.BuildVisitorsPageWindow(HttpContext);
+        var now = window.EndTime ?? DateTime.UtcNow;
+        var start = window.StartTime ?? now.AddHours(-24);
 
         // Dashboard-wide domain scope (DI seam). FOSS default returns null (no filter =
         // today's behavior); a commercial impl supplies the operator's selected domains,

@@ -166,4 +166,5 @@ public sealed record VisitorsPageModel(
     bool Internal,
     string BasePath,
     TrafficCounters? Counters = null,
-    IReadOnlyList<DashboardCountryStats>? Countries = null);
+    IReadOnlyList<DashboardCountryStats>? Countries = null,
+    string? Window = null);
