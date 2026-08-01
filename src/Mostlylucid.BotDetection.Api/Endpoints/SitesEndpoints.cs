@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Api.Auth;
+using Mostlylucid.BotDetection.Api.Models;
 using Mostlylucid.BotDetection.SiteProfiles;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
@@ -30,11 +31,15 @@ public static class SitesEndpoints
         return endpoints;
     }
 
-    private static Ok<SiteListResponse> HandleList(IOptions<SiteMapOptions> options)
+    private static Ok<SingleResponse<SiteListResponse>> HandleList(IOptions<SiteMapOptions> options)
     {
         var opts = options.Value;
         var domains = opts.Domains.Select(SiteDomainDto.FromRule).ToList();
-        return TypedResults.Ok(new SiteListResponse(opts.DefaultProfile, domains));
+        return TypedResults.Ok(new SingleResponse<SiteListResponse>
+        {
+            Data = new SiteListResponse(opts.DefaultProfile, domains),
+            Meta = new ResponseMeta()
+        });
     }
 }
 
