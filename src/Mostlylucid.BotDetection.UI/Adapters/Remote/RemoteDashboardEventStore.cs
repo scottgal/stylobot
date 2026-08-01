@@ -247,7 +247,17 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return GetOrFetchAsync(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);
-            return list ?? new List<DashboardEndpointStats>();
+            if (list is { Count: > 0 } || (startTime is null && endTime is null) || domains is { Count: > 0 })
+                return list ?? new List<DashboardEndpointStats>();
+
+            // Same write-behind-catch-up gap as GetTopBotsAsync/GetCountryStatsAsync above:
+            // a windowed store query can be empty while the no-window aggregate endpoint is
+            // already populated. Retry unwindowed before accepting the empty result.
+            var liveQuery = BuildRangedQuery("/api/v1/endpoints", count, null, null);
+            if (!string.IsNullOrEmpty(audienceFilter))
+                liveQuery += $"&audience={Uri.EscapeDataString(audienceFilter)}";
+            var live = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(liveQuery);
+            return live is { Count: > 0 } ? live : list ?? new List<DashboardEndpointStats>();
         });
     }
 
