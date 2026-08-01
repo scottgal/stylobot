@@ -156,6 +156,80 @@ public sealed class RemoteDashboardEventStoreComposeBatchTests
         Assert.Contains(handler.Paths, p => !p.Contains("since=", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Windowed_endpoint_stats_falls_back_to_populated_live_aggregate()
+    {
+        var live = new DashboardEndpointStats
+        {
+            Method = "GET",
+            Path = "/",
+            TotalCount = 4545,
+            LastSeen = DateTime.UtcNow,
+        };
+        var handler = new WindowedEndpointStatsHandler(live);
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://gw.test/") };
+        var api = new GatewayApiClient(http, NullLogger<GatewayApiClient>.Instance);
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        IDashboardEventStore store = new RemoteDashboardEventStore(api, cache);
+
+        var rows = await store.GetEndpointStatsAsync(
+            count: 500,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: "all");
+
+        Assert.Single(rows);
+        Assert.Equal("/", rows[0].Path);
+        Assert.Equal(2, handler.CallCount);
+        Assert.Contains(handler.Paths, p => p.Contains("since=", StringComparison.Ordinal));
+        Assert.Contains(handler.Paths, p => !p.Contains("since=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Windowed_endpoint_stats_stays_empty_when_live_aggregate_is_also_empty()
+    {
+        var handler = new WindowedEndpointStatsHandler(live: null);
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://gw.test/") };
+        var api = new GatewayApiClient(http, NullLogger<GatewayApiClient>.Instance);
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        IDashboardEventStore store = new RemoteDashboardEventStore(api, cache);
+
+        var rows = await store.GetEndpointStatsAsync(
+            count: 500,
+            startTime: DateTime.UtcNow.AddHours(-24),
+            endTime: DateTime.UtcNow,
+            audienceFilter: "all");
+
+        Assert.Empty(rows);
+        Assert.Equal(2, handler.CallCount);
+    }
+
+    private sealed class WindowedEndpointStatsHandler(DashboardEndpointStats? live) : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+        public List<string> Paths { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            CallCount++;
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            Paths.Add(path);
+            var body = path.Contains("since=", StringComparison.Ordinal) || live is null
+                ? "{\"data\":[],\"pagination\":{\"offset\":0,\"limit\":500,\"total\":0},\"meta\":{}}"
+                : JsonSerializer.Serialize(new
+                {
+                    data = new[] { live },
+                    pagination = new { offset = 0, limit = 500, total = 1 },
+                    meta = new { }
+                });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
     private sealed class WindowedTopBotsHandler(DashboardTopBotEntry live) : HttpMessageHandler
     {
         public int CallCount { get; private set; }
