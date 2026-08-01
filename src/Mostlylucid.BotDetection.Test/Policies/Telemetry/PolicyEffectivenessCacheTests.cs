@@ -45,12 +45,15 @@ public class PolicyEffectivenessCacheTests
         var agg = await cache.GetAsync(ruleId, TimeSpan.FromHours(24));
         Assert.Equal(1000, agg.Matched);
 
-        // Drainer eventually pushes to the durable log
-        await Task.Delay(150);
+        // Drainer eventually pushes to the durable log. StopAsync deterministically forces
+        // this instead of racing a fixed delay: it cancels the drainer loop, awaits its
+        // task (which performs one more unconditional drain pass over everything still
+        // queued in the channel -- see DrainerLoopAsync's post-loop DrainOnceAsync call),
+        // then flushes the durable log. A Task.Delay(150) here previously raced the
+        // drainer's 20ms interval and flaked under CI runner scheduling contention.
+        await cache.StopAsync(default);
         var durableAgg = await durable.AggregateAsync(ruleId, TimeSpan.FromHours(24));
         Assert.True(durableAgg.Matched > 0, "durable log received drained decisions");
-
-        await cache.StopAsync(default);
     }
 
     [Fact]
