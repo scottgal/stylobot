@@ -68,6 +68,12 @@ public class BlockActionPolicy : IActionPolicy
     /// <inheritdoc />
     public PolicyIntent Intent => PolicyIntent.Block;
 
+    /// <summary>
+    ///     Read-only access to the configured options. Used by the dashboard state provider to
+    ///     surface the real status code / message this policy applies.
+    /// </summary>
+    public BlockActionOptions Options => _options;
+
     /// <inheritdoc />
     public async Task<ActionResult> ExecuteAsync(
         HttpContext context,

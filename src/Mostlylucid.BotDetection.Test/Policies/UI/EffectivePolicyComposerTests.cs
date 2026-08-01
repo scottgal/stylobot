@@ -163,4 +163,49 @@ public sealed class EffectivePolicyComposerTests
 
         rows.Should().OnlyContain(c => c.CanEdit, "canEdit=true (commercial LicenseAware) enables the config-row edit control");
     }
+
+    [Fact]
+    public void Description_is_read_from_the_real_policys_own_configured_fields_not_the_name()
+    {
+        // Real concrete policy instances (not mocks) so the type-pattern-matched
+        // description path actually runs -- proves the numbers come from the
+        // policy's own Options, never from parsing "block-hard"/"throttle-stealth".
+        var block = new BlockActionPolicy("block-hard", new BlockActionOptions { StatusCode = 403 });
+        var throttle = new ThrottleActionPolicy("throttle-stealth", new ThrottleActionOptions { BaseDelayMs = 800, MaxDelayMs = 3000 });
+
+        var mock = new Mock<IActionPolicyRegistry>();
+        mock.Setup(r => r.GetPolicy("block-hard")).Returns(block);
+        mock.Setup(r => r.GetPolicy("throttle-stealth")).Returns(throttle);
+
+        var opts = new BotDetectionOptions
+        {
+            BotTypeActionPolicies = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["MaliciousBot"] = "block-hard",
+                ["Scraper"] = "throttle-stealth",
+            },
+            DefaultActionPolicyName = null
+        };
+        var composer = NewComposer(opts, mock.Object);
+
+        var rows = composer.ComposeConfigRows(canEdit: false).Select(r => r.ConfigRow!).ToList();
+
+        rows.Single(c => c.Target == "MaliciousBot").Description.Should().Be("403 immediately");
+        rows.Single(c => c.Target == "Scraper").Description.Should().Be("Slows responses 800-3000ms");
+    }
+
+    [Fact]
+    public void Unresolved_policy_name_gets_an_honest_description_not_a_crash()
+    {
+        var opts = new BotDetectionOptions
+        {
+            BotTypeActionPolicies = new(StringComparer.OrdinalIgnoreCase) { ["Scraper"] = "made-up-policy" },
+            DefaultActionPolicyName = null
+        };
+        var composer = NewComposer(opts, Registry());
+
+        var rows = composer.ComposeConfigRows(canEdit: false).Select(r => r.ConfigRow!).ToList();
+
+        rows.Single(c => c.Target == "Scraper").Description.Should().Be("Unresolved policy name");
+    }
 }

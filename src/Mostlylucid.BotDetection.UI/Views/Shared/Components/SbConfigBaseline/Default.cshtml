@@ -33,6 +33,10 @@
                     <span class="sb-config-baseline-target">@row.Target</span>
                     <span class="sb-config-baseline-arrow" aria-hidden="true">&rarr;</span>
                     <span class="verdict @row.ActionColorClass">@row.ResultingAction</span>
+                    @if (!string.IsNullOrEmpty(row.Description))
+                    {
+                        <span class="sb-config-baseline-desc">@row.Description</span>
+                    }
                     <span class="badge source-pill" title="@row.ConfigKey">@sourceLabel</span>
                     @if (row.SupersededByRuleId is not null)
                     {

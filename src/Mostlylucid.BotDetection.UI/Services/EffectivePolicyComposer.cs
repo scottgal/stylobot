@@ -58,16 +58,17 @@ public sealed class EffectivePolicyComposer : IConfigBaselineProvider
         var rows = opts.BotTypeActionPolicies
             .Select(kv =>
             {
-                var type = _registry.GetPolicy(kv.Value)?.ActionType;
+                var policy = _registry.GetPolicy(kv.Value);
                 var row = _overlay.Apply(new ConfigPolicyRowViewModel(
                     Target: kv.Key,
                     ResultingAction: kv.Value,
-                    ActionColorClass: ColorFor(type),
+                    ActionColorClass: ColorFor(policy?.ActionType),
                     ConfigKey: $"BotDetection:BotTypeActionPolicies:{kv.Key}",
                     Source: EffectivePolicyConfigSource.BotTypeActionPolicies,
                     SupersededByRuleId: null,
-                    CanEdit: canEdit));
-                return (row, rank: SeverityRank(type));
+                    CanEdit: canEdit,
+                    Description: DescriptionFor(policy)));
+                return (row, rank: SeverityRank(policy?.ActionType));
             })
             .OrderBy(t => t.rank)
             .ThenBy(t => t.row.Target, StringComparer.OrdinalIgnoreCase)
@@ -77,17 +78,18 @@ public sealed class EffectivePolicyComposer : IConfigBaselineProvider
         rows.Add(EffectivePolicyRowViewModel.ForConfig(ComposeDefaultRow(opts.DefaultActionPolicyName, canEdit)));
         rows.AddRange(_detectionPolicies.Value.Rules.Select((rule, index) =>
         {
-            var type = _registry.GetPolicy(rule.Action)?.ActionType;
+            var policy = _registry.GetPolicy(rule.Action);
             var target = rule.Name ?? $"Detection rule {index + 1}";
             if (!string.IsNullOrWhiteSpace(rule.Path)) target += $" ({rule.Path})";
             return EffectivePolicyRowViewModel.ForConfig(_overlay.Apply(new ConfigPolicyRowViewModel(
                 Target: target,
                 ResultingAction: rule.Action,
-                ActionColorClass: ColorFor(type),
+                ActionColorClass: ColorFor(policy?.ActionType),
                 ConfigKey: $"BotDetection:DetectionPolicies:Rules:{index}:Action",
                 Source: EffectivePolicyConfigSource.DetectionPolicyRule,
                 SupersededByRuleId: null,
-                CanEdit: canEdit)));
+                CanEdit: canEdit,
+                Description: DescriptionFor(policy))));
         }));
         return rows;
     }
@@ -95,16 +97,48 @@ public sealed class EffectivePolicyComposer : IConfigBaselineProvider
     private ConfigPolicyRowViewModel ComposeDefaultRow(string? defaultName, bool canEdit)
     {
         var hasDefault = !string.IsNullOrEmpty(defaultName);
-        var type = hasDefault ? _registry.GetPolicy(defaultName!)?.ActionType : null;
+        var policy = hasDefault ? _registry.GetPolicy(defaultName!) : null;
         return _overlay.Apply(new ConfigPolicyRowViewModel(
             Target: "(default)",
             ResultingAction: hasDefault ? defaultName! : "(none)",
-            ActionColorClass: ColorFor(type),
+            ActionColorClass: ColorFor(policy?.ActionType),
             ConfigKey: "BotDetection:DefaultActionPolicyName",
             Source: EffectivePolicyConfigSource.DefaultActionPolicy,
             SupersededByRuleId: null,
-            CanEdit: canEdit));
+            CanEdit: canEdit,
+            Description: DescriptionFor(policy)));
     }
+
+    /// <summary>
+    ///     Short plain-language description of what a policy actually does, read from the resolved
+    ///     <see cref="IActionPolicy"/> instance's own configured fields -- never from parsing the
+    ///     policy's operator-chosen name (<c>feedback_no_word_lists</c>: no name-string switch to
+    ///     maintain as new named policy instances get added). Concrete policy classes (matched by
+    ///     type, not name) contribute the real configured numbers; anything else -- including test
+    ///     doubles and any future <see cref="IActionPolicy"/> implementation -- falls back to a
+    ///     generic <see cref="ActionType"/>-level description.
+    /// </summary>
+    private static string DescriptionFor(IActionPolicy? policy) => policy switch
+    {
+        null => "Unresolved policy name",
+        BlockActionPolicy b => $"{b.Options.StatusCode} immediately",
+        RateLimitActionPolicy r => $"Cap request rate to {r.Options.RequestsPerMinute}/min",
+        ThrottleActionPolicy t => $"Slows responses {t.Options.BaseDelayMs}-{t.Options.MaxDelayMs}ms",
+        ChallengeActionPolicy => "Interactive challenge (CAPTCHA/JS) required",
+        LogOnlyActionPolicy => "Observe only, no action taken",
+        SilentDropActionPolicy => "Connection dropped, no response sent",
+        RedirectActionPolicy rd => $"Redirects to {rd.Options.TargetUrl}",
+        _ => policy.ActionType switch
+        {
+            ActionType.Block => "Denies the request",
+            ActionType.Throttle => "Slows the response down",
+            ActionType.Challenge => "Requires a challenge to proceed",
+            ActionType.Redirect => "Redirects the request",
+            ActionType.LogOnly => "Observe only, no action taken",
+            ActionType.Escalate => "Escalates for further review",
+            _ => "Custom handling"
+        }
+    };
 
     // Canonical dashboard verdict palette, dispatched on the policy's ActionType:
     //   error = danger (Block), warning = caution (Challenge / Throttle / Redirect),

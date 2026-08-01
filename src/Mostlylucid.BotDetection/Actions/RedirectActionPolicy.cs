@@ -80,6 +80,12 @@ public class RedirectActionPolicy : IActionPolicy
     /// <inheritdoc />
     public PolicyIntent Intent => PolicyIntent.Block;
 
+    /// <summary>
+    ///     Read-only access to the configured options. Used by the dashboard state provider to
+    ///     surface the real target URL this policy redirects to.
+    /// </summary>
+    public RedirectActionOptions Options => _options;
+
     /// <inheritdoc />
     public Task<ActionResult> ExecuteAsync(
         HttpContext context,
