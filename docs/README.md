@@ -14,6 +14,8 @@
 
 - [`Mostlylucid.BotDetection.Console/README.md`](../Mostlylucid.BotDetection.Console/README.md) - Full CLI reference, all flags, daemon mode, LLM providers
 - Run `stylobot man` for the built-in manual page
+- [`install-linux-apt.md`](install-linux-apt.md) - apt install + the default (demo/logonly) behavior before you configure anything
+- [`tls-configuration.md`](tls-configuration.md) - Cert/key setup, multi-domain/SNI limits, upstream TLS, SSL-error gotchas
 
 ## Configuration
 
