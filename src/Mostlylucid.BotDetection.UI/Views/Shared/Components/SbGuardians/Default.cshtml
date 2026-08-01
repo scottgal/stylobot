@@ -48,14 +48,19 @@
 
     @if (!Model.Available)
     {
-        <p class="text-xs text-base-content/60 italic">
-            Guardian runtime not available in this dashboard host (remote / view-only mode).
-            Storage bounding runs in the detection component (gateway / sidecar / embedded).
-        </p>
+        @await Component.InvokeAsync("SbEmptyState", new EmptyStateViewModel(
+            Icon: "shield-quarter",
+            Heading: "Guardian runtime not available",
+            Detail: "This dashboard host is remote / view-only mode. Storage bounding runs in the detection component (gateway / sidecar / embedded).",
+            Compact: true))
     }
     else if (Model.TotalGuardians == 0)
     {
-        <p class="text-xs text-base-content/60 italic">No guardians registered.</p>
+        @await Component.InvokeAsync("SbEmptyState", new EmptyStateViewModel(
+            Icon: "shield-quarter",
+            Heading: "No guardians registered",
+            Detail: "Data guardians will appear here once configured.",
+            Compact: true))
     }
     else
     {

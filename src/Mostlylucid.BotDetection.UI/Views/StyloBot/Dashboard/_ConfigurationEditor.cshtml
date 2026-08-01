@@ -145,8 +145,11 @@
 
         <!-- body: highlighted fragment lands here -->
         <div id="config-body" class="flex-1 min-h-[640px] overflow-auto">
-            <div class="flex items-center justify-center h-full text-sm text-base-content/40 select-none px-4 text-center">
-                Pick a section or detector on the left to view its effective configuration.
+            <div class="flex items-center justify-center h-full px-4">
+                @await Component.InvokeAsync("SbEmptyState", new Mostlylucid.BotDetection.UI.Models.EmptyStateViewModel(
+                    Icon: "list-ul",
+                    Heading: "Nothing selected",
+                    Detail: "Pick a section or detector on the left to view its effective configuration."))
             </div>
         </div>
     </section>

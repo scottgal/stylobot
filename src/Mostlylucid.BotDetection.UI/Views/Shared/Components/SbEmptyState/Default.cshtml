@@ -1,0 +1,31 @@
+@model Mostlylucid.BotDetection.UI.Models.EmptyStateViewModel
+@if (Model.Compact)
+{
+    <div class="text-center py-2">
+        <i class="bx bx-@Model.Icon text-2xl block mb-2 text-base-content/30"></i>
+        <h3 class="card-title text-base justify-center">@Model.Heading</h3>
+        <p class="text-sm text-base-content/70 mt-1">
+            @Model.Detail
+            @if (!string.IsNullOrEmpty(Model.CtaHref))
+            {
+                <text> </text><a href="@Model.CtaHref" class="link link-hover">@Model.CtaLabel</a>
+            }
+        </p>
+    </div>
+}
+else
+{
+    <div class="card bg-base-100 shadow-sm rounded-xl border border-base-300">
+        <div class="card-body p-6 text-center">
+            <i class="bx bx-@Model.Icon text-2xl block mb-2 text-base-content/30"></i>
+            <h3 class="card-title text-base justify-center">@Model.Heading</h3>
+            <p class="text-sm text-base-content/70 mt-1">
+                @Model.Detail
+                @if (!string.IsNullOrEmpty(Model.CtaHref))
+                {
+                    <text> </text><a href="@Model.CtaHref" class="link link-hover">@Model.CtaLabel</a>
+                }
+            </p>
+        </div>
+    </div>
+}

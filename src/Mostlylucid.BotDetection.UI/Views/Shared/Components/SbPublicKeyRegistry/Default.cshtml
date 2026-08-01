@@ -32,26 +32,24 @@
 
         @if (Model.IsUnavailable)
         {
-            <div class="text-sm text-base-content/60 py-2">
-                Registry not available on this host.
-            </div>
+            @await Component.InvokeAsync("SbEmptyState", new Mostlylucid.BotDetection.UI.Models.EmptyStateViewModel(
+                Icon: "key",
+                Heading: "Registry not available",
+                Detail: "This host doesn't have the Web Bot Auth key registry available.",
+                Compact: true))
         }
         else if (Model.Keys.Count == 0)
         {
-            <div class="text-sm text-base-content/60 py-2">
-                @if (!Model.IsEnabled)
-                {
-                    <span>Disabled. Set <code class="text-xs">BotDetection:PublicKeyRegistry:Enabled</code> to load keys.</span>
-                }
-                else if (string.IsNullOrWhiteSpace(Model.ManifestUrl))
-                {
-                    <span>No keys yet — configure a manifest URL or manual keys.</span>
-                }
-                else
-                {
-                    <span>No keys loaded yet from the manifest.</span>
-                }
-            </div>
+            var detail = !Model.IsEnabled
+                ? "Disabled. Set BotDetection:PublicKeyRegistry:Enabled to load keys."
+                : string.IsNullOrWhiteSpace(Model.ManifestUrl)
+                    ? "No keys yet — configure a manifest URL or manual keys."
+                    : "No keys loaded yet from the manifest.";
+            @await Component.InvokeAsync("SbEmptyState", new Mostlylucid.BotDetection.UI.Models.EmptyStateViewModel(
+                Icon: "key",
+                Heading: "No keys",
+                Detail: detail,
+                Compact: true))
         }
         else
         {
