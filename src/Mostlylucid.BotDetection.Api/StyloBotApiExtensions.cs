@@ -91,6 +91,7 @@ public static class StyloBotApiExtensions
         endpoints.MapMetricsEndpoints();
         endpoints.MapMetricsSnapshotEndpoints();
         endpoints.MapRoutesEndpoints();
+        endpoints.MapSitesEndpoints();
         endpoints.MapClusterEndpoints();
         endpoints.MapLabelEndpoints();
         endpoints.MapApprovalEndpoints();
