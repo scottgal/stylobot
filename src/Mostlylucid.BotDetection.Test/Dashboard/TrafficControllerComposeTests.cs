@@ -8,6 +8,7 @@ using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
+using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.Test.Dashboard;
@@ -72,6 +73,10 @@ public sealed class TrafficControllerComposeTests
         public DashboardBatchRequest? LastBatchRequest { get; private set; }
         public List<DashboardBatchRequest> BatchRequests { get; } = new();
 
+        // Null by default matches "TimeBuckets branch hasn't been exercised" -- set to
+        // a non-null list to opt a test into the normal (already-warm) shape.
+        public List<DashboardTimeSeriesPoint>? TimeBucketsOverride { get; set; } = new();
+
         // Prior-window calls are the two allowed per-widget calls that the
         // controller still issues directly. Track them so tests can assert
         // how many times each was called.
@@ -85,7 +90,7 @@ public sealed class TrafficControllerComposeTests
             BatchRequests.Add(request);
             var bundle = new DashboardDatasetBundle(
                 Summary: EmptySummary(),
-                TimeBuckets: new List<DashboardTimeSeriesPoint>(),
+                TimeBuckets: TimeBucketsOverride,
                 BotAggregate: new List<DashboardTopBotEntry>(),
                 Geo: new List<DashboardCountryStats>(),
                 Endpoints: new List<DashboardEndpointStats>());
@@ -186,6 +191,43 @@ public sealed class TrafficControllerComposeTests
         Assert.True(httpContext.Items.ContainsKey("sb.dashboard.pageresult"),
             "Expected 'sb.dashboard.pageresult' in HttpContext.Items after Index()");
         Assert.IsType<DashboardPageResult>(httpContext.Items["sb.dashboard.pageresult"]);
+    }
+
+    /// <summary>
+    ///     Regression test for a real bug: the TimeBuckets branch (IncrementalTimeBucketStore)
+    ///     has its own, heavier cold path than the other four compose-batch branches and can
+    ///     independently return null even when the overall envelope is otherwise warm
+    ///     (page.IsWarming == false). HitsPerPeriodChartletBuilder.BuildSeries always
+    ///     gap-fills a full zero-value bucket axis regardless of whether the input was null
+    ///     or genuinely empty, so Model.Timeseries.Buckets.Count is NEVER 0 -- the chart's
+    ///     own empty-vs-warming distinction can only come from Model.IsWarming correctly
+    ///     reflecting a null TimeBuckets, not from bucket count. Before the fix,
+    ///     Model.IsWarming was wired to page.IsWarming alone, so this exact scenario
+    ///     (envelope warm, TimeBuckets branch specifically cold) rendered a chart with a
+    ///     full zero-bar axis and no warming spinner -- visually indistinguishable from a
+    ///     genuinely quiet window.
+    /// </summary>
+    [Fact]
+    public async Task TrafficController_flags_IsWarming_when_TimeBuckets_branch_is_null_even_if_envelope_is_warm()
+    {
+        var store = new RecordingEventStore { TimeBucketsOverride = null };
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
+
+        // AutoWarmingContentCache simulates "the materializer already warmed this envelope"
+        // -- page.IsWarming will be false here even though TimeBuckets is null, isolating
+        // the fix's OR condition from the coarser envelope-level flag.
+        var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = await controller.Index(country: null, botType: null, window: "6h", threat: null, partial: null, default);
+
+        var model = Assert.IsType<Microsoft.AspNetCore.Mvc.ViewResult>(result).Model as TrafficPageModel;
+        Assert.NotNull(model);
+        Assert.True(model!.IsWarming,
+            "Expected Model.IsWarming to be true when TimeBuckets is null, even though the overall envelope reports warm.");
     }
 
     [Fact]

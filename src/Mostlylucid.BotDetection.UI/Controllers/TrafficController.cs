@@ -193,12 +193,18 @@ public sealed class TrafficController : Controller
             Counters: counters,
             Timeseries: timeseries,
             BotFamilies: botFamilies,
-            // PART 3: thread the cold-cache-miss flag through so ?partial=1 SignalR swaps
-            // and HTMX chartlet drills render the WARMING state instead of a silent empty
-            // chart. page.TimeBuckets is null on a Warming placeholder -> the timeseries
-            // above bucketed to all-zeros, which without this flag would paint a bare
-            // empty canvas indistinguishable from a real "no traffic" window.
-            IsWarming: page.IsWarming,
+            // PART 3 (bug fix): page.IsWarming is an ENVELOPE-level flag -- whether
+            // DashboardContentCache had ANY cached bundle for this compose at all. The
+            // TimeBuckets branch (IncrementalTimeBucketStore) has its own, heavier cold
+            // path (a full-retention backfill vs the other branches' scoped-window
+            // queries) and can independently return null even when the rest of the
+            // envelope is already warm (page.IsWarming == false). Bucketing a null
+            // TimeBuckets still produces a full zero-filled axis (BuildSeries always
+            // gap-fills, by design, so a genuinely-quiet PERIOD reads as a zero bar not
+            // a hole) -- so without checking the TimeBuckets branch specifically, that
+            // cold-miss paints the exact same bare zero-bars chart as real "no traffic",
+            // and neither the warming spinner nor the honest-empty message ever fires.
+            IsWarming: page.IsWarming || page.TimeBuckets is null,
             Countries: TopByCountry(countriesData, topN),
             BotTypes: TopByBotType(visitors, topN),
             TopEndpoints: TopByEndpoint(endpointsData, topN, opts.TopEndpointsMinSamplesForPerf),
