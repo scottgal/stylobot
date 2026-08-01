@@ -50,6 +50,32 @@
         var encodedPath = string.Join("/", path.Split('/').Select(seg => Uri.EscapeDataString(seg)));
         return $"{bp}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}";
     }
+    // Shared status-bucket palette (2xx=success, 3xx=neutral, 4xx=warning, 5xx=error) --
+    // same semantics as the dashboard's block/throttle/allow policy colors elsewhere.
+    // "none" (no real origin call -- honeypot/blocked before MapReverseProxy, or no
+    // status ever observed) renders as a muted dash, not a color, since it isn't a
+    // response at all.
+    string StatusBadgeClass(string bucket) => bucket switch
+    {
+        "2xx" => "badge badge-xs badge-success",
+        "3xx" => "badge badge-xs badge-ghost",
+        "4xx" => "badge badge-xs badge-warning",
+        "5xx" => "badge badge-xs badge-error",
+        _     => "",
+    };
+    // Dominant bucket across 2xx/3xx/4xx/5xx/none for one endpoint row (an aggregate
+    // of many requests, which can mix outcomes) -- same argmax pattern as
+    // DashboardEndpointStats.DominantStatusBucket, extended with a "none" bucket for
+    // the upstream axis (requests that never reached a real origin).
+    string DominantBucket(int s2, int s3, int s4, int s5, int none)
+    {
+        var max = s2; var bucket = s2 > 0 ? "2xx" : "";
+        if (s3 > max) { max = s3; bucket = "3xx"; }
+        if (s4 > max) { max = s4; bucket = "4xx"; }
+        if (s5 > max) { max = s5; bucket = "5xx"; }
+        if (none > max) { bucket = "none"; }
+        return bucket;
+    }
 }
 <div id="endpoints-list"
      data-sb-widget="endpoints"
@@ -272,6 +298,8 @@
                     <th class="py-1 text-right @ThClass("latency") cursor-pointer whitespace-nowrap @(compact ? "" : "hidden md:table-cell")" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Avg / p95 ms">Latency@(Html.Raw(SortIcon("latency")))</th>
                     @if (!compact)
                     {
+                        <th class="py-1 text-center hidden lg:table-cell" title="The status the origin/upstream actually returned. Dash = no real origin call (blocked or honeypot before the proxy hop).">Upstream</th>
+                        <th class="py-1 text-center hidden lg:table-cell" title="The status StyloBot actually sent the client -- diverges from Upstream when a bot was blocked/challenged/throttled.">Returned</th>
                         <th class="py-1 text-right @ThClass("bytes") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("bytes")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Total response bytes served (Content-Length sum)">Bytes@(Html.Raw(SortIcon("bytes")))</th>
                         <th class="py-1 text-right @ThClass("unique") cursor-pointer hidden lg:table-cell" hx-get="@SortUrl("unique")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Sigs@(Html.Raw(SortIcon("unique")))</th>
                         <th class="py-1 hidden lg:table-cell text-base-content/40">Policy</th>
@@ -372,6 +400,34 @@
                         </td>
                         @if (!compact)
                         {
+                            var upstreamBucket = DominantBucket(endpoint.UpstreamStatus2xx, endpoint.UpstreamStatus3xx, endpoint.UpstreamStatus4xx, endpoint.UpstreamStatus5xx, endpoint.UpstreamNoneCount);
+                            var returnedBucket = endpoint.DominantStatusBucket;
+                            <td class="py-1 text-center hidden lg:table-cell">
+                                @if (upstreamBucket == "none" || string.IsNullOrEmpty(upstreamBucket))
+                                {
+                                    <span class="text-base-content/30" title="@(endpoint.IsHoneypot ? "Honeypot -- deliberate tracking response, no real origin behind it" : "No real origin call (blocked before the proxy hop)")">
+                                        &mdash;
+                                        @if (endpoint.IsHoneypot)
+                                        {
+                                            <span class="badge badge-xs badge-ghost ml-1">honeypot</span>
+                                        }
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="@StatusBadgeClass(upstreamBucket)">@upstreamBucket</span>
+                                }
+                            </td>
+                            <td class="py-1 text-center hidden lg:table-cell">
+                                @if (string.IsNullOrEmpty(returnedBucket))
+                                {
+                                    <span class="text-base-content/30">&mdash;</span>
+                                }
+                                else
+                                {
+                                    <span class="@StatusBadgeClass(returnedBucket)">@returnedBucket</span>
+                                }
+                            </td>
                             <td class="py-1 text-right text-xs font-mono tabular-nums hidden md:table-cell" title="Total response bytes served">@AnalyticsFormatting.FormatBytes(endpoint.BytesOut)</td>
                             <td class="py-1 text-right text-xs font-mono hidden lg:table-cell">@endpoint.UniqueSignatures</td>
                             <td class="py-1 hidden lg:table-cell">
