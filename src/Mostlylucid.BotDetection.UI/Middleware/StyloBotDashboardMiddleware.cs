@@ -1339,9 +1339,7 @@ public class StyloBotDashboardMiddleware
                     // non-null empty lists as a successful read and skip their populated
                     // IDashboardEventStore fallback. The direct store path is the same
                     // source used by the working Traffic render on remote hosts.
-                    else if (candidatePage.Summary is not null
-                        && candidatePage.BotAggregate is { Count: > 0 }
-                        && candidatePage.Geo is { Count: > 0 })
+                    else if (IsPageBundleCompleteEnoughToStash(candidatePage))
                     {
                         composedPage = candidatePage;
                         context.Items["sb.dashboard.pageresult"] = candidatePage;
@@ -7678,6 +7676,24 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     ///         <c>DashboardRowRawFetchers.FetchClustersRawAsync</c>'s doc comment).
     ///     </para>
     /// </summary>
+    /// <summary>
+    ///     Gate for whether a composed <see cref="DashboardPageResult"/>
+    ///     is complete enough to stash as authoritative (vs. falling back to direct
+    ///     event-store reads). A degraded remote compose can return a non-null bundle with
+    ///     one or more empty slices; stashing that is worse than not stashing at all,
+    ///     because <c>pageResult?.Slice is { }</c> at each render layer treats a non-null
+    ///     empty list as a successful read and skips its own populated-store fallback --
+    ///     turning one missing slice into a permanently empty widget. Checks every slice the
+    ///     Traffic page manifest composes (Summary/BotAggregate/Geo/Endpoints); extend this
+    ///     when a future manifest slice joins the same bundle. Internal for regression
+    ///     coverage (DashboardPageBundleStashGateTests).
+    /// </summary>
+    internal static bool IsPageBundleCompleteEnoughToStash(DashboardPageResult candidatePage) =>
+        candidatePage.Summary is not null
+        && candidatePage.BotAggregate is { Count: > 0 }
+        && candidatePage.Geo is { Count: > 0 }
+        && candidatePage.Endpoints is { Count: > 0 };
+
     internal static DashboardPageWindow BuildVisitorsPageWindow(HttpContext context)
     {
         var layout = context.RequestServices
