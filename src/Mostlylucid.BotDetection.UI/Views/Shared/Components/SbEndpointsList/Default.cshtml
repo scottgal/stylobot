@@ -436,15 +436,35 @@
                                     {
                                         <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-base-300 text-base-content/60 font-medium">@endpoint.ActivePolicyName</span>
                                     }
-                                    <button type="button"
-                                            title="Apply policy to this endpoint"
-                                            class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto"
-                                            data-action="open-policy-modal"
-                                            data-method="@endpoint.Method"
-                                            data-path="@Uri.EscapeDataString(endpoint.Path)"
-                                            data-policy="@(endpoint.ActivePolicyName ?? string.Empty)">
-                                        <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
-                                    </button>
+                                    @if (Model.IsCommercial)
+                                    {
+                                        @* Commercial: the endpoint-detail page (this row's own click-
+                                           through target, EndpointHref above) already embeds the real
+                                           SbApplyPolicy control for this exact scope -- link straight to
+                                           it instead of the FOSS snippet-generator modal below, which
+                                           never had a write path to begin with in a licensed context. *@
+                                        <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
+                                           title="Apply policy to this endpoint"
+                                           class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto relative z-10"
+                                           aria-label="Apply policy to @endpoint.Method @endpoint.Path">
+                                            <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        @* FOSS (no commercial write path/license): the copy-pasteable
+                                           [BotPolicy(...)] config-snippet modal is the real, intentional
+                                           workflow here -- self-hosted config is file-based, not an API. *@
+                                        <button type="button"
+                                                title="Apply policy to this endpoint"
+                                                class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto"
+                                                data-action="open-policy-modal"
+                                                data-method="@endpoint.Method"
+                                                data-path="@Uri.EscapeDataString(endpoint.Path)"
+                                                data-policy="@(endpoint.ActivePolicyName ?? string.Empty)">
+                                            <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
+                                        </button>
+                                    }
                                 </div>
                             </td>
                             <td class="py-1 hidden md:table-cell" title="@humanPct% human / @(100 - humanPct)% bot">
