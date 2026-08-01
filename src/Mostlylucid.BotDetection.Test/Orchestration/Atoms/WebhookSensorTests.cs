@@ -87,4 +87,81 @@ public sealed class WebhookSensorTests
         await New(ctx, rep.Object).DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
         rep.Verify(r => r.RecordRequest("/hooks/x", It.IsAny<string>()), Times.Once);
     }
+
+    // ── published IP range corroboration (day-one cold start, no reputation history) ──
+
+    private static WebhookCatalog CatalogWithPublishedRange(string cidr) => new(
+        signatureHeaders: ["Stripe-Signature"],
+        providers: [new WebhookProvider("Stripe", "Stripe-Signature", [cidr])]);
+
+    private static DefaultHttpContext PostFrom(string path, string remoteIp, (string, string)[] headers)
+    {
+        var ctx = Post(path, headers);
+        ctx.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(remoteIp);
+        return ctx;
+    }
+
+    [Fact] // THE P0 CASE: brand-new endpoint, zero accumulated reputation, real published-range IP
+    public async Task Post_named_provider_from_published_ip_range_with_no_reputation_history_is_recognized()
+    {
+        var catalog = CatalogWithPublishedRange("3.18.12.63/32");
+        var ctx = PostFrom("/webhooks/stripe", "3.18.12.63", [("Stripe-Signature", "t=1,v1=abc")]);
+        var sensor = new WebhookSensor(
+            NullLogger<WebhookSensor>.Instance, new StubDetectorConfigProvider(),
+            new StaticHttpContextAccessor(ctx), catalog, reputation: null);
+
+        var r = await sensor.DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
+
+        r.Should().ContainSingle("a provider's published IP range corroborates without needing accumulated dominant/verified history");
+        r[0].ConfidenceDelta.Should().BeLessThan(0);
+        r[0].BotType.Should().Be(BotType.GoodBot.ToString());
+    }
+
+    [Fact]
+    public async Task Post_named_provider_from_outside_published_ip_range_with_no_reputation_is_not_recognized()
+    {
+        var catalog = CatalogWithPublishedRange("3.18.12.63/32");
+        var ctx = PostFrom("/webhooks/stripe", "9.9.9.9", [("Stripe-Signature", "t=1,v1=abc")]);
+        var sensor = new WebhookSensor(
+            NullLogger<WebhookSensor>.Instance, new StubDetectorConfigProvider(),
+            new StaticHttpContextAccessor(ctx), catalog, reputation: null);
+
+        var r = await sensor.DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
+
+        r.Should().BeEmpty("an IP outside the published range with no other corroborator must not be recognized");
+    }
+
+    [Fact] // proves the SHIPPED seed (WebhookCatalog.Default, real embedded YAML), not just a test fixture
+    public async Task Post_from_a_real_seeded_Stripe_ip_via_default_catalog_is_recognized_day_one()
+    {
+        var ctx = PostFrom("/webhooks/stripe", "3.18.12.63", [("Stripe-Signature", "t=1,v1=abc")]);
+        var r = await New(ctx, rep: null).DetectAsync(new SignalSink(1000, TimeSpan.FromMinutes(1)), Session);
+
+        r.Should().ContainSingle("3.18.12.63 is one of Stripe's published webhook-notification IPs, seeded in webhook.archetype.yaml");
+    }
+
+    // ── IpInCidr: direct CIDR-parsing coverage ──────────────────────────────
+
+    [Theory]
+    [InlineData("3.18.12.63", "3.18.12.63/32", true)]
+    [InlineData("3.18.12.64", "3.18.12.63/32", false)]
+    [InlineData("192.168.1.42", "192.168.1.0/24", true)]
+    [InlineData("192.168.2.42", "192.168.1.0/24", false)]
+    [InlineData("10.0.0.1", "10.0.0.0/8", true)]
+    [InlineData("11.0.0.1", "10.0.0.0/8", false)]
+    public void IpInCidr_matches_by_prefix(string ip, string cidr, bool expected)
+    {
+        WebhookSensor.IpInCidr(ip, cidr).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("3.18.12.63", "not-a-cidr")]
+    [InlineData("3.18.12.63", "3.18.12.63")] // missing /prefix
+    [InlineData("3.18.12.63", "3.18.12.63/abc")] // non-numeric prefix
+    [InlineData("not-an-ip", "3.18.12.63/32")]
+    [InlineData("", "3.18.12.63/32")]
+    public void IpInCidr_malformed_input_does_not_throw_and_returns_false(string ip, string cidr)
+    {
+        WebhookSensor.IpInCidr(ip, cidr).Should().BeFalse();
+    }
 }

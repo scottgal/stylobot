@@ -151,7 +151,29 @@ public sealed class WebhookSensor : DetectorAtomBase
         }));
     }
 
-    /// <summary>CIDR containment check for a provider's published source-IP ranges.</summary>
-    // TODO: CIDR match when provider ip_ranges are seeded (all seed catalogs ship [] today).
-    private static bool IpInCidr(string ip, string cidr) => false;
+    /// <summary>
+    ///     CIDR containment check for a provider's published source-IP ranges (e.g.
+    ///     Stripe's published webhook-sender IPs). IPv4 only -- ranges are seeded as
+    ///     IPv4 CIDR strings; a non-IPv4 address or malformed CIDR never matches
+    ///     rather than throwing, since this runs on the untrusted request's remote IP.
+    /// </summary>
+    internal static bool IpInCidr(string ip, string cidr)
+    {
+        var slash = cidr.IndexOf('/');
+        if (slash < 0) return false;
+
+        if (!System.Net.IPAddress.TryParse(ip, out var address)
+            || address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            return false;
+        if (!System.Net.IPAddress.TryParse(cidr[..slash], out var network)
+            || network.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            return false;
+        if (!int.TryParse(cidr[(slash + 1)..], out var prefixLength) || prefixLength is < 0 or > 32)
+            return false;
+
+        var addressBits = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(address.GetAddressBytes());
+        var networkBits = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(network.GetAddressBytes());
+        var mask = prefixLength == 0 ? 0u : 0xFFFFFFFFu << (32 - prefixLength);
+        return (addressBits & mask) == (networkBits & mask);
+    }
 }

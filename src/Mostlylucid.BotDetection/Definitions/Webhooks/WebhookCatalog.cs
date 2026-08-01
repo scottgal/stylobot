@@ -36,6 +36,19 @@ public sealed class WebhookCatalog
         VerifiedMin2xx = file.Scoring.VerifiedMin2xx;
     }
 
+    /// <summary>Direct-construction overload for tests -- bypasses embedded-resource loading.</summary>
+    internal WebhookCatalog(IReadOnlyList<string> signatureHeaders, IReadOnlyList<WebhookProvider> providers)
+    {
+        SignatureHeaders = signatureHeaders;
+        Providers = providers;
+        var s = new WebhookScoring();
+        CorroboratedConfidenceDelta = s.CorroboratedConfidenceDelta;
+        CorroboratedWeight = s.CorroboratedWeight;
+        DominanceMinCount = s.DominanceMinCount;
+        DominanceMinShare = s.DominanceMinShare;
+        VerifiedMin2xx = s.VerifiedMin2xx;
+    }
+
     /// <summary>Webhook signature/event header names (truth signal - presence is behavioural).</summary>
     public IReadOnlyList<string> SignatureHeaders { get; }
 

@@ -18,7 +18,29 @@ signature_headers:
 providers:
   - name: Stripe
     signature_header: Stripe-Signature
-    ip_ranges: []
+    # Stripe's published webhook-notification source IPs (https://docs.stripe.com/ips,
+    # machine-readable at https://stripe.com/files/ips/ips_webhooks.txt). Corroborates a
+    # Stripe-Signature delivery WITHOUT needing accumulated dominant-ip/verified-record
+    # history -- the day-one/cold-start case for a brand-new webhook receiver endpoint,
+    # where dominant/verified corroboration has no history to draw on yet. Stripe rotates
+    # this list occasionally; re-fetch and update on a Stripe webhook-delivery incident or
+    # a periodic audit (no auto-refresh service wired yet, unlike WellKnownBotIndex).
+    ip_ranges:
+      - 3.18.12.63/32
+      - 3.130.192.231/32
+      - 13.235.14.237/32
+      - 13.235.122.149/32
+      - 18.211.135.69/32
+      - 35.154.171.200/32
+      - 52.15.183.38/32
+      - 54.88.130.119/32
+      - 54.88.130.237/32
+      - 54.187.174.169/32
+      - 54.187.205.235/32
+      - 54.187.216.72/32
+      - 35.157.207.129/32
+      - 3.69.109.8/32
+      - 3.120.168.93/32
   - name: GitHub
     signature_header: X-Hub-Signature-256
     ip_ranges: []
