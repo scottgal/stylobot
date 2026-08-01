@@ -181,6 +181,19 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Domains.PublicSuffixList>(_ => Domains.PublicSuffixList.LoadEmbedded());
         services.TryAddSingleton<Domains.DomainNormalizer>();
 
+        // Site profiles: per-host honeypot/policy profile selection (BotDetection:Sites).
+        // Same silent-drop class as DomainNormalizerOptions above: SiteMapOptions /
+        // ISiteProfileCatalog / ISiteProfileResolver were fully built, unit tested (via
+        // direct construction, which is why no test caught this), and consumed
+        // (HoneypotPathTagger's optional profile-resolver parameter) but never
+        // registered anywhere, so every host ran with an empty SiteMapOptions
+        // regardless of configured BotDetection:Sites and per-host profile promotion
+        // never fired.
+        services.AddOptions<SiteProfiles.SiteMapOptions>()
+            .BindConfiguration(SiteProfiles.SiteMapOptions.SectionName);
+        services.TryAddSingleton<SiteProfiles.ISiteProfileCatalog, SiteProfiles.SiteProfileCatalog>();
+        services.TryAddSingleton<SiteProfiles.ISiteProfileResolver, SiteProfiles.SiteProfileResolver>();
+
         // Passive upstream-health tracking: DegradationAtom is the in-process
         // EWMA of real response status codes (fed by BotDetectionMiddleware
         // post-_next), UpstreamHealthGate reads it to stand down status-derived
