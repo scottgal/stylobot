@@ -178,6 +178,30 @@ public sealed class BotDetectionMiddleware
 
         return (long)((Stopwatch.GetTimestamp() - requestStartTicks) * 1000.0 / Stopwatch.Frequency);
     }
+
+    /// <summary>
+    ///     HttpContext.Items key stamped by <c>Stylobot.Gateway.Transforms.UpstreamStatusTransform</c>'s
+    ///     response transform. Duplicated as a literal for the same cross-project-boundary
+    ///     reason as <see cref="UpstreamElapsedMsItemKey"/>. Stamped only when the request
+    ///     actually reached <c>MapReverseProxy</c> and got a real origin response -- absent
+    ///     (not zero) is the correct state for honeypot / blocked / throttled traffic, which
+    ///     structurally short-circuits before the proxy ever runs.
+    /// </summary>
+    internal const string UpstreamStatusCodeItemKey = "StyloBot.ProxyTiming.UpstreamStatusCode";
+
+    /// <summary>
+    ///     Reads the gateway-stamped real origin status code, or <c>null</c> when this
+    ///     request never reached the origin (honeypot, blocked, throttled -- all resolved
+    ///     before <c>MapReverseProxy</c> -- or a non-gateway topology with no YARP hop at
+    ///     all). Null is the meaningful "no real origin call" signal, not missing data.
+    /// </summary>
+    internal static int? ResolveUpstreamStatusCode(HttpContext context)
+    {
+        if (context.Items.TryGetValue(UpstreamStatusCodeItemKey, out var stamped) && stamped is int statusCode)
+            return statusCode;
+
+        return null;
+    }
 }
 
 /// <summary>Response body for block responses (AOT-compatible record).</summary>

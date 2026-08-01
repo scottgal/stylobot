@@ -117,6 +117,31 @@ public class SqliteEndpointAggregateTests
         rows.Select(r => r.Path).Should().BeEquivalentTo(new[] { "/api/recent" });
     }
 
+    [Fact]
+    public async Task GetEndpointStatsAsync_buckets_upstream_status_and_counts_no_origin_call_rows()
+    {
+        // mae-'s Endpoints UPSTREAM/RETURNED spec: a path can have a mix of
+        // forwarded (real origin status) and blocked/honeypot/throttled (no
+        // origin call at all) traffic, so the upstream axis needs the same
+        // bucketed-count shape as Status2xx/3xx/4xx/5xx, plus an explicit
+        // "no origin call" count rather than folding it into any bucket.
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-upstream-buckets");
+
+        await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: false, bytes: 200, ms: 5) with { UpstreamStatusCode = 200 });
+        await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: false, bytes: 200, ms: 5) with { UpstreamStatusCode = 200 });
+        await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: true,  bytes: 100, ms: 3) with { UpstreamStatusCode = 500 });
+        await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: true,  bytes: 0,   ms: 1) with { StatusCode = 403, UpstreamStatusCode = null });
+
+        var rows = await fx.Store.GetEndpointStatsAsync(audienceFilter: null);
+        var widget = rows.Single(r => r.Path == "/api/widget");
+
+        widget.UpstreamStatus2xx.Should().Be(2);
+        widget.UpstreamStatus5xx.Should().Be(1);
+        widget.UpstreamStatus3xx.Should().Be(0);
+        widget.UpstreamStatus4xx.Should().Be(0);
+        widget.UpstreamNoneCount.Should().Be(1);
+    }
+
     // --- detection helpers ---
 
     private static DashboardDetectionEvent MakeDetection(string path, bool isBot, long bytes, double ms) =>

@@ -143,6 +143,13 @@ public static class ServiceCollectionExtensions
                 // duration into upstream RTT vs StyloBot processing time.
                 builderContext.AddUpstreamTimingTransforms();
 
+                // Stamp the real origin's HTTP status code into HttpContext.Items so
+                // the dashboard Endpoints table can show UPSTREAM (what the origin
+                // returned) alongside RETURNED (what the client got). Only fires for
+                // requests that actually reach MapReverseProxy -- honeypot/blocked/
+                // throttled traffic never runs this transform, by design.
+                builderContext.AddUpstreamStatusTransform();
+
                 // Extension seam for an optional host/product transform. FOSS
                 // callers leave this null and retain the existing pipeline;
                 // composed hosts can append their transform after the FOSS

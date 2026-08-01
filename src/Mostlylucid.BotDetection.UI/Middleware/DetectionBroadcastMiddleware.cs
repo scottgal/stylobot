@@ -361,6 +361,11 @@ public partial class DetectionBroadcastMiddleware
         // transient per-request DTO) so we do NOT allocate a whole-record `with` copy per request.
         detection.StatusCode = context.Response.StatusCode;
 
+        // Real origin status, when this request reached MapReverseProxy at all. Read
+        // post-_next for the same reason as StatusCode above -- the gateway's YARP
+        // response transform (which stamps this) runs as part of _next.
+        detection.UpstreamStatusCode = BotDetectionMiddleware.ResolveUpstreamStatusCode(context);
+
         // Capture everything we need by value BEFORE spawning the task; context may
         // be disposed before the task runs.
         var detectionCapture = detection;

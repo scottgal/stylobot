@@ -22,6 +22,18 @@ public sealed record DashboardDetectionEvent
     // after _next without allocating a whole-record `with` copy per request. This is a
     // transient per-request DTO, not shared/cached state, so a mutable field is safe here.
     public int StatusCode { get; set; }
+
+    /// <summary>
+    ///     The real origin's HTTP status code, or <c>null</c> when this request never
+    ///     reached the origin. Stamped post-_next alongside <see cref="StatusCode"/> from
+    ///     <c>BotDetectionMiddleware.ResolveUpstreamStatusCode</c> (the gateway's
+    ///     <c>UpstreamStatusTransform</c>). Null is the meaningful "honeypot / blocked /
+    ///     throttled -- no real origin call" signal, not missing data: those responses are
+    ///     synthesised by StyloBot's own enforcement gates before <c>MapReverseProxy</c>
+    ///     ever runs.
+    /// </summary>
+    public int? UpstreamStatusCode { get; set; }
+
     public double ProcessingTimeMs { get; init; }
     /// <summary>Always null. Raw IPs are never persisted (zero-PII design). Present for interface compatibility only.</summary>
     public string? IpAddress { get; init; }

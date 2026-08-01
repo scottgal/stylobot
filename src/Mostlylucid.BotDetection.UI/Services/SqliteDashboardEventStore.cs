@@ -84,7 +84,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ("detections", "host", "TEXT"),
                 ("detections", "referrer_host", "TEXT"),
                 ("detections", "ua_device_class", "TEXT"),
-                ("detections", "is_verified_bot", "INTEGER DEFAULT 0")
+                ("detections", "is_verified_bot", "INTEGER DEFAULT 0"),
+                // Real origin status (Endpoints UPSTREAM/RETURNED columns). NULL = no real
+                // origin call -- honeypot/blocked/throttled traffic never reaches
+                // MapReverseProxy, so the gateway's UpstreamStatusTransform never runs for
+                // them. That NULL is the meaningful signal, not missing data.
+                ("detections", "upstream_status_code", "INTEGER")
             })
             {
                 var colExists = false;
@@ -204,10 +209,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
                     status_code, user_agent_raw, risk_justification, domain, host, referrer_host, ua_device_class, response_bytes,
-                    is_verified_bot)
+                    is_verified_bot, upstream_status_code)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
                     @threat, @band, @status, @uaRaw, @justification, @domain, @host, @refHost, @deviceClass, @responseBytes,
-                    @verifiedBot)
+                    @verifiedBot, @upstreamStatus)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -234,6 +239,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@deviceClass", (object?)detection.UaDeviceClass ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@responseBytes", (object?)detection.ResponseBytes ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@verifiedBot", detection.IsVerifiedBot ? 1 : 0);
+            cmd.Parameters.AddWithValue("@upstreamStatus", (object?)detection.UpstreamStatusCode ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -1231,7 +1237,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // Crude but consistent with the existing convention; the Postgres backend returns true p95.
         // Column order (0-based): method(0), path(1), total(2), bots(3), sigs(4),
         //   avg_ms(5), min_ms(6), max_ms(7), avg_threat(8), last_seen(9), bytes_out(10),
-        //   s2xx(11), s3xx(12), s4xx(13), s5xx(14)
+        //   s2xx(11), s3xx(12), s4xx(13), s5xx(14),
+        //   us2xx(15), us3xx(16), us4xx(17), us5xx(18), us_none(19)
         cmd.CommandText = $"""
             SELECT method, path,
                    COUNT(*) as total,
@@ -1246,7 +1253,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) as s2xx,
                    SUM(CASE WHEN status_code BETWEEN 300 AND 399 THEN 1 ELSE 0 END) as s3xx,
                    SUM(CASE WHEN status_code BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as s4xx,
-                   SUM(CASE WHEN status_code BETWEEN 500 AND 599 THEN 1 ELSE 0 END) as s5xx
+                   SUM(CASE WHEN status_code BETWEEN 500 AND 599 THEN 1 ELSE 0 END) as s5xx,
+                   SUM(CASE WHEN upstream_status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) as us2xx,
+                   SUM(CASE WHEN upstream_status_code BETWEEN 300 AND 399 THEN 1 ELSE 0 END) as us3xx,
+                   SUM(CASE WHEN upstream_status_code BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as us4xx,
+                   SUM(CASE WHEN upstream_status_code BETWEEN 500 AND 599 THEN 1 ELSE 0 END) as us5xx,
+                   SUM(CASE WHEN upstream_status_code IS NULL THEN 1 ELSE 0 END) as us_none
             FROM detections
             {where}
             GROUP BY method, path
@@ -1299,6 +1311,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 Status3xx           = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
                 Status4xx           = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
                 Status5xx           = reader.IsDBNull(14) ? 0 : reader.GetInt32(14),
+                UpstreamStatus2xx   = reader.IsDBNull(15) ? 0 : reader.GetInt32(15),
+                UpstreamStatus3xx   = reader.IsDBNull(16) ? 0 : reader.GetInt32(16),
+                UpstreamStatus4xx   = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
+                UpstreamStatus5xx   = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
+                UpstreamNoneCount   = reader.IsDBNull(19) ? 0 : reader.GetInt32(19),
                 IsHoneypot          = isHoneypot,
             });
         }

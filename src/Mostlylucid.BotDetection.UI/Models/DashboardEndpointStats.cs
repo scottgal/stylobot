@@ -64,6 +64,28 @@ public sealed record DashboardEndpointStats
             return bucket;
         }
     }
+
+    /// <summary>
+    ///     Real-origin status bucket counts (UPSTREAM column), same shape and same
+    ///     inclusive-boundary convention as <see cref="Status2xx"/>/3xx/4xx/5xx above,
+    ///     because one path can mix forwarded and blocked/honeypot/throttled traffic.
+    ///     Sourced from <c>detections.upstream_status_code</c> (stamped by the gateway's
+    ///     <c>UpstreamStatusTransform</c> only for requests that actually reached
+    ///     <c>MapReverseProxy</c>).
+    /// </summary>
+    public int UpstreamStatus2xx { get; init; }
+    public int UpstreamStatus3xx { get; init; }
+    public int UpstreamStatus4xx { get; init; }
+    public int UpstreamStatus5xx { get; init; }
+
+    /// <summary>
+    ///     Count of rows with no real origin call at all (honeypot / blocked / throttled --
+    ///     resolved before <c>MapReverseProxy</c> ever ran). Deliberately separate from the
+    ///     status buckets above rather than folded into one fake "the" upstream status per
+    ///     row: for these rows, "no upstream status" is itself the correct, meaningful story,
+    ///     not missing data.
+    /// </summary>
+    public int UpstreamNoneCount { get; init; }
 }
 
 /// <summary>
