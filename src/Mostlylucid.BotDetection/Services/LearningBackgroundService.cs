@@ -28,6 +28,7 @@ public sealed class LearningBackgroundService : IDisposable
     private readonly TypedSignalSink<LearningEvent> _signals;
     private readonly ILogger<LearningBackgroundService> _logger;
     private readonly BotDetectionOptions _options;
+    private readonly Posture.IDetectionPostureProvider _postureProvider;
     private readonly Action<SignalEvent<LearningEvent>> _onRaised;
     private int _disposed;
 
@@ -35,12 +36,14 @@ public sealed class LearningBackgroundService : IDisposable
         TypedSignalSink<LearningEvent> signals,
         ILogger<LearningBackgroundService> logger,
         IOptions<BotDetectionOptions> options,
-        IEnumerable<ILearningEventHandler> handlers)
+        IEnumerable<ILearningEventHandler> handlers,
+        Posture.IDetectionPostureProvider? postureProvider = null)
     {
         _signals = signals;
         _logger = logger;
         _options = options.Value;
         _handlers = handlers;
+        _postureProvider = postureProvider ?? Posture.FullDetectionPostureProvider.Instance;
 
         _onRaised = OnLearningRaised;
         _signals.TypedSignalRaised += _onRaised;
@@ -75,6 +78,11 @@ public sealed class LearningBackgroundService : IDisposable
     /// </summary>
     public async Task ProcessEventAsync(LearningEvent evt, CancellationToken ct)
     {
+        // Global host-posture gate (e.g. a license-expiry freeze): the single choke point
+        // every learning-event producer funnels through, so gating here covers all of them
+        // (current and future) without touching each producer individually.
+        if (!_postureProvider.LearningEnabled) return;
+
         _logger.LogDebug("Processing learning event: {Type} from {Source}", evt.Type, evt.Source);
 
         foreach (var handler in _handlers)

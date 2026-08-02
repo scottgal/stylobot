@@ -409,6 +409,12 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // commercial correction store calls Set(...) on write; the verdict composer reads it
         // as a bias, never an override. Default in-memory impl; nothing populates it under FOSS.
         services.TryAddSingleton<Risk.IOperatorCorrectionPriors, Risk.InMemoryOperatorCorrectionPriors>();
+        // Neutral host-posture seam (nullable/plugin pattern): a host may register its own
+        // IDetectionPostureProvider (e.g. commercial's licensing layer, reading ILicenseState)
+        // BEFORE AddBotDetection/AddStyloBot runs to globally gate learning writes / force
+        // observe-only enforcement, for whatever reason the host cares about. FOSS never
+        // knows why -- standalone FOSS with nothing registered gets Full (no behaviour change).
+        services.TryAddSingleton<Posture.IDetectionPostureProvider, Posture.FullDetectionPostureProvider>();
         // SignatureCoordinatorWarmupService replays recently persisted request records into the
         // SignatureCoordinator (and MarkovTracker) at startup so clustering resumes from a warm
         // corpus instead of cold on every restart. The Step-7 contributor delete (1a8d2745)

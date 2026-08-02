@@ -74,17 +74,20 @@ public sealed class PostDetectionActionGate
     private readonly ILogger<PostDetectionActionGate> _logger;
     private readonly ITokenBucketStore? _tokenBucketStore;
     private readonly IFingerprintStore? _fingerprintStore;
+    private readonly Posture.IDetectionPostureProvider _postureProvider;
 
     public PostDetectionActionGate(
         IOptions<BotDetectionOptions> options,
         ILogger<PostDetectionActionGate> logger,
         ITokenBucketStore? tokenBucketStore = null,
-        IFingerprintStore? fingerprintStore = null)
+        IFingerprintStore? fingerprintStore = null,
+        Posture.IDetectionPostureProvider? postureProvider = null)
     {
         _options = options.Value;
         _logger = logger;
         _tokenBucketStore = tokenBucketStore;
         _fingerprintStore = fingerprintStore;
+        _postureProvider = postureProvider ?? Posture.FullDetectionPostureProvider.Instance;
     }
 
     /// <summary>
@@ -171,7 +174,7 @@ public sealed class PostDetectionActionGate
                 _logger.LogInformation(
                     "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2})",
                     evidence.TriggeredActionPolicyName,
-                    _options.ObserveOnly ? " [observe-only shadow]" : "",
+                    (_options.ObserveOnly || _postureProvider.ForceLogOnlyPosture) ? " [observe-only shadow]" : "",
                     context.Request.Path, evidence.BotProbability);
 
                 var actionResult = await actionPolicy.ExecuteAsync(context, evidence, context.RequestAborted);
@@ -277,7 +280,7 @@ public sealed class PostDetectionActionGate
                 _logger.LogInformation(
                     "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, enforcementRisk={EnforcementRisk:F2}, type={BotType})",
                     resolvedPolicyName,
-                    _options.ObserveOnly ? " [observe-only shadow]" : "",
+                    (_options.ObserveOnly || _postureProvider.ForceLogOnlyPosture) ? " [observe-only shadow]" : "",
                     context.Request.Path, evidence.BotProbability, enforcementBotProbability, evidence.PrimaryBotType);
 
                 var fallbackResult = await fallbackPolicy.ExecuteAsync(context, evidence, context.RequestAborted);
@@ -460,7 +463,9 @@ public sealed class PostDetectionActionGate
     /// </summary>
     private IActionPolicy? MaybeShadowForObserveOnly(IActionPolicyRegistry registry, IActionPolicy? resolved)
     {
-        if (!_options.ObserveOnly) return resolved;
+        // ForceLogOnlyPosture is the host-posture seam's equivalent of ObserveOnly (e.g. a
+        // license-expiry log-only state) -- same shadow mechanism, different trigger.
+        if (!_options.ObserveOnly && !_postureProvider.ForceLogOnlyPosture) return resolved;
         if (resolved is null) return null;
         if (resolved.Intent == PolicyIntent.Pass) return resolved;
         var shadow = registry.GetPolicy("logonly");

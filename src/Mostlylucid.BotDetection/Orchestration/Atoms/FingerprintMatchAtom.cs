@@ -38,6 +38,7 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
     private readonly IFingerprintBrowserModeStore _modeStore;
     private readonly IBrowserModeResolver _modeResolver;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly Posture.IDetectionPostureProvider _postureProvider;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
     private readonly bool _modeAbsorbEnabled;
@@ -53,7 +54,8 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         IFingerprintBrowserModeStore modeStore,
         IBrowserModeResolver modeResolver,
         IHttpContextAccessor httpContextAccessor,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        Posture.IDetectionPostureProvider? postureProvider = null)
         : base(name: "FingerprintMatch", category: "Identity")
     {
         _logger = logger;
@@ -66,6 +68,7 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         _modeStore = modeStore;
         _modeResolver = modeResolver;
         _httpContextAccessor = httpContextAccessor;
+        _postureProvider = postureProvider ?? Posture.FullDetectionPostureProvider.Instance;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
         _modeAbsorbEnabled = _options.Enabled && _options.BrowserMode.Enabled;
@@ -312,16 +315,25 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
 
             if (isCorrection)
             {
-                var diff = IdentityWeightMath.ComputeDifferentiator(vector, l1Candidate!.Centroid, best.Centroid);
-                IdentityWeightMath.ApplyCorrection(best.Weights, diff, _options.Weights.CorrectionLearningRate);
-                IdentityWeightMath.RenormaliseAndClamp(best.Weights, _options.Weights.MinWeight, _options.Weights.MaxWeight);
-                await _store.RecordCorrectionAsync(
-                    sessionId, primarySig,
-                    pass1FingerprintId: l1Candidate.FingerprintId,
-                    pass2FingerprintId: best.FingerprintId,
-                    differentiator: diff,
-                    updatedPass2Weights: best.Weights,
-                    ct).ConfigureAwait(false);
+                // Weight-correction learning (in-memory mutation + persist) gated on the SAME
+                // global host-posture switch as the other learning writes -- Pass 2 still
+                // CORRECTS the match this request (matching correctness must keep working even
+                // when learning is frozen), it just doesn't feed the correction back into the
+                // per-fingerprint weights. UpsertKeyAsync below is a routing-key update, not a
+                // learning write, so it stays unconditional.
+                if (_postureProvider.LearningEnabled)
+                {
+                    var diff = IdentityWeightMath.ComputeDifferentiator(vector, l1Candidate!.Centroid, best.Centroid);
+                    IdentityWeightMath.ApplyCorrection(best.Weights, diff, _options.Weights.CorrectionLearningRate);
+                    IdentityWeightMath.RenormaliseAndClamp(best.Weights, _options.Weights.MinWeight, _options.Weights.MaxWeight);
+                    await _store.RecordCorrectionAsync(
+                        sessionId, primarySig,
+                        pass1FingerprintId: l1Candidate.FingerprintId,
+                        pass2FingerprintId: best.FingerprintId,
+                        differentiator: diff,
+                        updatedPass2Weights: best.Weights,
+                        ct).ConfigureAwait(false);
+                }
                 await _store.UpsertKeyAsync(primarySig, best.FingerprintId, ct).ConfigureAwait(false);
             }
             else if (l1FingerprintId is null)
@@ -503,6 +515,9 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         string fingerprintId, float[] vector, CancellationToken ct)
     {
         if (sink.Detect(SignalKeys.LearningSuppressed)) return;
+        // Global host-posture gate (e.g. a license-expiry freeze) -- orthogonal to the
+        // per-request suppression above, both must pass for the write to happen.
+        if (!_postureProvider.LearningEnabled) return;
         await _store.RecordObservationAsync(
             ResolveRequestScope(context), fingerprintId, vector,
             ResolveObservedUaFamily(context, sink), ct).ConfigureAwait(false);
@@ -515,8 +530,9 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         if (!_modeAbsorbEnabled || string.IsNullOrEmpty(fingerprintId)) return;
 
         // Learning-suppressed requests score against the resolved mode but must
-        // not write this request into the browser-mode observation cloud.
-        if (sink.Detect(SignalKeys.LearningSuppressed))
+        // not write this request into the browser-mode observation cloud. Same
+        // global host-posture gate as RecordObservationIfLearningEnabledAsync.
+        if (sink.Detect(SignalKeys.LearningSuppressed) || !_postureProvider.LearningEnabled)
         {
             // Still surface the resolved mode id so downstream scoring sees it;
             // just skip RecordModeObservationAsync (the learning write).

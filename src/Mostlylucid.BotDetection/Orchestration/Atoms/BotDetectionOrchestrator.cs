@@ -46,18 +46,21 @@ public sealed class BotDetectionOrchestrator : IDisposable
     private readonly BotDetectionOptions _options;
     private readonly DetectionEngine _engine;
     private readonly IFingerprintStore _fingerprintStore;
+    private readonly Posture.IDetectionPostureProvider _postureProvider;
     private readonly SignalSink _signalSink;
 
     public BotDetectionOrchestrator(
         DetectionEngine engine,
         IOptions<BotDetectionOptions> options,
         IFingerprintStore fingerprintStore,
-        ILogger<BotDetectionOrchestrator> logger)
+        ILogger<BotDetectionOrchestrator> logger,
+        Posture.IDetectionPostureProvider? postureProvider = null)
     {
         _engine = engine;
         _options = options.Value;
         _fingerprintStore = fingerprintStore;
         _logger = logger;
+        _postureProvider = postureProvider ?? Posture.FullDetectionPostureProvider.Instance;
 
         // Per-request signal sink. This is the ONLY per-request allocation now: the
         // expensive DetectorOrchestrator + ~70-atom Register() wiring is built ONCE in the
@@ -121,8 +124,11 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // Learning-suppressed requests (bypass key with DisableLearningWrites, or
             // impersonation) score normally but must NOT write back into the identity
             // headline. RecordVerdictWriteBehind is a learning write -- skip it. Detection
-            // and the response header trail above are unaffected.
-            if (!string.IsNullOrEmpty(identityFingerprintId) && !context.IsLearningSuppressedByApiKey())
+            // and the response header trail above are unaffected. _postureProvider.LearningEnabled
+            // is the SAME gate at a global, host-level scope (e.g. a license-expiry freeze) --
+            // orthogonal to the per-request/per-API-key suppression, both must pass.
+            if (!string.IsNullOrEmpty(identityFingerprintId) && !context.IsLearningSuppressedByApiKey()
+                && _postureProvider.LearningEnabled)
             {
                 // PrimaryBotType is the CATALOGUE type (BotType enum: Internal / SearchEngine /
                 // AiBot / Tool / GoodBot / ...). .ToString() yields exactly the vocabulary the
