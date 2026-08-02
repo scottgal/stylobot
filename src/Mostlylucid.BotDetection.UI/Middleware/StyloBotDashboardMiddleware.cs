@@ -5959,6 +5959,27 @@ public class StyloBotDashboardMiddleware
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbUserAgentsList/Default.cshtml", model, context);
     }
 
+    /// <summary>
+    ///     Resolves the signature-detail page's headline Probability/Confidence (and, via
+    ///     the caller's <c>SignatureRiskVerdictComposer.BucketRisk(headlineProb, headlineConf)</c>,
+    ///     RiskBand and IsBot too) purely from the fold-at-read result already computed for
+    ///     <paramref name="latest"/> -- the SAME detection whose <c>DetectorContributions</c>
+    ///     render directly below the headline on this page.
+    ///     <para>
+    ///     SEV0 2026-08-02: this deliberately does NOT take a <c>Fingerprint</c> parameter.
+    ///     The prior design read <c>Fingerprint.CachedBotProbability</c> / <c>InferredTypeConfidence</c>
+    ///     here -- a separately-cached, separately-timed identity-level belief -- which let the
+    ///     headline diverge from the contributions on the same page (16 detectors overwhelmingly
+    ///     bot, headline showed "Human 23%"). There is no code path back to that field for this
+    ///     resolution; the fingerprint identity record may still be looked up by the caller for
+    ///     the heading edit-pencil affordance (FingerprintId), but it must never again feed
+    ///     these three scalars.
+    ///     </para>
+    /// </summary>
+    internal static (double Probability, double Confidence, DateTime? ScoreUpdatedAt) ResolveSignatureHeadline(
+        DashboardDetectionEvent latest)
+        => (latest.BotProbability, latest.Confidence, null);
+
     /// <summary>Serve the signature detail page for a specific signature.</summary>
     private async Task ServeSignatureDetailAsync(HttpContext context, string signatureId)
     {
@@ -6258,44 +6279,34 @@ public class StyloBotDashboardMiddleware
         // remote-mode hosts without an IFingerprintReader / sigs not yet bound
         // come back null and the heading skips the pencil silently.
         string? headingFingerprintId = null;
-        // SINGLE SOURCE OF TRUTH: the headline probability + risk band come from
-        // the fingerprint's persisted verdict (CachedBotProbability), the SAME
-        // value the Your-Detection pill reads. The previous design sourced the
-        // headline from the latest detection row, which disagreed with both the
-        // YOU pill (signature-cache average) and the fingerprint — three numbers
-        // for one identity, the exact "list says X, detail says Y" divergence the
-        // user called out. Per-request rows stay in the RecentDetections table;
-        // the HEADLINE is the fingerprint verdict. UpdatedAt lets the page show
-        // when the score last changed.
-        double headlineProb = latest.BotProbability;
-        string? headlineRisk = latest.RiskBand;
-        double headlineConf = latest.Confidence;
-        DateTime? headlineScoreUpdatedAt = null;
+        // SEV0 2026-08-02 (was: "SINGLE SOURCE OF TRUTH: the headline probability +
+        // risk band come from the fingerprint's persisted verdict"). That design
+        // pulled headlineProb/headlineConf from Fingerprint.CachedBotProbability /
+        // InferredTypeConfidence -- a SEPARATELY cached, separately-timed
+        // fingerprint-identity belief -- instead of the SAME DetectorContributions
+        // rendered directly below on this page. Result on prod: 16 detectors
+        // overwhelmingly bot (HeuristicLate 0.967, Behavioral 0.750, Missing-UA
+        // 0.80, Datacenter-IP 0.72, ...) but the headline read Probability 23% /
+        // label "Human" -- two sources of truth in one view. The headline is now
+        // ALWAYS the fold of `latest`'s own contributions (BotProbability /
+        // Confidence were already computed via SignatureRiskVerdictComposer from
+        // those exact contributions at detection time) via
+        // ResolveSignatureHeadline. The fingerprint identity record is still
+        // looked up for the heading edit-pencil affordance (FingerprintId) only --
+        // it no longer influences probability, confidence, or (transitively,
+        // since it's derived from headlineProb below) risk band or is-bot.
+        var (headlineProb, headlineConf, headlineScoreUpdatedAt) = ResolveSignatureHeadline(latest);
         try
         {
             var fpReader = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
             if (fpReader is not null)
-            {
                 headingFingerprintId = await fpReader.LookupFingerprintIdAsync(
                     decodedSignature, context.RequestAborted);
-                if (!string.IsNullOrEmpty(headingFingerprintId))
-                {
-                    var fp = await fpReader.GetFingerprintAsync(headingFingerprintId, context.RequestAborted);
-                    if (fp is not null)
-                    {
-                        headlineProb = fp.CachedBotProbability;
-                        // Derived at read (verified-aware): a verified good bot reads Low here.
-                        headlineRisk = Mostlylucid.BotDetection.Identity.FingerprintRiskProjection.Compose(fp).RiskBand.ToString();
-                        headlineConf = fp.InferredTypeConfidence;
-                        headlineScoreUpdatedAt = fp.CachedScoreUpdatedAt;
-                    }
-                }
-            }
         }
         catch (Exception fpEx)
         {
             _logger.LogDebug(fpEx,
-                "Fingerprint verdict lookup failed for {Signature}; headline falls back to latest detection",
+                "Fingerprint id lookup failed for {Signature}; heading edit-pencil affordance will be hidden",
                 decodedSignature);
         }
 

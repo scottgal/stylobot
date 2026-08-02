@@ -567,9 +567,33 @@ internal static class FingerprintNameComposer
             || baseName.StartsWith("Automated Client", StringComparison.Ordinal)
             || baseName.StartsWith("Client ", StringComparison.Ordinal))
             return true;
+        // SEV0 2026-08-02: a bare DeriveIdentityQualifier output -- a lone ISO country
+        // code ("IT", "DE") or a lone ASN number ("AS12345") with no behavioural role
+        // component -- can get cached when DeriveBehavioralRole returned null at compose
+        // time (e.g. a stale-low cached probability suppressed the "Automated Client"
+        // fallback role). Flagging these as fallback lets a later compose -- once real
+        // behavioural signals exist -- supersede the bare geo/ASN label with a proper
+        // "{role} · {identity}" name instead of leaving it stuck forever (IsFallback of
+        // a role · identity pair, or of a real catalog name, is unaffected: both are
+        // longer than 2 chars and don't match the AS-number shape).
+        if (IsBareCountryCode(baseName) || IsBareAsnNumber(baseName)) return true;
         // Raw-UA-prefix detection. Every UA token carries a "/" between the product
         // name and version; the structured Priority 1-3 outputs never do.
         return composedName.Contains('/');
+    }
+
+    /// <summary>True for a lone two-letter uppercase ISO country code ("IT", "DE", "US").</summary>
+    private static bool IsBareCountryCode(string baseName) =>
+        baseName.Length == 2 && char.IsUpper(baseName[0]) && char.IsUpper(baseName[1]);
+
+    /// <summary>True for a lone "AS&lt;digits&gt;" ASN number ("AS12345"), DeriveIdentityQualifier's own shape.</summary>
+    private static bool IsBareAsnNumber(string baseName)
+    {
+        if (baseName.Length < 3 || baseName[0] != 'A' || baseName[1] != 'S') return false;
+        for (var i = 2; i < baseName.Length; i++)
+            if (!char.IsDigit(baseName[i]))
+                return false;
+        return true;
     }
 
     /// <summary>

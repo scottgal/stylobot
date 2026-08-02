@@ -379,6 +379,30 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
+    public void IsFallback_RecognisesBareIdentityOnlyQualifiers()
+    {
+        // SEV0 2026-08-02: DeriveIdentityQualifier's bare output (no behavioural role
+        // component) -- a lone ISO country code or a lone "AS<digits>" ASN number -- can
+        // get cached as a fingerprint's display name when DeriveBehavioralRole returned
+        // null at compose time (e.g. a stale-low cached probability). Once real
+        // behavioural signals exist (missing UA, random scanning, high heuristic score),
+        // a fresh compose should be able to supersede it -- but only if IsFallback
+        // recognises the bare shape as needing refresh, same as "Unknown ..." always has.
+        Assert.True(FingerprintNameComposer.IsFallback("IT"));
+        Assert.True(FingerprintNameComposer.IsFallback("DE"));
+        Assert.True(FingerprintNameComposer.IsFallback("US"));
+        Assert.True(FingerprintNameComposer.IsFallback("AS12345"));
+        Assert.True(FingerprintNameComposer.IsFallback("AS8075"));
+
+        // Sanity: real names are never exactly a 2-letter code or bare AS-number, and a
+        // role · identity pair (the normal synthesised shape) is never a fallback.
+        Assert.False(FingerprintNameComposer.IsFallback("Scraper · Azure"));
+        Assert.False(FingerprintNameComposer.IsFallback("Scraper · IT"));
+        Assert.False(FingerprintNameComposer.IsFallback("Googlebot"));
+        Assert.False(FingerprintNameComposer.IsFallback("Chrome on Windows"));
+    }
+
+    [Fact]
     public void Compose_PreservesPreviousRealName_OverFreshUaPrefix()
     {
         // Load-bearing hysteresis test: with the new Priority 4 fallback "fresh" is no
