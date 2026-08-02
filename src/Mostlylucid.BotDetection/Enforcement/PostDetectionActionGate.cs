@@ -253,40 +253,46 @@ public sealed class PostDetectionActionGate
             return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.PolicyContinued), evidence);
         }
 
-        var enforcementBotProbability = await ResolveEnforcementBotProbabilityAsync(context, evidence);
-        if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
-            && enforcementBotProbability >= _options.BotThreshold
-            && evidence.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
-#pragma warning restore CS0618
+        // Perf: only resolve the live fingerprint score (an async store read) when a policy
+        // hasn't already been triggered above -- avoids paying for it on every request when
+        // TriggeredActionPolicyName is already set (honeypot / endpoint override / earlier
+        // gate), since the fallback branch below is the only consumer.
+        if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName))
         {
-            var apiKeyContext = context.Items.TryGetValue("BotDetection.ApiKeyContext", out var keyCtxObj)
-                && keyCtxObj is ApiKeyContext keyCtx
-                    ? keyCtx
-                    : null;
-
-            var resolvedPolicyName = ResolveBotTypeActionPolicy(evidence, apiKeyContext)
-                                     ?? _options.DefaultActionPolicyName;
-
-            var fallbackPolicy = !string.IsNullOrEmpty(resolvedPolicyName)
-                ? MaybeShadowForObserveOnly(
-                    actionPolicyRegistry,
-                    actionPolicyRegistry.GetPolicy(resolvedPolicyName))
-                : null;
-            if (fallbackPolicy is not null && resolvedPolicyName is not null)
+            var enforcementBotProbability = await ResolveEnforcementBotProbabilityAsync(context, evidence);
+            if (enforcementBotProbability >= _options.BotThreshold
+                && evidence.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
+#pragma warning restore CS0618
             {
-                evidence = evidence with { TriggeredActionPolicyName = resolvedPolicyName };
-                context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+                var apiKeyContext = context.Items.TryGetValue("BotDetection.ApiKeyContext", out var keyCtxObj)
+                    && keyCtxObj is ApiKeyContext keyCtx
+                        ? keyCtx
+                        : null;
 
-                _logger.LogInformation(
-                    "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, enforcementRisk={EnforcementRisk:F2}, type={BotType})",
-                    resolvedPolicyName,
-                    (_options.ObserveOnly || _postureProvider.ForceLogOnlyPosture) ? " [observe-only shadow]" : "",
-                    context.Request.Path, evidence.BotProbability, enforcementBotProbability, evidence.PrimaryBotType);
+                var resolvedPolicyName = ResolveBotTypeActionPolicy(evidence, apiKeyContext)
+                                         ?? _options.DefaultActionPolicyName;
 
-                var fallbackResult = await fallbackPolicy.ExecuteAsync(context, evidence, context.RequestAborted);
-                return fallbackResult.Continue
-                    ? (PostDetectionActionOutcome.PolicyContinued, evidence)
-                    : (PostDetectionActionOutcome.PolicyHandledResponse, evidence);
+                var fallbackPolicy = !string.IsNullOrEmpty(resolvedPolicyName)
+                    ? MaybeShadowForObserveOnly(
+                        actionPolicyRegistry,
+                        actionPolicyRegistry.GetPolicy(resolvedPolicyName))
+                    : null;
+                if (fallbackPolicy is not null && resolvedPolicyName is not null)
+                {
+                    evidence = evidence with { TriggeredActionPolicyName = resolvedPolicyName };
+                    context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+
+                    _logger.LogInformation(
+                        "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, enforcementRisk={EnforcementRisk:F2}, type={BotType})",
+                        resolvedPolicyName,
+                        (_options.ObserveOnly || _postureProvider.ForceLogOnlyPosture) ? " [observe-only shadow]" : "",
+                        context.Request.Path, evidence.BotProbability, enforcementBotProbability, evidence.PrimaryBotType);
+
+                    var fallbackResult = await fallbackPolicy.ExecuteAsync(context, evidence, context.RequestAborted);
+                    return fallbackResult.Continue
+                        ? (PostDetectionActionOutcome.PolicyContinued, evidence)
+                        : (PostDetectionActionOutcome.PolicyHandledResponse, evidence);
+                }
             }
         }
 
