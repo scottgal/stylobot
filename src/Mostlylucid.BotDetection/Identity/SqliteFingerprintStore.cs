@@ -24,6 +24,7 @@ public class SqliteFingerprintStore : IFingerprintStore
     private readonly IdentityVectorLayout _layout;
     private readonly IdentityEngineOptions _engineOptions;
     private readonly IdentityVectorOptions _vectorOptions;
+    private readonly IdentityDriftOptions _driftOptions;
 
     /// <summary>
     ///     The identity vector options, shared with the browser-mode store so both write
@@ -316,6 +317,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         _layout = layout;
         _engineOptions = options.Value.Identity.Engine;
         _vectorOptions = options.Value.Identity.Vector;
+        _driftOptions = options.Value.Identity.Drift;
         _triggerSignals = triggerSignals;
         var dbPath = options.Value.DatabasePath
             ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
@@ -619,7 +621,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations,
                    cached_bot_type,
-                   drift_magnitudes, drift_frequency
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
               FROM fingerprints WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
@@ -657,7 +659,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                     given_name, given_name_updated_at, given_name_operator_id,
                     root_centroid, root_centroid_at, root_source,
                     claim_status, verification_method, verified_at, trust_observations,
-                    cached_bot_type, drift_magnitudes, drift_frequency
+                    cached_bot_type, drift_magnitudes, drift_frequency, drift_reopened_until_utc
                 ) VALUES (
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
@@ -669,7 +671,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                     @given_name, @given_name_updated, @given_name_operator,
                     @root_centroid, @root_at, @root_source,
                     @claim_status, @verification_method, @verified_at, @trust_observations,
-                    @cached_bot_type, @drift_magnitudes, @drift_frequency
+                    @cached_bot_type, @drift_magnitudes, @drift_frequency, @drift_reopened
                 )
                 """;
             cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
@@ -743,6 +745,8 @@ public class SqliteFingerprintStore : IFingerprintStore
             cmd.Parameters.AddWithValue("@drift_magnitudes",
                 fp.DriftMagnitudes is { Length: > 0 } dm ? FloatsToBlob(dm) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@drift_frequency", fp.DriftFrequency);
+            cmd.Parameters.AddWithValue("@drift_reopened",
+                (object?)fp.DriftReopenedUntilUtc?.ToString("O") ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
@@ -1785,7 +1789,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations,
                    cached_bot_type,
-                   drift_magnitudes, drift_frequency
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
               FROM fingerprints
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -1846,7 +1850,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations,
                    cached_bot_type,
-                   drift_magnitudes, drift_frequency
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
               FROM fingerprints
              WHERE observation_count > 0
                AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
@@ -1955,11 +1959,12 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (!_fingerprintById.TryGetValue(fingerprintId, out var entry)) return;
 
         var existing = entry.Fingerprint;
-        var alpha = Math.Clamp(_engineOptions.VerdictEwmaAlpha, 0.0, 1.0);
+        var now = DateTime.UtcNow;
+        var alpha = DriftReopenAbsorption.ResolveAlpha(
+            existing.DriftReopenedUntilUtc, now, _engineOptions.VerdictEwmaAlpha, _driftOptions.DriftReopenAlpha);
         var blended = existing.CachedScoreUpdatedAt is null
             ? botProbability
             : existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
-        var now = DateTime.UtcNow;
 
         // Dict-first: source of truth on the hot read path; the drainer write is durability only.
         // CachedBotType is only overwritten when this write supplies one -- a null botType
@@ -1985,8 +1990,6 @@ public class SqliteFingerprintStore : IFingerprintStore
     {
         if (string.IsNullOrEmpty(fingerprintId)) return;
 
-        var alpha = Math.Clamp(_engineOptions.VerdictEwmaAlpha, 0.0, 1.0);
-
         // Dict-authoritative write: update the in-memory fingerprint so the next L1
         // verdict lookup sees it immediately. Cold path: load from SQLite first.
         Fingerprint? existing;
@@ -2004,6 +2007,10 @@ public class SqliteFingerprintStore : IFingerprintStore
             if (existing is null) return;
         }
 
+        var now = DateTime.UtcNow;
+        var alpha = DriftReopenAbsorption.ResolveAlpha(
+            existing.DriftReopenedUntilUtc, now, _engineOptions.VerdictEwmaAlpha, _driftOptions.DriftReopenAlpha);
+
         // First-ever write (CachedScoreUpdatedAt is null) is a direct assignment so a
         // brand-new fingerprint's first detection lands its real probability, not an
         // alpha-attenuated 0.3 * something.
@@ -2016,7 +2023,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         // verified bot read VeryHigh. The IDENTITY RiskBand is DERIVED at read from the
         // blended probability (verified-aware) via FingerprintRiskProjection. The
         // per-request band still appears per-row in the detections history.
-        var now = DateTime.UtcNow;
         var updated = existing with
         {
             CachedBotProbability = blended,
@@ -2642,6 +2648,32 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
         InvalidateFingerprintCache(fingerprintId);
+    }
+
+    /// <inheritdoc />
+    public async Task MarkDriftReopenedAsync(string fingerprintId, DateTime untilUtc, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+
+        // Dict-first, same convention as RecordVerdictWriteBehind: update the resident
+        // fingerprint (if any) so the NEXT verdict write on the hot path sees the reopened
+        // window immediately, without waiting on the durability round-trip below.
+        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
+        {
+            _fingerprintById[fingerprintId] = entry.WithFingerprint(
+                entry.Fingerprint with { DriftReopenedUntilUtc = untilUtc });
+        }
+
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprints SET drift_reopened_until_utc = @until
+             WHERE fingerprint_id = @id
+            """;
+        cmd.Parameters.AddWithValue("@until", untilUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>
@@ -3399,6 +3431,11 @@ public class SqliteFingerprintStore : IFingerprintStore
         // null magnitudes + 0.0 frequency.
         DriftMagnitudes = reader.IsDBNull(33) ? null : BlobToFloats((byte[])reader.GetValue(33)),
         DriftFrequency = reader.IsDBNull(34) ? 0.0 : reader.GetDouble(34),
+        // Appended to the END of every fingerprint-row SELECT (index 35), same
+        // convention as drift_magnitudes/drift_frequency above.
+        DriftReopenedUntilUtc = reader.IsDBNull(35)
+            ? null
+            : DateTime.Parse(reader.GetString(35), null, System.Globalization.DateTimeStyles.RoundtripKind),
     };
 
     /// <summary>

@@ -148,9 +148,14 @@ public sealed class FingerprintDriftService : IDisposable
                 var score = BruteForceIdentityAnchorIndex.WeightedCosine(latest, fp.Centroid, composed);
                 var drifted = score < _options.Drift.DriftWarningThreshold;
                 if (drifted)
+                {
                     _logger.LogInformation(
                         "On-demand drift check: fingerprint {Id} score={Score:F3} below {Threshold:F3}",
                         fingerprintId, score, _options.Drift.DriftWarningThreshold);
+                    var reopenedUntil = DateTime.UtcNow.AddSeconds(
+                        Math.Max(1, _options.Drift.DriftReopenWindowSeconds));
+                    await _store.MarkDriftReopenedAsync(fingerprintId, reopenedUntil, runCt);
+                }
 
                 await _store.BumpCachedScoreCheckedAtAsync(fingerprintId, runCt);
                 return new DriftVerificationResult(
@@ -192,6 +197,15 @@ public sealed class FingerprintDriftService : IDisposable
                     "cached_bot_prob={CachedProb:F2} maturity={Maturity}",
                     fp.FingerprintId, fp.InferredClientType, score, _options.Drift.DriftWarningThreshold,
                     fp.CachedBotProbability, fp.CentroidMaturity);
+
+                // Phase 1, fp-cache-current architecture (2026-08-02): drift detection is no
+                // longer a dead end. Open the fast-absorption window so the NEXT verdict
+                // write(s) for this fingerprint use the wide DriftReopenAlpha and converge
+                // to its new behaviour within ~1-2 observations instead of staying stuck on
+                // the stale cached score for dozens of requests.
+                var reopenedUntil = DateTime.UtcNow.AddSeconds(
+                    Math.Max(1, _options.Drift.DriftReopenWindowSeconds));
+                await _store.MarkDriftReopenedAsync(fp.FingerprintId, reopenedUntil, ct);
             }
 
             await _store.BumpCachedScoreCheckedAtAsync(fp.FingerprintId, ct);

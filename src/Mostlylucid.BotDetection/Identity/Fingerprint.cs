@@ -22,6 +22,19 @@ public sealed record Fingerprint
     public required DateTime InferredTypeChangedAt { get; init; }
     public double CachedBotProbability { get; init; }
 
+    /// <summary>
+    ///     Set by <see cref="FingerprintDriftService"/> when it detects this fingerprint's
+    ///     current behaviour has drifted away from its established shape (weighted-cosine
+    ///     below <see cref="IdentityDriftOptions.DriftWarningThreshold"/>). While
+    ///     <c>UtcNow</c> is before this timestamp, verdict writes use the wider
+    ///     <see cref="IdentityDriftOptions.DriftReopenAlpha"/> instead of the steady-state
+    ///     <see cref="IdentityDriftOptions.CachedScoreEwmaAlpha"/>, so <see cref="CachedBotProbability"/>
+    ///     converges to the fingerprint's new behaviour within ~1-2 observations rather than
+    ///     the dozens a slow EWMA would need. Null = not currently reopened (steady-state
+    ///     alpha applies, the normal case).
+    /// </summary>
+    public DateTime? DriftReopenedUntilUtc { get; init; }
+
     // NOTE: there is deliberately NO cached risk band here. RiskBand / ThreatBand /
     // RiskProfile are DERIVED from the raw facts above (probability, confidence,
     // claim_status, catalogue bot type) at every read via FingerprintRiskProjection --

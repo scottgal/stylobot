@@ -79,6 +79,74 @@ public sealed class FingerprintDriftServiceTickTests
         captured.Disposed.Should().BeFalse();
     }
 
+    private static Fingerprint DriftFixture(string id) => new()
+    {
+        FingerprintId = id,
+        // Centroid points along dim 0; the "latest observation" set up in each test
+        // points along dim 1 -- orthogonal, so WeightedCosine returns exactly 0,
+        // deterministically below any DriftWarningThreshold.
+        Centroid = new float[] { 1f, 0f, 0f, 0f },
+        CentroidMaturity = 50,
+        Weights = new float[] { 1f, 1f, 1f, 1f },
+        MemberCount = 1,
+        ObservationCount = 50,
+        CorrectionCount = 0,
+        FirstSeen = DateTime.UtcNow.AddDays(-1),
+        LastSeen = DateTime.UtcNow,
+        Quality = 0.9,
+        InferredClientType = "human-adblocker",
+        InferredTypeConfidence = 0.9,
+        InferredTypeChangedAt = DateTime.UtcNow.AddDays(-1),
+        CachedBotProbability = 0.05, // clean history -- the exact prod shape (Adblocker -> curl)
+    };
+
+    [Fact]
+    public async Task TickOnceAsync_opens_the_drift_reopen_window_when_drift_is_detected()
+    {
+        // Phase 1 of the 2026-08-02 fp-cache-current architecture mandate: drift detection
+        // must not be a dead-end log line. When weighted-cosine drift crosses the warning
+        // threshold, the service must open the fast-absorption window so the NEXT verdict
+        // writes converge quickly instead of staying stuck on the stale cached score.
+        var coordinator = new RecordingScheduleCoordinator();
+        var fp = DriftFixture("drifted-fp");
+
+        var fpStore = new Mock<IFingerprintStore>(MockBehavior.Loose);
+        fpStore
+            .Setup(s => s.ListStaleScoreFingerprintsAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Fingerprint>)new[] { fp });
+        fpStore
+            .Setup(s => s.GetLatestObservationVectorAsync(fp.FingerprintId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new float[] { 0f, 1f, 0f, 0f }); // orthogonal to Centroid -> cosine 0
+
+        var options = Options.Create(new BotDetectionOptions
+        {
+            Identity = new IdentityOptions { Enabled = true }
+        });
+        var globalWeights = new IdentityGlobalWeightsCache(
+            NullLogger<IdentityGlobalWeightsCache>.Instance, fpStore.Object, options);
+        var identityCoordinator = new IdentityProcessingCoordinator(
+            NullLogger<IdentityProcessingCoordinator>.Instance, options);
+
+        var sut = new FingerprintDriftService(
+            NullLogger<FingerprintDriftService>.Instance,
+            fpStore.Object,
+            globalWeights,
+            identityCoordinator,
+            options,
+            coordinator);
+
+        var (checkedCount, drifts) = await sut.TickOnceAsync(CancellationToken.None);
+
+        checkedCount.Should().Be(1);
+        drifts.Should().Be(1);
+        fpStore.Verify(s => s.MarkDriftReopenedAsync(
+                fp.FingerprintId,
+                It.Is<DateTime>(d => d > DateTime.UtcNow),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "drift detection must open the fast-absorption window, not just log a warning");
+    }
+
     [Fact]
     public void Dispose_unsubscribes_from_coordinator()
     {

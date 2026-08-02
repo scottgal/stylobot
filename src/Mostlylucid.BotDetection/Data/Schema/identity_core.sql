@@ -75,7 +75,13 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     -- "write only on change" (RecordDriftSummaryAsync). A durable fingerprint ATTRIBUTE
     -- like cached_bot_probability, not a per-event log.
     drift_magnitudes            BLOB,
-    drift_frequency             REAL NOT NULL DEFAULT 0
+    drift_frequency             REAL NOT NULL DEFAULT 0,
+    -- Set by FingerprintDriftService when weighted-cosine drift crosses
+    -- IdentityDriftOptions.DriftWarningThreshold. While now() is before this
+    -- timestamp, verdict writes use the wide DriftReopenAlpha instead of the slow
+    -- steady-state alpha, so cached_bot_probability converges to the fingerprint's
+    -- new behaviour within ~1-2 observations instead of dozens. NULL = not reopened.
+    drift_reopened_until_utc    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS fingerprint_root_history (

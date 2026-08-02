@@ -113,6 +113,18 @@ public interface IFingerprintStore : IFingerprintReader
 
     Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Opens the fast drift-reopen absorption window: while <c>UtcNow</c> is before
+    ///     <paramref name="untilUtc"/>, <c>CachedBotProbability</c> writes for this
+    ///     fingerprint use the wide <c>IdentityDriftOptions.DriftReopenAlpha</c> instead
+    ///     of the slow steady-state alpha, so the cache converges to the fingerprint's
+    ///     new behaviour within ~1-2 observations. Called by <see cref="FingerprintDriftService"/>
+    ///     when weighted-cosine drift crosses <c>IdentityDriftOptions.DriftWarningThreshold</c>.
+    ///     Default no-op for stores that hold no resident dict (the null store); SQLite +
+    ///     the commercial store override it.
+    /// </summary>
+    Task MarkDriftReopenedAsync(string fingerprintId, DateTime untilUtc, CancellationToken ct = default) => Task.CompletedTask;
+
     // ── Matcher write path ───────────────────────────────────────────────────
     Task InsertFingerprintAsync(Fingerprint fp, string primarySignature, CancellationToken ct = default);
 

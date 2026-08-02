@@ -127,6 +127,71 @@ public class IdentityVerdictWriteBehindHotPathTests : IDisposable
     }
 
     [Fact]
+    public async Task RecordVerdictWriteBehind_InsideDriftReopenWindow_ConvergesFasterThanSteadyState()
+    {
+        // Phase 1 of the 2026-08-02 fp-cache-current architecture: a fingerprint FingerprintDriftService
+        // has flagged as drifted (weighted-cosine below threshold) must converge to fresh, strongly
+        // contradicting evidence within ~1-2 writes -- not the dozens the steady-state EWMA alpha
+        // would take. This is the exact prod symptom: a clean-history fingerprint (Adblocker) whose
+        // behaviour flipped (curl) stayed reading a low cached score for a long time after the flip.
+        var store = await NewStoreAsync();
+        const string primarySig = "drifted-sig";
+        const string fpId = "drifted-fp";
+        var dim = store.Layout.Dimension;
+        var reopenedUntil = DateTime.UtcNow.AddMinutes(5);
+        await store.InsertFingerprintAsync(
+            NewFingerprint(fpId, dim) with { DriftReopenedUntilUtc = reopenedUntil },
+            primarySig, CancellationToken.None);
+        await store.GetFingerprintAsync(fpId); // resident-load (mirrors the matcher)
+
+        store.RecordVerdictWriteBehind(fpId, 0.10); // first-ever write: direct assignment, as always
+        store.RecordVerdictWriteBehind(fpId, 0.90); // second write: this is the one that must use the wide alpha
+
+        var after = await store.GetFingerprintAsync(fpId);
+        after!.CachedBotProbability.Should().BeGreaterThan(0.5,
+            "the wide drift-reopen alpha must dominate the blend so a single strong contradicting " +
+            "observation crosses 50% within 2 writes, unlike the steady-state alpha (see the sibling " +
+            "TwiceResident_ExposesEwmaBlend test, which stays well below 0.90 with the SAME two inputs " +
+            "outside a reopen window)");
+    }
+
+    [Fact]
+    public async Task MarkDriftReopenedAsync_updates_the_resident_dict_and_persists()
+    {
+        var store = await NewStoreAsync();
+        const string primarySig = "reopen-sig";
+        const string fpId = "reopen-fp";
+        var dim = store.Layout.Dimension;
+        await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySig, CancellationToken.None);
+        await store.GetFingerprintAsync(fpId); // resident-load (mirrors the matcher)
+
+        var until = DateTime.UtcNow.AddMinutes(5);
+        await store.MarkDriftReopenedAsync(fpId, until);
+
+        // Dict-first: the very next verdict write (still on this "request") must already
+        // see the reopened window without a cold reload.
+        store.RecordVerdictWriteBehind(fpId, 0.10);
+        store.RecordVerdictWriteBehind(fpId, 0.90);
+        var afterHotPath = await store.GetFingerprintAsync(fpId);
+        afterHotPath!.CachedBotProbability.Should().BeGreaterThan(0.5,
+            "the dict must be updated immediately, not only after a durability round-trip");
+
+        // Durability: a genuinely cold store (simulating a process restart / different
+        // reader against the same DB file) must also see the reopened window, not just the
+        // first store's in-memory dict.
+        var coldOptions = Options.Create(new BotDetectionOptions
+        {
+            DatabasePath = Path.Combine(_tempDir, "botdetection.db"),
+            Identity = new IdentityOptions { Enabled = true }
+        });
+        var coldStore = new SqliteFingerprintStore(
+            NullLogger<SqliteFingerprintStore>.Instance, coldOptions, IdentityVectorLayout.DefaultV1());
+        await coldStore.EnsureInitialisedAsync();
+        var coldLoaded = await coldStore.GetFingerprintAsync(fpId);
+        coldLoaded!.DriftReopenedUntilUtc.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task RecordVerdictWriteBehind_NonResidentFingerprint_IsSkipped_NeverColdLoads()
     {
         var store = await NewStoreAsync();
