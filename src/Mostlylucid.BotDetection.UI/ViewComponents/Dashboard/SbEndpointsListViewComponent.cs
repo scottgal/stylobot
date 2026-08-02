@@ -75,6 +75,13 @@ public class SbEndpointsListViewComponent(
             .GetService<IDashboardDomainScope>()
             ?.GetSelectedDomains(HttpContext);
 
+        // Set when the legacy fallback below hits a cold SWR placeholder (a store-layer
+        // decorator like the commercial StaleWhileRevalidatingDashboardEventStore stamps
+        // DashboardWarmingSignal instead of blocking the request) -- distinguishes "still
+        // warming" from "genuinely zero endpoints" so the view renders a spinner instead
+        // of the bare empty state. Same pattern SiteHealthViewComponent already uses.
+        var isWarming = false;
+
         IReadOnlyList<DashboardEndpointStats> data;
         if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
@@ -106,7 +113,22 @@ public class SbEndpointsListViewComponent(
         {
             // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
             var cached = aggregateCache.Current.Endpoints;
-            data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500, domains: scopedDomains);
+            if (cached.Count > 0)
+            {
+                data = cached;
+            }
+            else
+            {
+                data = await eventStore.GetEndpointStatsAsync(500, domains: scopedDomains);
+                // A cold SWR placeholder from a store-layer decorator returns an empty list
+                // immediately (never blocks the request) and stamps this signal -- without
+                // this check an empty placeholder renders identically to a genuinely-empty
+                // domain ("No endpoint analytics yet"), which is the "endpoints always starts
+                // empty" bug: siblings like TopBots block-and-return-real on the same cold
+                // request, so they never hit this ambiguity.
+                var domainTag = scopedDomains is { Count: 1 } ? scopedDomains[0] : null;
+                isWarming = DashboardWarmingSignal.IsWarming(HttpContext, "endpoints", domainTag);
+            }
         }
         var basePath = options.Value.BasePath.TrimEnd('/');
         var navBasePath = string.IsNullOrEmpty(options.Value.NavBasePath)
@@ -200,6 +222,7 @@ public class SbEndpointsListViewComponent(
             ModeFilter = string.IsNullOrEmpty(mode) ? null : mode,
             ThreatFilter = string.IsNullOrEmpty(threat) ? null : threat,
             BotPressureFilter = string.IsNullOrEmpty(botPressure) ? null : botPressure,
+            IsWarming = isWarming,
         });
     }
 
