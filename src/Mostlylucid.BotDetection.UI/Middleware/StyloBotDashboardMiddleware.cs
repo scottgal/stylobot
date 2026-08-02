@@ -7816,7 +7816,11 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     private async Task<List<DashboardEndpointStats>> GetEndpointsDataAsync(HttpContext? httpContext = null)
     {
         var cached = _aggregateCache.Current.Endpoints;
-        var endpoints = cached.Count > 0 ? cached : await _eventStore.GetEndpointStatsAsync(100);
+        // Must match SbEndpointsListViewComponent's self-fetch fallback count exactly --
+        // a store-layer SWR cache decorator bakes this count into its cache key, so a
+        // mismatch here produces two keys for the same unfiltered snapshot that never
+        // share a hit (the "endpoints always empty" cadence bug).
+        var endpoints = cached.Count > 0 ? cached : await _eventStore.GetEndpointStatsAsync(_options.EndpointsSnapshotCount);
 
         IReadOnlyList<PinnedEndpoint> pinned = [];
         if (httpContext != null)

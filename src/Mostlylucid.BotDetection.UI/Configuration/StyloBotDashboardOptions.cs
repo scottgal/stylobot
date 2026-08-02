@@ -179,6 +179,24 @@ public sealed class StyloBotDashboardOptions
     public bool EnableEndpointPinning { get; set; }
 
     /// <summary>
+    ///     Row count fetched for the unfiltered Endpoints snapshot -- the pool
+    ///     SbEndpointsListViewComponent's self-fetch fallback and
+    ///     StyloBotDashboardMiddleware.GetEndpointsDataAsync (which also backs the
+    ///     interactive <c>/dashboard/partials/endpoints</c> htmx path) both sort/
+    ///     filter/paginate in-memory from. Both call sites MUST read this single
+    ///     value rather than their own literal: a store-layer SWR cache decorator
+    ///     (e.g. the commercial StaleWhileRevalidatingDashboardEventStore) bakes
+    ///     the count straight into its cache key, so two different counts produce
+    ///     two different keys that never share a hit -- a background refresh
+    ///     completing for one is invisible to a read on the other (the
+    ///     "endpoints always empty" cadence bug). Default 500 matches the
+    ///     superset TopN ComposeBatchAsync already uses for the other aggregate
+    ///     branches (BotAggregate/Geo), large enough for in-memory sort/filter/
+    ///     paginate across the whole snapshot, not just the first page.
+    /// </summary>
+    public int EndpointsSnapshotCount { get; set; } = 500;
+
+    /// <summary>
     ///     Minimum interval between outbound SignalR invalidation broadcasts, in
     ///     milliseconds. At production traffic the detection pipeline fires many
     ///     events per second; without a constrainer the dashboard would receive a

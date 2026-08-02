@@ -119,7 +119,7 @@ public class SbEndpointsListViewComponent(
             }
             else
             {
-                data = await eventStore.GetEndpointStatsAsync(500, domains: scopedDomains);
+                data = await eventStore.GetEndpointStatsAsync(options.Value.EndpointsSnapshotCount, domains: scopedDomains);
                 // A cold SWR placeholder from a store-layer decorator returns an empty list
                 // immediately (never blocks the request) and stamps this signal -- without
                 // this check an empty placeholder renders identically to a genuinely-empty
