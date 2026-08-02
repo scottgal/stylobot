@@ -129,14 +129,51 @@ public sealed class SbEndpointsListWarmingSignalTests
         Assert.Single(model.Endpoints);
     }
 
+    [Fact]
+    public async Task Windowed_first_paint_reader_wins_over_cold_SWR_store_placeholder()
+    {
+        // A host may decorate its regular store with SWR (which correctly returns [] on
+        // a cold interactive read) yet still require SSR to contain real rows. The optional
+        // FOSS capability is the narrow escape hatch: it is only selected for the ordinary
+        // range-driven first render, never for an audience-filtered interactive slice.
+        var store = new FakeStore(result: [], stampWarming: true);
+        var (vc, ctx) = NewVc(store);
+        var reader = new FirstPaintReader(
+            [new DashboardEndpointStats { Method = "GET", Path = "/pricing", TotalCount = 10 }]);
+        DashboardEndpointsFirstPaintContext.Set(ctx, reader);
+
+        var result = await vc.InvokeAsync(range: "24h") as ViewViewComponentResult;
+
+        var model = Assert.IsType<EndpointsListModel>(result!.ViewData!.Model);
+        Assert.True(reader.WasCalled);
+        Assert.Equal(0, store.EndpointStatsCalls);
+        Assert.False(model.IsWarming);
+        Assert.Single(model.Endpoints);
+    }
+
+    private sealed class FirstPaintReader(List<DashboardEndpointStats> result) : IDashboardEndpointsFirstPaintReader
+    {
+        public bool WasCalled { get; private set; }
+
+        public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
+            int count, DateTime? startTime, DateTime? endTime, string? audienceFilter,
+            IReadOnlyList<string>? domains, CancellationToken cancellationToken = default)
+        {
+            WasCalled = true;
+            return Task.FromResult(result);
+        }
+    }
+
     private sealed class FakeStore(List<DashboardEndpointStats> result, bool stampWarming) : IDashboardEventStore
     {
         public HttpContext? LastContext;
+        public int EndpointStatsCalls { get; private set; }
 
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
             int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null,
             IReadOnlyList<string>? domains = null)
         {
+            EndpointStatsCalls++;
             if (stampWarming) DashboardWarmingSignal.MarkWarming(LastContext, "endpoints");
             return Task.FromResult(result);
         }

@@ -98,7 +98,20 @@ public class SbEndpointsListViewComponent(
             // decorator returns an empty list immediately here too, so it needs the exact
             // same warming check, or a windowed cold-miss renders as bare "no data" same as
             // the unfiltered one did before the fix.
-            data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience, scopedDomains);
+            // A host can opt into an authoritative, bounded first-paint read for the
+            // ordinary range-driven SSR path. This is intentionally a capability rather
+            // than a changed IDashboardEventStore contract: a commercial SWR decorator
+            // may correctly return a cold placeholder for interactive reads, while the
+            // first HTML response must carry real rows. Audience-specific requests retain
+            // the normal store path because they are interactive filter slices, not the
+            // initial page render.
+            var firstPaintReader = string.IsNullOrEmpty(audience) && startTime.HasValue
+                ? DashboardEndpointsFirstPaintContext.Get(HttpContext)
+                : null;
+            data = firstPaintReader is not null
+                ? await firstPaintReader.GetEndpointStatsAsync(
+                    500, startTime, endTime, audience, scopedDomains, HttpContext?.RequestAborted ?? default)
+                : await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience, scopedDomains);
             if (data.Count == 0)
             {
                 var windowedDomainTag = scopedDomains is { Count: 1 } ? scopedDomains[0] : null;
