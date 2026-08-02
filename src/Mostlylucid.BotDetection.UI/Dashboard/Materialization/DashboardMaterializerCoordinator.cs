@@ -260,7 +260,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 .ThenByDescending(e => e.LastAccess)
                 .ToList();
 
-            var warmQueue = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window)>();
+            var warmQueue = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window, bool IsPinned)>();
 
             // §7 Tier 1 (pinned coverage): Traffic at every configured window token, considered
             // every tick regardless of live/demand status -- inserted first so it's never
@@ -273,7 +273,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // NAMED INVARIANT), just without any hotness-driven acceleration below it.
             if (_options.PrewarmDefaultEnvelope && _manifests.For(_options.PrewarmPageKey) is { } prewarmManifest)
             {
-                var now = DateTime.UtcNow;
+                var now = _time.GetUtcNow().UtcDateTime;
                 foreach (var token in _options.PrewarmWindows)
                 {
                     var minutes = DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: 1440);
@@ -288,7 +288,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
                     var pinnedEnvelope = DashboardContentEnvelope.From(prewarmManifest, pinnedWindow);
                     if (IsDueForWarm(pinnedEnvelope, prewarmManifest, accessCount: 0))
-                        warmQueue.Add((prewarmManifest, pinnedWindow));
+                        // Pinned 7d/30d views can fan out into corpus-scale reads. Keep
+                        // the pinned tier serial so startup/idle recovery never launches
+                        // every standard window against the same FOSS SQLite store at once.
+                        // Demand-ranked live views retain their configured wave parallelism.
+                        warmQueue.Add((prewarmManifest, pinnedWindow, IsPinned: true));
                 }
             }
 
@@ -296,7 +300,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             {
                 var envelope = DashboardContentEnvelope.From(e.Manifest, e.Window);
                 if (IsDueForWarm(envelope, e.Manifest, e.AccessCount))
-                    warmQueue.Add((e.Manifest, e.Window));
+                    warmQueue.Add((e.Manifest, e.Window, IsPinned: false));
             }
 
             if (warmQueue.Count == 0) return;
@@ -313,7 +317,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // doesn't bound cost when compose cost isn't uniform (a corpus-scale query regression),
             // so once elapsed exceeds the budget the remaining envelopes defer to the next tick
             // rather than grinding through the whole queue regardless of how slow composes have become.
-            for (var start = 0; start < warmQueue.Count; start += waveSize)
+            for (var start = 0; start < warmQueue.Count;)
             {
                 if (warmed >= budget)
                 {
@@ -333,7 +337,13 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
                 ct.ThrowIfCancellationRequested();
 
-                var wave = warmQueue.Skip(start).Take(Math.Min(waveSize, budget - warmed)).ToList();
+                // Pinned coverage is deliberately serial: the standard 7d/30d views are
+                // known to be the expensive cold reads, and launching them alongside the
+                // short windows turns an idle-start prewarm into a SQLite contention burst.
+                // Once the pinned tier is complete, ordinary live envelopes still use the
+                // configured bounded parallelism.
+                var currentWaveSize = warmQueue[start].IsPinned ? 1 : waveSize;
+                var wave = warmQueue.Skip(start).Take(Math.Min(currentWaveSize, budget - warmed)).ToList();
                 var waveResults = await Task.WhenAll(wave.Select(async item =>
                 {
                     // Stage 2b: measures the REAL wall-clock cost of this one warm -- fed into
@@ -363,6 +373,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                     warmed++;
                     warmedPages.Add(pageKey);
                 }
+
+                start += wave.Count;
             }
 
             // Broadcast invalidation signals for warmed surfaces. The constrainer handles

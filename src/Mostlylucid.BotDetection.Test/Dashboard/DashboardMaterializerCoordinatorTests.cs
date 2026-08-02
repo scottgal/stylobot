@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Test.Helpers;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
@@ -117,6 +118,86 @@ public sealed class DashboardMaterializerCoordinatorTests
         // composed 4 times) -- matching HitsPerPeriodChartletBuilder.BucketSizeForWindow per token.
         var bucketMinutes = composedWindows.Select(w => w.BucketMinutes).OrderBy(m => m).ToArray();
         Assert.Equal(new[] { 5, 20, 120, 480 }, bucketMinutes);
+    }
+
+    [Fact]
+    public async Task Tick_prewarms_standard_7d_and_30d_windows_as_cache_hits()
+    {
+        // Regression lock for the cold-window P0: the pinned windows must use the
+        // same bucket-normalized envelope that a top-level Traffic read uses. A
+        // completed startup/background pass therefore serves 7d/30d without a
+        // request-thread compose or a false-empty Warming result.
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        var time = new FixedTimeProvider(now);
+        long tick = 1;
+        var composes = 0;
+        await using var cache = new DashboardContentCache((_, _, _) =>
+            {
+                composes++;
+                return Task.FromResult(Result());
+            },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions()), sched, timeProvider: time);
+
+        await coord.StartAsync(default);
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        var traffic = new DefaultDashboardPageManifestSource().For("dashboard.traffic")!;
+
+        foreach (var (token, minutes) in new[] { ("7d", 7 * 24 * 60), ("30d", 30 * 24 * 60) })
+        {
+            var window = new DashboardPageWindow(
+                StartTime: now.UtcDateTime.AddMinutes(-minutes),
+                EndTime: now.UtcDateTime,
+                AudienceFilter: "all",
+                ProbMin: null,
+                Domains: null,
+                TopN: 500,
+                BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
+
+            var result = await cache.GetCurrentAsync(traffic, window, default);
+            Assert.False(result.IsWarming, $"Expected prewarmed {token} Traffic envelope to be a cache hit.");
+        }
+
+        Assert.Equal(4, composes); // only the four pinned background warms; reads never compose.
+        await coord.StopAsync(default);
+    }
+
+    [Fact]
+    public async Task Tick_serializes_pinned_standard_window_warms_even_when_live_wave_parallelism_is_four()
+    {
+        // 7d/30d cold materialization is expensive. A four-way pinned startup wave
+        // caused those corpus scans to contend with each other and time out; the
+        // pinned tier must remain serial while live envelopes may still be parallel.
+        var sync = new object();
+        var inFlight = 0;
+        var maxObserved = 0;
+        long tick = 1;
+        await using var cache = new DashboardContentCache(async (_, _, _) =>
+            {
+                lock (sync)
+                {
+                    inFlight++;
+                    maxObserved = Math.Max(maxObserved, inFlight);
+                }
+                await Task.Delay(15);
+                lock (sync) inFlight--;
+                return Result();
+            },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions { MaxConcurrentWarmsPerTick = 4 }), sched);
+
+        await coord.StartAsync(default);
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        Assert.Equal(1, maxObserved);
+        await coord.StopAsync(default);
     }
 
     [Fact]
