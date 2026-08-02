@@ -5962,23 +5962,77 @@ public class StyloBotDashboardMiddleware
     /// <summary>
     ///     Resolves the signature-detail page's headline Probability/Confidence (and, via
     ///     the caller's <c>SignatureRiskVerdictComposer.BucketRisk(headlineProb, headlineConf)</c>,
-    ///     RiskBand and IsBot too) purely from the fold-at-read result already computed for
-    ///     <paramref name="latest"/> -- the SAME detection whose <c>DetectorContributions</c>
-    ///     render directly below the headline on this page.
+    ///     RiskBand and IsBot too) by FOLDING AT READ from <paramref name="latest"/>'s own
+    ///     <c>DetectorContributions</c> -- the SAME per-detector list rendered directly below
+    ///     the headline on this page.
     ///     <para>
-    ///     SEV0 2026-08-02: this deliberately does NOT take a <c>Fingerprint</c> parameter.
-    ///     The prior design read <c>Fingerprint.CachedBotProbability</c> / <c>InferredTypeConfidence</c>
-    ///     here -- a separately-cached, separately-timed identity-level belief -- which let the
-    ///     headline diverge from the contributions on the same page (16 detectors overwhelmingly
-    ///     bot, headline showed "Human 23%"). There is no code path back to that field for this
-    ///     resolution; the fingerprint identity record may still be looked up by the caller for
-    ///     the heading edit-pencil affordance (FingerprintId), but it must never again feed
-    ///     these three scalars.
+    ///     SEV0 2026-08-02, operator's governing invariant: the score (probability, risk
+    ///     band, threat, human/bot label, name) has EXACTLY ONE source -- the read-time fold
+    ///     of the current detector contributions. No component may store, cache, or serve a
+    ///     score. The original bug read <c>Fingerprint.CachedBotProbability</c> /
+    ///     <c>InferredTypeConfidence</c> here -- a separately-cached, separately-timed
+    ///     identity-level belief -- so the headline diverged from the contributions on the
+    ///     same page (16 detectors overwhelmingly bot, headline showed "Human 23%"). Simply
+    ///     swapping that for <c>latest.BotProbability</c> would still be a stored scalar that
+    ///     happens to match, not a genuine fold at THIS read -- so this recomputes
+    ///     <c>sigmoid(Σ Contribution)</c> directly from <c>DetectorContributions</c> every
+    ///     call, reproducing the identical weighted-sum-then-sigmoid
+    ///     <c>DetectionLedger.Aggregate()</c> used at detection time
+    ///     (<c>DashboardDetectorContribution.Contribution</c> is already
+    ///     <c>ConfidenceDelta * Weight</c>, summed per detector, so re-summing across
+    ///     detectors reproduces the same total). Falls back to <c>latest</c>'s own scalars
+    ///     only when no contributions were persisted at all (cold/legacy rows) -- a degraded
+    ///     input, not a second store.
+    ///     </para>
+    ///     <para>
+    ///     Deliberately does NOT take a <c>Fingerprint</c> parameter: there is no code path
+    ///     back to a fingerprint's cached fields for this resolution. The fingerprint
+    ///     identity record may still be looked up by the caller for the heading edit-pencil
+    ///     affordance (FingerprintId), but it must never again feed these scalars.
     ///     </para>
     /// </summary>
     internal static (double Probability, double Confidence, DateTime? ScoreUpdatedAt) ResolveSignatureHeadline(
         DashboardDetectionEvent latest)
-        => (latest.BotProbability, latest.Confidence, null);
+    {
+        var contributions = latest.DetectorContributions;
+        if (contributions is null || contributions.Count == 0)
+            return (latest.BotProbability, latest.Confidence, null);
+
+        var weightedSum = contributions.Values.Sum(c => c.Contribution);
+        var probability = 1.0 / (1.0 + Math.Exp(-weightedSum));
+
+        // Confidence: the same agreement (40%) + weight-coverage (35%) + detector-count
+        // (25%) blend DetectionLedger.Aggregate uses, reconstructed from the same
+        // contributions. Per-detector Weight isn't separately exposed on the dashboard
+        // projection, so it's backed out from Contribution/ConfidenceDelta (both already
+        // derived from that same Weight at detection time); a zero delta carries no
+        // directional weight and is excluded, mirroring the ledger's own Weight > 0 filter.
+        var weighted = contributions.Values
+            .Where(c => c.ConfidenceDelta != 0)
+            .Select(c => (Delta: c.ConfidenceDelta, Weight: Math.Abs(c.Contribution / c.ConfidenceDelta)))
+            .ToList();
+
+        double confidence;
+        if (weighted.Count == 0)
+        {
+            confidence = 0.0;
+        }
+        else
+        {
+            var totalWeight = weighted.Sum(w => w.Weight);
+            var weightFactor = Math.Min(1.0, totalWeight / 5.0);
+            var positiveWeight = weighted.Where(w => w.Delta > 0).Sum(w => w.Weight);
+            var negativeWeight = weighted.Where(w => w.Delta < 0).Sum(w => w.Weight);
+            var totalSignalWeight = positiveWeight + negativeWeight;
+            var agreementFactor = totalSignalWeight > 0
+                ? Math.Max(positiveWeight, negativeWeight) / totalSignalWeight
+                : 0.0;
+            var countFactor = Math.Min(1.0, weighted.Count / 4.0);
+            confidence = (agreementFactor * 0.40) + (weightFactor * 0.35) + (countFactor * 0.25);
+        }
+
+        return (probability, confidence, null);
+    }
 
     /// <summary>Serve the signature detail page for a specific signature.</summary>
     private async Task ServeSignatureDetailAsync(HttpContext context, string signatureId)
