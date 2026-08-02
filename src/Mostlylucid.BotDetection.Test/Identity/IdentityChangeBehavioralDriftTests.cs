@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
@@ -51,7 +52,8 @@ public sealed class IdentityChangeBehavioralDriftTests
             store,
             Options.Create(new BotDetectionOptions { Identity = new IdentityOptions { Enabled = true } })));
 
-    private static Fingerprint Fixture(float[] centroid, int centroidMaturity) => new()
+    private static Fingerprint Fixture(
+        float[] centroid, int centroidMaturity, double cachedBotProbability = 0.0) => new()
     {
         FingerprintId = FingerprintId,
         Centroid = centroid,
@@ -65,7 +67,8 @@ public sealed class IdentityChangeBehavioralDriftTests
         Quality = 0.9,
         InferredClientType = "chrome-desktop",
         InferredTypeConfidence = 0.9,
-        InferredTypeChangedAt = DateTime.UtcNow.AddDays(-1)
+        InferredTypeChangedAt = DateTime.UtcNow.AddDays(-1),
+        CachedBotProbability = cachedBotProbability
     };
 
     private static float[] Ones()
@@ -146,5 +149,168 @@ public sealed class IdentityChangeBehavioralDriftTests
         var result = await atom.DetectAsync(NewSink(), Session);
 
         Assert.DoesNotContain(result, c => c.Category == "BehavioralDrift");
+    }
+
+    // ========================================================================
+    // Loop-guard #1 (2026-08-02, operator hard guardrail): drift must be measured
+    // from behavioral SHAPE, never from the score. Varying CachedBotProbability
+    // while holding the vector/centroid fixed must not change the drift output
+    // at all -- the atom has no read access to the score in its drift branch, so
+    // this pins that isolation explicitly rather than relying on "it just doesn't
+    // read the field".
+    // ========================================================================
+
+    [Fact]
+    public async Task DriftContribution_IsIdenticalRegardlessOfCachedBotProbability()
+    {
+        var lowScoreStore = new FakeStore(Fixture(AxisVector(0), centroidMaturity: 50, cachedBotProbability: 0.05));
+        var highScoreStore = new FakeStore(Fixture(AxisVector(0), centroidMaturity: 50, cachedBotProbability: 0.95));
+        var vector = AxisVector(1); // orthogonal -> fires drift identically either way
+
+        var lowScoreResult = await NewAtom(lowScoreStore, ContextWithVector(vector)).DetectAsync(NewSink(), Session);
+        var highScoreResult = await NewAtom(highScoreStore, ContextWithVector(vector)).DetectAsync(NewSink(), Session);
+
+        var lowDrift = Assert.Single(lowScoreResult, c => c.Category == "BehavioralDrift");
+        var highDrift = Assert.Single(highScoreResult, c => c.Category == "BehavioralDrift");
+        Assert.Equal(lowDrift.ConfidenceDelta, highDrift.ConfidenceDelta, precision: 9);
+    }
+
+    [Fact]
+    public async Task NoDriftContribution_RegardlessOfCachedBotProbability_WhenVectorMatchesCentroid()
+    {
+        var lowScoreStore = new FakeStore(Fixture(AxisVector(0), centroidMaturity: 50, cachedBotProbability: 0.05));
+        var highScoreStore = new FakeStore(Fixture(AxisVector(0), centroidMaturity: 50, cachedBotProbability: 0.95));
+        var vector = AxisVector(0); // matches centroid -> no drift either way
+
+        var lowScoreResult = await NewAtom(lowScoreStore, ContextWithVector(vector)).DetectAsync(NewSink(), Session);
+        var highScoreResult = await NewAtom(highScoreStore, ContextWithVector(vector)).DetectAsync(NewSink(), Session);
+
+        Assert.DoesNotContain(lowScoreResult, c => c.Category == "BehavioralDrift");
+        Assert.DoesNotContain(highScoreResult, c => c.Category == "BehavioralDrift");
+    }
+
+    // ========================================================================
+    // Loop-guard #2 (transience): the established centroid ABSORBS new
+    // observations (FingerprintAbsorptionService.AbsorbAsync, maturity-weighted
+    // mean), so a fingerprint that keeps presenting the SAME new stable shape
+    // sees its centroid catch up -- current-vs-centroid similarity converges
+    // back toward 1.0 and the drift contribution extinguishes. Drift is the
+    // TRANSIENT alarm during the transition, not a permanent bot-ward force
+    // that keeps pushing a fingerprint that "arrived" and stopped changing.
+    // ========================================================================
+
+    [Fact]
+    public async Task RepeatedAbsorptionOfTheSameNewShape_ConvergesTheCentroid_AndExtinguishesDrift()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"fp-drift-transience-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var options = Microsoft.Extensions.Options.Options.Create(new BotDetectionOptions
+            {
+                DatabasePath = Path.Combine(tempDir, "botdetection.db"),
+                Identity = new IdentityOptions
+                {
+                    Enabled = true,
+                    Vector = new IdentityVectorOptions
+                    {
+                        AbsorptionMaturityThreshold = 1,
+                        AbsorptionAgeDays = 30,
+                        ActiveWindowDays = 90
+                    }
+                }
+            });
+
+            var layout = IdentityVectorLayout.DefaultV1();
+            var store = new SqliteFingerprintStore(NullLogger<SqliteFingerprintStore>.Instance, options, layout);
+            await store.EnsureInitialisedAsync();
+            var encoder = new IdentityVectorEncoder(layout);
+            var archetypes = new IdentityArchetypeRegistry(NullLogger<IdentityArchetypeRegistry>.Instance, encoder);
+            var service = new FingerprintAbsorptionService(
+                NullLogger<FingerprintAbsorptionService>.Instance, store, archetypes, options);
+
+            const string fpId = "fp-transience";
+            var dim = layout.Dimension;
+            var startingCentroid = new float[dim];
+            startingCentroid[0] = 1.0f; // established shape: axis 0
+            var weights = new float[dim];
+            Array.Fill(weights, 1.0f);
+            var now = DateTime.UtcNow;
+            await store.InsertFingerprintAsync(new Fingerprint
+            {
+                FingerprintId = fpId,
+                Centroid = startingCentroid,
+                CentroidMaturity = 5, // established baseline, not cold-start
+                Weights = weights,
+                MemberCount = 1,
+                ObservationCount = 5,
+                CorrectionCount = 0,
+                FirstSeen = now.AddDays(-7),
+                LastSeen = now,
+                Quality = 0.9,
+                InferredClientType = "chrome-desktop",
+                InferredTypeConfidence = 0.9,
+                InferredTypeChangedAt = now.AddDays(-7)
+            }, $"sig-{fpId}", CancellationToken.None);
+            _ = await store.GetFingerprintAsync(fpId); // resident-load
+
+            var newShape = new float[dim];
+            newShape[1] = 1.0f; // the visitor's new, stable shape: axis 1 (orthogonal to axis 0)
+
+            double SimilarityToNewShape(Fingerprint fp) =>
+                BruteForceIdentityAnchorIndex.WeightedCosine(newShape, fp.Centroid, fp.Weights);
+
+            var before = await store.GetFingerprintAsync(fpId);
+            var similarityBefore = SimilarityToNewShape(before!);
+            Assert.True(similarityBefore < 0.1, $"sanity: orthogonal shapes should start near-0 similarity, got {similarityBefore}");
+
+            // No NEW contradicting evidence -- every observation presents the SAME new shape,
+            // over and over. This must NOT be read as escalating divergence; each absorption
+            // pulls the centroid toward it (maturity-weighted mean), converging similarity
+            // upward rather than the drift alarm staying pinned or climbing.
+            double lastSimilarity = similarityBefore;
+            for (var i = 0; i < 30; i++)
+            {
+                await store.RecordObservationAsync(RequestScope.Unknown, fpId, newShape, ct: CancellationToken.None);
+                await service.TickOnceAsync(CancellationToken.None);
+
+                var current = await store.GetFingerprintAsync(fpId);
+                var similarity = SimilarityToNewShape(current!);
+                Assert.True(similarity >= lastSimilarity - 1e-6,
+                    $"iteration {i}: similarity must not regress with no contradicting evidence (was {lastSimilarity}, now {similarity})");
+                lastSimilarity = similarity;
+            }
+
+            // Converged: the centroid has absorbed the new shape, so the SAME weighted-cosine
+            // check IdentityChangeAtom runs now reads well above the warning threshold --
+            // drift has extinguished, not stayed pinned or grown, from repeated exposure to
+            // the same stable (no-new-information) shape alone.
+            Assert.True(lastSimilarity > 0.92,
+                $"expected convergence above the drift warning threshold, got {lastSimilarity}");
+
+            // Cross-check through the real atom: no BehavioralDrift contribution fires once
+            // the centroid has converged -- the score holds, drift does not keep pushing it.
+            var converged = await store.GetFingerprintAsync(fpId);
+            var atomContext = new DefaultHttpContext();
+            atomContext.Items[IdentityVectorAtom.VectorKey] = newShape;
+            var globalWeights = new IdentityGlobalWeightsCache(
+                NullLogger<IdentityGlobalWeightsCache>.Instance, store, options);
+            var atom = new IdentityChangeAtom(
+                NullLogger<IdentityChangeAtom>.Instance,
+                new StubDetectorConfigProvider(),
+                store,
+                new StaticHttpContextAccessor(atomContext),
+                globalWeights);
+
+            var sink = new SignalSink(maxCapacity: 1000, maxAge: TimeSpan.FromMinutes(1));
+            sink.Raise($"{SignalKeys.IdentityFingerprintId}:{fpId}", Session);
+            var result = await atom.DetectAsync(sink, Session);
+
+            Assert.DoesNotContain(result, c => c.Category == "BehavioralDrift");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
     }
 }
